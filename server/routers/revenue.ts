@@ -175,6 +175,130 @@ export const revenueRouter = router({
       });
     }),
 
+  // ── Revenue forecast (linear regression on monthly trend) ──────────────────
+  forecast: protectedProcedure
+    .input(z.object({ horizonMonths: z.number().int().min(1).max(12).default(6) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { historical: [], forecast: [] };
+      const since = monthsAgo(12);
+      const rows = await db
+        .select({
+          month: sql<string>`TO_CHAR(DATE_TRUNC('month', "createdAt"), 'YYYY-MM')`,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status = 'success'), 0)`,
+        })
+        .from(paymentTransactions)
+        .where(gte(paymentTransactions.createdAt, since))
+        .groupBy(sql`DATE_TRUNC('month', "createdAt")`)
+        .orderBy(sql`DATE_TRUNC('month', "createdAt")`);
+
+      const historical = rows.map((r, i) => {
+        const gmv = parseFloat(r.gmv);
+        const netProfit = gmv * (1 - TXN_PROCESSING_COST_RATE - 0.40);
+        return {
+          month: r.month,
+          gmv,
+          platformRevenue: Math.round((netProfit * PLATFORM_REVENUE_SHARE + gmv * PLATFORM_TXN_SHARE) * 100) / 100,
+          index: i,
+        };
+      });
+
+      // Simple ordinary least-squares linear regression on platform revenue
+      const n = historical.length;
+      if (n < 2) return { historical, forecast: [] };
+      const xs = historical.map((_, i) => i);
+      const ys = historical.map((h) => h.platformRevenue);
+      const xMean = xs.reduce((a, b) => a + b, 0) / n;
+      const yMean = ys.reduce((a, b) => a + b, 0) / n;
+      const slope = xs.reduce((acc, x, i) => acc + (x - xMean) * (ys[i] - yMean), 0) /
+        xs.reduce((acc, x) => acc + (x - xMean) ** 2, 0);
+      const intercept = yMean - slope * xMean;
+
+      // GMV slope for forecast
+      const gmvYs = historical.map((h) => h.gmv);
+      const gmvMean = gmvYs.reduce((a, b) => a + b, 0) / n;
+      const gmvSlope = xs.reduce((acc, x, i) => acc + (x - xMean) * (gmvYs[i] - gmvMean), 0) /
+        xs.reduce((acc, x) => acc + (x - xMean) ** 2, 0);
+      const gmvIntercept = gmvMean - gmvSlope * xMean;
+
+      // Project future months
+      const lastDate = new Date();
+      const forecast = Array.from({ length: input.horizonMonths }, (_, k) => {
+        const futureIdx = n + k;
+        const d = new Date(lastDate.getFullYear(), lastDate.getMonth() + k + 1, 1);
+        const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const projectedRevenue = Math.max(0, Math.round((intercept + slope * futureIdx) * 100) / 100);
+        const projectedGmv = Math.max(0, Math.round((gmvIntercept + gmvSlope * futureIdx) * 100) / 100);
+        return { month, platformRevenue: projectedRevenue, gmv: projectedGmv, isForecast: true };
+      });
+
+      return { historical, forecast };
+    }),
+
+  // ── GMV growth leaderboard ──────────────────────────────────────────────────
+  gmvLeaderboard: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(5).max(50).default(15) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const thisMonthStart = startOfMonth(new Date());
+      const lastMonthStart = monthsAgo(1);
+
+      // This month GMV per tenant
+      const thisMonth = await db
+        .select({
+          tenantId: paymentTransactions.tenantId,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status = 'success'), 0)`,
+          txnCount: sql<string>`COUNT(*) FILTER (WHERE status = 'success')`,
+          businessName: tenants.name,
+          cogsRate: tenants.cogsRate,
+        })
+        .from(paymentTransactions)
+        .leftJoin(tenants, eq(paymentTransactions.tenantId, tenants.id))
+        .where(gte(paymentTransactions.createdAt, thisMonthStart))
+        .groupBy(paymentTransactions.tenantId, tenants.name, tenants.cogsRate)
+        .orderBy(desc(sql`SUM(amount) FILTER (WHERE ${paymentTransactions.status} = 'success')`))
+        .limit(input.limit);
+
+      // Last month GMV per tenant (for MoM growth)
+      const lastMonth = await db
+        .select({
+          tenantId: paymentTransactions.tenantId,
+          gmv: sql<string>`COALESCE(SUM(amount) FILTER (WHERE status = 'success'), 0)`,
+        })
+        .from(paymentTransactions)
+        .where(
+          and(
+            gte(paymentTransactions.createdAt, lastMonthStart),
+            sql`${paymentTransactions.createdAt} < ${thisMonthStart}`
+          )
+        )
+        .groupBy(paymentTransactions.tenantId);
+
+      const lastMonthMap = new Map(lastMonth.map((r) => [r.tenantId, parseFloat(r.gmv)]));
+
+      return thisMonth.map((r) => {
+        const gmvThis = parseFloat(r.gmv);
+        const gmvLast = lastMonthMap.get(r.tenantId) ?? 0;
+        const momGrowthPct = gmvLast > 0
+          ? Math.round(((gmvThis - gmvLast) / gmvLast) * 1000) / 10
+          : null;
+        const cogsRate = r.cogsRate ?? 0.40;
+        const netProfit = gmvThis * (1 - TXN_PROCESSING_COST_RATE - cogsRate);
+        const platformRevenue = Math.round((netProfit * PLATFORM_REVENUE_SHARE + gmvThis * PLATFORM_TXN_SHARE) * 100) / 100;
+        return {
+          tenantId: r.tenantId,
+          businessName: r.businessName ?? `Tenant ${r.tenantId.slice(0, 8)}`,
+          gmvThisMonth: gmvThis,
+          gmvLastMonth: gmvLast,
+          momGrowthPct,
+          txnCount: Number(r.txnCount),
+          cogsRate,
+          platformRevenue,
+        };
+      });
+    }),
+
   // ── Revenue share config (read-only display) ────────────────────────────────
   getConfig: protectedProcedure.query(() => ({
     profitShareRate: PLATFORM_REVENUE_SHARE,

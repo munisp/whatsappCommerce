@@ -5,6 +5,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  real,
   serial,
   text,
   timestamp,
@@ -65,6 +66,7 @@ export const tenants = pgTable("tenants", {
   aiEnabled: boolean("aiEnabled").default(true).notNull(),
   aiModel: varchar("aiModel", { length: 64 }).default("gpt-4o-mini"),
   settings: jsonb("settings"),
+  cogsRate: real("cogsRate").default(0.40).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [

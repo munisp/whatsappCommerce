@@ -315,10 +315,10 @@
 - [x] Keycloak role mapping: realm_access.roles → portal role in session JWT
 - [x] listSsoProfiles tRPC procedure with tenant join and search
 - [x] Nigeria profitability model document with 4 charts
-- [ ] Seed alert cooldown defaults (120 min) in seedDefaults procedure
-- [ ] Add portalRole column to tenant_sso_profiles table and store it on SSO login
-- [ ] Build /revenue admin dashboard page with live MRR, GMV, txn trends
-- [ ] Redesign profitability model as profit-sharing revenue model with updated charts
+- [x] Seed alert cooldown defaults (120 min) in seedDefaults procedure
+- [x] Add portalRole column to tenant_sso_profiles table and store it on SSO login
+- [x] Build /revenue admin dashboard page with live MRR, GMV, txn trends
+- [x] Redesign profitability model as profit-sharing revenue model with updated charts
 - [x] Seed alert cooldown defaults (120 min) on all four default rules in seedDefaults
 - [x] Add portalRole column to tenant_sso_profiles table and store resolved role after SSO login
 - [x] Build Revenue Dashboard page (/revenue) with KPI cards, monthly trend charts, tenant breakdown table, and revenue mix pie
@@ -327,3 +327,7 @@
 - [x] Redesign profitability model as profit-sharing revenue model (5% net profit share + 0.2% GMV txn share)
 - [x] Generate 5 updated profit-sharing model charts (comparison, waterfall, cashflow, sensitivity, mix)
 - [x] Write comprehensive profit-sharing profitability model document
+- [x] Add cogsRate column to tenants schema and DB, update tenant router + db helper
+- [x] Add COGS override UI to TenantDetail settings panel
+- [x] Add forecast and gmvLeaderboard procedures to revenue router
+- [x] Add Forecast and GMV Leaderboard tabs to RevenueDashboard page

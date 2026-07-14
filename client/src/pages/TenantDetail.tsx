@@ -17,10 +17,10 @@ export default function TenantDetail() {
   const [, navigate] = useLocation();
   const { data: tenant, refetch } = trpc.tenant.get.useQuery({ id: id! });
   const { data: dash } = trpc.analytics.tenantDashboard.useQuery({ tenantId: id! });
-  const [form, setForm] = useState({ name: "", plan: "starter" as any, status: "trial" as any, aiEnabled: true, aiModel: "gpt-4o-mini", whatsappPhoneNumberId: "", chatwootAccountId: "" });
+  const [form, setForm] = useState({ name: "", plan: "starter" as any, status: "trial" as any, aiEnabled: true, aiModel: "gpt-4o-mini", whatsappPhoneNumberId: "", chatwootAccountId: "", cogsRate: 0.40 });
 
   useEffect(() => {
-    if (tenant) setForm({ name: tenant.name, plan: tenant.plan, status: tenant.status, aiEnabled: tenant.aiEnabled, aiModel: tenant.aiModel ?? "gpt-4o-mini", whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? "", chatwootAccountId: tenant.chatwootAccountId ?? "" });
+    if (tenant) setForm({ name: tenant.name, plan: tenant.plan, status: tenant.status, aiEnabled: tenant.aiEnabled, aiModel: tenant.aiModel ?? "gpt-4o-mini", whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? "", chatwootAccountId: tenant.chatwootAccountId ?? "", cogsRate: (tenant as any).cogsRate ?? 0.40 });
   }, [tenant]);
 
   const updateMutation = trpc.tenant.update.useMutation({
@@ -117,6 +117,23 @@ export default function TenantDetail() {
                 <Label>Chatwoot Account ID</Label>
                 <Input value={form.chatwootAccountId} onChange={(e) => setForm({ ...form, chatwootAccountId: e.target.value })} placeholder="1" className="bg-input border-border font-mono" />
               </div>
+            </div>
+            <div className="space-y-1">
+              <Label>COGS Rate Override</Label>
+              <Select value={String(form.cogsRate)} onValueChange={(v) => setForm({ ...form, cogsRate: parseFloat(v) })}>
+                <SelectTrigger className="bg-input border-border"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="0.05">5% — Digital goods / SaaS</SelectItem>
+                  <SelectItem value="0.15">15% — Fashion / Apparel</SelectItem>
+                  <SelectItem value="0.25">25% — Electronics</SelectItem>
+                  <SelectItem value="0.35">35% — General retail</SelectItem>
+                  <SelectItem value="0.40">40% — Default (blended)</SelectItem>
+                  <SelectItem value="0.50">50% — FMCG / Groceries</SelectItem>
+                  <SelectItem value="0.60">60% — Food delivery</SelectItem>
+                  <SelectItem value="0.70">70% — Fresh produce</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Used to calculate this tenant's net profit for the platform profit-share revenue model.</p>
             </div>
             <div className="flex items-center gap-3 pt-2">
               <Switch checked={form.aiEnabled} onCheckedChange={(v) => setForm({ ...form, aiEnabled: v })} />

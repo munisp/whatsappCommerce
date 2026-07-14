@@ -12,7 +12,7 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, DollarSign, Users, CreditCard,
-  BarChart2, Info, ArrowUpRight, ArrowDownRight,
+  BarChart2, Info, ArrowUpRight, ArrowDownRight, Telescope, Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -79,12 +79,23 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function RevenueDashboard() {
   const [trendMonths, setTrendMonths] = useState("12");
+  const [forecastHorizon, setForecastHorizon] = useState("6");
   const { data: summary, isLoading: summaryLoading } = trpc.revenue.summary.useQuery();
   const { data: trend, isLoading: trendLoading } = trpc.revenue.monthlyTrend.useQuery({
     months: parseInt(trendMonths),
   });
   const { data: tenantBreakdown, isLoading: breakdownLoading } = trpc.revenue.tenantBreakdown.useQuery({ limit: 20 });
   const { data: config } = trpc.revenue.getConfig.useQuery();
+  const { data: forecastData, isLoading: forecastLoading } = trpc.revenue.forecast.useQuery({
+    horizonMonths: parseInt(forecastHorizon),
+  });
+  const { data: leaderboard, isLoading: leaderboardLoading } = trpc.revenue.gmvLeaderboard.useQuery({ limit: 15 });
+  const combinedForecast = forecastData
+    ? [
+        ...forecastData.historical.map((h) => ({ ...h, isForecast: false })),
+        ...forecastData.forecast,
+      ]
+    : [];
 
   const pieData = summary
     ? [
@@ -170,6 +181,8 @@ export default function RevenueDashboard() {
               <TabsTrigger value="trend">Monthly Trend</TabsTrigger>
               <TabsTrigger value="breakdown">Tenant Breakdown</TabsTrigger>
               <TabsTrigger value="mix">Revenue Mix</TabsTrigger>
+              <TabsTrigger value="forecast">Forecast</TabsTrigger>
+              <TabsTrigger value="leaderboard">GMV Growth</TabsTrigger>
             </TabsList>
             <Select value={trendMonths} onValueChange={setTrendMonths}>
               <SelectTrigger className="w-32 h-8 text-xs">
@@ -287,6 +300,137 @@ export default function RevenueDashboard() {
           </TabsContent>
 
           {/* Revenue Mix Tab */}
+
+          {/* Forecast Tab */}
+          <TabsContent value="forecast" className="mt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">Linear regression on last 12 months. Dashed = projected.</p>
+              <Select value={forecastHorizon} onValueChange={setForecastHorizon}>
+                <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">+3 months</SelectItem>
+                  <SelectItem value="6">+6 months</SelectItem>
+                  <SelectItem value="12">+12 months</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Telescope className="h-4 w-4 text-cyan-400" /> Revenue Forecast
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {forecastLoading ? <Skeleton className="h-72" /> : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={combinedForecast} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+                      <defs>
+                        <linearGradient id="foreGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4ade80" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#4ade80" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v) => fmtUsd(v)} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Area type="monotone" dataKey="platformRevenue" name="Platform Revenue ($)" stroke="#4ade80" fill="url(#foreGrad)" strokeWidth={2} connectNulls />
+                      <Area type="monotone" dataKey="gmv" name="GMV (₦)" stroke="#22d3ee" fill="none" strokeWidth={1.5} connectNulls />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+            {forecastData && forecastData.forecast.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Projected Months</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-xs text-muted-foreground uppercase">
+                          <th className="text-left py-2 pr-4">Month</th>
+                          <th className="text-right py-2 pr-4">Projected GMV</th>
+                          <th className="text-right py-2">Projected Platform Revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {forecastData.forecast.map((f) => (
+                          <tr key={f.month} className="border-b border-border/40 hover:bg-muted/30">
+                            <td className="py-2 pr-4 font-mono text-xs text-yellow-400">{f.month} <span className="text-muted-foreground">(forecast)</span></td>
+                            <td className="text-right py-2 pr-4 font-mono text-xs">{fmt(f.gmv)}</td>
+                            <td className="text-right py-2 font-semibold font-mono text-xs text-green-400">{fmtUsd(f.platformRevenue)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* GMV Growth Leaderboard Tab */}
+          <TabsContent value="leaderboard" className="mt-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <Trophy className="h-4 w-4 text-yellow-400" /> GMV Growth Leaderboard — Month-on-Month
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {leaderboardLoading ? <Skeleton className="h-64" /> : !leaderboard?.length ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">No transaction data yet.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-xs text-muted-foreground uppercase">
+                          <th className="text-left py-2 pr-4">Rank</th>
+                          <th className="text-left py-2 pr-4">Tenant</th>
+                          <th className="text-right py-2 pr-4">GMV This Mo.</th>
+                          <th className="text-right py-2 pr-4">GMV Last Mo.</th>
+                          <th className="text-right py-2 pr-4">MoM Growth</th>
+                          <th className="text-right py-2 pr-4">COGS</th>
+                          <th className="text-right py-2">Platform Rev</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {leaderboard
+                          .slice()
+                          .sort((a, b) => (b.momGrowthPct ?? -Infinity) - (a.momGrowthPct ?? -Infinity))
+                          .map((t, i) => (
+                            <tr key={t.tenantId} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
+                              <td className="py-2 pr-4">
+                                <span className={cn("text-xs font-bold", i === 0 ? "text-yellow-400" : i === 1 ? "text-slate-300" : i === 2 ? "text-amber-600" : "text-muted-foreground")}>
+                                  #{i + 1}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-4 font-medium truncate max-w-[160px]">{t.businessName}</td>
+                              <td className="text-right py-2 pr-4 font-mono text-xs">{fmt(t.gmvThisMonth)}</td>
+                              <td className="text-right py-2 pr-4 font-mono text-xs text-muted-foreground">{fmt(t.gmvLastMonth)}</td>
+                              <td className="text-right py-2 pr-4">
+                                {t.momGrowthPct === null ? (
+                                  <span className="text-xs text-muted-foreground">New</span>
+                                ) : (
+                                  <span className={cn("text-xs font-semibold", t.momGrowthPct >= 0 ? "text-green-400" : "text-red-400")}>
+                                    {t.momGrowthPct >= 0 ? "+" : ""}{t.momGrowthPct.toFixed(1)}%
+                                  </span>
+                                )}
+                              </td>
+                              <td className="text-right py-2 pr-4 text-xs text-muted-foreground">{(t.cogsRate * 100).toFixed(0)}%</td>
+                              <td className="text-right py-2 font-semibold font-mono text-xs text-cyan-400">{fmtUsd(t.platformRevenue)}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="mix" className="mt-4">
             <div className="grid md:grid-cols-2 gap-4">
               <Card>
