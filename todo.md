@@ -284,3 +284,14 @@
 - [x] Add MLflow time-series Metric Curves tab to ML Ops dashboard (getMetricHistory tRPC procedure + multi-run line charts)
 - [x] Wire Keycloak SSO login redirect for tenant portal (getLoginUrl procedure + SSO login panel in TenantPortalLayout)
 - [x] Build nightly reconciliation discrepancy alert heartbeat handler (/api/scheduled/reconciliation-alert + notifyOwner integration)
+- [x] Register nightly reconciliation heartbeat cron (task_uid: M7FY8UY7jUgczPs5EpcrUn, fires 02:00 UTC daily)
+- [ ] Build configurable alert threshold UI — DB table + tRPC + Alert Rules admin page
+- [ ] Implement Keycloak SSO OIDC callback handler — /portal/sso-callback route, token exchange, session creation
+- [x] Register nightly reconciliation heartbeat cron (task_uid: M7FY8UY7jUgczPs5EpcrUn, fires 02:00 UTC daily)
+- [x] Build alert_rules DB table with configurable thresholds (reconciliation_discrepancy, low_stock, failed_payments, model_drift)
+- [x] Build alertRules tRPC router (list, create, update, toggle, delete, getRuleTypeMeta)
+- [x] Build Alert Rules admin UI page (/alert-rules) with CRUD, enable/disable toggle, heartbeat task_uid display
+- [x] Add Alert Rules nav item to DashboardLayout sidebar
+- [x] Add keycloak.exchangeCode tRPC procedure for OIDC code→token exchange + portal session creation
+- [x] Build SsoCallback portal page (/portal/sso-callback) that completes the Keycloak SSO login flow
+- [x] Wire /alert-rules and /portal/sso-callback routes in App.tsx

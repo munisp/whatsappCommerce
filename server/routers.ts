@@ -67,6 +67,8 @@ export const appRouter = router({
   mlOps: mlOpsRouter,
   reconciliation: reconciliationRouter,
   keycloak: keycloakRouter,
+  alertRules: alertRulesRouter,
 });
 
 export type AppRouter = typeof appRouter;
+import { alertRulesRouter } from "./routers/alertRules";

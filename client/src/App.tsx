@@ -39,6 +39,8 @@ import PortalPayments from "./pages/portal/PortalPayments";
 import DeployChecklist from "./pages/DeployChecklist";
 import MLOpsDashboard from "./pages/MLOpsDashboard";
 import ReconciliationSim from "./pages/ReconciliationSim";
+import AlertRules from "./pages/AlertRules";
+import SsoCallback from "./pages/portal/SsoCallback";
 
 function Router() {
   return (
@@ -77,6 +79,8 @@ function Router() {
           <Route path="/deploy-checklist" component={DeployChecklist} />
           <Route path="/ml-ops" component={MLOpsDashboard} />
           <Route path="/reconciliation" component={ReconciliationSim} />
+          <Route path="/alert-rules" component={AlertRules} />
+          <Route path="/portal/sso-callback" component={SsoCallback} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

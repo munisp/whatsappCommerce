@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   numeric,
 } from "drizzle-orm/pg-core";
+import { uuid } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 export const userRoleEnum = pgEnum("user_role", ["user", "admin", "operator", "analyst"]);
@@ -924,3 +925,35 @@ export const paymentTransactions = pgTable("payment_transactions", {
 
 export type PaymentGatewayConfig = typeof paymentGatewayConfigs.$inferSelect;
 export type PaymentTransaction = typeof paymentTransactions.$inferSelect;
+
+// ── Alert Rules ───────────────────────────────────────────────────────────────
+export const alertRuleTypeEnum = pgEnum("alert_rule_type", [
+  "reconciliation_discrepancy",
+  "low_stock",
+  "failed_payments",
+  "model_drift",
+]);
+
+export const alertRules = pgTable("alert_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 128 }).notNull(),
+  ruleType: alertRuleTypeEnum("rule_type").notNull(),
+  // threshold interpretation per ruleType:
+  // reconciliation_discrepancy / failed_payments: percentage 0–100 (e.g. 5 = 5%)
+  // low_stock: integer count
+  // model_drift: PSI value 0.0–1.0
+  threshold: numeric("threshold", { precision: 10, scale: 4 }).notNull().default("5"),
+  windowHours: integer("window_hours").notNull().default(24),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  notifyOwnerOnTrigger: boolean("notify_owner_on_trigger").notNull().default(true),
+  heartbeatTaskUid: varchar("heartbeat_task_uid", { length: 128 }),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("alert_rules_type_idx").on(t.ruleType),
+  index("alert_rules_enabled_idx").on(t.isEnabled),
+]);
+
+export type AlertRule = typeof alertRules.$inferSelect;
+export type NewAlertRule = typeof alertRules.$inferInsert;

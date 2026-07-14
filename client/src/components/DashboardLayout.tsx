@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bot, BrainCircuit, Building2, ChevronDown, CreditCard, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Rocket, Server, Settings, Smartphone, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bell, Bot, BrainCircuit, Building2, ChevronDown, CreditCard, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Rocket, Server, Settings, Smartphone, UserPlus, Users, Warehouse } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -61,6 +61,7 @@ const menuItems: NavItem[] = [
   { icon: Rocket,          label: "Deploy Checklist",path: "/deploy-checklist", section: "System" },
   { icon: BrainCircuit,    label: "ML Ops",          path: "/ml-ops",           section: "System" },
   { icon: GitMerge,        label: "Reconciliation",  path: "/reconciliation",   section: "System" },
+  { icon: Bell,            label: "Alert Rules",     path: "/alert-rules",      section: "System" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

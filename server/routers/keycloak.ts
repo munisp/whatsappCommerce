@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
+import { publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { paymentGatewayConfigs } from "../../drizzle/schema";
+import { paymentGatewayConfigs, tenants } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import jwt from "jsonwebtoken";
+import { ENV } from "../_core/env";
 
 // Keycloak integration router — stores realm/client config and tests connectivity
 // We store Keycloak config in paymentGatewayConfigs using provider = "keycloak"
@@ -158,5 +161,111 @@ export const keycloakRouter = router({
       });
       const authUrl = `${serverUrl}/realms/${realm}/protocol/openid-connect/auth?${params.toString()}`;
       return { authUrl, realm, clientId };
+    }),
+
+  // Exchange OIDC authorization code for tokens and create a portal session
+  exchangeCode: publicProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        code: z.string(),
+        redirectUri: z.string().url(),
+        state: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+
+      // Load Keycloak config for this tenant
+      const rows = await db
+        .select()
+        .from(paymentGatewayConfigs)
+        .where(
+          and(
+            eq(paymentGatewayConfigs.tenantId, input.tenantId),
+            eq(paymentGatewayConfigs.provider, "manual")
+          )
+        )
+        .limit(1);
+      if (!rows[0]) throw new Error("Keycloak not configured for this tenant");
+      const raw = rows[0].secretKey ?? "";
+      if (!raw.startsWith("keycloak::")) throw new Error("Keycloak config not found");
+      const cfg = JSON.parse(raw.slice("keycloak::".length)) as Record<string, unknown>;
+      if (!cfg.enableSso) throw new Error("SSO is disabled for this tenant");
+
+      const serverUrl = (cfg.serverUrl as string).replace(/\/$/, "");
+      const realm = cfg.realm as string;
+      const clientId = cfg.clientId as string;
+      const clientSecret = rows[0].webhookSecret ?? undefined;
+
+      // Exchange code for tokens at the Keycloak token endpoint
+      const tokenEndpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/token`;
+      const body = new URLSearchParams({
+        grant_type: "authorization_code",
+        code: input.code,
+        redirect_uri: input.redirectUri,
+        client_id: clientId,
+        ...(clientSecret ? { client_secret: clientSecret } : {}),
+      });
+
+      const tokenRes = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!tokenRes.ok) {
+        const err = await tokenRes.json().catch(() => ({})) as Record<string, unknown>;
+        throw new Error(
+          `Token exchange failed: ${err.error_description ?? err.error ?? tokenRes.status}`
+        );
+      }
+
+      const tokens = await tokenRes.json() as {
+        access_token: string;
+        id_token?: string;
+        refresh_token?: string;
+        expires_in: number;
+      };
+
+      // Decode the ID token to extract user info (no sig verification needed —
+      // we received it directly from Keycloak over HTTPS)
+      let userInfo: { sub?: string; email?: string; name?: string; preferred_username?: string } = {};
+      if (tokens.id_token) {
+        try {
+          const payload = tokens.id_token.split(".")[1];
+          userInfo = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+        } catch { /* non-fatal */ }
+      }
+
+      // Load tenant name for the session
+      const [tenant] = await db
+        .select({ name: tenants.name })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId));
+
+      // Build a portal session token (same format as magic link sessions)
+      const sessionPayload = {
+        tenantId: input.tenantId,
+        tenantName: tenant?.name ?? input.tenantId,
+        sub: userInfo.sub ?? `keycloak::${input.tenantId}`,
+        email: userInfo.email,
+        name: userInfo.name ?? userInfo.preferred_username,
+        loginMethod: "keycloak_sso",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 24 * 3600,
+      };
+
+      const sessionToken = jwt.sign(sessionPayload, ENV.jwtSecret);
+
+      return {
+        sessionToken,
+        tenantId: input.tenantId,
+        tenantName: tenant?.name ?? input.tenantId,
+        userEmail: userInfo.email,
+        userName: userInfo.name ?? userInfo.preferred_username,
+      };
     }),
 });
