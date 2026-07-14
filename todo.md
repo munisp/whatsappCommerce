@@ -243,30 +243,30 @@
 - [x] Checklist items: publish, register heartbeat cron, add KYC_SERVICE_URL secret, configure payment gateways
 
 ## Remove Manus Dependencies (Self-Hosted)
-- [ ] Replace Manus OAuth with Keycloak OIDC (self-hosted)
-- [ ] Replace sdk.createSessionToken / authenticateRequest with self-signed JWT (HS256)
-- [ ] Replace invokeLLM / BUILT_IN_FORGE_API with Ollama (llama3.2, OpenAI-compatible)
-- [ ] Replace storagePut / manus-storage with MinIO S3-compatible storage
-- [ ] Remove vite-plugin-manus-runtime, replace with standard Vite
-- [ ] Update ENV vars: remove VITE_APP_ID/OAUTH_SERVER_URL, add KEYCLOAK_URL/REALM/CLIENT_ID
-- [ ] Replace manus-heartbeat cron with node-cron scheduler
-- [ ] Update const.ts startLogin() to use Keycloak authorization_code flow
-- [ ] Update useAuth hook to use self-hosted JWT session
+- [x] Replace Manus OAuth with Keycloak OIDC (self-hosted)
+- [x] Replace sdk.createSessionToken / authenticateRequest with self-signed JWT (HS256)
+- [x] Replace invokeLLM / BUILT_IN_FORGE_API with Ollama (llama3.2, OpenAI-compatible)
+- [x] Replace storagePut / manus-storage with MinIO S3-compatible storage
+- [x] Remove vite-plugin-manus-runtime, replace with standard Vite
+- [x] Update ENV vars: remove VITE_APP_ID/OAUTH_SERVER_URL, add KEYCLOAK_URL/REALM/CLIENT_ID
+- [x] Replace manus-heartbeat cron with node-cron scheduler
+- [x] Update const.ts startLogin() to use Keycloak authorization_code flow
+- [x] Update useAuth hook to use self-hosted JWT session
 
 ## AI/ML/DL/GNN Stack
-- [ ] Nigerian synthetic transaction data generator (realistic fraud patterns, credit profiles, GNN graph)
-- [ ] PyTorch fraud detection model (GNN + LSTM) with training loop and saved weights
-- [ ] PyTorch credit scoring model (TabNet) with training loop and saved weights
-- [ ] PyTorch biometric liveness CNN with real training loop
-- [ ] Lakehouse pipeline: production DB → Delta Lake → feature store → training loader
-- [ ] MLflow tracking server + model registry (Docker Compose)
-- [ ] Ray cluster config for distributed training
-- [ ] Model A/B testing infrastructure (shadow mode, traffic split, winner selection)
-- [ ] Drift detection + performance monitoring alerts
-- [ ] Continuous training: heartbeat triggers retraining on drift or data threshold
+- [x] Nigerian synthetic transaction data generator (realistic fraud patterns, credit profiles, GNN graph)
+- [x] PyTorch fraud detection model (GNN + LSTM) with training loop and saved weights
+- [x] PyTorch credit scoring model (TabNet) with training loop and saved weights
+- [x] PyTorch biometric liveness CNN with real training loop
+- [x] Lakehouse pipeline: production DB → Delta Lake → feature store → training loader
+- [x] MLflow tracking server + model registry (Docker Compose)
+- [x] Ray cluster config for distributed training
+- [x] Model A/B testing infrastructure (shadow mode, traffic split, winner selection)
+- [x] Drift detection + performance monitoring alerts
+- [x] Continuous training: heartbeat triggers retraining on drift or data threshold
 
 ## CI/CD & Integrations
-- [ ] GitHub Actions CI/CD workflow (pnpm test on PR)
-- [ ] Dependabot config (npm, Go, Python, Rust)
-- [ ] Mojaloop live FSPIOP integration
-- [ ] Tenant portal invite magic link (WhatsApp delivery)
+- [x] GitHub Actions CI/CD workflow (pnpm test on PR)
+- [x] Dependabot config (npm, Go, Python, Rust)
+- [x] Mojaloop live FSPIOP integration
+- [x] Tenant portal invite magic link (WhatsApp delivery)
