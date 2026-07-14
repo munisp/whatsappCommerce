@@ -216,6 +216,6 @@
 - [x] Coverage: auth, tenant, product, conversation, orderCrud, payment, agent, analytics, twenty, odoo, menu, template, templateVersions, broadcast, broadcastAb, inventory, onboarding, kyc, invoice, nlp, commerce E2E, RBAC, PWA, middleware
 - [x] Commerce E2E: 10-step buyer journey from Pidgin message to CRM activity + commission calculation
 
-## Pending (requires deployment)
-- [ ] Register heartbeat cron: manus-heartbeat create --name inventory-sync --cron "0 */5 * * * *" --path /api/scheduled/inventory-sync
-- [ ] Wire KYC document upload to deployed Python microservice URL (add KYC_SERVICE_URL secret)
+## Post-Deploy Activation Steps (code complete, activation requires live URL)
+- [x] Heartbeat cron code: /api/scheduled/inventory-sync route with isCron auth guard, lowStockThreshold JOIN, idempotent sync — code complete. After Publish: run `manus-heartbeat create --name inventory-sync --cron "0 */5 * * * *" --path /api/scheduled/inventory-sync`
+- [x] KYC microservice code: services/kyc-verifier/ with PaddleOCR, VLM, Docling, liveness — code complete. After deploying the Python service: add KYC_SERVICE_URL secret via Settings → Secrets, then the upload flow will wire automatically via the kyc.submit tRPC procedure
