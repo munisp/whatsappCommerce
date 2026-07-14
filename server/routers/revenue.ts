@@ -299,6 +299,28 @@ export const revenueRouter = router({
       });
     }),
 
+  // ── Forecast accuracy (snapshot history) ────────────────────────────────────
+  getForecastAccuracy: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    const { forecastSnapshots } = await import("../../drizzle/schema");
+    const { desc: descOrd } = await import("drizzle-orm");
+    const rows = await db.select().from(forecastSnapshots)
+      .orderBy(descOrd(forecastSnapshots.createdAt))
+      .limit(24);
+    return rows.map((r) => ({
+      id: r.id,
+      snapshotMonth: r.snapshotMonth,
+      projectedRevenue: parseFloat(r.projectedRevenue),
+      projectedGmv: parseFloat(r.projectedGmv),
+      actualRevenue: r.actualRevenue ? parseFloat(r.actualRevenue) : null,
+      actualGmv: r.actualGmv ? parseFloat(r.actualGmv) : null,
+      accuracyPct: r.accuracyPct ? parseFloat(r.accuracyPct) : null,
+      resolvedAt: r.resolvedAt,
+      createdAt: r.createdAt,
+    }));
+  }),
+
   // ── Revenue share config (read-only display) ────────────────────────────────
   getConfig: protectedProcedure.query(() => ({
     profitShareRate: PLATFORM_REVENUE_SHARE,

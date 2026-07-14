@@ -90,6 +90,7 @@ export default function RevenueDashboard() {
     horizonMonths: parseInt(forecastHorizon),
   });
   const { data: leaderboard, isLoading: leaderboardLoading } = trpc.revenue.gmvLeaderboard.useQuery({ limit: 15 });
+  const { data: accuracyData = [] } = trpc.revenue.getForecastAccuracy.useQuery();
   const combinedForecast = forecastData
     ? [
         ...forecastData.historical.map((h) => ({ ...h, isForecast: false })),
@@ -489,6 +490,59 @@ export default function RevenueDashboard() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+          {/* Forecast Accuracy Tab */}
+          <TabsContent value="forecast-accuracy" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base font-semibold">Monthly Forecast vs Actual</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Each row shows the projected revenue saved at the start of the month versus the actual revenue recorded at month-end.
+                  Accuracy is calculated as 100% minus the absolute percentage error.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {accuracyData.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground">
+                    <p className="text-sm">No forecast snapshots yet.</p>
+                    <p className="text-xs mt-1">Snapshots are created automatically on the 1st of each month by the forecast-snapshot heartbeat job.</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-muted-foreground text-xs uppercase">
+                        <th className="text-left py-2 pr-4">Month</th>
+                        <th className="text-right py-2 pr-4">Projected Revenue</th>
+                        <th className="text-right py-2 pr-4">Actual Revenue</th>
+                        <th className="text-right py-2 pr-4">Projected GMV</th>
+                        <th className="text-right py-2 pr-4">Actual GMV</th>
+                        <th className="text-right py-2">Accuracy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {accuracyData.map((row: any) => (
+                        <tr key={row.snapshotMonth} className="border-b last:border-0 hover:bg-muted/30">
+                          <td className="py-2 pr-4 font-mono font-medium">{row.snapshotMonth}</td>
+                          <td className="py-2 pr-4 text-right">${row.projectedRevenue.toFixed(2)}</td>
+                          <td className="py-2 pr-4 text-right">{row.actualRevenue != null ? `$${row.actualRevenue.toFixed(2)}` : <span className="text-muted-foreground">Pending</span>}</td>
+                          <td className="py-2 pr-4 text-right">${row.projectedGmv.toFixed(2)}</td>
+                          <td className="py-2 pr-4 text-right">{row.actualGmv != null ? `$${row.actualGmv.toFixed(2)}` : <span className="text-muted-foreground">Pending</span>}</td>
+                          <td className="py-2 text-right">
+                            {row.accuracyPct != null ? (
+                              <span className={`font-semibold ${row.accuracyPct >= 90 ? "text-green-600" : row.accuracyPct >= 70 ? "text-yellow-600" : "text-red-600"}`}>
+                                {row.accuracyPct.toFixed(1)}%
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

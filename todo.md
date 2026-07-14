@@ -331,3 +331,15 @@
 - [x] Add COGS override UI to TenantDetail settings panel
 - [x] Add forecast and gmvLeaderboard procedures to revenue router
 - [x] Add Forecast and GMV Leaderboard tabs to RevenueDashboard page
+- [ ] Add forecast_snapshots table to schema
+- [ ] Add snapshot heartbeat handler and accuracy metric on Forecast tab
+- [ ] Add cogs_dispute_requests table to schema
+- [ ] Build COGS dispute tRPC procedures and UI button with owner notification
+- [ ] Build leaderboard top-3 heartbeat handler with owner push alert
+- [x] Forecast accuracy tracking: forecast_snapshots table, monthly heartbeat, accuracy tab on Revenue Dashboard
+- [x] COGS dispute workflow: cogs_dispute_requests table, cogsDispute tRPC router, CogsDisputes admin page, owner notification on request
+- [x] Leaderboard top-3 notifications: daily heartbeat sends owner push notification with top-3 GMV growth merchants
+- [x] Register forecast-snapshot heartbeat cron (task_uid: VJdvdQyQfJ5ZhQpPRH4eKf, fires 1st of month)
+- [x] Register leaderboard-top3 heartbeat cron (task_uid: FNBLTZ2oCAgm2eCajdcNyW, fires daily 09:00 UTC)
+- [x] COGS Disputes admin page (/cogs-disputes) with approve/reject workflow
+- [x] Forecast Accuracy tab on Revenue Dashboard with projected vs actual table

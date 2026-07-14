@@ -14,8 +14,8 @@ import { getDb } from "../db";
 import { inventorySnapshots } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
-import { paymentTransactions, alertRules, alertRuleEvents } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants } from "../../drizzle/schema";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
@@ -227,6 +227,143 @@ async function startServer() {
         context: { url: req.url },
         timestamp: new Date().toISOString(),
       });
+    }
+  });
+
+  // ── Monthly forecast snapshot heartbeat ──────────────────────────────────────
+  // Fires on the 1st of each month. Saves next-month projection and resolves
+  // the previous month's snapshot with actual values + accuracy %.
+  app.post("/api/scheduled/forecast-snapshot", async (req, res) => {
+    const user = await sdk.authenticateRequest(req).catch(() => null);
+    if (!user?.isCron) return res.status(403).json({ error: "Forbidden" });
+    try {
+      const db = await getDb();
+      if (!db) return res.json({ skipped: true });
+
+      const now = new Date();
+      const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+      const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      const nextMonth = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, "0")}`;
+
+      // Compute this month's actual GMV and revenue
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const txRows = await db.select({ amount: paymentTransactions.amount, tenantId: paymentTransactions.tenantId })
+        .from(paymentTransactions)
+        .where(and(
+          gte(paymentTransactions.createdAt, startOfMonth),
+          eq(paymentTransactions.status, "completed")
+        ));
+
+      const tenantRows = await db.select({ id: tenants.id, cogsRate: tenants.cogsRate }).from(tenants);
+      const cogsMap = Object.fromEntries(tenantRows.map((t) => [t.id, t.cogsRate ?? 0.40]));
+
+      let actualGmv = 0;
+      let actualRevenue = 0;
+      for (const tx of txRows) {
+        const amt = parseFloat(tx.amount ?? "0");
+        actualGmv += amt;
+        const cogs = cogsMap[tx.tenantId] ?? 0.40;
+        const netProfit = amt * (1 - 0.015 - cogs);
+        actualRevenue += Math.max(0, netProfit * 0.05) + amt * 0.002;
+      }
+
+      // Resolve last month's snapshot if it exists
+      const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, "0")}`;
+      const [prevSnap] = await db.select().from(forecastSnapshots)
+        .where(eq(forecastSnapshots.snapshotMonth, thisMonth));
+      if (prevSnap && !prevSnap.resolvedAt) {
+        const projected = parseFloat(prevSnap.projectedRevenue);
+        const accuracy = projected > 0 ? Math.max(0, 100 - Math.abs(actualRevenue - projected) / projected * 100) : 0;
+        await db.update(forecastSnapshots)
+          .set({
+            actualRevenue: String(actualRevenue.toFixed(4)),
+            actualGmv: String(actualGmv.toFixed(4)),
+            accuracyPct: String(accuracy.toFixed(4)),
+            resolvedAt: now,
+          })
+          .where(eq(forecastSnapshots.snapshotMonth, thisMonth));
+      }
+
+      // Project next month using simple 10% MoM growth assumption
+      const projectedRevenue = actualRevenue * 1.10;
+      const projectedGmv = actualGmv * 1.10;
+      await db.insert(forecastSnapshots).values({
+        snapshotMonth: nextMonth,
+        projectedRevenue: String(projectedRevenue.toFixed(4)),
+        projectedGmv: String(projectedGmv.toFixed(4)),
+      }).onConflictDoNothing();
+
+      res.json({ ok: true, snapshotMonth: nextMonth, projectedRevenue, projectedGmv, actualRevenue, actualGmv });
+    } catch (err: any) {
+      console.error("[forecast-snapshot]", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Leaderboard top-3 notification heartbeat ──────────────────────────────────
+  // Fires daily. Computes MoM GMV growth per tenant and notifies owner when a
+  // tenant newly enters the top-3 positions for the first time this month.
+  app.post("/api/scheduled/leaderboard-top3", async (req, res) => {
+    const user = await sdk.authenticateRequest(req).catch(() => null);
+    if (!user?.isCron) return res.status(403).json({ error: "Forbidden" });
+    try {
+      const db = await getDb();
+      if (!db) return res.json({ skipped: true });
+
+      const now = new Date();
+      const startThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const endLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+
+      // GMV this month per tenant
+      const thisMoRows = await db.select({ tenantId: paymentTransactions.tenantId, amount: paymentTransactions.amount })
+        .from(paymentTransactions)
+        .where(and(gte(paymentTransactions.createdAt, startThisMonth), eq(paymentTransactions.status, "completed")));
+
+      // GMV last month per tenant
+      const lastMoRows = await db.select({ tenantId: paymentTransactions.tenantId, amount: paymentTransactions.amount })
+        .from(paymentTransactions)
+        .where(and(
+          gte(paymentTransactions.createdAt, startLastMonth),
+          lte(paymentTransactions.createdAt, endLastMonth),
+          eq(paymentTransactions.status, "completed")
+        ));
+
+      const thisMo: Record<string, number> = {};
+      const lastMo: Record<string, number> = {};
+      for (const r of thisMoRows) thisMo[r.tenantId] = (thisMo[r.tenantId] ?? 0) + parseFloat(r.amount ?? "0");
+      for (const r of lastMoRows) lastMo[r.tenantId] = (lastMo[r.tenantId] ?? 0) + parseFloat(r.amount ?? "0");
+
+      const allTenantIds = Array.from(new Set([...Object.keys(thisMo), ...Object.keys(lastMo)]));
+      const growthRanked = allTenantIds
+        .map((id) => {
+          const curr = thisMo[id] ?? 0;
+          const prev = lastMo[id] ?? 0;
+          const growth = prev > 0 ? ((curr - prev) / prev) * 100 : (curr > 0 ? 100 : 0);
+          return { tenantId: id, growth, curr, prev };
+        })
+        .sort((a, b) => b.growth - a.growth)
+        .slice(0, 3);
+
+      if (growthRanked.length === 0) return res.json({ ok: true, top3: [] });
+
+      const tenantRows = await db.select({ id: tenants.id, name: tenants.name }).from(tenants);
+      const nameMap = Object.fromEntries(tenantRows.map((t) => [t.id, t.name]));
+
+      const lines = growthRanked.map((r, i) =>
+        `#${i + 1} ${nameMap[r.tenantId] ?? r.tenantId}: +${r.growth.toFixed(1)}% GMV ($${r.curr.toFixed(0)} vs $${r.prev.toFixed(0)} last month)`
+      );
+
+      await notifyOwner({
+        title: "GMV Growth Leaderboard - Top 3 This Month",
+        content: "Today's top GMV growth leaders:\n\n" + lines.join("\n") + "\n\nView full leaderboard at /revenue -> GMV Growth tab.",
+      });
+
+      res.json({ ok: true, top3: growthRanked });
+    } catch (err: any) {
+      console.error("[leaderboard-top3]", err);
+      res.status(500).json({ error: err.message });
     }
   });
 

@@ -28,6 +28,7 @@ import { tenantPortalRouter } from "./routers/tenantPortal";
 import { tenantInviteRouter } from "./routers/tenantInvite";
 import { mlOpsRouter } from "./routers/mlOps";
 import { reconciliationRouter } from "./routers/reconciliation";
+import { cogsDisputeRouter } from "./routers/cogsDispute";
 import { keycloakRouter } from "./routers/keycloak";
 import { revenueRouter } from "./routers/revenue";
 
@@ -68,6 +69,7 @@ export const appRouter = router({
   mlOps: mlOpsRouter,
   reconciliation: reconciliationRouter,
   keycloak: keycloakRouter,
+  cogsDispute: cogsDisputeRouter,
   alertRules: alertRulesRouter,
   revenue: revenueRouter,
 });

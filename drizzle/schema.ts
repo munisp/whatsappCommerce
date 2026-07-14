@@ -1001,3 +1001,43 @@ export const alertRuleEvents = pgTable("alert_rule_events", {
 ]);
 export type AlertRuleEvent = typeof alertRuleEvents.$inferSelect;
 export type NewAlertRuleEvent = typeof alertRuleEvents.$inferInsert;
+
+// ─── Forecast Snapshots ───────────────────────────────────────────────────────
+// Each month-end the heartbeat saves a projected value for the next month.
+// The following month's heartbeat resolves the actual value and computes accuracy.
+export const forecastSnapshots = pgTable("forecast_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  snapshotMonth: varchar("snapshot_month", { length: 7 }).notNull(), // YYYY-MM being projected
+  projectedRevenue: numeric("projected_revenue", { precision: 14, scale: 4 }).notNull(),
+  projectedGmv: numeric("projected_gmv", { precision: 14, scale: 4 }).notNull(),
+  actualRevenue: numeric("actual_revenue", { precision: 14, scale: 4 }),
+  actualGmv: numeric("actual_gmv", { precision: 14, scale: 4 }),
+  accuracyPct: numeric("accuracy_pct", { precision: 7, scale: 4 }),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("forecast_snapshots_month_idx").on(t.snapshotMonth),
+]);
+export type ForecastSnapshot = typeof forecastSnapshots.$inferSelect;
+export type NewForecastSnapshot = typeof forecastSnapshots.$inferInsert;
+
+// ─── COGS Dispute Requests ────────────────────────────────────────────────────
+export const cogsDisputeStatusEnum = pgEnum("cogs_dispute_status", ["pending", "approved", "rejected"]);
+export const cogsDisputeRequests = pgTable("cogs_dispute_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  currentCogsRate: numeric("current_cogs_rate", { precision: 5, scale: 4 }).notNull(),
+  requestedCogsRate: numeric("requested_cogs_rate", { precision: 5, scale: 4 }).notNull(),
+  justification: text("justification"),
+  status: cogsDisputeStatusEnum("status").notNull().default("pending"),
+  reviewedBy: varchar("reviewed_by", { length: 128 }),
+  reviewNote: text("review_note"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cogs_dispute_tenant_idx").on(t.tenantId),
+  index("cogs_dispute_status_idx").on(t.status),
+]);
+export type CogsDisputeRequest = typeof cogsDisputeRequests.$inferSelect;
+export type NewCogsDisputeRequest = typeof cogsDisputeRequests.$inferInsert;
