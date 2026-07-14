@@ -36,6 +36,12 @@ export default function TemplateVersions() {
   const [newBody, setNewBody] = useState("");
   const [newSummary, setNewSummary] = useState("");
   const [previewText, setPreviewText] = useState("");
+  const [historyTab, setHistoryTab] = useState<"versions" | "approval">("versions");
+
+  const { data: approvalHistory } = trpc.template.getApprovalHistoryReal.useQuery(
+    { templateId: selectedTemplateId ?? "" },
+    { enabled: !!selectedTemplateId }
+  );
 
   const { data: templatesData, isLoading: loadingTemplates } = trpc.template.list.useQuery({});
   const templates = templatesData?.templates ?? [];
@@ -192,7 +198,66 @@ export default function TemplateVersions() {
                 </CardHeader>
                 <Separator />
                 <CardContent className="p-0">
-                  <ScrollArea className="h-[460px]">
+                  {/* Tab switcher: Versions | Approval History */}
+                  <div className="flex gap-1 p-3 border-b border-border/30">
+                    <button
+                      onClick={() => setHistoryTab("versions")}
+                      className={`px-3 py-1 text-xs rounded-md transition-colors ${historyTab === "versions" ? "bg-primary/20 text-primary font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      Version History
+                    </button>
+                    <button
+                      onClick={() => setHistoryTab("approval")}
+                      className={`px-3 py-1 text-xs rounded-md transition-colors ${historyTab === "approval" ? "bg-primary/20 text-primary font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                    >
+                      Approval Timeline
+                    </button>
+                  </div>
+                  <ScrollArea className="h-[420px]">
+                    {historyTab === "approval" ? (
+                      <div className="p-4">
+                        {!approvalHistory || (approvalHistory as unknown[]).length === 0 ? (
+                          <div className="text-center py-8 text-muted-foreground">
+                            <p className="text-sm font-medium">No approval events yet</p>
+                            <p className="text-xs mt-1">Submit this template to Meta to start the approval process</p>
+                          </div>
+                        ) : (
+                          <div className="relative">
+                            <div className="absolute left-3.5 top-0 bottom-0 w-px bg-border/50" />
+                            <div className="space-y-4">
+                              {(approvalHistory as Array<{ id: string; templateId: string; tenantId: string; fromStatus: string | null; toStatus: string; changedBy: string | null; reason: string | null; metaSubmissionId: string | null; createdAt: Date | string | number }>).map((evt, evtIdx) => {
+                                const approvalColors: Record<string, string> = {
+                                  draft: "bg-slate-500/20 border-slate-500/40 text-slate-400",
+                                  submitted: "bg-blue-500/20 border-blue-500/40 text-blue-400",
+                                  approved: "bg-emerald-500/20 border-emerald-500/40 text-emerald-400",
+                                  rejected: "bg-red-500/20 border-red-500/40 text-red-400",
+                                  paused: "bg-amber-500/20 border-amber-500/40 text-amber-400",
+                                };
+                                const evtStatus = evt.toStatus ?? "draft";
+                                const color = approvalColors[evtStatus] ?? approvalColors.draft;
+                                const textColor = color.split(" ")[2];
+                                return (
+                                  <div key={evtIdx} className="flex gap-3 pl-1">
+                                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center text-[10px] font-bold shrink-0 z-10 ${color}`}>
+                                      {evtStatus.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0 pb-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={`text-xs font-semibold capitalize ${textColor}`}>{evtStatus}</span>
+                                        <span className="text-xs text-muted-foreground">{new Date(evt.createdAt).toLocaleString()}</span>
+                                      </div>
+                                      {evt.metaSubmissionId && <p className="text-xs text-muted-foreground mt-0.5">Meta ID: {evt.metaSubmissionId}</p>}
+                                      {evt.reason && <p className="text-xs text-foreground/70 mt-1 bg-muted/20 rounded px-2 py-1">{evt.reason}</p>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                    <>
                     {loadingVersions ? (
                       <div className="p-4 space-y-3">
                         {[1, 2, 3].map(i => (
@@ -298,6 +363,8 @@ export default function TemplateVersions() {
                         ))}
                       </div>
                     )}
+                    </>
+                  )}
                   </ScrollArea>
                 </CardContent>
               </Card>

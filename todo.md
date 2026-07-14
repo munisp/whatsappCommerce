@@ -186,8 +186,9 @@
 ## Heartbeat Auto-Sync & Dashboard Enhancements
 - [x] Heartbeat router: /api/trpc/heartbeat.inventorySync endpoint (activates post-deploy)
 - [ ] Register heartbeat job via Manus SDK after first Publish
-- [ ] Low-stock dashboard KPI card (count of products below threshold)
-- [ ] Template approval history timeline in version history drawer
+- [ ] Register heartbeat job via Manus SDK after first Publish (requires live deployment)
+- [x] Low-stock dashboard KPI card (Inventory Alerts card on Dashboard, links to /inventory)
+- [x] Template approval history timeline in Version Control page (Approval Timeline tab)
 
 ## AI Agent Integration Architecture
 - [x] AI Agent Architecture page (/agent-architecture): full flow diagram + 4 integration tabs (WhatsApp, CRM, Odoo, Dashboard)
