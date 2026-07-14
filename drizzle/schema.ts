@@ -11,6 +11,7 @@ import {
   varchar,
   index,
   uniqueIndex,
+  numeric,
 } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -779,3 +780,103 @@ export type KycApplication = typeof kycApplications.$inferSelect;
 export type InsertKycApplication = typeof kycApplications.$inferInsert;
 export type KycDocument = typeof kycDocuments.$inferSelect;
 export type LivenessCheck = typeof livenessChecks.$inferSelect;
+
+// ── Cart sessions & items ─────────────────────────────────────────────────────
+export const cartSessions = pgTable("cart_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerId: varchar("customerId", { length: 36 }),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }),
+  sessionData: jsonb("sessionData").notNull().default({}),
+  currentStep: varchar("currentStep", { length: 50 }).default("greeting"),
+  language: varchar("language", { length: 20 }).default("english"),
+  expiresAt: timestamp("expiresAt").notNull().$defaultFn(() => new Date(Date.now() + 86400000)),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+export const cartItems = pgTable("cart_items", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  cartSessionId: varchar("cartSessionId", { length: 36 }).notNull().references(() => cartSessions.id, { onDelete: "cascade" }),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  productName: varchar("productName", { length: 255 }).notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+// ── Refunds ───────────────────────────────────────────────────────────────────
+export const refundStatusEnum = pgEnum("refund_status", ["pending", "approved", "rejected", "processed"]);
+export const refunds = pgTable("refunds", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("orderId", { length: 36 }).notNull().references(() => orders.id),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  reason: text("reason"),
+  status: refundStatusEnum("status").notNull().default("pending"),
+  processedAt: timestamp("processedAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+// ── Invoices ──────────────────────────────────────────────────────────────────
+export const invoiceTypeEnum = pgEnum("invoice_type", ["subscription", "profit_share", "one_time"]);
+export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "cancelled"]);
+export const invoices = pgTable("invoices", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  invoiceNumber: varchar("invoiceNumber", { length: 50 }).notNull(),
+  type: invoiceTypeEnum("type").notNull().default("subscription"),
+  status: invoiceStatusEnum("status").notNull().default("draft"),
+  periodStart: timestamp("periodStart"),
+  periodEnd: timestamp("periodEnd"),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
+  commissionRate: numeric("commissionRate", { precision: 5, scale: 4 }),
+  commissionAmount: numeric("commissionAmount", { precision: 12, scale: 2 }),
+  subscriptionFee: numeric("subscriptionFee", { precision: 12, scale: 2 }),
+  totalAmount: numeric("totalAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  pdfUrl: text("pdfUrl"),
+  sentAt: timestamp("sentAt"),
+  paidAt: timestamp("paidAt"),
+  dueDate: timestamp("dueDate"),
+  lineItems: jsonb("lineItems").notNull().default([]),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+// ── NLP sessions (WhatsApp buyer conversations) ───────────────────────────────
+export const nlpSessions = pgTable("nlp_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }).notNull(),
+  customerName: varchar("customerName", { length: 255 }),
+  language: varchar("language", { length: 20 }).notNull().default("english"),
+  state: varchar("state", { length: 50 }).notNull().default("greeting"),
+  context: jsonb("context").notNull().default({}),
+  messageHistory: jsonb("messageHistory").notNull().default([]),
+  cartSessionId: varchar("cartSessionId", { length: 36 }).references(() => cartSessions.id),
+  lastActivityAt: timestamp("lastActivityAt").notNull().defaultNow(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+// ── Order items (normalised) ──────────────────────────────────────────────────
+export const orderItems = pgTable("order_items", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("orderId", { length: 36 }).notNull().references(() => orders.id, { onDelete: "cascade" }),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  productName: varchar("productName", { length: 255 }).notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+});
+
+// ── Type exports ──────────────────────────────────────────────────────────────
+export type CartSession = typeof cartSessions.$inferSelect;
+export type CartItem = typeof cartItems.$inferSelect;
+export type Refund = typeof refunds.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;
+export type NlpSession = typeof nlpSessions.$inferSelect;
+export type OrderItem = typeof orderItems.$inferSelect;

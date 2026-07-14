@@ -20,6 +20,9 @@ import { broadcastAbRouter } from "./routers/broadcastAb";
 import { onboardingRouter } from "./routers/onboarding";
 import { kycRouter } from "./routers/kyc";
 import { heartbeatRouter } from "./routers/heartbeat";
+import { nlpRouter } from "./routers/nlp";
+import { orderCrudRouter } from "./routers/orderCrud";
+import { invoiceRouter } from "./routers/invoice";
 
 export const appRouter = router({
   system: systemRouter,
@@ -49,6 +52,9 @@ export const appRouter = router({
   onboarding: onboardingRouter,
   kyc: kycRouter,
   heartbeat: heartbeatRouter,
+  nlp: nlpRouter,
+  orderCrud: orderCrudRouter,
+  invoice: invoiceRouter,
 });
 
 export type AppRouter = typeof appRouter;

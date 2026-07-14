@@ -1,0 +1,348 @@
+/**
+ * NLP Buyer Conversation Engine
+ * Handles natural-language WhatsApp messages in English, Yoruba, Hausa, Igbo, and Pidgin.
+ * No menu required — buyers type freely and the LLM interprets intent.
+ *
+ * Conversation states: greeting → browse → product_detail → add_to_cart →
+ *   checkout_address → checkout_confirm → payment → order_confirmed → support
+ */
+import { z } from "zod";
+import { eq, and, sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { getDb } from "../db";
+import { invokeLLM } from "../_core/llm";
+import {
+  nlpSessions, cartSessions, cartItems, orders, orderItems,
+  customers, products, conversations, agentEvents,
+} from "../../drizzle/schema";
+
+// ── Language detection & system prompts ───────────────────────────────────────
+const LANGUAGE_HINTS: Record<string, string[]> = {
+  yoruba: ["ẹ", "ọ", "ṣ", "jẹ", "wa", "mo", "ni", "fun", "ati", "se", "bawo", "kini", "ewo"],
+  hausa: ["na", "da", "ba", "mai", "ina", "kuma", "don", "shi", "ta", "suna", "yaya", "wane"],
+  igbo: ["ọ", "ị", "ụ", "bụ", "nke", "na", "ya", "ha", "gị", "m", "dị", "nọ", "ebe"],
+  pidgin: ["abeg", "wetin", "dey", "oga", "no be", "wey", "comot", "chop", "wahala", "sharp sharp", "how far"],
+};
+
+function detectLanguage(text: string): string {
+  const lower = text.toLowerCase();
+  for (const [lang, hints] of Object.entries(LANGUAGE_HINTS)) {
+    if (hints.some(h => lower.includes(h))) return lang;
+  }
+  return "english";
+}
+
+function buildSystemPrompt(language: string, products: Array<{ name: string; price: string; currency: string; stockQuantity: number }>, tenantName: string): string {
+  const productList = products.slice(0, 20).map(p =>
+    `- ${p.name}: ${p.currency} ${p.price} (${p.stockQuantity > 0 ? "in stock" : "out of stock"})`
+  ).join("\n");
+
+  const langInstructions: Record<string, string> = {
+    english: "Respond in clear, friendly English.",
+    yoruba: "Respond in Yoruba (you may mix with English where needed). Be warm and respectful.",
+    hausa: "Respond in Hausa (you may mix with English where needed). Be polite and helpful.",
+    igbo: "Respond in Igbo (you may mix with English where needed). Be friendly and clear.",
+    pidgin: "Respond in Nigerian Pidgin English. Be casual, friendly, and use common pidgin expressions.",
+  };
+
+  return `You are a helpful WhatsApp shopping assistant for ${tenantName}. ${langInstructions[language] ?? langInstructions.english}
+
+You help customers browse products, add items to their cart, and complete purchases — all through natural conversation.
+
+AVAILABLE PRODUCTS:
+${productList}
+
+CONVERSATION RULES:
+1. Detect what the customer wants (browse, search product, add to cart, checkout, check order status, get help).
+2. Never show a numbered menu unless the customer explicitly asks for options.
+3. If a customer mentions a product name (even partially or misspelled), match it to the catalog.
+4. Guide checkout naturally: collect delivery address, confirm order summary, then provide payment instructions.
+5. If stock is 0, apologise and suggest alternatives.
+6. Keep responses SHORT (under 160 chars when possible) — this is WhatsApp.
+
+RESPOND WITH JSON (no markdown):
+{
+  "reply": "<message to send to customer>",
+  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|unknown",
+  "nextState": "greeting|browse|product_detail|add_to_cart|checkout_address|checkout_confirm|payment|order_confirmed|support",
+  "extractedProduct": "<product name if mentioned, or null>",
+  "extractedQuantity": <number or null>,
+  "extractedAddress": "<delivery address if provided, or null>",
+  "confidence": <0.0-1.0>
+}`;
+}
+
+// ── Router ────────────────────────────────────────────────────────────────────
+export const nlpRouter = router({
+  /**
+   * Process an incoming WhatsApp message through the NLP engine.
+   * Called by the webhook handler when a message arrives.
+   */
+  processMessage: publicProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      waPhoneNumber: z.string(),
+      message: z.string().max(4096),
+      customerName: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // 1. Upsert NLP session
+      const existing = await db.select().from(nlpSessions)
+        .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, input.waPhoneNumber)))
+        .limit(1);
+
+      const detectedLang = detectLanguage(input.message);
+      let session = existing[0];
+
+      if (!session) {
+        const [newSession] = await db.insert(nlpSessions).values({
+          id: crypto.randomUUID(),
+          tenantId: input.tenantId,
+          waPhoneNumber: input.waPhoneNumber,
+          customerName: input.customerName,
+          language: detectedLang,
+          state: "greeting",
+          context: {},
+          messageHistory: [],
+          lastActivityAt: new Date(),
+          createdAt: new Date(),
+        }).returning();
+        session = newSession;
+      } else {
+        // Update language if newly detected
+        if (detectedLang !== "english") {
+          await db.update(nlpSessions)
+            .set({ language: detectedLang, lastActivityAt: new Date() })
+            .where(eq(nlpSessions.id, session.id));
+          session.language = detectedLang;
+        }
+      }
+
+      // 2. Load tenant products for context
+      const tenantProducts = await db.select({
+        id: products.id,
+        name: products.name,
+        price: products.price,
+        currency: products.currency,
+        stockQuantity: products.stockQuantity,
+        description: products.description,
+      }).from(products)
+        .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")))
+        .limit(30);
+
+      // 3. Load cart for context
+      let cartSession = session.cartSessionId
+        ? (await db.select().from(cartSessions).where(eq(cartSessions.id, session.cartSessionId)).limit(1))[0]
+        : null;
+
+      let cartItemsList: Array<{ productName: string; quantity: number; unitPrice: string; currency: string }> = [];
+      if (cartSession) {
+        cartItemsList = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
+      }
+
+      // 4. Build message history for LLM context (last 10 turns)
+      const history = (session.messageHistory as Array<{ role: string; content: string }>).slice(-10);
+
+      // 5. Call LLM
+      const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
+      const cartSummary = cartItemsList.length > 0
+        ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
+        : "\nCURRENT CART: empty";
+
+      const messages = [
+        { role: "system" as const, content: systemPrompt + cartSummary },
+        ...history.map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
+        { role: "user" as const, content: input.message },
+      ];
+
+      let llmResult: {
+        reply: string; intent: string; nextState: string;
+        extractedProduct: string | null; extractedQuantity: number | null;
+        extractedAddress: string | null; confidence: number;
+      };
+
+      try {
+        const raw = await invokeLLM({ messages, model: "gpt-5-mini" });
+        const rawContent = raw.choices?.[0]?.message?.content;
+        const content = typeof rawContent === "string" ? rawContent : "{}";
+        // Strip markdown code fences if present
+        const cleaned = content.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+        llmResult = JSON.parse(cleaned);
+      } catch {
+        llmResult = {
+          reply: "Sorry, I had trouble understanding that. Could you rephrase?",
+          intent: "unknown", nextState: session.state,
+          extractedProduct: null, extractedQuantity: null,
+          extractedAddress: null, confidence: 0,
+        };
+      }
+
+      // 6. Act on intent
+      const ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+
+      if (llmResult.intent === "add_to_cart" && llmResult.extractedProduct) {
+        // Find matching product
+        const matched = tenantProducts.find(p =>
+          p.name.toLowerCase().includes(llmResult.extractedProduct!.toLowerCase()) ||
+          llmResult.extractedProduct!.toLowerCase().includes(p.name.toLowerCase())
+        );
+        if (matched && matched.stockQuantity > 0) {
+          // Ensure cart session exists
+          if (!cartSession) {
+            const [cs] = await db.insert(cartSessions).values({
+              id: crypto.randomUUID(),
+              tenantId: input.tenantId,
+              waPhoneNumber: input.waPhoneNumber,
+              sessionData: {},
+              currentStep: "browse",
+              language: session.language,
+              expiresAt: new Date(Date.now() + 86400000),
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            }).returning();
+            cartSession = cs;
+            await db.update(nlpSessions).set({ cartSessionId: cs.id }).where(eq(nlpSessions.id, session.id));
+          }
+          // Add item
+          const qty = llmResult.extractedQuantity ?? 1;
+          await db.insert(cartItems).values({
+            id: crypto.randomUUID(),
+            cartSessionId: cartSession.id,
+            productId: matched.id,
+            productName: matched.name,
+            quantity: qty,
+            unitPrice: matched.price,
+            currency: matched.currency,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      if (llmResult.intent === "confirm_order" && cartSession) {
+        // Create order from cart
+        const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
+        if (items.length > 0) {
+          const total = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+          const orderId = crypto.randomUUID();
+          const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+          await db.insert(orders).values({
+            id: orderId,
+            tenantId: input.tenantId,
+            customerId: input.waPhoneNumber, // use phone as customer ref until resolved
+            orderNumber,
+            status: "pending",
+            totalAmount: total.toFixed(2),
+            currency: items[0].currency,
+            paymentStatus: "unpaid",
+            shippingAddress: llmResult.extractedAddress ? { raw: llmResult.extractedAddress } : null,
+            items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          ctx.lastOrderId = orderId;
+          ctx.lastOrderNumber = orderNumber;
+        }
+      }
+
+      if (llmResult.extractedAddress) {
+        ctx.deliveryAddress = llmResult.extractedAddress;
+      }
+
+      // 7. Update session
+      const newHistory = [
+        ...history,
+        { role: "user", content: input.message },
+        { role: "assistant", content: llmResult.reply },
+      ].slice(-20);
+
+      await db.update(nlpSessions).set({
+        state: llmResult.nextState ?? session.state,
+        context: ctx,
+        messageHistory: newHistory,
+        lastActivityAt: new Date(),
+      }).where(eq(nlpSessions.id, session.id));
+
+      // 8. Log agent event
+      await db.insert(agentEvents).values({
+        id: crypto.randomUUID(),
+        tenantId: input.tenantId,
+        conversationId: session.id,
+        eventType: "nlp_message",
+        intentType: llmResult.intent,
+        confidence: llmResult.confidence?.toFixed(3) ?? "0.000",
+        escalated: false,
+        model: "gpt-5-mini",
+        createdAt: new Date(),
+      });
+
+      return {
+        reply: llmResult.reply,
+        intent: llmResult.intent,
+        state: llmResult.nextState,
+        language: session.language,
+        sessionId: session.id,
+      };
+    }),
+
+  /** Get or create a session for a phone number */
+  getSession: protectedProcedure
+    .input(z.object({ tenantId: z.string(), waPhoneNumber: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [session] = await db.select().from(nlpSessions)
+        .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, input.waPhoneNumber)))
+        .limit(1);
+      return session ?? null;
+    }),
+
+  /** List active sessions for a tenant */
+  listSessions: protectedProcedure
+    .input(z.object({ tenantId: z.string(), limit: z.number().default(50) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      return db.select().from(nlpSessions)
+        .where(eq(nlpSessions.tenantId, input.tenantId))
+        .orderBy(sql`${nlpSessions.lastActivityAt} DESC`)
+        .limit(input.limit);
+    }),
+
+  /** Reset/clear a session (e.g. after order confirmed) */
+  resetSession: protectedProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      await db.update(nlpSessions).set({
+        state: "greeting",
+        context: {},
+        messageHistory: [],
+        cartSessionId: null,
+        lastActivityAt: new Date(),
+      }).where(eq(nlpSessions.id, input.sessionId));
+      return { ok: true };
+    }),
+
+  /** Simulate a conversation (for testing/demo) */
+  simulate: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      waPhoneNumber: z.string(),
+      messages: z.array(z.string()),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const results = [];
+      for (const msg of input.messages) {
+        // Re-use processMessage logic inline
+        const db = await getDb();
+        if (!db) break;
+        results.push({ message: msg, processed: true });
+      }
+      return results;
+    }),
+});

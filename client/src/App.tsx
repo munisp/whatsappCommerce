@@ -26,6 +26,8 @@ import BroadcastCampaigns from "./pages/BroadcastCampaigns";
 import InventorySync from "./pages/InventorySync";
 import TenantOnboarding from "./pages/TenantOnboarding";
 import AgentArchitecture from "./pages/AgentArchitecture";
+import NLPSimulator from "./pages/NLPSimulator";
+import Invoices from "./pages/Invoices";
 
 function Router() {
   return (
@@ -51,8 +53,10 @@ function Router() {
       <Route path="/broadcast" component={BroadcastCampaigns} />
       <Route path="/inventory" component={InventorySync} />
       <Route path="/onboarding" component={TenantOnboarding} />
-      <Route path="/agent-architecture" component={AgentArchitecture} />
-      <Route path="/404" component={NotFound} />
+          <Route path="/agent-architecture" component={AgentArchitecture} />
+          <Route path="/nlp-simulator" component={NLPSimulator} />
+          <Route path="/invoices" component={Invoices} />
+          <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
