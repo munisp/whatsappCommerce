@@ -1,0 +1,11 @@
+/home/ubuntu/whatsapp-commerce-platform/rust/target/debug/deps/pest_generator-6afe7d067e714ec0.d: /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/lib.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/macros.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/docs.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/generator.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/parse_derive.rs
+
+/home/ubuntu/whatsapp-commerce-platform/rust/target/debug/deps/libpest_generator-6afe7d067e714ec0.rlib: /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/lib.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/macros.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/docs.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/generator.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/parse_derive.rs
+
+/home/ubuntu/whatsapp-commerce-platform/rust/target/debug/deps/libpest_generator-6afe7d067e714ec0.rmeta: /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/lib.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/macros.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/docs.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/generator.rs /home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/parse_derive.rs
+
+/home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/lib.rs:
+/home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/macros.rs:
+/home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/docs.rs:
+/home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/generator.rs:
+/home/ubuntu/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pest_generator-2.8.7/src/parse_derive.rs:

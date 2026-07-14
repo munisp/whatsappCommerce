@@ -1,0 +1,264 @@
+version: "3.9"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+networks:
+  platform:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
+  tigerbeetle_data:
+
+services:
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: whatsapp_commerce
+      POSTGRES_USER: wc_user
+      POSTGRES_PASSWORD: wc_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks: [platform]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wc_user -d whatsapp_commerce"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks: [platform]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    networks: [platform]
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on: [zookeeper]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "29092:29092"
+    networks: [platform]
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ─── Go Services ──────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      WEBHOOK_INGESTOR_URL: http://webhook-ingestor:8081
+      CONVERSATION_ORCHESTRATOR_URL: http://conversation-orchestrator:8082
+      COMMERCE_ENGINE_URL: http://commerce-engine:8083
+      PAYMENT_ORCHESTRATOR_URL: http://payment-orchestrator:8084
+      AI_AGENT_URL: http://ai-agent:8090
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-prod}
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  webhook-ingestor:
+    build:
+      context: ./services/webhook-ingestor
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: "8081"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  conversation-orchestrator:
+    build:
+      context: ./services/conversation-orchestrator
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      PORT: "8082"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+      AI_AGENT_URL: http://ai-agent:8090
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  commerce-engine:
+    build:
+      context: ./services/commerce-engine
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      PORT: "8083"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  payment-orchestrator:
+    build:
+      context: ./services/payment-orchestrator
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8084"
+    environment:
+      PORT: "8084"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_placeholder}
+      MOJALOOP_API_URL: ${MOJALOOP_API_URL:-http://mojaloop-simulator:3000}
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─── Rust Services ────────────────────────────────────────────────────────
+  event-processor:
+    build:
+      context: ./rust/event-processor
+      dockerfile: Dockerfile
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      RUST_LOG: info
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  ledger-bridge:
+    build:
+      context: ./rust/ledger-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "8095:8095"
+    environment:
+      PORT: "8095"
+      TIGERBEETLE_ADDRESS: ${TIGERBEETLE_ADDRESS:-127.0.0.1:3000}
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      RUST_LOG: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  recon-worker:
+    build:
+      context: ./rust/recon-worker
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      LEDGER_BRIDGE_URL: http://ledger-bridge:8095
+      RECON_INTERVAL_SECS: "3600"
+      RUST_LOG: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─── Python AI Agent ──────────────────────────────────────────────────────
+  ai-agent:
+    build:
+      context: ./ai-agent
+      dockerfile: Dockerfile
+    ports:
+      - "8090:8090"
+    environment:
+      PORT: "8090"
+      REDIS_URL: redis://redis:6379
+      COMMERCE_ENGINE_URL: http://commerce-engine:8083
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-placeholder}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-placeholder}
+      LOG_LEVEL: info
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+

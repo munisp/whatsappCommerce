@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: whatsapp-commerce
+data:
+  KAFKA_BROKERS: "kafka-headless.kafka.svc.cluster.local:9092"
+  REDIS_URL: "redis://redis-master.redis.svc.cluster.local:6379"
+  LOG_LEVEL: "info"
+  RECON_INTERVAL_SECS: "3600"
+  AI_AGENT_URL: "http://ai-agent.whatsapp-commerce.svc.cluster.local:8090"
+  COMMERCE_ENGINE_URL: "http://commerce-engine.whatsapp-commerce.svc.cluster.local:8083"
+  LEDGER_BRIDGE_URL: "http://ledger-bridge.whatsapp-commerce.svc.cluster.local:8095"
+

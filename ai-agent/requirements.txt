@@ -1,0 +1,30 @@
+# Core AI/LLM
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-openai>=0.2.0
+openai>=1.50.0
+anthropic>=0.34.0
+
+# API Framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.31.0
+pydantic>=2.9.0
+
+# Data & Storage
+redis>=5.1.0
+httpx>=0.27.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# Embeddings & Retrieval
+sentence-transformers>=3.0.0
+numpy>=1.26.0
+
+# Utilities
+python-dotenv>=1.0.0
+structlog>=24.0.0
+tenacity>=9.0.0
+tiktoken>=0.7.0
+
