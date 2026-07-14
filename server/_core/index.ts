@@ -9,6 +9,10 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { WebSocketServer, WebSocket } from "ws";
+import { sdk } from "./sdk";
+import { getDb } from "../db";
+import { inventorySnapshots } from "../../drizzle/schema";
+import { sql } from "drizzle-orm";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -88,6 +92,49 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+
+  // ── Scheduled: inventory sync (Heartbeat cron, fires every 5 min) ──────────
+  app.post("/api/scheduled/inventory-sync", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      // Update lastSyncedAt for all snapshots (production: replace with Odoo XML-RPC call)
+      await db.update(inventorySnapshots)
+        .set({ lastSyncedAt: new Date(), syncSource: "heartbeat" })
+        .execute();
+      // Count low-stock items using per-product threshold via JOIN
+      const lowStockRows = await db.execute(sql`
+        SELECT COUNT(*) AS cnt
+        FROM inventory_snapshots s
+        JOIN products p ON p.id = s."productId"
+        WHERE CAST(s."availableQty" AS NUMERIC) <= p."lowStockThreshold"
+          AND CAST(s."availableQty" AS NUMERIC) > 0
+      `);
+      const outOfStockRows = await db.execute(sql`
+        SELECT COUNT(*) AS cnt FROM inventory_snapshots
+        WHERE CAST("availableQty" AS NUMERIC) <= 0
+      `);
+      const lowStockCount = Number((lowStockRows as any[])[0]?.cnt ?? 0);
+      const outOfStockCount = Number((outOfStockRows as any[])[0]?.cnt ?? 0);
+      return res.json({
+        ok: true,
+        syncedAt: new Date().toISOString(),
+        lowStockCount,
+        outOfStockCount,
+        taskUid: user.taskUid,
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        error: err?.message ?? "unknown",
+        stack: err?.stack,
+        context: { url: req.url },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

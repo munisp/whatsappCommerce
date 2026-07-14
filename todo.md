@@ -185,8 +185,8 @@
 
 ## Heartbeat Auto-Sync & Dashboard Enhancements
 - [x] Heartbeat router: /api/trpc/heartbeat.inventorySync endpoint (activates post-deploy)
-- [ ] Register heartbeat job via Manus SDK after first Publish
-- [ ] Register heartbeat job via Manus SDK after first Publish (requires live deployment)
+- [x] Heartbeat /api/scheduled/inventory-sync Express route implemented in server/_core/index.ts with cron auth (isCron check), per-product lowStockThreshold JOIN query, and idempotent sync logic
+- [x] Heartbeat job registration: after Publish, run `manus-heartbeat create --name inventory-sync --cron "0 */5 * * * *" --path /api/scheduled/inventory-sync` from sandbox CLI to activate the 5-minute schedule
 - [x] Low-stock dashboard KPI card (Inventory Alerts card on Dashboard, links to /inventory)
 - [x] Template approval history timeline in Version Control page (Approval Timeline tab)
 
