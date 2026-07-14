@@ -147,3 +147,29 @@
 
 ## Bug Fixes
 - [x] Fix Dashboard KPI cards showing zero: quote camelCase column names in raw SQL (totalAmount, escalatedAt, stockQuantity, latencyMs)
+
+## Real-Time Inventory Sync & Oversell Prevention
+- [x] DB schema: inventory_snapshots table (tenantId, productId, odooProductId, stockQty, reservedQty, availableQty, lastSyncedAt)
+- [x] DB schema: inventory_sync_log table (tenantId, source, status, recordsSynced, errors, syncedAt)
+- [x] tRPC router: inventory (getStockLevels, syncFromOdoo, getReservations, reserveStock, releaseReservation)
+- [x] Oversell guard: atomic stock reservation on order creation (reserve before confirm)
+- [x] Inventory Sync page: per-tenant stock table, low-stock alerts, sync-now button, sync history
+- [x] Dashboard stock alert widget: count of low-stock and out-of-stock products
+- [x] CRM/ERP integration explainer section on Inventory Sync page
+
+## WebSocket Real-Time Conversations
+- [x] Server-side WebSocket endpoint: /api/ws/conversations (broadcasts status changes)
+- [x] useConversationsWS hook: connects to WS, merges live events into tRPC cache
+- [x] Conversations page: live indicator dot, real-time status badge updates without refresh
+- [x] WS event types: conversation_opened, bot_active, escalated, resolved, message_received
+- [x] Fix Conversations crash: null guard on conversationId.slice()
+
+## WhatsApp Template Approval Workflow
+- [x] DB schema: add approval_status column to whatsapp_templates (draft, submitted, approved, rejected, paused)
+- [x] tRPC router: template.submitForApproval, template.updateApprovalStatus, template.getApprovalHistory
+- [x] Template Library UI: "Submit to Meta" button, approval status badge, rejection reason display
+
+## Broadcast A/B Testing
+- [x] DB schema: broadcast_ab_tests table (campaignId, variantA_templateId, variantB_templateId, splitRatio, winnerCriteria, winnerVariant, testEndAt)
+- [x] tRPC router: broadcastAb (createAbTest, getAbResults, autoSelectWinner)
+- [x] Broadcast page: A/B test panel in campaign detail, variant stats comparison, auto-winner button

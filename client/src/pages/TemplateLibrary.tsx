@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
   ShoppingBag, Truck, CreditCard, Star, Megaphone, HeadphonesIcon, Zap,
   BarChart2, CheckCircle2, Clock
 } from "lucide-react";
-import { EyeOff } from "lucide-react";
+import { EyeOff, Upload, XCircle, AlertTriangle } from "lucide-react";
 
 const CATEGORIES = [
   { value: "all", label: "All Templates", icon: MessageSquare },
@@ -53,6 +53,10 @@ type Template = {
   isActive: boolean;
   usageCount: number;
   lastUsedAt?: Date | null;
+  approvalStatus?: string | null;
+  approvalSubmittedAt?: Date | null;
+  rejectionReason?: string | null;
+  metaTemplateId?: string | null;
 };
 
 function WhatsAppBubble({ header, body, footer, buttons }: {
@@ -198,6 +202,26 @@ function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: 
   const catColor = CATEGORY_COLORS[template.category] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
   const catLabel = CATEGORIES.find(c => c.value === template.category)?.label ?? template.category;
 
+  const utils = trpc.useUtils();
+  const submitApproval = trpc.template.submitForApproval.useMutation({
+    onSuccess: () => {
+      toast.success("Template submitted to Meta for approval");
+      utils.template.list.invalidate();
+    },
+    onError: (e) => toast.error(`Submission failed: ${e.message}`),
+  });
+
+  const approvalStatus = (template as any).approvalStatus ?? "none";
+  const approvalBadgeMap: Record<string, ReactNode> = {
+    none: null,
+    draft: <Badge className="text-[10px] border bg-slate-500/20 text-slate-300 border-slate-500/30">draft</Badge>,
+    submitted: <Badge className="text-[10px] border bg-blue-500/20 text-blue-300 border-blue-500/30 gap-1"><Upload className="w-2.5 h-2.5" />submitted</Badge>,
+    approved: <Badge className="text-[10px] border bg-emerald-500/20 text-emerald-300 border-emerald-500/30 gap-1"><CheckCircle2 className="w-2.5 h-2.5" />approved</Badge>,
+    rejected: <Badge className="text-[10px] border bg-red-500/20 text-red-300 border-red-500/30 gap-1"><XCircle className="w-2.5 h-2.5" />rejected</Badge>,
+    paused: <Badge className="text-[10px] border bg-amber-500/20 text-amber-300 border-amber-500/30 gap-1"><AlertTriangle className="w-2.5 h-2.5" />paused</Badge>,
+  };
+  const approvalBadge = approvalBadgeMap[approvalStatus] ?? null;
+
   return (
     <Card className="bg-[#0f1923] border-white/10 hover:border-emerald-500/40 transition-all group cursor-pointer" onClick={onSelect}>
       <CardHeader className="pb-2">
@@ -210,7 +234,13 @@ function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: 
               <Badge className={`text-[10px] border ${template.isActive ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-amber-500/20 text-amber-300 border-amber-500/30"}`}>
                 {template.isActive ? "published" : "draft"}
               </Badge>
+              {approvalBadge}
             </div>
+            {approvalStatus === "rejected" && (template as any).rejectionReason && (
+              <p className="text-[10px] text-red-400/70 mt-1 truncate" title={(template as any).rejectionReason}>
+                ✕ {(template as any).rejectionReason}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
             {onToggleActive && (
@@ -221,6 +251,18 @@ function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: 
                 onClick={() => onToggleActive(!template.isActive)}
               >
                 {template.isActive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </Button>
+            )}
+            {/* Submit to Meta button — shown when not yet submitted/approved */}
+            {(approvalStatus === "none" || approvalStatus === "draft" || approvalStatus === "rejected") && (
+              <Button
+                size="icon" variant="ghost"
+                className="h-7 w-7 text-blue-400 hover:text-blue-300"
+                title="Submit to Meta for approval"
+                disabled={submitApproval.isPending}
+                onClick={() => submitApproval.mutate({ id: template.id })}
+              >
+                <Upload className="w-3.5 h-3.5" />
               </Button>
             )}
             <Button size="icon" variant="ghost" className="h-7 w-7 text-white/50 hover:text-white" onClick={onSelect}>

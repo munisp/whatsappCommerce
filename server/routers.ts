@@ -15,6 +15,8 @@ import { menuRouter } from "./routers/menu";
 import { templateRouter } from "./routers/template";
 import { templateVersionsRouter } from "./routers/templateVersions";
 import { broadcastRouter } from "./routers/broadcast";
+import { inventoryRouter } from "./routers/inventory";
+import { broadcastAbRouter } from "./routers/broadcastAb";
 
 export const appRouter = router({
   system: systemRouter,
@@ -39,6 +41,8 @@ export const appRouter = router({
   template: templateRouter,
   templateVersions: templateVersionsRouter,
   broadcast: broadcastRouter,
+  inventory: inventoryRouter,
+  broadcastAb: broadcastAbRouter,
 });
 
 export type AppRouter = typeof appRouter;

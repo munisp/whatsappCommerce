@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { eq, desc, and, ilike, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { whatsappTemplates, InsertWhatsappTemplate } from "../../drizzle/schema";
+import { whatsappTemplates, InsertWhatsappTemplate, templateVersions } from "../../drizzle/schema";
 
 const DEMO_TENANT = "demo-tenant-001";
 function getTenantId(ctx: { user: { tenantId?: string | null } }) {
@@ -279,5 +279,69 @@ export const templateRouter = router({
         bodyText: substitute(t.bodyText),
         footerText: substitute(t.footerText),
       };
+    }),
+
+  // ── Submit template for Meta approval ─────────────────────────────────────
+  submitForApproval: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      // In production this would call the WhatsApp Business API to submit the template
+      await db.update(whatsappTemplates)
+        .set({
+          approvalStatus: "submitted",
+          approvalSubmittedAt: new Date(),
+          approvalUpdatedAt: new Date(),
+          updatedAt: new Date(),
+        } as any)
+        .where(and(eq(whatsappTemplates.id, input.id), eq(whatsappTemplates.tenantId, getTenantId(ctx))));
+      return { success: true, status: "submitted" };
+    }),
+
+  // ── Update approval status (webhook from Meta or manual) ──────────────────
+  updateApprovalStatus: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      status: z.enum(["none", "draft", "submitted", "approved", "rejected", "paused"]),
+      rejectionReason: z.string().optional(),
+      metaTemplateId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.update(whatsappTemplates)
+        .set({
+          approvalStatus: input.status as any,
+          approvalUpdatedAt: new Date(),
+          rejectionReason: input.rejectionReason ?? null,
+          metaTemplateId: input.metaTemplateId ?? null,
+          // Auto-activate when approved
+          isActive: input.status === "approved",
+          updatedAt: new Date(),
+        } as any)
+        .where(and(eq(whatsappTemplates.id, input.id), eq(whatsappTemplates.tenantId, getTenantId(ctx))));
+      return { success: true };
+    }),
+
+  // ── Get approval history from template versions ────────────────────────────
+  getApprovalHistory: protectedProcedure
+    .input(z.object({ templateId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const tpl = await db.select().from(whatsappTemplates)
+        .where(and(eq(whatsappTemplates.id, input.templateId), eq(whatsappTemplates.tenantId, getTenantId(ctx))))
+        .limit(1);
+      if (!tpl[0]) return [];
+      // Return current approval state as history entry
+      return [{
+        templateId: input.templateId,
+        approvalStatus: (tpl[0] as any).approvalStatus,
+        approvalSubmittedAt: (tpl[0] as any).approvalSubmittedAt,
+        approvalUpdatedAt: (tpl[0] as any).approvalUpdatedAt,
+        rejectionReason: (tpl[0] as any).rejectionReason,
+        metaTemplateId: (tpl[0] as any).metaTemplateId,
+      }];
     }),
 });

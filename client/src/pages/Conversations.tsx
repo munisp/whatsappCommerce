@@ -7,7 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
 import { Bot, MessageSquare, Users, AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useConversationsWS } from "@/hooks/useConversationsWS";
+import { Button } from "@/components/ui/button";
+import { Wifi, WifiOff, Radio, X } from "lucide-react";
 
 
 const statusColors: Record<string, string> = {
@@ -23,18 +26,46 @@ export default function Conversations() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: stats } = trpc.conversation.stats.useQuery({ tenantId: DEMO_TENANT });
-  const { data: convList, isLoading } = trpc.conversation.list.useQuery({
+  const { data: convList, isLoading, refetch } = trpc.conversation.list.useQuery({
     tenantId: DEMO_TENANT,
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 50,
   });
 
+  const { wsState, events, clearEvents } = useConversationsWS(DEMO_TENANT);
+
+  // Refetch conversation list when a WS event arrives
+  useEffect(() => {
+    if (events.length > 0) {
+      refetch();
+    }
+  }, [events.length]);
+
+  const wsConnected = wsState === "connected";
+  const wsConnecting = wsState === "connecting";
+
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Conversations</h1>
-          <p className="text-muted-foreground mt-1">Live WhatsApp conversation monitor</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Conversations</h1>
+            <p className="text-muted-foreground mt-1">Live WhatsApp conversation monitor</p>
+          </div>
+          {/* WebSocket live indicator */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
+            wsConnected ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+            : wsConnecting ? "bg-blue-500/10 border-blue-500/30 text-blue-400"
+            : "bg-red-500/10 border-red-500/30 text-red-400"
+          }`}>
+            {wsConnected ? (
+              <><span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><Wifi className="w-3.5 h-3.5" />Live</>
+            ) : wsConnecting ? (
+              <><span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" /><Radio className="w-3.5 h-3.5" />Connecting…</>
+            ) : (
+              <><WifiOff className="w-3.5 h-3.5" />Disconnected</>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -71,6 +102,33 @@ export default function Conversations() {
             </SelectContent>
           </Select>
         </div>
+
+        {/* Real-time event feed */}
+        {events.length > 0 && (
+          <Card className="border-emerald-500/20 bg-emerald-500/5">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs font-medium text-emerald-400 flex items-center gap-2">
+                  <Radio className="w-3.5 h-3.5 animate-pulse" />
+                  Live Events ({events.length})
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={clearEvents}>
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-3 space-y-1 max-h-32 overflow-y-auto">
+              {events.slice(0, 8).map((evt, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  <span className="font-mono text-emerald-400">{evt.type.replace(/_/g, " ")}</span>
+                  <span className="text-muted-foreground/60">conv {(evt.conversationId ?? "").slice(0, 8)}</span>
+                  <span className="ml-auto">{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="bg-card border-border">
           <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Live Conversations</CardTitle></CardHeader>
@@ -113,4 +171,3 @@ export default function Conversations() {
     </DashboardLayout>
   );
 }
-

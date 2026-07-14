@@ -30,6 +30,7 @@ export const menuStatusEnum = pgEnum("menu_status", ["draft", "published", "arch
 export const menuPushStatusEnum = pgEnum("menu_push_status", ["idle", "pushing", "success", "failed"]);
 export const menuItemTypeEnum = pgEnum("menu_item_type", ["section", "button", "list_item", "quick_reply", "catalog_link", "url"]);
 export const templateCategoryEnum = pgEnum("template_category", ["order_confirmation", "shipping_update", "payment_reminder", "welcome", "promotion", "support", "custom"]);
+export const templateApprovalStatusEnum = pgEnum("template_approval_status", ["none", "draft", "submitted", "approved", "rejected", "paused"]);
 
 // ─── Users (Auth) ─────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
@@ -447,6 +448,11 @@ export const whatsappTemplates = pgTable("whatsapp_templates", {
   isActive: boolean("isActive").default(true).notNull(),
   usageCount: integer("usageCount").default(0).notNull(),
   lastUsedAt: timestamp("lastUsedAt"),
+  approvalStatus: templateApprovalStatusEnum("approvalStatus").default("none").notNull(),
+  approvalSubmittedAt: timestamp("approvalSubmittedAt"),
+  approvalUpdatedAt: timestamp("approvalUpdatedAt"),
+  rejectionReason: text("rejectionReason"),
+  metaTemplateId: varchar("metaTemplateId", { length: 128 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -511,6 +517,66 @@ export const templateVersions = pgTable("template_versions", {
 ]);
 
 // ─── Broadcast Campaigns ──────────────────────────────────────────────────────
+// ─── Inventory Sync ───────────────────────────────────────────────────────────
+export const inventorySyncStatusEnum = pgEnum("inventory_sync_status", ["idle", "syncing", "success", "failed"]);
+
+export const inventorySnapshots = pgTable("inventory_snapshots", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  odooProductId: integer("odooProductId"),
+  stockQty: decimal("stockQty", { precision: 12, scale: 2 }).default("0").notNull(),
+  reservedQty: decimal("reservedQty", { precision: 12, scale: 2 }).default("0").notNull(),
+  availableQty: decimal("availableQty", { precision: 12, scale: 2 }).default("0").notNull(),
+  lastSyncedAt: timestamp("lastSyncedAt").defaultNow().notNull(),
+  syncSource: varchar("syncSource", { length: 30 }).default("odoo").notNull(),
+}, (t) => [
+  index("inv_snap_tenant_idx").on(t.tenantId),
+  uniqueIndex("inv_snap_product_idx").on(t.tenantId, t.productId),
+]);
+
+export const inventorySyncLog = pgTable("inventory_sync_log", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  source: varchar("source", { length: 30 }).default("odoo").notNull(),
+  status: inventorySyncStatusEnum("status").default("idle").notNull(),
+  recordsSynced: integer("recordsSynced").default(0).notNull(),
+  errors: text("errors"),
+  syncedAt: timestamp("syncedAt").defaultNow().notNull(),
+}, (t) => [
+  index("inv_sync_log_tenant_idx").on(t.tenantId),
+  index("inv_sync_log_synced_idx").on(t.syncedAt),
+]);
+
+// ─── Broadcast A/B Tests ──────────────────────────────────────────────────────
+export const abWinnerCriteriaEnum = pgEnum("ab_winner_criteria", ["read_rate", "delivery_rate", "click_rate"]);
+
+export const broadcastAbTests = pgTable("broadcast_ab_tests", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  campaignId: varchar("campaignId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  variantATemplateId: varchar("variantATemplateId", { length: 36 }).notNull(),
+  variantBTemplateId: varchar("variantBTemplateId", { length: 36 }).notNull(),
+  variantAName: varchar("variantAName", { length: 100 }).default("Variant A").notNull(),
+  variantBName: varchar("variantBName", { length: 100 }).default("Variant B").notNull(),
+  splitRatio: integer("splitRatio").default(50).notNull(),
+  winnerCriteria: abWinnerCriteriaEnum("winnerCriteria").default("read_rate").notNull(),
+  winnerVariant: varchar("winnerVariant", { length: 1 }),
+  testEndAt: timestamp("testEndAt"),
+  variantASent: integer("variantASent").default(0).notNull(),
+  variantADelivered: integer("variantADelivered").default(0).notNull(),
+  variantARead: integer("variantARead").default(0).notNull(),
+  variantBSent: integer("variantBSent").default(0).notNull(),
+  variantBDelivered: integer("variantBDelivered").default(0).notNull(),
+  variantBRead: integer("variantBRead").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("ab_tests_campaign_idx").on(t.campaignId),
+  index("ab_tests_tenant_idx").on(t.tenantId),
+]);
+
+// ─── Broadcast Campaigns ──────────────────────────────────────────────────────
 export const broadcastStatusEnum = pgEnum("broadcast_status", ["draft", "scheduled", "sending", "completed", "cancelled", "failed"]);
 export const recipientStatusEnum = pgEnum("recipient_status", ["pending", "sent", "delivered", "read", "failed", "opted_out"]);
 
@@ -520,6 +586,8 @@ export const broadcastCampaigns = pgTable("broadcast_campaigns", {
   name: varchar("name", { length: 255 }).notNull(),
   templateId: varchar("templateId", { length: 36 }),
   templateVersionId: varchar("templateVersionId", { length: 36 }),
+  isAbTest: boolean("isAbTest").default(false).notNull(),
+  abTestId: varchar("abTestId", { length: 36 }),
   segment: varchar("segment", { length: 100 }).default("all"),
   segmentFilter: jsonb("segmentFilter"),
   status: broadcastStatusEnum("status").default("draft").notNull(),
@@ -565,3 +633,8 @@ export type BroadcastCampaign = typeof broadcastCampaigns.$inferSelect;
 export type InsertBroadcastCampaign = typeof broadcastCampaigns.$inferInsert;
 export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
 export type InsertBroadcastRecipient = typeof broadcastRecipients.$inferInsert;
+export type InventorySnapshot = typeof inventorySnapshots.$inferSelect;
+export type InsertInventorySnapshot = typeof inventorySnapshots.$inferInsert;
+export type InventorySyncLog = typeof inventorySyncLog.$inferSelect;
+export type BroadcastAbTest = typeof broadcastAbTests.$inferSelect;
+export type InsertBroadcastAbTest = typeof broadcastAbTests.$inferInsert;

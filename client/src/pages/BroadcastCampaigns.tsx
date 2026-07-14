@@ -13,6 +13,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
+  FlaskConical, Trophy, Split
+} from "lucide-react";
+import {
   Send, Users, CheckCircle2, Eye, XCircle, Clock, Radio,
   Plus, BarChart3, Megaphone, ChevronRight, Play, Ban,
   TrendingUp, MessageSquare, Loader2
@@ -103,6 +106,12 @@ export default function BroadcastCampaigns() {
   const [newSegment, setNewSegment] = useState("all");
   const [newTemplateId, setNewTemplateId] = useState("");
   const [sendingId, setSendingId] = useState<string | null>(null);
+  const [abTestOpen, setAbTestOpen] = useState(false);
+  const [abVariantA, setAbVariantA] = useState("");
+  const [abVariantB, setAbVariantB] = useState("");
+  const [abSplit, setAbSplit] = useState("50");
+  const [abCriteria, setAbCriteria] = useState<"read_rate" | "delivery_rate">("read_rate");
+  const [abDuration, setAbDuration] = useState("24");
 
   const { data: campaignsData, isLoading, refetch } = trpc.broadcast.list.useQuery({});
   const campaigns = (campaignsData?.campaigns ?? []) as Campaign[];
@@ -117,6 +126,29 @@ export default function BroadcastCampaigns() {
     { id: selectedId ?? "" },
     { enabled: !!selectedId }
   );
+
+  const { data: abResults } = trpc.broadcastAb.getAbResults.useQuery(
+    { campaignId: selectedId ?? "" },
+    { enabled: !!selectedId }
+  );
+
+  const createAbTest = trpc.broadcastAb.createAbTest.useMutation({
+    onSuccess: () => {
+      toast.success("A/B test created — campaign will split recipients between variants");
+      setAbTestOpen(false);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const autoSelectWinner = trpc.broadcastAb.autoSelectWinner.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Winner auto-selected: Variant ${data.winner}`);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
 
   const createCampaign = trpc.broadcast.create.useMutation({
     onSuccess: () => {
@@ -377,7 +409,71 @@ export default function BroadcastCampaigns() {
                       <p>Completed: {new Date(selectedCampaign.completedAt).toLocaleString()}</p>
                     )}
                   </div>
-                </CardContent>
+
+                  {/* A/B Test Panel */}
+                  {abResults ? (
+                    <div className="border border-violet-500/20 bg-violet-500/5 rounded-xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-semibold text-violet-400 flex items-center gap-2">
+                          <FlaskConical className="w-4 h-4" />
+                          A/B Test Results
+                        </h3>
+                        {abResults.isComplete && !abResults.hasWinner && (
+                          <Button
+                            size="sm" variant="outline"
+                            className="gap-1.5 border-violet-500/30 text-violet-400 hover:bg-violet-500/10"
+                            onClick={() => autoSelectWinner.mutate({ abTestId: abResults.id })}
+                            disabled={autoSelectWinner.isPending}
+                          >
+                            <Trophy className="w-3.5 h-3.5" />
+                            Auto-Select Winner
+                          </Button>
+                        )}
+                        {abResults.hasWinner && (
+                          <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 gap-1">
+                            <Trophy className="w-3 h-3" />
+                            Winner: Variant {abResults.winnerVariant}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { label: abResults.variantAName, sent: abResults.variantASent, delivered: abResults.variantADelivered, read: abResults.variantARead, readRate: abResults.variantAReadRate, deliveryRate: abResults.variantADeliveryRate, isWinner: abResults.winnerVariant === "A" },
+                          { label: abResults.variantBName, sent: abResults.variantBSent, delivered: abResults.variantBDelivered, read: abResults.variantBRead, readRate: abResults.variantBReadRate, deliveryRate: abResults.variantBDeliveryRate, isWinner: abResults.winnerVariant === "B" },
+                        ].map((v, i) => (
+                          <div key={i} className={`rounded-lg p-3 border ${v.isWinner ? "bg-amber-500/10 border-amber-500/30" : "bg-muted/20 border-border/30"}`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs font-semibold text-foreground">{v.label}</span>
+                              {v.isWinner && <Trophy className="w-3.5 h-3.5 text-amber-400" />}
+                            </div>
+                            <div className="space-y-1.5 text-xs">
+                              <div className="flex justify-between text-muted-foreground"><span>Sent</span><span className="font-mono">{v.sent}</span></div>
+                              <div className="flex justify-between text-muted-foreground"><span>Delivered</span><span className="font-mono text-emerald-400">{v.delivered} ({v.deliveryRate}%)</span></div>
+                              <div className="flex justify-between text-muted-foreground"><span>Read</span><span className="font-mono text-amber-400">{v.read} ({v.readRate}%)</span></div>
+                            </div>
+                            <Progress value={v.readRate} className="mt-2 h-1.5" />
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Criteria: <span className="text-violet-400">{abResults.winnerCriteria.replace("_", " ")}</span>
+                        {abResults.testEndAt && (
+                          <> · Test ends {new Date(abResults.testEndAt).toLocaleString()}</>
+                        )}
+                      </p>
+                    </div>
+                  ) : selectedCampaign.status === "draft" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-2 border-violet-500/30 text-violet-400 hover:bg-violet-500/10"
+                      onClick={() => setAbTestOpen(true)}
+                    >
+                      <Split className="w-4 h-4" />
+                      Set Up A/B Test
+                    </Button>
+                  )}
+</CardContent>
               </Card>
             )}
           </div>
@@ -385,6 +481,81 @@ export default function BroadcastCampaigns() {
       </div>
 
       {/* Create Campaign Dialog */}
+      {/* A/B Test Dialog */}
+      <Dialog open={abTestOpen} onOpenChange={setAbTestOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FlaskConical className="w-4 h-4 text-violet-400" />
+              Set Up A/B Test
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Split this campaign's recipients between two message templates. The winner is selected automatically based on your chosen metric.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Variant A Template</Label>
+                <Select value={abVariantA} onValueChange={setAbVariantA}>
+                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectContent>
+                    {templates.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Variant B Template</Label>
+                <Select value={abVariantB} onValueChange={setAbVariantB}>
+                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectContent>
+                    {templates.map(t => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Split Ratio (% to Variant A)</Label>
+                <Input type="number" min={10} max={90} value={abSplit} onChange={e => setAbSplit(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Winner Criteria</Label>
+                <Select value={abCriteria} onValueChange={(v) => setAbCriteria(v as any)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="read_rate">Read Rate</SelectItem>
+                    <SelectItem value="delivery_rate">Delivery Rate</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Test Duration (hours)</Label>
+              <Input type="number" min={1} max={168} value={abDuration} onChange={e => setAbDuration(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAbTestOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-violet-600 hover:bg-violet-700"
+              disabled={!abVariantA || !abVariantB || createAbTest.isPending}
+              onClick={() => createAbTest.mutate({
+                campaignId: selectedId!,
+                tenantId: "demo-tenant-1",
+                variantATemplateId: abVariantA,
+                variantBTemplateId: abVariantB,
+                splitRatio: parseInt(abSplit),
+                winnerCriteria: abCriteria,
+                testDurationHours: parseInt(abDuration),
+              })}
+            >
+              {createAbTest.isPending ? "Creating…" : "Create A/B Test"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
