@@ -17,6 +17,7 @@ import {
   ShoppingBag, Truck, CreditCard, Star, Megaphone, HeadphonesIcon, Zap,
   BarChart2, CheckCircle2, Clock
 } from "lucide-react";
+import { EyeOff } from "lucide-react";
 
 const CATEGORIES = [
   { value: "all", label: "All Templates", icon: MessageSquare },
@@ -185,11 +186,12 @@ function CreateTemplateDialog({ open, onClose, onCreated }: { open: boolean; onC
   );
 }
 
-function TemplateCard({ template, onSelect, onDelete, onSend }: {
+function TemplateCard({ template, onSelect, onDelete, onSend, onToggleActive }: {
   template: Template;
   onSelect: () => void;
   onDelete: () => void;
   onSend: () => void;
+  onToggleActive?: (isActive: boolean) => void;
 }) {
   const vars = (template.variables as Array<{ name: string }> | null) ?? [];
   const btns = (template.buttons as Array<{ type: string; text: string }> | null) ?? [];
@@ -205,9 +207,22 @@ function TemplateCard({ template, onSelect, onDelete, onSend }: {
             <div className="flex items-center gap-2 mt-1">
               <Badge className={`text-[10px] border ${catColor}`}>{catLabel}</Badge>
               <span className="text-[10px] text-white/40 uppercase">{template.language}</span>
+              <Badge className={`text-[10px] border ${template.isActive ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-amber-500/20 text-amber-300 border-amber-500/30"}`}>
+                {template.isActive ? "published" : "draft"}
+              </Badge>
             </div>
           </div>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+            {onToggleActive && (
+              <Button
+                size="icon" variant="ghost"
+                className={`h-7 w-7 ${template.isActive ? "text-amber-400 hover:text-amber-300" : "text-emerald-400 hover:text-emerald-300"}`}
+                title={template.isActive ? "Set to draft" : "Publish"}
+                onClick={() => onToggleActive(!template.isActive)}
+              >
+                {template.isActive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </Button>
+            )}
             <Button size="icon" variant="ghost" className="h-7 w-7 text-white/50 hover:text-white" onClick={onSelect}>
               <Eye className="w-3.5 h-3.5" />
             </Button>
@@ -363,6 +378,13 @@ export default function TemplateLibrary() {
   const recordUsage = trpc.template.recordUsage.useMutation({
     onSuccess: () => utils.template.list.invalidate(),
   });
+  const toggleActive = trpc.template.toggleActive.useMutation({
+    onSuccess: (_: unknown, vars: { id: string; isActive: boolean }) => {
+      toast.success(vars.isActive ? "Template published" : "Template set to draft");
+      utils.template.list.invalidate();
+    },
+    onError: (e: { message: string }) => toast.error(e.message),
+  });
 
   const templates = data?.templates ?? [];
   const total = data?.total ?? 0;
@@ -453,6 +475,7 @@ export default function TemplateLibrary() {
                 onSelect={() => setSelected(t as Template)}
                 onDelete={() => deleteTemplate.mutate({ id: t.id })}
                 onSend={() => handleSend(t as Template)}
+                onToggleActive={(isActive: boolean) => toggleActive.mutate({ id: t.id, isActive })}
               />
             ))}
           </div>

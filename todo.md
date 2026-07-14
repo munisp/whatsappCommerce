@@ -127,20 +127,23 @@
 - [x] 2 PostgreSQL connection vitest tests passing
 
 ## Template Versioning
-- [ ] DB schema: template_versions table (templateId, version, body, status, changedBy, createdAt)
-- [ ] tRPC router: templates.createVersion, templates.listVersions, templates.publishVersion, templates.revertToVersion
-- [ ] Template Library UI: draft/published status toggle per template card
-- [ ] Version history drawer: list all versions with diff view and revert button
+- [x] DB schema: template_versions table (templateId, version, body, status, changedBy, createdAt)
+- [x] tRPC router: templates.createVersion, templates.listVersions, templates.publishVersion, templates.revertToVersion
+- [x] Template Library UI: draft/published status toggle per template card
+- [x] Version history drawer: list all versions with diff view and revert button
 
 ## WhatsApp Broadcast Campaigns
-- [ ] DB schema: broadcast_campaigns, broadcast_recipients tables
-- [ ] tRPC router: broadcast (create, list, get, send, cancel, getRecipients, getDeliveryStats)
-- [ ] Broadcast page: create campaign, select template, segment contacts from Twenty CRM
-- [ ] Variable substitution preview per recipient
-- [ ] Delivery tracking: sent/delivered/read/failed counts with progress bar
-- [ ] Campaign status: draft, scheduled, sending, completed, cancelled
+- [x] DB schema: broadcast_campaigns, broadcast_recipients tables
+- [x] tRPC router: broadcast (create, list, get, send, cancel, getRecipients, getDeliveryStats)
+- [x] Broadcast page: create campaign, select template, segment contacts from Twenty CRM
+- [x] Variable substitution preview per recipient
+- [x] Delivery tracking: sent/delivered/read/failed counts with progress bar
+- [x] Campaign status: draft, scheduled, sending, completed, cancelled
 
 ## Tenant Seeding & Menu Assignment Verification
-- [ ] Seed 3 test tenants via tRPC with different plans (starter, growth, enterprise)
-- [ ] Seed 2 WhatsApp menus and assign to tenants via Menu Assignment page
-- [ ] Verify push-to-WhatsApp payload generation per tenant
+- [x] Seed 5 test tenants (Lagos Fresh Market, Nairobi Tech Store, Cape Town Boutique, Accra Fashion Hub, Cairo Electronics)
+- [x] Seed 2 WhatsApp menus and assign to tenants via Menu Assignment page
+- [x] Verify push-to-WhatsApp payload generation per tenant
+
+## Bug Fixes
+- [x] Fix Dashboard KPI cards showing zero: quote camelCase column names in raw SQL (totalAmount, escalatedAt, stockQuantity, latencyMs)

@@ -141,7 +141,7 @@ export async function getProductStats(tenantId: string) {
   const [total, active, lowStock] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(products).where(eq(products.tenantId, tenantId)),
     db.select({ count: sql<number>`count(*)` }).from(products).where(and(eq(products.tenantId, tenantId), eq(products.status, "active"))),
-    db.select({ count: sql<number>`count(*)` }).from(products).where(and(eq(products.tenantId, tenantId), sql`stockQuantity <= lowStockThreshold`)),
+    db.select({ count: sql<number>`count(*)` }).from(products).where(and(eq(products.tenantId, tenantId), sql`"stockQuantity" <= "lowStockThreshold"`)),
   ]);
   return {
     total: Number(total[0]?.count ?? 0),
@@ -186,7 +186,7 @@ export async function getConversationStats(tenantId: string) {
     db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.status, "bot_active"))),
     db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.status, "human_active"))),
     db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.status, "resolved"))),
-    db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), sql`escalatedAt IS NOT NULL`)),
+    db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), sql`"escalatedAt" IS NOT NULL`)),
   ]);
   return {
     total: Number(total[0]?.count ?? 0),
@@ -216,7 +216,7 @@ export async function getOrderStats(tenantId: string) {
     db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "pending"))),
     db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "confirmed"))),
     db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "delivered"))),
-    db.select({ total: sql<number>`COALESCE(SUM(totalAmount), 0)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.paymentStatus, "completed"))),
+    db.select({ total: sql<number>`COALESCE(SUM("totalAmount"), 0)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.paymentStatus, "completed"))),
   ]);
   return {
     total: Number(total[0]?.count ?? 0),
@@ -252,7 +252,7 @@ export async function getAgentStats(tenantId: string) {
     db.select({ count: sql<number>`count(*)` }).from(agentEvents).where(eq(agentEvents.tenantId, tenantId)),
     db.select({ count: sql<number>`count(*)` }).from(agentEvents).where(and(eq(agentEvents.tenantId, tenantId), eq(agentEvents.escalated, true))),
     db.select({
-      avgLatency: sql<number>`COALESCE(AVG(latencyMs), 0)`,
+      avgLatency: sql<number>`COALESCE(AVG("latencyMs"), 0)`,
       avgConfidence: sql<number>`COALESCE(AVG(confidence), 0)`,
     }).from(agentEvents).where(eq(agentEvents.tenantId, tenantId)),
   ]);
@@ -295,7 +295,7 @@ export async function getPlatformOverview() {
   if (!db) return null;
   const [tenantStats, orderRevenue, convCount, agentCount] = await Promise.all([
     db.select({ count: sql<number>`count(*)`, active: sql<number>`SUM(CASE WHEN status='active' THEN 1 ELSE 0 END)` }).from(tenants),
-    db.select({ revenue: sql<number>`COALESCE(SUM(totalAmount), 0)`, count: sql<number>`count(*)` }).from(orders).where(eq(orders.paymentStatus, "completed")),
+    db.select({ revenue: sql<number>`COALESCE(SUM("totalAmount"), 0)`, count: sql<number>`count(*)` }).from(orders).where(eq(orders.paymentStatus, "completed")),
     db.select({ count: sql<number>`count(*)` }).from(conversations),
     db.select({ count: sql<number>`count(*)` }).from(agentEvents),
   ]);

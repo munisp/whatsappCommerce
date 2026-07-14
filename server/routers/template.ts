@@ -228,6 +228,18 @@ export const templateRouter = router({
       return { success: true };
     }),
 
+  // Toggle draft/published state
+  toggleActive: protectedProcedure
+    .input(z.object({ id: z.string(), isActive: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.update(whatsappTemplates)
+        .set({ isActive: input.isActive, updatedAt: new Date() })
+        .where(and(eq(whatsappTemplates.id, input.id), eq(whatsappTemplates.tenantId, getTenantId(ctx))));
+      return { success: true };
+    }),
+
   // Record a usage (called when template is sent from Odoo/Twenty dialogs)
   recordUsage: protectedProcedure
     .input(z.object({ id: z.string() }))
