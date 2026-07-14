@@ -24,6 +24,8 @@ import CredentialWizard from "./pages/CredentialWizard";
 import TemplateVersions from "./pages/TemplateVersions";
 import BroadcastCampaigns from "./pages/BroadcastCampaigns";
 import InventorySync from "./pages/InventorySync";
+import TenantOnboarding from "./pages/TenantOnboarding";
+import AgentArchitecture from "./pages/AgentArchitecture";
 
 function Router() {
   return (
@@ -48,6 +50,8 @@ function Router() {
       <Route path="/template-versions" component={TemplateVersions} />
       <Route path="/broadcast" component={BroadcastCampaigns} />
       <Route path="/inventory" component={InventorySync} />
+      <Route path="/onboarding" component={TenantOnboarding} />
+      <Route path="/agent-architecture" component={AgentArchitecture} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

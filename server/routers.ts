@@ -17,6 +17,9 @@ import { templateVersionsRouter } from "./routers/templateVersions";
 import { broadcastRouter } from "./routers/broadcast";
 import { inventoryRouter } from "./routers/inventory";
 import { broadcastAbRouter } from "./routers/broadcastAb";
+import { onboardingRouter } from "./routers/onboarding";
+import { kycRouter } from "./routers/kyc";
+import { heartbeatRouter } from "./routers/heartbeat";
 
 export const appRouter = router({
   system: systemRouter,
@@ -43,6 +46,9 @@ export const appRouter = router({
   broadcast: broadcastRouter,
   inventory: inventoryRouter,
   broadcastAb: broadcastAbRouter,
+  onboarding: onboardingRouter,
+  kyc: kycRouter,
+  heartbeat: heartbeatRouter,
 });
 
 export type AppRouter = typeof appRouter;

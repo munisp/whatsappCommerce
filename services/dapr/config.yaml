@@ -1,0 +1,26 @@
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: whatsapp-commerce-config
+  namespace: default
+spec:
+  tracing:
+    samplingRate: "1"
+    zipkin:
+      endpointAddress: http://zipkin:9411/api/v2/spans
+  metric:
+    enabled: true
+  features:
+    - name: SchedulerReminders
+      enabled: true
+  api:
+    allowed:
+      - name: invoke
+        version: v1
+      - name: state
+        version: v1
+      - name: pubsub
+        version: v1
+      - name: secrets
+        version: v1
+

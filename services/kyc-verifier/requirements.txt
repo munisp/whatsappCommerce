@@ -1,0 +1,38 @@
+# Core API
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+python-multipart==0.0.20
+httpx==0.28.1
+
+# Document OCR & Parsing
+paddlepaddle==2.6.2
+paddleocr==2.9.1
+docling==2.15.0
+pillow==11.1.0
+pdf2image==1.17.0
+pypdf==5.1.0
+
+# VLM / AI Analysis (via Ollama or OpenAI-compatible)
+openai==1.59.9
+ollama==0.4.7
+
+# Liveness Detection
+opencv-python-headless==4.10.0.84
+mediapipe==0.10.21
+numpy==2.2.1
+scikit-learn==1.6.0
+
+# Middleware
+aiokafka==0.12.0
+redis[asyncio]==5.2.1
+
+# Database
+asyncpg==0.30.0
+sqlalchemy[asyncio]==2.0.36
+
+# Utilities
+python-jose[cryptography]==3.3.0
+structlog==24.4.0
+prometheus-client==0.21.1
+

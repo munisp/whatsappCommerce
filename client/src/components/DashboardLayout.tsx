@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bot, Building2, ChevronDown, CreditCard, GitBranch, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, Package, PanelLeft, Server, Settings, Smartphone, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bot, Building2, ChevronDown, CreditCard, GitBranch, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, Network, Package, PanelLeft, Server, Settings, Smartphone, UserPlus, Users, Warehouse } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -51,6 +51,8 @@ const menuItems: NavItem[] = [
   { icon: Warehouse,       label: "Inventory Sync", path: "/inventory",    section: "Integrations" },
   // ── System ────────────────────────────────────────────────────────────────
   { icon: Bot,             label: "AI Agent",       path: "/agent",        section: "System" },
+  { icon: Network,         label: "AI Architecture",path: "/agent-architecture", section: "System" },
+  { icon: UserPlus,        label: "Onboard Tenant", path: "/onboarding",   section: "System" },
   { icon: Server,          label: "Service Health", path: "/health",       section: "System" },
   { icon: Settings,        label: "Setup Wizard",   path: "/setup",        section: "System" },
 ];

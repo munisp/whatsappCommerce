@@ -626,6 +626,52 @@ export const broadcastRecipients = pgTable("broadcast_recipients", {
   index("broadcast_recipients_status_idx").on(t.status),
 ]);
 
+// ─── Billing Model & Tenant Onboarding ───────────────────────────────────────
+export const billingModelEnum = pgEnum("billing_model", ["profit_sharing", "subscription", "hybrid"]);
+export const subscriptionCycleEnum = pgEnum("subscription_cycle", ["monthly", "annual"]);
+export const onboardingStepEnum = pgEnum("onboarding_step", ["business_profile", "billing_model", "whatsapp_setup", "ai_config", "review", "completed"]);
+
+export const tenantOnboarding = pgTable("tenant_onboarding", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
+  currentStep: onboardingStepEnum("currentStep").default("business_profile").notNull(),
+  billingModel: billingModelEnum("billingModel"),
+  profitShareRate: varchar("profitShareRate", { length: 10 }),
+  subscriptionFee: varchar("subscriptionFee", { length: 20 }),
+  subscriptionCycle: subscriptionCycleEnum("subscriptionCycle").default("monthly"),
+  minMonthlyFee: varchar("minMonthlyFee", { length: 20 }),
+  maxProfitShareRate: varchar("maxProfitShareRate", { length: 10 }),
+  businessType: varchar("businessType", { length: 100 }),
+  businessDescription: varchar("businessDescription", { length: 1000 }),
+  businessCountry: varchar("businessCountry", { length: 100 }),
+  businessCurrency: varchar("businessCurrency", { length: 3 }).default("USD"),
+  estimatedMonthlyGmv: varchar("estimatedMonthlyGmv", { length: 20 }),
+  estimatedMonthlyOrders: integer("estimatedMonthlyOrders"),
+  whatsappVerified: boolean("whatsappVerified").default(false).notNull(),
+  aiConfigured: boolean("aiConfigured").default(false).notNull(),
+  onboardingNotes: varchar("onboardingNotes", { length: 2000 }),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("onboarding_tenant_idx").on(t.tenantId),
+]);
+
+// ─── Template Approval History ────────────────────────────────────────────────
+export const templateApprovalHistory = pgTable("template_approval_history", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  templateId: varchar("templateId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  fromStatus: varchar("fromStatus", { length: 50 }),
+  toStatus: varchar("toStatus", { length: 50 }).notNull(),
+  changedBy: varchar("changedBy", { length: 255 }),
+  reason: varchar("reason", { length: 1000 }),
+  metaSubmissionId: varchar("metaSubmissionId", { length: 128 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("approval_history_template_idx").on(t.templateId),
+]);
+
 // ─── Extended Types ───────────────────────────────────────────────────────────
 export type TemplateVersion = typeof templateVersions.$inferSelect;
 export type InsertTemplateVersion = typeof templateVersions.$inferInsert;
@@ -638,3 +684,98 @@ export type InsertInventorySnapshot = typeof inventorySnapshots.$inferInsert;
 export type InventorySyncLog = typeof inventorySyncLog.$inferSelect;
 export type BroadcastAbTest = typeof broadcastAbTests.$inferSelect;
 export type InsertBroadcastAbTest = typeof broadcastAbTests.$inferInsert;
+export type TenantOnboarding = typeof tenantOnboarding.$inferSelect;
+export type InsertTenantOnboarding = typeof tenantOnboarding.$inferInsert;
+export type TemplateApprovalHistory = typeof templateApprovalHistory.$inferSelect;
+
+// ─── KYC/KYB ─────────────────────────────────────────────────────────────────
+export const kycDocumentTypeEnum = pgEnum("kyc_document_type", [
+  "national_id", "passport", "drivers_license", "residence_permit",
+  "utility_bill", "bank_statement", "business_registration",
+  "certificate_of_incorporation", "tax_certificate", "directors_id",
+]);
+export const kycStatusEnum = pgEnum("kyc_status", [
+  "not_started", "pending", "under_review", "approved", "rejected", "expired", "resubmit_required",
+]);
+export const kycTypeEnum = pgEnum("kyc_type", ["kyc", "kyb"]);
+export const livenessStatusEnum = pgEnum("liveness_status", [
+  "not_started", "in_progress", "passed", "failed", "expired",
+]);
+
+export const kycApplications = pgTable("kyc_applications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  type: kycTypeEnum("type").default("kyb").notNull(),
+  status: kycStatusEnum("status").default("not_started").notNull(),
+  applicantName: varchar("applicantName", { length: 255 }),
+  applicantEmail: varchar("applicantEmail", { length: 320 }),
+  applicantPhone: varchar("applicantPhone", { length: 30 }),
+  businessName: varchar("businessName", { length: 255 }),
+  businessRegistrationNumber: varchar("businessRegistrationNumber", { length: 100 }),
+  businessCountry: varchar("businessCountry", { length: 100 }),
+  businessType: varchar("businessType", { length: 100 }),
+  riskScore: varchar("riskScore", { length: 10 }),
+  reviewedBy: varchar("reviewedBy", { length: 255 }),
+  reviewNotes: text("reviewNotes"),
+  rejectionReason: text("rejectionReason"),
+  submittedAt: timestamp("submittedAt"),
+  reviewedAt: timestamp("reviewedAt"),
+  approvedAt: timestamp("approvedAt"),
+  expiresAt: timestamp("expiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("kyc_app_tenant_idx").on(t.tenantId),
+  index("kyc_app_status_idx").on(t.status),
+]);
+
+export const kycDocuments = pgTable("kyc_documents", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  applicationId: varchar("applicationId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  documentType: kycDocumentTypeEnum("documentType").notNull(),
+  fileKey: varchar("fileKey", { length: 512 }),
+  fileUrl: text("fileUrl"),
+  fileName: varchar("fileName", { length: 255 }),
+  mimeType: varchar("mimeType", { length: 100 }),
+  fileSizeBytes: integer("fileSizeBytes"),
+  ocrRawText: text("ocrRawText"),
+  ocrConfidence: varchar("ocrConfidence", { length: 10 }),
+  extractedData: jsonb("extractedData"),
+  vlmAnalysis: jsonb("vlmAnalysis"),
+  doclingStructure: jsonb("doclingStructure"),
+  isAuthentic: boolean("isAuthentic"),
+  isTampered: boolean("isTampered"),
+  authenticityScore: varchar("authenticityScore", { length: 10 }),
+  verificationNotes: text("verificationNotes"),
+  processedAt: timestamp("processedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("kyc_docs_app_idx").on(t.applicationId),
+]);
+
+export const livenessChecks = pgTable("liveness_checks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  applicationId: varchar("applicationId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  status: livenessStatusEnum("status").default("not_started").notNull(),
+  sessionToken: varchar("sessionToken", { length: 256 }),
+  livenessScore: varchar("livenessScore", { length: 10 }),
+  faceMatchScore: varchar("faceMatchScore", { length: 10 }),
+  spoofingDetected: boolean("spoofingDetected").default(false),
+  frameCount: integer("frameCount").default(0),
+  challengeType: varchar("challengeType", { length: 50 }),
+  challengeCompleted: boolean("challengeCompleted").default(false),
+  analysisResult: jsonb("analysisResult"),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  expiresAt: timestamp("expiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("liveness_app_idx").on(t.applicationId),
+]);
+
+export type KycApplication = typeof kycApplications.$inferSelect;
+export type InsertKycApplication = typeof kycApplications.$inferInsert;
+export type KycDocument = typeof kycDocuments.$inferSelect;
+export type LivenessCheck = typeof livenessChecks.$inferSelect;

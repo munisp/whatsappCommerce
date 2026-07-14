@@ -173,3 +173,22 @@
 - [x] DB schema: broadcast_ab_tests table (campaignId, variantA_templateId, variantB_templateId, splitRatio, winnerCriteria, winnerVariant, testEndAt)
 - [x] tRPC router: broadcastAb (createAbTest, getAbResults, autoSelectWinner)
 - [x] Broadcast page: A/B test panel in campaign detail, variant stats comparison, auto-winner button
+
+## Tenant Onboarding Wizard
+- [ ] DB schema: tenant_onboarding table (tenantId, step, billingModel, profitShareRate, subscriptionFee, subscriptionCycle, whatsappVerified, aiConfigured, completedAt)
+- [ ] DB schema: billing_model enum (profit_sharing, subscription, hybrid)
+- [ ] tRPC router: onboarding (getProgress, saveStep, complete, getBillingPlans)
+- [ ] Multi-step wizard UI: Business Profile → Billing Model → WhatsApp Setup → AI Config → Review & Launch
+- [ ] Billing model comparison card: profit-sharing (% of GMV) vs subscription (fixed monthly/annual) vs hybrid
+- [ ] Onboarding progress tracker: step indicators with completion state
+- [ ] Tenant list page: "Complete Setup" CTA for tenants with incomplete onboarding
+- [ ] DashboardLayout: onboarding banner for tenants in trial with incomplete setup
+
+## Heartbeat Auto-Sync & Dashboard Enhancements
+- [ ] Heartbeat job: register /api/scheduled/inventory-sync to run every 5 minutes
+- [ ] Express handler: /api/scheduled/inventory-sync authenticates cron, runs syncFromOdoo for all active tenants
+- [ ] Low-stock dashboard widget: KPI card showing count of products below lowStockThreshold
+- [ ] Template approval history timeline in version history drawer
+
+## AI Agent Integration Architecture
+- [ ] Architecture explainer page or section: how AI agent integrates with WhatsApp, CRM, Odoo, and Dashboard

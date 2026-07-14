@@ -1,0 +1,158 @@
+version: "3.9"
+
+# ─── WhatsApp Commerce Platform — Middleware Stack ────────────────────────────
+# Services: Kafka, Zookeeper, Redis, Temporal, Dapr Placement, APISix, Keycloak
+# Usage: docker compose -f docker-compose.middleware.yml up -d
+
+services:
+  # ── Zookeeper (Kafka dependency) ────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Kafka ───────────────────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ── Kafka UI ────────────────────────────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      - kafka
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Temporal Server ─────────────────────────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-db
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    depends_on:
+      temporal-db:
+        condition: service_healthy
+    volumes:
+      - ./temporal-config:/etc/temporal/config/dynamicconfig
+
+  temporal-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - temporal_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    ports:
+      - "8088:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    depends_on:
+      - temporal
+
+  # ── Dapr Placement Service ──────────────────────────────────────────────────
+  dapr-placement:
+    image: daprio/dapr:1.14.4
+    command: ["./placement", "-port", "50006"]
+    ports:
+      - "50006:50006"
+
+  # ── APISix Gateway ──────────────────────────────────────────────────────────
+  apisix:
+    image: apache/apisix:3.11.0-debian
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+      - "9180:9180"
+    environment:
+      APISIX_STAND_ALONE: "true"
+    volumes:
+      - ./apisix-config:/usr/local/apisix/conf
+    depends_on:
+      - kafka
+      - redis
+
+  # ── KYC Verifier (Python) ───────────────────────────────────────────────────
+  kyc-verifier:
+    build:
+      context: ../kyc-verifier
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      REDIS_URL: redis://redis:6379/2
+      KYC_INTERNAL_API_KEY: ${KYC_INTERNAL_API_KEY:-dev-kyc-key}
+      VLM_MOCK_MODE: ${VLM_MOCK_MODE:-true}
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  zookeeper_data:
+  kafka_data:
+  redis_data:
+  temporal_db_data:
+
