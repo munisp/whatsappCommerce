@@ -79,6 +79,7 @@ export default function IntegrationHub() {
   const { data: twentyCfg } = trpc.twenty.getConfig.useQuery();
   const { data: odooCfg } = trpc.odoo.getConfig.useQuery();
   const { data: menus = [] } = trpc.menu.list.useQuery();
+  const { data: assignmentsData } = trpc.menu.getAssignments.useQuery();
   const { data: contacts } = trpc.twenty.listContacts.useQuery({ limit: 50, offset: 0 });
   const { data: deals } = trpc.twenty.listDeals.useQuery({ limit: 50, offset: 0 });
   const { data: products } = trpc.odoo.listProducts.useQuery({ limit: 50, offset: 0 });
@@ -86,6 +87,7 @@ export default function IntegrationHub() {
 
   const publishedMenus = menus.filter(m => m.status === "published").length;
   const pushedMenus = menus.filter(m => m.pushStatus === "success").length;
+  const assignedTenants = Array.isArray(assignmentsData) ? assignmentsData.length : 0;
 
   return (
     <DashboardLayout>
@@ -104,7 +106,7 @@ export default function IntegrationHub() {
             { label: "Active Integrations", value: [twentyCfg?.status === "connected", odooCfg?.status === "connected"].filter(Boolean).length + "/2", icon: Globe, color: "text-primary" },
             { label: "Synced Records", value: (contacts?.contacts?.length ?? 0) + (products?.products?.length ?? 0), icon: Database, color: "text-blue-400" },
             { label: "WhatsApp Menus", value: menus.length, icon: Smartphone, color: "text-green-400" },
-            { label: "Pushed to WA", value: pushedMenus, icon: MessageSquare, color: "text-primary" },
+            { label: "Tenant Assignments", value: assignedTenants, icon: MessageSquare, color: "text-primary" },
           ].map(k => (
             <Card key={k.label} className="bg-card border-border">
               <CardContent className="p-4 flex items-center gap-3">
@@ -170,7 +172,7 @@ export default function IntegrationHub() {
             stats={[
               { label: "Menus", value: menus.length },
               { label: "Published", value: publishedMenus },
-              { label: "Pushed", value: pushedMenus },
+              { label: "Assigned", value: assignedTenants },
             ]}
             href="/menu-builder"
             features={[

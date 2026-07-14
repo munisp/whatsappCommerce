@@ -96,3 +96,32 @@
 - [x] Integration Hub page listing Twenty, Odoo, and Menu Builder with status cards and stats
 - [x] Sidebar nav updated with PLATFORM / INTEGRATIONS / SYSTEM section grouping
 - [x] "How It Works" end-to-end data flow diagram on Integration Hub
+
+## WhatsApp Template Library
+- [x] DB schema: whatsapp_templates table (name, category, body, variables, language)
+- [x] tRPC router: templates (list, create, update, delete, getByCategory, preview)
+- [x] Template Library page: CRUD for reusable message templates with variable substitution preview
+- [x] Template selector in Odoo notify/remind dialogs (replace free-form text with template picker)
+- [x] Template selector in Twenty CRM WhatsApp send dialog
+- [x] Template categories: order_confirmation, shipping_update, payment_reminder, welcome, promotion, support, custom
+
+## Per-Tenant Menu Assignment
+- [x] DB schema: tenant_menu_assignments table (tenantId, menuId, assignedAt)
+- [x] tRPC router: menu.assignToTenant, menu.unassignFromTenant, menu.getAssignments
+- [x] Tenant Menu Assignment page: assign WhatsApp menus per tenant with stats
+- [x] Menu assignment shown on Integration Hub
+
+## Credential Connection Wizard
+- [x] Step-by-step guided setup wizard for Twenty CRM (URL → API key → test → sync)
+- [x] Step-by-step guided setup wizard for Odoo ERP (URL → DB → user → API key → test → sync)
+- [x] Step-by-step guided setup wizard for WhatsApp Business API, AI Provider, Payment Provider, Chatwoot
+- [x] Real-time validation feedback with field-level error messages
+- [x] Setup progress bar (0/6 configured)
+- [x] Setup Wizard sidebar nav entry under System section
+
+## PostgreSQL Migration
+- [x] PostgreSQL 16 installed locally (sandbox)
+- [x] whatsapp_commerce database created with wacommerce user
+- [x] All 21 tables migrated from MySQL to PostgreSQL (pg-core Drizzle)
+- [x] POSTGRES_URL secret wired to web app
+- [x] 2 PostgreSQL connection vitest tests passing

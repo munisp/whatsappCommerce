@@ -1,38 +1,57 @@
 import {
   boolean,
   decimal,
-  int,
-  json,
-  mysqlEnum,
-  mysqlTable,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  serial,
   text,
   timestamp,
   varchar,
   index,
   uniqueIndex,
-} from "drizzle-orm/mysql-core";
+} from "drizzle-orm/pg-core";
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+export const userRoleEnum = pgEnum("user_role", ["user", "admin", "operator", "analyst"]);
+export const tenantPlanEnum = pgEnum("tenant_plan", ["starter", "growth", "enterprise"]);
+export const tenantStatusEnum = pgEnum("tenant_status", ["active", "suspended", "trial", "churned"]);
+export const productStatusEnum = pgEnum("product_status", ["active", "inactive", "archived"]);
+export const conversationStatusEnum = pgEnum("conversation_status", ["open", "resolved", "pending", "snoozed", "bot_active", "human_active"]);
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["unpaid", "initiated", "completed", "failed", "refunded"]);
+export const paymentProviderEnum = pgEnum("payment_provider", ["mojaloop", "stripe", "paystack", "flutterwave", "manual"]);
+export const paymentIntentStatusEnum = pgEnum("payment_intent_status", ["initiated", "pending", "completed", "failed", "cancelled", "refunded"]);
+export const webhookStatusEnum = pgEnum("webhook_status", ["received", "processing", "processed", "failed"]);
+export const serviceStatusEnum = pgEnum("service_status", ["healthy", "degraded", "down", "unknown"]);
+export const integrationStatusEnum = pgEnum("integration_status", ["connected", "disconnected", "error"]);
+export const menuStatusEnum = pgEnum("menu_status", ["draft", "published", "archived"]);
+export const menuPushStatusEnum = pgEnum("menu_push_status", ["idle", "pushing", "success", "failed"]);
+export const menuItemTypeEnum = pgEnum("menu_item_type", ["section", "button", "list_item", "quick_reply", "catalog_link", "url"]);
+export const templateCategoryEnum = pgEnum("template_category", ["order_confirmation", "shipping_update", "payment_reminder", "welcome", "promotion", "support", "custom"]);
 
 // ─── Users (Auth) ─────────────────────────────────────────────────────────────
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin", "operator", "analyst"]).default("user").notNull(),
+  role: userRoleEnum("role").default("user").notNull(),
   tenantId: varchar("tenantId", { length: 36 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
 // ─── Tenants ──────────────────────────────────────────────────────────────────
-export const tenants = mysqlTable("tenants", {
+export const tenants = pgTable("tenants", {
   id: varchar("id", { length: 36 }).primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
-  plan: mysqlEnum("plan", ["starter", "growth", "enterprise"]).default("starter").notNull(),
-  status: mysqlEnum("status", ["active", "suspended", "trial", "churned"]).default("trial").notNull(),
+  plan: tenantPlanEnum("plan").default("starter").notNull(),
+  status: tenantStatusEnum("status").default("trial").notNull(),
   whatsappPhoneNumberId: varchar("whatsappPhoneNumberId", { length: 64 }),
   whatsappBusinessAccountId: varchar("whatsappBusinessAccountId", { length: 64 }),
   webhookVerifyToken: varchar("webhookVerifyToken", { length: 128 }),
@@ -42,16 +61,16 @@ export const tenants = mysqlTable("tenants", {
   defaultLanguage: varchar("defaultLanguage", { length: 10 }).default("en").notNull(),
   aiEnabled: boolean("aiEnabled").default(true).notNull(),
   aiModel: varchar("aiModel", { length: 64 }).default("gpt-4o-mini"),
-  settings: json("settings"),
+  settings: jsonb("settings"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("tenants_status_idx").on(t.status),
   index("tenants_plan_idx").on(t.plan),
 ]);
 
 // ─── Products ─────────────────────────────────────────────────────────────────
-export const products = mysqlTable("products", {
+export const products = pgTable("products", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   sku: varchar("sku", { length: 100 }).notNull(),
@@ -61,12 +80,12 @@ export const products = mysqlTable("products", {
   price: decimal("price", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).default("USD").notNull(),
   imageUrl: text("imageUrl"),
-  status: mysqlEnum("status", ["active", "inactive", "archived"]).default("active").notNull(),
-  stockQuantity: int("stockQuantity").default(0).notNull(),
-  lowStockThreshold: int("lowStockThreshold").default(10),
-  metadata: json("metadata"),
+  status: productStatusEnum("status").default("active").notNull(),
+  stockQuantity: integer("stockQuantity").default(0).notNull(),
+  lowStockThreshold: integer("lowStockThreshold").default(10),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("products_tenant_idx").on(t.tenantId),
   index("products_status_idx").on(t.status),
@@ -74,7 +93,7 @@ export const products = mysqlTable("products", {
 ]);
 
 // ─── Customers ────────────────────────────────────────────────────────────────
-export const customers = mysqlTable("customers", {
+export const customers = pgTable("customers", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   whatsappPhone: varchar("whatsappPhone", { length: 30 }).notNull(),
@@ -82,37 +101,37 @@ export const customers = mysqlTable("customers", {
   email: varchar("email", { length: 320 }),
   language: varchar("language", { length: 10 }).default("en"),
   crmContactId: varchar("crmContactId", { length: 64 }),
-  totalOrders: int("totalOrders").default(0).notNull(),
+  totalOrders: integer("totalOrders").default(0).notNull(),
   totalSpent: decimal("totalSpent", { precision: 14, scale: 2 }).default("0.00").notNull(),
   lastOrderAt: timestamp("lastOrderAt"),
-  tags: json("tags"),
+  tags: jsonb("tags"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("customers_tenant_idx").on(t.tenantId),
   uniqueIndex("customers_tenant_phone_idx").on(t.tenantId, t.whatsappPhone),
 ]);
 
 // ─── Conversations ────────────────────────────────────────────────────────────
-export const conversations = mysqlTable("conversations", {
+export const conversations = pgTable("conversations", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   customerId: varchar("customerId", { length: 36 }).notNull(),
   chatwootConversationId: varchar("chatwootConversationId", { length: 64 }),
-  status: mysqlEnum("status", ["open", "resolved", "pending", "snoozed", "bot_active", "human_active"]).default("open").notNull(),
+  status: conversationStatusEnum("status").default("open").notNull(),
   channel: varchar("channel", { length: 30 }).default("whatsapp").notNull(),
   assignedAgentId: varchar("assignedAgentId", { length: 64 }),
   currentFlowStep: varchar("currentFlowStep", { length: 100 }).default("greeting"),
   lastIntent: varchar("lastIntent", { length: 100 }),
   cartId: varchar("cartId", { length: 36 }),
-  messageCount: int("messageCount").default(0).notNull(),
+  messageCount: integer("messageCount").default(0).notNull(),
   aiHandled: boolean("aiHandled").default(true).notNull(),
   escalatedAt: timestamp("escalatedAt"),
   resolvedAt: timestamp("resolvedAt"),
   firstResponseAt: timestamp("firstResponseAt"),
-  metadata: json("metadata"),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("conversations_tenant_idx").on(t.tenantId),
   index("conversations_status_idx").on(t.status),
@@ -120,23 +139,23 @@ export const conversations = mysqlTable("conversations", {
 ]);
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
-export const orders = mysqlTable("orders", {
+export const orders = pgTable("orders", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   customerId: varchar("customerId", { length: 36 }).notNull(),
   conversationId: varchar("conversationId", { length: 36 }),
   orderNumber: varchar("orderNumber", { length: 50 }).notNull(),
-  status: mysqlEnum("status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]).default("pending").notNull(),
+  status: orderStatusEnum("status").default("pending").notNull(),
   totalAmount: decimal("totalAmount", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).default("USD").notNull(),
-  paymentStatus: mysqlEnum("paymentStatus", ["unpaid", "initiated", "completed", "failed", "refunded"]).default("unpaid").notNull(),
+  paymentStatus: paymentStatusEnum("paymentStatus").default("unpaid").notNull(),
   paymentIntentId: varchar("paymentIntentId", { length: 64 }),
-  shippingAddress: json("shippingAddress"),
-  items: json("items"),
+  shippingAddress: jsonb("shippingAddress"),
+  items: jsonb("items"),
   notes: text("notes"),
   erpOrderId: varchar("erpOrderId", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("orders_tenant_idx").on(t.tenantId),
   index("orders_status_idx").on(t.status),
@@ -145,23 +164,23 @@ export const orders = mysqlTable("orders", {
 ]);
 
 // ─── Payment Intents ──────────────────────────────────────────────────────────
-export const paymentIntents = mysqlTable("payment_intents", {
+export const paymentIntents = pgTable("payment_intents", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   orderId: varchar("orderId", { length: 36 }).notNull(),
   customerId: varchar("customerId", { length: 36 }).notNull(),
   amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).default("USD").notNull(),
-  provider: mysqlEnum("provider", ["mojaloop", "stripe", "paystack", "flutterwave", "manual"]).default("stripe").notNull(),
-  status: mysqlEnum("status", ["initiated", "pending", "completed", "failed", "cancelled", "refunded"]).default("initiated").notNull(),
+  provider: paymentProviderEnum("provider").default("stripe").notNull(),
+  status: paymentIntentStatusEnum("status").default("initiated").notNull(),
   providerPaymentId: varchar("providerPaymentId", { length: 256 }),
   idempotencyKey: varchar("idempotencyKey", { length: 128 }).notNull().unique(),
   ledgerPendingId: varchar("ledgerPendingId", { length: 36 }),
   failureReason: text("failureReason"),
-  metadata: json("metadata"),
+  metadata: jsonb("metadata"),
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("payment_intents_tenant_idx").on(t.tenantId),
   index("payment_intents_status_idx").on(t.status),
@@ -169,18 +188,18 @@ export const paymentIntents = mysqlTable("payment_intents", {
 ]);
 
 // ─── AI Agent Events ──────────────────────────────────────────────────────────
-export const agentEvents = mysqlTable("agent_events", {
+export const agentEvents = pgTable("agent_events", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   conversationId: varchar("conversationId", { length: 36 }).notNull(),
   eventType: varchar("eventType", { length: 100 }).notNull(),
   intentType: varchar("intentType", { length: 100 }),
   confidence: decimal("confidence", { precision: 4, scale: 3 }),
-  latencyMs: int("latencyMs"),
+  latencyMs: integer("latencyMs"),
   escalated: boolean("escalated").default(false).notNull(),
-  toolCalls: json("toolCalls"),
-  inputTokens: int("inputTokens"),
-  outputTokens: int("outputTokens"),
+  toolCalls: jsonb("toolCalls"),
+  inputTokens: integer("inputTokens"),
+  outputTokens: integer("outputTokens"),
   model: varchar("model", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
@@ -190,13 +209,13 @@ export const agentEvents = mysqlTable("agent_events", {
 ]);
 
 // ─── Webhook Events ───────────────────────────────────────────────────────────
-export const webhookEvents = mysqlTable("webhook_events", {
+export const webhookEvents = pgTable("webhook_events", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   source: varchar("source", { length: 50 }).notNull(),
   eventType: varchar("eventType", { length: 100 }).notNull(),
-  status: mysqlEnum("status", ["received", "processing", "processed", "failed"]).default("received").notNull(),
-  payload: json("payload"),
+  status: webhookStatusEnum("status").default("received").notNull(),
+  payload: jsonb("payload"),
   processingError: text("processingError"),
   processedAt: timestamp("processedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -206,37 +225,37 @@ export const webhookEvents = mysqlTable("webhook_events", {
 ]);
 
 // ─── Service Health ───────────────────────────────────────────────────────────
-export const serviceHealth = mysqlTable("service_health", {
-  id: int("id").autoincrement().primaryKey(),
+export const serviceHealth = pgTable("service_health", {
+  id: serial("id").primaryKey(),
   serviceName: varchar("serviceName", { length: 100 }).notNull(),
-  status: mysqlEnum("status", ["healthy", "degraded", "down", "unknown"]).default("unknown").notNull(),
-  latencyMs: int("latencyMs"),
+  status: serviceStatusEnum("status").default("unknown").notNull(),
+  latencyMs: integer("latencyMs"),
   errorRate: decimal("errorRate", { precision: 5, scale: 2 }),
   lastCheckedAt: timestamp("lastCheckedAt").defaultNow().notNull(),
-  details: json("details"),
+  details: jsonb("details"),
 }, (t) => [
   uniqueIndex("service_health_name_idx").on(t.serviceName),
 ]);
 
 // ─── Twenty CRM Integration ───────────────────────────────────────────────────
-export const twentyIntegrations = mysqlTable("twenty_integrations", {
+export const twentyIntegrations = pgTable("twenty_integrations", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
   baseUrl: varchar("baseUrl", { length: 512 }).notNull(),
   apiKey: varchar("apiKey", { length: 512 }).notNull(),
   workspaceId: varchar("workspaceId", { length: 64 }),
-  status: mysqlEnum("status", ["connected", "disconnected", "error"]).default("disconnected").notNull(),
+  status: integrationStatusEnum("status").default("disconnected").notNull(),
   lastSyncAt: timestamp("lastSyncAt"),
   syncContacts: boolean("syncContacts").default(true).notNull(),
   syncDeals: boolean("syncDeals").default(true).notNull(),
   whatsappEnabled: boolean("whatsappEnabled").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("twenty_integrations_tenant_idx").on(t.tenantId),
 ]);
 
-export const twentyContacts = mysqlTable("twenty_contacts", {
+export const twentyContacts = pgTable("twenty_contacts", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   twentyId: varchar("twentyId", { length: 64 }).notNull(),
@@ -249,16 +268,16 @@ export const twentyContacts = mysqlTable("twenty_contacts", {
   whatsappPhone: varchar("whatsappPhone", { length: 30 }),
   lastWhatsappAt: timestamp("lastWhatsappAt"),
   customerId: varchar("customerId", { length: 36 }),
-  rawData: json("rawData"),
+  rawData: jsonb("rawData"),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("twenty_contacts_tenant_idx").on(t.tenantId),
   uniqueIndex("twenty_contacts_twenty_id_idx").on(t.tenantId, t.twentyId),
 ]);
 
-export const twentyDeals = mysqlTable("twenty_deals", {
+export const twentyDeals = pgTable("twenty_deals", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   twentyId: varchar("twentyId", { length: 64 }).notNull(),
@@ -268,40 +287,40 @@ export const twentyDeals = mysqlTable("twenty_deals", {
   currency: varchar("currency", { length: 3 }).default("USD"),
   contactId: varchar("contactId", { length: 36 }),
   closeDate: timestamp("closeDate"),
-  probability: int("probability"),
-  rawData: json("rawData"),
+  probability: integer("probability"),
+  rawData: jsonb("rawData"),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("twenty_deals_tenant_idx").on(t.tenantId),
   uniqueIndex("twenty_deals_twenty_id_idx").on(t.tenantId, t.twentyId),
 ]);
 
 // ─── Odoo ERP Integration ─────────────────────────────────────────────────────
-export const odooIntegrations = mysqlTable("odoo_integrations", {
+export const odooIntegrations = pgTable("odoo_integrations", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
   baseUrl: varchar("baseUrl", { length: 512 }).notNull(),
   database: varchar("database", { length: 128 }).notNull(),
   username: varchar("username", { length: 255 }).notNull(),
   apiKey: varchar("apiKey", { length: 512 }).notNull(),
-  status: mysqlEnum("status", ["connected", "disconnected", "error"]).default("disconnected").notNull(),
+  status: integrationStatusEnum("status").default("disconnected").notNull(),
   lastSyncAt: timestamp("lastSyncAt"),
   syncProducts: boolean("syncProducts").default(true).notNull(),
   syncOrders: boolean("syncOrders").default(true).notNull(),
   syncInvoices: boolean("syncInvoices").default(true).notNull(),
   whatsappEnabled: boolean("whatsappEnabled").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("odoo_integrations_tenant_idx").on(t.tenantId),
 ]);
 
-export const odooSyncedProducts = mysqlTable("odoo_synced_products", {
+export const odooSyncedProducts = pgTable("odoo_synced_products", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
-  odooId: int("odooId").notNull(),
+  odooId: integer("odooId").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   internalRef: varchar("internalRef", { length: 100 }),
   price: decimal("price", { precision: 12, scale: 2 }),
@@ -310,7 +329,7 @@ export const odooSyncedProducts = mysqlTable("odoo_synced_products", {
   stockQty: decimal("stockQty", { precision: 12, scale: 2 }),
   active: boolean("active").default(true).notNull(),
   localProductId: varchar("localProductId", { length: 36 }),
-  rawData: json("rawData"),
+  rawData: jsonb("rawData"),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
@@ -318,10 +337,10 @@ export const odooSyncedProducts = mysqlTable("odoo_synced_products", {
   uniqueIndex("odoo_products_odoo_id_idx").on(t.tenantId, t.odooId),
 ]);
 
-export const odooSyncedOrders = mysqlTable("odoo_synced_orders", {
+export const odooSyncedOrders = pgTable("odoo_synced_orders", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
-  odooId: int("odooId").notNull(),
+  odooId: integer("odooId").notNull(),
   name: varchar("name", { length: 100 }).notNull(),
   partnerName: varchar("partnerName", { length: 255 }),
   partnerPhone: varchar("partnerPhone", { length: 30 }),
@@ -331,7 +350,7 @@ export const odooSyncedOrders = mysqlTable("odoo_synced_orders", {
   dateOrder: timestamp("dateOrder"),
   whatsappSent: boolean("whatsappSent").default(false).notNull(),
   localOrderId: varchar("localOrderId", { length: 36 }),
-  rawData: json("rawData"),
+  rawData: jsonb("rawData"),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
@@ -339,10 +358,10 @@ export const odooSyncedOrders = mysqlTable("odoo_synced_orders", {
   uniqueIndex("odoo_orders_odoo_id_idx").on(t.tenantId, t.odooId),
 ]);
 
-export const odooSyncedInvoices = mysqlTable("odoo_synced_invoices", {
+export const odooSyncedInvoices = pgTable("odoo_synced_invoices", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
-  odooId: int("odooId").notNull(),
+  odooId: integer("odooId").notNull(),
   name: varchar("name", { length: 100 }).notNull(),
   partnerName: varchar("partnerName", { length: 255 }),
   partnerPhone: varchar("partnerPhone", { length: 30 }),
@@ -353,7 +372,7 @@ export const odooSyncedInvoices = mysqlTable("odoo_synced_invoices", {
   invoiceDate: timestamp("invoiceDate"),
   dueDate: timestamp("dueDate"),
   whatsappSent: boolean("whatsappSent").default(false).notNull(),
-  rawData: json("rawData"),
+  rawData: jsonb("rawData"),
   syncedAt: timestamp("syncedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
@@ -362,54 +381,81 @@ export const odooSyncedInvoices = mysqlTable("odoo_synced_invoices", {
 ]);
 
 // ─── WhatsApp Menu Builder ────────────────────────────────────────────────────
-export const whatsappMenus = mysqlTable("whatsapp_menus", {
+export const whatsappMenus = pgTable("whatsapp_menus", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
-  version: int("version").default(1).notNull(),
+  status: menuStatusEnum("status").default("draft").notNull(),
+  version: integer("version").default(1).notNull(),
   publishedAt: timestamp("publishedAt"),
   lastPushedAt: timestamp("lastPushedAt"),
-  pushStatus: mysqlEnum("pushStatus", ["idle", "pushing", "success", "failed"]).default("idle").notNull(),
+  pushStatus: menuPushStatusEnum("pushStatus").default("idle").notNull(),
   pushError: text("pushError"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("whatsapp_menus_tenant_idx").on(t.tenantId),
   index("whatsapp_menus_status_idx").on(t.status),
 ]);
 
-export const whatsappMenuItems = mysqlTable("whatsapp_menu_items", {
+export const whatsappMenuItems = pgTable("whatsapp_menu_items", {
   id: varchar("id", { length: 36 }).primaryKey(),
   menuId: varchar("menuId", { length: 36 }).notNull(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   parentId: varchar("parentId", { length: 36 }),
-  type: mysqlEnum("type", ["section", "button", "list_item", "quick_reply", "catalog_link", "url"]).default("button").notNull(),
+  type: menuItemTypeEnum("type").default("button").notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   payload: varchar("payload", { length: 255 }),
   url: text("url"),
-  sortOrder: int("sortOrder").default(0).notNull(),
-  metadata: json("metadata"),
+  sortOrder: integer("sortOrder").default(0).notNull(),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("menu_items_menu_idx").on(t.menuId),
   index("menu_items_tenant_idx").on(t.tenantId),
   index("menu_items_parent_idx").on(t.parentId),
 ]);
 
+// ─── Tenant Menu Assignments ──────────────────────────────────────────────────
+export const tenantMenuAssignments = pgTable("tenant_menu_assignments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  menuId: varchar("menuId", { length: 36 }).notNull(),
+  isActive: boolean("isActive").default(true).notNull(),
+  assignedAt: timestamp("assignedAt").defaultNow().notNull(),
+  assignedBy: varchar("assignedBy", { length: 64 }),
+}, (t) => [
+  index("tenant_menu_assign_tenant_idx").on(t.tenantId),
+  uniqueIndex("tenant_menu_assign_unique_idx").on(t.tenantId, t.menuId),
+]);
+
+// ─── WhatsApp Template Library ────────────────────────────────────────────────
+export const whatsappTemplates = pgTable("whatsapp_templates", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  category: templateCategoryEnum("category").default("custom").notNull(),
+  language: varchar("language", { length: 10 }).default("en").notNull(),
+  headerText: varchar("headerText", { length: 255 }),
+  bodyText: text("bodyText").notNull(),
+  footerText: varchar("footerText", { length: 255 }),
+  variables: jsonb("variables"),
+  buttons: jsonb("buttons"),
+  isActive: boolean("isActive").default(true).notNull(),
+  usageCount: integer("usageCount").default(0).notNull(),
+  lastUsedAt: timestamp("lastUsedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("templates_tenant_idx").on(t.tenantId),
+  index("templates_category_idx").on(t.category),
+  uniqueIndex("templates_tenant_name_idx").on(t.tenantId, t.name),
+]);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
-export type TwentyIntegration = typeof twentyIntegrations.$inferSelect;
-export type TwentyContact = typeof twentyContacts.$inferSelect;
-export type TwentyDeal = typeof twentyDeals.$inferSelect;
-export type OdooIntegration = typeof odooIntegrations.$inferSelect;
-export type OdooSyncedProduct = typeof odooSyncedProducts.$inferSelect;
-export type OdooSyncedOrder = typeof odooSyncedOrders.$inferSelect;
-export type OdooSyncedInvoice = typeof odooSyncedInvoices.$inferSelect;
-export type WhatsappMenu = typeof whatsappMenus.$inferSelect;
-export type WhatsappMenuItem = typeof whatsappMenuItems.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Tenant = typeof tenants.$inferSelect;
@@ -428,4 +474,15 @@ export type AgentEvent = typeof agentEvents.$inferSelect;
 export type InsertAgentEvent = typeof agentEvents.$inferInsert;
 export type WebhookEvent = typeof webhookEvents.$inferSelect;
 export type InsertWebhookEvent = typeof webhookEvents.$inferInsert;
-export type ServiceHealth = typeof serviceHealth.$inferSelect;
+export type TwentyIntegration = typeof twentyIntegrations.$inferSelect;
+export type TwentyContact = typeof twentyContacts.$inferSelect;
+export type TwentyDeal = typeof twentyDeals.$inferSelect;
+export type OdooIntegration = typeof odooIntegrations.$inferSelect;
+export type OdooSyncedProduct = typeof odooSyncedProducts.$inferSelect;
+export type OdooSyncedOrder = typeof odooSyncedOrders.$inferSelect;
+export type OdooSyncedInvoice = typeof odooSyncedInvoices.$inferSelect;
+export type WhatsappMenu = typeof whatsappMenus.$inferSelect;
+export type WhatsappMenuItem = typeof whatsappMenuItems.$inferSelect;
+export type TenantMenuAssignment = typeof tenantMenuAssignments.$inferSelect;
+export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
+export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;

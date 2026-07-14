@@ -18,6 +18,9 @@ import TwentyCRM from "./pages/TwentyCRM";
 import OdooERP from "./pages/OdooERP";
 import MenuBuilder from "./pages/MenuBuilder";
 import IntegrationHub from "./pages/IntegrationHub";
+import TemplateLibrary from "./pages/TemplateLibrary";
+import TenantMenuAssignment from "./pages/TenantMenuAssignment";
+import CredentialWizard from "./pages/CredentialWizard";
 
 function Router() {
   return (
@@ -36,6 +39,9 @@ function Router() {
       <Route path="/odoo-erp" component={OdooERP} />
       <Route path="/menu-builder" component={MenuBuilder} />
       <Route path="/integrations" component={IntegrationHub} />
+      <Route path="/templates" component={TemplateLibrary} />
+      <Route path="/tenant-menus" component={TenantMenuAssignment} />
+      <Route path="/setup" component={CredentialWizard} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

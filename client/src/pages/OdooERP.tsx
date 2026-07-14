@@ -46,6 +46,9 @@ export default function OdooERP() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sendTarget, setSendTarget] = useState<{ type: "order" | "invoice"; id: string; name: string; phone: string } | null>(null);
   const [sendMsg, setSendMsg] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const { data: templatesData } = trpc.template.list.useQuery({ limit: 50 });
+  const templates = templatesData?.templates ?? [];
 
   const { data: config, refetch: refetchConfig } = trpc.odoo.getConfig.useQuery();
   const { data: productsData, refetch: refetchProducts } = trpc.odoo.listProducts.useQuery({ limit: 50, offset: 0 });
@@ -293,6 +296,28 @@ export default function OdooERP() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
               <Phone className="w-4 h-4" />{sendTarget?.phone}
             </div>
+            {templates.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Use Template (optional)</label>
+                <select
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  value={selectedTemplateId}
+                  onChange={e => {
+                    setSelectedTemplateId(e.target.value);
+                    const t = templates.find((tmpl: { id: string; bodyText: string }) => tmpl.id === e.target.value);
+                    if (t) setSendMsg(t.bodyText
+                      .replace(/\{\{customer_name\}\}/g, sendTarget?.name ?? "Customer")
+                      .replace(/\{\{order_number\}\}/g, sendTarget?.name ?? "")
+                      .replace(/\{\{store_name\}\}/g, "My Store")
+                      .replace(/\{\{amount\}\}/g, "")
+                      .replace(/\{\{currency\}\}/g, "USD"));
+                  }}
+                >
+                  <option value="">— Select a template —</option>
+                  {templates.map((t: { id: string; name: string; category: string }) => <option key={t.id} value={t.id}>{t.name} ({t.category})</option>)}
+                </select>
+              </div>
+            )}
             <textarea className="w-full bg-background border border-border rounded-lg p-3 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary" rows={5} value={sendMsg} onChange={e => setSendMsg(e.target.value)} />
             <Button className="w-full bg-primary text-primary-foreground gap-2" disabled={!sendMsg.trim() || sendWhatsApp.isPending}
               onClick={() => sendTarget && sendWhatsApp.mutate({ type: sendTarget.type, recordId: sendTarget.id, message: sendMsg })}>

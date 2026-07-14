@@ -10,6 +10,7 @@ import {
   odooSyncedOrders,
   twentyContacts,
   twentyDeals,
+  tenantMenuAssignments,
 } from "../../drizzle/schema";
 
 const DEMO_TENANT = "demo-tenant-001";
@@ -508,6 +509,36 @@ export const menuRouter = router({
         .update(whatsappMenus)
         .set({ status: "draft", pushStatus: "idle" })
         .where(and(eq(whatsappMenus.id, input.menuId), eq(whatsappMenus.tenantId, tenantId)));
+      return { success: true };
+    }),
+
+  // ── Tenant-Menu Assignments ────────────────────────────────────────────────
+  getAssignments: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return [];
+    return db.select().from(tenantMenuAssignments);
+  }),
+  assignToTenant: protectedProcedure
+    .input(z.object({ tenantId: z.string(), menuId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const id = nanoid();
+      await db
+        .insert(tenantMenuAssignments)
+        .values({ id, tenantId: input.tenantId, menuId: input.menuId, assignedAt: new Date() })
+        .onConflictDoUpdate({
+          target: [tenantMenuAssignments.tenantId],
+          set: { menuId: input.menuId, assignedAt: new Date() },
+        });
+      return { success: true };
+    }),
+  unassignFromTenant: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.delete(tenantMenuAssignments).where(eq(tenantMenuAssignments.tenantId, input.tenantId));
       return { success: true };
     }),
 });

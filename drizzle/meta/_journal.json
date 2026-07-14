@@ -1,26 +1,12 @@
 {
   "version": "7",
-  "dialect": "mysql",
+  "dialect": "postgresql",
   "entries": [
     {
       "idx": 0,
-      "version": "5",
-      "when": 1784036583393,
-      "tag": "0000_orange_speed_demon",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1784037879641,
-      "tag": "0001_lowly_corsair",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "5",
-      "when": 1784039419641,
-      "tag": "0002_cynical_jack_murdock",
+      "version": "7",
+      "when": 1784040913036,
+      "tag": "0000_abnormal_microchip",
       "breakpoints": true
     }
   ]

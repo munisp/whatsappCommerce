@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bot, Building2, CreditCard, Globe, LayoutDashboard, LogOut, MessageSquare, Package, PanelLeft, Server, Smartphone, Users } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bot, Building2, CreditCard, Globe, LayoutDashboard, Link2, LogOut, MessageSquare, Package, PanelLeft, Server, Settings, Smartphone, Users } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -41,9 +41,12 @@ const menuItems: NavItem[] = [
   { icon: Users,           label: "Twenty CRM",     path: "/twenty-crm",   section: "Integrations" },
   { icon: Package,         label: "Odoo ERP",       path: "/odoo-erp",     section: "Integrations" },
   { icon: Smartphone,      label: "Menu Builder",   path: "/menu-builder", section: "Integrations" },
+  { icon: MessageSquare,   label: "Templates",      path: "/templates",    section: "Integrations" },
+  { icon: Link2,           label: "Menu Assignment",path: "/tenant-menus", section: "Integrations" },
   // ── System ────────────────────────────────────────────────────────────────
   { icon: Bot,             label: "AI Agent",       path: "/agent",        section: "System" },
   { icon: Server,          label: "Service Health", path: "/health",       section: "System" },
+  { icon: Settings,        label: "Setup Wizard",   path: "/setup",        section: "System" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

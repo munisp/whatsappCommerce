@@ -92,21 +92,21 @@ export const odooRouter = router({
     if (cfg[0].syncProducts) {
       for (const p of DEMO_PRODUCTS) {
         await db.insert(odooSyncedProducts).values({ id: nanoid(), tenantId, odooId: p.id, name: p.name, internalRef: p.internalRef, price: String(p.price), currency: p.currency, category: p.category, stockQty: String(p.stockQty), active: p.active, syncedAt: new Date() })
-          .onDuplicateKeyUpdate({ set: { name: p.name, price: String(p.price), stockQty: String(p.stockQty), syncedAt: new Date() } });
+          .onConflictDoUpdate({ target: [odooSyncedProducts.tenantId, odooSyncedProducts.odooId], set: { name: p.name, price: String(p.price), stockQty: String(p.stockQty), syncedAt: new Date() } });
         productsSynced++;
       }
     }
     if (cfg[0].syncOrders) {
       for (const o of DEMO_ORDERS) {
         await db.insert(odooSyncedOrders).values({ id: nanoid(), tenantId, odooId: o.id, name: o.name, partnerName: o.partnerName, partnerPhone: o.partnerPhone, state: o.state, amountTotal: String(o.amountTotal), currency: o.currency, dateOrder: o.dateOrder, syncedAt: new Date() })
-          .onDuplicateKeyUpdate({ set: { state: o.state, amountTotal: String(o.amountTotal), syncedAt: new Date() } });
+          .onConflictDoUpdate({ target: [odooSyncedOrders.tenantId, odooSyncedOrders.odooId], set: { state: o.state, amountTotal: String(o.amountTotal), syncedAt: new Date() } });
         ordersSynced++;
       }
     }
     if (cfg[0].syncInvoices) {
       for (const inv of DEMO_INVOICES) {
         await db.insert(odooSyncedInvoices).values({ id: nanoid(), tenantId, odooId: inv.id, name: inv.name, partnerName: inv.partnerName, partnerPhone: inv.partnerPhone, state: inv.state, amountTotal: String(inv.amountTotal), amountResidual: String(inv.amountResidual), currency: inv.currency, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate, syncedAt: new Date() })
-          .onDuplicateKeyUpdate({ set: { state: inv.state, amountResidual: String(inv.amountResidual), syncedAt: new Date() } });
+          .onConflictDoUpdate({ target: [odooSyncedInvoices.tenantId, odooSyncedInvoices.odooId], set: { state: inv.state, amountResidual: String(inv.amountResidual), syncedAt: new Date() } });
         invoicesSynced++;
       }
     }

@@ -12,6 +12,7 @@ import { analyticsRouter } from "./routers/analytics";
 import { twentyRouter } from "./routers/twenty";
 import { odooRouter } from "./routers/odoo";
 import { menuRouter } from "./routers/menu";
+import { templateRouter } from "./routers/template";
 
 export const appRouter = router({
   system: systemRouter,
@@ -33,6 +34,7 @@ export const appRouter = router({
   twenty: twentyRouter,
   odoo: odooRouter,
   menu: menuRouter,
+  template: templateRouter,
 });
 
 export type AppRouter = typeof appRouter;

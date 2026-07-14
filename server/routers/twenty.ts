@@ -135,7 +135,8 @@ export const twentyRouter = router({
             whatsappPhone: c.phone,
             syncedAt: new Date(),
           })
-          .onDuplicateKeyUpdate({
+          .onConflictDoUpdate({
+            target: [twentyContacts.tenantId, twentyContacts.twentyId],
             set: { name: c.name, email: c.email, phone: c.phone, company: c.company, jobTitle: c.jobTitle, stage: c.stage, syncedAt: new Date() },
           });
         contactsSynced++;
@@ -159,7 +160,8 @@ export const twentyRouter = router({
             probability: d.probability,
             syncedAt: new Date(),
           })
-          .onDuplicateKeyUpdate({
+          .onConflictDoUpdate({
+            target: [twentyDeals.tenantId, twentyDeals.twentyId],
             set: { name: d.name, stage: d.stage, amount: String(d.amount), probability: d.probability, syncedAt: new Date() },
           });
         dealsSynced++;
