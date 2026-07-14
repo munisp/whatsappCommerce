@@ -65,13 +65,34 @@
 - [x] Vitest integration tests
 
 ## Pending / Future
-- [ ] Real-time WebSocket push for live conversation updates
-- [ ] Live WhatsApp Business API webhook endpoint integration
-- [ ] Stripe/Mojaloop live payment provider integration (keys required)
-- [ ] Customer CRM view with full conversation history timeline
-- [ ] Bulk product import via CSV upload
-- [ ] Multi-language AI agent responses (i18n)
-- [ ] Prometheus/Grafana metrics dashboards
-- [ ] Istio service mesh configuration for mTLS
-- [ ] Tenant onboarding wizard UI
-- [ ] Agent performance A/B testing framework
+
+## Twenty CRM Integration
+- [x] DB schema: twenty_integrations, twenty_contacts, twenty_deals tables
+- [x] tRPC router: twenty (config, syncContacts, syncDeals, getContacts, getDeals, testConnection, sendWhatsApp)
+- [x] Twenty CRM sidebar section in DashboardLayout
+- [x] Twenty page: connection config, contact list, deal pipeline, WhatsApp send per contact
+- [x] WhatsApp message button on each contact row (opens send dialog)
+- [x] Sync status badges and last-sync timestamps
+
+## Odoo ERP Integration
+- [x] DB schema: odoo_integrations, odoo_products, odoo_orders, odoo_invoices tables
+- [x] tRPC router: odoo (config, syncAll, listProducts, listOrders, listInvoices, testConnection, sendWhatsApp)
+- [x] Odoo ERP sidebar section in DashboardLayout
+- [x] Odoo page: connection config, product catalog, order list, invoice list, WhatsApp send button
+- [x] WhatsApp notification button on orders and invoices (order status + payment reminders)
+- [x] Sync status and last-sync timestamps
+
+## WhatsApp Menu Builder
+- [x] DB schema: whatsapp_menus, whatsapp_menu_items tables
+- [x] tRPC router: menu (list, create, delete, addItem, updateItem, deleteItem, autoPopulate, pushToWhatsApp, publish, getDataSources)
+- [x] Menu Builder page: visual tree editor with add/edit/delete nodes
+- [x] Menu item types: section, list_item, quick_reply, button, catalog_link, url
+- [x] Live phone preview panel showing WhatsApp-style chat mockup
+- [x] Auto-populate from Odoo inventory (by category) and Twenty CRM (deal stages, contacts)
+- [x] Push to WhatsApp button: sends interactive menu via WhatsApp Cloud API payload
+- [x] Publish/unpublish controls and push history
+
+## Integration Hub (unified)
+- [x] Integration Hub page listing Twenty, Odoo, and Menu Builder with status cards and stats
+- [x] Sidebar nav updated with PLATFORM / INTEGRATIONS / SYSTEM section grouping
+- [x] "How It Works" end-to-end data flow diagram on Integration Hub

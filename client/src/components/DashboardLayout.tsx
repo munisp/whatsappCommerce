@@ -21,21 +21,29 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bot, Building2, CreditCard, LayoutDashboard, LogOut, MessageSquare, Package, PanelLeft, Server, Users } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bot, Building2, CreditCard, Globe, LayoutDashboard, LogOut, MessageSquare, Package, PanelLeft, Server, Smartphone, Users } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
-  { icon: Building2, label: "Tenants", path: "/tenants" },
-  { icon: Package, label: "Products", path: "/products" },
-  { icon: MessageSquare, label: "Conversations", path: "/conversations" },
-  { icon: BarChart3, label: "Orders", path: "/orders" },
-  { icon: CreditCard, label: "Payments", path: "/payments" },
-  { icon: Bot, label: "AI Agent", path: "/agent" },
-  { icon: Server, label: "Service Health", path: "/health" },
+type NavItem = { icon: React.ElementType; label: string; path: string; section?: string };
+const menuItems: NavItem[] = [
+  // ── Platform ──────────────────────────────────────────────────────────────
+  { icon: LayoutDashboard, label: "Dashboard",      path: "/dashboard",    section: "Platform" },
+  { icon: Building2,       label: "Tenants",        path: "/tenants",      section: "Platform" },
+  { icon: Package,         label: "Products",       path: "/products",     section: "Platform" },
+  { icon: MessageSquare,   label: "Conversations",  path: "/conversations",section: "Platform" },
+  { icon: BarChart3,       label: "Orders",         path: "/orders",       section: "Platform" },
+  { icon: CreditCard,      label: "Payments",       path: "/payments",     section: "Platform" },
+  // ── Integrations ──────────────────────────────────────────────────────────
+  { icon: Globe,           label: "Integration Hub",path: "/integrations", section: "Integrations" },
+  { icon: Users,           label: "Twenty CRM",     path: "/twenty-crm",   section: "Integrations" },
+  { icon: Package,         label: "Odoo ERP",       path: "/odoo-erp",     section: "Integrations" },
+  { icon: Smartphone,      label: "Menu Builder",   path: "/menu-builder", section: "Integrations" },
+  // ── System ────────────────────────────────────────────────────────────────
+  { icon: Bot,             label: "AI Agent",       path: "/agent",        section: "System" },
+  { icon: Server,          label: "Service Health", path: "/health",       section: "System" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
@@ -174,9 +182,7 @@ function DashboardLayoutContent({
               </button>
               {!isCollapsed ? (
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    Navigation
-                  </span>
+                  <span className="font-semibold tracking-tight truncate text-sm">WhatsApp Commerce</span>
                 </div>
               ) : null}
             </div>
@@ -184,24 +190,34 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
-              {menuItems.map(item => {
-                const isActive = location === item.path;
-                return (
-                  <SidebarMenuItem key={item.path}>
-                    <SidebarMenuButton
-                      isActive={isActive}
-                      onClick={() => setLocation(item.path)}
-                      tooltip={item.label}
-                      className={`h-10 transition-all font-normal`}
-                    >
-                      <item.icon
-                        className={`h-4 w-4 ${isActive ? "text-primary" : ""}`}
-                      />
-                      <span>{item.label}</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
+              {(() => {
+                const sections = Array.from(new Set(menuItems.map(i => i.section ?? ""))).filter(Boolean);
+                return sections.map((section, si) => (
+                  <div key={section}>
+                    {!isCollapsed && (
+                      <div className={`px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 ${si > 0 ? "mt-2 pt-2 border-t border-border" : ""}`}>
+                        {section}
+                      </div>
+                    )}
+                    {menuItems.filter(i => (i.section ?? "") === section).map(item => {
+                      const isActive = location === item.path;
+                      return (
+                        <SidebarMenuItem key={item.path}>
+                          <SidebarMenuButton
+                            isActive={isActive}
+                            onClick={() => setLocation(item.path)}
+                            tooltip={item.label}
+                            className="h-10 transition-all font-normal"
+                          >
+                            <item.icon className={`h-4 w-4 ${isActive ? "text-primary" : ""}`} />
+                            <span>{item.label}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                  </div>
+                ));
+              })()}
             </SidebarMenu>
           </SidebarContent>
 

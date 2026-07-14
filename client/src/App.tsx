@@ -14,6 +14,10 @@ import Orders from "./pages/Orders";
 import Payments from "./pages/Payments";
 import AgentConsole from "./pages/AgentConsole";
 import ServiceHealth from "./pages/ServiceHealth";
+import TwentyCRM from "./pages/TwentyCRM";
+import OdooERP from "./pages/OdooERP";
+import MenuBuilder from "./pages/MenuBuilder";
+import IntegrationHub from "./pages/IntegrationHub";
 
 function Router() {
   return (
@@ -28,6 +32,10 @@ function Router() {
       <Route path="/payments" component={Payments} />
       <Route path="/agent" component={AgentConsole} />
       <Route path="/health" component={ServiceHealth} />
+      <Route path="/twenty-crm" component={TwentyCRM} />
+      <Route path="/odoo-erp" component={OdooERP} />
+      <Route path="/menu-builder" component={MenuBuilder} />
+      <Route path="/integrations" component={IntegrationHub} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -48,4 +56,3 @@ function App() {
 }
 
 export default App;
-

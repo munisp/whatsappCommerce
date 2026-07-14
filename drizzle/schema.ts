@@ -218,7 +218,198 @@ export const serviceHealth = mysqlTable("service_health", {
   uniqueIndex("service_health_name_idx").on(t.serviceName),
 ]);
 
+// ─── Twenty CRM Integration ───────────────────────────────────────────────────
+export const twentyIntegrations = mysqlTable("twenty_integrations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
+  baseUrl: varchar("baseUrl", { length: 512 }).notNull(),
+  apiKey: varchar("apiKey", { length: 512 }).notNull(),
+  workspaceId: varchar("workspaceId", { length: 64 }),
+  status: mysqlEnum("status", ["connected", "disconnected", "error"]).default("disconnected").notNull(),
+  lastSyncAt: timestamp("lastSyncAt"),
+  syncContacts: boolean("syncContacts").default(true).notNull(),
+  syncDeals: boolean("syncDeals").default(true).notNull(),
+  whatsappEnabled: boolean("whatsappEnabled").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("twenty_integrations_tenant_idx").on(t.tenantId),
+]);
+
+export const twentyContacts = mysqlTable("twenty_contacts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  twentyId: varchar("twentyId", { length: 64 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 30 }),
+  company: varchar("company", { length: 255 }),
+  jobTitle: varchar("jobTitle", { length: 255 }),
+  stage: varchar("stage", { length: 100 }),
+  whatsappPhone: varchar("whatsappPhone", { length: 30 }),
+  lastWhatsappAt: timestamp("lastWhatsappAt"),
+  customerId: varchar("customerId", { length: 36 }),
+  rawData: json("rawData"),
+  syncedAt: timestamp("syncedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("twenty_contacts_tenant_idx").on(t.tenantId),
+  uniqueIndex("twenty_contacts_twenty_id_idx").on(t.tenantId, t.twentyId),
+]);
+
+export const twentyDeals = mysqlTable("twenty_deals", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  twentyId: varchar("twentyId", { length: 64 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  stage: varchar("stage", { length: 100 }),
+  amount: decimal("amount", { precision: 14, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("USD"),
+  contactId: varchar("contactId", { length: 36 }),
+  closeDate: timestamp("closeDate"),
+  probability: int("probability"),
+  rawData: json("rawData"),
+  syncedAt: timestamp("syncedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("twenty_deals_tenant_idx").on(t.tenantId),
+  uniqueIndex("twenty_deals_twenty_id_idx").on(t.tenantId, t.twentyId),
+]);
+
+// ─── Odoo ERP Integration ─────────────────────────────────────────────────────
+export const odooIntegrations = mysqlTable("odoo_integrations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
+  baseUrl: varchar("baseUrl", { length: 512 }).notNull(),
+  database: varchar("database", { length: 128 }).notNull(),
+  username: varchar("username", { length: 255 }).notNull(),
+  apiKey: varchar("apiKey", { length: 512 }).notNull(),
+  status: mysqlEnum("status", ["connected", "disconnected", "error"]).default("disconnected").notNull(),
+  lastSyncAt: timestamp("lastSyncAt"),
+  syncProducts: boolean("syncProducts").default(true).notNull(),
+  syncOrders: boolean("syncOrders").default(true).notNull(),
+  syncInvoices: boolean("syncInvoices").default(true).notNull(),
+  whatsappEnabled: boolean("whatsappEnabled").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("odoo_integrations_tenant_idx").on(t.tenantId),
+]);
+
+export const odooSyncedProducts = mysqlTable("odoo_synced_products", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  odooId: int("odooId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  internalRef: varchar("internalRef", { length: 100 }),
+  price: decimal("price", { precision: 12, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("USD"),
+  category: varchar("category", { length: 255 }),
+  stockQty: decimal("stockQty", { precision: 12, scale: 2 }),
+  active: boolean("active").default(true).notNull(),
+  localProductId: varchar("localProductId", { length: 36 }),
+  rawData: json("rawData"),
+  syncedAt: timestamp("syncedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("odoo_products_tenant_idx").on(t.tenantId),
+  uniqueIndex("odoo_products_odoo_id_idx").on(t.tenantId, t.odooId),
+]);
+
+export const odooSyncedOrders = mysqlTable("odoo_synced_orders", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  odooId: int("odooId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  partnerName: varchar("partnerName", { length: 255 }),
+  partnerPhone: varchar("partnerPhone", { length: 30 }),
+  state: varchar("state", { length: 50 }),
+  amountTotal: decimal("amountTotal", { precision: 14, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("USD"),
+  dateOrder: timestamp("dateOrder"),
+  whatsappSent: boolean("whatsappSent").default(false).notNull(),
+  localOrderId: varchar("localOrderId", { length: 36 }),
+  rawData: json("rawData"),
+  syncedAt: timestamp("syncedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("odoo_orders_tenant_idx").on(t.tenantId),
+  uniqueIndex("odoo_orders_odoo_id_idx").on(t.tenantId, t.odooId),
+]);
+
+export const odooSyncedInvoices = mysqlTable("odoo_synced_invoices", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  odooId: int("odooId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  partnerName: varchar("partnerName", { length: 255 }),
+  partnerPhone: varchar("partnerPhone", { length: 30 }),
+  state: varchar("state", { length: 50 }),
+  amountTotal: decimal("amountTotal", { precision: 14, scale: 2 }),
+  amountResidual: decimal("amountResidual", { precision: 14, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("USD"),
+  invoiceDate: timestamp("invoiceDate"),
+  dueDate: timestamp("dueDate"),
+  whatsappSent: boolean("whatsappSent").default(false).notNull(),
+  rawData: json("rawData"),
+  syncedAt: timestamp("syncedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("odoo_invoices_tenant_idx").on(t.tenantId),
+  uniqueIndex("odoo_invoices_odoo_id_idx").on(t.tenantId, t.odooId),
+]);
+
+// ─── WhatsApp Menu Builder ────────────────────────────────────────────────────
+export const whatsappMenus = mysqlTable("whatsapp_menus", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  status: mysqlEnum("status", ["draft", "published", "archived"]).default("draft").notNull(),
+  version: int("version").default(1).notNull(),
+  publishedAt: timestamp("publishedAt"),
+  lastPushedAt: timestamp("lastPushedAt"),
+  pushStatus: mysqlEnum("pushStatus", ["idle", "pushing", "success", "failed"]).default("idle").notNull(),
+  pushError: text("pushError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("whatsapp_menus_tenant_idx").on(t.tenantId),
+  index("whatsapp_menus_status_idx").on(t.status),
+]);
+
+export const whatsappMenuItems = mysqlTable("whatsapp_menu_items", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  menuId: varchar("menuId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  parentId: varchar("parentId", { length: 36 }),
+  type: mysqlEnum("type", ["section", "button", "list_item", "quick_reply", "catalog_link", "url"]).default("button").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  payload: varchar("payload", { length: 255 }),
+  url: text("url"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  metadata: json("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("menu_items_menu_idx").on(t.menuId),
+  index("menu_items_tenant_idx").on(t.tenantId),
+  index("menu_items_parent_idx").on(t.parentId),
+]);
+
 // ─── Types ────────────────────────────────────────────────────────────────────
+export type TwentyIntegration = typeof twentyIntegrations.$inferSelect;
+export type TwentyContact = typeof twentyContacts.$inferSelect;
+export type TwentyDeal = typeof twentyDeals.$inferSelect;
+export type OdooIntegration = typeof odooIntegrations.$inferSelect;
+export type OdooSyncedProduct = typeof odooSyncedProducts.$inferSelect;
+export type OdooSyncedOrder = typeof odooSyncedOrders.$inferSelect;
+export type OdooSyncedInvoice = typeof odooSyncedInvoices.$inferSelect;
+export type WhatsappMenu = typeof whatsappMenus.$inferSelect;
+export type WhatsappMenuItem = typeof whatsappMenuItems.$inferSelect;
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Tenant = typeof tenants.$inferSelect;
