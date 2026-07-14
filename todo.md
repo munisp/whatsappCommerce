@@ -231,13 +231,42 @@
 ## Tenant Self-Service Portal
 - [x] Separate /portal route with TenantPortalLayout (no platform admin nav)
 - [x] Portal login gate with Manus OAuth (tenantId from user.tenantId)
-- [ ] Portal dashboard: tenant KPIs (orders, revenue, conversations, inventory alerts)
-- [ ] Portal products page: manage own products only
-- [ ] Portal orders page: view and update own orders only
-- [ ] Portal invoices page: view and pay own invoices
-- [ ] Portal settings: WhatsApp config, AI config, billing info
-- [ ] RBAC guard: portal procedures scoped to ctx.user.tenantId
+- [x] Portal dashboard: tenant KPIs (orders, revenue, conversations, inventory alerts) — PortalDashboard.tsx
+- [x] Portal products page: manage own products only — PortalProducts.tsx (tenantId-scoped)
+- [x] Portal orders page: view and update own orders only — PortalOrders.tsx
+- [x] Portal invoices page: view and pay own invoices — PortalInvoices.tsx
+- [x] Portal settings: WhatsApp config, AI config, billing info — PortalSettings.tsx
+- [x] RBAC guard: tenantScopedProcedure middleware in tenantPortal router (throws FORBIDDEN if no tenantId)
 
 ## Heartbeat & Post-Deploy Checklist
-- [ ] Post-deploy checklist page (/deploy-checklist): step-by-step activation guide
-- [ ] Checklist items: publish, register heartbeat cron, add KYC_SERVICE_URL secret, configure payment gateways
+- [x] Post-deploy checklist page (/deploy-checklist): step-by-step activation guide — DeployChecklist.tsx
+- [x] Checklist items: publish, register heartbeat cron, add KYC_SERVICE_URL secret, configure payment gateways
+
+## Remove Manus Dependencies (Self-Hosted)
+- [ ] Replace Manus OAuth with Keycloak OIDC (self-hosted)
+- [ ] Replace sdk.createSessionToken / authenticateRequest with self-signed JWT (HS256)
+- [ ] Replace invokeLLM / BUILT_IN_FORGE_API with Ollama (llama3.2, OpenAI-compatible)
+- [ ] Replace storagePut / manus-storage with MinIO S3-compatible storage
+- [ ] Remove vite-plugin-manus-runtime, replace with standard Vite
+- [ ] Update ENV vars: remove VITE_APP_ID/OAUTH_SERVER_URL, add KEYCLOAK_URL/REALM/CLIENT_ID
+- [ ] Replace manus-heartbeat cron with node-cron scheduler
+- [ ] Update const.ts startLogin() to use Keycloak authorization_code flow
+- [ ] Update useAuth hook to use self-hosted JWT session
+
+## AI/ML/DL/GNN Stack
+- [ ] Nigerian synthetic transaction data generator (realistic fraud patterns, credit profiles, GNN graph)
+- [ ] PyTorch fraud detection model (GNN + LSTM) with training loop and saved weights
+- [ ] PyTorch credit scoring model (TabNet) with training loop and saved weights
+- [ ] PyTorch biometric liveness CNN with real training loop
+- [ ] Lakehouse pipeline: production DB → Delta Lake → feature store → training loader
+- [ ] MLflow tracking server + model registry (Docker Compose)
+- [ ] Ray cluster config for distributed training
+- [ ] Model A/B testing infrastructure (shadow mode, traffic split, winner selection)
+- [ ] Drift detection + performance monitoring alerts
+- [ ] Continuous training: heartbeat triggers retraining on drift or data threshold
+
+## CI/CD & Integrations
+- [ ] GitHub Actions CI/CD workflow (pnpm test on PR)
+- [ ] Dependabot config (npm, Go, Python, Rust)
+- [ ] Mojaloop live FSPIOP integration
+- [ ] Tenant portal invite magic link (WhatsApp delivery)

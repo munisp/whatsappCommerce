@@ -28,6 +28,7 @@ import TenantOnboarding from "./pages/TenantOnboarding";
 import AgentArchitecture from "./pages/AgentArchitecture";
 import NLPSimulator from "./pages/NLPSimulator";
 import Invoices from "./pages/Invoices";
+import PortalMagicLogin from "@/pages/portal/PortalMagicLogin";
 import PortalDashboard from "./pages/portal/PortalDashboard";
 import PortalProducts from "./pages/portal/PortalProducts";
 import PortalOrders from "./pages/portal/PortalOrders";

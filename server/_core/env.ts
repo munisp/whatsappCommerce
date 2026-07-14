@@ -1,11 +1,34 @@
 export const ENV = {
-  appId: process.env.VITE_APP_ID ?? "",
-  cookieSecret: process.env.JWT_SECRET ?? "",
-  databaseUrl: process.env.DATABASE_URL ?? "",
-  postgresUrl: process.env.POSTGRES_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
-  ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
+  // Database
+  postgresUrl: process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? "",
+  // Auth (self-hosted Keycloak)
+  keycloakUrl: process.env.KEYCLOAK_URL ?? "http://localhost:8080",
+  keycloakRealm: process.env.KEYCLOAK_REALM ?? "wacommerce",
+  keycloakClientId: process.env.KEYCLOAK_CLIENT_ID ?? "wacommerce-app",
+  keycloakClientSecret: process.env.KEYCLOAK_CLIENT_SECRET ?? "",
+  jwtSecret: process.env.JWT_SECRET ?? "change-me-in-production",
+  cookieSecret: process.env.JWT_SECRET ?? "change-me-in-production",
+  // Storage (MinIO / S3-compatible)
+  s3Endpoint: process.env.S3_ENDPOINT ?? "http://localhost:9000",
+  s3AccessKey: process.env.S3_ACCESS_KEY ?? "minioadmin",
+  s3SecretKey: process.env.S3_SECRET_KEY ?? "minioadmin",
+  s3Bucket: process.env.S3_BUCKET ?? "wacommerce",
+  // LLM (Ollama / OpenAI-compatible)
+  llmBaseUrl: process.env.LLM_BASE_URL ?? "http://localhost:11434/v1",
+  llmApiKey: process.env.LLM_API_KEY ?? "ollama",
+  llmModel: process.env.LLM_MODEL ?? "llama3.2",
+  // App
+  appUrl: process.env.APP_URL ?? "http://localhost:3000",
   isProduction: process.env.NODE_ENV === "production",
-  forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // ML Services
+  kycServiceUrl: process.env.KYC_SERVICE_URL ?? "http://localhost:8001",
+  mlflowUrl: process.env.MLFLOW_URL ?? "http://localhost:5000",
+  // WhatsApp
+  waToken: process.env.WHATSAPP_TOKEN ?? "",
+  waPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
+  // Payment gateways
+  paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
+  flwSecretKey: process.env.FLW_SECRET_KEY ?? "",
+  paystackWebhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET ?? "",
+  flwWebhookSecret: process.env.FLW_WEBHOOK_SECRET ?? "",
 };

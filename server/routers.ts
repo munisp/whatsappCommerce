@@ -25,6 +25,7 @@ import { orderCrudRouter } from "./routers/orderCrud";
 import { invoiceRouter } from "./routers/invoice";
 import { paymentGatewayRouter } from "./routers/paymentGateway";
 import { tenantPortalRouter } from "./routers/tenantPortal";
+import { tenantInviteRouter } from "./routers/tenantInvite";
 
 export const appRouter = router({
   system: systemRouter,
@@ -59,6 +60,7 @@ export const appRouter = router({
   invoice: invoiceRouter,
   paymentGateway: paymentGatewayRouter,
   tenantPortal: tenantPortalRouter,
+  tenantInvite: tenantInviteRouter,
 });
 
 export type AppRouter = typeof appRouter;
