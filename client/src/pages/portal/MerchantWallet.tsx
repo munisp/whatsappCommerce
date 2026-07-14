@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useState } from "react";
+import { Download } from "lucide-react";
 
 const TX_TYPE_COLORS: Record<string, string> = {
   escrow_credit: "text-yellow-600",
@@ -29,10 +30,12 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
   const [bankAccount, setBankAccount] = useState("");
   const [bankCode, setBankCode] = useState("");
   const [bankName, setBankName] = useState("");
+  const [csvLoading, setCsvLoading] = useState(false);
 
   const { data: wallet, isLoading: walletLoading, refetch } = trpc.wallet.getBalance.useQuery({ tenantId });
   const { data: txs, isLoading: txLoading } = trpc.wallet.listTransactions.useQuery({ tenantId, limit: 50 });
   const { data: config } = trpc.escrow.getConfig.useQuery();
+  const utils = trpc.useUtils();
 
   const withdraw = trpc.wallet.requestWithdrawal.useMutation({
     onSuccess: (data) => {
@@ -44,6 +47,25 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
   });
 
   const isPspMode = config?.custodyMode === "psp";
+
+  async function handleExportCsv() {
+    setCsvLoading(true);
+    try {
+      const result = await utils.wallet.exportLedgerCsv.fetch({ tenantId });
+      if (!result?.csv) { toast.info("No transactions to export yet."); return; }
+      const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = result.filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+      toast.success("Ledger exported successfully.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Export failed");
+    } finally {
+      setCsvLoading(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -67,6 +89,10 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
             Request Withdrawal
           </Button>
         )}
+        <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={csvLoading}>
+          <Download className="h-4 w-4 mr-2" />
+          {csvLoading ? "Exporting…" : "Export CSV"}
+        </Button>
       </div>
 
       {/* Balance Cards */}
@@ -112,7 +138,13 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
       {/* Transaction History */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Transaction History</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Transaction History</CardTitle>
+            <Button variant="ghost" size="sm" onClick={handleExportCsv} disabled={csvLoading} className="text-xs text-muted-foreground">
+              <Download className="h-3.5 w-3.5 mr-1" />
+              {csvLoading ? "…" : "Export CSV"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {txLoading ? (
@@ -188,4 +220,3 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
     </div>
   );
 }
-

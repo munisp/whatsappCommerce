@@ -33,6 +33,7 @@ import { keycloakRouter } from "./routers/keycloak";
 import { revenueRouter } from "./routers/revenue";
 import { escrowRouter, escrowDisputeRouter, walletRouter } from "./routers/escrow";
 import { logisticsRouter } from "./routers/logistics";
+import { notificationsRouter } from "./routers/notifications";
 
 export const appRouter = router({
   system: systemRouter,
@@ -78,6 +79,7 @@ export const appRouter = router({
   escrowDispute: escrowDisputeRouter,
   wallet: walletRouter,
   logistics: logisticsRouter,
+  notifications: notificationsRouter,
 });
 
 export type AppRouter = typeof appRouter;

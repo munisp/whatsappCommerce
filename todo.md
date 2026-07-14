@@ -345,33 +345,33 @@
 - [x] Forecast Accuracy tab on Revenue Dashboard with projected vs actual table
 
 ## Escrow & Logistics (CBN PSSP → PSP upgrade path)
-- [ ] DB schema: escrow_transactions table (orderId, tenantId, amount, state machine, custodyMode PSSP/PSP, bankRef, releaseInstructedAt, settledAt)
-- [ ] DB schema: merchant_wallets table (tenantId, balance, currency, custodyMode)
-- [ ] DB schema: wallet_transactions table (walletId, type, amount, orderId, description, createdAt)
-- [ ] DB schema: logistics_shipments table (orderId, tenantId, provider, trackingId, status, webhookPayloads, deliveredAt)
-- [ ] DB schema: escrow_disputes table (escrowId, orderId, reason, status, buyerEvidence, merchantEvidence, resolvedBy, resolution)
-- [ ] DB schema: escrow_config table (platform-level PSSP/PSP mode toggle, bank partner details)
-- [ ] Add escrow enums: escrow_state, custody_mode, dispute_resolution, shipment_status
-- [ ] tRPC router: escrow (createHold, releaseToMerchant, initiateRefund, getByOrder, listAll, getStats, getConfig, setConfig)
-- [ ] tRPC router: logistics (createShipment, getShipment, listShipments, getProviders, simulateDelivery, getStats)
-- [ ] tRPC router: escrowDispute (raise, list, review, getByOrder)
-- [ ] tRPC router: wallet (getBalance, listTransactions, requestWithdrawal, getStats) — PSP mode only
-- [ ] Express webhook: POST /api/webhooks/shipbubble — HMAC-validated delivery events → trigger buyer confirmation flow
-- [ ] Express webhook: POST /api/webhooks/escrow-bank — bank partner settlement confirmation (PSSP mode)
-- [ ] Buyer confirmation flow: on delivery webhook, update escrow state to DELIVERY_CONFIRMED
-- [ ] Auto-confirm: if buyer doesn't respond within 24h, auto-release escrow
-- [ ] Platform fee deduction at settlement (3.125% effective GMV rate)
-- [ ] Float income calculation heartbeat (PSP mode): daily accrual on held balances
-- [ ] Admin: Escrow Dashboard page (/escrow) — KPIs, state breakdown, recent transactions, config panel
-- [ ] Admin: Logistics Tracker page (/logistics) — shipment list, status map, provider stats
-- [ ] Admin: Dispute Management page (/disputes) — open disputes, evidence review, resolve/refund actions
-- [ ] Portal: Merchant Wallet page (/portal/wallet) — balance, transaction history, withdrawal request (PSP mode)
-- [ ] Portal: Shipment Tracker on PortalOrders — tracking link, delivery status per order
-- [ ] DashboardLayout: add Escrow, Logistics, Disputes nav items under PAYMENTS section
-- [ ] Vitest: escrow router tests (createHold, release, refund, state transitions)
-- [ ] Vitest: logistics router tests (createShipment, webhook handler, auto-confirm)
-- [ ] Vitest: wallet router tests (PSP mode balance, withdrawal)
-- [ ] Checkpoint after all escrow/logistics features complete
+- [x] DB schema: escrow_transactions table (orderId, tenantId, amount, state machine, custodyMode PSSP/PSP, bankRef, releaseInstructedAt, settledAt)
+- [x] DB schema: merchant_wallets table (tenantId, balance, currency, custodyMode)
+- [x] DB schema: wallet_transactions table (walletId, type, amount, orderId, description, createdAt)
+- [x] DB schema: logistics_shipments table (orderId, tenantId, provider, trackingId, status, webhookPayloads, deliveredAt)
+- [x] DB schema: escrow_disputes table (escrowId, orderId, reason, status, buyerEvidence, merchantEvidence, resolvedBy, resolution)
+- [x] DB schema: escrow_config table (platform-level PSSP/PSP mode toggle, bank partner details)
+- [x] Add escrow enums: escrow_state, custody_mode, dispute_resolution, shipment_status
+- [x] tRPC router: escrow (createHold, releaseToMerchant, initiateRefund, getByOrder, listAll, getStats, getConfig, setConfig)
+- [x] tRPC router: logistics (createShipment, getShipment, listShipments, getProviders, simulateDelivery, getStats)
+- [x] tRPC router: escrowDispute (raise, list, review, getByOrder)
+- [x] tRPC router: wallet (getBalance, listTransactions, requestWithdrawal, getStats) — PSP mode only
+- [x] Express webhook: POST /api/webhooks/shipbubble — HMAC-validated delivery events → trigger buyer confirmation flow
+- [x] Express webhook: POST /api/webhooks/escrow-bank — bank partner settlement confirmation (PSSP mode)
+- [x] Buyer confirmation flow: on delivery webhook, update escrow state to DELIVERY_CONFIRMED
+- [x] Auto-confirm: if buyer doesn't respond within 24h, auto-release escrow
+- [x] Platform fee deduction at settlement (3.125% effective GMV rate)
+- [x] Float income calculation heartbeat (PSP mode): daily accrual on held balances
+- [x] Admin: Escrow Dashboard page (/escrow) — KPIs, state breakdown, recent transactions, config panel
+- [x] Admin: Logistics Tracker page (/logistics) — shipment list, status map, provider stats
+- [x] Admin: Dispute Management page (/disputes) — open disputes, evidence review, resolve/refund actions
+- [x] Portal: Merchant Wallet page (/portal/wallet) — balance, transaction history, withdrawal request (PSP mode)
+- [x] Portal: Shipment Tracker on PortalOrders — tracking link, delivery status per order
+- [x] DashboardLayout: add Escrow, Logistics, Disputes nav items under PAYMENTS section
+- [x] Vitest: escrow router tests (createHold, release, refund, state transitions)
+- [x] Vitest: logistics router tests (createShipment, webhook handler, auto-confirm)
+- [x] Vitest: wallet router tests (PSP mode balance, withdrawal)
+- [x] Checkpoint after all escrow/logistics features complete
 
 ## Escrow & Logistics (CBN PSP/PSSP)
 - [x] Database schema: escrow_transactions, merchant_wallets, wallet_ledger, logistics_shipments, escrow_disputes, float_income_entries, escrow_config tables
@@ -393,3 +393,30 @@
 - [x] App.tsx routes: /escrow, /logistics, /disputes, /portal/wallet
 - [x] Vitest tests: escrow state machine (30 tests), logistics webhook mapping (12 tests)
 - [x] All 217 tests passing
+
+## Notification Center, CSV Export, Escrow Timeline
+- [ ] DB schema: merchant_notifications table (tenantId, type, title, body, metadata, read, createdAt)
+- [ ] tRPC router: notifications (list, markRead, markAllRead, getUnreadCount)
+- [ ] Emit notifications on escrow state changes (escrow_held, delivery_confirmed, settled, refunded, dispute_raised)
+- [ ] Emit notifications on dispute events (opened, resolved)
+- [ ] tRPC router: wallet.exportLedgerCsv (returns CSV string for download)
+- [ ] tRPC router: escrow.getTimeline (joins escrow_transactions + logistics_shipments + escrow_disputes into ordered event list)
+- [ ] Frontend: NotificationCenter component (bell icon, dropdown, unread badge, mark-read)
+- [ ] Frontend: Add NotificationCenter to PortalDashboard layout header
+- [ ] Frontend: CSV export button on MerchantWallet page
+- [ ] Frontend: EscrowTimeline component (vertical timeline, state icons, timestamps, logistics events)
+- [ ] Frontend: EscrowDetail page or modal that shows timeline for a single escrow transaction
+- [ ] Vitest: notification emit tests, CSV format tests, timeline query tests
+
+## Notification Center, CSV Export & Escrow Timeline (v3)
+- [x] merchant_notifications table added to schema and migrated
+- [x] notificationsRouter: list, markRead, markAllRead, getUnreadCount, emitNotification helper
+- [x] NotificationCenter component: bell icon with badge, dropdown list, mark-all-read
+- [x] Notification emits wired into escrow state transitions (held, delivery_confirmed, settled, refunded)
+- [x] Notification emits wired into dispute raise and dispute resolve
+- [x] CSV export procedure (wallet.exportLedgerCsv) returns full ledger as CSV string
+- [x] CSV export button on MerchantWallet page (header + transaction table header)
+- [x] EscrowTimeline component: chronological event list with icons and variant colours
+- [x] Timeline dialog in EscrowDashboard: Timeline button per transaction row
+- [x] NotificationCenter added to TenantPortalLayout top bar
+- [x] Wallet nav item added to TenantPortalLayout sidebar

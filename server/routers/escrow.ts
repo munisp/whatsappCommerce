@@ -8,6 +8,7 @@ import {
   orders, logisticsShipments,
   type EscrowTransaction, type EscrowConfig,
 } from "../../drizzle/schema";
+import { emitNotification, NOTIFICATION_TEMPLATES } from "./notifications";
 
 // ─── Helper: get or seed escrow config ───────────────────────────────────────
 async function getEscrowConfig(db: Awaited<ReturnType<typeof getDb>>) {
@@ -212,6 +213,14 @@ export const escrowRouter = router({
         .where(eq(orders.id, input.orderId));
 
       const [created] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, id));
+      // Fire-and-forget: notify merchant of escrow hold
+      emitNotification({
+        id: crypto.randomUUID(), tenantId: input.tenantId, type: "escrow_held",
+        title: "Payment Held in Escrow",
+        body: `₦${input.amount.toLocaleString()} for order ${input.orderId} is now held in escrow pending delivery.`,
+        metadata: { orderId: input.orderId, amount: input.amount },
+        read: false, readAt: null, createdAt: new Date(),
+      }).catch(() => {});
       return created!;
     }),
 
@@ -244,6 +253,14 @@ export const escrowRouter = router({
         .where(eq(orders.id, escrow.orderId));
 
       const [updated] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
+      // Fire-and-forget: notify merchant of delivery confirmation
+      emitNotification({
+        id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "delivery_confirmed",
+        title: "Delivery Confirmed",
+        body: `Order ${escrow.orderId} has been marked as delivered. Escrow release is in progress.`,
+        metadata: { orderId: escrow.orderId, escrowId: input.escrowId },
+        read: false, readAt: null, createdAt: new Date(),
+      }).catch(() => {});
       return updated!;
     }),
 
@@ -300,6 +317,16 @@ export const escrowRouter = router({
         .where(eq(orders.id, escrow.orderId));
 
       const [updated] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
+      // Fire-and-forget: notify merchant of settlement
+      emitNotification({
+        id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_settled",
+        title: cfg.custodyMode === "psp" ? "Funds Released to Your Wallet" : "Release Instruction Sent",
+        body: cfg.custodyMode === "psp"
+          ? `₦${parseFloat(escrow.netMerchantAmount).toLocaleString()} from order ${escrow.orderId} released to your wallet.`
+          : `Release instruction sent to bank for ₦${parseFloat(escrow.netMerchantAmount).toLocaleString()} from order ${escrow.orderId}.`,
+        metadata: { orderId: escrow.orderId, escrowId: input.escrowId, netAmount: escrow.netMerchantAmount },
+        read: false, readAt: null, createdAt: new Date(),
+      }).catch(() => {});
       return updated!;
     }),
 
@@ -359,6 +386,14 @@ export const escrowRouter = router({
         .where(eq(orders.id, escrow.orderId));
 
       const [updated] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
+      // Fire-and-forget: notify merchant of refund
+      emitNotification({
+        id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
+        title: "Escrow Refunded to Buyer",
+        body: `Order ${escrow.orderId} refunded. ₦${refundAmt.toLocaleString()} returned to buyer. Reason: ${input.reason}.`,
+        metadata: { orderId: escrow.orderId, escrowId: input.escrowId, amount: refundAmt },
+        read: false, readAt: null, createdAt: new Date(),
+      }).catch(() => {});
       return updated!;
     }),
 
@@ -423,16 +458,90 @@ export const escrowRouter = router({
     const openDisputes = await db.select({ count: sql<number>`count(*)::int` })
       .from(escrowDisputes).where(inArray(escrowDisputes.status, ["open", "under_review"]));
 
-    return {
-      custodyMode: cfg.custodyMode,
-      byState,
-      totalHeld,
-      totalSettled,
-      totalFees,
-      openDisputes: openDisputes[0]?.count ?? 0,
-      platformFeeRate: cfg.platformFeeRate,
-    };
-  }),
+      return {
+        custodyMode: cfg.custodyMode,
+        byState,
+        totalHeld,
+        totalSettled,
+        totalFees,
+        openDisputes: openDisputes[0]?.count ?? 0,
+        platformFeeRate: cfg.platformFeeRate,
+      };
+    }),
+
+  /** Get ordered timeline of all events for a single escrow transaction */
+  getTimeline: protectedProcedure
+    .input(z.object({ escrowId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+
+      const [escrow] = await db.select().from(escrowTransactions)
+        .where(eq(escrowTransactions.id, input.escrowId));
+      if (!escrow) return [];
+
+      const [shipment] = await db.select().from(logisticsShipments)
+        .where(eq(logisticsShipments.escrowTxId, input.escrowId));
+
+      const disputes = await db.select().from(escrowDisputes)
+        .where(eq(escrowDisputes.escrowTxId, input.escrowId));
+
+      type TimelineEvent = {
+        id: string;
+        timestamp: Date;
+        type: "escrow_state" | "logistics" | "dispute";
+        state?: string;
+        title: string;
+        description: string;
+        icon: string;
+        variant: "default" | "success" | "warning" | "error" | "info";
+      };
+
+      const events: TimelineEvent[] = [];
+
+      // Escrow state events
+      events.push({ id: `${input.escrowId}-created`, timestamp: escrow.createdAt, type: "escrow_state", state: "payment_received", title: "Payment Received", description: `₦${Number(escrow.amount).toLocaleString()} received from buyer. Escrow process initiated.`, icon: "circle-dollar-sign", variant: "info" });
+
+      if (escrow.bankHoldConfirmedAt || !["payment_received"].includes(escrow.state)) {
+        events.push({ id: `${input.escrowId}-held`, timestamp: escrow.bankHoldConfirmedAt ?? escrow.updatedAt, type: "escrow_state", state: "escrow_held", title: "Funds Held in Escrow", description: escrow.custodyMode === "psp" ? `₦${Number(escrow.amount).toLocaleString()} held in platform wallet. Awaiting delivery.` : `₦${Number(escrow.amount).toLocaleString()} held at bank partner (${escrow.bankRef ?? "pending ref"}). Awaiting delivery.`, icon: "lock", variant: "default" });
+      }
+
+      if (escrow.deliveryConfirmedAt) {
+        events.push({ id: `${input.escrowId}-delivery`, timestamp: escrow.deliveryConfirmedAt, type: "escrow_state", state: "delivery_confirmed", title: "Delivery Confirmed", description: escrow.autoConfirmed ? "Delivery auto-confirmed after buyer confirmation window expired." : "Delivery confirmed by buyer via WhatsApp.", icon: "package-check", variant: "success" });
+      }
+
+      if (escrow.releaseInstructedAt) {
+        events.push({ id: `${input.escrowId}-release`, timestamp: escrow.releaseInstructedAt, type: "escrow_state", state: "release_instructed", title: "Release Instruction Sent", description: `Platform instructed bank partner to release ₦${Number(escrow.netMerchantAmount).toLocaleString()} to merchant wallet.`, icon: "send", variant: "info" });
+      }
+
+      if (escrow.settledAt) {
+        events.push({ id: `${input.escrowId}-settled`, timestamp: escrow.settledAt, type: "escrow_state", state: "settled", title: "Funds Released to Merchant", description: `₦${Number(escrow.netMerchantAmount).toLocaleString()} settled to merchant wallet. Platform fee: ₦${Number(escrow.platformFee).toLocaleString()}.`, icon: "check-circle", variant: "success" });
+      }
+
+      if (escrow.refundedAt) {
+        events.push({ id: `${input.escrowId}-refunded`, timestamp: escrow.refundedAt, type: "escrow_state", state: "refunded", title: "Escrow Refunded", description: `₦${Number(escrow.amount).toLocaleString()} refunded to buyer.`, icon: "rotate-ccw", variant: "warning" });
+      }
+
+      // Logistics events
+      if (shipment) {
+        events.push({ id: `${input.escrowId}-shipment-created`, timestamp: shipment.createdAt, type: "logistics", title: "Shipment Created", description: `Tracking ID: ${shipment.trackingId ?? "pending"}. Provider: ${shipment.provider}.`, icon: "truck", variant: "info" });
+        if (shipment.pickedUpAt) events.push({ id: `${input.escrowId}-picked-up`, timestamp: shipment.pickedUpAt, type: "logistics", title: "Package Picked Up", description: `${shipment.provider} collected the package from merchant.`, icon: "package", variant: "default" });
+        if (shipment.inTransitAt) events.push({ id: `${input.escrowId}-in-transit`, timestamp: shipment.inTransitAt, type: "logistics", title: "In Transit", description: `Package is in transit to buyer.`, icon: "truck", variant: "info" });
+        if (shipment.outForDeliveryAt) events.push({ id: `${input.escrowId}-out-for-delivery`, timestamp: shipment.outForDeliveryAt, type: "logistics", title: "Out for Delivery", description: `Package is out for delivery.`, icon: "navigation", variant: "info" });
+        if (shipment.deliveredAt) events.push({ id: `${input.escrowId}-delivered`, timestamp: shipment.deliveredAt, type: "logistics", title: "Package Delivered", description: `Package delivered to buyer. Confirmation window started.`, icon: "package-check", variant: "success" });
+      }
+
+      // Dispute events
+      for (const dispute of disputes) {
+        events.push({ id: `${input.escrowId}-dispute-${dispute.id}`, timestamp: dispute.createdAt, type: "dispute", title: "Dispute Raised", description: `${dispute.raisedBy === "buyer" ? "Buyer" : "Merchant"} raised a dispute. Reason: ${dispute.reason}.`, icon: "alert-triangle", variant: "error" });
+        if (dispute.resolvedAt) {
+          events.push({ id: `${input.escrowId}-dispute-resolved-${dispute.id}`, timestamp: dispute.resolvedAt, type: "dispute", title: "Dispute Resolved", description: `Resolution: ${dispute.resolution ?? "see details"}. ${dispute.resolverNotes ? `Notes: ${dispute.resolverNotes}` : ""}`, icon: "check-circle-2", variant: "success" });
+        }
+      }
+
+      events.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      return events;
+    }),
 });
 
 // ─── Escrow Dispute Router ────────────────────────────────────────────────────
@@ -475,6 +584,14 @@ export const escrowDisputeRouter = router({
       });
 
       const [created] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, id));
+      // Fire-and-forget: notify merchant of dispute
+      emitNotification({
+        id: crypto.randomUUID(), tenantId: input.tenantId, type: "dispute_opened",
+        title: "Dispute Opened on Your Order",
+        body: `A ${input.raisedBy} has raised a dispute on order ${input.orderId}. Reason: ${input.reason.replace(/_/g, " ")}. Please respond within ${cfg.disputeWindowHours}h.`,
+        metadata: { orderId: input.orderId, escrowTxId: input.escrowTxId, disputeId: id },
+        read: false, readAt: null, createdAt: new Date(),
+      }).catch(() => {});
       return created!;
     }),
 
@@ -537,6 +654,14 @@ export const escrowDisputeRouter = router({
       }).where(eq(escrowTransactions.id, dispute.escrowTxId));
 
       const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
+      // Fire-and-forget: notify merchant of dispute resolution
+      emitNotification({
+        id: crypto.randomUUID(), tenantId: dispute.tenantId, type: "dispute_resolved",
+        title: "Dispute Resolved",
+        body: `Dispute on order ${dispute.orderId} has been resolved. Outcome: ${input.resolution.replace(/_/g, " ")}.${input.resolverNotes ? ` Notes: ${input.resolverNotes}` : ""}`,
+        metadata: { orderId: dispute.orderId, disputeId: input.disputeId, resolution: input.resolution },
+        read: false, readAt: null, createdAt: new Date(),
+      }).catch(() => {});
       return updated!;
     }),
 });
@@ -618,4 +743,34 @@ export const walletRouter = router({
     }).from(merchantWallets);
     return stats;
   }),
+
+  /** Export full wallet ledger as CSV string */
+  exportLedgerCsv: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const [wallet] = await db.select().from(merchantWallets)
+        .where(eq(merchantWallets.tenantId, input.tenantId));
+      if (!wallet) return { csv: "", filename: "ledger.csv" };
+
+      const txs = await db.select().from(walletTransactions)
+        .where(eq(walletTransactions.walletId, wallet.id))
+        .orderBy(desc(walletTransactions.createdAt));
+
+      const header = ["Date", "Type", "Amount (NGN)", "Balance After (NGN)", "Reference", "Order ID", "Description"].join(",");
+      const rows = txs.map((t) => [
+        new Date(t.createdAt).toISOString(),
+        t.type,
+        t.amount,
+        t.balanceAfter ?? "",
+        t.reference ?? "",
+        t.orderId ?? "",
+        `"${(t.description ?? "").replace(/"/g, '""')}"`,
+      ].join(","));
+
+      const csv = [header, ...rows].join("\n");
+      const filename = `wallet_ledger_${input.tenantId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.csv`;
+      return { csv, filename };
+    }),
 });

@@ -10,6 +10,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
+import NotificationCenter from "@/components/NotificationCenter";
+import { Wallet } from "lucide-react";
 
 const NAV = [
   { label: "Dashboard", path: "/portal", icon: LayoutDashboard },
@@ -18,6 +20,7 @@ const NAV = [
   { label: "Conversations", path: "/portal/conversations", icon: MessageSquare },
   { label: "Invoices", path: "/portal/invoices", icon: FileText },
   { label: "Payments", path: "/portal/payments", icon: CreditCard },
+  { label: "Wallet", path: "/portal/wallet", icon: Wallet },
   { label: "Settings", path: "/portal/settings", icon: Settings },
 ];
 
@@ -161,7 +164,13 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
         </div>
       </aside>
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      <main className="flex-1 overflow-y-auto flex flex-col">
+        {/* Portal top bar with notification bell */}
+        <div className="flex items-center justify-end px-6 py-3 border-b border-slate-700 bg-slate-800/50">
+          <NotificationCenter />
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">{children}</div>
+      </main>
     </div>
   );
 }

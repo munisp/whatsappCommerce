@@ -11,6 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import EscrowTimeline from "@/components/EscrowTimeline";
+import { GitBranch } from "lucide-react";
 
 const STATE_COLORS: Record<string, string> = {
   payment_received: "bg-blue-100 text-blue-800",
@@ -44,6 +47,7 @@ function StatCard({ title, value, sub, color }: { title: string; value: string; 
 export default function EscrowDashboard() {
   const [stateFilter, setStateFilter] = useState<string>("all");
   const [configEditing, setConfigEditing] = useState(false);
+  const [timelineEscrowId, setTimelineEscrowId] = useState<string | null>(null);
 
   const { data: stats, isLoading: statsLoading } = trpc.escrow.getStats.useQuery();
   const { data: config, isLoading: configLoading, refetch: refetchConfig } = trpc.escrow.getConfig.useQuery();
@@ -110,6 +114,7 @@ export default function EscrowDashboard() {
   ];
 
   return (
+    <>
     <DashboardLayout>
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
@@ -220,6 +225,11 @@ export default function EscrowDashboard() {
                                 Refund
                               </Button>
                             )}
+                            <Button size="sm" variant="ghost" className="text-xs h-7 text-muted-foreground"
+                              onClick={() => setTimelineEscrowId(tx.id)}>
+                              <GitBranch className="h-3 w-3 mr-1" />
+                              Timeline
+                            </Button>
                           </div>
                         </td>
                       </tr>
@@ -358,5 +368,23 @@ export default function EscrowDashboard() {
         </Tabs>
       </div>
     </DashboardLayout>
+    {/* Escrow Timeline Dialog */}
+    <Dialog open={!!timelineEscrowId} onOpenChange={(open) => { if (!open) setTimelineEscrowId(null); }}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4" />
+            Escrow Timeline
+            {timelineEscrowId && (
+              <span className="text-xs font-mono text-muted-foreground ml-1">{timelineEscrowId.slice(0, 8)}…</span>
+            )}
+          </DialogTitle>
+        </DialogHeader>
+        {timelineEscrowId && (
+          <EscrowTimeline escrowId={timelineEscrowId} className="mt-2" />
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

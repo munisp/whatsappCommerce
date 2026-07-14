@@ -1296,3 +1296,35 @@ export type NewLogisticsShipment = typeof logisticsShipments.$inferInsert;
 export type EscrowDispute = typeof escrowDisputes.$inferSelect;
 export type NewEscrowDispute = typeof escrowDisputes.$inferInsert;
 export type FloatIncomeEntry = typeof floatIncomeEntries.$inferSelect;
+
+// ─── Merchant Notifications ───────────────────────────────────────────────────
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "escrow_held",
+  "delivery_confirmed",
+  "escrow_settled",
+  "escrow_refunded",
+  "dispute_opened",
+  "dispute_resolved",
+  "withdrawal_processed",
+  "shipment_update",
+  "system",
+]);
+
+export const merchantNotifications = pgTable("merchant_notifications", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  type: notificationTypeEnum("type").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  metadata: jsonb("metadata"),
+  read: boolean("read").default(false).notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("notif_tenant_idx").on(t.tenantId),
+  index("notif_read_idx").on(t.tenantId, t.read),
+  index("notif_created_idx").on(t.createdAt),
+]);
+
+export type MerchantNotification = typeof merchantNotifications.$inferSelect;
+export type NewMerchantNotification = typeof merchantNotifications.$inferInsert;
