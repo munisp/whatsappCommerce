@@ -270,3 +270,14 @@
 - [x] Dependabot config (npm, Go, Python, Rust)
 - [x] Mojaloop live FSPIOP integration
 - [x] Tenant portal invite magic link (WhatsApp delivery)
+
+## ML Ops Monitoring & Payment Reconciliation
+- [x] ML Ops monitoring dashboard: continuous training status, drift metrics, MLflow run history, A/B model comparison
+- [x] End-to-end Mojaloop + payment webhook reconciliation simulation with test harness
+- [x] Integration setup wizard: Paystack, Flutterwave, Keycloak step-by-step configuration UI (extend existing CredentialWizard)
+- [x] Wire real training data pipeline from production DB to ML stack
+- [x] Add mlOps tRPC router with training status, drift metrics, MLflow run history endpoints
+- [x] Add reconciliation tRPC router with simulate, verify, and audit trail endpoints
+- [x] Add ML Ops and Reconciliation nav items to DashboardLayout
+- [x] Add Keycloak tRPC router with saveConfig, getConfig, testConnection procedures
+- [x] Extend CredentialWizard with dedicated Paystack, Flutterwave, Keycloak integration steps

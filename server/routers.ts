@@ -26,6 +26,9 @@ import { invoiceRouter } from "./routers/invoice";
 import { paymentGatewayRouter } from "./routers/paymentGateway";
 import { tenantPortalRouter } from "./routers/tenantPortal";
 import { tenantInviteRouter } from "./routers/tenantInvite";
+import { mlOpsRouter } from "./routers/mlOps";
+import { reconciliationRouter } from "./routers/reconciliation";
+import { keycloakRouter } from "./routers/keycloak";
 
 export const appRouter = router({
   system: systemRouter,
@@ -61,6 +64,9 @@ export const appRouter = router({
   paymentGateway: paymentGatewayRouter,
   tenantPortal: tenantPortalRouter,
   tenantInvite: tenantInviteRouter,
+  mlOps: mlOpsRouter,
+  reconciliation: reconciliationRouter,
+  keycloak: keycloakRouter,
 });
 
 export type AppRouter = typeof appRouter;

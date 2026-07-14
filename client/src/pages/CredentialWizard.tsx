@@ -13,6 +13,7 @@ import {
   MessageSquare, Database, Bot, CreditCard, Webhook, ArrowRight,
   Eye, EyeOff, ExternalLink, RefreshCw, Shield
 } from "lucide-react";
+import { Key, Lock } from "lucide-react";
 
 type StepStatus = "idle" | "testing" | "success" | "error";
 
@@ -105,8 +106,65 @@ const INTEGRATIONS = [
   },
 ];
 
+const PAYSTACK_INTEGRATION = {
+  id: "paystack",
+  name: "Paystack",
+  icon: CreditCard,
+  color: "text-emerald-400",
+  bgColor: "bg-emerald-500/20",
+  description: "Accept payments in Nigeria, Ghana, Kenya, and South Africa",
+  docsUrl: "https://paystack.com/docs/api/",
+  fields: [
+    { key: "publicKey", label: "Public Key", placeholder: "pk_live_...", type: "text", required: true },
+    { key: "secretKey", label: "Secret Key", placeholder: "sk_live_...", type: "password", required: true },
+    { key: "webhookSecret", label: "Webhook Secret (HMAC-SHA512)", placeholder: "my_webhook_secret", type: "password", required: false },
+    { key: "callbackUrl", label: "Callback URL", placeholder: "https://yourapp.com/api/webhooks/paystack", type: "text", required: false },
+    { key: "tenantId", label: "Tenant ID", placeholder: "t1", type: "text", required: true },
+  ],
+};
+
+const FLUTTERWAVE_INTEGRATION = {
+  id: "flutterwave",
+  name: "Flutterwave",
+  icon: Key,
+  color: "text-amber-400",
+  bgColor: "bg-amber-500/20",
+  description: "Pan-African payments — 30+ currencies, cards, mobile money",
+  docsUrl: "https://developer.flutterwave.com/docs/",
+  fields: [
+    { key: "publicKey", label: "Public Key", placeholder: "FLWPUBK-...", type: "text", required: true },
+    { key: "secretKey", label: "Secret Key", placeholder: "FLWSECK-...", type: "password", required: true },
+    { key: "encryptionKey", label: "Encryption Key (3DES)", placeholder: "FLWSECK_TEST...", type: "password", required: false },
+    { key: "webhookSecret", label: "Webhook Verification Hash", placeholder: "my_verification_hash", type: "password", required: false },
+    { key: "callbackUrl", label: "Redirect URL", placeholder: "https://yourapp.com/api/webhooks/flutterwave", type: "text", required: false },
+    { key: "tenantId", label: "Tenant ID", placeholder: "t1", type: "text", required: true },
+  ],
+};
+
+const KEYCLOAK_INTEGRATION = {
+  id: "keycloak",
+  name: "Keycloak SSO",
+  icon: Lock,
+  color: "text-blue-400",
+  bgColor: "bg-blue-500/20",
+  description: "Open-source identity & access management — SSO, OAuth2, OIDC",
+  docsUrl: "https://www.keycloak.org/docs/latest/server_admin/",
+  fields: [
+    { key: "serverUrl", label: "Keycloak Server URL", placeholder: "https://auth.example.com", type: "text", required: true },
+    { key: "realm", label: "Realm Name", placeholder: "whatsapp-commerce", type: "text", required: true },
+    { key: "clientId", label: "Client ID", placeholder: "wac-backend", type: "text", required: true },
+    { key: "clientSecret", label: "Client Secret", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", type: "password", required: false },
+    { key: "adminUsername", label: "Admin Username (optional)", placeholder: "admin", type: "text", required: false },
+    { key: "adminPassword", label: "Admin Password (optional)", placeholder: "••••••••", type: "password", required: false },
+    { key: "tenantId", label: "Tenant ID", placeholder: "t1", type: "text", required: true },
+  ],
+};
+
+const ALL_INTEGRATIONS = [...INTEGRATIONS, PAYSTACK_INTEGRATION, FLUTTERWAVE_INTEGRATION, KEYCLOAK_INTEGRATION];
+type AnyIntegration = typeof ALL_INTEGRATIONS[number];
+
 function IntegrationCard({ integration, onConfigure }: {
-  integration: typeof INTEGRATIONS[0];
+  integration: AnyIntegration;
   onConfigure: () => void;
 }) {
   const Icon = integration.icon;
@@ -149,6 +207,10 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
 
   const testTwenty = trpc.twenty.testConnection.useMutation();
   const testOdoo = trpc.odoo.testConnection.useMutation();
+  const testKeycloak = trpc.keycloak.testConnection.useMutation();
+  const savePaystack = trpc.paymentGateway.configure.useMutation({ onSuccess: () => { toast.success("Paystack configured!"); onClose(); } });
+  const saveFlutterwave = trpc.paymentGateway.configure.useMutation({ onSuccess: () => { toast.success("Flutterwave configured!"); onClose(); } });
+  const saveKeycloak = trpc.keycloak.saveConfig.useMutation({ onSuccess: () => { toast.success("Keycloak SSO configured!"); onClose(); } });
   const saveTwenty = trpc.twenty.saveConfig.useMutation({ onSuccess: () => { toast.success("Twenty CRM configured!"); onClose(); } });
   const saveOdoo = trpc.odoo.saveConfig.useMutation({ onSuccess: () => { toast.success("Odoo ERP configured!"); onClose(); } });
 
@@ -195,6 +257,26 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
         const r = await testOdoo.mutateAsync({ baseUrl: values.baseUrl ?? "", database: values.database ?? "", username: values.username ?? "", apiKey: values.apiKey ?? "" });
         setStatus(r.success ? "success" : "error");
         setTestResult(r.success ? "Connected to Odoo ERP!" : (r.status ?? "Connection failed"));
+      } else if (integration.id === "keycloak") {
+        const r = await testKeycloak.mutateAsync({
+          serverUrl: values.serverUrl ?? "",
+          realm: values.realm ?? "",
+          clientId: values.clientId ?? "",
+          clientSecret: values.clientSecret,
+        });
+        setStatus(r.success ? "success" : "error");
+        setTestResult(r.success ? `Keycloak realm reachable! ${r.status}` : (r.status ?? "Connection failed"));
+      } else if (integration.id === "paystack" || integration.id === "flutterwave") {
+        await new Promise(r => setTimeout(r, 800));
+        const key = values.secretKey ?? "";
+        const valid = integration.id === "paystack"
+          ? (key.startsWith("sk_live_") || key.startsWith("sk_test_"))
+          : (key.startsWith("FLWSECK") || key.startsWith("FLWSECK_TEST"));
+        setStatus(valid ? "success" : "error");
+        setTestResult(valid
+          ? `${integration.name} key format valid. Live API call requires server network access.`
+          : `Invalid key format. ${integration.id === "paystack" ? "Paystack keys start with sk_live_ or sk_test_" : "Flutterwave keys start with FLWSECK"}`
+        );
       } else {
         // Simulate test for other integrations
         await new Promise(r => setTimeout(r, 1200));
@@ -212,6 +294,35 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
       saveTwenty.mutate({ baseUrl: values.apiUrl ?? values.baseUrl ?? "", apiKey: values.apiKey ?? "", workspaceId: values.workspaceId });
     } else if (integration.id === "odoo") {
       saveOdoo.mutate({ baseUrl: values.baseUrl ?? "", database: values.database ?? "", username: values.username ?? "", apiKey: values.apiKey ?? "" });
+    } else if (integration.id === "paystack") {
+      savePaystack.mutate({
+        tenantId: values.tenantId ?? "default",
+        provider: "paystack",
+        publicKey: values.publicKey,
+        secretKey: values.secretKey,
+        webhookSecret: values.webhookSecret,
+        callbackUrl: values.callbackUrl || undefined,
+      });
+    } else if (integration.id === "flutterwave") {
+      saveFlutterwave.mutate({
+        tenantId: values.tenantId ?? "default",
+        provider: "flutterwave",
+        publicKey: values.publicKey,
+        secretKey: values.secretKey,
+        webhookSecret: values.webhookSecret,
+        callbackUrl: values.callbackUrl || undefined,
+      });
+    } else if (integration.id === "keycloak") {
+      saveKeycloak.mutate({
+        tenantId: values.tenantId ?? "default",
+        serverUrl: values.serverUrl ?? "",
+        realm: values.realm ?? "",
+        clientId: values.clientId ?? "",
+        clientSecret: values.clientSecret,
+        adminUsername: values.adminUsername,
+        adminPassword: values.adminPassword,
+        enableSso: true,
+      });
     } else {
       toast.success(`${integration.name} credentials saved to environment config.`);
       onClose();
@@ -314,7 +425,7 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
 }
 
 export default function CredentialWizard() {
-  const [configuring, setConfiguring] = useState<typeof INTEGRATIONS[0] | null>(null);
+  const [configuring, setConfiguring] = useState<AnyIntegration | null>(null);
   const { data: twentyConfig } = trpc.twenty.getConfig.useQuery();
   const { data: odooConfig } = trpc.odoo.getConfig.useQuery();
   const completedCount = [
@@ -349,7 +460,7 @@ export default function CredentialWizard() {
 
         {/* Integration cards */}
         <div className="grid grid-cols-2 gap-4">
-          {INTEGRATIONS.map(integration => (
+          {ALL_INTEGRATIONS.map(integration => (
             <IntegrationCard
               key={integration.id}
               integration={integration}
