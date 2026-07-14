@@ -44,6 +44,10 @@ import SsoCallback from "./pages/portal/SsoCallback";
 import CogsDisputes from "./pages/CogsDisputes";
 import SsoUsers from "./pages/SsoUsers";
 import RevenueDashboard from "./pages/RevenueDashboard";
+import EscrowDashboard from "./pages/EscrowDashboard";
+import LogisticsTracker from "./pages/LogisticsTracker";
+import DisputeManagement from "./pages/DisputeManagement";
+import PortalWallet from "./pages/portal/PortalWallet";
 
 function Router() {
   return (
@@ -87,6 +91,10 @@ function Router() {
           <Route path="/sso-users" component={SsoUsers} />
           <Route path="/cogs-disputes" component={CogsDisputes} />
           <Route path="/revenue" component={RevenueDashboard} />
+          <Route path="/escrow" component={EscrowDashboard} />
+          <Route path="/logistics" component={LogisticsTracker} />
+          <Route path="/disputes" component={DisputeManagement} />
+          <Route path="/portal/wallet" component={PortalWallet} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

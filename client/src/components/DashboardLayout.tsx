@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bell, Bot, BrainCircuit, Building2, ChevronDown, CreditCard, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Rocket, Server, Settings, Shield, Smartphone, TrendingUp, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bell, Bot, BrainCircuit, Building2, ChevronDown, CreditCard, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Rocket, Server, Settings, Shield, Smartphone, TrendingUp, Truck, UserPlus, Users, Warehouse } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -64,6 +64,10 @@ const menuItems: NavItem[] = [
   { icon: Bell,            label: "Alert Rules",     path: "/alert-rules",      section: "System" },
   { icon: Shield,          label: "SSO Users",       path: "/sso-users",        section: "System" },
   { icon: TrendingUp,      label: "Revenue",          path: "/revenue",          section: "System" },
+  // ── Finance ───────────────────────────────────────────────────────────────
+  { icon: Lock,            label: "Escrow",           path: "/escrow",           section: "Finance" },
+  { icon: Truck,           label: "Logistics",        path: "/logistics",        section: "Finance" },
+  { icon: AlertTriangle,   label: "Disputes",         path: "/disputes",         section: "Finance" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

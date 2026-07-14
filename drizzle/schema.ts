@@ -1041,3 +1041,258 @@ export const cogsDisputeRequests = pgTable("cogs_dispute_requests", {
 ]);
 export type CogsDisputeRequest = typeof cogsDisputeRequests.$inferSelect;
 export type NewCogsDisputeRequest = typeof cogsDisputeRequests.$inferInsert;
+
+// ─── Escrow & Logistics ───────────────────────────────────────────────────────
+
+// Custody mode: PSSP = funds held at partner bank (instruction-only),
+//               PSP  = funds held natively in platform wallet engine
+export const custodyModeEnum = pgEnum("custody_mode", ["pssp", "psp"]);
+
+// Escrow state machine:
+// PAYMENT_RECEIVED → ESCROW_HELD → DELIVERY_CONFIRMED → RELEASE_INSTRUCTED → SETTLED
+//                                 ↘ DISPUTE_RAISED → DISPUTE_RESOLVED → REFUNDED | SETTLED
+export const escrowStateEnum = pgEnum("escrow_state", [
+  "payment_received",
+  "escrow_held",
+  "delivery_confirmed",
+  "release_instructed",
+  "settled",
+  "dispute_raised",
+  "dispute_resolved",
+  "refunded",
+  "expired",
+]);
+
+export const disputeStatusEnum = pgEnum("dispute_status", [
+  "open", "under_review", "resolved_merchant", "resolved_buyer", "escalated",
+]);
+
+export const disputeResolutionEnum = pgEnum("dispute_resolution", [
+  "full_release_to_merchant",
+  "full_refund_to_buyer",
+  "partial_refund",
+  "no_action",
+]);
+
+export const shipmentStatusEnum = pgEnum("shipment_status", [
+  "pending", "created", "picked_up", "in_transit",
+  "out_for_delivery", "delivered", "failed", "returned",
+]);
+
+export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
+  "escrow_credit",    // funds held in escrow
+  "escrow_release",   // escrow released to merchant
+  "escrow_refund",    // escrow refunded to buyer
+  "float_income",     // PSP: interest earned on held balance
+  "withdrawal",       // merchant withdrawal to bank
+  "fee_deduction",    // platform fee at settlement
+]);
+
+// ─── Escrow Config (platform-level) ──────────────────────────────────────────
+export const escrowConfig = pgTable("escrow_config", {
+  id: serial("id").primaryKey(),
+  custodyMode: custodyModeEnum("custody_mode").default("pssp").notNull(),
+  // PSSP mode: partner bank details
+  bankPartnerName: varchar("bank_partner_name", { length: 100 }),
+  bankPartnerCode: varchar("bank_partner_code", { length: 20 }),
+  bankApiBaseUrl: text("bank_api_base_url"),
+  bankApiKeyEncrypted: text("bank_api_key_encrypted"),
+  bankEscrowAccountNumber: varchar("bank_escrow_account_number", { length: 20 }),
+  // Shipbubble logistics
+  shipbubbleApiKey: text("shipbubble_api_key"),
+  shipbubbleWebhookSecret: text("shipbubble_webhook_secret"),
+  // Escrow rules
+  platformFeeRate: numeric("platform_fee_rate", { precision: 6, scale: 4 }).default("0.03125").notNull(),
+  buyerConfirmWindowHours: integer("buyer_confirm_window_hours").default(24).notNull(),
+  disputeWindowHours: integer("dispute_window_hours").default(48).notNull(),
+  autoConfirmEnabled: boolean("auto_confirm_enabled").default(true).notNull(),
+  // PSP mode: float income
+  floatYieldRate: numeric("float_yield_rate", { precision: 6, scale: 4 }).default("0.08").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── Escrow Transactions ──────────────────────────────────────────────────────
+export const escrowTransactions = pgTable("escrow_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("order_id", { length: 36 }).notNull().references(() => orders.id),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  customerId: varchar("customer_id", { length: 36 }),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  platformFee: numeric("platform_fee", { precision: 14, scale: 2 }).default("0").notNull(),
+  netMerchantAmount: numeric("net_merchant_amount", { precision: 14, scale: 2 }).default("0").notNull(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  custodyMode: custodyModeEnum("custody_mode").default("pssp").notNull(),
+  state: escrowStateEnum("state").default("payment_received").notNull(),
+  // PSSP mode: bank instruction tracking
+  bankRef: varchar("bank_ref", { length: 128 }),
+  bankHoldConfirmedAt: timestamp("bank_hold_confirmed_at"),
+  releaseInstructedAt: timestamp("release_instructed_at"),
+  bankSettlementConfirmedAt: timestamp("bank_settlement_confirmed_at"),
+  // PSP mode: internal wallet IDs
+  buyerWalletTxId: varchar("buyer_wallet_tx_id", { length: 36 }),
+  merchantWalletTxId: varchar("merchant_wallet_tx_id", { length: 36 }),
+  // Delivery confirmation
+  shipmentId: varchar("shipment_id", { length: 36 }),
+  deliveryConfirmedAt: timestamp("delivery_confirmed_at"),
+  buyerConfirmedAt: timestamp("buyer_confirmed_at"),
+  autoConfirmed: boolean("auto_confirmed").default(false).notNull(),
+  buyerConfirmDeadline: timestamp("buyer_confirm_deadline"),
+  // Settlement
+  settledAt: timestamp("settled_at"),
+  refundedAt: timestamp("refunded_at"),
+  idempotencyKey: varchar("idempotency_key", { length: 128 }).unique(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("escrow_order_idx").on(t.orderId),
+  index("escrow_tenant_idx").on(t.tenantId),
+  index("escrow_state_idx").on(t.state),
+  index("escrow_created_idx").on(t.createdAt),
+]);
+
+// ─── Merchant Wallets (PSP mode) ──────────────────────────────────────────────
+export const merchantWallets = pgTable("merchant_wallets", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull().unique(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  availableBalance: numeric("available_balance", { precision: 14, scale: 2 }).default("0").notNull(),
+  escrowBalance: numeric("escrow_balance", { precision: 14, scale: 2 }).default("0").notNull(),
+  totalEarned: numeric("total_earned", { precision: 14, scale: 2 }).default("0").notNull(),
+  totalWithdrawn: numeric("total_withdrawn", { precision: 14, scale: 2 }).default("0").notNull(),
+  custodyMode: custodyModeEnum("custody_mode").default("pssp").notNull(),
+  bankAccountName: varchar("bank_account_name", { length: 255 }),
+  bankAccountNumber: varchar("bank_account_number", { length: 20 }),
+  bankCode: varchar("bank_code", { length: 10 }),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("wallet_tenant_idx").on(t.tenantId),
+]);
+
+// ─── Wallet Transactions ──────────────────────────────────────────────────────
+export const walletTransactions = pgTable("wallet_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  walletId: varchar("wallet_id", { length: 36 }).notNull().references(() => merchantWallets.id),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  type: walletTxTypeEnum("type").notNull(),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  balanceBefore: numeric("balance_before", { precision: 14, scale: 2 }).notNull(),
+  balanceAfter: numeric("balance_after", { precision: 14, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  orderId: varchar("order_id", { length: 36 }),
+  escrowTxId: varchar("escrow_tx_id", { length: 36 }),
+  description: text("description"),
+  reference: varchar("reference", { length: 128 }),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("wallet_tx_wallet_idx").on(t.walletId),
+  index("wallet_tx_tenant_idx").on(t.tenantId),
+  index("wallet_tx_type_idx").on(t.type),
+  index("wallet_tx_created_idx").on(t.createdAt),
+]);
+
+// ─── Logistics Shipments ──────────────────────────────────────────────────────
+export const logisticsShipments = pgTable("logistics_shipments", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("order_id", { length: 36 }).notNull().references(() => orders.id),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  escrowTxId: varchar("escrow_tx_id", { length: 36 }),
+  provider: varchar("provider", { length: 50 }).default("shipbubble").notNull(),
+  carrierId: varchar("carrier_id", { length: 50 }),
+  carrierName: varchar("carrier_name", { length: 100 }),
+  trackingId: varchar("tracking_id", { length: 128 }),
+  trackingUrl: text("tracking_url"),
+  status: shipmentStatusEnum("status").default("pending").notNull(),
+  // Addresses
+  senderName: varchar("sender_name", { length: 255 }),
+  senderPhone: varchar("sender_phone", { length: 30 }),
+  senderAddress: jsonb("sender_address"),
+  recipientName: varchar("recipient_name", { length: 255 }),
+  recipientPhone: varchar("recipient_phone", { length: 30 }),
+  recipientAddress: jsonb("recipient_address"),
+  // Shipment details
+  weightKg: numeric("weight_kg", { precision: 6, scale: 2 }),
+  shippingFee: numeric("shipping_fee", { precision: 10, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  estimatedDeliveryAt: timestamp("estimated_delivery_at"),
+  // Lifecycle timestamps
+  createdAtProvider: timestamp("created_at_provider"),
+  pickedUpAt: timestamp("picked_up_at"),
+  inTransitAt: timestamp("in_transit_at"),
+  outForDeliveryAt: timestamp("out_for_delivery_at"),
+  deliveredAt: timestamp("delivered_at"),
+  failedAt: timestamp("failed_at"),
+  returnedAt: timestamp("returned_at"),
+  // Webhook audit trail (array of raw payloads)
+  webhookPayloads: jsonb("webhook_payloads").default([]).notNull(),
+  providerResponse: jsonb("provider_response"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("shipment_order_idx").on(t.orderId),
+  index("shipment_tenant_idx").on(t.tenantId),
+  index("shipment_status_idx").on(t.status),
+  index("shipment_tracking_idx").on(t.trackingId),
+]);
+
+// ─── Escrow Disputes ─────────────────────────────────────────────────────────
+export const escrowDisputes = pgTable("escrow_disputes", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  escrowTxId: varchar("escrow_tx_id", { length: 36 }).notNull().references(() => escrowTransactions.id),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  raisedBy: varchar("raised_by", { length: 30 }).default("buyer").notNull(), // buyer | merchant
+  reason: varchar("reason", { length: 100 }).notNull(), // not_received, wrong_item, damaged, partial_delivery
+  description: text("description"),
+  status: disputeStatusEnum("status").default("open").notNull(),
+  resolution: disputeResolutionEnum("resolution"),
+  refundAmount: numeric("refund_amount", { precision: 14, scale: 2 }),
+  // Evidence
+  buyerEvidence: jsonb("buyer_evidence"),   // { text, imageUrls[], submittedAt }
+  merchantEvidence: jsonb("merchant_evidence"),
+  // Resolution
+  resolvedBy: varchar("resolved_by", { length: 128 }),
+  resolverNotes: text("resolver_notes"),
+  buyerResponseDeadline: timestamp("buyer_response_deadline"),
+  merchantResponseDeadline: timestamp("merchant_response_deadline"),
+  resolvedAt: timestamp("resolved_at"),
+  escalatedAt: timestamp("escalated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("dispute_escrow_idx").on(t.escrowTxId),
+  index("dispute_order_idx").on(t.orderId),
+  index("dispute_tenant_idx").on(t.tenantId),
+  index("dispute_status_idx").on(t.status),
+]);
+
+// ─── Float Income Ledger (PSP mode) ──────────────────────────────────────────
+export const floatIncomeEntries = pgTable("float_income_entries", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
+  totalEscrowBalance: numeric("total_escrow_balance", { precision: 16, scale: 2 }).notNull(),
+  dailyYieldRate: numeric("daily_yield_rate", { precision: 10, scale: 8 }).notNull(),
+  incomeAmount: numeric("income_amount", { precision: 14, scale: 4 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("float_income_date_idx").on(t.date),
+]);
+
+// ─── Type Exports ─────────────────────────────────────────────────────────────
+export type EscrowConfig = typeof escrowConfig.$inferSelect;
+export type EscrowTransaction = typeof escrowTransactions.$inferSelect;
+export type NewEscrowTransaction = typeof escrowTransactions.$inferInsert;
+export type MerchantWallet = typeof merchantWallets.$inferSelect;
+export type NewMerchantWallet = typeof merchantWallets.$inferInsert;
+export type WalletTransaction = typeof walletTransactions.$inferSelect;
+export type NewWalletTransaction = typeof walletTransactions.$inferInsert;
+export type LogisticsShipment = typeof logisticsShipments.$inferSelect;
+export type NewLogisticsShipment = typeof logisticsShipments.$inferInsert;
+export type EscrowDispute = typeof escrowDisputes.$inferSelect;
+export type NewEscrowDispute = typeof escrowDisputes.$inferInsert;
+export type FloatIncomeEntry = typeof floatIncomeEntries.$inferSelect;

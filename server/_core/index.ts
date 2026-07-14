@@ -14,7 +14,7 @@ import { getDb } from "../db";
 import { inventorySnapshots } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
-import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants } from "../../drizzle/schema";
+import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
@@ -409,8 +409,152 @@ async function startServer() {
             .where(eq(paymentTransactions.providerRef, txRef));
         }
       }
+    return res.status(200).json({ received: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Shipbubble delivery webhook (/api/webhooks/shipbubble) ────────────────
+  app.post("/api/webhooks/shipbubble", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
+      const secret = cfg?.shipbubbleWebhookSecret ?? process.env.SHIPBUBBLE_WEBHOOK_SECRET ?? "";
+      const body = req.body as Buffer;
+      if (secret) {
+        const sig = req.headers["x-shipbubble-signature"] as string ?? "";
+        const expected = crypto.createHmac("sha512", secret).update(body).digest("hex");
+        if (sig !== expected) return res.status(401).json({ error: "Invalid signature" });
+      }
+      const payload = JSON.parse(body.toString());
+      const trackingId = payload.tracking_number ?? payload.data?.tracking_number;
+      const event = (payload.event ?? payload.status ?? "").toLowerCase();
+      if (!trackingId) return res.status(200).json({ received: true });
+      const statusMap: Record<string, string> = {
+        "shipment.picked_up": "picked_up", "shipment.in_transit": "in_transit",
+        "shipment.out_for_delivery": "out_for_delivery", "shipment.delivered": "delivered",
+        "shipment.failed": "failed", "shipment.returned": "returned",
+        picked_up: "picked_up", in_transit: "in_transit",
+        out_for_delivery: "out_for_delivery", delivered: "delivered", failed: "failed",
+      };
+      const newStatus = statusMap[event];
+      if (!newStatus) return res.status(200).json({ received: true, skipped: true });
+      const [shipment] = await db.select().from(logisticsShipments)
+        .where(eq(logisticsShipments.trackingId, trackingId));
+      if (!shipment) return res.status(200).json({ received: true, notFound: true });
+      const now = new Date();
+      const tsField: Record<string, object> = {
+        picked_up: { pickedUpAt: now }, in_transit: { inTransitAt: now },
+        out_for_delivery: { outForDeliveryAt: now }, delivered: { deliveredAt: now },
+        failed: { failedAt: now }, returned: { returnedAt: now },
+      };
+      await db.update(logisticsShipments).set({
+        status: newStatus as any,
+        ...tsField[newStatus],
+        webhookPayloads: sql`webhook_payloads || ${JSON.stringify([{ ...payload, receivedAt: now.toISOString() }])}::jsonb`,
+        updatedAt: now,
+      }).where(eq(logisticsShipments.id, shipment.id));
+      if (newStatus === "delivered" && shipment.escrowTxId) {
+        await db.update(escrowTransactions).set({
+          state: "delivery_confirmed", deliveryConfirmedAt: now, updatedAt: now,
+        }).where(and(eq(escrowTransactions.id, shipment.escrowTxId), eq(escrowTransactions.state, "escrow_held")));
+        await db.update(orders).set({ status: "delivered", updatedAt: now }).where(eq(orders.id, shipment.orderId));
+      }
       return res.status(200).json({ received: true });
     } catch (err: any) {
+      console.error("[shipbubble-webhook]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Bank escrow settlement callback (PSSP mode) ───────────────────────────
+  app.post("/api/webhooks/escrow-bank", express.json(), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const { escrowId, bankRef, status } = req.body ?? {};
+      if (!escrowId || !bankRef) return res.status(400).json({ error: "Missing escrowId or bankRef" });
+      if (status === "settled") {
+        await db.update(escrowTransactions).set({
+          state: "settled", bankRef, bankSettlementConfirmedAt: new Date(), settledAt: new Date(), updatedAt: new Date(),
+        }).where(and(eq(escrowTransactions.id, escrowId), eq(escrowTransactions.state, "release_instructed")));
+      }
+      return res.status(200).json({ received: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Escrow auto-confirm heartbeat ─────────────────────────────────────────
+  app.post("/api/scheduled/escrow-auto-confirm", async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
+      if (!cfg?.autoConfirmEnabled) return res.json({ ok: true, skipped: "auto-confirm disabled" });
+      const now = new Date();
+      const expired = await db.select().from(escrowTransactions).where(and(
+        eq(escrowTransactions.state, "delivery_confirmed"),
+        sql`buyer_confirm_deadline < ${now.toISOString()}`,
+      ));
+      let confirmed = 0;
+      for (const escrow of expired) {
+        const feeRate = parseFloat(cfg.platformFeeRate);
+        const netAmount = parseFloat(escrow.amount) * (1 - feeRate);
+        if (cfg.custodyMode === "psp") {
+          const [wallet] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, escrow.tenantId));
+          if (wallet) {
+            await db.update(merchantWallets).set({
+              escrowBalance: sql`GREATEST(escrow_balance - ${netAmount.toFixed(2)}, 0)`,
+              availableBalance: sql`available_balance + ${netAmount.toFixed(2)}`,
+              totalEarned: sql`total_earned + ${netAmount.toFixed(2)}`,
+              updatedAt: now,
+            }).where(eq(merchantWallets.id, wallet.id));
+          }
+          await db.update(escrowTransactions).set({
+            state: "settled", autoConfirmed: true, settledAt: now, updatedAt: now,
+          }).where(eq(escrowTransactions.id, escrow.id));
+        } else {
+          const bankRef = `ESCROW-AUTO-${escrow.id.slice(0, 8).toUpperCase()}-${Date.now()}`;
+          await db.update(escrowTransactions).set({
+            state: "release_instructed", autoConfirmed: true, releaseInstructedAt: now, bankRef, updatedAt: now,
+          }).where(eq(escrowTransactions.id, escrow.id));
+        }
+        await db.update(orders).set({ paymentStatus: "completed", updatedAt: now }).where(eq(orders.id, escrow.orderId));
+        confirmed++;
+      }
+      return res.json({ ok: true, confirmed });
+    } catch (err: any) {
+      console.error("[escrow-auto-confirm]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── PSP float income heartbeat ────────────────────────────────────────────
+  app.post("/api/scheduled/float-income", async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
+      if (cfg?.custodyMode !== "psp") return res.json({ ok: true, skipped: "not in PSP mode" });
+      const [{ total }] = await db.select({ total: sql<string>`coalesce(sum(escrow_balance::numeric), 0)::text` }).from(merchantWallets);
+      const totalBalance = parseFloat(total ?? "0");
+      if (totalBalance <= 0) return res.json({ ok: true, skipped: "no escrow balance" });
+      const dailyRate = parseFloat(cfg.floatYieldRate) / 365;
+      const dailyIncome = totalBalance * dailyRate;
+      const today = new Date().toISOString().slice(0, 10);
+      await db.insert(floatIncomeEntries).values({
+        id: crypto.randomUUID(), date: today,
+        totalEscrowBalance: totalBalance.toFixed(2),
+        dailyYieldRate: dailyRate.toFixed(8),
+        incomeAmount: dailyIncome.toFixed(4),
+        currency: "NGN", createdAt: new Date(),
+      });
+      return res.json({ ok: true, date: today, income: dailyIncome.toFixed(4) });
+    } catch (err: any) {
+      console.error("[float-income]", err);
       return res.status(500).json({ error: err?.message });
     }
   });
