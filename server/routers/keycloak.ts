@@ -125,4 +125,38 @@ export const keycloakRouter = router({
         return { success: false, status: `Connection error: ${msg}` };
       }
     }),
+
+  // Build the Keycloak OIDC authorization URL for a tenant's realm
+  getLoginUrl: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      redirectUri: z.string().url(),
+      state: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const rows = await db
+        .select()
+        .from(paymentGatewayConfigs)
+        .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, "manual")))
+        .limit(1);
+      if (!rows[0]) throw new Error("Keycloak not configured for this tenant");
+      const raw = rows[0].secretKey ?? "";
+      if (!raw.startsWith("keycloak::")) throw new Error("Keycloak config not found");
+      const cfg = JSON.parse(raw.slice("keycloak::".length)) as Record<string, unknown>;
+      if (!cfg.enableSso) throw new Error("SSO is disabled for this tenant");
+      const serverUrl = (cfg.serverUrl as string).replace(/\/$/, "");
+      const realm = cfg.realm as string;
+      const clientId = cfg.clientId as string;
+      const params = new URLSearchParams({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: input.redirectUri,
+        scope: "openid email profile",
+        ...(input.state ? { state: input.state } : {}),
+      });
+      const authUrl = `${serverUrl}/realms/${realm}/protocol/openid-connect/auth?${params.toString()}`;
+      return { authUrl, realm, clientId };
+    }),
 });

@@ -17,6 +17,8 @@ import {
   ResponsiveContainer, BarChart, Bar, ReferenceLine,
 } from "recharts";
 
+const RUN_COLORS = ["#60a5fa", "#34d399", "#fbbf24", "#f472b6", "#a78bfa"];
+
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     FINISHED: { label: "Finished", cls: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
@@ -50,6 +52,7 @@ export default function MLOpsDashboard() {
   const [selectedExperiment, setSelectedExperiment] = useState<string>("");
   const [driftDays, setDriftDays] = useState(14);
   const [retrainingModel, setRetrainingModel] = useState<string | null>(null);
+  const [selectedMetric, setSelectedMetric] = useState<string>("");
 
   const experimentsQ = trpc.mlOps.getExperiments.useQuery();
   const trainingStatusQ = trpc.mlOps.getTrainingStatus.useQuery();
@@ -57,6 +60,14 @@ export default function MLOpsDashboard() {
   const abQ = trpc.mlOps.getAbComparison.useQuery();
   const allRunsQ = trpc.mlOps.getAllRuns.useQuery();
   const pipelineQ = trpc.mlOps.getDataPipelineStatus.useQuery();
+  const metricHistoryQ = trpc.mlOps.getMetricHistory.useQuery(
+    { experimentId: selectedExperiment },
+    { enabled: !!selectedExperiment }
+  );
+  const availableMetrics = metricHistoryQ.data?.metrics ?? [];
+  const activeMetric = selectedMetric && availableMetrics.includes(selectedMetric)
+    ? selectedMetric
+    : availableMetrics[0] ?? "";
 
   const runsForExp = trpc.mlOps.getMlflowRuns.useQuery(
     { experimentId: selectedExperiment },
@@ -213,6 +224,7 @@ export default function MLOpsDashboard() {
             <TabsTrigger value="drift" className="data-[state=active]:bg-white/10">Drift Monitoring</TabsTrigger>
             <TabsTrigger value="runs" className="data-[state=active]:bg-white/10">Run History</TabsTrigger>
             <TabsTrigger value="ab" className="data-[state=active]:bg-white/10">A/B Comparison</TabsTrigger>
+            <TabsTrigger value="curves" className="data-[state=active]:bg-white/10">Metric Curves</TabsTrigger>
           </TabsList>
 
           {/* Drift Monitoring Tab */}
@@ -478,6 +490,148 @@ export default function MLOpsDashboard() {
                 <CardContent className="p-8 text-center text-white/30">No A/B comparisons available yet</CardContent>
               </Card>
             )}
+          </TabsContent>
+
+          {/* ── Metric Curves Tab ─────────────────────────────────────────── */}
+          <TabsContent value="curves" className="space-y-4">
+            <Card className="bg-[#0f1923] border-white/10">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <CardTitle className="text-white text-base flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-blue-400" /> Training Metric Curves
+                  </CardTitle>
+                  <div className="flex items-center gap-3">
+                    <Select
+                      value={selectedExperiment}
+                      onValueChange={v => { setSelectedExperiment(v); setSelectedMetric(""); }}
+                    >
+                      <SelectTrigger className="w-48 h-8 bg-white/5 border-white/10 text-white text-xs">
+                        <SelectValue placeholder="Select experiment…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(experimentsQ.data ?? []).map(e => (
+                          <SelectItem key={e.id} value={e.id}>{e.name.replace(/_/g, " ")}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {availableMetrics.length > 0 && (
+                      <Select value={activeMetric} onValueChange={setSelectedMetric}>
+                        <SelectTrigger className="w-40 h-8 bg-white/5 border-white/10 text-white text-xs">
+                          <SelectValue placeholder="Select metric…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableMetrics.map(m => (
+                            <SelectItem key={m} value={m}>{m}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {!selectedExperiment && (
+                  <div className="flex items-center justify-center h-48 text-white/30 text-sm">
+                    Select an experiment above to view metric curves
+                  </div>
+                )}
+                {selectedExperiment && metricHistoryQ.isLoading && (
+                  <div className="flex items-center justify-center h-48">
+                    <RefreshCw className="w-5 h-5 text-white/30 animate-spin" />
+                  </div>
+                )}
+                {selectedExperiment && metricHistoryQ.data && activeMetric && (
+                  <>
+                    <div className="flex flex-wrap gap-3 mb-4">
+                      {(metricHistoryQ.data.runNames ?? []).map((name, i) => (
+                        <span key={name} className="flex items-center gap-1.5 text-xs text-white/60">
+                          <span className="w-3 h-0.5 rounded-full inline-block" style={{ background: RUN_COLORS[i % RUN_COLORS.length] }} />
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                    <ResponsiveContainer width="100%" height={300}>
+                      <LineChart
+                        data={metricHistoryQ.data.charts[activeMetric] ?? []}
+                        margin={{ top: 5, right: 20, left: 0, bottom: 20 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                        <XAxis
+                          dataKey="step"
+                          tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
+                          tickLine={false}
+                          label={{ value: "Step / Epoch", position: "insideBottom", offset: -10, fill: "rgba(255,255,255,0.3)", fontSize: 11 }}
+                        />
+                        <YAxis
+                          tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(v: number) => v.toFixed(4)}
+                        />
+                        <Tooltip
+                          contentStyle={{ background: "#0f1923", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }}
+                          labelStyle={{ color: "rgba(255,255,255,0.7)" }}
+                          formatter={(v: number) => v.toFixed(6)}
+                        />
+                        {(metricHistoryQ.data.runNames ?? []).map((name, i) => (
+                          <Line
+                            key={name}
+                            type="monotone"
+                            dataKey={name}
+                            stroke={RUN_COLORS[i % RUN_COLORS.length]}
+                            strokeWidth={2}
+                            dot={false}
+                            connectNulls
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                    {availableMetrics.filter(m => m !== activeMetric).length > 0 && (
+                      <div className="mt-6">
+                        <p className="text-white/40 text-xs uppercase tracking-wider mb-3">Other Metrics — click to expand</p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                          {availableMetrics.filter(m => m !== activeMetric).map(metric => (
+                            <button
+                              key={metric}
+                              onClick={() => setSelectedMetric(metric)}
+                              className="bg-white/5 hover:bg-white/10 rounded-xl p-3 text-left transition-colors border border-white/5 hover:border-white/15"
+                            >
+                              <p className="text-white/50 text-xs mb-2 truncate">{metric}</p>
+                              <ResponsiveContainer width="100%" height={50}>
+                                <LineChart data={metricHistoryQ.data!.charts[metric] ?? []}>
+                                  <Line
+                                    type="monotone"
+                                    dataKey={(metricHistoryQ.data?.runNames ?? [])[0] ?? ""}
+                                    stroke={RUN_COLORS[0]}
+                                    strokeWidth={1.5}
+                                    dot={false}
+                                    connectNulls
+                                  />
+                                </LineChart>
+                              </ResponsiveContainer>
+                              {(() => {
+                                const pts = metricHistoryQ.data!.charts[metric] ?? [];
+                                const last = pts[pts.length - 1];
+                                const runName = (metricHistoryQ.data?.runNames ?? [])[0];
+                                const val = last && runName ? (last[runName] as number) : null;
+                                return val != null ? (
+                                  <p className="text-white text-xs font-mono mt-1">{val.toFixed(4)}</p>
+                                ) : null;
+                              })()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {selectedExperiment && metricHistoryQ.data && availableMetrics.length === 0 && (
+                  <div className="flex items-center justify-center h-48 text-white/30 text-sm">
+                    No metric history found for this experiment
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>

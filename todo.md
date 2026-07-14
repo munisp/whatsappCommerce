@@ -281,3 +281,6 @@
 - [x] Add ML Ops and Reconciliation nav items to DashboardLayout
 - [x] Add Keycloak tRPC router with saveConfig, getConfig, testConnection procedures
 - [x] Extend CredentialWizard with dedicated Paystack, Flutterwave, Keycloak integration steps
+- [x] Add MLflow time-series Metric Curves tab to ML Ops dashboard (getMetricHistory tRPC procedure + multi-run line charts)
+- [x] Wire Keycloak SSO login redirect for tenant portal (getLoginUrl procedure + SSO login panel in TenantPortalLayout)
+- [x] Build nightly reconciliation discrepancy alert heartbeat handler (/api/scheduled/reconciliation-alert + notifyOwner integration)

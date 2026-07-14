@@ -5,7 +5,7 @@ import { paymentTransactions } from "../../drizzle/schema";
 import { desc, gte, sql } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
-import yaml from "js-yaml";
+import { load as yamlLoad } from "js-yaml";
 
 const MLRUNS_DIR = path.join(process.cwd(), "services/ml-stack/mlruns");
 
@@ -14,7 +14,7 @@ const MLRUNS_DIR = path.join(process.cwd(), "services/ml-stack/mlruns");
 function readYaml(filePath: string): Record<string, unknown> | null {
   try {
     const content = fs.readFileSync(filePath, "utf-8");
-    return yamlLoad(content) as Record<string, unknown>;
+    return (yamlLoad as (s: string) => Record<string, unknown>)(content);
   } catch {
     return null;
   }
@@ -267,5 +267,36 @@ export const mlOpsRouter = router({
       lastPipelineRun: new Date(Date.now() - 3600 * 1000).toISOString(),
     };
   }),
+
+  // Per-step metric history for all runs in an experiment — powers time-series charts
+  getMetricHistory: protectedProcedure
+    .input(z.object({ experimentId: z.string() }))
+    .query(async ({ input }) => {
+      const runs = getRunsForExperiment(input.experimentId);
+      // Collect all metric names across runs
+     const allMetrics = new Set<string>();
+     runs.forEach(r => Object.keys(r.metricHistory).forEach(m => allMetrics.add(m)));
+     // Build per-metric time-series: [{step, run1Name, run2Name, ...}]
+     const charts: Record<string, Array<Record<string, number | string>>> = {};
+      for (const metric of Array.from(allMetrics)) {
+        // Find max steps across runs for this metric
+        const maxSteps = Math.max(...runs.map(r => (r.metricHistory[metric] ?? []).length), 0);
+        if (maxSteps === 0) continue;
+        const byStep: Record<number, Record<string, number | string>> = {};
+        for (const run of runs.slice(0, 5)) { // cap at 5 runs for readability
+          const history = run.metricHistory[metric] ?? [];
+          for (const point of history) {
+            if (!byStep[point.step]) byStep[point.step] = { step: point.step };
+            byStep[point.step][run.runName] = parseFloat(point.value.toFixed(6));
+          }
+        }
+        charts[metric] = Object.values(byStep).sort((a, b) => (a.step as number) - (b.step as number));
+      }
+      return {
+        experimentId: input.experimentId,
+        metrics: Array.from(allMetrics),
+        runNames: runs.slice(0, 5).map(r => r.runName),
+        charts,
+      };
+    }),
 });
-import { load as yamlLoad } from "js-yaml";

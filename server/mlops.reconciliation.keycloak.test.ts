@@ -16,6 +16,12 @@ describe("mlOps router", () => {
     expect(procedures).toContain("getDriftMetrics");
     expect(procedures).toContain("getDataPipelineStatus");
   });
+
+  it("router includes getMetricHistory procedure", async () => {
+    const { mlOpsRouter } = await import("./routers/mlOps");
+    const procedures = Object.keys(mlOpsRouter._def.procedures ?? mlOpsRouter._def.record ?? {});
+    expect(procedures).toContain("getMetricHistory");
+  });
 });
 
 // ── Reconciliation Router tests ────────────────────────────────────────────────
@@ -44,6 +50,14 @@ describe("keycloak router", () => {
     expect(procedures).toContain("saveConfig");
     expect(procedures).toContain("getConfig");
     expect(procedures).toContain("testConnection");
+  });
+
+  it("router includes getLoginUrl procedure", async () => {
+    const { keycloakRouter } = await import("./routers/keycloak");
+    const procedures = Object.keys(
+      keycloakRouter._def.procedures ?? keycloakRouter._def.record ?? {}
+    );
+    expect(procedures).toContain("getLoginUrl");
   });
 
   it("testConnection returns error for unreachable server", async () => {

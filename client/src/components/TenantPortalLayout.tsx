@@ -8,6 +8,8 @@ import {
   Settings, CreditCard, MessageSquare, LogOut, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { toast } from "sonner";
 
 const NAV = [
   { label: "Dashboard", path: "/portal", icon: LayoutDashboard },
@@ -23,6 +25,39 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
   const [location] = useLocation();
   const { user } = useAuth();
   const logoutMutation = trpc.auth.logout.useMutation({ onSuccess: () => window.location.href = "/portal" });
+  const [tenantId, setTenantId] = useState("");
+  const [ssoLoading, setSsoLoading] = useState(false);
+
+  const handleSsoLogin = async () => {
+    if (!tenantId.trim()) {
+      toast.error("Please enter your Tenant ID to use SSO login");
+      return;
+    }
+    setSsoLoading(true);
+    try {
+      const redirectUri = `${window.location.origin}/portal/sso-callback`;
+      const state = btoa(JSON.stringify({ tenantId, returnTo: "/portal" }));
+      const res = await fetch(
+        `/api/trpc/keycloak.getLoginUrl?batch=1&input=${encodeURIComponent(JSON.stringify({ "0": { json: { tenantId, redirectUri, state } } }))}`,
+        { headers: { Accept: "application/json" } }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as Array<{ result: { data: { json: { authUrl: string } } } }>;
+      const authUrl = data[0]?.result?.data?.json?.authUrl;
+      if (!authUrl) throw new Error("No auth URL returned — Keycloak may not be configured for this tenant");
+      window.location.href = authUrl;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not configured") || msg.includes("not found") || msg.includes("disabled")) {
+        toast.info("SSO not configured for this tenant — using standard login");
+        startLogin();
+      } else {
+        toast.error(`SSO error: ${msg}`);
+      }
+    } finally {
+      setSsoLoading(false);
+    }
+  };
 
   if (!user) {
     return (
@@ -43,6 +78,35 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
           >
             Sign in with Manus
           </Button>
+          {/* Keycloak SSO section */}
+          <div className="mt-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex-1 h-px bg-slate-600" />
+              <span className="text-slate-500 text-xs">or sign in with SSO</span>
+              <div className="flex-1 h-px bg-slate-600" />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Tenant ID"
+                value={tenantId}
+                onChange={e => setTenantId(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleSsoLogin()}
+                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+              />
+              <Button
+                variant="outline"
+                className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white bg-transparent"
+                onClick={handleSsoLogin}
+                disabled={ssoLoading}
+              >
+                {ssoLoading ? "…" : "SSO →"}
+              </Button>
+            </div>
+            <p className="text-slate-600 text-xs mt-2">
+              Enter your tenant ID to redirect to your organisation's Keycloak login
+            </p>
+          </div>
           <p className="mt-6 text-xs text-slate-500">
             Not a merchant yet?{" "}
             <Link href="/onboarding" className="text-emerald-400 hover:underline">

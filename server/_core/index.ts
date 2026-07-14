@@ -139,6 +139,57 @@ async function startServer() {
   });
 
   // ── Paystack webhook (/api/webhooks/paystack) ─────────────────────────────
+  // ── Scheduled: nightly reconciliation discrepancy alert ──────────────────
+  app.post("/api/scheduled/reconciliation-alert", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      // Count unreconciled (pending/failed) transactions in the last 24 hours
+      const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+      const unreconciledRows = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(paymentTransactions)
+        .where(
+          sql`${paymentTransactions.createdAt} >= ${cutoff}
+              AND (${paymentTransactions.status} = 'pending'
+                   OR ${paymentTransactions.status} = 'failed')`
+        );
+      const totalRows = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(paymentTransactions)
+        .where(sql`${paymentTransactions.createdAt} >= ${cutoff}`);
+      const unreconciled = unreconciledRows[0]?.count ?? 0;
+      const total = totalRows[0]?.count ?? 0;
+      const discrepancyRate = total > 0 ? unreconciled / total : 0;
+      const ALERT_THRESHOLD = 0.05; // alert if >5% unreconciled
+      if (discrepancyRate > ALERT_THRESHOLD) {
+        await notifyOwner({
+          title: "⚠️ Reconciliation Alert: High Discrepancy Rate",
+          content: `Nightly reconciliation check detected ${unreconciled} unreconciled transactions out of ${total} in the last 24 hours (${(discrepancyRate * 100).toFixed(1)}% discrepancy rate — threshold: ${(ALERT_THRESHOLD * 100).toFixed(0)}%). Please review the Reconciliation Simulation dashboard for details.`,
+        }).catch((e: unknown) => console.warn("[reconciliation-alert] notification failed:", e));
+      }
+      return res.json({
+        ok: true,
+        checkedAt: new Date().toISOString(),
+        total,
+        unreconciled,
+        discrepancyRate: parseFloat((discrepancyRate * 100).toFixed(2)),
+        alertSent: discrepancyRate > ALERT_THRESHOLD,
+        taskUid: user.taskUid,
+      });
+    } catch (err: unknown) {
+      const e = err as Error;
+      return res.status(500).json({
+        error: e?.message ?? "unknown",
+        stack: e?.stack,
+        context: { url: req.url },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   app.post("/api/webhooks/paystack", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const db = await getDb();
@@ -215,3 +266,4 @@ async function startServer() {
 }
 
 startServer().catch(console.error);
+import { notifyOwner } from "./notification";
