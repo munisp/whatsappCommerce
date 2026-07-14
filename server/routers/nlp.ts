@@ -16,6 +16,7 @@ import {
   nlpSessions, cartSessions, cartItems, orders, orderItems,
   customers, products, conversations, agentEvents,
 } from "../../drizzle/schema";
+import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
 
 // ── Language detection & system prompts ───────────────────────────────────────
 const LANGUAGE_HINTS: Record<string, string[]> = {
@@ -243,10 +244,63 @@ export const nlpRouter = router({
             createdAt: new Date(),
             updatedAt: new Date(),
           });
-          ctx.lastOrderId = orderId;
-          ctx.lastOrderNumber = orderNumber;
-        }
+        ctx.lastOrderId = orderId;
+        ctx.lastOrderNumber = orderNumber;
+
+        // ── Initiate payment via configured gateway ──────────────────────────
+        try {
+          const [gwConfig] = await db.select().from(paymentGatewayConfigs)
+            .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.isActive, true)))
+            .limit(1);
+          if (gwConfig) {
+            const txId = crypto.randomUUID();
+            let paymentUrl: string | null = null;
+            const callbackUrl = gwConfig.callbackUrl ?? `https://wa.me/${input.waPhoneNumber}`;
+            if (gwConfig.provider === "paystack") {
+              const resp = await fetch("https://api.paystack.co/transaction/initialize", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ amount: Math.round(total * 100), currency: items[0].currency, reference: txId, callback_url: callbackUrl }),
+              }).then(r => r.json()).catch(() => null);
+              paymentUrl = resp?.data?.authorization_url ?? null;
+            } else if (gwConfig.provider === "flutterwave") {
+              const resp = await fetch("https://api.flutterwave.com/v3/payments", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ tx_ref: txId, amount: total, currency: items[0].currency, redirect_url: callbackUrl, customer: { phone_number: input.waPhoneNumber } }),
+              }).then(r => r.json()).catch(() => null);
+              paymentUrl = resp?.data?.link ?? null;
+            }
+            await db.insert(paymentTransactions).values({
+              id: txId,
+              tenantId: input.tenantId,
+              orderId,
+              provider: gwConfig.provider,
+              providerRef: txId,
+              amount: total.toFixed(2),
+              currency: items[0].currency,
+              status: "initiated",
+              paymentUrl,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+            if (paymentUrl) {
+              // Append payment link to the LLM reply
+              const payLinkSuffix = session.language === "pidgin"
+                ? `\n\n💳 Click dis link to pay: ${paymentUrl}`
+                : session.language === "yo"
+                ? `\n\n💳 Tẹ ọna asopọ yii lati san: ${paymentUrl}`
+                : session.language === "ha"
+                ? `\n\n💳 Danna wannan hanyar haɗi don biyan kuɗi: ${paymentUrl}`
+                : session.language === "ig"
+                ? `\n\n💳 Pịa njikọ a iji kwụọ ụgwọ: ${paymentUrl}`
+                : `\n\n💳 Click here to complete payment: ${paymentUrl}`;
+              llmResult.reply = (llmResult.reply ?? "") + payLinkSuffix;
+            }
+          }
+        } catch (_) { /* payment link generation is best-effort */ }
       }
+    }
 
       if (llmResult.extractedAddress) {
         ctx.deliveryAddress = llmResult.extractedAddress;

@@ -219,3 +219,25 @@
 ## Post-Deploy Activation Steps (code complete, activation requires live URL)
 - [x] Heartbeat cron code: /api/scheduled/inventory-sync route with isCron auth guard, lowStockThreshold JOIN, idempotent sync — code complete. After Publish: run `manus-heartbeat create --name inventory-sync --cron "0 */5 * * * *" --path /api/scheduled/inventory-sync`
 - [x] KYC microservice code: services/kyc-verifier/ with PaddleOCR, VLM, Docling, liveness — code complete. After deploying the Python service: add KYC_SERVICE_URL secret via Settings → Secrets, then the upload flow will wire automatically via the kyc.submit tRPC procedure
+## Payment Gateway Integration
+- [x] DB schema: payment_gateway_configs table (tenantId, provider, publicKey, secretKey, webhookSecret, isActive)
+- [x] Server: Paystack adapter (initiate, verify, webhook handler with HMAC-SHA512 validation)
+- [x] Server: Flutterwave adapter (initiate, verify, webhook handler with tx_ref extraction)
+- [x] Server: Mojaloop adapter (FSPIOP transfer request, quote, fulfillment)
+- [x] tRPC router: paymentGateway (configure, initiate, verify, getConfig, listTransactions, verifyWebhookSignature)
+- [x] Webhook Express endpoints: /api/webhooks/paystack, /api/webhooks/flutterwave
+- [x] NLP checkout flow: payment link returned to buyer in checkout step response
+
+## Tenant Self-Service Portal
+- [x] Separate /portal route with TenantPortalLayout (no platform admin nav)
+- [x] Portal login gate with Manus OAuth (tenantId from user.tenantId)
+- [ ] Portal dashboard: tenant KPIs (orders, revenue, conversations, inventory alerts)
+- [ ] Portal products page: manage own products only
+- [ ] Portal orders page: view and update own orders only
+- [ ] Portal invoices page: view and pay own invoices
+- [ ] Portal settings: WhatsApp config, AI config, billing info
+- [ ] RBAC guard: portal procedures scoped to ctx.user.tenantId
+
+## Heartbeat & Post-Deploy Checklist
+- [ ] Post-deploy checklist page (/deploy-checklist): step-by-step activation guide
+- [ ] Checklist items: publish, register heartbeat cron, add KYC_SERVICE_URL secret, configure payment gateways

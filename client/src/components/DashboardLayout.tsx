@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bot, Building2, ChevronDown, CreditCard, FileText, GitBranch, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Server, Settings, Smartphone, UserPlus, Users, Warehouse } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bot, Building2, ChevronDown, CreditCard, FileText, GitBranch, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Rocket, Server, Settings, Smartphone, UserPlus, Users, Warehouse } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -57,6 +57,8 @@ const menuItems: NavItem[] = [
   { icon: MessagesSquare,  label: "NLP Simulator",  path: "/nlp-simulator",section: "System" },
   { icon: Server,          label: "Service Health", path: "/health",       section: "System" },
   { icon: Settings,        label: "Setup Wizard",   path: "/setup",        section: "System" },
+  { icon: Building2,       label: "Merchant Portal",path: "/portal",       section: "System" },
+  { icon: Rocket,          label: "Deploy Checklist",path: "/deploy-checklist", section: "System" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

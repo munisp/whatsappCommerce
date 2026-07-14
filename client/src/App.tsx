@@ -28,6 +28,14 @@ import TenantOnboarding from "./pages/TenantOnboarding";
 import AgentArchitecture from "./pages/AgentArchitecture";
 import NLPSimulator from "./pages/NLPSimulator";
 import Invoices from "./pages/Invoices";
+import PortalDashboard from "./pages/portal/PortalDashboard";
+import PortalProducts from "./pages/portal/PortalProducts";
+import PortalOrders from "./pages/portal/PortalOrders";
+import PortalInvoices from "./pages/portal/PortalInvoices";
+import PortalSettings from "./pages/portal/PortalSettings";
+import PortalConversations from "./pages/portal/PortalConversations";
+import PortalPayments from "./pages/portal/PortalPayments";
+import DeployChecklist from "./pages/DeployChecklist";
 
 function Router() {
   return (
@@ -56,6 +64,14 @@ function Router() {
           <Route path="/agent-architecture" component={AgentArchitecture} />
           <Route path="/nlp-simulator" component={NLPSimulator} />
           <Route path="/invoices" component={Invoices} />
+          <Route path="/portal" component={PortalDashboard} />
+          <Route path="/portal/products" component={PortalProducts} />
+          <Route path="/portal/orders" component={PortalOrders} />
+          <Route path="/portal/invoices" component={PortalInvoices} />
+          <Route path="/portal/settings" component={PortalSettings} />
+          <Route path="/portal/conversations" component={PortalConversations} />
+          <Route path="/portal/payments" component={PortalPayments} />
+          <Route path="/deploy-checklist" component={DeployChecklist} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

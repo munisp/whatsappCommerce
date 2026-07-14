@@ -880,3 +880,47 @@ export type Refund = typeof refunds.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 export type NlpSession = typeof nlpSessions.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;
+
+// ─── Payment Gateway Configs ─────────────────────────────────────────────────
+export const paymentGatewayConfigs = pgTable("payment_gateway_configs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  publicKey: text("publicKey"),
+  secretKey: text("secretKey"),
+  webhookSecret: text("webhookSecret"),
+  callbackUrl: text("callbackUrl"),
+  isActive: boolean("isActive").default(true).notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("pgc_tenant_idx").on(t.tenantId),
+]);
+
+export const paymentTransactions = pgTable("payment_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }),
+  customerId: varchar("customerId", { length: 36 }),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerRef: varchar("providerRef", { length: 256 }),
+  providerTxId: varchar("providerTxId", { length: 256 }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 8 }).default("NGN").notNull(),
+  status: varchar("status", { length: 32 }).default("initiated").notNull(),
+  paymentUrl: text("paymentUrl"),
+  callbackData: jsonb("callbackData"),
+  paidAt: timestamp("paidAt"),
+  failureReason: text("failureReason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("ptx_tenant_idx2").on(t.tenantId),
+  index("ptx_order_idx2").on(t.orderId),
+  index("ptx_status_idx2").on(t.status),
+]);
+
+export type PaymentGatewayConfig = typeof paymentGatewayConfigs.$inferSelect;
+export type PaymentTransaction = typeof paymentTransactions.$inferSelect;

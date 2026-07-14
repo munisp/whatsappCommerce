@@ -13,6 +13,9 @@ import { sdk } from "./sdk";
 import { getDb } from "../db";
 import { inventorySnapshots } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
+import crypto from "crypto";
+import { paymentTransactions } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -132,6 +135,55 @@ async function startServer() {
         context: { url: req.url },
         timestamp: new Date().toISOString(),
       });
+    }
+  });
+
+  // ── Paystack webhook (/api/webhooks/paystack) ─────────────────────────────
+  app.post("/api/webhooks/paystack", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      const secret = process.env.PAYSTACK_WEBHOOK_SECRET ?? "";
+      const sig = req.headers["x-paystack-signature"] as string ?? "";
+      const body = req.body as Buffer;
+      if (secret) {
+        const expected = crypto.createHmac("sha512", secret).update(body).digest("hex");
+        if (sig !== expected) return res.status(401).json({ error: "invalid-signature" });
+      }
+      const payload = JSON.parse(body.toString());
+      if (payload.event === "charge.success" && db) {
+        const ref = payload.data?.reference as string;
+        if (ref) {
+          await db.update(paymentTransactions)
+            .set({ status: "completed", providerRef: ref, updatedAt: new Date() })
+            .where(eq(paymentTransactions.providerRef, ref));
+        }
+      }
+      return res.status(200).json({ received: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Flutterwave webhook (/api/webhooks/flutterwave) ───────────────────────
+  app.post("/api/webhooks/flutterwave", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      const secret = process.env.FLW_WEBHOOK_SECRET ?? "";
+      const sig = req.headers["verif-hash"] as string ?? "";
+      if (secret && sig !== secret) return res.status(401).json({ error: "invalid-signature" });
+      const body = req.body as Buffer;
+      const payload = JSON.parse(body.toString());
+      if (payload.event === "charge.completed" && payload.data?.status === "successful" && db) {
+        const txRef = payload.data?.tx_ref as string;
+        if (txRef) {
+          await db.update(paymentTransactions)
+            .set({ status: "completed", providerRef: txRef, updatedAt: new Date() })
+            .where(eq(paymentTransactions.providerRef, txRef));
+        }
+      }
+      return res.status(200).json({ received: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message });
     }
   });
 
