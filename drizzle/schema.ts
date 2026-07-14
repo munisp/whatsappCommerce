@@ -965,6 +965,9 @@ export const alertRules = pgTable("alert_rules", {
   notifyOwnerOnTrigger: boolean("notify_owner_on_trigger").notNull().default(true),
   heartbeatTaskUid: varchar("heartbeat_task_uid", { length: 128 }),
   lastTriggeredAt: timestamp("last_triggered_at"),
+  // Cooldown: skip notification if rule already fired within this many minutes.
+  // 0 = no cooldown (always notify). Default 60 min prevents alert fatigue.
+  cooldownMinutes: integer("cooldown_minutes").notNull().default(60),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

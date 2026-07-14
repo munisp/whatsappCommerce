@@ -54,6 +54,7 @@ export const alertRulesRouter = router({
         isEnabled: z.boolean().default(true),
         notifyOwnerOnTrigger: z.boolean().default(true),
         heartbeatTaskUid: z.string().optional(),
+        cooldownMinutes: z.number().int().min(0).max(1440).default(60),
       })
     )
     .mutation(async ({ input }) => {
@@ -73,6 +74,7 @@ export const alertRulesRouter = router({
         isEnabled: input.isEnabled,
         notifyOwnerOnTrigger: input.notifyOwnerOnTrigger,
         heartbeatTaskUid: taskUid ?? undefined,
+        cooldownMinutes: input.cooldownMinutes,
       });
       const [created] = await db.select().from(alertRules).where(eq(alertRules.id, id));
       return { ...created, threshold: parseFloat(created.threshold as unknown as string) };
@@ -88,6 +90,7 @@ export const alertRulesRouter = router({
         windowHours: z.number().int().min(1).max(720).optional(),
         isEnabled: z.boolean().optional(),
         notifyOwnerOnTrigger: z.boolean().optional(),
+        cooldownMinutes: z.number().int().min(0).max(1440).optional(),
       })
     )
     .mutation(async ({ input }) => {

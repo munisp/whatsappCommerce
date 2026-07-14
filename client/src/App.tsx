@@ -41,6 +41,7 @@ import MLOpsDashboard from "./pages/MLOpsDashboard";
 import ReconciliationSim from "./pages/ReconciliationSim";
 import AlertRules from "./pages/AlertRules";
 import SsoCallback from "./pages/portal/SsoCallback";
+import SsoUsers from "./pages/SsoUsers";
 
 function Router() {
   return (
@@ -81,6 +82,7 @@ function Router() {
           <Route path="/reconciliation" component={ReconciliationSim} />
           <Route path="/alert-rules" component={AlertRules} />
           <Route path="/portal/sso-callback" component={SsoCallback} />
+          <Route path="/sso-users" component={SsoUsers} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

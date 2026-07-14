@@ -295,11 +295,11 @@
 - [x] Add keycloak.exchangeCode tRPC procedure for OIDC code→token exchange + portal session creation
 - [x] Build SsoCallback portal page (/portal/sso-callback) that completes the Keycloak SSO login flow
 - [x] Wire /alert-rules and /portal/sso-callback routes in App.tsx
-- [ ] Seed default reconciliation alert rule on first admin login (alertRules.seedDefaults tRPC mutation)
-- [ ] Add alert_rule_events DB table to track each rule trigger (timestamp, actual_value, threshold, rule_id)
-- [ ] Add alertRules.listEvents tRPC procedure to query event history
-- [ ] Build Alert History tab on /alert-rules page showing last 30 days of trigger events
-- [ ] Keycloak SSO user provisioning — upsert SSO user email/name into tenants table after exchangeCode
+- [x] Seed default reconciliation alert rule on first admin login (alertRules.seedDefaults tRPC mutation)
+- [x] Add alert_rule_events DB table to track each rule trigger (timestamp, actual_value, threshold, rule_id)
+- [x] Add alertRules.listEvents tRPC procedure to query event history
+- [x] Build Alert History tab on /alert-rules page showing last 30 days of trigger events
+- [x] Keycloak SSO user provisioning — upsert SSO user email/name into tenants table after exchangeCode
 - [x] Add alert_rule_events DB table for immutable trigger history log
 - [x] Add seedDefaults procedure to alertRules router (auto-seeds 4 default rules on first admin visit)
 - [x] Add listEvents procedure to alertRules router with day-range filtering
@@ -310,3 +310,8 @@
 - [x] Add tenant_sso_profiles DB table for SSO user provisioning
 - [x] Add tenantSsoProfiles import and upsert in keycloak.exchangeCode procedure
 - [x] SSO upsert: insert on first login, increment ssoLoginCount + update lastSsoLoginAt on repeat logins
+- [x] SSO Users admin page with search, stats, and login history table
+- [x] Alert cooldown_minutes column in alertRules table and heartbeat cooldown check
+- [x] Keycloak role mapping: realm_access.roles → portal role in session JWT
+- [x] listSsoProfiles tRPC procedure with tenant join and search
+- [x] Nigeria profitability model document with 4 charts

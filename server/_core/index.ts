@@ -157,6 +157,18 @@ async function startServer() {
         ? parseFloat(reconRule.threshold as unknown as string) / 100
         : 0.05;
       const windowHours = reconRule?.windowHours ?? 24;
+      // ── Cooldown check: skip notification if rule fired too recently ──────
+      const cooldownMinutes = reconRule?.cooldownMinutes ?? 60;
+      if (cooldownMinutes > 0 && reconRule?.lastTriggeredAt) {
+        const msSinceLast = Date.now() - new Date(reconRule.lastTriggeredAt).getTime();
+        if (msSinceLast < cooldownMinutes * 60 * 1000) {
+          return res.json({
+            ok: true,
+            skipped: true,
+            reason: `Cooldown active — last triggered ${Math.round(msSinceLast / 60000)}m ago (cooldown: ${cooldownMinutes}m)`,
+          });
+        }
+      }
       const cutoff = new Date(Date.now() - windowHours * 3600 * 1000);
       const unreconciledRows = await db
         .select({ count: sql<number>`count(*)::int` })

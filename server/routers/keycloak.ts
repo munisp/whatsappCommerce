@@ -3,7 +3,7 @@ import { router, protectedProcedure } from "../_core/trpc";
 import { publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { paymentGatewayConfigs, tenants, tenantSsoProfiles } from "../../drizzle/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import { ENV } from "../_core/env";
@@ -232,13 +232,31 @@ export const keycloakRouter = router({
 
       // Decode the ID token to extract user info (no sig verification needed —
       // we received it directly from Keycloak over HTTPS)
-      let userInfo: { sub?: string; email?: string; name?: string; preferred_username?: string } = {};
+      let userInfo: {
+        sub?: string;
+        email?: string;
+        name?: string;
+        preferred_username?: string;
+        realm_access?: { roles?: string[] };
+        resource_access?: Record<string, { roles?: string[] }>;
+      } = {};
       if (tokens.id_token) {
         try {
           const payload = tokens.id_token.split(".")[1];
           userInfo = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
         } catch { /* non-fatal */ }
       }
+      // ── Role mapping: Keycloak realm roles → portal role ─────────────────
+      // Priority: realm_access.roles > resource_access[clientId].roles
+      // Mapping: "admin" | "manager" → "admin", anything else → "agent"
+      const ADMIN_ROLES = new Set(["admin", "manager", "portal-admin", "portal-manager"]);
+      const keycloakRoles: string[] = [
+        ...(userInfo.realm_access?.roles ?? []),
+        ...(userInfo.resource_access?.[clientId]?.roles ?? []),
+      ];
+      const portalRole: "admin" | "agent" = keycloakRoles.some((r) => ADMIN_ROLES.has(r))
+        ? "admin"
+        : "agent";
 
       // Load tenant name for the session
       const [tenant] = await db
@@ -254,6 +272,9 @@ export const keycloakRouter = router({
         email: userInfo.email,
         name: userInfo.name ?? userInfo.preferred_username,
         loginMethod: "keycloak_sso",
+        // Resolved portal role from Keycloak realm/resource roles
+        role: portalRole,
+        keycloakRoles,
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 24 * 3600,
       };
@@ -295,6 +316,49 @@ export const keycloakRouter = router({
         tenantName: tenant?.name ?? input.tenantId,
         userEmail: userInfo.email,
         userName: userInfo.name ?? userInfo.preferred_username,
+        portalRole,
+        keycloakRoles,
       };
+    }),
+
+  // ── List all SSO-provisioned tenant profiles (admin view) ─────────────────
+  listSsoProfiles: protectedProcedure
+    .input(
+      z.object({
+        search: z.string().optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+        offset: z.number().int().min(0).default(0),
+      })
+    )
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      // Join with tenants to get tenant name alongside SSO profile
+      const rows = await db
+        .select({
+          tenantId: tenantSsoProfiles.tenantId,
+          tenantName: tenants.name,
+          ssoSub: tenantSsoProfiles.ssoSub,
+          ssoEmail: tenantSsoProfiles.ssoEmail,
+          ssoName: tenantSsoProfiles.ssoName,
+          ssoProvider: tenantSsoProfiles.ssoProvider,
+          ssoLoginCount: tenantSsoProfiles.ssoLoginCount,
+          firstSsoLoginAt: tenantSsoProfiles.firstSsoLoginAt,
+          lastSsoLoginAt: tenantSsoProfiles.lastSsoLoginAt,
+        })
+        .from(tenantSsoProfiles)
+        .leftJoin(tenants, eq(tenants.id, tenantSsoProfiles.tenantId))
+        .orderBy(desc(tenantSsoProfiles.lastSsoLoginAt))
+        .limit(input.limit)
+        .offset(input.offset);
+      const filtered = input.search
+        ? rows.filter(
+            (r) =>
+              r.ssoEmail?.toLowerCase().includes(input.search!.toLowerCase()) ||
+              r.ssoName?.toLowerCase().includes(input.search!.toLowerCase()) ||
+              r.tenantName?.toLowerCase().includes(input.search!.toLowerCase())
+          )
+        : rows;
+      return { profiles: filtered, total: filtered.length };
     }),
 });
