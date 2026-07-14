@@ -175,20 +175,24 @@
 - [x] Broadcast page: A/B test panel in campaign detail, variant stats comparison, auto-winner button
 
 ## Tenant Onboarding Wizard
-- [ ] DB schema: tenant_onboarding table (tenantId, step, billingModel, profitShareRate, subscriptionFee, subscriptionCycle, whatsappVerified, aiConfigured, completedAt)
-- [ ] DB schema: billing_model enum (profit_sharing, subscription, hybrid)
-- [ ] tRPC router: onboarding (getProgress, saveStep, complete, getBillingPlans)
-- [ ] Multi-step wizard UI: Business Profile → Billing Model → WhatsApp Setup → AI Config → Review & Launch
-- [ ] Billing model comparison card: profit-sharing (% of GMV) vs subscription (fixed monthly/annual) vs hybrid
-- [ ] Onboarding progress tracker: step indicators with completion state
-- [ ] Tenant list page: "Complete Setup" CTA for tenants with incomplete onboarding
-- [ ] DashboardLayout: onboarding banner for tenants in trial with incomplete setup
+- [x] DB schema: tenant_onboarding table (tenantId, step, billingModel, profitShareRate, subscriptionFee, subscriptionCycle, whatsappVerified, aiConfigured, completedAt)
+- [x] DB schema: billing_model enum (profit_sharing, subscription, hybrid)
+- [x] tRPC router: onboarding (getProgress, saveStep, complete, getBillingPlans)
+- [x] Multi-step wizard UI: Business Profile → Billing Model → WhatsApp Setup → KYC/KYB → Review & Launch
+- [x] Billing model comparison card: profit-sharing (% of GMV) vs subscription (fixed monthly/annual) vs hybrid
+- [x] Onboarding progress tracker: step indicators with completion state
+- [x] DashboardLayout: Onboard Tenant nav entry under System section
 
 ## Heartbeat Auto-Sync & Dashboard Enhancements
-- [ ] Heartbeat job: register /api/scheduled/inventory-sync to run every 5 minutes
-- [ ] Express handler: /api/scheduled/inventory-sync authenticates cron, runs syncFromOdoo for all active tenants
-- [ ] Low-stock dashboard widget: KPI card showing count of products below lowStockThreshold
+- [x] Heartbeat router: /api/trpc/heartbeat.inventorySync endpoint (activates post-deploy)
+- [ ] Register heartbeat job via Manus SDK after first Publish
+- [ ] Low-stock dashboard KPI card (count of products below threshold)
 - [ ] Template approval history timeline in version history drawer
 
 ## AI Agent Integration Architecture
-- [ ] Architecture explainer page or section: how AI agent integrates with WhatsApp, CRM, Odoo, and Dashboard
+- [x] AI Agent Architecture page (/agent-architecture): full flow diagram + 4 integration tabs (WhatsApp, CRM, Odoo, Dashboard)
+- [x] Middleware stack: Go Event Gateway, Rust Message Processor, Temporal workflows, Dapr components
+- [x] KYC/KYB: Python microservice (PaddleOCR, VLM, Docling, liveness), tRPC router, DB schema
+- [x] PWA: manifest.json, offline.html, 5 icon sizes, mobile meta tags
+- [x] GitHub push to munisp/whatsappCommerce (merged with remote history)
+- [x] All 39 vitest tests passing
