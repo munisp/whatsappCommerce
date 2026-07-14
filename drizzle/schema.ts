@@ -486,3 +486,82 @@ export type WhatsappMenuItem = typeof whatsappMenuItems.$inferSelect;
 export type TenantMenuAssignment = typeof tenantMenuAssignments.$inferSelect;
 export type WhatsappTemplate = typeof whatsappTemplates.$inferSelect;
 export type InsertWhatsappTemplate = typeof whatsappTemplates.$inferInsert;
+
+// ─── Template Versions ────────────────────────────────────────────────────────
+export const templateVersionStatusEnum = pgEnum("template_version_status", ["draft", "published", "archived"]);
+
+export const templateVersions = pgTable("template_versions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  templateId: varchar("templateId", { length: 36 }).notNull(),
+  version: integer("version").default(1).notNull(),
+  bodyText: text("bodyText").notNull(),
+  headerText: varchar("headerText", { length: 255 }),
+  footerText: varchar("footerText", { length: 255 }),
+  variables: jsonb("variables"),
+  buttons: jsonb("buttons"),
+  status: templateVersionStatusEnum("status").default("draft").notNull(),
+  changeSummary: varchar("changeSummary", { length: 500 }),
+  changedBy: varchar("changedBy", { length: 64 }),
+  publishedAt: timestamp("publishedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("template_versions_template_idx").on(t.templateId),
+  index("template_versions_status_idx").on(t.status),
+  uniqueIndex("template_versions_unique_idx").on(t.templateId, t.version),
+]);
+
+// ─── Broadcast Campaigns ──────────────────────────────────────────────────────
+export const broadcastStatusEnum = pgEnum("broadcast_status", ["draft", "scheduled", "sending", "completed", "cancelled", "failed"]);
+export const recipientStatusEnum = pgEnum("recipient_status", ["pending", "sent", "delivered", "read", "failed", "opted_out"]);
+
+export const broadcastCampaigns = pgTable("broadcast_campaigns", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  templateId: varchar("templateId", { length: 36 }),
+  templateVersionId: varchar("templateVersionId", { length: 36 }),
+  segment: varchar("segment", { length: 100 }).default("all"),
+  segmentFilter: jsonb("segmentFilter"),
+  status: broadcastStatusEnum("status").default("draft").notNull(),
+  scheduledAt: timestamp("scheduledAt"),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  totalRecipients: integer("totalRecipients").default(0).notNull(),
+  sentCount: integer("sentCount").default(0).notNull(),
+  deliveredCount: integer("deliveredCount").default(0).notNull(),
+  readCount: integer("readCount").default(0).notNull(),
+  failedCount: integer("failedCount").default(0).notNull(),
+  createdBy: varchar("createdBy", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("broadcast_tenant_idx").on(t.tenantId),
+  index("broadcast_status_idx").on(t.status),
+]);
+
+export const broadcastRecipients = pgTable("broadcast_recipients", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  campaignId: varchar("campaignId", { length: 36 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  variables: jsonb("variables"),
+  status: recipientStatusEnum("status").default("pending").notNull(),
+  sentAt: timestamp("sentAt"),
+  deliveredAt: timestamp("deliveredAt"),
+  readAt: timestamp("readAt"),
+  failedAt: timestamp("failedAt"),
+  failureReason: varchar("failureReason", { length: 500 }),
+  messageId: varchar("messageId", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("broadcast_recipients_campaign_idx").on(t.campaignId),
+  index("broadcast_recipients_status_idx").on(t.status),
+]);
+
+// ─── Extended Types ───────────────────────────────────────────────────────────
+export type TemplateVersion = typeof templateVersions.$inferSelect;
+export type InsertTemplateVersion = typeof templateVersions.$inferInsert;
+export type BroadcastCampaign = typeof broadcastCampaigns.$inferSelect;
+export type InsertBroadcastCampaign = typeof broadcastCampaigns.$inferInsert;
+export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
+export type InsertBroadcastRecipient = typeof broadcastRecipients.$inferInsert;

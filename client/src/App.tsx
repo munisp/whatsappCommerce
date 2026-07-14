@@ -21,6 +21,8 @@ import IntegrationHub from "./pages/IntegrationHub";
 import TemplateLibrary from "./pages/TemplateLibrary";
 import TenantMenuAssignment from "./pages/TenantMenuAssignment";
 import CredentialWizard from "./pages/CredentialWizard";
+import TemplateVersions from "./pages/TemplateVersions";
+import BroadcastCampaigns from "./pages/BroadcastCampaigns";
 
 function Router() {
   return (
@@ -42,6 +44,8 @@ function Router() {
       <Route path="/templates" component={TemplateLibrary} />
       <Route path="/tenant-menus" component={TenantMenuAssignment} />
       <Route path="/setup" component={CredentialWizard} />
+      <Route path="/template-versions" component={TemplateVersions} />
+      <Route path="/broadcast" component={BroadcastCampaigns} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

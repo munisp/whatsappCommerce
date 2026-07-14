@@ -1,3 +1,4 @@
+import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +9,6 @@ import { formatDistanceToNow } from "date-fns";
 import { Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
 import { useState } from "react";
 
-const DEMO_TENANT = "demo-tenant-001";
 
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -21,6 +21,7 @@ const statusColors: Record<string, string> = {
 };
 
 export default function Orders() {
+  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: stats } = trpc.order.stats.useQuery({ tenantId: DEMO_TENANT });
   const { data: orderList, isLoading } = trpc.order.list.useQuery({

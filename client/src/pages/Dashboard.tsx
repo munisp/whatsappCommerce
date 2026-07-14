@@ -1,10 +1,10 @@
+import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { Building2, MessageSquare, ShoppingCart, TrendingUp, Bot, Users } from "lucide-react";
 
-const DEMO_TENANT = "demo-tenant-001";
 
 // Static chart data for visual richness
 const revenueData = [
@@ -18,6 +18,7 @@ const convData = [
 ];
 
 export default function Dashboard() {
+  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const { data: overview } = trpc.analytics.platformOverview.useQuery();
   const { data: tenantDash } = trpc.analytics.tenantDashboard.useQuery({ tenantId: DEMO_TENANT });
 

@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -21,11 +22,13 @@ import {
 } from "@/components/ui/sidebar";
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bot, Building2, CreditCard, Globe, LayoutDashboard, Link2, LogOut, MessageSquare, Package, PanelLeft, Server, Settings, Smartphone, Users } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Bot, Building2, ChevronDown, CreditCard, GitBranch, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, Package, PanelLeft, Server, Settings, Smartphone, Users } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import { trpc } from "@/lib/trpc";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
 type NavItem = { icon: React.ElementType; label: string; path: string; section?: string };
 const menuItems: NavItem[] = [
@@ -43,6 +46,8 @@ const menuItems: NavItem[] = [
   { icon: Smartphone,      label: "Menu Builder",   path: "/menu-builder", section: "Integrations" },
   { icon: MessageSquare,   label: "Templates",      path: "/templates",    section: "Integrations" },
   { icon: Link2,           label: "Menu Assignment",path: "/tenant-menus", section: "Integrations" },
+  { icon: GitBranch,       label: "Version Control",path: "/template-versions", section: "Integrations" },
+  { icon: Megaphone,       label: "Broadcasts",     path: "/broadcast",    section: "Integrations" },
   // ── System ────────────────────────────────────────────────────────────────
   { icon: Bot,             label: "AI Agent",       path: "/agent",        section: "System" },
   { icon: Server,          label: "Service Health", path: "/health",       section: "System" },
@@ -129,6 +134,9 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+  const { activeTenantId, setActiveTenantId } = useActiveTenant();
+  const { data: tenantList } = trpc.tenant.list.useQuery({ limit: 20 });
+  const activeTenant = tenantList?.find((t: { id: string }) => t.id === activeTenantId);
 
   useEffect(() => {
     if (isCollapsed) {
@@ -189,6 +197,28 @@ function DashboardLayoutContent({
                 </div>
               ) : null}
             </div>
+            {!isCollapsed && (
+              <div className="px-3 pb-2">
+                <Select value={activeTenantId} onValueChange={setActiveTenantId}>
+                  <SelectTrigger className="h-8 text-xs bg-muted/40 border-border/50 w-full">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Building2 className="h-3 w-3 text-primary shrink-0" />
+                      <SelectValue placeholder="Select tenant">
+                        <span className="truncate">{activeTenant?.name ?? activeTenantId}</span>
+                      </SelectValue>
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tenantList?.map((t: { id: string; name: string | null; slug: string }) => (
+                      <SelectItem key={t.id} value={t.id} className="text-xs">
+                        <span className="font-medium">{t.name ?? t.slug}</span>
+                        <span className="ml-1.5 text-muted-foreground">{t.slug}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </SidebarHeader>
 
           <SidebarContent className="gap-0">

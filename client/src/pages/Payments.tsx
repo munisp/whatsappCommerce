@@ -1,3 +1,4 @@
+import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +9,6 @@ import { formatDistanceToNow } from "date-fns";
 import { CreditCard, DollarSign, RefreshCw, XCircle } from "lucide-react";
 import { useState } from "react";
 
-const DEMO_TENANT = "demo-tenant-001";
 
 const statusColors: Record<string, string> = {
   initiated: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -28,6 +28,7 @@ const providerColors: Record<string, string> = {
 };
 
 export default function Payments() {
+  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: paymentList, isLoading } = trpc.payment.list.useQuery({
     tenantId: DEMO_TENANT,

@@ -1,3 +1,4 @@
+import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,7 +6,6 @@ import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { Activity, AlertTriangle, Bot, Clock, Cpu, Zap } from "lucide-react";
 
-const DEMO_TENANT = "demo-tenant-001";
 
 const INTENT_TYPES = [
   { label: "Browse / Search", value: 38, color: "bg-primary" },
@@ -17,6 +17,7 @@ const INTENT_TYPES = [
 ];
 
 export default function AgentConsole() {
+  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const { data: stats } = trpc.agent.stats.useQuery({ tenantId: DEMO_TENANT });
   const { data: health } = trpc.agent.health.useQuery();
 

@@ -7,6 +7,7 @@ import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
+import { TenantProvider } from "./contexts/TenantContext";
 
 const queryClient = new QueryClient();
 
@@ -75,7 +76,9 @@ const trpcClient = trpc.createClient({
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <TenantProvider>
+        <App />
+      </TenantProvider>
     </QueryClientProvider>
   </trpc.Provider>
 );

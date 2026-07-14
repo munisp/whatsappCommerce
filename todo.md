@@ -125,3 +125,22 @@
 - [x] All 21 tables migrated from MySQL to PostgreSQL (pg-core Drizzle)
 - [x] POSTGRES_URL secret wired to web app
 - [x] 2 PostgreSQL connection vitest tests passing
+
+## Template Versioning
+- [ ] DB schema: template_versions table (templateId, version, body, status, changedBy, createdAt)
+- [ ] tRPC router: templates.createVersion, templates.listVersions, templates.publishVersion, templates.revertToVersion
+- [ ] Template Library UI: draft/published status toggle per template card
+- [ ] Version history drawer: list all versions with diff view and revert button
+
+## WhatsApp Broadcast Campaigns
+- [ ] DB schema: broadcast_campaigns, broadcast_recipients tables
+- [ ] tRPC router: broadcast (create, list, get, send, cancel, getRecipients, getDeliveryStats)
+- [ ] Broadcast page: create campaign, select template, segment contacts from Twenty CRM
+- [ ] Variable substitution preview per recipient
+- [ ] Delivery tracking: sent/delivered/read/failed counts with progress bar
+- [ ] Campaign status: draft, scheduled, sending, completed, cancelled
+
+## Tenant Seeding & Menu Assignment Verification
+- [ ] Seed 3 test tenants via tRPC with different plans (starter, growth, enterprise)
+- [ ] Seed 2 WhatsApp menus and assign to tenants via Menu Assignment page
+- [ ] Verify push-to-WhatsApp payload generation per tenant

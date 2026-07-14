@@ -1,3 +1,4 @@
+import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,6 @@ import { AlertTriangle, Package, Plus, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-const DEMO_TENANT = "demo-tenant-001";
 
 const statusColors: Record<string, string> = {
   active: "bg-green-500/20 text-green-400 border-green-500/30",
@@ -20,6 +20,7 @@ const statusColors: Record<string, string> = {
 };
 
 export default function Products() {
+  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", stockQuantity: 0 });
