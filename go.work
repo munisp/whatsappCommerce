@@ -1,0 +1,12 @@
+go 1.23.4
+
+use (
+	./services/commerce-engine
+	./services/conversation-orchestrator
+	./services/crm-adapter
+	./services/erp-adapter
+	./services/gateway
+	./services/notification-service
+	./services/payment-orchestrator
+	./services/webhook-ingestor
+)

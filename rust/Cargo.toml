@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "event-processor",
+    "ledger-bridge",
+    "recon-worker",
+]
+resolver = "2"

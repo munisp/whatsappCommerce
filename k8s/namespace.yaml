@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    istio-injection: enabled
+
