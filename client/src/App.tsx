@@ -5,31 +5,39 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
+import Tenants from "./pages/Tenants";
+import TenantDetail from "./pages/TenantDetail";
+import Products from "./pages/Products";
+import Conversations from "./pages/Conversations";
+import Orders from "./pages/Orders";
+import Payments from "./pages/Payments";
+import AgentConsole from "./pages/AgentConsole";
+import ServiceHealth from "./pages/ServiceHealth";
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      <Route path="/" component={Home} />
+      <Route path="/dashboard" component={Dashboard} />
+      <Route path="/tenants" component={Tenants} />
+      <Route path="/tenants/:id" component={TenantDetail} />
+      <Route path="/products" component={Products} />
+      <Route path="/conversations" component={Conversations} />
+      <Route path="/orders" component={Orders} />
+      <Route path="/payments" component={Payments} />
+      <Route path="/agent" component={AgentConsole} />
+      <Route path="/health" component={ServiceHealth} />
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
+      <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
           <Router />
@@ -40,3 +48,4 @@ function App() {
 }
 
 export default App;
+
