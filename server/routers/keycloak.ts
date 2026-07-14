@@ -2,8 +2,8 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { paymentGatewayConfigs, tenants } from "../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { paymentGatewayConfigs, tenants, tenantSsoProfiles } from "../../drizzle/schema";
+import { eq, and, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import { ENV } from "../_core/env";
@@ -259,6 +259,35 @@ export const keycloakRouter = router({
       };
 
       const sessionToken = jwt.sign(sessionPayload, ENV.jwtSecret);
+
+      // ── Upsert SSO profile for the tenant ────────────────────────────────
+      // Provisions the tenant's SSO identity on first login; keeps email/name
+      // and lastSsoLoginAt fresh on every subsequent login.
+      await db
+        .insert(tenantSsoProfiles)
+        .values({
+          tenantId: input.tenantId,
+          ssoSub: userInfo.sub ?? null,
+          ssoEmail: userInfo.email ?? null,
+          ssoName: userInfo.name ?? userInfo.preferred_username ?? null,
+          ssoProvider: "keycloak",
+          ssoLoginCount: 1,
+          firstSsoLoginAt: new Date(),
+          lastSsoLoginAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: tenantSsoProfiles.tenantId,
+          set: {
+            ssoSub: userInfo.sub ?? null,
+            ssoEmail: userInfo.email ?? null,
+            ssoName: userInfo.name ?? userInfo.preferred_username ?? null,
+            ssoProvider: "keycloak",
+            ssoLoginCount: sql`${tenantSsoProfiles.ssoLoginCount} + 1`,
+            lastSsoLoginAt: new Date(),
+          },
+        })
+        .catch((e: unknown) => console.warn("[keycloak] sso profile upsert failed:", e));
+
 
       return {
         sessionToken,

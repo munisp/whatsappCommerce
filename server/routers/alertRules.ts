@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { alertRules } from "../../drizzle/schema";
-import { eq, desc } from "drizzle-orm";
+import { alertRules, alertRuleEvents } from "../../drizzle/schema";
+import { eq, desc, gte, count } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 const RULE_TYPES = [
@@ -144,7 +144,99 @@ export const alertRulesRouter = router({
           ? "Alert when a product's stock quantity falls below this count"
           : t === "failed_payments"
           ? "Alert when failed payment attempts exceed this % of total in the window"
-          : "Alert when the Population Stability Index (PSI) exceeds this value",
+        : "Alert when the Population Stability Index (PSI) exceeds this value",
     }));
   }),
+
+  // ── Seed default rules on first admin login ─────────────────────────────────
+  // Idempotent: only inserts if no rules exist yet.
+  seedDefaults: protectedProcedure.mutation(async () => {
+    const db = await getDb();
+    if (!db) throw new Error("DB unavailable");
+    const existing = await db.select({ id: alertRules.id }).from(alertRules).limit(1);
+    if (existing.length > 0) return { seeded: false, reason: "Rules already exist" };
+
+    const defaults = [
+      {
+        id: randomUUID(),
+        name: "Nightly Reconciliation Discrepancy",
+        ruleType: "reconciliation_discrepancy" as const,
+        threshold: "5",
+        windowHours: 24,
+        isEnabled: true,
+        notifyOwnerOnTrigger: true,
+        heartbeatTaskUid: NIGHTLY_RECON_TASK_UID,
+      },
+      {
+        id: randomUUID(),
+        name: "High Failed Payment Rate",
+        ruleType: "failed_payments" as const,
+        threshold: "10",
+        windowHours: 6,
+        isEnabled: true,
+        notifyOwnerOnTrigger: true,
+        heartbeatTaskUid: undefined,
+      },
+      {
+        id: randomUUID(),
+        name: "Low Stock Warning",
+        ruleType: "low_stock" as const,
+        threshold: "10",
+        windowHours: 24,
+        isEnabled: true,
+        notifyOwnerOnTrigger: true,
+        heartbeatTaskUid: undefined,
+      },
+      {
+        id: randomUUID(),
+        name: "ML Model Drift Alert",
+        ruleType: "model_drift" as const,
+        threshold: "0.2",
+        windowHours: 168,
+        isEnabled: true,
+        notifyOwnerOnTrigger: true,
+        heartbeatTaskUid: undefined,
+      },
+    ];
+
+    await db.insert(alertRules).values(defaults);
+    return { seeded: true, count: defaults.length };
+  }),
+
+  // ── List trigger events (last 30 days by default) ───────────────────────────
+  listEvents: protectedProcedure
+    .input(
+      z.object({
+        ruleId: z.string().uuid().optional(),
+        days: z.number().int().min(1).max(90).default(30),
+        limit: z.number().int().min(1).max(200).default(50),
+      })
+    )
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { events: [], total: 0 };
+      const since = new Date(Date.now() - input.days * 24 * 3600 * 1000);
+      const events = await db
+        .select()
+        .from(alertRuleEvents)
+        .where(
+          input.ruleId
+            ? eq(alertRuleEvents.ruleId, input.ruleId)
+            : gte(alertRuleEvents.triggeredAt, since)
+        )
+        .orderBy(desc(alertRuleEvents.triggeredAt))
+        .limit(input.limit);
+      const [{ value: total }] = await db
+        .select({ value: count() })
+        .from(alertRuleEvents)
+        .where(gte(alertRuleEvents.triggeredAt, since));
+      return {
+        events: events.map((e) => ({
+          ...e,
+          actualValue: parseFloat(e.actualValue as unknown as string),
+          threshold: parseFloat(e.threshold as unknown as string),
+        })),
+        total: Number(total),
+      };
+    }),
 });

@@ -285,8 +285,8 @@
 - [x] Wire Keycloak SSO login redirect for tenant portal (getLoginUrl procedure + SSO login panel in TenantPortalLayout)
 - [x] Build nightly reconciliation discrepancy alert heartbeat handler (/api/scheduled/reconciliation-alert + notifyOwner integration)
 - [x] Register nightly reconciliation heartbeat cron (task_uid: M7FY8UY7jUgczPs5EpcrUn, fires 02:00 UTC daily)
-- [ ] Build configurable alert threshold UI — DB table + tRPC + Alert Rules admin page
-- [ ] Implement Keycloak SSO OIDC callback handler — /portal/sso-callback route, token exchange, session creation
+- [x] Build configurable alert threshold UI — DB table + tRPC + Alert Rules admin page
+- [x] Implement Keycloak SSO OIDC callback handler — /portal/sso-callback route, token exchange, session creation
 - [x] Register nightly reconciliation heartbeat cron (task_uid: M7FY8UY7jUgczPs5EpcrUn, fires 02:00 UTC daily)
 - [x] Build alert_rules DB table with configurable thresholds (reconciliation_discrepancy, low_stock, failed_payments, model_drift)
 - [x] Build alertRules tRPC router (list, create, update, toggle, delete, getRuleTypeMeta)
@@ -295,3 +295,18 @@
 - [x] Add keycloak.exchangeCode tRPC procedure for OIDC code→token exchange + portal session creation
 - [x] Build SsoCallback portal page (/portal/sso-callback) that completes the Keycloak SSO login flow
 - [x] Wire /alert-rules and /portal/sso-callback routes in App.tsx
+- [ ] Seed default reconciliation alert rule on first admin login (alertRules.seedDefaults tRPC mutation)
+- [ ] Add alert_rule_events DB table to track each rule trigger (timestamp, actual_value, threshold, rule_id)
+- [ ] Add alertRules.listEvents tRPC procedure to query event history
+- [ ] Build Alert History tab on /alert-rules page showing last 30 days of trigger events
+- [ ] Keycloak SSO user provisioning — upsert SSO user email/name into tenants table after exchangeCode
+- [x] Add alert_rule_events DB table for immutable trigger history log
+- [x] Add seedDefaults procedure to alertRules router (auto-seeds 4 default rules on first admin visit)
+- [x] Add listEvents procedure to alertRules router with day-range filtering
+- [x] Update heartbeat handler to read threshold from DB and write event rows
+- [x] Add Alert History tab to AlertRules page with 7/30/90-day filter and event list
+- [x] Add Seed Defaults button to AlertRules page header
+- [x] Auto-seed default rules when AlertRules page loads with no rules
+- [x] Add tenant_sso_profiles DB table for SSO user provisioning
+- [x] Add tenantSsoProfiles import and upsert in keycloak.exchangeCode procedure
+- [x] SSO upsert: insert on first login, increment ssoLoginCount + update lastSsoLoginAt on repeat logins

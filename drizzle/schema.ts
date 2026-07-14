@@ -71,6 +71,23 @@ export const tenants = pgTable("tenants", {
   index("tenants_status_idx").on(t.status),
   index("tenants_plan_idx").on(t.plan),
 ]);
+// ─── Tenant SSO Provisioning ──────────────────────────────────────────────────
+// These columns are populated/updated on each successful Keycloak SSO login.
+// Stored separately from the main tenants table to keep schema migrations minimal.
+export const tenantSsoProfiles = pgTable("tenant_sso_profiles", {
+  tenantId: varchar("tenant_id", { length: 36 }).primaryKey(),
+  ssoSub: varchar("sso_sub", { length: 256 }),
+  ssoEmail: varchar("sso_email", { length: 255 }),
+  ssoName: varchar("sso_name", { length: 255 }),
+  ssoProvider: varchar("sso_provider", { length: 64 }).default("keycloak"),
+  ssoLoginCount: integer("sso_login_count").default(0).notNull(),
+  firstSsoLoginAt: timestamp("first_sso_login_at").defaultNow().notNull(),
+  lastSsoLoginAt: timestamp("last_sso_login_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_sso_profiles_email_idx").on(t.ssoEmail),
+]);
+export type TenantSsoProfile = typeof tenantSsoProfiles.$inferSelect;
+export type NewTenantSsoProfile = typeof tenantSsoProfiles.$inferInsert;
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 export const products = pgTable("products", {
@@ -957,3 +974,24 @@ export const alertRules = pgTable("alert_rules", {
 
 export type AlertRule = typeof alertRules.$inferSelect;
 export type NewAlertRule = typeof alertRules.$inferInsert;
+
+// ─── Alert Rule Events ────────────────────────────────────────────────────────
+// Immutable append-only log of each time a rule fires. Written by the heartbeat handler.
+export const alertRuleEvents = pgTable("alert_rule_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ruleId: uuid("rule_id").notNull().references(() => alertRules.id, { onDelete: "cascade" }),
+  ruleName: varchar("rule_name", { length: 128 }).notNull(),
+  ruleType: alertRuleTypeEnum("rule_type").notNull(),
+  actualValue: numeric("actual_value", { precision: 10, scale: 4 }).notNull(),
+  threshold: numeric("threshold", { precision: 10, scale: 4 }).notNull(),
+  windowHours: integer("window_hours").notNull(),
+  notificationSent: boolean("notification_sent").notNull().default(false),
+  metadata: jsonb("metadata"),
+  triggeredAt: timestamp("triggered_at").defaultNow().notNull(),
+}, (t) => [
+  index("alert_rule_events_rule_id_idx").on(t.ruleId),
+  index("alert_rule_events_triggered_at_idx").on(t.triggeredAt),
+  index("alert_rule_events_type_idx").on(t.ruleType),
+]);
+export type AlertRuleEvent = typeof alertRuleEvents.$inferSelect;
+export type NewAlertRuleEvent = typeof alertRuleEvents.$inferInsert;

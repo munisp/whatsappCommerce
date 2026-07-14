@@ -14,8 +14,9 @@ import { getDb } from "../db";
 import { inventorySnapshots } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
-import { paymentTransactions } from "../../drizzle/schema";
+import { paymentTransactions, alertRules, alertRuleEvents } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -146,8 +147,17 @@ async function startServer() {
       if (!user.isCron) return res.status(403).json({ error: "cron-only" });
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "db-unavailable" });
-      // Count unreconciled (pending/failed) transactions in the last 24 hours
-      const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+      // Load the reconciliation_discrepancy rule to get configured threshold + window
+      const [reconRule] = await db
+        .select()
+        .from(alertRules)
+        .where(eq(alertRules.ruleType, "reconciliation_discrepancy"))
+        .limit(1);
+      const ALERT_THRESHOLD = reconRule
+        ? parseFloat(reconRule.threshold as unknown as string) / 100
+        : 0.05;
+      const windowHours = reconRule?.windowHours ?? 24;
+      const cutoff = new Date(Date.now() - windowHours * 3600 * 1000);
       const unreconciledRows = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(paymentTransactions)
@@ -163,12 +173,30 @@ async function startServer() {
       const unreconciled = unreconciledRows[0]?.count ?? 0;
       const total = totalRows[0]?.count ?? 0;
       const discrepancyRate = total > 0 ? unreconciled / total : 0;
-      const ALERT_THRESHOLD = 0.05; // alert if >5% unreconciled
       if (discrepancyRate > ALERT_THRESHOLD) {
         await notifyOwner({
           title: "⚠️ Reconciliation Alert: High Discrepancy Rate",
-          content: `Nightly reconciliation check detected ${unreconciled} unreconciled transactions out of ${total} in the last 24 hours (${(discrepancyRate * 100).toFixed(1)}% discrepancy rate — threshold: ${(ALERT_THRESHOLD * 100).toFixed(0)}%). Please review the Reconciliation Simulation dashboard for details.`,
+          content: `Nightly reconciliation check detected ${unreconciled} unreconciled transactions out of ${total} in the last ${windowHours}h (${(discrepancyRate * 100).toFixed(1)}% discrepancy rate — threshold: ${(ALERT_THRESHOLD * 100).toFixed(0)}%). Please review the Reconciliation Simulation dashboard for details.`,
         }).catch((e: unknown) => console.warn("[reconciliation-alert] notification failed:", e));
+      }
+      // Write an immutable event row for the history log
+      if (reconRule) {
+        await db.insert(alertRuleEvents).values({
+          id: randomUUID(),
+          ruleId: reconRule.id,
+          ruleName: reconRule.name,
+          ruleType: "reconciliation_discrepancy",
+          actualValue: String((discrepancyRate * 100).toFixed(4)),
+          threshold: reconRule.threshold as unknown as string,
+          windowHours,
+          notificationSent: discrepancyRate > ALERT_THRESHOLD,
+          metadata: { total, unreconciled, taskUid: user.taskUid },
+        }).catch((e: unknown) => console.warn("[reconciliation-alert] event insert failed:", e));
+        await db
+          .update(alertRules)
+          .set({ lastTriggeredAt: new Date(), updatedAt: new Date() })
+          .where(eq(alertRules.id, reconRule.id))
+          .catch(() => {});
       }
       return res.json({
         ok: true,
