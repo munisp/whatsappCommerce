@@ -169,6 +169,7 @@ export const alertRulesRouter = router({
         isEnabled: true,
         notifyOwnerOnTrigger: true,
         heartbeatTaskUid: NIGHTLY_RECON_TASK_UID,
+        cooldownMinutes: 120,
       },
       {
         id: randomUUID(),
@@ -179,6 +180,7 @@ export const alertRulesRouter = router({
         isEnabled: true,
         notifyOwnerOnTrigger: true,
         heartbeatTaskUid: undefined,
+        cooldownMinutes: 60,
       },
       {
         id: randomUUID(),
@@ -189,6 +191,7 @@ export const alertRulesRouter = router({
         isEnabled: true,
         notifyOwnerOnTrigger: true,
         heartbeatTaskUid: undefined,
+        cooldownMinutes: 240,
       },
       {
         id: randomUUID(),
@@ -199,6 +202,7 @@ export const alertRulesRouter = router({
         isEnabled: true,
         notifyOwnerOnTrigger: true,
         heartbeatTaskUid: undefined,
+        cooldownMinutes: 720,
       },
     ];
 

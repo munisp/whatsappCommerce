@@ -315,3 +315,15 @@
 - [x] Keycloak role mapping: realm_access.roles → portal role in session JWT
 - [x] listSsoProfiles tRPC procedure with tenant join and search
 - [x] Nigeria profitability model document with 4 charts
+- [ ] Seed alert cooldown defaults (120 min) in seedDefaults procedure
+- [ ] Add portalRole column to tenant_sso_profiles table and store it on SSO login
+- [ ] Build /revenue admin dashboard page with live MRR, GMV, txn trends
+- [ ] Redesign profitability model as profit-sharing revenue model with updated charts
+- [x] Seed alert cooldown defaults (120 min) on all four default rules in seedDefaults
+- [x] Add portalRole column to tenant_sso_profiles table and store resolved role after SSO login
+- [x] Build Revenue Dashboard page (/revenue) with KPI cards, monthly trend charts, tenant breakdown table, and revenue mix pie
+- [x] Create revenue tRPC router with summary, monthlyTrend, tenantBreakdown, and getConfig procedures
+- [x] Add Revenue nav item to DashboardLayout
+- [x] Redesign profitability model as profit-sharing revenue model (5% net profit share + 0.2% GMV txn share)
+- [x] Generate 5 updated profit-sharing model charts (comparison, waterfall, cashflow, sensitivity, mix)
+- [x] Write comprehensive profit-sharing profitability model document

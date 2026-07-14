@@ -81,6 +81,7 @@ export const tenantSsoProfiles = pgTable("tenant_sso_profiles", {
   ssoName: varchar("sso_name", { length: 255 }),
   ssoProvider: varchar("sso_provider", { length: 64 }).default("keycloak"),
   ssoLoginCount: integer("sso_login_count").default(0).notNull(),
+  portalRole: varchar("portal_role", { length: 16 }).default("agent").notNull(),
   firstSsoLoginAt: timestamp("first_sso_login_at").defaultNow().notNull(),
   lastSsoLoginAt: timestamp("last_sso_login_at").defaultNow().notNull(),
 }, (t) => [

@@ -29,6 +29,7 @@ import { tenantInviteRouter } from "./routers/tenantInvite";
 import { mlOpsRouter } from "./routers/mlOps";
 import { reconciliationRouter } from "./routers/reconciliation";
 import { keycloakRouter } from "./routers/keycloak";
+import { revenueRouter } from "./routers/revenue";
 
 export const appRouter = router({
   system: systemRouter,
@@ -68,6 +69,7 @@ export const appRouter = router({
   reconciliation: reconciliationRouter,
   keycloak: keycloakRouter,
   alertRules: alertRulesRouter,
+  revenue: revenueRouter,
 });
 
 export type AppRouter = typeof appRouter;
