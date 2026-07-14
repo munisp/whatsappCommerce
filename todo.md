@@ -197,3 +197,25 @@
 - [x] PWA: manifest.json, offline.html, 5 icon sizes, mobile meta tags
 - [x] GitHub push to munisp/whatsappCommerce (merged with remote history)
 - [x] All 39 vitest tests passing
+- [x] All 39 vitest tests passing
+
+## Multilingual NLP Commerce Engine
+- [x] DB schema: nlp_sessions, cart_sessions, order_items, refunds, invoices tables
+- [x] tRPC router: nlp (processMessage, getSession, listSessions, resetSession, simulate) — 5 languages
+- [x] Language detection: Yoruba, Hausa, Igbo, Pidgin, English marker-based + LLM fallback
+- [x] Conversation state machine: greeting → browsing → cart → checkout → payment → confirmed
+- [x] NLP Simulator page (/nlp-simulator): test buyer conversations in all 5 languages
+- [x] tRPC router: orderCrud (create with oversell guard, updateStatus, cancel, refund, get, listRefunds, processRefund)
+- [x] tRPC router: invoice (generate, list, send, markPaid, get, stats) — subscription + profit-sharing
+- [x] Invoice Management page (/invoices): generate, send, mark paid, overdue detection
+- [x] KYC/KYB: getOrCreateApplication, updateApplication, submit, listAll, review, createLivenessSession, stats
+
+## Comprehensive Smoke Test Suite
+- [x] 149 tests across 23 describe blocks covering all stakeholder roles × all features × all edge cases
+- [x] Roles tested: Platform Admin, Tenant Owner, Tenant Agent, Anonymous Buyer
+- [x] Coverage: auth, tenant, product, conversation, orderCrud, payment, agent, analytics, twenty, odoo, menu, template, templateVersions, broadcast, broadcastAb, inventory, onboarding, kyc, invoice, nlp, commerce E2E, RBAC, PWA, middleware
+- [x] Commerce E2E: 10-step buyer journey from Pidgin message to CRM activity + commission calculation
+
+## Pending (requires deployment)
+- [ ] Register heartbeat cron: manus-heartbeat create --name inventory-sync --cron "0 */5 * * * *" --path /api/scheduled/inventory-sync
+- [ ] Wire KYC document upload to deployed Python microservice URL (add KYC_SERVICE_URL secret)
