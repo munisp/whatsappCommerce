@@ -761,3 +761,26 @@
 - [x] MedusaOnboarding: webhook registration panel (URL display, copy button, 3-step setup guide)
 - [x] MedusaOnboarding: uploadImage tRPC procedure (base64 → S3 → url)
 - [x] 241 tests passing, 0 TypeScript errors
+
+## Round 21 — Label Studio pipe, inline count correction, Nigerian FMCG taxonomy
+- [ ] Label Studio S3 auto-pipe: tRPC procedure to export scan sessions as Label Studio tasks (JSON)
+- [ ] Label Studio S3 auto-pipe: Python service that polls new sessions and pushes to Label Studio API
+- [ ] Label Studio S3 auto-pipe: frontend page to configure Label Studio URL/token and trigger export
+- [ ] VisualInventory: inline count correction in scan history (edit qty per detected item)
+- [ ] VisualInventory: save corrections to DB as ground-truth labels (active learning loop)
+- [ ] Nigerian FMCG taxonomy: schema table (productTaxonomy) with category/brand/variants
+- [ ] Nigerian FMCG taxonomy: seed data for 8 major categories (beverages, noodles, seasoning, etc.)
+- [ ] Nigerian FMCG taxonomy: tRPC procedures (list, search, addCustom)
+- [ ] VLM hints dropdown: pre-populated from taxonomy when location is selected
+- [ ] 241+ tests passing, 0 TypeScript errors
+
+## Round 21 - AI Training, Label Studio, FMCG Taxonomy
+- [x] Nigerian FMCG taxonomy schema (productTaxonomy, labelStudioConfigs tables)
+- [x] 60+ Nigerian FMCG products seeded (Beverages, Noodles, Seasoning, Dairy, Grains, Oil, Detergent, Personal Care, Snacks)
+- [x] taxonomy tRPC router: list, categories, searchHints, addCustom, seed, stats
+- [x] Label Studio pipe tRPC router: getConfig, saveConfig, testConnection, exportSessions, stats
+- [x] viCorrections tRPC router: listBySession, listRecent, saveCorrection, bulkSaveCorrections, exportToLabelStudio, stats
+- [x] LabelStudioPipe frontend page (/label-studio): config form, test connection, export sessions, export corrections
+- [x] FmcgTaxonomy frontend page (/fmcg-taxonomy): search/filter, category browser, add custom product, seed button
+- [x] New nav items: FMCG Taxonomy, Label Studio Pipe in Commerce section
+- [x] Active learning loop: corrections → Label Studio → YOLO fine-tuning pipeline documented
