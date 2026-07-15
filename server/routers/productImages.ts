@@ -6,6 +6,33 @@ import { eq, desc, count, sql } from "drizzle-orm";
 import { avg } from "drizzle-orm";
 import { storagePut } from "../storage";
 
+// Auto-quality scoring via Florence-2 VLM: returns 1-5 score based on detection confidence
+// Falls back to null if the VLM service is unavailable or times out
+async function autoScoreImage(buffer: Buffer, className: string): Promise<number | null> {
+  const VLM_URL = process.env.VISUAL_INVENTORY_VLM_URL ?? "http://localhost:8081";
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const base64 = buffer.toString("base64");
+    const resp = await fetch(`${VLM_URL}/detect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_base64: base64, detector: "vlm_only", product_hints: [className] }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
+    if (!resp.ok) return null;
+    const data = await resp.json() as { items?: { confidence: number }[] };
+    const items = data.items ?? [];
+    if (items.length === 0) return null;
+    const avgConf = items.reduce((s, i) => s + i.confidence, 0) / items.length;
+    if (avgConf >= 0.85) return 5;
+    if (avgConf >= 0.70) return 4;
+    if (avgConf >= 0.55) return 3;
+    if (avgConf >= 0.40) return 2;
+    return 1;
+  } catch { return null; }
+}
+
 function getTenantId(ctx: { user: { tenantId?: string | null; id: number } }): string {
   return ctx.user.tenantId ?? `user-${ctx.user.id}`;
 }
@@ -110,9 +137,11 @@ export const productImagesRouter = router({
       const ext = mimeType.includes("png") ? "png" : "jpg";
       const fileKey = `product-images/${input.className}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
-      const { url } = await storagePut(fileKey, buffer, mimeType);
+     const { url } = await storagePut(fileKey, buffer, mimeType);
 
       const displayName = FMCG_CLASSES[input.className] ?? input.className;
+      // Auto-score quality if not provided by caller
+      const qualityScore = input.qualityScore ?? await autoScoreImage(buffer, input.className);
       const [record] = await db.insert(productImageCollections).values({
         id: crypto.randomUUID(),
         tenantId,
@@ -123,10 +152,10 @@ export const productImagesRouter = router({
         source: input.source,
         notes: input.notes,
         uploadedBy: String(ctx.user.id),
-        qualityScore: input.qualityScore,
+        qualityScore,
       }).returning();
 
-      return { success: true, id: record.id, url };
+      return { success: true, id: record.id, url, autoScored: input.qualityScore == null, qualityScore };
     }),
 
   // Batch upload multiple images for a single class
@@ -156,6 +185,8 @@ export const productImagesRouter = router({
           const ext = mimeType.includes("png") ? "png" : "jpg";
           const fileKey = `product-images/${input.className}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
           const { url } = await storagePut(fileKey, buffer, mimeType);
+          // Auto-score quality if not provided by caller
+          const qualityScore = img.qualityScore ?? await autoScoreImage(buffer, input.className);
           const [record] = await db.insert(productImageCollections).values({
             id: crypto.randomUUID(),
             tenantId,
@@ -166,7 +197,7 @@ export const productImagesRouter = router({
             source: img.source,
             notes: img.notes,
             uploadedBy: String(ctx.user.id),
-            qualityScore: img.qualityScore,
+            qualityScore,
           }).returning();
           results.push({ id: record.id, url });
         } catch (e) {

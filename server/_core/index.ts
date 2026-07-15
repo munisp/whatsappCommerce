@@ -3,6 +3,10 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { spawn } from "child_process";
+// archiver loaded via createRequire (CJS module)
+import { createRequire as _cjsRequire } from "module";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const archiver: (format: string, opts?: Record<string, unknown>) => any = _cjsRequire(import.meta.url)("archiver");
 import path from "path";
 import { fileURLToPath } from "url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -1068,30 +1072,111 @@ async function startServer() {
       "../../services/visual-inventory/python-vlm/scripts/finetune.py"
     );
 
-    const args = req.query.dryRun !== "false" ? [scriptPath, "--dry-run"] : [scriptPath];
+    const isDryRun = req.query.dryRun !== "false";
+    const args = isDryRun ? [scriptPath, "--dry-run"] : [scriptPath];
     const python = spawn("python3", args, {
       env: { ...process.env, PYTHONUNBUFFERED: "1" },
     });
 
+    const runId = randomUUID();
+    const startedAt = new Date();
+    const logLines: string[] = [];
+    let finished = false;
+
+    // Insert a "running" row immediately
+    getDb().then(db => db?.insert(finetuneRuns).values({
+      id: runId, startedAt, dryRun: isDryRun, triggeredBy: "ui", status: "running",
+    }).catch(() => {}));
+
     python.stdout.on("data", (chunk: Buffer) => {
-      chunk.toString().split("\n").filter(Boolean).forEach(line => sendEvt("log", line));
+      chunk.toString().split("\n").filter(Boolean).forEach(line => {
+        logLines.push(line);
+        sendEvt("log", line);
+      });
     });
 
     python.stderr.on("data", (chunk: Buffer) => {
-      chunk.toString().split("\n").filter(Boolean).forEach(line => sendEvt("log", `[stderr] ${line}`));
+      chunk.toString().split("\n").filter(Boolean).forEach(line => {
+        logLines.push(`[stderr] ${line}`);
+        sendEvt("log", `[stderr] ${line}`);
+      });
     });
 
     python.on("close", (code) => {
+      if (finished) return;
+      finished = true;
       sendEvt("done", `Process exited with code ${code ?? 0}`);
+      const status = (code === 0 || code === null) ? "completed" : "failed";
+      getDb().then(db => db?.update(finetuneRuns)
+        .set({ endedAt: new Date(), exitCode: code ?? 0, status, logSnapshot: logLines.slice(-500).join("\n") })
+        .where(eq(finetuneRuns.id, runId))
+        .catch(() => {}));
       res.end();
     });
 
     python.on("error", (err) => {
+      if (finished) return;
+      finished = true;
       sendEvt("error", `Failed to start process: ${err.message}`);
+      getDb().then(db => db?.update(finetuneRuns)
+        .set({ endedAt: new Date(), exitCode: -1, status: "failed", logSnapshot: err.message })
+        .where(eq(finetuneRuns.id, runId))
+        .catch(() => {}));
       res.end();
     });
 
-    req.on("close", () => { python.kill("SIGTERM"); });
+    req.on("close", () => {
+      python.kill("SIGTERM");
+      if (!finished) {
+        finished = true;
+        getDb().then(db => db?.update(finetuneRuns)
+          .set({ endedAt: new Date(), exitCode: -2, status: "cancelled", logSnapshot: logLines.slice(-500).join("\n") })
+          .where(eq(finetuneRuns.id, runId))
+          .catch(() => {}));
+      }
+    });
+  });
+
+
+  // ── YOLO Label Export ZIP ─────────────────────────────────────────────────
+  // GET /api/finetune/export-yolo — generates per-class YOLO .txt label files and returns a zip
+  app.get("/api/finetune/export-yolo", async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) { res.status(503).json({ error: "DB unavailable" }); return; }
+      const { productImageCollections: picTable } = await import("../../drizzle/schema");
+      const images = await db.select().from(picTable).orderBy(picTable.className);
+      if (images.length === 0) { res.status(404).json({ error: "No images in dataset" }); return; }
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="yolo-labels-${Date.now()}.zip"`);
+      const archive = archiver("zip", { zlib: { level: 6 } });
+      archive.pipe(res);
+      // Build class list (sorted) for classes.txt
+      const classNames = Array.from(new Set(images.map((i: { className: string }) => i.className))).sort();
+      const classMap = Object.fromEntries(classNames.map((c, idx) => [c, idx]));
+      archive.append(classNames.join("\n"), { name: "classes.txt" });
+      // Generate one YOLO .txt label file per image
+      // Each file: <class_id> 0.5 0.5 1.0 1.0  (full-image bounding box, normalized)
+      for (const img of images) {
+        const classId = (classMap as Record<string, number>)[img.className] ?? 0;
+        const labelContent = `${classId} 0.5 0.5 1.0 1.0\n`;
+        const safeName = img.id.replace(/[^a-zA-Z0-9-]/g, "_");
+        archive.append(labelContent, { name: `labels/${img.className}/${safeName}.txt` });
+      }
+      // Add a manifest JSON
+      const manifest = classNames.map(cn => ({
+        className: cn,
+        classId: (classMap as Record<string, number>)[cn],
+        imageCount: images.filter((i: { className: string }) => i.className === cn).length,
+        images: images.filter((i: { className: string }) => i.className === cn).map((i: { id: string; imageUrl: string; qualityScore: number | null }) => ({
+          id: i.id, imageUrl: i.imageUrl, qualityScore: i.qualityScore,
+        })),
+      }));
+      archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
+      await archive.finalize();
+    } catch (err) {
+      if (!res.headersSent) res.status(500).json({ error: String(err) });
+    }
   });
 
   // development mode uses Vite, production mode uses static files
@@ -1118,4 +1203,4 @@ import { notifyOwner } from "./notification";
 import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
 import { products, tenantIntegrations } from "../../drizzle/schema";
-import { visualInventoryCorrections } from "../../drizzle/schema";
+import { visualInventoryCorrections, finetuneRuns } from "../../drizzle/schema";

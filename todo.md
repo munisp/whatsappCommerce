@@ -842,3 +842,12 @@
 - [x] Per-class quality gate: qualityImages count (score ≥ 3) in listClasses, quality-gated Ready/Low Quality badge, Quality Ready KPI card
 - [x] Fine-tune trigger button (Fine-Tune Run) on ProductImageCollector with SSE log streaming, dry-run toggle, Stop button
 - [x] SSE endpoint: GET /api/finetune/stream?dryRun=true — spawns finetune.py, streams stdout/stderr as SSE events, kills on client disconnect
+
+## Round 27 (2026-07-15)
+## Round 27 (2026-07-15) - Completed
+- [x] finetune_runs DB table (id, startedAt, endedAt, exitCode, logSnapshot, dryRun, triggeredBy, status)
+- [x] tRPC router: fineTune (listRuns, getRun) — list and get fine-tune run history
+- [x] SSE endpoint saves run to DB on start (status=running) and on completion/failure/cancel
+- [x] Auto-quality score on upload: call Florence-2 VLM /detect, map confidence 0-1 to 1-5 stars, pre-fill qualityScore (falls back gracefully if VLM offline)
+- [x] YOLO label export ZIP: GET /api/finetune/export-yolo — generates per-class YOLO .txt label files (class_id 0.5 0.5 1.0 1.0), classes.txt, manifest.json in a zip
+- [x] ProductImageCollector: Run History panel (toggle button), Export YOLO Labels button, History, FileArchive icons

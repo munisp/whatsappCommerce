@@ -110,7 +110,9 @@ export const appRouter = router({
   labelStudio: labelStudioRouter,
   viCorrections: viCorrectionsRouter,
   productImages: productImagesRouter,
+  fineTune: fineTuneRouter,
 });
+import { fineTuneRouter } from "./routers/fineTune";
 
 export type AppRouter = typeof appRouter;
 import { medusaOnboardingRouter } from "./routers/medusaOnboarding";
