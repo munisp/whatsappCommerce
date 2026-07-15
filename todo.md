@@ -914,8 +914,8 @@
 - [x] Update Deploy Checklist page with all three new ML Ops cron activation commands
 
 ## Round 34 — Model Performance Widget + Real-Data Retraining Pipeline (2026-07-15)
-- [ ] Add tRPC procedure mlOps.getModelPerformance returning rolling precision/recall/F1 from agentEvents
-- [ ] Add model performance line chart widget to ML Ops Overview tab
-- [ ] Add tRPC procedure mlOps.triggerRealDataRetrain to export real orders as Parquet and run train_all.py
-- [ ] Add "Retrain on Real Data" button to ML Ops Overview tab with progress feedback
-- [ ] Add export-to-parquet script: services/ml-stack/training/export_real_data.py
+- [x] Add tRPC procedure mlOps.getModelPerformance returning rolling precision/recall/F1 from agentEvents
+- [x] Add model performance line chart widget to ML Ops Overview tab
+- [x] Add tRPC procedure mlOps.triggerRealDataRetrain to export real orders as Parquet and run train_all.py
+- [x] Add "Retrain on Real Data" button to ML Ops Overview tab with progress feedback
+- [x] Add export-to-parquet script: services/ml-stack/training/export_real_data.py
