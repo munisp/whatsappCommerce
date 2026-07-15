@@ -11,6 +11,7 @@ import TenantDetail from "./pages/TenantDetail";
 import Products from "./pages/Products";
 import Conversations from "./pages/Conversations";
 import Orders from "./pages/Orders";
+import OrderTimeline from "./pages/OrderTimeline";
 import Payments from "./pages/Payments";
 import AgentConsole from "./pages/AgentConsole";
 import ServiceHealth from "./pages/ServiceHealth";
@@ -64,6 +65,7 @@ function Router() {
       <Route path="/products" component={Products} />
       <Route path="/conversations" component={Conversations} />
       <Route path="/orders" component={Orders} />
+      <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/payments" component={Payments} />
       <Route path="/agent" component={AgentConsole} />
       <Route path="/health" component={ServiceHealth} />
@@ -151,4 +153,3 @@ import MedusaIntegration from "./pages/MedusaIntegration";
 import WebhookDLQ from "./pages/WebhookDLQ";
 import UnifiedOnboarding from "./pages/UnifiedOnboarding";
 import IntegrationHealth from "./pages/IntegrationHealth";
-

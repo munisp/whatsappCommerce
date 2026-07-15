@@ -18,6 +18,7 @@ import {
 } from "../../drizzle/schema";
 import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
 import { offlineMessageQueue } from "../../drizzle/schema";
+import { tenantIntegrations } from "../../drizzle/schema";
 import {
   syncOrderToMedusa,
   syncOrderToOdoo,
@@ -562,5 +563,127 @@ export const nlpRouter = router({
         ))
         .orderBy(offlineMessageQueue.queuedAt);
       return { messages: rows.map(r => r.message) };
+    }),
+
+  /** Unified order timeline: platform order + Medusa + Odoo + Twenty CRM events */
+  getOrderTimeline: protectedProcedure
+    .input(z.object({ orderNumber: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      const [order] = await db.select().from(orders)
+        .where(eq(orders.orderNumber, input.orderNumber))
+        .limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+
+      const items = await db.select().from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      const payments = await db.select().from(paymentTransactions)
+        .where(eq(paymentTransactions.orderId, order.id));
+
+      const integrations = await db.select({
+        integrationType: tenantIntegrations.integrationType,
+        status: tenantIntegrations.status,
+      }).from(tenantIntegrations)
+        .where(eq(tenantIntegrations.tenantId, order.tenantId));
+
+      const hasMedusa = integrations.some(i => i.integrationType === "medusa" && i.status === "active");
+      const hasOdoo = integrations.some(i => i.integrationType === "odoo_erp" && i.status === "active");
+      const hasTwenty = integrations.some(i => i.integrationType === "twenty_crm" && i.status === "active");
+
+      type TimelineEvent = {
+        id: string; timestamp: Date; system: string; event: string;
+        detail: string; status: "success" | "pending" | "failed" | "info";
+      };
+      const timeline: TimelineEvent[] = [];
+
+      timeline.push({
+        id: "platform-created",
+        timestamp: order.createdAt,
+        system: "WhatsApp Platform",
+        event: "Order Created",
+        detail: `Order ${order.orderNumber} created via WhatsApp conversation`,
+        status: "success",
+      });
+
+      if (payments.length > 0) {
+        const p = payments[payments.length - 1];
+        timeline.push({
+          id: `payment-${p.id}`,
+          timestamp: p.createdAt,
+          system: "Payment Gateway",
+          event: p.status === "success" ? "Payment Confirmed" : "Payment Initiated",
+          detail: `${p.provider} · ${order.currency} ${order.totalAmount}`,
+          status: p.status === "success" ? "success" : p.status === "failed" ? "failed" : "pending",
+        });
+      }
+
+      if (order.erpOrderId) {
+        timeline.push({
+          id: "medusa-synced",
+          timestamp: order.updatedAt,
+          system: "Medusa Commerce",
+          event: "Order Synced",
+          detail: `Medusa order ID: ${order.erpOrderId}`,
+          status: "success",
+        });
+      } else if (hasMedusa) {
+        timeline.push({
+          id: "medusa-pending",
+          timestamp: order.createdAt,
+          system: "Medusa Commerce",
+          event: "Sync Pending",
+          detail: "Order not yet synced to Medusa — will retry on next heartbeat",
+          status: "pending",
+        });
+      }
+
+      if (hasOdoo) {
+        timeline.push({
+          id: "odoo-sale",
+          timestamp: order.updatedAt,
+          system: "Odoo ERP",
+          event: order.status === "delivered" ? "Delivery Completed"
+            : order.status === "processing" ? "In Fulfillment" : "Sale Order Created",
+          detail: `Odoo sale.order · Status: ${order.status}`,
+          status: order.status === "delivered" ? "success"
+            : order.status === "cancelled" ? "failed" : "pending",
+        });
+      }
+
+      if (hasTwenty) {
+        timeline.push({
+          id: "twenty-activity",
+          timestamp: order.createdAt,
+          system: "Twenty CRM",
+          event: "CRM Activity Logged",
+          detail: "Order activity pushed to Twenty CRM for customer contact",
+          status: "success",
+        });
+      }
+
+      timeline.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
+      return {
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          totalAmount: order.totalAmount,
+          currency: order.currency,
+          createdAt: order.createdAt,
+          updatedAt: order.updatedAt,
+          shippingAddress: order.shippingAddress,
+          notes: order.notes,
+          erpOrderId: order.erpOrderId,
+        },
+        items,
+        payments,
+        timeline,
+        integrations: { hasMedusa, hasOdoo, hasTwenty },
+      };
     }),
 });

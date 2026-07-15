@@ -21,6 +21,15 @@ import {
   addToCart,
   getCart,
 } from "../services/medusaAdapter";
+import { getDb } from "../db";
+import { whatsappMenus, whatsappMenuItems } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
+import { fetchMedusaCatalog } from "../services/integrationSync";
+import { randomUUID } from "crypto";
+
+function getMedusaTenantId(ctx: { user?: { tenantId?: string | null } | null }): string {
+  return ctx.user?.tenantId ?? "default";
+}
 
 export const medusaRouter = router({
   /** Check if Medusa is configured */
@@ -150,5 +159,55 @@ export const medusaRouter = router({
       if (!isMedusaConfigured()) throw new Error("Medusa not configured");
       return getCart(input.cartId);
     }),
-});
 
+  /** Fetch Medusa product catalog variants for the picker dialog */
+  getCatalogForPicker: protectedProcedure
+    .query(async ({ ctx }) => {
+      const tenantId = getMedusaTenantId(ctx);
+      const products = await fetchMedusaCatalog(tenantId);
+      return { products, configured: isMedusaConfigured() || products.length > 0 };
+    }),
+
+  /** Import selected Medusa product variants as menu items into a given menu */
+  importProductsToMenu: protectedProcedure
+    .input(z.object({
+      menuId: z.string(),
+      products: z.array(z.object({
+        id: z.string(),
+        title: z.string(),
+        price: z.number(),
+        currency: z.string(),
+        stock: z.number(),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const tenantId = getMedusaTenantId(ctx);
+      const [menu] = await db.select({ id: whatsappMenus.id })
+        .from(whatsappMenus)
+        .where(eq(whatsappMenus.id, input.menuId))
+        .limit(1);
+      if (!menu) throw new Error("Menu not found");
+      const existing = await db.select({ sortOrder: whatsappMenuItems.sortOrder })
+        .from(whatsappMenuItems)
+        .where(eq(whatsappMenuItems.menuId, input.menuId));
+      const maxSort = existing.reduce((m, r) => Math.max(m, r.sortOrder), 0);
+      const inserted = await Promise.all(
+        input.products.map((p, i) =>
+          db.insert(whatsappMenuItems).values({
+            id: randomUUID(),
+            menuId: input.menuId,
+            tenantId,
+            type: "list_item",
+            title: p.title,
+            description: `${p.currency} ${p.price.toFixed(2)} · Stock: ${p.stock}`,
+            payload: `product:${p.id}`,
+            sortOrder: maxSort + i + 1,
+            metadata: { medusaVariantId: p.id, price: p.price, currency: p.currency, stock: p.stock },
+          }).returning({ id: whatsappMenuItems.id }),
+        ),
+      );
+      return { imported: inserted.length };
+    }),
+});

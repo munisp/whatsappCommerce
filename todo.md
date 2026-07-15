@@ -719,3 +719,13 @@
 - [x] Background Sync Status panel in IntegrationHealth page
 - [x] SyncEventRow component showing last sync time, products synced, contacts synced
 - [x] 241 tests passing, 0 TypeScript errors
+
+## Round 18 - Medusa Product Picker + Order Timeline (In Progress)
+## Round 18 - Medusa Product Picker + Order Timeline (Complete)
+- [x] Backend: getCatalogForPicker + importProductsToMenu tRPC procedures in medusa router
+- [x] Backend: getOrderTimeline procedure in nlp router (platform order + Medusa status + Odoo delivery + Twenty CRM activities)
+- [x] Fix TypeScript errors in getOrderTimeline (integrationType not service, provider not gateway, delivered not fulfilled)
+- [x] Frontend: "Import from Medusa" button + product picker dialog in MenuBuilder page
+- [x] Frontend: /orders/:orderNumber unified order timeline page with multi-system journey view
+- [x] Wire /orders/:orderNumber route in App.tsx
+- [x] 241 tests passing, 0 TypeScript errors
