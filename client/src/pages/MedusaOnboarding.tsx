@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
   ArrowRight,
   Send,
 } from "lucide-react";
+import { ImageIcon, X, Webhook, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 interface ProductDraft {
@@ -54,6 +55,10 @@ export default function MedusaOnboarding() {
   const [submitting, setSubmitting] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [uploadingImageFor, setUploadingImageFor] = useState<string | null>(null);
+  const [showWebhookPanel, setShowWebhookPanel] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const activeUploadDraftId = useRef<string | null>(null);
 
   // tRPC procedures
   const { data: queueData, refetch: refetchQueue } = trpc.medusaOnboarding.list.useQuery();
@@ -61,6 +66,7 @@ export default function MedusaOnboarding() {
   const addProductMutation = trpc.medusaOnboarding.addProduct.useMutation();
   const pushToMedusaMutation = trpc.medusaOnboarding.pushToMedusa.useMutation();
   const removeMutation = trpc.medusaOnboarding.remove.useMutation();
+  const uploadImageMutation = trpc.medusaOnboarding.uploadImage.useMutation();
 
   const updateDraft = (id: string, field: keyof ProductDraft, value: string) => {
     setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, [field]: value } : d)));
@@ -141,6 +147,38 @@ export default function MedusaOnboarding() {
     );
   };
 
+  const handleImageFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const draftId = activeUploadDraftId.current;
+    if (!file || !draftId) return;
+    e.target.value = "";
+    setUploadingImageFor(draftId);
+    try {
+      const reader = new FileReader();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const result = await uploadImageMutation.mutateAsync({
+        base64,
+        mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
+        filename: file.name,
+      });
+      updateDraft(draftId, "imageUrl", result.url);
+      toast.success("Image uploaded to storage!");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Image upload failed");
+    } finally {
+      setUploadingImageFor(null);
+      activeUploadDraftId.current = null;
+    }
+  }, [uploadImageMutation]);
+
+  const webhookUrl = typeof window !== "undefined"
+    ? `${window.location.origin}/api/webhooks/medusa`
+    : "/api/webhooks/medusa";
+
   const queueItems = queueData?.items ?? [];
   const stats = statsData as { total?: number; synced?: number; draft?: number; failed?: number } | undefined;
 
@@ -159,6 +197,59 @@ export default function MedusaOnboarding() {
             </p>
           </div>
         </div>
+        {/* Webhook registration panel */}
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => setShowWebhookPanel(p => !p)}>
+            <Webhook className="w-3.5 h-3.5" /> Webhook Setup
+          </Button>
+        </div>
+        {showWebhookPanel && (
+          <Card className="border-indigo-200 bg-indigo-50/40 dark:bg-indigo-950/20">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Webhook className="w-4 h-4 text-indigo-600" /> Medusa Webhook Registration
+                </CardTitle>
+                <button onClick={() => setShowWebhookPanel(false)} className="text-muted-foreground hover:text-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <p className="text-muted-foreground text-xs">
+                Register this URL in your Medusa Admin → Settings → Webhooks to receive order fulfillment events.
+                The platform will automatically update order status when Medusa fulfills an order.
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 bg-background border rounded px-3 py-2 text-xs font-mono break-all">
+                  {webhookUrl}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1"
+                  onClick={() => { navigator.clipboard.writeText(webhookUrl); toast.success("Webhook URL copied!"); }}
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copy
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                <div className="space-y-1">
+                  <p className="font-semibold text-indigo-700 dark:text-indigo-300">Step 1: Copy URL above</p>
+                  <p className="text-muted-foreground">Copy the webhook endpoint URL to your clipboard.</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-semibold text-indigo-700 dark:text-indigo-300">Step 2: Add to Medusa Admin</p>
+                  <p className="text-muted-foreground">Go to Medusa Admin → Settings → Webhooks → Create Webhook. Paste the URL and select <strong>order.fulfillment_created</strong> event.</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-semibold text-indigo-700 dark:text-indigo-300">Step 3: Set Secret</p>
+                  <p className="text-muted-foreground">Copy the webhook secret from Medusa and add it as <code className="bg-muted px-1 rounded">MEDUSA_WEBHOOK_SECRET</code> in Settings → Secrets.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Stats */}
         {stats && (
@@ -273,6 +364,37 @@ export default function MedusaOnboarding() {
                         value={draft.imageUrl}
                         onChange={(e) => updateDraft(draft.id, "imageUrl", e.target.value)}
                       />
+                    </div>
+                    {/* Image upload button */}
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1">
+                        {draft.imageUrl ? (
+                          <div className="flex items-center gap-2 p-2 border rounded-lg bg-muted/50">
+                            <img src={draft.imageUrl} alt="preview" className="w-10 h-10 object-contain rounded" />
+                            <span className="text-xs text-muted-foreground truncate flex-1">Image set</span>
+                            <button onClick={() => updateDraft(draft.id, "imageUrl", "")} className="text-muted-foreground hover:text-destructive">
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full gap-1 text-xs"
+                            disabled={uploadingImageFor === draft.id}
+                            onClick={() => {
+                              activeUploadDraftId.current = draft.id;
+                              fileInputRef.current?.click();
+                            }}
+                          >
+                            {uploadingImageFor === draft.id ? (
+                              <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Uploading…</>
+                            ) : (
+                              <><ImageIcon className="w-3.5 h-3.5" /> Upload Photo</>
+                            )}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     <div className="col-span-2">
                       <Label>Description</Label>
@@ -404,6 +526,14 @@ export default function MedusaOnboarding() {
             </Card>
           </div>
         </div>
+        {/* Hidden file input for image upload */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={handleImageFileChange}
+        />
       </div>
     </DashboardLayout>
   );

@@ -21,7 +21,14 @@ import {
   RefreshCw,
   History,
   Zap,
+  ChevronDown,
+  ChevronUp,
+  ClipboardCheck,
+  ImageIcon,
+  X,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -74,9 +81,22 @@ export default function VisualInventory() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [cameraActive, setCameraActive] = useState(false);
 
+  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const [applyDialogOpen, setApplyDialogOpen] = useState(false);
+  const [applyAdjustments, setApplyAdjustments] = useState<Array<{ detectedLabel: string; confirmedCount: number }>>([]);
+
   const analyseMutation = trpc.visualInventory.analyseImage.useMutation();
   const { data: sessions, refetch: refetchSessions } = trpc.visualInventory.listSessions.useQuery({ limit: 20 });
   const { data: modelsData } = trpc.visualInventory.getOllamaModels.useQuery();
+  const applyMutation = trpc.visualInventory.applyToInventory.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Applied to inventory: ${result.applied} product(s) updated`);
+      setApplyDialogOpen(false);
+      refetchSessions();
+    },
+    onError: (err) => toast.error(`Apply failed: ${err.message}`),
+  });
 
   // ── Camera ────────────────────────────────────────────────────────────────
   const startCamera = useCallback(async () => {
@@ -461,6 +481,12 @@ export default function VisualInventory() {
 
         {activeTab === "history" && (
           <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">Scan History</h3>
+              <Button variant="ghost" size="sm" onClick={() => refetchSessions()} className="h-7 text-xs gap-1">
+                <RefreshCw className="w-3 h-3" /> Refresh
+              </Button>
+            </div>
             {!sessions || sessions.length === 0 ? (
               <Card className="border-dashed">
                 <CardContent className="text-center py-12 text-muted-foreground">
@@ -469,50 +495,186 @@ export default function VisualInventory() {
                 </CardContent>
               </Card>
             ) : (
-              sessions.map((s) => (
-                <Card key={s.id} className="hover:shadow-sm transition-shadow">
-                  <CardContent className="pt-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge
-                            variant={s.status === "completed" ? "default" : s.status === "failed" ? "destructive" : "secondary"}
-                            className="text-xs"
-                          >
-                            {s.status}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(s.createdAt).toLocaleString()}
-                          </span>
+              sessions.map((s) => {
+                const items = (s.detectedItems as Array<{ label: string; count: number; confidence: number; bbox?: number[] }>) ?? [];
+                const updates = (s.inventoryUpdates as Array<{ productId: string; label: string; oldQty?: number; newQty: number }>) ?? [];
+                const isExpanded = expandedSessionId === s.id;
+                return (
+                  <Card key={s.id} className="hover:shadow-sm transition-shadow">
+                    <CardContent className="pt-4">
+                      {/* Header row */}
+                      <div className="flex items-start gap-3">
+                        {/* Thumbnail with bounding box overlay */}
+                        <div className="relative shrink-0">
+                          {s.imageUrl ? (
+                            <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-muted cursor-pointer"
+                              onClick={() => setSelectedSession(selectedSession === s.id ? null : s.id)}>
+                              <img src={s.imageUrl} alt="Shelf scan" className="w-full h-full object-cover" />
+                              {/* Bounding box overlays (simplified — percentage-based) */}
+                              {items.slice(0, 5).map((item, idx) => (
+                                item.bbox && item.bbox.length === 4 ? (
+                                  <div key={idx} className="absolute border border-emerald-400 rounded-sm pointer-events-none"
+                                    style={{
+                                      left: `${item.bbox[0]}%`,
+                                      top: `${item.bbox[1]}%`,
+                                      width: `${item.bbox[2]}%`,
+                                      height: `${item.bbox[3]}%`,
+                                    }}
+                                  />
+                                ) : null
+                              ))}
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity">
+                                <Eye className="w-4 h-4 text-white" />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="w-20 h-20 rounded-lg bg-muted flex items-center justify-center">
+                              <ImageIcon className="w-6 h-6 text-muted-foreground opacity-40" />
+                            </div>
+                          )}
                         </div>
-                        <p className="text-sm font-medium mt-1">
-                          {s.totalItemsDetected ?? 0} items detected
-                        </p>
-                        {s.vlmAnalysis && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2 italic">
-                            "{s.vlmAnalysis}"
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Badge
+                              variant={s.status === "completed" ? "default" : s.status === "failed" ? "destructive" : "secondary"}
+                              className="text-xs"
+                            >
+                              {s.status}
+                            </Badge>
+                            {s.appliedToInventory && (
+                              <Badge variant="outline" className="text-xs bg-emerald-50 text-emerald-700 border-emerald-200">
+                                <ClipboardCheck className="w-3 h-3 mr-1" /> Applied
+                              </Badge>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(s.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-sm font-medium mt-1">
+                            {s.totalItemsDetected ?? 0} items detected
+                            {s.modelUsed && <span className="text-xs text-muted-foreground ml-2">via {s.modelUsed}</span>}
                           </p>
-                        )}
-                        {s.modelUsed && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Model: {s.modelUsed} · {s.processingMs ?? 0}ms
-                          </p>
-                        )}
+                          {s.vlmAnalysis && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2 italic">
+                              "{s.vlmAnalysis}"
+                            </p>
+                          )}
+                          <div className="flex gap-2 mt-2">
+                            <Button variant="ghost" size="sm" className="h-6 text-xs gap-1 px-2"
+                              onClick={() => setExpandedSessionId(isExpanded ? null : s.id)}>
+                              {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              {isExpanded ? "Hide" : "Details"}
+                            </Button>
+                            {!s.appliedToInventory && s.status === "completed" && items.length > 0 && (
+                              <Button size="sm" className="h-6 text-xs gap-1 px-2 bg-emerald-600 hover:bg-emerald-700"
+                                onClick={() => {
+                                  setApplyAdjustments(items.map(i => ({ detectedLabel: i.label, confirmedCount: i.count })));
+                                  setSelectedSession(s.id);
+                                  setApplyDialogOpen(true);
+                                }}>
+                                <ClipboardCheck className="w-3 h-3" /> Apply to Inventory
+                              </Button>
+                            )}
+                            {s.appliedToInventory && updates.length > 0 && (
+                              <Button variant="ghost" size="sm" className="h-6 text-xs gap-1 px-2"
+                                onClick={() => setExpandedSessionId(isExpanded ? null : s.id)}>
+                                <Package className="w-3 h-3" /> {updates.length} updates
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      {s.imageUrl && (
-                        <img
-                          src={s.imageUrl}
-                          alt="Shelf"
-                          className="w-16 h-16 object-cover rounded-lg shrink-0"
-                        />
+                      {/* Expanded details: detected items table + inventory updates */}
+                      {isExpanded && (
+                        <div className="mt-3 pt-3 border-t border-border space-y-3">
+                          {items.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground mb-2">Detected Items</p>
+                              <div className="space-y-1">
+                                {items.map((item, idx) => (
+                                  <div key={idx} className="flex items-center justify-between text-xs bg-muted/40 rounded px-2 py-1">
+                                    <span className="font-medium">{item.label}</span>
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-muted-foreground">×{item.count}</span>
+                                      <span className={confidenceColor(item.confidence)}>
+                                        {(item.confidence * 100).toFixed(0)}%
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {updates.length > 0 && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground mb-2">Inventory Updates Applied</p>
+                              <div className="space-y-1">
+                                {updates.map((u, idx) => (
+                                  <div key={idx} className="flex items-center justify-between text-xs bg-emerald-50 dark:bg-emerald-950/30 rounded px-2 py-1">
+                                    <span className="font-medium">{u.label ?? u.productId}</span>
+                                    <span className="text-emerald-700 dark:text-emerald-400">
+                                      {u.oldQty !== undefined ? `${u.oldQty} → ` : ""}{u.newQty}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {s.processingMs && (
+                            <p className="text-xs text-muted-foreground">Processing time: {s.processingMs}ms</p>
+                          )}
+                        </div>
                       )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
+                    </CardContent>
+                  </Card>
+                );
+              })
             )}
           </div>
         )}
+        {/* Apply to Inventory Dialog */}
+        <Dialog open={applyDialogOpen} onOpenChange={setApplyDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Apply Counts to Inventory</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">Review and adjust the detected counts before applying to your product inventory.</p>
+            <ScrollArea className="max-h-64">
+              <div className="space-y-2 pr-2">
+                {applyAdjustments.map((adj, idx) => (
+                  <div key={idx} className="flex items-center gap-3">
+                    <span className="flex-1 text-sm font-medium truncate">{adj.detectedLabel}</span>
+                    <div className="flex items-center gap-1">
+                      <Button variant="outline" size="sm" className="h-7 w-7 p-0"
+                        onClick={() => setApplyAdjustments(prev => prev.map((a, i) => i === idx ? { ...a, confirmedCount: Math.max(0, a.confirmedCount - 1) } : a))}>
+                        −
+                      </Button>
+                      <span className="w-10 text-center text-sm font-mono">{adj.confirmedCount}</span>
+                      <Button variant="outline" size="sm" className="h-7 w-7 p-0"
+                        onClick={() => setApplyAdjustments(prev => prev.map((a, i) => i === idx ? { ...a, confirmedCount: a.confirmedCount + 1 } : a))}>
+                        +
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setApplyDialogOpen(false)}>Cancel</Button>
+              <Button
+                className="bg-emerald-600 hover:bg-emerald-700"
+                disabled={applyMutation.isPending || !selectedSession}
+                onClick={() => {
+                  if (!selectedSession) return;
+                  applyMutation.mutate({ sessionId: selectedSession, adjustments: applyAdjustments });
+                }}
+              >
+                {applyMutation.isPending ? "Applying…" : "Apply to Inventory"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Architecture info */}
         <Card className="bg-muted/30 border-dashed">

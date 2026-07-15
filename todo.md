@@ -749,3 +749,15 @@
 - [x] Orders page: added "Timeline" button per row → navigates to /orders/:orderNumber
 - [x] Medusa webhook: POST /api/webhooks/medusa handles order.fulfillment_created, order.completed, order.canceled
 - [x] 241 tests passing, 0 TypeScript errors
+
+## Round 20 — GitHub Push + AI Training + Feature Enhancements
+- [x] Push all code to GitHub (munisp/whatsappCommerce main branch)
+- [x] VisualInventory: scan history section with bounding box overlay, apply-to-inventory modal
+- [x] OdooMedusaBridge: sync history log table (product, qty, direction, status, conflict reason)
+- [x] OdooMedusaBridge: last-sync result banner + "View history" toggle
+- [x] OdooMedusaBridge: listSyncHistory tRPC procedure (last 30 sync events)
+- [x] MedusaOnboarding: S3 image upload (base64 → storagePut → URL stored in draft)
+- [x] MedusaOnboarding: image preview with remove button
+- [x] MedusaOnboarding: webhook registration panel (URL display, copy button, 3-step setup guide)
+- [x] MedusaOnboarding: uploadImage tRPC procedure (base64 → S3 → url)
+- [x] 241 tests passing, 0 TypeScript errors

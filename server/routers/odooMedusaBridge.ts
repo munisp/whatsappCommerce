@@ -16,7 +16,7 @@
  *   - Medusa → Odoo: confirmed orders (sale.order creation, already done in NLP flow)
  */
 import { z } from "zod";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
@@ -322,6 +322,38 @@ export const odooMedusaBridgeRouter = router({
 
     return { synced, failed, total: mappings.length };
   }),
+
+  /** Return a log of the last N sync events (derived from bridge records with lastSyncedAt) */
+  listSyncHistory: protectedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }))
+    .query(async ({ ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const tenantId = getTenantId(ctx);
+      // Return bridge records ordered by lastSyncedAt descending — each row is a sync event
+      const rows = await db
+        .select({
+          id: odooMedusaInventoryBridge.id,
+          odooProductName: odooMedusaInventoryBridge.odooProductName,
+          odooProductId: odooMedusaInventoryBridge.odooProductId,
+          odooStockQty: odooMedusaInventoryBridge.odooStockQty,
+          medusaStockableQty: odooMedusaInventoryBridge.medusaStockableQty,
+          syncStatus: odooMedusaInventoryBridge.syncStatus,
+          syncDirection: odooMedusaInventoryBridge.syncDirection,
+          lastSyncedAt: odooMedusaInventoryBridge.lastSyncedAt,
+          conflictReason: odooMedusaInventoryBridge.conflictReason,
+        })
+        .from(odooMedusaInventoryBridge)
+        .where(
+          and(
+            eq(odooMedusaInventoryBridge.tenantId, tenantId),
+            sql`${odooMedusaInventoryBridge.lastSyncedAt} IS NOT NULL`,
+          ),
+        )
+        .orderBy(desc(odooMedusaInventoryBridge.lastSyncedAt))
+        .limit(30);
+      return rows;
+    }),
 
   /** Get sync summary stats */
   stats: protectedProcedure.query(async ({ ctx }) => {

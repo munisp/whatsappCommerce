@@ -295,6 +295,24 @@ export const medusaOnboardingRouter = router({
       return { success: true };
     }),
 
+  /** Upload a product image to S3 and return the storage URL */
+  uploadImage: protectedProcedure
+    .input(z.object({
+      base64: z.string().min(1),
+      mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
+      filename: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { storagePut } = await import("../storage");
+      const tenantId = getTenantId(ctx);
+      const ext = input.mimeType === "image/png" ? "png" : input.mimeType === "image/webp" ? "webp" : "jpg";
+      const filename = input.filename ?? `product-${Date.now()}.${ext}`;
+      const key = `medusa-onboarding/${tenantId}/${filename}`;
+      const buffer = Buffer.from(input.base64.replace(/^data:[^;]+;base64,/, ""), "base64");
+      const { url } = await storagePut(key, buffer, input.mimeType);
+      return { url, key };
+    }),
+
   /** Get stats for the onboarding dashboard */
   stats: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
