@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 import { eq, desc, and, ilike, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { whatsappTemplates, InsertWhatsappTemplate, templateVersions } from "../../drizzle/schema";
+import { whatsappTemplates, InsertWhatsappTemplate, templateVersions, templateApprovalHistory } from "../../drizzle/schema";
 
 const DEMO_TENANT = "demo-tenant-001";
 function getTenantId(ctx: { user: { tenantId?: string | null } }) {
@@ -296,6 +296,18 @@ export const templateRouter = router({
           updatedAt: new Date(),
         } as any)
         .where(and(eq(whatsappTemplates.id, input.id), eq(whatsappTemplates.tenantId, getTenantId(ctx))));
+      // Persist approval history event
+      await db.insert(templateApprovalHistory).values({
+        id: nanoid(),
+        templateId: input.id,
+        tenantId: getTenantId(ctx),
+        fromStatus: "draft",
+        toStatus: "submitted",
+        changedBy: (ctx.user as any).name ?? ctx.user.openId ?? null,
+        reason: null,
+        metaSubmissionId: null,
+        createdAt: new Date(),
+      } as any);
       return { success: true, status: "submitted" };
     }),
 
@@ -321,10 +333,37 @@ export const templateRouter = router({
           updatedAt: new Date(),
         } as any)
         .where(and(eq(whatsappTemplates.id, input.id), eq(whatsappTemplates.tenantId, getTenantId(ctx))));
+      // Persist approval history event
+      await db.insert(templateApprovalHistory).values({
+        id: nanoid(),
+        templateId: input.id,
+        tenantId: getTenantId(ctx),
+        fromStatus: null,
+        toStatus: input.status,
+        changedBy: (ctx.user as any).name ?? ctx.user.openId ?? null,
+        reason: input.rejectionReason ?? null,
+        metaSubmissionId: input.metaTemplateId ?? null,
+        createdAt: new Date(),
+      } as any);
       return { success: true };
     }),
 
-  // ── Get approval history from template versions ────────────────────────────
+  // ── Get real approval history from dedicated history table ────────────────
+  getApprovalHistoryReal: protectedProcedure
+    .input(z.object({ templateId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const rows = await db.select().from(templateApprovalHistory)
+        .where(and(
+          eq(templateApprovalHistory.templateId, input.templateId),
+          eq(templateApprovalHistory.tenantId, getTenantId(ctx))
+        ))
+        .orderBy(desc(templateApprovalHistory.createdAt));
+      return rows;
+    }),
+
+  // ── Get approval history (legacy: current state as single entry) ──────────
   getApprovalHistory: protectedProcedure
     .input(z.object({ templateId: z.string() }))
     .query(async ({ ctx, input }) => {

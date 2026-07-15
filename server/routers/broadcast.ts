@@ -84,6 +84,7 @@ export const broadcastRouter = router({
       segment: z.enum(["all", "new_contacts", "recent_orders", "overdue_invoices", "shipped_orders", "vip_customers", "custom"]).default("all"),
       segmentFilter: z.record(z.string(), z.unknown()).optional(),
       scheduledAt: z.number().optional(),
+      varMapping: z.record(z.string(), z.string()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -97,6 +98,7 @@ export const broadcastRouter = router({
         templateId: input.templateId ?? null,
         segment: input.segment,
         segmentFilter: input.segmentFilter ?? null,
+        varMapping: input.varMapping ?? null,
         status: "draft",
         scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
         createdBy: ctx.user?.name ?? ctx.user?.openId ?? "system",
@@ -122,6 +124,9 @@ export const broadcastRouter = router({
 
       if (!campaign) throw new Error("Campaign not found");
 
+      // Merge campaign-level varMapping into per-recipient variables
+      const campaignVarMap = (campaign.varMapping ?? {}) as Record<string, string>;
+
       // Pull contacts from Twenty CRM as recipients
       const contacts = await db
         .select()
@@ -142,6 +147,7 @@ export const broadcastRouter = router({
             order_number: `ORD-${Math.floor(Math.random() * 90000) + 10000}`,
             amount: `$${(Math.random() * 200 + 20).toFixed(2)}`,
             currency: "USD",
+            ...campaignVarMap,
           },
           status: "pending" as const,
           createdAt: new Date(),
@@ -153,13 +159,14 @@ export const broadcastRouter = router({
         campaignId: input.campaignId,
         phone: `+1555${String(i).padStart(7, "0")}`,
         name: ["Alice Johnson", "Bob Smith", "Carol White", "David Brown", "Emma Davis", "Frank Miller", "Grace Wilson", "Henry Moore", "Iris Taylor", "Jack Anderson", "Karen Thomas", "Leo Jackson"][i] ?? `Customer ${i + 1}`,
-        variables: {
-          customer_name: ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack", "Karen", "Leo"][i] ?? "Customer",
-          store_name: "WhatsApp Commerce",
-          order_number: `ORD-${10000 + i}`,
-          amount: `$${(50 + i * 15).toFixed(2)}`,
-          currency: "USD",
-        },
+          variables: {
+            customer_name: ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack", "Karen", "Leo"][i] ?? "Customer",
+            store_name: "WhatsApp Commerce",
+            order_number: `ORD-${10000 + i}`,
+            amount: `$${(50 + i * 15).toFixed(2)}`,
+            currency: "USD",
+            ...campaignVarMap,
+          },
         status: "pending" as const,
         createdAt: new Date(),
       }));
@@ -240,5 +247,39 @@ export const broadcastRouter = router({
         preview = preview.replaceAll(`{{${key}}}`, String(value));
       }
       return { preview };
+    }),
+  // Simulate delivery/read events on a sent campaign
+  simulateDelivery: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const [campaign] = await db.select().from(broadcastCampaigns)
+        .where(eq(broadcastCampaigns.id, input.campaignId)).limit(1);
+      if (!campaign) throw new Error("Campaign not found");
+      if (campaign.status !== "completed") throw new Error("Campaign must be completed before simulating delivery");
+      const recipients = await db.select().from(broadcastRecipients)
+        .where(eq(broadcastRecipients.campaignId, input.campaignId));
+      let delivered = 0;
+      let read = 0;
+      for (const r of recipients) {
+        const willDeliver = Math.random() > 0.1;
+        const willRead = willDeliver && Math.random() > 0.35;
+        const newStatus = willRead ? "read" : willDeliver ? "delivered" : r.status;
+        if (willDeliver || willRead) {
+          await db.update(broadcastRecipients).set({
+            status: newStatus as any,
+            deliveredAt: willDeliver ? new Date() : r.deliveredAt,
+          }).where(eq(broadcastRecipients.id, r.id));
+          if (willDeliver) delivered++;
+          if (willRead) read++;
+        }
+      }
+      await db.update(broadcastCampaigns).set({
+        deliveredCount: delivered,
+        readCount: read,
+        updatedAt: new Date(),
+      }).where(eq(broadcastCampaigns.id, input.campaignId));
+      return { delivered, read, total: recipients.length };
     }),
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,8 @@ import {
   Plus, BarChart3, Megaphone, ChevronRight, Play, Ban,
   TrendingUp, MessageSquare, Loader2
 } from "lucide-react";
+import { MessageCircle } from "lucide-react";
+import { FlaskConical as SimIcon } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   draft: "bg-slate-500/15 text-slate-400 border-slate-500/30",
@@ -102,6 +104,8 @@ function DeliveryBar({ campaign }: { campaign: Campaign }) {
 export default function BroadcastCampaigns() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewCampaignId, setPreviewCampaignId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newSegment, setNewSegment] = useState("all");
   const [newTemplateId, setNewTemplateId] = useState("");
@@ -182,14 +186,49 @@ export default function BroadcastCampaigns() {
     onError: (e) => toast.error(e.message),
   });
 
+  const simulateDelivery = trpc.broadcast.simulateDelivery.useMutation({
+    onSuccess: (data) => {
+      const rate = data.total > 0 ? Math.round((data.delivered / data.total) * 100) : 0;
+      toast.success(`Simulation complete — ${data.delivered}/${data.total} delivered (${rate}%), ${data.read} read`);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const handleSend = (campaignId: string) => {
-    setSendingId(campaignId);
-    sendCampaign.mutate({ campaignId });
+    const campaign = campaigns.find(c => c.id === campaignId);
+    if (campaign) {
+      setPreviewCampaignId(campaignId);
+      setPreviewOpen(true);
+    } else {
+      setSendingId(campaignId);
+      sendCampaign.mutate({ campaignId });
+    }
   };
 
   const selectedCampaign = campaigns.find(c => c.id === selectedId);
+  const confirmSend = () => {
+    if (!previewCampaignId) return;
+    setPreviewOpen(false);
+    setSendingId(previewCampaignId);
+    sendCampaign.mutate({ campaignId: previewCampaignId });
+    setPreviewCampaignId(null);
+  };
+  const previewCampaign = campaigns.find(c => c.id === previewCampaignId);
+  const previewTemplate = templates.find(t => t.id === (previewCampaign as any)?.templateId);
+  const previewRendered = (() => {
+    if (!previewTemplate) return "(No template body)";
+    const body = (previewTemplate as any).bodyText ?? "";
+    const varMap = ((previewCampaign as any)?.varMapping ?? {}) as Record<string, string>;
+    let rendered = body;
+    Object.entries(varMap).forEach(([k, v]) => {
+      rendered = rendered.split("{{" + k + "}}").join(v || "{{" + k + "}}");
+    });
+    return rendered;
+  })();
 
   return (
+    <>
     <DashboardLayout>
       <div className="p-6 space-y-6">
         {/* Header */}
@@ -332,6 +371,18 @@ export default function BroadcastCampaigns() {
                             <Play className="w-3.5 h-3.5" />
                           )}
                           {sendingId === selectedCampaign.id ? "Sending…" : "Send Now"}
+                        </Button>
+                      )}
+                      {(selectedCampaign.status === "draft" || selectedCampaign.status === "scheduled") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 border-violet-500/30 text-violet-400 hover:bg-violet-500/10"
+                          onClick={() => simulateDelivery.mutate({ campaignId: selectedCampaign.id })}
+                          disabled={simulateDelivery.isPending}
+                        >
+                          {simulateDelivery.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SimIcon className="w-3.5 h-3.5" />}
+                          {simulateDelivery.isPending ? "Simulating…" : "Simulate"}
                         </Button>
                       )}
                       {selectedCampaign.status === "sending" && (
@@ -645,5 +696,54 @@ export default function BroadcastCampaigns() {
         </DialogContent>
       </Dialog>
     </DashboardLayout>
+
+      {/* Send Preview Modal */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-emerald-400" />
+              Preview Before Sending
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Review how the message will appear after variable substitution before sending to{" "}
+              <strong>{previewCampaign?.totalRecipients ?? 0}</strong> contacts.
+            </p>
+            <div className="bg-[#0a1628] rounded-xl p-4 border border-border/30">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <MessageCircle className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-foreground">{previewCampaign?.name ?? "Campaign"}</p>
+                  <p className="text-xs text-muted-foreground">WhatsApp Business</p>
+                </div>
+              </div>
+              <div className="bg-[#1a2a1a] rounded-lg rounded-tl-none px-3 py-2.5 max-w-[85%] border border-emerald-900/30">
+                <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{previewRendered}</p>
+                <p className="text-[10px] text-muted-foreground text-right mt-1.5">
+                  {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} ✓✓
+                </p>
+              </div>
+            </div>
+            {(previewCampaign?.totalRecipients ?? 0) === 0 && (
+              <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                <span className="text-amber-400 text-sm">⚠</span>
+                <p className="text-xs text-amber-300">No recipients loaded yet. The campaign will build the recipient list on send.</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewOpen(false)}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" onClick={confirmSend}>
+              <Send className="w-3.5 h-3.5" />
+              Confirm & Send
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

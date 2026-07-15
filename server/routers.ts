@@ -20,6 +20,25 @@ import { broadcastAbRouter } from "./routers/broadcastAb";
 import { onboardingRouter } from "./routers/onboarding";
 import { kycRouter } from "./routers/kyc";
 import { heartbeatRouter } from "./routers/heartbeat";
+import { nlpRouter } from "./routers/nlp";
+import { orderCrudRouter } from "./routers/orderCrud";
+import { invoiceRouter } from "./routers/invoice";
+import { paymentGatewayRouter } from "./routers/paymentGateway";
+import { tenantPortalRouter } from "./routers/tenantPortal";
+import { tenantInviteRouter } from "./routers/tenantInvite";
+import { mlOpsRouter } from "./routers/mlOps";
+import { reconciliationRouter } from "./routers/reconciliation";
+import { cogsDisputeRouter } from "./routers/cogsDispute";
+import { keycloakRouter } from "./routers/keycloak";
+import { revenueRouter } from "./routers/revenue";
+import { escrowRouter, escrowDisputeRouter, walletRouter, timelineAttachmentRouter } from "./routers/escrow";
+import { logisticsRouter } from "./routers/logistics";
+import { notificationsRouter } from "./routers/notifications";
+import { slaRouter } from "./routers/sla";
+import { evidencePortalRouter } from "./routers/evidencePortal";
+import { receiptScanRouter } from "./routers/receiptScan";
+import { onboardingProgressRouter } from "./routers/onboardingProgress";
+import { slaExtensionRouter } from "./routers/slaExtension";
 
 export const appRouter = router({
   system: systemRouter,
@@ -49,6 +68,62 @@ export const appRouter = router({
   onboarding: onboardingRouter,
   kyc: kycRouter,
   heartbeat: heartbeatRouter,
+  nlp: nlpRouter,
+  orderCrud: orderCrudRouter,
+  invoice: invoiceRouter,
+  paymentGateway: paymentGatewayRouter,
+  tenantPortal: tenantPortalRouter,
+  tenantInvite: tenantInviteRouter,
+  mlOps: mlOpsRouter,
+  reconciliation: reconciliationRouter,
+  keycloak: keycloakRouter,
+  cogsDispute: cogsDisputeRouter,
+  alertRules: alertRulesRouter,
+  revenue: revenueRouter,
+  escrow: escrowRouter,
+  escrowDispute: escrowDisputeRouter,
+  wallet: walletRouter,
+  logistics: logisticsRouter,
+  notifications: notificationsRouter,
+  timelineAttachment: timelineAttachmentRouter,
+  sla: slaRouter,
+  evidencePortal: evidencePortalRouter,
+  receiptScan: receiptScanRouter,
+  onboardingProgress: onboardingProgressRouter,
+  slaExtension: slaExtensionRouter,
+  operatorTemplates: operatorTemplatesRouter,
+  whatsappMedia: whatsappMediaRouter,
+  b2b: b2bRouter,
+  channels: channelsRouter,
+  marketplace: marketplaceRouter,
+  mobileMoney: mobileMoneyRouter,
+  serviceCommerce: serviceCommerceRouter,
+  analyticsBI: analyticsBIRouter,
+  compliance: complianceRouter,
+  medusa: medusaRouter,
+  webhookDlq: webhookDlqRouter,
+  provisioning: provisioningRouter,
+  medusaOnboarding: medusaOnboardingRouter,
+  odooMedusaBridge: odooMedusaBridgeRouter,
+  visualInventory: visualInventoryRouter,
 });
 
 export type AppRouter = typeof appRouter;
+import { medusaOnboardingRouter } from "./routers/medusaOnboarding";
+import { odooMedusaBridgeRouter } from "./routers/odooMedusaBridge";
+import { visualInventoryRouter } from "./routers/visualInventory";
+import { alertRulesRouter } from "./routers/alertRules";
+import { operatorTemplatesRouter } from "./routers/operatorTemplates";
+import { whatsappMediaRouter } from "./routers/whatsappMedia";
+
+import { b2bRouter } from "./routers/b2b";
+import { channelsRouter } from "./routers/channels";
+import { marketplaceRouter } from "./routers/marketplace";
+import { mobileMoneyRouter } from "./routers/mobileMoney";
+import { serviceCommerceRouter } from "./routers/serviceCommerce";
+import { analyticsBIRouter } from "./routers/analyticsBI";
+import { complianceRouter } from "./routers/compliance";
+import { medusaRouter } from "./routers/medusa";
+import { webhookDlqRouter } from "./routers/webhookDlq";
+
+import { provisioningRouter } from "./routers/provisioning";

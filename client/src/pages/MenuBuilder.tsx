@@ -16,6 +16,8 @@ import {
   MessageSquare, Globe, List, Loader2, LayoutGrid, ArrowUpDown,
   ShoppingBag, Edit3, X, Radio
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type ItemType = "section" | "button" | "list_item" | "quick_reply" | "catalog_link" | "url";
 
@@ -202,6 +204,8 @@ export default function MenuBuilder() {
   const [autoSources, setAutoSources] = useState({ odooProductsByCategory: true, odooOrderStatus: true, twentyDealStages: false, twentyContactList: false });
   const [pushOpen, setPushOpen] = useState(false);
   const [pushResult, setPushResult] = useState<{ payload: unknown; pushedAt: Date; itemCount: number } | null>(null);
+  const [medusaPickerOpen, setMedusaPickerOpen] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
 
   const utils = trpc.useUtils();
   const { data: menus = [], refetch: refetchMenus } = trpc.menu.list.useQuery();
@@ -243,6 +247,26 @@ export default function MenuBuilder() {
     onSuccess: () => { toast.success("Menu published"); refetchDetail(); refetchMenus(); },
     onError: (e) => toast.error(e.message),
   });
+
+  const { data: medusaCatalog, isLoading: medusaCatalogLoading } = trpc.medusa.getCatalogForPicker.useQuery(
+    undefined,
+    { enabled: medusaPickerOpen }
+  );
+  const importFromMedusa = trpc.medusa.importProductsToMenu.useMutation({
+    onSuccess: (d) => {
+      toast.success(`Imported ${d.imported} products from Medusa`);
+      refetchDetail();
+      setMedusaPickerOpen(false);
+      setSelectedProductIds([]);
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  function toggleProduct(id: string) {
+    setSelectedProductIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  }
 
   const currentMenu = menuDetail?.menu;
   const items: MenuItem[] = (menuDetail?.items ?? []) as MenuItem[];
@@ -384,6 +408,9 @@ export default function MenuBuilder() {
                       <Button variant="outline" size="sm" className="gap-1.5 border-border text-xs h-8" onClick={() => setAutoPopOpen(true)}>
                         <Zap className="w-3.5 h-3.5 text-yellow-400" /> Auto-Populate
                       </Button>
+                      <Button variant="outline" size="sm" className="gap-1.5 border-border text-xs h-8" onClick={() => setMedusaPickerOpen(true)}>
+                        <Package className="w-3.5 h-3.5 text-purple-400" /> Import Medusa
+                      </Button>
                       <Button variant="outline" size="sm" className="gap-1.5 border-border text-xs h-8" onClick={() => openAddItem()}>
                         <Plus className="w-3.5 h-3.5" /> Add
                       </Button>
@@ -436,6 +463,86 @@ export default function MenuBuilder() {
           </div>
         </div>
       </div>
+
+      {/* ── Medusa Product Picker Dialog ── */}
+      <Dialog open={medusaPickerOpen} onOpenChange={open => { setMedusaPickerOpen(open); if (!open) setSelectedProductIds([]); }}>
+        <DialogContent className="bg-card border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-4 h-4 text-purple-400" /> Import Products from Medusa
+            </DialogTitle>
+          </DialogHeader>
+          {medusaCatalogLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !medusaCatalog?.configured ? (
+            <div className="py-6 text-center space-y-2">
+              <Package className="w-10 h-10 mx-auto text-muted-foreground/40" />
+              <p className="text-sm font-medium text-muted-foreground">Medusa not configured</p>
+              <p className="text-xs text-muted-foreground/70">
+                Connect a Medusa v2 instance in the Integration Health dashboard to import products.
+              </p>
+            </div>
+          ) : (medusaCatalog?.products?.length ?? 0) === 0 ? (
+            <div className="py-6 text-center space-y-2">
+              <ShoppingBag className="w-10 h-10 mx-auto text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">No products found in Medusa catalog</p>
+            </div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              <p className="text-xs text-muted-foreground">
+                Select products to import as menu items into <strong>{currentMenu?.name}</strong>.
+              </p>
+              <ScrollArea className="h-72 border border-border rounded-lg">
+                <div className="divide-y divide-border">
+                  {medusaCatalog?.products?.map(product => (
+                    <label
+                      key={product.id}
+                      className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                    >
+                      <Checkbox
+                        checked={selectedProductIds.includes(product.id)}
+                        onCheckedChange={() => toggleProduct(product.id)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-card-foreground truncate">{product.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {product.id}
+                        </p>
+                      </div>
+                      <span className="text-xs font-medium text-card-foreground shrink-0">
+                        {product.currency} {product.price.toLocaleString()}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </ScrollArea>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-muted-foreground">
+                  {selectedProductIds.length} of {medusaCatalog?.products?.length} selected
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setMedusaPickerOpen(false)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    className="bg-purple-600 hover:bg-purple-700 text-white gap-1.5"
+                    disabled={selectedProductIds.length === 0 || importFromMedusa.isPending || !selectedMenuId}
+                    onClick={() => {
+                      if (!selectedMenuId) return;
+                      const selected = (medusaCatalog?.products ?? []).filter(p => selectedProductIds.includes(p.id));
+                      importFromMedusa.mutate({ menuId: selectedMenuId, products: selected });
+                    }}
+                  >
+                    {importFromMedusa.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Package className="w-3.5 h-3.5" />}
+                    Import Selected
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Create Menu Dialog ── */}
       <Dialog open={createMenuOpen} onOpenChange={setCreateMenuOpen}>

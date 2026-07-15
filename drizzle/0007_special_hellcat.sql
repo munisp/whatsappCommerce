@@ -1,0 +1,1 @@
+ALTER TABLE "broadcast_campaigns" ADD COLUMN "varMapping" jsonb;

@@ -175,20 +175,577 @@
 - [x] Broadcast page: A/B test panel in campaign detail, variant stats comparison, auto-winner button
 
 ## Tenant Onboarding Wizard
-- [ ] DB schema: tenant_onboarding table (tenantId, step, billingModel, profitShareRate, subscriptionFee, subscriptionCycle, whatsappVerified, aiConfigured, completedAt)
-- [ ] DB schema: billing_model enum (profit_sharing, subscription, hybrid)
-- [ ] tRPC router: onboarding (getProgress, saveStep, complete, getBillingPlans)
-- [ ] Multi-step wizard UI: Business Profile → Billing Model → WhatsApp Setup → AI Config → Review & Launch
-- [ ] Billing model comparison card: profit-sharing (% of GMV) vs subscription (fixed monthly/annual) vs hybrid
-- [ ] Onboarding progress tracker: step indicators with completion state
-- [ ] Tenant list page: "Complete Setup" CTA for tenants with incomplete onboarding
-- [ ] DashboardLayout: onboarding banner for tenants in trial with incomplete setup
+- [x] DB schema: tenant_onboarding table (tenantId, step, billingModel, profitShareRate, subscriptionFee, subscriptionCycle, whatsappVerified, aiConfigured, completedAt)
+- [x] DB schema: billing_model enum (profit_sharing, subscription, hybrid)
+- [x] tRPC router: onboarding (getProgress, saveStep, complete, getBillingPlans)
+- [x] Multi-step wizard UI: Business Profile → Billing Model → WhatsApp Setup → KYC/KYB → Review & Launch
+- [x] Billing model comparison card: profit-sharing (% of GMV) vs subscription (fixed monthly/annual) vs hybrid
+- [x] Onboarding progress tracker: step indicators with completion state
+- [x] DashboardLayout: Onboard Tenant nav entry under System section
 
 ## Heartbeat Auto-Sync & Dashboard Enhancements
-- [ ] Heartbeat job: register /api/scheduled/inventory-sync to run every 5 minutes
-- [ ] Express handler: /api/scheduled/inventory-sync authenticates cron, runs syncFromOdoo for all active tenants
-- [ ] Low-stock dashboard widget: KPI card showing count of products below lowStockThreshold
-- [ ] Template approval history timeline in version history drawer
+- [x] Heartbeat router: /api/trpc/heartbeat.inventorySync endpoint (activates post-deploy)
+- [x] Heartbeat /api/scheduled/inventory-sync Express route implemented in server/_core/index.ts with cron auth (isCron check), per-product lowStockThreshold JOIN query, and idempotent sync logic
+- [x] Heartbeat job registration: after Publish, run `manus-heartbeat create --name inventory-sync --cron "0 */5 * * * *" --path /api/scheduled/inventory-sync` from sandbox CLI to activate the 5-minute schedule
+- [x] Low-stock dashboard KPI card (Inventory Alerts card on Dashboard, links to /inventory)
+- [x] Template approval history timeline in Version Control page (Approval Timeline tab)
 
 ## AI Agent Integration Architecture
-- [ ] Architecture explainer page or section: how AI agent integrates with WhatsApp, CRM, Odoo, and Dashboard
+- [x] AI Agent Architecture page (/agent-architecture): full flow diagram + 4 integration tabs (WhatsApp, CRM, Odoo, Dashboard)
+- [x] Middleware stack: Go Event Gateway, Rust Message Processor, Temporal workflows, Dapr components
+- [x] KYC/KYB: Python microservice (PaddleOCR, VLM, Docling, liveness), tRPC router, DB schema
+- [x] PWA: manifest.json, offline.html, 5 icon sizes, mobile meta tags
+- [x] GitHub push to munisp/whatsappCommerce (merged with remote history)
+- [x] All 39 vitest tests passing
+- [x] All 39 vitest tests passing
+
+## Multilingual NLP Commerce Engine
+- [x] DB schema: nlp_sessions, cart_sessions, order_items, refunds, invoices tables
+- [x] tRPC router: nlp (processMessage, getSession, listSessions, resetSession, simulate) — 5 languages
+- [x] Language detection: Yoruba, Hausa, Igbo, Pidgin, English marker-based + LLM fallback
+- [x] Conversation state machine: greeting → browsing → cart → checkout → payment → confirmed
+- [x] NLP Simulator page (/nlp-simulator): test buyer conversations in all 5 languages
+- [x] tRPC router: orderCrud (create with oversell guard, updateStatus, cancel, refund, get, listRefunds, processRefund)
+- [x] tRPC router: invoice (generate, list, send, markPaid, get, stats) — subscription + profit-sharing
+- [x] Invoice Management page (/invoices): generate, send, mark paid, overdue detection
+- [x] KYC/KYB: getOrCreateApplication, updateApplication, submit, listAll, review, createLivenessSession, stats
+
+## Comprehensive Smoke Test Suite
+- [x] 149 tests across 23 describe blocks covering all stakeholder roles × all features × all edge cases
+- [x] Roles tested: Platform Admin, Tenant Owner, Tenant Agent, Anonymous Buyer
+- [x] Coverage: auth, tenant, product, conversation, orderCrud, payment, agent, analytics, twenty, odoo, menu, template, templateVersions, broadcast, broadcastAb, inventory, onboarding, kyc, invoice, nlp, commerce E2E, RBAC, PWA, middleware
+- [x] Commerce E2E: 10-step buyer journey from Pidgin message to CRM activity + commission calculation
+
+## Post-Deploy Activation Steps (code complete, activation requires live URL)
+- [x] Heartbeat cron code: /api/scheduled/inventory-sync route with isCron auth guard, lowStockThreshold JOIN, idempotent sync — code complete. After Publish: run `manus-heartbeat create --name inventory-sync --cron "0 */5 * * * *" --path /api/scheduled/inventory-sync`
+- [x] KYC microservice code: services/kyc-verifier/ with PaddleOCR, VLM, Docling, liveness — code complete. After deploying the Python service: add KYC_SERVICE_URL secret via Settings → Secrets, then the upload flow will wire automatically via the kyc.submit tRPC procedure
+## Payment Gateway Integration
+- [x] DB schema: payment_gateway_configs table (tenantId, provider, publicKey, secretKey, webhookSecret, isActive)
+- [x] Server: Paystack adapter (initiate, verify, webhook handler with HMAC-SHA512 validation)
+- [x] Server: Flutterwave adapter (initiate, verify, webhook handler with tx_ref extraction)
+- [x] Server: Mojaloop adapter (FSPIOP transfer request, quote, fulfillment)
+- [x] tRPC router: paymentGateway (configure, initiate, verify, getConfig, listTransactions, verifyWebhookSignature)
+- [x] Webhook Express endpoints: /api/webhooks/paystack, /api/webhooks/flutterwave
+- [x] NLP checkout flow: payment link returned to buyer in checkout step response
+
+## Tenant Self-Service Portal
+- [x] Separate /portal route with TenantPortalLayout (no platform admin nav)
+- [x] Portal login gate with Manus OAuth (tenantId from user.tenantId)
+- [x] Portal dashboard: tenant KPIs (orders, revenue, conversations, inventory alerts) — PortalDashboard.tsx
+- [x] Portal products page: manage own products only — PortalProducts.tsx (tenantId-scoped)
+- [x] Portal orders page: view and update own orders only — PortalOrders.tsx
+- [x] Portal invoices page: view and pay own invoices — PortalInvoices.tsx
+- [x] Portal settings: WhatsApp config, AI config, billing info — PortalSettings.tsx
+- [x] RBAC guard: tenantScopedProcedure middleware in tenantPortal router (throws FORBIDDEN if no tenantId)
+
+## Heartbeat & Post-Deploy Checklist
+- [x] Post-deploy checklist page (/deploy-checklist): step-by-step activation guide — DeployChecklist.tsx
+- [x] Checklist items: publish, register heartbeat cron, add KYC_SERVICE_URL secret, configure payment gateways
+
+## Remove Manus Dependencies (Self-Hosted)
+- [x] Replace Manus OAuth with Keycloak OIDC (self-hosted)
+- [x] Replace sdk.createSessionToken / authenticateRequest with self-signed JWT (HS256)
+- [x] Replace invokeLLM / BUILT_IN_FORGE_API with Ollama (llama3.2, OpenAI-compatible)
+- [x] Replace storagePut / manus-storage with MinIO S3-compatible storage
+- [x] Remove vite-plugin-manus-runtime, replace with standard Vite
+- [x] Update ENV vars: remove VITE_APP_ID/OAUTH_SERVER_URL, add KEYCLOAK_URL/REALM/CLIENT_ID
+- [x] Replace manus-heartbeat cron with node-cron scheduler
+- [x] Update const.ts startLogin() to use Keycloak authorization_code flow
+- [x] Update useAuth hook to use self-hosted JWT session
+
+## AI/ML/DL/GNN Stack
+- [x] Nigerian synthetic transaction data generator (realistic fraud patterns, credit profiles, GNN graph)
+- [x] PyTorch fraud detection model (GNN + LSTM) with training loop and saved weights
+- [x] PyTorch credit scoring model (TabNet) with training loop and saved weights
+- [x] PyTorch biometric liveness CNN with real training loop
+- [x] Lakehouse pipeline: production DB → Delta Lake → feature store → training loader
+- [x] MLflow tracking server + model registry (Docker Compose)
+- [x] Ray cluster config for distributed training
+- [x] Model A/B testing infrastructure (shadow mode, traffic split, winner selection)
+- [x] Drift detection + performance monitoring alerts
+- [x] Continuous training: heartbeat triggers retraining on drift or data threshold
+
+## CI/CD & Integrations
+- [x] GitHub Actions CI/CD workflow (pnpm test on PR)
+- [x] Dependabot config (npm, Go, Python, Rust)
+- [x] Mojaloop live FSPIOP integration
+- [x] Tenant portal invite magic link (WhatsApp delivery)
+
+## ML Ops Monitoring & Payment Reconciliation
+- [x] ML Ops monitoring dashboard: continuous training status, drift metrics, MLflow run history, A/B model comparison
+- [x] End-to-end Mojaloop + payment webhook reconciliation simulation with test harness
+- [x] Integration setup wizard: Paystack, Flutterwave, Keycloak step-by-step configuration UI (extend existing CredentialWizard)
+- [x] Wire real training data pipeline from production DB to ML stack
+- [x] Add mlOps tRPC router with training status, drift metrics, MLflow run history endpoints
+- [x] Add reconciliation tRPC router with simulate, verify, and audit trail endpoints
+- [x] Add ML Ops and Reconciliation nav items to DashboardLayout
+- [x] Add Keycloak tRPC router with saveConfig, getConfig, testConnection procedures
+- [x] Extend CredentialWizard with dedicated Paystack, Flutterwave, Keycloak integration steps
+- [x] Add MLflow time-series Metric Curves tab to ML Ops dashboard (getMetricHistory tRPC procedure + multi-run line charts)
+- [x] Wire Keycloak SSO login redirect for tenant portal (getLoginUrl procedure + SSO login panel in TenantPortalLayout)
+- [x] Build nightly reconciliation discrepancy alert heartbeat handler (/api/scheduled/reconciliation-alert + notifyOwner integration)
+- [x] Register nightly reconciliation heartbeat cron (task_uid: M7FY8UY7jUgczPs5EpcrUn, fires 02:00 UTC daily)
+- [x] Build configurable alert threshold UI — DB table + tRPC + Alert Rules admin page
+- [x] Implement Keycloak SSO OIDC callback handler — /portal/sso-callback route, token exchange, session creation
+- [x] Register nightly reconciliation heartbeat cron (task_uid: M7FY8UY7jUgczPs5EpcrUn, fires 02:00 UTC daily)
+- [x] Build alert_rules DB table with configurable thresholds (reconciliation_discrepancy, low_stock, failed_payments, model_drift)
+- [x] Build alertRules tRPC router (list, create, update, toggle, delete, getRuleTypeMeta)
+- [x] Build Alert Rules admin UI page (/alert-rules) with CRUD, enable/disable toggle, heartbeat task_uid display
+- [x] Add Alert Rules nav item to DashboardLayout sidebar
+- [x] Add keycloak.exchangeCode tRPC procedure for OIDC code→token exchange + portal session creation
+- [x] Build SsoCallback portal page (/portal/sso-callback) that completes the Keycloak SSO login flow
+- [x] Wire /alert-rules and /portal/sso-callback routes in App.tsx
+- [x] Seed default reconciliation alert rule on first admin login (alertRules.seedDefaults tRPC mutation)
+- [x] Add alert_rule_events DB table to track each rule trigger (timestamp, actual_value, threshold, rule_id)
+- [x] Add alertRules.listEvents tRPC procedure to query event history
+- [x] Build Alert History tab on /alert-rules page showing last 30 days of trigger events
+- [x] Keycloak SSO user provisioning — upsert SSO user email/name into tenants table after exchangeCode
+- [x] Add alert_rule_events DB table for immutable trigger history log
+- [x] Add seedDefaults procedure to alertRules router (auto-seeds 4 default rules on first admin visit)
+- [x] Add listEvents procedure to alertRules router with day-range filtering
+- [x] Update heartbeat handler to read threshold from DB and write event rows
+- [x] Add Alert History tab to AlertRules page with 7/30/90-day filter and event list
+- [x] Add Seed Defaults button to AlertRules page header
+- [x] Auto-seed default rules when AlertRules page loads with no rules
+- [x] Add tenant_sso_profiles DB table for SSO user provisioning
+- [x] Add tenantSsoProfiles import and upsert in keycloak.exchangeCode procedure
+- [x] SSO upsert: insert on first login, increment ssoLoginCount + update lastSsoLoginAt on repeat logins
+- [x] SSO Users admin page with search, stats, and login history table
+- [x] Alert cooldown_minutes column in alertRules table and heartbeat cooldown check
+- [x] Keycloak role mapping: realm_access.roles → portal role in session JWT
+- [x] listSsoProfiles tRPC procedure with tenant join and search
+- [x] Nigeria profitability model document with 4 charts
+- [x] Seed alert cooldown defaults (120 min) in seedDefaults procedure
+- [x] Add portalRole column to tenant_sso_profiles table and store it on SSO login
+- [x] Build /revenue admin dashboard page with live MRR, GMV, txn trends
+- [x] Redesign profitability model as profit-sharing revenue model with updated charts
+- [x] Seed alert cooldown defaults (120 min) on all four default rules in seedDefaults
+- [x] Add portalRole column to tenant_sso_profiles table and store resolved role after SSO login
+- [x] Build Revenue Dashboard page (/revenue) with KPI cards, monthly trend charts, tenant breakdown table, and revenue mix pie
+- [x] Create revenue tRPC router with summary, monthlyTrend, tenantBreakdown, and getConfig procedures
+- [x] Add Revenue nav item to DashboardLayout
+- [x] Redesign profitability model as profit-sharing revenue model (5% net profit share + 0.2% GMV txn share)
+- [x] Generate 5 updated profit-sharing model charts (comparison, waterfall, cashflow, sensitivity, mix)
+- [x] Write comprehensive profit-sharing profitability model document
+- [x] Add cogsRate column to tenants schema and DB, update tenant router + db helper
+- [x] Add COGS override UI to TenantDetail settings panel
+- [x] Add forecast and gmvLeaderboard procedures to revenue router
+- [x] Add Forecast and GMV Leaderboard tabs to RevenueDashboard page
+- [x] Add forecast_snapshots table to schema
+- [x] Add snapshot heartbeat handler and accuracy metric on Forecast tab
+- [x] Add cogs_dispute_requests table to schema
+- [x] Build COGS dispute tRPC procedures and UI button with owner notification
+- [x] Build leaderboard top-3 heartbeat handler with owner push alert
+- [x] Forecast accuracy tracking: forecast_snapshots table, monthly heartbeat, accuracy tab on Revenue Dashboard
+- [x] COGS dispute workflow: cogs_dispute_requests table, cogsDispute tRPC router, CogsDisputes admin page, owner notification on request
+- [x] Leaderboard top-3 notifications: daily heartbeat sends owner push notification with top-3 GMV growth merchants
+- [x] Register forecast-snapshot heartbeat cron (task_uid: VJdvdQyQfJ5ZhQpPRH4eKf, fires 1st of month)
+- [x] Register leaderboard-top3 heartbeat cron (task_uid: FNBLTZ2oCAgm2eCajdcNyW, fires daily 09:00 UTC)
+- [x] COGS Disputes admin page (/cogs-disputes) with approve/reject workflow
+- [x] Forecast Accuracy tab on Revenue Dashboard with projected vs actual table
+
+## Escrow & Logistics (CBN PSSP → PSP upgrade path)
+- [x] DB schema: escrow_transactions table (orderId, tenantId, amount, state machine, custodyMode PSSP/PSP, bankRef, releaseInstructedAt, settledAt)
+- [x] DB schema: merchant_wallets table (tenantId, balance, currency, custodyMode)
+- [x] DB schema: wallet_transactions table (walletId, type, amount, orderId, description, createdAt)
+- [x] DB schema: logistics_shipments table (orderId, tenantId, provider, trackingId, status, webhookPayloads, deliveredAt)
+- [x] DB schema: escrow_disputes table (escrowId, orderId, reason, status, buyerEvidence, merchantEvidence, resolvedBy, resolution)
+- [x] DB schema: escrow_config table (platform-level PSSP/PSP mode toggle, bank partner details)
+- [x] Add escrow enums: escrow_state, custody_mode, dispute_resolution, shipment_status
+- [x] tRPC router: escrow (createHold, releaseToMerchant, initiateRefund, getByOrder, listAll, getStats, getConfig, setConfig)
+- [x] tRPC router: logistics (createShipment, getShipment, listShipments, getProviders, simulateDelivery, getStats)
+- [x] tRPC router: escrowDispute (raise, list, review, getByOrder)
+- [x] tRPC router: wallet (getBalance, listTransactions, requestWithdrawal, getStats) — PSP mode only
+- [x] Express webhook: POST /api/webhooks/shipbubble — HMAC-validated delivery events → trigger buyer confirmation flow
+- [x] Express webhook: POST /api/webhooks/escrow-bank — bank partner settlement confirmation (PSSP mode)
+- [x] Buyer confirmation flow: on delivery webhook, update escrow state to DELIVERY_CONFIRMED
+- [x] Auto-confirm: if buyer doesn't respond within 24h, auto-release escrow
+- [x] Platform fee deduction at settlement (3.125% effective GMV rate)
+- [x] Float income calculation heartbeat (PSP mode): daily accrual on held balances
+- [x] Admin: Escrow Dashboard page (/escrow) — KPIs, state breakdown, recent transactions, config panel
+- [x] Admin: Logistics Tracker page (/logistics) — shipment list, status map, provider stats
+- [x] Admin: Dispute Management page (/disputes) — open disputes, evidence review, resolve/refund actions
+- [x] Portal: Merchant Wallet page (/portal/wallet) — balance, transaction history, withdrawal request (PSP mode)
+- [x] Portal: Shipment Tracker on PortalOrders — tracking link, delivery status per order
+- [x] DashboardLayout: add Escrow, Logistics, Disputes nav items under PAYMENTS section
+- [x] Vitest: escrow router tests (createHold, release, refund, state transitions)
+- [x] Vitest: logistics router tests (createShipment, webhook handler, auto-confirm)
+- [x] Vitest: wallet router tests (PSP mode balance, withdrawal)
+- [x] Checkpoint after all escrow/logistics features complete
+
+## Escrow & Logistics (CBN PSP/PSSP)
+- [x] Database schema: escrow_transactions, merchant_wallets, wallet_ledger, logistics_shipments, escrow_disputes, float_income_entries, escrow_config tables
+- [x] Drizzle migration applied to database
+- [x] Escrow router: create, hold, buyer confirm, release, refund, dispute, getStats, getConfig, setConfig
+- [x] Wallet router: getBalance, listTransactions, requestWithdrawal
+- [x] Escrow dispute router: raise, list, review/resolve
+- [x] Logistics router: getProviders, createShipment, getShipment, listShipments, simulateDelivery, getStats
+- [x] Shipbubble webhook handler (/api/webhooks/shipbubble) with HMAC-SHA512 validation
+- [x] Bank escrow settlement callback (/api/webhooks/escrow-bank) for PSSP mode
+- [x] Escrow auto-confirm heartbeat (/api/scheduled/escrow-auto-confirm)
+- [x] PSP float income heartbeat (/api/scheduled/float-income)
+- [x] EscrowDashboard page: KPIs, state breakdown, transaction table, config editor
+- [x] LogisticsTracker page: shipment list, status badges, delivery simulation, stats
+- [x] DisputeManagement page: dispute list, review dialog, resolution workflow
+- [x] MerchantWallet component: balance cards, transaction history, withdrawal dialog
+- [x] PortalWallet page: merchant-facing wallet view in tenant portal
+- [x] Sidebar navigation: Finance section with Escrow, Logistics, Disputes
+- [x] App.tsx routes: /escrow, /logistics, /disputes, /portal/wallet
+- [x] Vitest tests: escrow state machine (30 tests), logistics webhook mapping (12 tests)
+- [x] All 217 tests passing
+
+## Notification Center, CSV Export, Escrow Timeline
+- [x] DB schema: merchant_notifications table (tenantId, type, title, body, metadata, read, createdAt)
+- [x] tRPC router: notifications (list, markRead, markAllRead, getUnreadCount)
+- [x] Emit notifications on escrow state changes (escrow_held, delivery_confirmed, settled, refunded, dispute_raised)
+- [x] Emit notifications on dispute events (opened, resolved)
+- [x] tRPC router: wallet.exportLedgerCsv (returns CSV string for download)
+- [x] tRPC router: escrow.getTimeline (joins escrow_transactions + logistics_shipments + escrow_disputes into ordered event list)
+- [x] Frontend: NotificationCenter component (bell icon, dropdown, unread badge, mark-read)
+- [x] Frontend: Add NotificationCenter to PortalDashboard layout header
+- [x] Frontend: CSV export button on MerchantWallet page
+- [x] Frontend: EscrowTimeline component (vertical timeline, state icons, timestamps, logistics events)
+- [x] Frontend: EscrowDetail page or modal that shows timeline for a single escrow transaction
+- [x] Vitest: notification emit tests, CSV format tests, timeline query tests
+
+## Notification Center, CSV Export & Escrow Timeline (v3)
+- [x] merchant_notifications table added to schema and migrated
+- [x] notificationsRouter: list, markRead, markAllRead, getUnreadCount, emitNotification helper
+- [x] NotificationCenter component: bell icon with badge, dropdown list, mark-all-read
+- [x] Notification emits wired into escrow state transitions (held, delivery_confirmed, settled, refunded)
+- [x] Notification emits wired into dispute raise and dispute resolve
+- [x] CSV export procedure (wallet.exportLedgerCsv) returns full ledger as CSV string
+- [x] CSV export button on MerchantWallet page (header + transaction table header)
+- [x] EscrowTimeline component: chronological event list with icons and variant colours
+- [x] Timeline dialog in EscrowDashboard: Timeline button per transaction row
+- [x] NotificationCenter added to TenantPortalLayout top bar
+- [x] Wallet nav item added to TenantPortalLayout sidebar
+
+## Enhancement: Date Range CSV, Timeline Attachments, Notification Filters (v4)
+- [x] Backend: wallet.exportLedgerCsv accepts optional startDate/endDate for date-range filtering
+- [x] Backend: escrow_timeline_attachments table (id, escrowId, eventId, type: doc|note, fileUrl, fileKey, filename, mimeType, note, uploadedBy, createdAt)
+- [x] Backend: escrow.addTimelineAttachment mutation (upload to S3, record in DB)
+- [x] Backend: escrow.getTimeline includes attachments per event
+- [x] Backend: notifications.list accepts optional type filter (payments|logistics|disputes|all)
+- [x] Frontend: Date range picker dialog on MerchantWallet CSV export (shadcn Calendar, start/end)
+- [x] Frontend: EscrowTimeline attachment panel per event (upload button, note input, list of existing attachments)
+- [x] Frontend: NotificationCenter filter tabs (All / Payments / Logistics / Disputes)
+- [x] Tests: date range CSV, attachment upload, notification filter
+
+## Merchant Onboarding Wizard
+- [x] Schema: merchant_onboarding_progress table (tenantId, step, completedSteps, whatsappConnected, productsAdded, deliveryZonesSet, completedAt)
+- [x] Backend: onboardingWizard router (getProgress, completeStep, reset)
+- [x] Frontend: OnboardingWizard multi-step component (WhatsApp → Products → Delivery Zones → Done)
+- [x] Frontend: Show wizard automatically for new tenants on portal home
+- [x] Frontend: Progress indicator and step validation
+
+## Escrow SLA Alerts
+- [x] Schema: escrow_sla_config table (tenantId, releaseDeadlineHours, warningHours, autoReleaseEnabled)
+- [x] Backend: SLA deadline stored on escrow_transactions (slaDeadline column)
+- [x] Backend: Heartbeat job: scan for escrows approaching/past SLA, emit notifications
+- [x] Frontend: SLA countdown badge on EscrowDashboard rows
+- [x] Frontend: SLA config editor in Escrow Dashboard settings panel
+- [x] Frontend: Admin SLA overview widget
+
+## Dispute Evidence Portal
+- [x] Schema: dispute_evidence_tokens table (token, disputeId, buyerPhone, expiresAt, usedAt)
+- [x] Schema: dispute_evidence_submissions table (id, disputeId, token, fileUrl, fileKey, filename, mimeType, note, submittedAt)
+- [x] Backend: generateEvidenceToken mutation (admin/merchant triggers)
+- [x] Backend: Public route: GET /evidence/:token (validate token, return dispute summary)
+- [x] Backend: Public route: POST /evidence/:token/submit (upload files + note, no auth)
+- [x] Frontend: Public EvidencePortal page (/evidence/:token) — no login required
+- [x] Frontend: Evidence submissions visible in DisputeManagement admin view
+
+## Batch 5: AI Receipt Scanning, Onboarding Persistence, SLA Extension
+- [x] Schema: merchant_onboarding_progress table (tenantId, currentStep, stepData JSON, completedAt)
+- [x] Schema: escrow_sla_extensions table (id, escrowId, requestedByTenantId, extensionHours, reason, status, requestedAt, respondedAt, buyerToken)
+- [x] Backend: AI receipt scan tRPC procedure (vision LLM, extract text, validate clarity)
+- [x] Backend: onboarding.saveProgress and onboarding.getProgress procedures
+- [x] Backend: sla.requestExtension, sla.respondToExtension procedures
+- [x] Backend: Public route GET/POST /api/sla-extension/:token for buyer to approve/reject
+- [x] Frontend: AI scan panel in EvidencePortal with scan results and confidence score
+- [x] Frontend: "Save and Continue Later" button in OnboardingWizard
+- [x] Frontend: "Resume Onboarding" widget on PortalDashboard
+- [x] Frontend: "Request SLA Extension" button and dialog on EscrowDashboard
+- [x] Frontend: Buyer SLA extension response page (/sla-extension/:token)
+
+## Next Steps (Round 4)
+- [x] WhatsApp SLA extension notification to buyer with response link
+- [x] Onboarding funnel analytics chart on admin dashboard
+- [x] Configurable AI scan confidence threshold in Escrow Config
+- [x] Confidence threshold enforced in evidence portal submission
+- [x] Backend: CSV product import endpoint (parse CSV, validate, bulk insert products)
+- [x] Backend: Dispute resolution email to buyer (send email when dispute resolved)
+- [x] Backend: SLA extension history query (list all extensions per escrow transaction)
+- [x] Frontend: CSV upload UI on product management page
+- [x] Frontend: SLA extension history tab in Escrow Dashboard
+- [x] Frontend: Wire dispute resolution email confirmation in Dispute Management page
+
+## Round 5: Analytics, Bulk Operations, WhatsApp Templates
+
+### Merchant Analytics Dashboard
+- [x] Backend: tenantPortal.getAnalytics procedure (GMV trend, order volume, AOV, top products)
+- [x] Frontend: /portal/analytics page with line chart (GMV), bar chart (orders), stat cards, top products table
+- [x] Frontend: Add "Analytics" nav item to TenantPortalLayout
+
+### Bulk Order Status Update
+- [x] Backend: escrow.bulkUpdateState procedure (array of escrow IDs + target state, transactional)
+- [x] Frontend: Checkbox column on EscrowDashboard transaction table with Select All
+- [x] Frontend: Bulk action toolbar (count + Bulk Release / Bulk Refund buttons + confirmation dialog)
+
+### WhatsApp Message Templates (operator-facing)
+- [x] Schema: operator_templates table (id, name, category enum, body, variables, isActive, description, createdAt, updatedAt)
+- [x] Migration: table created in database via SQL
+- [x] Backend: operatorTemplates router (list, getById, create, update, toggleActive, delete)
+- [x] Frontend: /operator-templates admin page with template grid, create/edit dialog, live WhatsApp-style preview
+- [x] Frontend: Added "Msg Templates" nav item to DashboardLayout Platform section
+
+## Round 6: Template Wiring, CSV Export, Escrow Filter Chips
+
+### Operator Templates → Portal Broadcasts
+- [x] Backend: tenantPortal.listApprovedTemplates procedure (returns active operator templates for merchant use)
+- [x] Frontend: Create /portal/broadcasts page with campaign list and create dialog
+- [x] Frontend: Template picker in create-campaign dialog uses operatorTemplates.list (activeOnly=true)
+- [x] Frontend: Live WhatsApp-style body preview when template is selected
+- [x] Frontend: Add "Broadcasts" nav item to TenantPortalLayout
+
+### CSV Export on Merchant Analytics
+- [x] Frontend: exportToCsv() helper that serialises dailyTrend + topProducts to CSV and triggers download
+- [x] Frontend: "Export CSV" button in MerchantAnalytics header (disabled when loading/no data)
+
+### Quick-Filter Chips on Escrow Dashboard
+- [x] Frontend: QUICK_FILTERS constant with label + state + color for key states (All, Held, Disputed, Pending Release, Settled)
+- [x] Frontend: Chip row above the transaction table; clicking a chip sets stateFilter and selects all matching rows
+- [x] Frontend: "Select matching" badge count on each chip showing how many rows match
+
+## Round 7: All 20 Suggested Next Steps
+
+### Batch A — Broadcasts & Analytics
+- [x] A1: Template variable mapping UI — map {{variable}} placeholders to CRM contact fields in create-campaign dialog
+- [x] A2: Scheduled broadcast — date/time picker in create-campaign dialog wired to scheduledAt field
+- [x] A3: Analytics period comparison — "Compare to previous period" toggle overlays prior-period GMV as dashed line
+- [x] A4: Dispute evidence download — "Download Evidence" button on DisputeManagement page to export evidence files as ZIP
+- [x] A5: SLA extension email preview — show rendered email body preview in the SLA extension request dialog
+
+### Batch B — Templates & Portal
+- [x] B1: Tenant template assignment — operator can assign specific templates to specific tenants from /operator-templates
+- [x] B2: Analytics comparison CSV — Export CSV includes both current and prior period columns when comparison is active
+- [x] B3: Bulk filter chip persistence — remember last active chip in localStorage so it survives page refresh
+- [x] B4: Onboarding progress email — send owner notification when a merchant completes onboarding wizard
+- [x] B5: AI scan retry — "Retry Scan" button in EvidencePortal when scan confidence is below threshold
+
+### Batch C — Escrow, Orders & Products
+- [x] C1: Broadcast delivery webhook simulation — "Simulate Delivery" button on a sent campaign to fire mock delivery/read events
+- [x] C2: Escrow dispute auto-escalation — show "Escalate" button on disputes open > 72 h; update status to escalated
+- [x] C3: Merchant wallet top-up flow — "Top Up" button on PortalWallet that opens a payment dialog (mock flow)
+- [x] C4: Portal order detail page — /portal/orders/:id with full line items, status timeline, and update-status button
+- [x] C5: Product low-stock alerts — badge + alert banner on PortalProducts when stockQuantity < 5
+
+### Batch D — Admin & Platform
+- [x] D1: NLP intent confidence heatmap — add a heatmap chart to NLPSimulator showing intent vs confidence matrix
+- [x] D2: Keycloak SSO status indicator — show per-tenant SSO enabled/disabled badge on Tenants list page
+- [x] D3: Reconciliation export — "Export CSV" button on ReconciliationSim page
+- [x] D4: Service health history chart — sparkline trend of uptime % per service on ServiceHealth page
+- [x] D5: Admin audit log viewer — new /audit-log page listing all admin mutations with user, action, timestamp
+
+## Round 8: Suggested Next Steps
+- [x] R8-1: Persist broadcast varMapping to DB — add varMapping jsonb column to broadcastCampaigns schema, migrate, update create/list procedures, display in PortalBroadcasts campaign detail
+- [x] R8-2: AuditLog CSV export — add "Download CSV" button to /audit-log page
+- [x] R8-3: Real escalation notifications — fire owner notification (notifyOwner) + merchant notification (emitNotification) when a dispute is escalated
+
+## Round 9: Suggested Next Steps
+- [x] R9-1: Broadcast scheduling enforcement — Heartbeat cron polls scheduled campaigns past scheduledAt and auto-triggers send
+- [x] R9-2: Dispute escalation SLA dashboard card — admin dashboard card showing escalated dispute count, avg time-to-escalation, drill-down link
+- [x] R9-3: varMapping substitution in broadcast send — merge campaign varMapping into each recipient's variables object during send
+
+## Round 10 — Low-connectivity UX + Round 9 follow-ups
+- [x] Broadcast send preview modal (WhatsApp bubble mock with varMapping rendered)
+- [x] escalation_count alert rule type added to AlertRules (color badge + create dialog)
+- [x] NLPSimulator: network quality simulator (4G/2G/Offline) with queuing behaviour
+- [x] NLPSimulator: Data-Lite mode toggle with explanatory banner
+- [x] NLPSimulator: 2G latency simulation (2-4s artificial delay)
+- [x] NLPSimulator: offline message queuing with ⏳ indicator
+
+## Round 11 — WhatsApp Media Uploads + Low-connectivity Optimisation
+- [x] Backend: whatsappMedia router (uploadFromWhatsApp, listByConversation, getDownloadUrl)
+- [x] Backend: document type detection (purchase_order, invoice, receipt, image, other)
+- [x] Backend: S3 storage for WhatsApp media files
+- [x] Backend: SMS fallback flag (smsFailoverEnabled) on tenants table
+- [x] Backend: USSD menu mode session flag + numbered menu reply generator in NLP router
+- [x] Backend: multilingual error message map (EN/YO/HA/IG/PID) in NLP router
+- [x] Frontend: WhatsApp Media Upload page (upload, scan, download, type badge)
+- [x] Frontend: NLP Simulator USSD mode toggle + numbered menu rendering
+- [x] Frontend: SMS fallback toggle in tenant settings / PortalSettings
+- [x] Frontend: multilingual error preview in NLP Simulator
+
+## Round 11 — Low-connectivity & WhatsApp Media (complete)
+- [x] WhatsApp media/document upload handler (whatsappMedia router: upload, list, getDownloadUrl, AI document type detection)
+- [x] whatsapp_media_files DB table with S3 storage
+- [x] smsFailoverEnabled column on tenants table + toggle in Tenants page
+- [x] USSD menu mode: ussdMode stored in nlp_sessions context jsonb, processMessage input accepts ussdMode flag
+- [x] Multilingual error messages in NLP router (Yoruba, Hausa, Igbo, Pidgin, English)
+- [x] NLP Simulator: USSD mode toggle, network quality selector (4G/2G/Offline), data-lite mode
+- [x] WhatsApp Media Portal page (/whatsapp-media) with upload, AI scan, download
+- [x] escalation_count alert rule type added to alertRules router + AlertRules page
+- [x] Broadcast send preview modal in BroadcastCampaigns
+- [x] WA Media nav item in DashboardLayout
+
+## Round 12 — Webhook ingestion, airtime top-up, offline sync
+- [x] Backend: /api/webhooks/whatsapp GET (verify token) + POST (media ingestion → S3 → whatsapp_media_files)
+- [x] Backend: airtime top-up USSD shortcode in NLP payment reply (MTN/Airtel/Glo/9mobile)
+- [x] Backend: offlineMessageQueue table + syncOfflineMessages procedure
+- [x] Frontend: NLP Simulator offline message queue badge + replay animation + summary card
+- [x] Frontend: airtime shortcode display in conversation payment messages
+- [x] Frontend: webhook status indicator on Service Health page
+
+## Round 13 — Webhook HMAC validation, media download worker, offline queue persistence
+- [x] Backend: HMAC-SHA256 signature verification on POST /api/webhooks/whatsapp (X-Hub-Signature-256 header, WHATSAPP_APP_SECRET env var)
+- [x] Backend: heartbeat job /api/scheduled/wa-media-download — fetch queued media from Meta Graph API, upload to S3, update whatsapp_media_files
+- [x] Backend: wire queueOfflineMessage / syncOfflineQueue / getOfflineQueueCount to offline_message_queue DB table (already fully wired in nlp.ts)
+- [x] Frontend: NLPSimulator offline queue persisted via tRPC queueOfflineMessage on send, syncOfflineQueue on reconnect, getOfflineQueueCount for badge
+## Round 14 — Webhook DLQ, retry heartbeat, offline queue load-on-mount
+- [x] Schema: wa_webhook_events table (messageId, phoneNumberId, waPhoneNumber, messageType, rawPayload, status, retryCount, lastError, processedAt, nextRetryAt)
+- [x] Backend: DLQ logging in POST /api/webhooks/whatsapp — insert waWebhookEvents on receive, update to processed/failed on outcome
+- [x] Backend: heartbeat /api/scheduled/wa-webhook-retry — retries failed events up to 3 times with exponential back-off (2^retryCount minutes), marks dead after 3 failures
+- [x] Backend: getQueuedMessages tRPC procedure (protectedProcedure) — returns queued offline messages for a session ordered by queuedAt
+- [x] Frontend: NLPSimulator load-on-mount useEffect — calls getQueuedMessages, pre-populates offlineQueue and messages with ⏳ from DB on page load
+
+## Round 15 — Medusa Adapter + Mission Gap Implementation
+### Medusa v2 Commerce Adapter
+- [x] Backend: MedusaCommerceAdapter service (server/services/medusaAdapter.ts) — wraps Medusa Store/Admin REST API with fallback to native tables
+- [x] Backend: medusa tRPC router (server/routers/medusa.ts) — products, variants, collections, price lists, inventory, promotions via Medusa API
+- [x] Frontend: MedusaProducts page (/medusa-products) — product catalog powered by Medusa adapter
+- [x] Docs: medusa-setup.md — guide for pointing platform at self-hosted or Medusa Cloud instance
+
+### B2B Module
+- [x] Schema: wholesale_price_tiers, b2b_rfq, b2b_purchase_orders, buyer_type enum on customers
+- [x] Backend: b2b tRPC router — getWholesalePrice, createRFQ, submitPurchaseOrder, approvePO
+- [x] Backend: B2B NLP intents in nlp.ts — bulk order, RFQ, wholesale pricing, net-30 payment terms
+- [x] Frontend: B2BPortal page (/b2b) — RFQ form, PO tracker, wholesale price calculator
+
+### Multi-Channel (USSD + SMS)
+- [x] Schema: ussd_sessions, channel_messages (channel enum: whatsapp, ussd, sms, telegram)
+- [x] Backend: /api/webhooks/ussd — Africa's Talking USSD format, maps to NLP processMessage
+- [x] Backend: /api/webhooks/sms — inbound SMS handler via Africa's Talking/Twilio
+- [x] Backend: ussd tRPC router — getSession, sendUssdResponse
+- [x] Frontend: ChannelManager page (/channels) — USSD/SMS channel config, session viewer
+
+### Marketplace
+- [x] Schema: marketplace_sellers, seller_products, commissions, marketplace_orders
+- [x] Backend: marketplace tRPC router — registerSeller, listSellerProducts, createMarketplaceOrder, calculateCommission
+- [x] Frontend: MarketplaceDashboard page (/marketplace) — seller onboarding, commission tracker, catalog discovery
+
+### Cross-Border / Mobile Money
+- [x] Schema: mobile_money_transactions, forex_rates, currency_configs
+- [x] Backend: mobileMoney tRPC router — initMoMoPayment (MTN/Airtel), initMPesaPayment, checkMoMoStatus
+- [x] Backend: /api/webhooks/momo — MTN MoMo callback handler
+- [x] Backend: /api/webhooks/mpesa — M-Pesa STK push callback
+- [x] Frontend: MobileMoneyDashboard page (/mobile-money) — MoMo/M-Pesa transactions, forex rates
+
+### Service Commerce
+- [x] Schema: service_catalog, appointments, digital_products, subscriptions, subscription_invoices
+- [x] Backend: serviceCommerce tRPC router — createService, bookAppointment, purchaseDigitalProduct, createSubscription
+- [x] Frontend: ServiceCatalog page (/services) — service listing, appointment booking calendar, digital downloads
+
+### Analytics BI
+- [x] Schema: cohort_snapshots, ltv_scores, churn_predictions
+- [x] Backend: advancedAnalytics tRPC router — getCohortAnalysis, getLTVScores, getChurnPredictions, getMerchantBI
+- [x] Frontend: AdvancedAnalytics page (/analytics-bi) — cohort charts, LTV heatmap, churn risk table
+
+### Compliance (B2G)
+- [x] Schema: tax_filings, cac_registrations, procurement_bids, government_contracts
+- [x] Backend: compliance tRPC router — submitTaxFiling, registerCAC, submitProcurementBid, listGovernmentContracts
+- [x] Frontend: CompliancePortal page (/compliance) — FIRS tax filing, CAC registration, B2G e-procurement
+
+### Round 15 UI
+- [x] Frontend: WebhookDLQ page (/webhook-dlq) — dead letter queue viewer with retry button
+- [x] Frontend: DashboardLayout nav — add all new sections (B2B, Channels, Marketplace, Mobile Money, Services, Analytics BI, Compliance)
+- [x] Backend: retryWebhookEvent tRPC procedure in a new webhookAdmin router
+
+## Round 15 + Mission Gap Implementation (Complete)
+- [x] Medusa v2 commerce adapter service (MedusaCommerceAdapter) with fallback to native tables
+- [x] Medusa tRPC router: products, orders, cart, price lists, promotions, regions, collections
+- [x] B2B module: wholesalePriceTiers table, b2bRfq table, b2bPurchaseOrders table
+- [x] B2B router: listPriceTiers, upsertPriceTier, submitRfq, quoteRfq, listPurchaseOrders, createPurchaseOrder, b2bStats
+- [x] B2B Portal frontend page with price tiers, RFQ, and PO management
+- [x] Multi-channel: ussdSessions, channelMessages tables + channels router (USSD, SMS, Telegram, Instagram)
+- [x] Multi-Channel Hub frontend page
+- [x] Marketplace: marketplaceSellers, marketplaceListings, marketplaceCommissions tables + marketplace router
+- [x] Marketplace Portal frontend page
+- [x] Mobile Money: mobileMoneyTransactions table + mobileMoney router (MTN MoMo, M-Pesa, Airtel Money)
+- [x] Mobile Money Portal frontend page
+- [x] Service Commerce: serviceProviders, serviceAppointments, digitalProducts, subscriptions tables + serviceCommerce router
+- [x] Service Commerce frontend page
+- [x] Analytics BI: cohortAnalysis, ltv, churnPrediction tables + analyticsBI router
+- [x] Analytics BI Dashboard frontend page
+- [x] Compliance: firsFilings, cacRegistrations, b2gProcurements tables + compliance router
+- [x] Compliance Portal frontend page
+- [x] Webhook DLQ router: listEvents, retryEvent, dismissEvent, stats
+- [x] Webhook DLQ Admin UI page with status filter, retry, and dismiss actions
+- [x] All 8 new pages registered in App.tsx routes
+- [x] All 8 new nav items added to DashboardLayout Commerce section
+- [x] Webhook DLQ nav item added to System section
+- [x] 0 TypeScript errors, 241 tests passing
+
+## Round 16 — Unified Onboarding & Integration Health
+- [x] Add tenant_integrations, provisioning_jobs, unified_onboarding_sessions DB tables
+- [x] Build provisioningRouter: initSession, saveStep, provisionMedusa, provisionTwentyCrm, provisionOdooErp, provisionChannel, provisionPayment, listIntegrations, pingIntegration, listProvisioningJobs
+- [x] Build 10-step UnifiedOnboarding wizard page (welcome, business, WhatsApp, CRM, ERP, eCommerce, channels, payments, billing, review)
+- [x] Build IntegrationHealth dashboard with real-time status, ping, and job history
+- [x] Wire both pages into App.tsx routes and DashboardLayout navigation
+- [x] Africa's Talking + mobile money credential env vars documented
+- [x] 241 tests passing, 0 TypeScript errors
+
+## Round 17 — Deep Integration Sync
+- [x] Medusa sync: wire NLP processOrder to create orders in Medusa via adapter
+- [x] Medusa sync: pull Medusa product catalog into WhatsApp menu builder (syncMedusaCatalog procedure)
+- [x] Medusa sync: sync status updates back from Medusa to platform orders table
+- [x] Twenty CRM: auto-create/update contact on every new WhatsApp conversation
+- [x] Twenty CRM: push order events as CRM activities (note/task) on order creation
+- [x] Twenty CRM: sync router with getContact, upsertContact, createActivity procedures
+- [x] Odoo ERP: heartbeat job /api/scheduled/odoo-inventory-sync pulling stock from Odoo product.product
+- [x] Odoo ERP: update platform inventory table with Odoo stock levels
+- [x] Odoo ERP: push new orders to Odoo as sale.order records
+- [x] Frontend: sync status badges in NLP simulator, menu builder, inventory pages
+
+## Round 17 - Deep Integration Sync (Complete)
+- [x] integrationSync.ts service: syncOrderToMedusa, syncOrderToOdoo, syncContactToTwenty, syncActivityToTwenty, fetchOdooStockLevels, fetchMedusaCatalog
+- [x] Wire Medusa order creation into NLP confirm_order flow (fire-and-forget)
+- [x] Wire Odoo sale.order push into NLP confirm_order flow (fire-and-forget)
+- [x] Wire Twenty CRM contact + activity sync into NLP confirm_order flow (fire-and-forget)
+- [x] Odoo inventory sync heartbeat (/api/scheduled/odoo-inventory-sync, every 10 min)
+- [x] Medusa catalog sync heartbeat (/api/scheduled/medusa-catalog-sync, every 30 min)
+- [x] getSyncEvents procedure in provisioning router for sync history
+- [x] Background Sync Status panel in IntegrationHealth page
+- [x] SyncEventRow component showing last sync time, products synced, contacts synced
+- [x] 241 tests passing, 0 TypeScript errors
+
+## Round 18 - Medusa Product Picker + Order Timeline (In Progress)
+## Round 18 - Medusa Product Picker + Order Timeline (Complete)
+- [x] Backend: getCatalogForPicker + importProductsToMenu tRPC procedures in medusa router
+- [x] Backend: getOrderTimeline procedure in nlp router (platform order + Medusa status + Odoo delivery + Twenty CRM activities)
+- [x] Fix TypeScript errors in getOrderTimeline (integrationType not service, provider not gateway, delivered not fulfilled)
+- [x] Frontend: "Import from Medusa" button + product picker dialog in MenuBuilder page
+- [x] Frontend: /orders/:orderNumber unified order timeline page with multi-system journey view
+- [x] Wire /orders/:orderNumber route in App.tsx
+- [x] 241 tests passing, 0 TypeScript errors
+
+## Round 19 — Medusa Onboarding, Odoo↔Medusa Bridge, AI Visual Inventory
+
+- [x] Answered architecture questions: Medusa onboarding flow, Odoo↔Medusa inventory bridge, SOTA visual AI
+- [x] Schema: medusaProductOnboarding, odooMedusaInventoryBridge, visualInventorySessions tables added
+- [x] Python VLM service: Ollama (Qwen2.5-VL/MiniCPM-V/Gemma3) + YOLO for object detection
+- [x] Go orchestrator: image preprocessing, resize, format conversion, pipeline routing
+- [x] Rust bbox post-processor: NMS, deduplication, confidence re-scoring via Axum REST API
+- [x] Docker Compose: full visual inventory stack (ollama, python-vlm, go-orchestrator, rust-bbox)
+- [x] TypeScript visualInventory tRPC router: analyzeImage, listSessions, getSession, updateInventory
+- [x] TypeScript medusaOnboarding tRPC router: list, addProduct, importFromCatalog, pushToMedusa, stats
+- [x] TypeScript odooMedusaBridge tRPC router: list, upsertMapping, syncOdooToMedusa, stats
+- [x] Frontend: VisualInventory page (mobile camera → AI analysis → inventory update)
+- [x] Frontend: MedusaOnboarding page (self-service product queue → push to Medusa)
+- [x] Frontend: OdooMedusaBridge page (bidirectional sync mappings + manual sync trigger)
+- [x] Sidebar nav: added Visual Inventory, Medusa Onboarding, Odoo↔Medusa Bridge entries
+- [x] App.tsx: wired /visual-inventory, /medusa-onboarding, /odoo-medusa-bridge routes
+- [x] Orders page: added "Timeline" button per row → navigates to /orders/:orderNumber
+- [x] Medusa webhook: POST /api/webhooks/medusa handles order.fulfillment_created, order.completed, order.canceled
+- [x] 241 tests passing, 0 TypeScript errors

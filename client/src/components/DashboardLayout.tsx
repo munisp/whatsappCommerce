@@ -6,7 +6,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -20,15 +21,24 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
-import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bot, Building2, ChevronDown, CreditCard, GitBranch, Globe, LayoutDashboard, Link2, LogOut, Megaphone, MessageSquare, Network, Package, PanelLeft, Server, Settings, Smartphone, UserPlus, Users, Warehouse } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
-import { trpc } from "@/lib/trpc";
-import { useActiveTenant } from "@/contexts/TenantContext";
+import {
+startLogin } from "@/const";
+import {
+useIsMobile } from "@/hooks/useMobile";
+import {
+  Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse } from "lucide-react";
+import {
+CSSProperties, useEffect, useRef, useState } from "react";
+import {
+useLocation } from "wouter";
+import {
+DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import {
+Button } from "./ui/button";
+import {
+trpc } from "@/lib/trpc";
+import {
+useActiveTenant } from "@/contexts/TenantContext";
 
 type NavItem = { icon: React.ElementType; label: string; path: string; section?: string };
 const menuItems: NavItem[] = [
@@ -49,12 +59,41 @@ const menuItems: NavItem[] = [
   { icon: GitBranch,       label: "Version Control",path: "/template-versions", section: "Integrations" },
   { icon: Megaphone,       label: "Broadcasts",     path: "/broadcast",    section: "Integrations" },
   { icon: Warehouse,       label: "Inventory Sync", path: "/inventory",    section: "Integrations" },
+  { icon: FileText,        label: "Invoices",        path: "/invoices",     section: "Integrations" },
   // ── System ────────────────────────────────────────────────────────────────
   { icon: Bot,             label: "AI Agent",       path: "/agent",        section: "System" },
   { icon: Network,         label: "AI Architecture",path: "/agent-architecture", section: "System" },
   { icon: UserPlus,        label: "Onboard Tenant", path: "/onboarding",   section: "System" },
+  { icon: MessagesSquare,  label: "NLP Simulator",  path: "/nlp-simulator",section: "System" },
   { icon: Server,          label: "Service Health", path: "/health",       section: "System" },
   { icon: Settings,        label: "Setup Wizard",   path: "/setup",        section: "System" },
+  { icon: Building2,       label: "Merchant Portal",path: "/portal",       section: "System" },
+  { icon: Rocket,          label: "Deploy Checklist",path: "/deploy-checklist", section: "System" },
+  { icon: BrainCircuit,    label: "ML Ops",          path: "/ml-ops",           section: "System" },
+  { icon: GitMerge,        label: "Reconciliation",  path: "/reconciliation",   section: "System" },
+  { icon: Bell,            label: "Alert Rules",     path: "/alert-rules",      section: "System" },
+  { icon: Shield,          label: "SSO Users",       path: "/sso-users",        section: "System" },
+  { icon: TrendingUp,      label: "Revenue",          path: "/revenue",          section: "System" },
+  { icon: AlertTriangle,    label: "Webhook DLQ",      path: "/webhook-dlq",      section: "System" },
+  // ── Finance ───────────────────────────────────────────────────────────────
+  { icon: Lock,            label: "Escrow",           path: "/escrow",           section: "Finance" },
+  { icon: Truck,           label: "Logistics",        path: "/logistics",        section: "Finance" },
+  { icon: AlertTriangle,   label: "Disputes",         path: "/disputes",         section: "Finance" },
+  { icon: Building2,       label: "B2B Portal",      path: "/b2b",            section: "Commerce" },
+  { icon: Globe,           label: "Multi-Channel",   path: "/multi-channel",  section: "Commerce" },
+  { icon: Store,           label: "Marketplace",     path: "/marketplace",    section: "Commerce" },
+  { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money",   section: "Commerce" },
+  { icon: Calendar,        label: "Service Commerce",path: "/service-commerce",section: "Commerce" },
+  { icon: BarChart3,       label: "Analytics BI",    path: "/analytics-bi",   section: "Commerce" },
+  { icon: Shield,          label: "Compliance/B2G",  path: "/compliance",     section: "Commerce" },
+  { icon: Package,         label: "Medusa Commerce", path: "/medusa",         section: "Commerce" },
+  { icon: ShoppingBag,     label: "Medusa Onboarding", path: "/medusa-onboarding", section: "Commerce" },
+  { icon: ArrowLeftRight,  label: "Odoo↔Medusa Bridge", path: "/odoo-medusa-bridge", section: "Commerce" },
+  { icon: Eye,             label: "Visual Inventory", path: "/visual-inventory", section: "Commerce" },
+
+  { icon: FileCode,        label: "Msg Templates",    path: "/operator-templates", section: "Platform" },
+  { icon: ScrollText,      label: "Audit Log",        path: "/audit-log",        section: "System" },
+  { icon: Paperclip,       label: "WA Media",         path: "/whatsapp-media",   section: "System" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

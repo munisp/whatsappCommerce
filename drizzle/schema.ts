@@ -5,13 +5,16 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  real,
   serial,
   text,
   timestamp,
   varchar,
   index,
   uniqueIndex,
+  numeric,
 } from "drizzle-orm/pg-core";
+import { uuid } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 export const userRoleEnum = pgEnum("user_role", ["user", "admin", "operator", "analyst"]);
@@ -63,12 +66,32 @@ export const tenants = pgTable("tenants", {
   aiEnabled: boolean("aiEnabled").default(true).notNull(),
   aiModel: varchar("aiModel", { length: 64 }).default("gpt-4o-mini"),
   settings: jsonb("settings"),
+  cogsRate: real("cogsRate").default(0.40).notNull(),
+  smsFailoverEnabled: boolean("smsFailoverEnabled").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("tenants_status_idx").on(t.status),
   index("tenants_plan_idx").on(t.plan),
 ]);
+// ─── Tenant SSO Provisioning ──────────────────────────────────────────────────
+// These columns are populated/updated on each successful Keycloak SSO login.
+// Stored separately from the main tenants table to keep schema migrations minimal.
+export const tenantSsoProfiles = pgTable("tenant_sso_profiles", {
+  tenantId: varchar("tenant_id", { length: 36 }).primaryKey(),
+  ssoSub: varchar("sso_sub", { length: 256 }),
+  ssoEmail: varchar("sso_email", { length: 255 }),
+  ssoName: varchar("sso_name", { length: 255 }),
+  ssoProvider: varchar("sso_provider", { length: 64 }).default("keycloak"),
+  ssoLoginCount: integer("sso_login_count").default(0).notNull(),
+  portalRole: varchar("portal_role", { length: 16 }).default("agent").notNull(),
+  firstSsoLoginAt: timestamp("first_sso_login_at").defaultNow().notNull(),
+  lastSsoLoginAt: timestamp("last_sso_login_at").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_sso_profiles_email_idx").on(t.ssoEmail),
+]);
+export type TenantSsoProfile = typeof tenantSsoProfiles.$inferSelect;
+export type NewTenantSsoProfile = typeof tenantSsoProfiles.$inferInsert;
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 export const products = pgTable("products", {
@@ -591,6 +614,7 @@ export const broadcastCampaigns = pgTable("broadcast_campaigns", {
   segment: varchar("segment", { length: 100 }).default("all"),
   segmentFilter: jsonb("segmentFilter"),
   status: broadcastStatusEnum("status").default("draft").notNull(),
+  varMapping: jsonb("varMapping"),
   scheduledAt: timestamp("scheduledAt"),
   startedAt: timestamp("startedAt"),
   completedAt: timestamp("completedAt"),
@@ -779,3 +803,1300 @@ export type KycApplication = typeof kycApplications.$inferSelect;
 export type InsertKycApplication = typeof kycApplications.$inferInsert;
 export type KycDocument = typeof kycDocuments.$inferSelect;
 export type LivenessCheck = typeof livenessChecks.$inferSelect;
+
+// ── Cart sessions & items ─────────────────────────────────────────────────────
+export const cartSessions = pgTable("cart_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerId: varchar("customerId", { length: 36 }),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }),
+  sessionData: jsonb("sessionData").notNull().default({}),
+  currentStep: varchar("currentStep", { length: 50 }).default("greeting"),
+  language: varchar("language", { length: 20 }).default("english"),
+  expiresAt: timestamp("expiresAt").notNull().$defaultFn(() => new Date(Date.now() + 86400000)),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+export const cartItems = pgTable("cart_items", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  cartSessionId: varchar("cartSessionId", { length: 36 }).notNull().references(() => cartSessions.id, { onDelete: "cascade" }),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  productName: varchar("productName", { length: 255 }).notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+
+// ── Refunds ───────────────────────────────────────────────────────────────────
+export const refundStatusEnum = pgEnum("refund_status", ["pending", "approved", "rejected", "processed"]);
+export const refunds = pgTable("refunds", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("orderId", { length: 36 }).notNull().references(() => orders.id),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  reason: text("reason"),
+  status: refundStatusEnum("status").notNull().default("pending"),
+  processedAt: timestamp("processedAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+// ── Invoices ──────────────────────────────────────────────────────────────────
+export const invoiceTypeEnum = pgEnum("invoice_type", ["subscription", "profit_share", "one_time"]);
+export const invoiceStatusEnum = pgEnum("invoice_status", ["draft", "sent", "paid", "overdue", "cancelled"]);
+export const invoices = pgTable("invoices", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  invoiceNumber: varchar("invoiceNumber", { length: 50 }).notNull(),
+  type: invoiceTypeEnum("type").notNull().default("subscription"),
+  status: invoiceStatusEnum("status").notNull().default("draft"),
+  periodStart: timestamp("periodStart"),
+  periodEnd: timestamp("periodEnd"),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
+  commissionRate: numeric("commissionRate", { precision: 5, scale: 4 }),
+  commissionAmount: numeric("commissionAmount", { precision: 12, scale: 2 }),
+  subscriptionFee: numeric("subscriptionFee", { precision: 12, scale: 2 }),
+  totalAmount: numeric("totalAmount", { precision: 12, scale: 2 }).notNull().default("0"),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  pdfUrl: text("pdfUrl"),
+  sentAt: timestamp("sentAt"),
+  paidAt: timestamp("paidAt"),
+  dueDate: timestamp("dueDate"),
+  lineItems: jsonb("lineItems").notNull().default([]),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+
+// ── NLP sessions (WhatsApp buyer conversations) ───────────────────────────────
+export const nlpSessions = pgTable("nlp_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }).notNull(),
+  customerName: varchar("customerName", { length: 255 }),
+  language: varchar("language", { length: 20 }).notNull().default("english"),
+  state: varchar("state", { length: 50 }).notNull().default("greeting"),
+  context: jsonb("context").notNull().default({}),
+  messageHistory: jsonb("messageHistory").notNull().default([]),
+  cartSessionId: varchar("cartSessionId", { length: 36 }).references(() => cartSessions.id),
+  lastActivityAt: timestamp("lastActivityAt").notNull().defaultNow(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+});
+// ── WhatsApp Media Files ──────────────────────────────────────────────────────
+export const whatsappMediaFiles = pgTable("whatsapp_media_files", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  conversationId: varchar("conversationId", { length: 36 }),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }),
+  fileName: varchar("fileName", { length: 255 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }).notNull(),
+  fileSize: integer("fileSize"),
+  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  storageUrl: varchar("storageUrl", { length: 1024 }).notNull(),
+  documentType: varchar("documentType", { length: 32 }).notNull().default("other"),
+  aiScanResult: jsonb("aiScanResult"),
+  uploadedAt: timestamp("uploadedAt").notNull().defaultNow(),
+}, (t) => [
+  index("wa_media_tenant_idx").on(t.tenantId),
+  index("wa_media_conversation_idx").on(t.conversationId),
+]);
+export type WhatsappMediaFile = typeof whatsappMediaFiles.$inferSelect;
+
+// ── Order items (normalised) ──────────────────────────────────────────────────
+export const orderItems = pgTable("order_items", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("orderId", { length: 36 }).notNull().references(() => orders.id, { onDelete: "cascade" }),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  productName: varchar("productName", { length: 255 }).notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+});
+
+// ── Type exports ──────────────────────────────────────────────────────────────
+export type CartSession = typeof cartSessions.$inferSelect;
+export type CartItem = typeof cartItems.$inferSelect;
+export type Refund = typeof refunds.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;
+export type NlpSession = typeof nlpSessions.$inferSelect;
+export type OrderItem = typeof orderItems.$inferSelect;
+
+// ─── Payment Gateway Configs ─────────────────────────────────────────────────
+export const paymentGatewayConfigs = pgTable("payment_gateway_configs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  publicKey: text("publicKey"),
+  secretKey: text("secretKey"),
+  webhookSecret: text("webhookSecret"),
+  callbackUrl: text("callbackUrl"),
+  isActive: boolean("isActive").default(true).notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("pgc_tenant_idx").on(t.tenantId),
+]);
+
+export const paymentTransactions = pgTable("payment_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }),
+  customerId: varchar("customerId", { length: 36 }),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerRef: varchar("providerRef", { length: 256 }),
+  providerTxId: varchar("providerTxId", { length: 256 }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 8 }).default("NGN").notNull(),
+  status: varchar("status", { length: 32 }).default("initiated").notNull(),
+  paymentUrl: text("paymentUrl"),
+  callbackData: jsonb("callbackData"),
+  paidAt: timestamp("paidAt"),
+  failureReason: text("failureReason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("ptx_tenant_idx2").on(t.tenantId),
+  index("ptx_order_idx2").on(t.orderId),
+  index("ptx_status_idx2").on(t.status),
+]);
+
+export type PaymentGatewayConfig = typeof paymentGatewayConfigs.$inferSelect;
+export type PaymentTransaction = typeof paymentTransactions.$inferSelect;
+
+// ── Alert Rules ───────────────────────────────────────────────────────────────
+export const alertRuleTypeEnum = pgEnum("alert_rule_type", [
+  "reconciliation_discrepancy",
+  "low_stock",
+  "failed_payments",
+  "model_drift",
+  "escalation_count",
+]);
+
+export const alertRules = pgTable("alert_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 128 }).notNull(),
+  ruleType: alertRuleTypeEnum("rule_type").notNull(),
+  // threshold interpretation per ruleType:
+  // reconciliation_discrepancy / failed_payments: percentage 0–100 (e.g. 5 = 5%)
+  // low_stock: integer count
+  // model_drift: PSI value 0.0–1.0
+  threshold: numeric("threshold", { precision: 10, scale: 4 }).notNull().default("5"),
+  windowHours: integer("window_hours").notNull().default(24),
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  notifyOwnerOnTrigger: boolean("notify_owner_on_trigger").notNull().default(true),
+  heartbeatTaskUid: varchar("heartbeat_task_uid", { length: 128 }),
+  lastTriggeredAt: timestamp("last_triggered_at"),
+  // Cooldown: skip notification if rule already fired within this many minutes.
+  // 0 = no cooldown (always notify). Default 60 min prevents alert fatigue.
+  cooldownMinutes: integer("cooldown_minutes").notNull().default(60),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("alert_rules_type_idx").on(t.ruleType),
+  index("alert_rules_enabled_idx").on(t.isEnabled),
+]);
+
+export type AlertRule = typeof alertRules.$inferSelect;
+export type NewAlertRule = typeof alertRules.$inferInsert;
+
+// ─── Alert Rule Events ────────────────────────────────────────────────────────
+// Immutable append-only log of each time a rule fires. Written by the heartbeat handler.
+export const alertRuleEvents = pgTable("alert_rule_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ruleId: uuid("rule_id").notNull().references(() => alertRules.id, { onDelete: "cascade" }),
+  ruleName: varchar("rule_name", { length: 128 }).notNull(),
+  ruleType: alertRuleTypeEnum("rule_type").notNull(),
+  actualValue: numeric("actual_value", { precision: 10, scale: 4 }).notNull(),
+  threshold: numeric("threshold", { precision: 10, scale: 4 }).notNull(),
+  windowHours: integer("window_hours").notNull(),
+  notificationSent: boolean("notification_sent").notNull().default(false),
+  metadata: jsonb("metadata"),
+  triggeredAt: timestamp("triggered_at").defaultNow().notNull(),
+}, (t) => [
+  index("alert_rule_events_rule_id_idx").on(t.ruleId),
+  index("alert_rule_events_triggered_at_idx").on(t.triggeredAt),
+  index("alert_rule_events_type_idx").on(t.ruleType),
+]);
+export type AlertRuleEvent = typeof alertRuleEvents.$inferSelect;
+export type NewAlertRuleEvent = typeof alertRuleEvents.$inferInsert;
+
+// ─── Forecast Snapshots ───────────────────────────────────────────────────────
+// Each month-end the heartbeat saves a projected value for the next month.
+// The following month's heartbeat resolves the actual value and computes accuracy.
+export const forecastSnapshots = pgTable("forecast_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  snapshotMonth: varchar("snapshot_month", { length: 7 }).notNull(), // YYYY-MM being projected
+  projectedRevenue: numeric("projected_revenue", { precision: 14, scale: 4 }).notNull(),
+  projectedGmv: numeric("projected_gmv", { precision: 14, scale: 4 }).notNull(),
+  actualRevenue: numeric("actual_revenue", { precision: 14, scale: 4 }),
+  actualGmv: numeric("actual_gmv", { precision: 14, scale: 4 }),
+  accuracyPct: numeric("accuracy_pct", { precision: 7, scale: 4 }),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("forecast_snapshots_month_idx").on(t.snapshotMonth),
+]);
+export type ForecastSnapshot = typeof forecastSnapshots.$inferSelect;
+export type NewForecastSnapshot = typeof forecastSnapshots.$inferInsert;
+
+// ─── COGS Dispute Requests ────────────────────────────────────────────────────
+export const cogsDisputeStatusEnum = pgEnum("cogs_dispute_status", ["pending", "approved", "rejected"]);
+export const cogsDisputeRequests = pgTable("cogs_dispute_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  currentCogsRate: numeric("current_cogs_rate", { precision: 5, scale: 4 }).notNull(),
+  requestedCogsRate: numeric("requested_cogs_rate", { precision: 5, scale: 4 }).notNull(),
+  justification: text("justification"),
+  status: cogsDisputeStatusEnum("status").notNull().default("pending"),
+  reviewedBy: varchar("reviewed_by", { length: 128 }),
+  reviewNote: text("review_note"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("cogs_dispute_tenant_idx").on(t.tenantId),
+  index("cogs_dispute_status_idx").on(t.status),
+]);
+export type CogsDisputeRequest = typeof cogsDisputeRequests.$inferSelect;
+export type NewCogsDisputeRequest = typeof cogsDisputeRequests.$inferInsert;
+
+// ─── Escrow & Logistics ───────────────────────────────────────────────────────
+
+// Custody mode: PSSP = funds held at partner bank (instruction-only),
+//               PSP  = funds held natively in platform wallet engine
+export const custodyModeEnum = pgEnum("custody_mode", ["pssp", "psp"]);
+
+// Escrow state machine:
+// PAYMENT_RECEIVED → ESCROW_HELD → DELIVERY_CONFIRMED → RELEASE_INSTRUCTED → SETTLED
+//                                 ↘ DISPUTE_RAISED → DISPUTE_RESOLVED → REFUNDED | SETTLED
+export const escrowStateEnum = pgEnum("escrow_state", [
+  "payment_received",
+  "escrow_held",
+  "delivery_confirmed",
+  "release_instructed",
+  "settled",
+  "dispute_raised",
+  "dispute_resolved",
+  "refunded",
+  "expired",
+]);
+
+export const disputeStatusEnum = pgEnum("dispute_status", [
+  "open", "under_review", "resolved_merchant", "resolved_buyer", "escalated",
+]);
+
+export const disputeResolutionEnum = pgEnum("dispute_resolution", [
+  "full_release_to_merchant",
+  "full_refund_to_buyer",
+  "partial_refund",
+  "no_action",
+]);
+
+export const shipmentStatusEnum = pgEnum("shipment_status", [
+  "pending", "created", "picked_up", "in_transit",
+  "out_for_delivery", "delivered", "failed", "returned",
+]);
+
+export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
+  "escrow_credit",    // funds held in escrow
+  "escrow_release",   // escrow released to merchant
+  "escrow_refund",    // escrow refunded to buyer
+  "float_income",     // PSP: interest earned on held balance
+  "withdrawal",       // merchant withdrawal to bank
+  "fee_deduction",    // platform fee at settlement
+]);
+
+// ─── Escrow Config (platform-level) ──────────────────────────────────────────
+export const escrowConfig = pgTable("escrow_config", {
+  id: serial("id").primaryKey(),
+  custodyMode: custodyModeEnum("custody_mode").default("pssp").notNull(),
+  // PSSP mode: partner bank details
+  bankPartnerName: varchar("bank_partner_name", { length: 100 }),
+  bankPartnerCode: varchar("bank_partner_code", { length: 20 }),
+  bankApiBaseUrl: text("bank_api_base_url"),
+  bankApiKeyEncrypted: text("bank_api_key_encrypted"),
+  bankEscrowAccountNumber: varchar("bank_escrow_account_number", { length: 20 }),
+  // Shipbubble logistics
+  shipbubbleApiKey: text("shipbubble_api_key"),
+  shipbubbleWebhookSecret: text("shipbubble_webhook_secret"),
+  // Escrow rules
+  platformFeeRate: numeric("platform_fee_rate", { precision: 6, scale: 4 }).default("0.03125").notNull(),
+  buyerConfirmWindowHours: integer("buyer_confirm_window_hours").default(24).notNull(),
+  disputeWindowHours: integer("dispute_window_hours").default(48).notNull(),
+  autoConfirmEnabled: boolean("auto_confirm_enabled").default(true).notNull(),
+  // PSP mode: float income
+  floatYieldRate: numeric("float_yield_rate", { precision: 6, scale: 4 }).default("0.08").notNull(),
+  // Evidence scan
+  minScanConfidence: numeric("min_scan_confidence", { precision: 4, scale: 2 }).default("0.70").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ─── Escrow Transactions ──────────────────────────────────────────────────────
+export const escrowTransactions = pgTable("escrow_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("order_id", { length: 36 }).notNull().references(() => orders.id),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  customerId: varchar("customer_id", { length: 36 }),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  platformFee: numeric("platform_fee", { precision: 14, scale: 2 }).default("0").notNull(),
+  netMerchantAmount: numeric("net_merchant_amount", { precision: 14, scale: 2 }).default("0").notNull(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  custodyMode: custodyModeEnum("custody_mode").default("pssp").notNull(),
+  state: escrowStateEnum("state").default("payment_received").notNull(),
+  // PSSP mode: bank instruction tracking
+  bankRef: varchar("bank_ref", { length: 128 }),
+  bankHoldConfirmedAt: timestamp("bank_hold_confirmed_at"),
+  releaseInstructedAt: timestamp("release_instructed_at"),
+  bankSettlementConfirmedAt: timestamp("bank_settlement_confirmed_at"),
+  // PSP mode: internal wallet IDs
+  buyerWalletTxId: varchar("buyer_wallet_tx_id", { length: 36 }),
+  merchantWalletTxId: varchar("merchant_wallet_tx_id", { length: 36 }),
+  // Delivery confirmation
+  shipmentId: varchar("shipment_id", { length: 36 }),
+  deliveryConfirmedAt: timestamp("delivery_confirmed_at"),
+  buyerConfirmedAt: timestamp("buyer_confirmed_at"),
+  autoConfirmed: boolean("auto_confirmed").default(false).notNull(),
+  buyerConfirmDeadline: timestamp("buyer_confirm_deadline"),
+  // Settlement
+  settledAt: timestamp("settled_at"),
+  refundedAt: timestamp("refunded_at"),
+  idempotencyKey: varchar("idempotency_key", { length: 128 }).unique(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("escrow_order_idx").on(t.orderId),
+  index("escrow_tenant_idx").on(t.tenantId),
+  index("escrow_state_idx").on(t.state),
+  index("escrow_created_idx").on(t.createdAt),
+]);
+
+// ─── Merchant Wallets (PSP mode) ──────────────────────────────────────────────
+export const merchantWallets = pgTable("merchant_wallets", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull().unique(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  availableBalance: numeric("available_balance", { precision: 14, scale: 2 }).default("0").notNull(),
+  escrowBalance: numeric("escrow_balance", { precision: 14, scale: 2 }).default("0").notNull(),
+  totalEarned: numeric("total_earned", { precision: 14, scale: 2 }).default("0").notNull(),
+  totalWithdrawn: numeric("total_withdrawn", { precision: 14, scale: 2 }).default("0").notNull(),
+  custodyMode: custodyModeEnum("custody_mode").default("pssp").notNull(),
+  bankAccountName: varchar("bank_account_name", { length: 255 }),
+  bankAccountNumber: varchar("bank_account_number", { length: 20 }),
+  bankCode: varchar("bank_code", { length: 10 }),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("wallet_tenant_idx").on(t.tenantId),
+]);
+
+// ─── Wallet Transactions ──────────────────────────────────────────────────────
+export const walletTransactions = pgTable("wallet_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  walletId: varchar("wallet_id", { length: 36 }).notNull().references(() => merchantWallets.id),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  type: walletTxTypeEnum("type").notNull(),
+  amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+  balanceBefore: numeric("balance_before", { precision: 14, scale: 2 }).notNull(),
+  balanceAfter: numeric("balance_after", { precision: 14, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  orderId: varchar("order_id", { length: 36 }),
+  escrowTxId: varchar("escrow_tx_id", { length: 36 }),
+  description: text("description"),
+  reference: varchar("reference", { length: 128 }),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("wallet_tx_wallet_idx").on(t.walletId),
+  index("wallet_tx_tenant_idx").on(t.tenantId),
+  index("wallet_tx_type_idx").on(t.type),
+  index("wallet_tx_created_idx").on(t.createdAt),
+]);
+
+// ─── Logistics Shipments ──────────────────────────────────────────────────────
+export const logisticsShipments = pgTable("logistics_shipments", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  orderId: varchar("order_id", { length: 36 }).notNull().references(() => orders.id),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  escrowTxId: varchar("escrow_tx_id", { length: 36 }),
+  provider: varchar("provider", { length: 50 }).default("shipbubble").notNull(),
+  carrierId: varchar("carrier_id", { length: 50 }),
+  carrierName: varchar("carrier_name", { length: 100 }),
+  trackingId: varchar("tracking_id", { length: 128 }),
+  trackingUrl: text("tracking_url"),
+  status: shipmentStatusEnum("status").default("pending").notNull(),
+  // Addresses
+  senderName: varchar("sender_name", { length: 255 }),
+  senderPhone: varchar("sender_phone", { length: 30 }),
+  senderAddress: jsonb("sender_address"),
+  recipientName: varchar("recipient_name", { length: 255 }),
+  recipientPhone: varchar("recipient_phone", { length: 30 }),
+  recipientAddress: jsonb("recipient_address"),
+  // Shipment details
+  weightKg: numeric("weight_kg", { precision: 6, scale: 2 }),
+  shippingFee: numeric("shipping_fee", { precision: 10, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  estimatedDeliveryAt: timestamp("estimated_delivery_at"),
+  // Lifecycle timestamps
+  createdAtProvider: timestamp("created_at_provider"),
+  pickedUpAt: timestamp("picked_up_at"),
+  inTransitAt: timestamp("in_transit_at"),
+  outForDeliveryAt: timestamp("out_for_delivery_at"),
+  deliveredAt: timestamp("delivered_at"),
+  failedAt: timestamp("failed_at"),
+  returnedAt: timestamp("returned_at"),
+  // Webhook audit trail (array of raw payloads)
+  webhookPayloads: jsonb("webhook_payloads").default([]).notNull(),
+  providerResponse: jsonb("provider_response"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("shipment_order_idx").on(t.orderId),
+  index("shipment_tenant_idx").on(t.tenantId),
+  index("shipment_status_idx").on(t.status),
+  index("shipment_tracking_idx").on(t.trackingId),
+]);
+
+// ─── Escrow Disputes ─────────────────────────────────────────────────────────
+export const escrowDisputes = pgTable("escrow_disputes", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  escrowTxId: varchar("escrow_tx_id", { length: 36 }).notNull().references(() => escrowTransactions.id),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  raisedBy: varchar("raised_by", { length: 30 }).default("buyer").notNull(), // buyer | merchant
+  reason: varchar("reason", { length: 100 }).notNull(), // not_received, wrong_item, damaged, partial_delivery
+  description: text("description"),
+  status: disputeStatusEnum("status").default("open").notNull(),
+  resolution: disputeResolutionEnum("resolution"),
+  refundAmount: numeric("refund_amount", { precision: 14, scale: 2 }),
+  // Evidence
+  buyerEvidence: jsonb("buyer_evidence"),   // { text, imageUrls[], submittedAt }
+  merchantEvidence: jsonb("merchant_evidence"),
+  // Resolution
+  resolvedBy: varchar("resolved_by", { length: 128 }),
+  resolverNotes: text("resolver_notes"),
+  buyerResponseDeadline: timestamp("buyer_response_deadline"),
+  merchantResponseDeadline: timestamp("merchant_response_deadline"),
+  resolvedAt: timestamp("resolved_at"),
+  escalatedAt: timestamp("escalated_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("dispute_escrow_idx").on(t.escrowTxId),
+  index("dispute_order_idx").on(t.orderId),
+  index("dispute_tenant_idx").on(t.tenantId),
+  index("dispute_status_idx").on(t.status),
+]);
+
+// ─── Float Income Ledger (PSP mode) ──────────────────────────────────────────
+export const floatIncomeEntries = pgTable("float_income_entries", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  date: varchar("date", { length: 10 }).notNull(), // YYYY-MM-DD
+  totalEscrowBalance: numeric("total_escrow_balance", { precision: 16, scale: 2 }).notNull(),
+  dailyYieldRate: numeric("daily_yield_rate", { precision: 10, scale: 8 }).notNull(),
+  incomeAmount: numeric("income_amount", { precision: 14, scale: 4 }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("float_income_date_idx").on(t.date),
+]);
+
+// ─── Type Exports ─────────────────────────────────────────────────────────────
+export type EscrowConfig = typeof escrowConfig.$inferSelect;
+export type EscrowTransaction = typeof escrowTransactions.$inferSelect;
+export type NewEscrowTransaction = typeof escrowTransactions.$inferInsert;
+export type MerchantWallet = typeof merchantWallets.$inferSelect;
+export type NewMerchantWallet = typeof merchantWallets.$inferInsert;
+export type WalletTransaction = typeof walletTransactions.$inferSelect;
+export type NewWalletTransaction = typeof walletTransactions.$inferInsert;
+export type LogisticsShipment = typeof logisticsShipments.$inferSelect;
+export type NewLogisticsShipment = typeof logisticsShipments.$inferInsert;
+export type EscrowDispute = typeof escrowDisputes.$inferSelect;
+export type NewEscrowDispute = typeof escrowDisputes.$inferInsert;
+export type FloatIncomeEntry = typeof floatIncomeEntries.$inferSelect;
+
+// ─── Merchant Notifications ───────────────────────────────────────────────────
+export const notificationTypeEnum = pgEnum("notification_type", [
+  "escrow_held",
+  "delivery_confirmed",
+  "escrow_settled",
+  "escrow_refunded",
+  "dispute_opened",
+  "dispute_resolved",
+  "withdrawal_processed",
+  "shipment_update",
+  "system",
+]);
+
+export const merchantNotifications = pgTable("merchant_notifications", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  type: notificationTypeEnum("type").notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  body: text("body").notNull(),
+  metadata: jsonb("metadata"),
+  read: boolean("read").default(false).notNull(),
+  readAt: timestamp("read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("notif_tenant_idx").on(t.tenantId),
+  index("notif_read_idx").on(t.tenantId, t.read),
+  index("notif_created_idx").on(t.createdAt),
+]);
+
+export type MerchantNotification = typeof merchantNotifications.$inferSelect;
+export type NewMerchantNotification = typeof merchantNotifications.$inferInsert;
+
+// ─── Escrow Timeline Attachments ─────────────────────────────────────────────
+export const timelineAttachmentTypeEnum = pgEnum("timeline_attachment_type", ["document", "note"]);
+
+export const escrowTimelineAttachments = pgTable("escrow_timeline_attachments", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  escrowId: varchar("escrow_id", { length: 36 }).notNull(),
+  // eventId is a client-generated stable ID for the timeline event (e.g. "escrow-held", "shipment-created")
+  eventId: varchar("event_id", { length: 128 }).notNull(),
+  attachmentType: timelineAttachmentTypeEnum("attachment_type").notNull().default("document"),
+  fileUrl: text("file_url"),
+  fileKey: text("file_key"),
+  filename: varchar("filename", { length: 255 }),
+  mimeType: varchar("mime_type", { length: 128 }),
+  note: text("note"),
+  uploadedBy: varchar("uploaded_by", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("eta_escrow_idx").on(t.escrowId),
+  index("eta_event_idx").on(t.escrowId, t.eventId),
+]);
+export type EscrowTimelineAttachment = typeof escrowTimelineAttachments.$inferSelect;
+export type NewEscrowTimelineAttachment = typeof escrowTimelineAttachments.$inferInsert;
+
+// ─── Merchant Onboarding Progress ────────────────────────────────────────────
+export const merchantOnboardingProgress = pgTable("merchant_onboarding_progress", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull().unique(),
+  currentStep: integer("current_step").notNull().default(0),
+  completedSteps: jsonb("completed_steps").notNull().default([]),
+  stepData: jsonb("step_data").notNull().default({}),
+  isCompleted: boolean("is_completed").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("merchant_onboarding_tenant_idx").on(t.tenantId),
+]);
+export type MerchantOnboardingProgress = typeof merchantOnboardingProgress.$inferSelect;
+export type NewMerchantOnboardingProgress = typeof merchantOnboardingProgress.$inferInsert;
+
+// ─── Escrow SLA Config ────────────────────────────────────────────────────────
+export const escrowSlaConfig = pgTable("escrow_sla_config", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }),
+  releaseDeadlineHours: integer("release_deadline_hours").notNull().default(72),
+  warningHours: integer("warning_hours").notNull().default(24),
+  autoReleaseEnabled: boolean("auto_release_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("sla_tenant_idx").on(t.tenantId),
+]);
+export type EscrowSlaConfig = typeof escrowSlaConfig.$inferSelect;
+
+// ─── Dispute Evidence Tokens ──────────────────────────────────────────────────
+export const disputeEvidenceTokens = pgTable("dispute_evidence_tokens", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  disputeId: varchar("dispute_id", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyer_phone", { length: 32 }),
+  buyerName: varchar("buyer_name", { length: 128 }),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("det_token_idx").on(t.token),
+  index("det_dispute_idx").on(t.disputeId),
+]);
+export type DisputeEvidenceToken = typeof disputeEvidenceTokens.$inferSelect;
+
+// ─── Dispute Evidence Submissions ────────────────────────────────────────────
+export const disputeEvidenceSubmissions = pgTable("dispute_evidence_submissions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  disputeId: varchar("dispute_id", { length: 36 }).notNull(),
+  token: varchar("token", { length: 64 }).notNull(),
+  fileUrl: text("file_url"),
+  fileKey: text("file_key"),
+  filename: varchar("filename", { length: 255 }),
+  mimeType: varchar("mime_type", { length: 128 }),
+  note: text("note"),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+}, (t) => [
+  index("des_dispute_idx").on(t.disputeId),
+  index("des_token_idx").on(t.token),
+]);
+export type DisputeEvidenceSubmission = typeof disputeEvidenceSubmissions.$inferSelect;
+
+
+// ── Escrow SLA Extension Requests ────────────────────────────────────────────
+export const slaExtensionStatusEnum = pgEnum("sla_extension_status", [
+  "pending", "approved", "rejected", "expired",
+]);
+
+export const escrowSlaExtensions = pgTable("escrow_sla_extensions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  escrowId: varchar("escrow_id", { length: 36 }).notNull().references(() => escrowTransactions.id),
+  requestedByTenantId: varchar("requested_by_tenant_id", { length: 36 }).notNull(),
+  extensionHours: integer("extension_hours").notNull().default(24),
+  reason: text("reason"),
+  status: slaExtensionStatusEnum("status").notNull().default("pending"),
+  buyerToken: varchar("buyer_token", { length: 64 }).notNull().unique(),
+  buyerPhone: varchar("buyer_phone", { length: 30 }),
+  requestedAt: timestamp("requested_at").notNull().defaultNow(),
+  respondedAt: timestamp("responded_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  newDeadline: timestamp("new_deadline"),
+}, (t) => [
+  index("sla_ext_escrow_idx").on(t.escrowId),
+  index("sla_ext_token_idx").on(t.buyerToken),
+]);
+export type EscrowSlaExtension = typeof escrowSlaExtensions.$inferSelect;
+
+// ── Operator-level WhatsApp Message Templates ─────────────────────────────
+export const operatorTemplateCategoryEnum = pgEnum("operator_template_category", [
+  "transactional", "marketing", "utility", "authentication", "custom",
+]);
+
+export const operatorTemplates = pgTable("operator_templates", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: varchar("name", { length: 255 }).notNull().unique(),
+  category: operatorTemplateCategoryEnum("category").default("transactional").notNull(),
+  language: varchar("language", { length: 10 }).default("en").notNull(),
+  headerText: varchar("headerText", { length: 255 }),
+  bodyText: text("bodyText").notNull(),
+  footerText: varchar("footerText", { length: 255 }),
+  variables: jsonb("variables").$type<string[]>(),
+  isActive: boolean("isActive").default(true).notNull(),
+  description: text("description"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("op_tmpl_category_idx").on(t.category),
+  index("op_tmpl_active_idx").on(t.isActive),
+]);
+
+export type OperatorTemplate = typeof operatorTemplates.$inferSelect;
+export type InsertOperatorTemplate = typeof operatorTemplates.$inferInsert;
+
+// ── Offline Message Queue ─────────────────────────────────────────────────
+// Stores messages sent while a buyer was offline (2G/no-signal) for replay
+export const offlineMsgStatusEnum = pgEnum("offline_msg_status", ["queued", "delivered", "failed"]);
+export const offlineMessageQueue = pgTable("offline_message_queue", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: varchar("sessionId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 30 }).notNull(),
+  message: text("message").notNull(),
+  direction: varchar("direction", { length: 10 }).default("outbound").notNull(),
+  status: offlineMsgStatusEnum("status").default("queued").notNull(),
+  queuedAt: timestamp("queuedAt").defaultNow().notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+}, (t) => [
+  index("omq_session_idx").on(t.sessionId),
+  index("omq_phone_idx").on(t.waPhoneNumber),
+  index("omq_status_idx").on(t.status),
+]);
+export type OfflineMessage = typeof offlineMessageQueue.$inferSelect;
+
+// ── WhatsApp Webhook Dead-Letter Queue ────────────────────────────────────────
+// Logs every inbound Meta webhook payload with processing status for replay/audit
+export const waWebhookStatusEnum = pgEnum("wa_webhook_status", ["received", "processed", "failed", "retried", "dead"]);
+export const waWebhookEvents = pgTable("wa_webhook_events", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  messageId: varchar("messageId", { length: 128 }),
+  phoneNumberId: varchar("phoneNumberId", { length: 64 }),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 30 }),
+  messageType: varchar("messageType", { length: 30 }),
+  rawPayload: jsonb("rawPayload").notNull(),
+  status: waWebhookStatusEnum("status").default("received").notNull(),
+  retryCount: integer("retryCount").default(0).notNull(),
+  lastError: text("lastError"),
+  processedAt: timestamp("processedAt"),
+  nextRetryAt: timestamp("nextRetryAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("wa_wh_status_idx").on(t.status),
+  index("wa_wh_phone_idx").on(t.waPhoneNumber),
+  index("wa_wh_retry_idx").on(t.nextRetryAt),
+]);
+export type WaWebhookEvent = typeof waWebhookEvents.$inferSelect;
+export type InsertWaWebhookEvent = typeof waWebhookEvents.$inferInsert;
+
+// ── B2B Module ────────────────────────────────────────────────────────────────
+export const buyerTypeEnum = pgEnum("buyer_type", ["retail", "wholesale", "distributor", "government"]);
+export const rfqStatusEnum = pgEnum("rfq_status", ["draft", "submitted", "quoted", "accepted", "rejected", "expired"]);
+export const poStatusEnum = pgEnum("po_status", ["draft", "submitted", "approved", "rejected", "fulfilled", "cancelled"]);
+
+export const wholesalePriceTiers = pgTable("wholesale_price_tiers", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  buyerType: buyerTypeEnum("buyerType").notNull(),
+  minQuantity: integer("minQuantity").notNull().default(1),
+  maxQuantity: integer("maxQuantity"),
+  unitPrice: varchar("unitPrice", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  discountPercent: varchar("discountPercent", { length: 10 }),
+  paymentTermsDays: integer("paymentTermsDays").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const b2bRfq = pgTable("b2b_rfq", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyerPhone", { length: 30 }).notNull(),
+  buyerName: varchar("buyerName", { length: 128 }),
+  buyerType: buyerTypeEnum("buyerType").notNull().default("wholesale"),
+  items: jsonb("items").notNull(),
+  totalEstimate: varchar("totalEstimate", { length: 20 }),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: rfqStatusEnum("status").notNull().default("submitted"),
+  quotedPrice: varchar("quotedPrice", { length: 20 }),
+  quotedAt: timestamp("quotedAt"),
+  expiresAt: timestamp("expiresAt"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const b2bPurchaseOrders = pgTable("b2b_purchase_orders", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  poNumber: varchar("poNumber", { length: 32 }).notNull().unique(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  rfqId: varchar("rfqId", { length: 36 }),
+  buyerPhone: varchar("buyerPhone", { length: 30 }).notNull(),
+  buyerName: varchar("buyerName", { length: 128 }),
+  buyerType: buyerTypeEnum("buyerType").notNull().default("wholesale"),
+  items: jsonb("items").notNull(),
+  totalAmount: varchar("totalAmount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  paymentTermsDays: integer("paymentTermsDays").default(0),
+  dueDate: timestamp("dueDate"),
+  status: poStatusEnum("status").notNull().default("submitted"),
+  approvedBy: varchar("approvedBy", { length: 36 }),
+  approvedAt: timestamp("approvedAt"),
+  deliveryAddress: jsonb("deliveryAddress"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+// ── Multi-Channel ─────────────────────────────────────────────────────────────
+export const channelEnum = pgEnum("channel", ["whatsapp", "ussd", "sms", "telegram", "instagram", "email"]);
+
+export const ussdSessions = pgTable("ussd_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: varchar("sessionId", { length: 128 }).notNull().unique(),
+  phoneNumber: varchar("phoneNumber", { length: 30 }).notNull(),
+  serviceCode: varchar("serviceCode", { length: 20 }),
+  tenantId: varchar("tenantId", { length: 36 }),
+  currentMenu: varchar("currentMenu", { length: 64 }).default("greeting"),
+  menuHistory: jsonb("menuHistory").default([]),
+  nlpSessionId: varchar("nlpSessionId", { length: 36 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  lastInput: text("lastInput"),
+  lastResponse: text("lastResponse"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const channelMessages = pgTable("channel_messages", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  channel: channelEnum("channel").notNull(),
+  direction: varchar("direction", { length: 10 }).notNull().default("inbound"),
+  fromAddress: varchar("fromAddress", { length: 128 }).notNull(),
+  toAddress: varchar("toAddress", { length: 128 }),
+  tenantId: varchar("tenantId", { length: 36 }),
+  body: text("body").notNull(),
+  metadata: jsonb("metadata"),
+  processed: boolean("processed").default(false).notNull(),
+  nlpResponse: text("nlpResponse"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// ── Marketplace ───────────────────────────────────────────────────────────────
+export const sellerStatusEnum = pgEnum("seller_status", ["pending", "active", "suspended", "rejected"]);
+
+export const marketplaceSellers = pgTable("marketplace_sellers", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  businessName: varchar("businessName", { length: 128 }).notNull(),
+  ownerPhone: varchar("ownerPhone", { length: 30 }).notNull(),
+  ownerName: varchar("ownerName", { length: 128 }),
+  email: varchar("email", { length: 256 }),
+  category: varchar("category", { length: 64 }),
+  commissionRate: varchar("commissionRate", { length: 10 }).notNull().default("10.00"),
+  status: sellerStatusEnum("status").notNull().default("pending"),
+  kycVerified: boolean("kycVerified").default(false).notNull(),
+  bankAccount: jsonb("bankAccount"),
+  totalSales: varchar("totalSales", { length: 20 }).default("0.00"),
+  totalCommission: varchar("totalCommission", { length: 20 }).default("0.00"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const sellerProducts = pgTable("seller_products", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: varchar("sellerId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  price: varchar("price", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  stockQuantity: integer("stockQuantity").notNull().default(0),
+  category: varchar("category", { length: 64 }),
+  images: jsonb("images").default([]),
+  isApproved: boolean("isApproved").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const marketplaceCommissions = pgTable("marketplace_commissions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: varchar("sellerId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }).notNull(),
+  saleAmount: varchar("saleAmount", { length: 20 }).notNull(),
+  commissionRate: varchar("commissionRate", { length: 10 }).notNull(),
+  commissionAmount: varchar("commissionAmount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  settledAt: timestamp("settledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// ── Cross-Border / Mobile Money ───────────────────────────────────────────────
+export const momoProviderEnum = pgEnum("momo_provider", ["mtn_momo", "airtel_money", "mpesa", "orange_money", "wave"]);
+export const momoStatusEnum = pgEnum("momo_status", ["initiated", "pending", "successful", "failed", "cancelled", "refunded"]);
+
+export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }),
+  provider: momoProviderEnum("provider").notNull(),
+  externalRef: varchar("externalRef", { length: 128 }),
+  phoneNumber: varchar("phoneNumber", { length: 30 }).notNull(),
+  amount: varchar("amount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  status: momoStatusEnum("status").notNull().default("initiated"),
+  providerResponse: jsonb("providerResponse"),
+  callbackPayload: jsonb("callbackPayload"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const forexRates = pgTable("forex_rates", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  baseCurrency: varchar("baseCurrency", { length: 3 }).notNull(),
+  quoteCurrency: varchar("quoteCurrency", { length: 3 }).notNull(),
+  rate: varchar("rate", { length: 20 }).notNull(),
+  source: varchar("source", { length: 64 }).default("manual"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+});
+
+// ── Service Commerce ──────────────────────────────────────────────────────────
+export const serviceTypeEnum = pgEnum("service_type", ["appointment", "digital", "subscription", "physical"]);
+export const appointmentStatusEnum = pgEnum("appointment_status", ["scheduled", "confirmed", "completed", "cancelled", "no_show"]);
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "paused", "cancelled", "expired", "trial"]);
+
+export const serviceCatalog = pgTable("service_catalog", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  serviceType: serviceTypeEnum("serviceType").notNull(),
+  price: varchar("price", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  duration: integer("duration"),
+  maxBookingsPerSlot: integer("maxBookingsPerSlot").default(1),
+  availableSlots: jsonb("availableSlots").default([]),
+  downloadUrl: text("downloadUrl"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const appointments = pgTable("appointments", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  serviceId: varchar("serviceId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  customerName: varchar("customerName", { length: 128 }),
+  scheduledAt: timestamp("scheduledAt").notNull(),
+  durationMinutes: integer("durationMinutes").default(60),
+  status: appointmentStatusEnum("status").notNull().default("scheduled"),
+  notes: text("notes"),
+  reminderSent: boolean("reminderSent").default(false),
+  paymentStatus: varchar("paymentStatus", { length: 20 }).default("unpaid"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const digitalProducts = pgTable("digital_products", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  price: varchar("price", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  fileKey: varchar("fileKey", { length: 256 }),
+  fileUrl: text("fileUrl"),
+  mimeType: varchar("mimeType", { length: 128 }),
+  downloadLimit: integer("downloadLimit").default(3),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const digitalProductPurchases = pgTable("digital_product_purchases", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  downloadToken: varchar("downloadToken", { length: 64 }).notNull().unique(),
+  downloadsUsed: integer("downloadsUsed").default(0).notNull(),
+  expiresAt: timestamp("expiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const subscriptions = pgTable("subscriptions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  serviceId: varchar("serviceId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  customerName: varchar("customerName", { length: 128 }),
+  status: subscriptionStatusEnum("status").notNull().default("active"),
+  billingCycle: varchar("billingCycle", { length: 20 }).notNull().default("monthly"),
+  amount: varchar("amount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  currentPeriodStart: timestamp("currentPeriodStart").notNull(),
+  currentPeriodEnd: timestamp("currentPeriodEnd").notNull(),
+  cancelledAt: timestamp("cancelledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+// ── Analytics BI ──────────────────────────────────────────────────────────────
+export const cohortSnapshots = pgTable("cohort_snapshots", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  cohortMonth: varchar("cohortMonth", { length: 7 }).notNull(),
+  totalCustomers: integer("totalCustomers").notNull().default(0),
+  retentionByMonth: jsonb("retentionByMonth").default({}),
+  avgOrderValue: varchar("avgOrderValue", { length: 20 }),
+  totalRevenue: varchar("totalRevenue", { length: 20 }),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+});
+
+export const ltvScores = pgTable("ltv_scores", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  predictedLtv: varchar("predictedLtv", { length: 20 }).notNull(),
+  historicalRevenue: varchar("historicalRevenue", { length: 20 }).notNull(),
+  orderCount: integer("orderCount").notNull().default(0),
+  avgOrderValue: varchar("avgOrderValue", { length: 20 }),
+  segment: varchar("segment", { length: 20 }).default("medium"),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+});
+
+export const churnPredictions = pgTable("churn_predictions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  churnScore: varchar("churnScore", { length: 10 }).notNull(),
+  riskLevel: varchar("riskLevel", { length: 10 }).notNull().default("medium"),
+  daysSinceLastOrder: integer("daysSinceLastOrder"),
+  predictedChurnDate: timestamp("predictedChurnDate"),
+  interventionSent: boolean("interventionSent").default(false),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+});
+
+// ── Compliance / B2G ──────────────────────────────────────────────────────────
+export const taxFilingStatusEnum = pgEnum("tax_filing_status", ["draft", "submitted", "accepted", "rejected", "under_review"]);
+export const procurementBidStatusEnum = pgEnum("procurement_bid_status", ["draft", "submitted", "shortlisted", "awarded", "rejected", "withdrawn"]);
+
+export const taxFilings = pgTable("tax_filings", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  filingType: varchar("filingType", { length: 32 }).notNull().default("vat"),
+  taxAuthority: varchar("taxAuthority", { length: 32 }).notNull().default("firs"),
+  periodStart: timestamp("periodStart").notNull(),
+  periodEnd: timestamp("periodEnd").notNull(),
+  grossRevenue: varchar("grossRevenue", { length: 20 }).notNull(),
+  taxableAmount: varchar("taxableAmount", { length: 20 }).notNull(),
+  taxAmount: varchar("taxAmount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: taxFilingStatusEnum("status").notNull().default("draft"),
+  referenceNumber: varchar("referenceNumber", { length: 64 }),
+  submittedAt: timestamp("submittedAt"),
+  documents: jsonb("documents").default([]),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const cacRegistrations = pgTable("cac_registrations", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  businessName: varchar("businessName", { length: 256 }).notNull(),
+  businessType: varchar("businessType", { length: 64 }).notNull().default("sole_proprietorship"),
+  rcNumber: varchar("rcNumber", { length: 32 }),
+  tinNumber: varchar("tinNumber", { length: 32 }),
+  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  documents: jsonb("documents").default([]),
+  submittedAt: timestamp("submittedAt"),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const procurementBids = pgTable("procurement_bids", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  contractTitle: varchar("contractTitle", { length: 256 }).notNull(),
+  procuringEntity: varchar("procuringEntity", { length: 256 }).notNull(),
+  contractValue: varchar("contractValue", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: procurementBidStatusEnum("status").notNull().default("draft"),
+  deadline: timestamp("deadline"),
+  documents: jsonb("documents").default([]),
+  technicalProposal: text("technicalProposal"),
+  financialProposal: text("financialProposal"),
+  submittedAt: timestamp("submittedAt"),
+  awardedAt: timestamp("awardedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const governmentContracts = pgTable("government_contracts", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  bidId: varchar("bidId", { length: 36 }),
+  contractNumber: varchar("contractNumber", { length: 64 }).notNull(),
+  procuringEntity: varchar("procuringEntity", { length: 256 }).notNull(),
+  contractValue: varchar("contractValue", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  startDate: timestamp("startDate"),
+  endDate: timestamp("endDate"),
+  status: varchar("status", { length: 32 }).notNull().default("active"),
+  milestones: jsonb("milestones").default([]),
+  invoicesRaised: integer("invoicesRaised").default(0),
+  amountPaid: varchar("amountPaid", { length: 20 }).default("0.00"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+// ── Unified Onboarding & Integration Provisioning ────────────────────────────
+export const integrationTypeEnum = pgEnum("integration_type", [
+  "medusa", "twenty_crm", "odoo_erp", "africa_talking", "mtn_momo", "mpesa",
+  "paystack", "stripe", "chatwoot", "keycloak", "shipbubble", "custom"
+]);
+export const provisioningStatusEnum = pgEnum("provisioning_status", [
+  "pending", "in_progress", "completed", "failed", "skipped"
+]);
+export const tenantIntegrationStatusEnum = pgEnum("tenant_integration_status", [
+  "not_configured", "pending", "active", "error", "disabled"
+]);
+
+export const tenantIntegrations = pgTable("tenant_integrations", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  integrationType: integrationTypeEnum("integrationType").notNull(),
+  status: tenantIntegrationStatusEnum("status").default("not_configured").notNull(),
+  displayName: varchar("displayName", { length: 128 }),
+  baseUrl: varchar("baseUrl", { length: 512 }),
+  apiKey: text("apiKey"),
+  apiSecret: text("apiSecret"),
+  webhookSecret: text("webhookSecret"),
+  config: jsonb("config").default({}),
+  lastHealthCheck: timestamp("lastHealthCheck"),
+  lastHealthStatus: varchar("lastHealthStatus", { length: 32 }),
+  lastError: text("lastError"),
+  enabledAt: timestamp("enabledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_integrations_tenant_idx").on(t.tenantId),
+  uniqueIndex("tenant_integrations_unique_idx").on(t.tenantId, t.integrationType),
+]);
+export type TenantIntegration = typeof tenantIntegrations.$inferSelect;
+
+export const provisioningJobs = pgTable("provisioning_jobs", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  integrationType: integrationTypeEnum("integrationType").notNull(),
+  status: provisioningStatusEnum("status").default("pending").notNull(),
+  stepName: varchar("stepName", { length: 128 }).notNull(),
+  stepIndex: integer("stepIndex").default(0).notNull(),
+  totalSteps: integer("totalSteps").default(1).notNull(),
+  inputPayload: jsonb("inputPayload").default({}),
+  outputPayload: jsonb("outputPayload").default({}),
+  errorMessage: text("errorMessage"),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("provisioning_jobs_tenant_idx").on(t.tenantId),
+  index("provisioning_jobs_status_idx").on(t.status),
+]);
+export type ProvisioningJob = typeof provisioningJobs.$inferSelect;
+
+export const unifiedOnboardingSessions = pgTable("unified_onboarding_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
+  currentStep: varchar("currentStep", { length: 64 }).default("welcome").notNull(),
+  completedSteps: jsonb("completedSteps").default([]),
+  businessProfile: jsonb("businessProfile").default({}),
+  whatsappConfig: jsonb("whatsappConfig").default({}),
+  crmConfig: jsonb("crmConfig").default({}),
+  erpConfig: jsonb("erpConfig").default({}),
+  ecommerceConfig: jsonb("ecommerceConfig").default({}),
+  channelsConfig: jsonb("channelsConfig").default({}),
+  paymentsConfig: jsonb("paymentsConfig").default({}),
+  billingConfig: jsonb("billingConfig").default({}),
+  isComplete: boolean("isComplete").default(false).notNull(),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("unified_onboarding_tenant_idx").on(t.tenantId),
+]);
+export type UnifiedOnboardingSession = typeof unifiedOnboardingSessions.$inferSelect;
+
+// ─── Medusa Product Onboarding ────────────────────────────────────────────────
+export const medusaOnboardingStatusEnum = pgEnum("medusa_onboarding_status", [
+  "draft", "syncing", "synced", "failed"
+]);
+
+export const medusaProductOnboarding = pgTable("medusa_product_onboarding", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  // Local platform product reference
+  productId: varchar("productId", { length: 36 }),
+  // Medusa IDs after sync
+  medusaProductId: varchar("medusaProductId", { length: 128 }),
+  medusaVariantId: varchar("medusaVariantId", { length: 128 }),
+  medusaInventoryItemId: varchar("medusaInventoryItemId", { length: 128 }),
+  // Product data snapshot
+  title: varchar("title", { length: 256 }).notNull(),
+  description: text("description"),
+  sku: varchar("sku", { length: 64 }),
+  price: numeric("price", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 8 }).default("NGN").notNull(),
+  stockQuantity: integer("stockQuantity").default(0).notNull(),
+  weight: numeric("weight", { precision: 8, scale: 2 }),
+  images: jsonb("images").default([]),
+  categories: jsonb("categories").default([]),
+  tags: jsonb("tags").default([]),
+  metadata: jsonb("metadata").default({}),
+  status: medusaOnboardingStatusEnum("status").default("draft").notNull(),
+  errorMessage: text("errorMessage"),
+  syncedAt: timestamp("syncedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("medusa_onboarding_tenant_idx").on(t.tenantId),
+  index("medusa_onboarding_product_idx").on(t.productId),
+]);
+export type MedusaProductOnboarding = typeof medusaProductOnboarding.$inferSelect;
+
+// ─── Odoo ↔ Medusa Inventory Bridge ──────────────────────────────────────────
+export const odooMedusaBridgeSyncStatusEnum = pgEnum("odoo_medusa_bridge_sync_status", [
+  "pending", "syncing", "synced", "conflict", "failed"
+]);
+
+export const odooMedusaInventoryBridge = pgTable("odoo_medusa_inventory_bridge", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  // Odoo side
+  odooProductId: varchar("odooProductId", { length: 64 }).notNull(),
+  odooProductName: varchar("odooProductName", { length: 256 }),
+  odooSku: varchar("odooSku", { length: 64 }),
+  odooStockQty: numeric("odooStockQty", { precision: 12, scale: 2 }).default("0"),
+  odooReservedQty: numeric("odooReservedQty", { precision: 12, scale: 2 }).default("0"),
+  odooWarehouse: varchar("odooWarehouse", { length: 128 }),
+  // Medusa side
+  medusaProductId: varchar("medusaProductId", { length: 128 }),
+  medusaVariantId: varchar("medusaVariantId", { length: 128 }),
+  medusaInventoryItemId: varchar("medusaInventoryItemId", { length: 128 }),
+  medusaStockableQty: integer("medusaStockableQty").default(0),
+  // Sync metadata
+  syncStatus: odooMedusaBridgeSyncStatusEnum("syncStatus").default("pending").notNull(),
+  syncDirection: varchar("syncDirection", { length: 16 }).default("odoo_to_medusa"),
+  conflictReason: text("conflictReason"),
+  lastSyncedAt: timestamp("lastSyncedAt"),
+  lastOdooUpdate: timestamp("lastOdooUpdate"),
+  lastMedusaUpdate: timestamp("lastMedusaUpdate"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("odoo_medusa_bridge_tenant_idx").on(t.tenantId),
+  index("odoo_medusa_bridge_odoo_idx").on(t.odooProductId),
+  index("odoo_medusa_bridge_medusa_idx").on(t.medusaVariantId),
+]);
+export type OdooMedusaInventoryBridge = typeof odooMedusaInventoryBridge.$inferSelect;
+
+// ─── AI Visual Inventory ──────────────────────────────────────────────────────
+export const visualInventoryStatusEnum = pgEnum("visual_inventory_status", [
+  "processing", "completed", "failed", "review_needed"
+]);
+
+export const visualInventorySessions = pgTable("visual_inventory_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  userId: varchar("userId", { length: 36 }),
+  // Image storage
+  imageUrl: text("imageUrl").notNull(),
+  imageKey: varchar("imageKey", { length: 256 }),
+  // AI analysis results
+  status: visualInventoryStatusEnum("status").default("processing").notNull(),
+  detectedItems: jsonb("detectedItems").default([]),  // [{label, count, confidence, bbox}]
+  totalItemsDetected: integer("totalItemsDetected").default(0),
+  vlmAnalysis: text("vlmAnalysis"),  // Raw VLM description
+  modelUsed: varchar("modelUsed", { length: 64 }),
+  processingMs: integer("processingMs"),
+  // Reconciliation
+  appliedToInventory: boolean("appliedToInventory").default(false).notNull(),
+  appliedAt: timestamp("appliedAt"),
+  appliedBy: varchar("appliedBy", { length: 36 }),
+  inventoryUpdates: jsonb("inventoryUpdates").default([]),  // [{productId, oldQty, newQty}]
+  notes: text("notes"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("visual_inventory_tenant_idx").on(t.tenantId),
+  index("visual_inventory_status_idx").on(t.status),
+]);
+export type VisualInventorySession = typeof visualInventorySessions.$inferSelect;
+
+export const visualInventoryMappings = pgTable("visual_inventory_mappings", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  // Maps AI-detected label to a platform product
+  detectedLabel: varchar("detectedLabel", { length: 256 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  productName: varchar("productName", { length: 256 }),
+  confidence: real("confidence").default(1.0),
+  isVerified: boolean("isVerified").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("visual_inventory_mapping_tenant_idx").on(t.tenantId),
+  uniqueIndex("visual_inventory_mapping_unique_idx").on(t.tenantId, t.detectedLabel),
+]);
+export type VisualInventoryMapping = typeof visualInventoryMappings.$inferSelect;

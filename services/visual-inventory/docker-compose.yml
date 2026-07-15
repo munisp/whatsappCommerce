@@ -1,0 +1,130 @@
+version: "3.9"
+
+# Visual Inventory Polyglot Stack
+# ─────────────────────────────────────────────────────────────────────────────
+# Service        Language   Port   Role
+# ─────────────────────────────────────────────────────────────────────────────
+# ollama         C++/CUDA   11434  LLM inference server (Qwen2.5-VL/Gemma3/MiniCPM-V)
+# python-vlm     Python     8081   VLM analysis + YOLO detection
+# rust-bbox      Rust       8082   BBox NMS + confidence re-scoring
+# go-orchestrator Go        8080   Image preprocessing + rate-limiting + S3
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Ollama LLM Server ──────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: visual-inventory-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_MAX_LOADED_MODELS=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Model Pull (runs once at startup) ─────────────────────────────────────
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: visual-inventory-model-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: >
+      sh -c "
+        echo 'Pulling preferred VLM models...' &&
+        ollama pull qwen2.5vl:3b || true &&
+        ollama pull minicpm-v:latest || true &&
+        ollama pull gemma3:4b || true &&
+        echo 'Model pull complete'
+      "
+    restart: "no"
+
+  # ── Rust BBox Post-Processor ───────────────────────────────────────────────
+  rust-bbox:
+    build:
+      context: ./rust-bbox
+      dockerfile: Dockerfile
+    container_name: visual-inventory-rust-bbox
+    ports:
+      - "8082:8082"
+    environment:
+      - PORT=8082
+      - RUST_LOG=info
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Python VLM Service ─────────────────────────────────────────────────────
+  python-vlm:
+    build:
+      context: ./python-vlm
+      dockerfile: Dockerfile
+    container_name: visual-inventory-python-vlm
+    ports:
+      - "8081:8081"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - RUST_BBOX_URL=http://rust-bbox:8082
+      - YOLO_MODEL=yolo11n.pt
+      - YOLO_CONF_THRESHOLD=0.35
+      - MAX_IMAGE_DIMENSION=1024
+    depends_on:
+      ollama:
+        condition: service_healthy
+      rust-bbox:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
+  # ── Go Image Orchestrator ─────────────────────────────────────────────────
+  go-orchestrator:
+    build:
+      context: ./go-orchestrator
+      dockerfile: Dockerfile
+    container_name: visual-inventory-go-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - PYTHON_VLM_URL=http://python-vlm:8081
+      - RUST_BBOX_URL=http://rust-bbox:8082
+    depends_on:
+      python-vlm:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  ollama_models:
+    driver: local
+
+networks:
+  default:
+    name: visual-inventory-net

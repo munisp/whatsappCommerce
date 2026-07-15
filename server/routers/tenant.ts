@@ -55,6 +55,8 @@ export const tenantRouter = router({
       whatsappBusinessAccountId: z.string().optional(),
       chatwootAccountId: z.string().optional(),
       chatwootApiToken: z.string().optional(),
+      cogsRate: z.number().min(0).max(0.99).optional(),
+      smsFailoverEnabled: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const { id, ...data } = input;
@@ -62,4 +64,3 @@ export const tenantRouter = router({
       return { success: true };
     }),
 });
-
