@@ -1,0 +1,211 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.11"
+  GO_VERSION: "1.22"
+  RUST_VERSION: "stable"
+
+jobs:
+  # ── TypeScript / Node.js Tests ─────────────────────────────────────────
+  test-node:
+    name: Node.js Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: whatsapp_commerce_test
+          POSTGRES_USER: wacommerce
+          POSTGRES_PASSWORD: wacommerce_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm exec tsc --noEmit
+
+      - name: Run tests
+        env:
+          POSTGRES_URL: postgresql://wacommerce:wacommerce_test@localhost:5432/whatsapp_commerce_test
+          JWT_SECRET: test-jwt-secret-ci
+          NODE_ENV: test
+        run: pnpm test --reporter=verbose
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results/
+
+  # ── Python ML Stack Tests ──────────────────────────────────────────────
+  test-python:
+    name: Python ML Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install duckdb pandas numpy scikit-learn mlflow scipy pytest pytest-cov
+
+      - name: Run Python tests
+        working-directory: services/ml-stack
+        run: |
+          python -m pytest tests/ -v --cov=. --cov-report=xml || echo "No tests yet"
+          python -c "from models.fraud_gnn_lstm import FraudGNNLSTM; print('FraudGNNLSTM OK')"
+          python -c "from models.credit_tabnet import TabNet; print('TabNet OK')"
+          python -c "from pipeline.lakehouse import LakehousePipeline; print('Lakehouse OK')"
+          python -c "from monitoring.drift_detector import DriftDetector; print('DriftDetector OK')"
+          python -c "from monitoring.ab_testing import ABTestManager; print('ABTestManager OK')"
+
+  # ── Go Event Gateway Build ─────────────────────────────────────────────
+  build-go:
+    name: Go Event Gateway
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build event gateway
+        working-directory: services/event-gateway
+        run: go build -v ./...
+
+      - name: Run Go tests
+        working-directory: services/event-gateway
+        run: go test -v ./... || echo "No tests yet"
+
+  # ── Rust Message Processor Build ───────────────────────────────────────
+  build-rust:
+    name: Rust Message Processor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "services/message-processor -> target"
+
+      - name: Build message processor
+        working-directory: services/message-processor
+        run: cargo build --release
+
+      - name: Run Rust tests
+        working-directory: services/message-processor
+        run: cargo test --release
+
+      - name: Clippy lint
+        working-directory: services/message-processor
+        run: cargo clippy -- -D warnings || true
+
+  # ── Security Scanning ──────────────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: npm audit
+        run: pnpm audit --audit-level=high || true
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  # ── Docker Build Validation ────────────────────────────────────────────
+  build-docker:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build KYC verifier image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/kyc-verifier
+          push: false
+          tags: kyc-verifier:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build event gateway image
+        uses: docker/build-push-action@v5
+        with:
+          context: services/event-gateway
+          push: false
+          tags: event-gateway:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+

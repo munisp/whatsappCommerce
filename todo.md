@@ -828,3 +828,10 @@
 - [x] Add Product Images nav item to sidebar
 - [x] Wire productImages router into appRouter
 - [x] Add productImageCollections table to schema
+
+## Round 25 (2026-07-15)
+- [ ] Compress training dataset (products + dataset) into tar.gz and push to GitHub
+- [ ] Re-authenticate GitHub and push all code
+- [ ] Wire Florence-2 as fallback detector in python-vlm/app/main.py (detector= query param)
+- [ ] Build GPU training pipeline runner script (Colab/RunPod launcher)
+- [ ] Expand ProductImageCollector UI: batch upload, per-class count targets, progress bar
