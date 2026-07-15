@@ -545,6 +545,101 @@ export const escrowRouter = router({
       events.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
       return events;
     }),
+
+  // ── Bulk state update (admin: batch release or refund) ────────────────────
+  bulkUpdateState: protectedProcedure
+    .input(z.object({
+      escrowIds: z.array(z.string()).min(1).max(100),
+      action: z.enum(["release", "refund"]),
+      reason: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const cfg = await getEscrowConfig(db);
+
+      const rows = await db.select().from(escrowTransactions)
+        .where(inArray(escrowTransactions.id, input.escrowIds));
+
+      const results: { id: string; success: boolean; error?: string; newState?: string }[] = [];
+
+      for (const escrow of rows) {
+        try {
+          if (input.action === "release") {
+            // Valid source states for release
+            if (!["delivery_confirmed", "escrow_held"].includes(escrow.state)) {
+              results.push({ id: escrow.id, success: false, error: `Cannot release from state: ${escrow.state}` });
+              continue;
+            }
+            const netAmount = parseFloat(escrow.netMerchantAmount);
+            const fee = parseFloat(escrow.platformFee);
+
+            if (cfg.custodyMode === "psp") {
+              const wallet = await getOrCreateWallet(db, escrow.tenantId, "psp");
+              await recordWalletTx(db, wallet.id, escrow.tenantId, "escrow_release", netAmount, {
+                orderId: escrow.orderId, escrowTxId: escrow.id,
+                description: `Bulk settlement for order ${escrow.orderId}`,
+              });
+              await recordWalletTx(db, wallet.id, escrow.tenantId, "fee_deduction", fee, {
+                orderId: escrow.orderId, escrowTxId: escrow.id,
+                description: `Platform fee (bulk) for order ${escrow.orderId}`,
+              });
+              await db.update(escrowTransactions).set({
+                state: "settled", settledAt: new Date(), autoConfirmed: true, updatedAt: new Date(),
+              }).where(eq(escrowTransactions.id, escrow.id));
+            } else {
+              const bankRef = `ESCROW-BULK-${escrow.id.slice(0, 8).toUpperCase()}-${Date.now()}`;
+              await db.update(escrowTransactions).set({
+                state: "release_instructed", releaseInstructedAt: new Date(), bankRef, updatedAt: new Date(),
+              }).where(eq(escrowTransactions.id, escrow.id));
+            }
+            await db.update(orders).set({ status: "delivered", paymentStatus: "completed", updatedAt: new Date() })
+              .where(eq(orders.id, escrow.orderId));
+            emitNotification({
+              id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_settled",
+              title: "Funds Released (Bulk Operation)",
+              body: `₦${netAmount.toLocaleString()} from order ${escrow.orderId} released via bulk operation.`,
+              metadata: { orderId: escrow.orderId, escrowId: escrow.id },
+              read: false, readAt: null, createdAt: new Date(),
+            }).catch(() => {});
+            results.push({ id: escrow.id, success: true, newState: cfg.custodyMode === "psp" ? "settled" : "release_instructed" });
+          } else {
+            // Refund
+            if (["settled", "refunded"].includes(escrow.state)) {
+              results.push({ id: escrow.id, success: false, error: `Cannot refund from state: ${escrow.state}` });
+              continue;
+            }
+            const refundAmt = parseFloat(escrow.amount);
+            if (cfg.custodyMode === "psp") {
+              const wallet = await getOrCreateWallet(db, escrow.tenantId, "psp");
+              await recordWalletTx(db, wallet.id, escrow.tenantId, "escrow_refund", refundAmt, {
+                orderId: escrow.orderId, escrowTxId: escrow.id,
+                description: `Bulk refund: ${input.reason ?? "admin bulk operation"}`,
+              });
+            }
+            await db.update(escrowTransactions).set({
+              state: "refunded", refundedAt: new Date(), updatedAt: new Date(),
+            }).where(eq(escrowTransactions.id, escrow.id));
+            await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
+              .where(eq(orders.id, escrow.orderId));
+            emitNotification({
+              id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
+              title: "Escrow Refunded (Bulk Operation)",
+              body: `₦${refundAmt.toLocaleString()} from order ${escrow.orderId} refunded via bulk operation.`,
+              metadata: { orderId: escrow.orderId, escrowId: escrow.id },
+              read: false, readAt: null, createdAt: new Date(),
+            }).catch(() => {});
+            results.push({ id: escrow.id, success: true, newState: "refunded" });
+          }
+        } catch (err) {
+          results.push({ id: escrow.id, success: false, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      const succeeded = results.filter(r => r.success).length;
+      const failed = results.filter(r => !r.success).length;
+      return { results, succeeded, failed };
+    }),
 });
 
 // ─── Escrow Dispute Router ────────────────────────────────────────────────────

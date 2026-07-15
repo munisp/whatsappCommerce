@@ -474,9 +474,28 @@
 - [x] Onboarding funnel analytics chart on admin dashboard
 - [x] Configurable AI scan confidence threshold in Escrow Config
 - [x] Confidence threshold enforced in evidence portal submission
-- [ ] Backend: CSV product import endpoint (parse CSV, validate, bulk insert products)
-- [ ] Backend: Dispute resolution email to buyer (send email when dispute resolved)
-- [ ] Backend: SLA extension history query (list all extensions per escrow transaction)
-- [ ] Frontend: CSV upload UI on product management page
-- [ ] Frontend: SLA extension history tab in Escrow Dashboard
-- [ ] Frontend: Wire dispute resolution email confirmation in Dispute Management page
+- [x] Backend: CSV product import endpoint (parse CSV, validate, bulk insert products)
+- [x] Backend: Dispute resolution email to buyer (send email when dispute resolved)
+- [x] Backend: SLA extension history query (list all extensions per escrow transaction)
+- [x] Frontend: CSV upload UI on product management page
+- [x] Frontend: SLA extension history tab in Escrow Dashboard
+- [x] Frontend: Wire dispute resolution email confirmation in Dispute Management page
+
+## Round 5: Analytics, Bulk Operations, WhatsApp Templates
+
+### Merchant Analytics Dashboard
+- [x] Backend: tenantPortal.getAnalytics procedure (GMV trend, order volume, AOV, top products)
+- [x] Frontend: /portal/analytics page with line chart (GMV), bar chart (orders), stat cards, top products table
+- [x] Frontend: Add "Analytics" nav item to TenantPortalLayout
+
+### Bulk Order Status Update
+- [x] Backend: escrow.bulkUpdateState procedure (array of escrow IDs + target state, transactional)
+- [x] Frontend: Checkbox column on EscrowDashboard transaction table with Select All
+- [x] Frontend: Bulk action toolbar (count + Bulk Release / Bulk Refund buttons + confirmation dialog)
+
+### WhatsApp Message Templates (operator-facing)
+- [x] Schema: operator_templates table (id, name, category enum, body, variables, isActive, description, createdAt, updatedAt)
+- [x] Migration: table created in database via SQL
+- [x] Backend: operatorTemplates router (list, getById, create, update, toggleActive, delete)
+- [x] Frontend: /operator-templates admin page with template grid, create/edit dialog, live WhatsApp-style preview
+- [x] Frontend: Added "Msg Templates" nav item to DashboardLayout Platform section

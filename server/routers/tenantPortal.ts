@@ -5,8 +5,9 @@ import { getDb } from "../db";
 import {
   tenants, products, orders, conversations, customers,
   invoices, paymentTransactions, paymentGatewayConfigs,
+  orderItems,
 } from "../../drizzle/schema";
-import { eq, and, desc, count, sum, gte } from "drizzle-orm";
+import { eq, and, desc, count, sum, gte, lte, sql } from "drizzle-orm";
 
 // Guard: user must have a tenantId in their session (set during onboarding)
 const tenantScopedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
@@ -194,5 +195,99 @@ export const tenantPortalRouter = router({
         .orderBy(desc(paymentTransactions.createdAt))
         .limit(input.limit);
     }),
-});
 
+  // ── Analytics ─────────────────────────────────────────────────────────────
+  getAnalytics: tenantScopedProcedure
+    .input(z.object({
+      period: z.enum(["7d", "30d", "90d", "custom"]).default("30d"),
+      startDate: z.string().optional(), // ISO date string
+      endDate: z.string().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+
+      // Compute date range
+      const now = new Date();
+      let start: Date;
+      let end: Date = now;
+      if (input.period === "custom" && input.startDate && input.endDate) {
+        start = new Date(input.startDate);
+        end = new Date(input.endDate);
+        end.setHours(23, 59, 59, 999);
+      } else {
+        const days = input.period === "7d" ? 7 : input.period === "90d" ? 90 : 30;
+        start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      }
+
+      const tenantCond = eq(orders.tenantId, ctx.tenantId);
+      const dateCond = and(gte(orders.createdAt, start), lte(orders.createdAt, end));
+
+      // ── Summary stats ──────────────────────────────────────────────────────
+      const [summary] = await db
+        .select({
+          totalOrders: count(),
+          totalGmv: sum(orders.totalAmount),
+        })
+        .from(orders)
+        .where(and(tenantCond, dateCond));
+
+      const totalOrders = Number(summary?.totalOrders ?? 0);
+      const totalGmv = parseFloat(String(summary?.totalGmv ?? "0"));
+      const aov = totalOrders > 0 ? totalGmv / totalOrders : 0;
+
+      // ── Daily GMV trend ────────────────────────────────────────────────────
+      const dailyRows = await db
+        .select({
+          day: sql<string>`DATE("createdAt")`.as("day"),
+          gmv: sum(orders.totalAmount),
+          orderCount: count(),
+        })
+        .from(orders)
+        .where(and(tenantCond, dateCond))
+        .groupBy(sql`DATE("createdAt")`)
+        .orderBy(sql`DATE("createdAt")`);
+
+      // ── Top products by revenue ────────────────────────────────────────────
+      // Join orderItems with orders to scope by tenant and date
+      const topProducts = await db
+        .select({
+          productId: orderItems.productId,
+          productName: orderItems.productName,
+          totalRevenue: sql<string>`SUM(${orderItems.unitPrice} * ${orderItems.quantity})`.as("totalRevenue"),
+          totalQuantity: sql<number>`SUM(${orderItems.quantity})`.as("totalQuantity"),
+          orderCount: count(orderItems.orderId),
+        })
+        .from(orderItems)
+        .innerJoin(orders, and(
+          eq(orderItems.orderId, orders.id),
+          eq(orders.tenantId, ctx.tenantId),
+          gte(orders.createdAt, start),
+          lte(orders.createdAt, end),
+        ))
+        .groupBy(orderItems.productId, orderItems.productName)
+        .orderBy(sql`SUM(${orderItems.unitPrice} * ${orderItems.quantity}) DESC`)
+        .limit(10);
+
+      return {
+        summary: {
+          totalOrders,
+          totalGmv,
+          aov,
+          periodDays: Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)),
+        },
+        dailyTrend: dailyRows.map(r => ({
+          day: r.day,
+          gmv: parseFloat(String(r.gmv ?? "0")),
+          orderCount: Number(r.orderCount),
+        })),
+        topProducts: topProducts.map(p => ({
+          productId: p.productId,
+          productName: p.productName,
+          totalRevenue: parseFloat(String(p.totalRevenue ?? "0")),
+          totalQuantity: Number(p.totalQuantity ?? 0),
+          orderCount: Number(p.orderCount),
+        })),
+      };
+    }),
+});

@@ -91,7 +91,9 @@ export const appRouter = router({
   receiptScan: receiptScanRouter,
   onboardingProgress: onboardingProgressRouter,
   slaExtension: slaExtensionRouter,
+  operatorTemplates: operatorTemplatesRouter,
 });
 
 export type AppRouter = typeof appRouter;
 import { alertRulesRouter } from "./routers/alertRules";
+import { operatorTemplatesRouter } from "./routers/operatorTemplates";

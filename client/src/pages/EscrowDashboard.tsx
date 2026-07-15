@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +12,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import EscrowTimeline from "@/components/EscrowTimeline";
 import { SlaCountdown } from "@/components/SlaCountdown";
-import { GitBranch, Clock4, History, CheckCircle2, XCircle } from "lucide-react";
+import { GitBranch, Clock4, History, CheckCircle2, XCircle, CheckSquare, X } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 const STATE_COLORS: Record<string, string> = {
@@ -98,6 +100,8 @@ export default function EscrowDashboard() {
   const [extensionHours, setExtensionHours] = useState("24");
   const [extensionReason, setExtensionReason] = useState("");
   const [historyEscrowId, setHistoryEscrowId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"release" | "refund" | null>(null);
 
   const { data: stats, isLoading: statsLoading } = trpc.escrow.getStats.useQuery();
   const { data: config, isLoading: configLoading, refetch: refetchConfig } = trpc.escrow.getConfig.useQuery();
@@ -135,6 +139,17 @@ export default function EscrowDashboard() {
       utils.escrow.listAll.invalidate();
     },
     onError: (e: { message: string }) => toast.error(e.message),
+  });
+
+  const bulkUpdate = trpc.escrow.bulkUpdateState.useMutation({
+    onSuccess: (res) => {
+      toast.success(`Bulk ${bulkAction}: ${res.succeeded} succeeded, ${res.failed} failed`);
+      setSelectedIds(new Set());
+      setBulkAction(null);
+      utils.escrow.listAll.invalidate();
+      utils.escrow.getStats.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
   });
 
   const [cfgForm, setCfgForm] = useState<Record<string, string | boolean>>({});
@@ -175,6 +190,30 @@ export default function EscrowDashboard() {
     "all", "payment_received", "escrow_held", "delivery_confirmed",
     "release_instructed", "settled", "dispute_raised", "dispute_resolved", "refunded",
   ];
+
+  const allItems = txList?.items ?? [];
+  const selectableIds = useMemo(
+    () => allItems.filter(tx => !["settled", "refunded", "expired"].includes(tx.state)).map(tx => tx.id),
+    [allItems],
+  );
+  const allSelected = selectableIds.length > 0 && selectableIds.every(id => selectedIds.has(id));
+  const someSelected = selectedIds.size > 0;
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableIds));
+    }
+  }
+
+  function toggleRow(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   return (
     <>
@@ -236,6 +275,25 @@ export default function EscrowDashboard() {
               </Select>
               <span className="text-sm text-muted-foreground">{txList?.total ?? 0} records</span>
             </div>
+            {someSelected && (
+              <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/5 border border-primary/20 rounded-lg">
+                <CheckSquare className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">{selectedIds.size} selected</span>
+                <div className="flex-1" />
+                <Button size="sm" variant="outline" className="text-green-700 border-green-300 hover:bg-green-50"
+                  onClick={() => setBulkAction("release")} disabled={bulkUpdate.isPending}>
+                  Bulk Release
+                </Button>
+                <Button size="sm" variant="outline" className="text-red-600 border-red-300 hover:bg-red-50"
+                  onClick={() => setBulkAction("refund")} disabled={bulkUpdate.isPending}>
+                  Bulk Refund
+                </Button>
+                <Button size="sm" variant="ghost" className="text-muted-foreground"
+                  onClick={() => setSelectedIds(new Set())}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
             {txLoading ? (
               <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
             ) : (
@@ -243,6 +301,9 @@ export default function EscrowDashboard() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
+                      <th className="px-4 py-3 w-10">
+                        <Checkbox checked={allSelected} onCheckedChange={toggleSelectAll} aria-label="Select all" />
+                      </th>
                       <th className="text-left px-4 py-3 font-medium">Escrow ID</th>
                       <th className="text-left px-4 py-3 font-medium">Order</th>
                       <th className="text-left px-4 py-3 font-medium">Amount</th>
@@ -256,9 +317,14 @@ export default function EscrowDashboard() {
                   </thead>
                   <tbody>
                     {(txList?.items ?? []).length === 0 ? (
-                      <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">No escrow transactions found</td></tr>
+                      <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">No escrow transactions found</td></tr>
                     ) : (txList?.items ?? []).map((tx) => (
-                      <tr key={tx.id} className="border-t hover:bg-muted/30 transition-colors">
+                      <tr key={tx.id} className={`border-t hover:bg-muted/30 transition-colors ${selectedIds.has(tx.id) ? "bg-primary/5" : ""}`}>
+                        <td className="px-4 py-3">
+                          {!["settled", "refunded", "expired"].includes(tx.state) && (
+                            <Checkbox checked={selectedIds.has(tx.id)} onCheckedChange={() => toggleRow(tx.id)} aria-label={`Select ${tx.id}`} />
+                          )}
+                        </td>
                         <td className="px-4 py-3 font-mono text-xs">{tx.id.slice(0, 8)}…</td>
                         <td className="px-4 py-3 font-mono text-xs">{tx.orderId.slice(0, 8)}…</td>
                         <td className="px-4 py-3 font-medium">{formatNGN(tx.amount)}</td>
@@ -574,6 +640,36 @@ export default function EscrowDashboard() {
         </div>
       </DialogContent>
     </Dialog>
+    {/* Bulk Action Confirmation Dialog */}
+    <AlertDialog open={!!bulkAction} onOpenChange={(open) => { if (!open) setBulkAction(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {bulkAction === "release" ? "Bulk Release Funds" : "Bulk Refund Orders"}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {bulkAction === "release"
+              ? `You are about to release funds for ${selectedIds.size} escrow transaction(s). Merchant net amounts will be settled and orders marked as delivered.`
+              : `You are about to refund ${selectedIds.size} escrow transaction(s). Full amounts will be returned and orders marked as refunded.`
+            }
+            {" "}This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setBulkAction(null)}>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={bulkAction === "refund" ? "bg-red-600 hover:bg-red-700" : "bg-green-700 hover:bg-green-600"}
+            onClick={() => {
+              if (!bulkAction) return;
+              bulkUpdate.mutate({ escrowIds: Array.from(selectedIds), action: bulkAction });
+            }}
+            disabled={bulkUpdate.isPending}
+          >
+            {bulkUpdate.isPending ? "Processing…" : bulkAction === "release" ? `Release ${selectedIds.size}` : `Refund ${selectedIds.size}`}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }

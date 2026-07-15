@@ -1366,7 +1366,7 @@ export const merchantOnboardingProgress = pgTable("merchant_onboarding_progress"
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
-  index("onboarding_tenant_idx").on(t.tenantId),
+  index("merchant_onboarding_tenant_idx").on(t.tenantId),
 ]);
 export type MerchantOnboardingProgress = typeof merchantOnboardingProgress.$inferSelect;
 export type NewMerchantOnboardingProgress = typeof merchantOnboardingProgress.$inferInsert;
@@ -1442,3 +1442,29 @@ export const escrowSlaExtensions = pgTable("escrow_sla_extensions", {
   index("sla_ext_token_idx").on(t.buyerToken),
 ]);
 export type EscrowSlaExtension = typeof escrowSlaExtensions.$inferSelect;
+
+// ── Operator-level WhatsApp Message Templates ─────────────────────────────
+export const operatorTemplateCategoryEnum = pgEnum("operator_template_category", [
+  "transactional", "marketing", "utility", "authentication", "custom",
+]);
+
+export const operatorTemplates = pgTable("operator_templates", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: varchar("name", { length: 255 }).notNull().unique(),
+  category: operatorTemplateCategoryEnum("category").default("transactional").notNull(),
+  language: varchar("language", { length: 10 }).default("en").notNull(),
+  headerText: varchar("headerText", { length: 255 }),
+  bodyText: text("bodyText").notNull(),
+  footerText: varchar("footerText", { length: 255 }),
+  variables: jsonb("variables").$type<string[]>(),
+  isActive: boolean("isActive").default(true).notNull(),
+  description: text("description"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("op_tmpl_category_idx").on(t.category),
+  index("op_tmpl_active_idx").on(t.isActive),
+]);
+
+export type OperatorTemplate = typeof operatorTemplates.$inferSelect;
+export type InsertOperatorTemplate = typeof operatorTemplates.$inferInsert;

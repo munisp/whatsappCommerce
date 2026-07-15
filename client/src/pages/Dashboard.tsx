@@ -27,6 +27,7 @@ export default function Dashboard() {
     { tenantId: DEMO_TENANT },
     { enabled: !!DEMO_TENANT }
   );
+  const { data: funnelData } = trpc.onboardingProgress.getFunnelAnalytics.useQuery();
   const [, setLocation] = useLocation();
   const lowStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "low_stock").length ?? 0;
   const outOfStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "out_of_stock").length ?? 0;
@@ -219,4 +220,3 @@ export default function Dashboard() {
     </DashboardLayout>
   );
 }
-  const { data: funnelData } = trpc.onboardingProgress.getFunnelAnalytics.useQuery();

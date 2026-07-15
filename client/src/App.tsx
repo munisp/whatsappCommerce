@@ -50,6 +50,7 @@ import DisputeManagement from "./pages/DisputeManagement";
 import PortalWallet from "./pages/portal/PortalWallet";
 import OnboardingWizard from "./pages/portal/OnboardingWizard";
 import EvidencePortal from "./pages/EvidencePortal";
+import MerchantAnalytics from "./pages/portal/MerchantAnalytics";
 
 function Router() {
   return (
@@ -98,6 +99,8 @@ function Router() {
           <Route path="/disputes" component={DisputeManagement} />
           <Route path="/portal/wallet" component={PortalWallet} />
           <Route path="/portal/setup" component={() => <OnboardingWizard onComplete={() => { window.location.href = "/portal"; }} />} />
+          <Route path="/portal/analytics" component={MerchantAnalytics} />
+          <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
           <Route path="/sla-extension/:token" component={SlaExtensionResponse} />
           <Route path="/404" component={NotFound} />
@@ -121,3 +124,4 @@ function App() {
 
 export default App;
 import SlaExtensionResponse from "./pages/SlaExtensionResponse";
+import OperatorTemplates from "./pages/OperatorTemplates";
