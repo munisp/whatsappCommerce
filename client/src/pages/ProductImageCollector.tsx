@@ -331,9 +331,14 @@ export default function ProductImageCollector() {
   // Quality-gated: classes where qualityImages (score ≥ 3) meets target
   const qualityReadyClasses = classes?.filter(c => (c.qualityImages ?? 0) >= targetCount).length ?? 0;
   const totalClasses = classes?.length ?? 30;
+  // Bbox coverage across all classes
+  const totalBboxImages = classes?.reduce((s, c) => s + (c.bboxImages ?? 0), 0) ?? 0;
+  const [filterNoBbox, setFilterNoBbox] = useState(false);
   const displayedClasses = filterNeedingImages
     ? (classes?.filter(c => c.totalImages < targetCount) ?? [])
-    : (classes ?? []);
+    : filterNoBbox
+      ? (classes?.filter(c => (c.bboxImages ?? 0) < c.totalImages) ?? [])
+      : (classes ?? []);
 
   const getProgressColor = (count: number) => {
     if (count >= targetCount) return "bg-green-500";
@@ -418,7 +423,7 @@ export default function ProductImageCollector() {
         </div>
 
         {/* Dataset Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {[
             { label: "Total Images", value: stats?.totalImages ?? 0, icon: <BarChart3 className="w-5 h-5 text-blue-500" /> },
             { label: "Classes with Images", value: stats?.classesWithImages ?? 0, icon: <Layers className="w-5 h-5 text-purple-500" /> },
@@ -437,6 +442,17 @@ export default function ProductImageCollector() {
               </CardContent>
             </Card>
           ))}
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              <div className="flex items-center gap-3">
+                <Pencil className="w-5 h-5 text-orange-500" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Bbox Annotated</p>
+                  <p className="text-xl font-bold">{totalBboxImages}/{stats?.totalImages ?? 0}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Fine-Tune Run Panel */}
@@ -722,8 +738,12 @@ export default function ProductImageCollector() {
               <span>Class Progress ({readyClasses}/{totalClasses} at target · {qualityReadyClasses} quality-gated)</span>
               <div className="flex items-center gap-2">
                 <Button variant={filterNeedingImages ? "default" : "outline"} size="sm"
-                  className="gap-1 h-7 text-xs" onClick={() => setFilterNeedingImages(!filterNeedingImages)}>
+                  className="gap-1 h-7 text-xs" onClick={() => { setFilterNeedingImages(!filterNeedingImages); setFilterNoBbox(false); }}>
                   <Filter className="w-3 h-3" />Needs Images
+                </Button>
+                <Button variant={filterNoBbox ? "default" : "outline"} size="sm"
+                  className="gap-1 h-7 text-xs" onClick={() => { setFilterNoBbox(!filterNoBbox); setFilterNeedingImages(false); }}>
+                  <Pencil className="w-3 h-3" />Needs Bbox
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => refetchClasses()}>
                   <RefreshCw className="w-3 h-3" />
