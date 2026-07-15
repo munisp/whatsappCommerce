@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useState } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-600/20 text-yellow-400 border-yellow-600/30",
@@ -18,6 +20,8 @@ const STATUS_COLORS: Record<string, string> = {
 
 export default function PortalOrders() {
   const [filter, setFilter] = useState("all");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   const { data: orders, refetch } = trpc.tenantPortal.listMyOrders.useQuery({
     status: filter === "all" ? undefined : filter,
     limit: 100,
@@ -26,6 +30,11 @@ export default function PortalOrders() {
     onSuccess: () => { toast.success("Order status updated"); refetch(); },
     onError: (e) => toast.error(e.message),
   });
+
+  const { data: orderDetail, isLoading: detailLoading } = trpc.tenantPortal.getMyOrderDetail.useQuery(
+    { orderId: expandedId ?? "" },
+    { enabled: !!expandedId }
+  );
 
   return (
     <TenantPortalLayout>
@@ -49,6 +58,7 @@ export default function PortalOrders() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-700 text-slate-400 text-xs">
+                  <th className="text-left p-4 w-8"></th>
                   <th className="text-left p-4">Order #</th>
                   <th className="text-left p-4">Date</th>
                   <th className="text-left p-4">Amount</th>
@@ -59,7 +69,12 @@ export default function PortalOrders() {
               </thead>
               <tbody>
                 {(orders ?? []).map(order => (
-                  <tr key={order.id} className="border-b border-slate-700/50 hover:bg-slate-700/30">
+                  <>
+                  <tr key={order.id} className={`border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer ${expandedId === order.id ? "bg-slate-700/40" : ""}`}
+                    onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}>
+                    <td className="p-4 text-slate-400">
+                      {expandedId === order.id ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </td>
                     <td className="p-4 font-mono text-white">{order.orderNumber}</td>
                     <td className="p-4 text-slate-400">{new Date(order.createdAt).toLocaleDateString()}</td>
                     <td className="p-4 text-emerald-400 font-semibold">${Number(order.totalAmount).toFixed(2)}</td>
@@ -72,7 +87,7 @@ export default function PortalOrders() {
                     <td className="p-4">
                       {["pending","confirmed","processing"].includes(order.status) && (
                         <Select
-                          onValueChange={(v: any) => updateMutation.mutate({ orderId: order.id, status: v })}
+                          onValueChange={(v: any) => { updateMutation.mutate({ orderId: order.id, status: v }); }}
                         >
                           <SelectTrigger className="h-7 w-32 bg-slate-700 border-slate-600 text-xs text-white">
                             <SelectValue placeholder="Update…" />
@@ -86,6 +101,40 @@ export default function PortalOrders() {
                       )}
                     </td>
                   </tr>
+                  {expandedId === order.id && (
+                    <tr key={`${order.id}-detail`} className="bg-slate-800/60 border-b border-slate-700/50">
+                      <td colSpan={7} className="px-6 py-4">
+                        {detailLoading ? (
+                          <div className="space-y-2"><Skeleton className="h-4 w-48 bg-slate-700" /><Skeleton className="h-4 w-32 bg-slate-700" /></div>
+                        ) : orderDetail ? (
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-3 gap-4 text-xs">
+                              <div><p className="text-slate-500">Customer ID</p><p className="text-slate-200 font-mono text-[10px]">{orderDetail.order.customerId ?? "—"}</p></div>
+                              <div><p className="text-slate-500">Payment</p><p className="text-slate-200 capitalize">{orderDetail.order.paymentStatus}</p></div>
+                              <div><p className="text-slate-500">Notes</p><p className="text-slate-200">{(orderDetail.order as any).notes ?? "—"}</p></div>
+                            </div>
+                            {orderDetail.items && orderDetail.items.length > 0 && (
+                              <div>
+                                <p className="text-xs text-slate-500 mb-2">Items</p>
+                                <div className="space-y-1">
+                                  {orderDetail.items.map((item: any, i: number) => (
+                                    <div key={i} className="flex items-center justify-between text-xs bg-slate-700/40 rounded px-3 py-2">
+                                      <span className="text-slate-200">{item.productName ?? item.productId}</span>
+                                      <span className="text-slate-400">x{item.quantity}</span>
+                                      <span className="text-emerald-400">${Number(item.unitPrice ?? 0).toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-slate-500 text-xs">No detail available</p>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 ))}
               </tbody>
             </table>

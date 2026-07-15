@@ -798,6 +798,23 @@ export const escrowDisputeRouter = router({
       }
       return updated!;
     }),
+  // Escalate a dispute that has been open too long
+  escalate: protectedProcedure
+    .input(z.object({ disputeId: z.string(), reason: z.string().optional() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const [dispute] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
+      if (!dispute) throw new Error("Dispute not found");
+      if ((dispute.status as string) === "escalated") throw new Error("Dispute is already escalated");
+      await db.update(escrowDisputes).set({
+        status: "escalated" as any,
+        escalatedAt: new Date(),
+        updatedAt: new Date(),
+      }).where(eq(escrowDisputes.id, input.disputeId));
+      const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
+      return updated!;
+    }),
 });
 
 // ─── Wallet Router ────────────────────────────────────────────────────────────
@@ -921,6 +938,24 @@ export const walletRouter = router({
         : new Date().toISOString().slice(0, 10);
       const filename = `wallet_ledger_${input.tenantId.slice(0, 8)}_${dateTag}.csv`;
       return { csv, filename, rowCount: txs.length };
+    }),
+  // Top up / deposit funds into a merchant wallet (mock flow)
+  topUp: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      amount: z.number().positive(),
+      note: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
+      const ref = `TOPUP-${Date.now()}-${input.tenantId.slice(0, 6).toUpperCase()}`;
+      await recordWalletTx(db, wallet.id, input.tenantId, "float_income", input.amount, {
+        description: input.note ?? "Manual top-up / deposit",
+        reference: ref,
+      });
+      return { success: true, reference: ref, amount: input.amount };
     }),
 });
 

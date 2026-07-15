@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Megaphone, Plus, Send, CheckCircle2, XCircle, Clock, Users,
-  MessageSquare, Search, ChevronRight, Eye,
+  MessageSquare, Search, ChevronRight, Eye, Calendar,
 } from "lucide-react";
 
 type Category = "all" | "transactional" | "marketing" | "utility" | "authentication" | "custom";
@@ -82,6 +82,8 @@ export default function PortalBroadcasts() {
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [templateSearch, setTemplateSearch] = useState("");
   const [templateCategory, setTemplateCategory] = useState<Category>("all");
+  const [varMapping, setVarMapping] = useState<Record<string, string>>({});
+  const [scheduledAt, setScheduledAt] = useState("");
 
   // Campaigns list
   const { data: campaignsData, isLoading: campaignsLoading, refetch } = trpc.broadcast.list.useQuery({
@@ -117,6 +119,8 @@ export default function PortalBroadcasts() {
       setNewName("");
       setNewSegment("all");
       setSelectedTemplateId("");
+      setVarMapping({});
+      setScheduledAt("");
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -393,6 +397,26 @@ export default function PortalBroadcasts() {
             )}
           </div>
 
+            {/* Variable mapping inputs */}
+            {selectedTemplate && templateVars.length > 0 && (
+              <div className="space-y-2 border rounded-lg p-3 bg-muted/20 mb-4">
+                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Variable Mapping</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {templateVars.map(v => (
+                    <div key={v} className="space-y-1">
+                      <Label className="text-xs font-mono text-primary">{`{{${v}}}`}</Label>
+                      <Input className="h-7 text-xs" placeholder={`Value for ${v}`} value={varMapping[v] ?? ""} onChange={e => setVarMapping(prev => ({ ...prev, [v]: e.target.value }))} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Scheduled send time */}
+            <div className="space-y-1.5 mb-4">
+              <Label className="flex items-center gap-1.5"><Calendar className="w-3.5 h-3.5" />Schedule Send (optional)</Label>
+              <Input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)} className="text-sm" />
+              <p className="text-xs text-muted-foreground">Leave empty to send immediately.</p>
+            </div>
           <DialogFooter className="pt-2">
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
@@ -401,6 +425,7 @@ export default function PortalBroadcasts() {
                 name: newName,
                 templateId: selectedTemplateId || undefined,
                 segment: newSegment as any,
+                scheduledAt: scheduledAt ? new Date(scheduledAt).getTime() : undefined,
               })}
               disabled={createCampaign.isPending || !newName.trim()}
             >

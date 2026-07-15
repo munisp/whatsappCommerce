@@ -14,6 +14,7 @@ import {
   ArrowRight, ArrowLeft, Upload, Camera, Eye, Loader2, AlertCircle,
   TrendingUp, DollarSign, Zap, Star, Info,
 } from "lucide-react";
+import { Mail } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Step = "business_profile" | "billing_model" | "whatsapp_setup" | "kyc_kyb" | "review";
@@ -359,6 +360,11 @@ export default function TenantOnboarding() {
   });
 
   const submitApplication = trpc.kyc.submit.useMutation();
+
+  const sendProgressEmail = trpc.onboarding.sendProgressEmail.useMutation({
+    onSuccess: (data) => toast.success(`Progress email sent for "${data.tenantName}" (step: ${data.step})`),
+    onError: (e) => toast.error(e.message),
+  });
 
   const handleNext = async () => {
     if (currentStep === "kyc_kyb" && !form.kycApplicationId) {
@@ -781,6 +787,18 @@ export default function TenantOnboarding() {
                 <div className="bg-muted/40 rounded-lg p-3 text-xs text-muted-foreground">
                   By submitting, you confirm all information is accurate and agree to our Terms of Service and Privacy Policy.
                   Your KYC/KYB documents will be reviewed within 1–2 business days.
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 text-xs"
+                    onClick={() => sendProgressEmail.mutate({ tenantId: "demo-tenant-id" })}
+                    disabled={sendProgressEmail.isPending}
+                  >
+                    {sendProgressEmail.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                    Send Progress Email
+                  </Button>
                 </div>
               </CardContent>
             </>

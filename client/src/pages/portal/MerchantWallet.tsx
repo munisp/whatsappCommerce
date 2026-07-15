@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { toast } from "sonner";
 import { useState } from "react";
 import { Download, CalendarIcon, X } from "lucide-react";
+import { PlusCircle } from "lucide-react";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
 
@@ -42,6 +43,9 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
   // Date range picker state
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState("");
+  const [topUpNote, setTopUpNote] = useState("");
 
   const { data: wallet, isLoading: walletLoading, refetch } = trpc.wallet.getBalance.useQuery({ tenantId });
   const { data: txs, isLoading: txLoading } = trpc.wallet.listTransactions.useQuery({ tenantId, limit: 50 });
@@ -52,6 +56,17 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
     onSuccess: (data) => {
       toast.success(`Withdrawal of ${formatNGN(data.amount)} initiated. Ref: ${data.reference}`);
       setWithdrawOpen(false);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const topUp = trpc.wallet.topUp.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Top-up of ${formatNGN(data.amount)} successful. Ref: ${data.reference}`);
+      setTopUpOpen(false);
+      setTopUpAmount("");
+      setTopUpNote("");
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -117,6 +132,12 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
           {isPspMode && (
             <Button onClick={() => setWithdrawOpen(true)} disabled={!wallet || parseFloat(wallet.availableBalance) <= 0}>
               Request Withdrawal
+            </Button>
+          )}
+          {isPspMode && (
+            <Button variant="outline" onClick={() => setTopUpOpen(true)}>
+              <PlusCircle className="h-4 w-4 mr-2" />
+              Top Up
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => setDateRangeOpen(true)}>
@@ -251,6 +272,43 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
       </Dialog>
 
       {/* Withdrawal Dialog */}
+      <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
+      </Dialog>
+
+      {/* Top-Up Dialog */}
+      <Dialog open={topUpOpen} onOpenChange={setTopUpOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PlusCircle className="h-4 w-4 text-green-600" />
+              Top Up Wallet
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Deposit funds into your merchant wallet. This is a mock flow for testing.</p>
+            <div className="space-y-1">
+              <Label>Amount (NGN)</Label>
+              <Input type="number" value={topUpAmount} onChange={(e) => setTopUpAmount(e.target.value)} placeholder="e.g. 50000" min={1} />
+            </div>
+            <div className="space-y-1">
+              <Label>Note (optional)</Label>
+              <Input value={topUpNote} onChange={(e) => setTopUpNote(e.target.value)} placeholder="e.g. Initial deposit" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTopUpOpen(false)}>Cancel</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              disabled={topUp.isPending || !topUpAmount || parseFloat(topUpAmount) <= 0}
+              onClick={() => topUp.mutate({ tenantId, amount: parseFloat(topUpAmount), note: topUpNote || undefined })}
+            >
+              {topUp.isPending ? "Processing…" : "Confirm Top-Up"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Withdrawal Dialog (re-opened) */}
       <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>

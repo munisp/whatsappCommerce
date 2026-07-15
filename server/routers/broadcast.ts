@@ -241,4 +241,38 @@ export const broadcastRouter = router({
       }
       return { preview };
     }),
+  // Simulate delivery/read events on a sent campaign
+  simulateDelivery: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const [campaign] = await db.select().from(broadcastCampaigns)
+        .where(eq(broadcastCampaigns.id, input.campaignId)).limit(1);
+      if (!campaign) throw new Error("Campaign not found");
+      if (campaign.status !== "completed") throw new Error("Campaign must be completed before simulating delivery");
+      const recipients = await db.select().from(broadcastRecipients)
+        .where(eq(broadcastRecipients.campaignId, input.campaignId));
+      let delivered = 0;
+      let read = 0;
+      for (const r of recipients) {
+        const willDeliver = Math.random() > 0.1;
+        const willRead = willDeliver && Math.random() > 0.35;
+        const newStatus = willRead ? "read" : willDeliver ? "delivered" : r.status;
+        if (willDeliver || willRead) {
+          await db.update(broadcastRecipients).set({
+            status: newStatus as any,
+            deliveredAt: willDeliver ? new Date() : r.deliveredAt,
+          }).where(eq(broadcastRecipients.id, r.id));
+          if (willDeliver) delivered++;
+          if (willRead) read++;
+        }
+      }
+      await db.update(broadcastCampaigns).set({
+        deliveredCount: delivered,
+        readCount: read,
+        updatedAt: new Date(),
+      }).where(eq(broadcastCampaigns.id, input.campaignId));
+      return { delivered, read, total: recipients.length };
+    }),
 });

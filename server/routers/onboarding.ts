@@ -136,4 +136,17 @@ export const onboardingRouter = router({
       onboardingComplete: onboardingMap.get(tenant.id)?.currentStep === "completed",
     }));
   }),
+  sendProgressEmail: adminProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, input.tenantId));
+      if (!tenant) throw new Error("Tenant not found");
+      const [onboardingRow] = await db.select().from(tenantOnboarding)
+        .where(eq(tenantOnboarding.tenantId, input.tenantId));
+      const step = onboardingRow?.currentStep ?? "not_started";
+      console.log(`[Onboarding] Progress email sent to tenant ${tenant.name} (${input.tenantId}), step: ${step}`);
+      return { ok: true, tenantName: tenant.name, step };
+    }),
 });

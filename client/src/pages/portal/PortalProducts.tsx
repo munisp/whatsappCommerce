@@ -9,7 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Package, Edit2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-
 type ProductRow = {
   id: string; tenantId: string; sku: string; name: string;
   description: string | null; category: string | null; price: string;
@@ -38,6 +37,26 @@ export default function PortalProducts() {
     <TenantPortalLayout>
       <div className="space-y-6">
         <h1 className="text-2xl font-bold text-white">My Products</h1>
+        {/* Low-stock alert banner */}
+        {(() => {
+          const lowStockItems = ((products ?? []) as ProductRow[]).filter(
+            p => p.status === "active" && p.stockQuantity <= (p.lowStockThreshold ?? 10)
+          );
+          if (lowStockItems.length === 0) return null;
+          return (
+            <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg px-4 py-3">
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-400">
+                  {lowStockItems.length} product{lowStockItems.length > 1 ? "s" : ""} running low on stock
+                </p>
+                <p className="text-xs text-amber-400/70 mt-0.5">
+                  {lowStockItems.map(p => `${p.name} (${p.stockQuantity} left)`).join(" · ")}
+                </p>
+              </div>
+            </div>
+          );
+        })()}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {((products ?? []) as ProductRow[]).map(p => (
             <Card key={p.id} className="bg-slate-800 border-slate-700">

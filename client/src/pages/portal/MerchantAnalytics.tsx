@@ -34,9 +34,10 @@ function fmt(n: number) {
 
 export default function MerchantAnalytics() {
   const [period, setPeriod] = useState<Period>("30d");
+  const [compare, setCompare] = useState(false);
 
   const { data, isLoading } = trpc.tenantPortal.getAnalytics.useQuery(
-    { period },
+    { period, compare },
     { staleTime: 60_000 },
   );
 
@@ -83,6 +84,13 @@ export default function MerchantAnalytics() {
             <p className="text-sm text-muted-foreground mt-1">{periodLabel}</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant={compare ? "default" : "outline"}
+              size="sm"
+              onClick={() => setCompare(v => !v)}
+            >
+              {compare ? "Hide Comparison" : "Compare Period"}
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -192,6 +200,18 @@ export default function MerchantAnalytics() {
                     dot={false}
                     activeDot={{ r: 5 }}
                   />
+                  {compare && (data?.prevDailyTrend ?? []).length > 0 && (
+                    <Line
+                      type="monotone"
+                      data={data?.prevDailyTrend}
+                      dataKey="gmv"
+                      stroke="#94a3b8"
+                      strokeWidth={1.5}
+                      strokeDasharray="4 2"
+                      dot={false}
+                      name="Prev Period"
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             )}

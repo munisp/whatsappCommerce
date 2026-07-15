@@ -409,6 +409,34 @@ export default function EvidencePortal() {
             {scanResult && !scanning && (
               <div className="mt-3"><AiScanPanel result={scanResult} onDismiss={() => setScanResult(null)} /></div>
             )}
+            {/* Retry scan button */}
+            {scanResult && !scanning && selectedFile && selectedFile.type.startsWith("image/") && (
+              <button
+                type="button"
+                className="mt-2 text-xs text-primary underline underline-offset-2 hover:text-primary/80 flex items-center gap-1"
+                onClick={async () => {
+                  setScanResult(null);
+                  setScanning(true);
+                  const reader = new FileReader();
+                  reader.onload = async (ev) => {
+                    const dataUrl = ev.target?.result as string;
+                    const base64 = dataUrl.split(",")[1];
+                    try {
+                      const result = await scanMutation.mutateAsync({
+                        imageBase64: base64,
+                        mimeType: selectedFile.type as "image/jpeg" | "image/png" | "image/webp",
+                      });
+                      setScanResult(result as ScanResult);
+                    } catch { toast.error("Retry scan failed"); }
+                    finally { setScanning(false); }
+                  };
+                  reader.readAsDataURL(selectedFile);
+                }}
+              >
+                <Sparkles className="h-3 w-3" />
+                Retry AI Scan
+              </button>
+            )}
           </div>
 
           {/* Note */}

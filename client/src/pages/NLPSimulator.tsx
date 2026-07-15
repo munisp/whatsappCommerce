@@ -27,6 +27,7 @@ interface Message {
   intent?: string;
   language?: string;
   timestamp: Date;
+  confidence?: number;
 }
 
 export default function NLPSimulator() {
@@ -66,6 +67,7 @@ export default function NLPSimulator() {
         intent: result.intent,
         language: result.language,
         timestamp: new Date(),
+        confidence: result.confidence,
       }]);
     } catch (e: any) {
       toast.error(e.message ?? "Failed to process message");
@@ -86,7 +88,7 @@ export default function NLPSimulator() {
   const starters = LANGUAGE_STARTERS[detectedLang] ?? LANGUAGE_STARTERS.english;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">NLP Conversation Simulator</h1>
@@ -145,6 +147,8 @@ export default function NLPSimulator() {
       </div>
 
       {/* Chat window */}
+      <div className="grid grid-cols-3 gap-4">
+      <div className="col-span-2">
       <Card className="h-[420px] flex flex-col">
         <CardHeader className="py-3 px-4 border-b">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -211,7 +215,39 @@ export default function NLPSimulator() {
           </Button>
         </div>
       </Card>
+      </div>
+
+      {/* Confidence Heatmap Panel */}
+      <div className="col-span-1">
+        <Card className="h-[420px] flex flex-col">
+          <CardHeader className="py-3 px-4 border-b">
+            <CardTitle className="text-sm">Intent Confidence</CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 overflow-y-auto p-3 space-y-2">
+            {messages.filter(m => m.role === "bot" && m.intent).length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center mt-8">No intents yet</p>
+            ) : (
+              messages.filter(m => m.role === "bot" && m.intent).slice(-10).map((m, i) => {
+                const conf = m.confidence ?? 0;
+                const pct = Math.round(conf * 100);
+                const color = pct >= 80 ? "bg-green-500" : pct >= 50 ? "bg-amber-500" : "bg-red-500";
+                return (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground capitalize">{m.intent?.replace(/_/g, " ")}</span>
+                      <span className={`font-mono font-semibold ${pct >= 80 ? "text-green-600" : pct >= 50 ? "text-amber-600" : "text-red-600"}`}>{pct}%</span>
+                    </div>
+                    <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
+      </div>
+      </div>
     </div>
   );
 }
-

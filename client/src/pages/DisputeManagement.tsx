@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,26 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 import type { EscrowDispute } from "../../../drizzle/schema";
+import { AlertTriangle, Download } from "lucide-react";
+
+/** Returns a human-readable countdown string from a future timestamp */
+function useCountdown(deadlineMs: number | null | undefined) {
+  const [remaining, setRemaining] = useState("");
+  useEffect(() => {
+    if (!deadlineMs) { setRemaining(""); return; }
+    const tick = () => {
+      const diff = deadlineMs - Date.now();
+      if (diff <= 0) { setRemaining("Overdue"); return; }
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      setRemaining(`${h}h ${m}m remaining`);
+    };
+    tick();
+    const id = setInterval(tick, 60_000);
+    return () => clearInterval(id);
+  }, [deadlineMs]);
+  return remaining;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   open: "bg-red-100 text-red-700",
@@ -32,6 +53,8 @@ export default function DisputeManagement() {
   const [selected, setSelected] = useState<EscrowDispute | null>(null);
   const [resolution, setResolution] = useState<string>("full_release_to_merchant");
   const [notes, setNotes] = useState("");
+  const [escalateId, setEscalateId] = useState<string | null>(null);
+  const [escalateReason, setEscalateReason] = useState("");
 
   const { data: disputes, isLoading, refetch } = trpc.escrowDispute.list.useQuery({
     status: statusFilter === "all" ? undefined : statusFilter,
@@ -42,6 +65,16 @@ export default function DisputeManagement() {
     onSuccess: () => {
       toast.success("Dispute resolved");
       setSelected(null);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const escalate = trpc.escrowDispute.escalate.useMutation({
+    onSuccess: () => {
+      toast.success("Dispute escalated");
+      setEscalateId(null);
+      setEscalateReason("");
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -143,6 +176,12 @@ export default function DisputeManagement() {
                           Review
                         </Button>
                       )}
+                      {["open", "under_review"].includes(d.status) && (
+                        <Button size="sm" variant="ghost" className="text-xs h-7 ml-1 text-purple-600 hover:text-purple-700"
+                          onClick={() => { setEscalateId(d.id); setEscalateReason(""); }}>
+                          Escalate
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -169,6 +208,10 @@ export default function DisputeManagement() {
                     </div>
                   )}
                 </div>
+                {/* Escalation timer */}
+                {(selected as any).deadline && (
+                  <EscalationTimer deadlineMs={(selected as any).deadline} />
+                )}
                 <div className="space-y-1">
                   <Label>Resolution</Label>
                   <Select value={resolution} onValueChange={setResolution}>
@@ -201,7 +244,47 @@ export default function DisputeManagement() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Escalate Dialog */}
+        <Dialog open={!!escalateId} onOpenChange={(open) => !open && setEscalateId(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-purple-600" />
+                Escalate Dispute
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">Escalating will flag this dispute for senior review and notify all parties.</p>
+              <div className="space-y-1">
+                <Label>Escalation Reason</Label>
+                <Textarea value={escalateReason} onChange={e => setEscalateReason(e.target.value)} placeholder="Describe why this dispute needs escalation…" rows={3} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEscalateId(null)}>Cancel</Button>
+              <Button
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+                disabled={escalate.isPending || !escalateReason.trim()}
+                onClick={() => escalateId && escalate.mutate({ disputeId: escalateId, reason: escalateReason })}
+              >
+                {escalate.isPending ? "Escalating…" : "Escalate"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
+  );
+}
+
+function EscalationTimer({ deadlineMs }: { deadlineMs: number }) {
+  const remaining = useCountdown(deadlineMs);
+  const isOverdue = Date.now() > deadlineMs;
+  return (
+    <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${isOverdue ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"}`}>
+      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+      <span>Escalation deadline: {remaining || new Date(deadlineMs).toLocaleString()}</span>
+    </div>
   );
 }

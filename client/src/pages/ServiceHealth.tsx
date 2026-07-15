@@ -3,6 +3,26 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Activity, CheckCircle, Server, XCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+
+// Mini sparkline component using SVG
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (!values.length) return null;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const w = 80; const h = 24;
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1 || 1)) * w;
+    const y = h - ((v - min) / range) * h;
+    return `${x},${y}`;
+  }).join(" ");
+  return (
+    <svg width={w} height={h} className="overflow-visible">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 const SERVICES = [
   { name: "API Gateway", lang: "Go", port: 8080, desc: "APISIX-style reverse proxy, rate limiting, JWT validation" },
@@ -26,6 +46,22 @@ const langColors: Record<string, string> = {
 
 export default function ServiceHealth() {
   const { data: health } = trpc.agent.health.useQuery();
+  // Simulate latency history per service (last 8 checks)
+  const [latencyHistory, setLatencyHistory] = useState<Record<string, number[]>>({});
+
+  useEffect(() => {
+    if (!health) return;
+    setLatencyHistory(prev => {
+      const next = { ...prev };
+      for (const h of health) {
+        if (h.latencyMs != null) {
+          const existing = prev[h.serviceName] ?? [];
+          next[h.serviceName] = [...existing.slice(-7), h.latencyMs];
+        }
+      }
+      return next;
+    });
+  }, [health]);
 
   const healthMap = new Map((health ?? []).map((h) => [h.serviceName, h]));
 
@@ -90,6 +126,12 @@ export default function ServiceHealth() {
                         "bg-gray-500/20 text-gray-400 border-gray-500/30"
                       }>{status}</Badge>
                       {h?.latencyMs && <span className="text-xs text-muted-foreground font-mono">{h.latencyMs}ms</span>}
+                      {latencyHistory[svc.name] && latencyHistory[svc.name].length > 1 && (
+                        <Sparkline
+                          values={latencyHistory[svc.name]}
+                          color={status === "healthy" ? "#4ade80" : status === "degraded" ? "#facc15" : "#f87171"}
+                        />
+                      )}
                     </div>
                   </div>
                 </CardContent>

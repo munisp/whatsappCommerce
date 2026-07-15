@@ -517,3 +517,33 @@
 - [x] Frontend: QUICK_FILTERS constant with label + state + color for key states (All, Held, Disputed, Pending Release, Settled)
 - [x] Frontend: Chip row above the transaction table; clicking a chip sets stateFilter and selects all matching rows
 - [x] Frontend: "Select matching" badge count on each chip showing how many rows match
+
+## Round 7: All 20 Suggested Next Steps
+
+### Batch A — Broadcasts & Analytics
+- [x] A1: Template variable mapping UI — map {{variable}} placeholders to CRM contact fields in create-campaign dialog
+- [x] A2: Scheduled broadcast — date/time picker in create-campaign dialog wired to scheduledAt field
+- [x] A3: Analytics period comparison — "Compare to previous period" toggle overlays prior-period GMV as dashed line
+- [x] A4: Dispute evidence download — "Download Evidence" button on DisputeManagement page to export evidence files as ZIP
+- [x] A5: SLA extension email preview — show rendered email body preview in the SLA extension request dialog
+
+### Batch B — Templates & Portal
+- [x] B1: Tenant template assignment — operator can assign specific templates to specific tenants from /operator-templates
+- [x] B2: Analytics comparison CSV — Export CSV includes both current and prior period columns when comparison is active
+- [x] B3: Bulk filter chip persistence — remember last active chip in localStorage so it survives page refresh
+- [x] B4: Onboarding progress email — send owner notification when a merchant completes onboarding wizard
+- [x] B5: AI scan retry — "Retry Scan" button in EvidencePortal when scan confidence is below threshold
+
+### Batch C — Escrow, Orders & Products
+- [x] C1: Broadcast delivery webhook simulation — "Simulate Delivery" button on a sent campaign to fire mock delivery/read events
+- [x] C2: Escrow dispute auto-escalation — show "Escalate" button on disputes open > 72 h; update status to escalated
+- [x] C3: Merchant wallet top-up flow — "Top Up" button on PortalWallet that opens a payment dialog (mock flow)
+- [x] C4: Portal order detail page — /portal/orders/:id with full line items, status timeline, and update-status button
+- [x] C5: Product low-stock alerts — badge + alert banner on PortalProducts when stockQuantity < 5
+
+### Batch D — Admin & Platform
+- [x] D1: NLP intent confidence heatmap — add a heatmap chart to NLPSimulator showing intent vs confidence matrix
+- [x] D2: Keycloak SSO status indicator — show per-tenant SSO enabled/disabled badge on Tenants list page
+- [x] D3: Reconciliation export — "Export CSV" button on ReconciliationSim page
+- [x] D4: Service health history chart — sparkline trend of uptime % per service on ServiceHealth page
+- [x] D5: Admin audit log viewer — new /audit-log page listing all admin mutations with user, action, timestamp

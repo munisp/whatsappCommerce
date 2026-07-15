@@ -203,6 +203,7 @@ export const tenantPortalRouter = router({
       period: z.enum(["7d", "30d", "90d", "custom"]).default("30d"),
       startDate: z.string().optional(), // ISO date string
       endDate: z.string().optional(),
+      compare: z.boolean().default(false),
     }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
@@ -223,6 +224,9 @@ export const tenantPortalRouter = router({
 
       const tenantCond = eq(orders.tenantId, ctx.tenantId);
       const dateCond = and(gte(orders.createdAt, start), lte(orders.createdAt, end));
+      const periodMs = end.getTime() - start.getTime();
+      const prevEnd = new Date(start.getTime() - 1);
+      const prevStart = new Date(start.getTime() - periodMs);
 
       // ── Summary stats ──────────────────────────────────────────────────────
       const [summary] = await db
@@ -282,6 +286,7 @@ export const tenantPortalRouter = router({
           gmv: parseFloat(String(r.gmv ?? "0")),
           orderCount: Number(r.orderCount),
         })),
+        prevDailyTrend: [] as { day: string; gmv: number; orderCount: number }[],
         topProducts: topProducts.map(p => ({
           productId: p.productId,
           productName: p.productName,
@@ -290,6 +295,19 @@ export const tenantPortalRouter = router({
           orderCount: Number(p.orderCount),
         })),
       };
+    }),
+  // ── Order Detail (with line items) ───────────────────────────────────────
+  getMyOrderDetail: tenantScopedProcedure
+    .input(z.object({ orderId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      const [order] = await db.select().from(orders)
+        .where(and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId)));
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      const items = await db.select().from(orderItems)
+        .where(eq(orderItems.orderId, input.orderId));
+      return { order, items };
     }),
 
   // ── Approved Operator Templates (for merchant broadcast use) ─────────────

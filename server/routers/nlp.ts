@@ -340,6 +340,14 @@ export const nlpRouter = router({
         language: session.language,
         sessionId: session.id,
       };
+      return {
+        reply: llmResult.reply,
+        intent: llmResult.intent,
+        confidence: llmResult.confidence ?? 0,
+        state: llmResult.nextState,
+        language: session.language,
+        sessionId: session.id,
+      };
     }),
 
   /** Get or create a session for a phone number */

@@ -15,6 +15,7 @@ import {
   ArrowRight, Shield, Database, Webhook, CreditCard, Zap, FileText,
   ChevronDown, ChevronRight,
 } from "lucide-react";
+import { Download } from "lucide-react";
 
 type SimStep = {
   id: string;
@@ -327,7 +328,32 @@ export default function ReconciliationSim() {
               <TabsContent value="audit">
                 <Card className="bg-[#0f1923] border-white/10">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-white text-base">Audit Trail</CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-white text-base">Audit Trail</CardTitle>
+                      {auditQ.data?.audit && auditQ.data.audit.length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-white/20 text-white/60 h-7 text-xs gap-1.5"
+                          onClick={() => {
+                            const rows = auditQ.data!.audit;
+                            const header = "id,stage,provider,amount,currency,reference,reconciled,discrepancy,createdAt";
+                            const lines = rows.map((e: any) =>
+                              [e.id, e.stage, e.provider, e.amount, e.currency, e.reference, e.reconciled, e.discrepancy ?? "", e.createdAt].join(",")
+                            );
+                            const csv = [header, ...lines].join("\n");
+                            const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url; a.download = `audit-trail-${Date.now()}.csv`;
+                            document.body.appendChild(a); a.click();
+                            document.body.removeChild(a); URL.revokeObjectURL(url);
+                          }}
+                        >
+                          <Download className="w-3 h-3" /> Export CSV
+                        </Button>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {!lastResult && <p className="text-white/30 text-sm text-center py-8">Run a simulation first</p>}

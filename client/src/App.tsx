@@ -52,6 +52,7 @@ import OnboardingWizard from "./pages/portal/OnboardingWizard";
 import EvidencePortal from "./pages/EvidencePortal";
 import MerchantAnalytics from "./pages/portal/MerchantAnalytics";
 import PortalBroadcasts from "./pages/portal/PortalBroadcasts";
+import AuditLog from "./pages/AuditLog";
 
 function Router() {
   return (
@@ -102,6 +103,7 @@ function Router() {
           <Route path="/portal/setup" component={() => <OnboardingWizard onComplete={() => { window.location.href = "/portal"; }} />} />
           <Route path="/portal/analytics" component={MerchantAnalytics} />
           <Route path="/portal/broadcasts" component={PortalBroadcasts} />
+          <Route path="/audit-log" component={AuditLog} />
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
           <Route path="/sla-extension/:token" component={SlaExtensionResponse} />

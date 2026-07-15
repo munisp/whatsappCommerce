@@ -645,6 +645,17 @@ export default function EscrowDashboard() {
             Ask the buyer for additional delivery time. They will receive a notification to approve or reject this request.
             {slaExtensionTx?.orderId && <span className="block mt-1 font-medium text-foreground">Order: {slaExtensionTx.orderId}</span>}
           </p>
+          {/* Email preview */}
+          {extensionReason.trim() && (
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-1 text-xs">
+              <p className="font-semibold text-muted-foreground uppercase tracking-wide text-[10px]">Email Preview</p>
+              <p className="font-medium">Subject: SLA Extension Request — {slaExtensionTx?.orderId ?? "Order"}</p>
+              <p className="text-muted-foreground leading-relaxed">
+                Hi, the seller has requested an extension of <strong>{extensionHours}h</strong> for your order.
+                Reason: <em>{extensionReason}</em>. Please approve or reject in your portal.
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Extension Duration</Label>
             <Select value={extensionHours} onValueChange={setExtensionHours}>

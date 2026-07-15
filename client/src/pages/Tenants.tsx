@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
 import { Building2, Plus, TrendingUp, Users } from "lucide-react";
+import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -33,6 +34,8 @@ export default function Tenants() {
 
   const { data: stats } = trpc.tenant.stats.useQuery();
   const { data: tenantList, refetch } = trpc.tenant.list.useQuery();
+  const { data: ssoProfiles } = trpc.keycloak.listSsoProfiles.useQuery({ limit: 200 });
+  const ssoMap = new Map((ssoProfiles?.profiles ?? []).map((p) => [p.tenantId, p]));
   const createMutation = trpc.tenant.create.useMutation({
     onSuccess: () => { toast.success("Tenant created"); setOpen(false); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -113,12 +116,13 @@ export default function Tenants() {
                   <TableHead>Status</TableHead>
                   <TableHead>Currency</TableHead>
                   <TableHead>AI</TableHead>
+                  <TableHead>SSO</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {!tenantList || tenantList.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No tenants yet. Create your first one.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No tenants yet. Create your first one.</TableCell></TableRow>
                 ) : tenantList.map((t) => (
                   <TableRow key={t.id} className="border-border hover:bg-accent/30 cursor-pointer" onClick={() => navigate(`/tenants/${t.id}`)}>
                     <TableCell className="font-medium">{t.name}</TableCell>
@@ -127,6 +131,16 @@ export default function Tenants() {
                     <TableCell><Badge variant="outline" className={statusColors[t.status] ?? ""}>{t.status}</Badge></TableCell>
                     <TableCell className="font-mono text-xs">{t.defaultCurrency}</TableCell>
                     <TableCell><Badge variant="outline" className={t.aiEnabled ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-muted text-muted-foreground"}>{t.aiEnabled ? "On" : "Off"}</Badge></TableCell>
+                    <TableCell>
+                      {ssoMap.has(t.id) ? (
+                        <div className="flex items-center gap-1.5">
+                          <KeyRound className="w-3 h-3 text-violet-400" />
+                          <span className="text-xs text-violet-400">{(ssoMap.get(t.id) as any)?.ssoProvider ?? "SSO"}</span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs">{formatDistanceToNow(new Date(t.createdAt), { addSuffix: true })}</TableCell>
                   </TableRow>
                 ))}
@@ -138,4 +152,3 @@ export default function Tenants() {
     </DashboardLayout>
   );
 }
-

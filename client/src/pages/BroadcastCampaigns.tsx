@@ -20,6 +20,7 @@ import {
   Plus, BarChart3, Megaphone, ChevronRight, Play, Ban,
   TrendingUp, MessageSquare, Loader2
 } from "lucide-react";
+import { FlaskConical as SimIcon } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   draft: "bg-slate-500/15 text-slate-400 border-slate-500/30",
@@ -182,6 +183,15 @@ export default function BroadcastCampaigns() {
     onError: (e) => toast.error(e.message),
   });
 
+  const simulateDelivery = trpc.broadcast.simulateDelivery.useMutation({
+    onSuccess: (data) => {
+      const rate = data.total > 0 ? Math.round((data.delivered / data.total) * 100) : 0;
+      toast.success(`Simulation complete — ${data.delivered}/${data.total} delivered (${rate}%), ${data.read} read`);
+      refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
   const handleSend = (campaignId: string) => {
     setSendingId(campaignId);
     sendCampaign.mutate({ campaignId });
@@ -332,6 +342,18 @@ export default function BroadcastCampaigns() {
                             <Play className="w-3.5 h-3.5" />
                           )}
                           {sendingId === selectedCampaign.id ? "Sending…" : "Send Now"}
+                        </Button>
+                      )}
+                      {(selectedCampaign.status === "draft" || selectedCampaign.status === "scheduled") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 border-violet-500/30 text-violet-400 hover:bg-violet-500/10"
+                          onClick={() => simulateDelivery.mutate({ campaignId: selectedCampaign.id })}
+                          disabled={simulateDelivery.isPending}
+                        >
+                          {simulateDelivery.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SimIcon className="w-3.5 h-3.5" />}
+                          {simulateDelivery.isPending ? "Simulating…" : "Simulate"}
                         </Button>
                       )}
                       {selectedCampaign.status === "sending" && (

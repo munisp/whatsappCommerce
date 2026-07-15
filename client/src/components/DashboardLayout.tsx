@@ -23,6 +23,7 @@ import {
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { Activity, AlertTriangle, BarChart3, Bell, Bot, BrainCircuit, Building2, ChevronDown, CreditCard, FileCode, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Rocket, Server, Settings, Shield, Smartphone, TrendingUp, Truck, UserPlus, Users, Warehouse } from "lucide-react";
+import { ScrollText } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
@@ -69,6 +70,7 @@ const menuItems: NavItem[] = [
   { icon: Truck,           label: "Logistics",        path: "/logistics",        section: "Finance" },
   { icon: AlertTriangle,   label: "Disputes",         path: "/disputes",         section: "Finance" },
   { icon: FileCode,        label: "Msg Templates",    path: "/operator-templates", section: "Platform" },
+  { icon: ScrollText,      label: "Audit Log",        path: "/audit-log",        section: "System" },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
