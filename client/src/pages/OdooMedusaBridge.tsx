@@ -19,10 +19,13 @@ import {
   Plus,
   Zap,
 } from "lucide-react";
+import { Clock, History, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 
 export default function OdooMedusaBridge() {
   const [syncing, setSyncing] = useState(false);
+  const [lastSyncResult, setLastSyncResult] = useState<{ synced: number; failed: number; total: number; ts: Date } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const [newMapping, setNewMapping] = useState({
     odooProductId: "",
     medusaProductId: "",
@@ -34,6 +37,7 @@ export default function OdooMedusaBridge() {
 
   const { data: mappings, refetch: refetchMappings } = trpc.odooMedusaBridge.list.useQuery();
   const { data: stats } = trpc.odooMedusaBridge.stats.useQuery();
+  const { data: syncHistory, refetch: refetchHistory } = trpc.odooMedusaBridge.listSyncHistory.useQuery({ limit: 30 });
   const syncMutation = trpc.odooMedusaBridge.syncOdooToMedusa.useMutation();
   const upsertMutation = trpc.odooMedusaBridge.upsertMapping.useMutation();
 
@@ -42,11 +46,16 @@ export default function OdooMedusaBridge() {
     try {
       const res = await syncMutation.mutateAsync();
       const r = res as { synced?: number; errors?: string[]; skipped?: number };
-      toast.success(`Sync complete: ${r.synced ?? 0} updated, ${r.skipped ?? 0} skipped`);
+      const synced = r.synced ?? 0;
+      const failed = r.errors?.length ?? 0;
+      const total = synced + failed + (r.skipped ?? 0);
+      setLastSyncResult({ synced, failed, total, ts: new Date() });
+      toast.success(`Sync complete: ${synced} updated, ${r.skipped ?? 0} skipped`);
       if ((r.errors?.length ?? 0) > 0) {
         toast.warning(`${r.errors!.length} errors during sync`);
       }
       refetchMappings();
+      refetchHistory();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Sync failed";
       if (msg.includes("not configured")) {
@@ -127,6 +136,23 @@ export default function OdooMedusaBridge() {
             )}
           </Button>
         </div>
+        {/* Last sync result banner */}
+        {lastSyncResult && (
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-teal-50 dark:bg-teal-950/30 border border-teal-200 text-sm">
+            <CheckCircle className="w-4 h-4 text-teal-600 shrink-0" />
+            <span className="flex-1">
+              Last sync at <strong>{lastSyncResult.ts.toLocaleTimeString()}</strong>:{" "}
+              <strong>{lastSyncResult.synced}</strong> synced
+              {lastSyncResult.failed > 0 && <>, <strong className="text-red-600">{lastSyncResult.failed}</strong> failed</>}
+              {" "}of {lastSyncResult.total} mappings
+            </span>
+            <button className="text-xs text-teal-700 hover:underline flex items-center gap-1"
+              onClick={() => setShowHistory(h => !h)}>
+              <History className="w-3 h-3" />
+              {showHistory ? "Hide" : "View"} history
+            </button>
+          </div>
+        )}
 
         {/* Connection status */}
         <div className="grid grid-cols-2 gap-4">
@@ -349,6 +375,93 @@ export default function OdooMedusaBridge() {
             )}
           </CardContent>
         </Card>
+
+        {/* Sync History Log */}
+        {showHistory && (
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <History className="w-4 h-4" /> Sync History
+                </CardTitle>
+                <button className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                  onClick={() => setShowHistory(false)}>
+                  <ChevronUp className="w-3 h-3" /> Hide
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {!syncHistory || syncHistory.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <Clock className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No sync events yet. Run a sync to see history here.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 font-medium text-muted-foreground">Product</th>
+                        <th className="text-left py-2 font-medium text-muted-foreground">Odoo ID</th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">Odoo Qty</th>
+                        <th className="text-right py-2 font-medium text-muted-foreground">Medusa Qty</th>
+                        <th className="text-left py-2 font-medium text-muted-foreground">Direction</th>
+                        <th className="text-left py-2 font-medium text-muted-foreground">Synced At</th>
+                        <th className="text-left py-2 font-medium text-muted-foreground">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(syncHistory as Array<{
+                        id: string;
+                        odooProductName?: string | null;
+                        odooProductId: string;
+                        odooStockQty?: string | null;
+                        medusaStockableQty?: number | null;
+                        syncStatus?: string | null;
+                        syncDirection?: string | null;
+                        lastSyncedAt?: Date | null;
+                        conflictReason?: string | null;
+                      }>).map((row) => (
+                        <tr key={row.id} className="border-b hover:bg-muted/30">
+                          <td className="py-2 font-medium max-w-32 truncate">{row.odooProductName ?? "—"}</td>
+                          <td className="py-2 font-mono text-muted-foreground">{row.odooProductId}</td>
+                          <td className="py-2 text-right">{row.odooStockQty ?? "—"}</td>
+                          <td className="py-2 text-right">{row.medusaStockableQty ?? "—"}</td>
+                          <td className="py-2">
+                            <span className="text-xs bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300 px-1.5 py-0.5 rounded">
+                              {row.syncDirection ?? "odoo→medusa"}
+                            </span>
+                          </td>
+                          <td className="py-2 text-muted-foreground">
+                            {row.lastSyncedAt ? new Date(row.lastSyncedAt).toLocaleString() : "—"}
+                          </td>
+                          <td className="py-2">
+                            <Badge
+                              variant={
+                                row.syncStatus === "synced" ? "default"
+                                : row.syncStatus === "failed" ? "destructive"
+                                : row.syncStatus === "conflict" ? "secondary"
+                                : "outline"
+                              }
+                              className="text-xs"
+                            >
+                              {row.syncStatus ?? "pending"}
+                            </Badge>
+                            {row.conflictReason && (
+                              <p className="text-xs text-amber-600 mt-0.5 max-w-32 truncate" title={row.conflictReason}>
+                                {row.conflictReason}
+                              </p>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardLayout>
   );
