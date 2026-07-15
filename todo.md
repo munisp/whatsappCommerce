@@ -395,18 +395,18 @@
 - [x] All 217 tests passing
 
 ## Notification Center, CSV Export, Escrow Timeline
-- [ ] DB schema: merchant_notifications table (tenantId, type, title, body, metadata, read, createdAt)
-- [ ] tRPC router: notifications (list, markRead, markAllRead, getUnreadCount)
-- [ ] Emit notifications on escrow state changes (escrow_held, delivery_confirmed, settled, refunded, dispute_raised)
-- [ ] Emit notifications on dispute events (opened, resolved)
-- [ ] tRPC router: wallet.exportLedgerCsv (returns CSV string for download)
-- [ ] tRPC router: escrow.getTimeline (joins escrow_transactions + logistics_shipments + escrow_disputes into ordered event list)
-- [ ] Frontend: NotificationCenter component (bell icon, dropdown, unread badge, mark-read)
-- [ ] Frontend: Add NotificationCenter to PortalDashboard layout header
-- [ ] Frontend: CSV export button on MerchantWallet page
-- [ ] Frontend: EscrowTimeline component (vertical timeline, state icons, timestamps, logistics events)
-- [ ] Frontend: EscrowDetail page or modal that shows timeline for a single escrow transaction
-- [ ] Vitest: notification emit tests, CSV format tests, timeline query tests
+- [x] DB schema: merchant_notifications table (tenantId, type, title, body, metadata, read, createdAt)
+- [x] tRPC router: notifications (list, markRead, markAllRead, getUnreadCount)
+- [x] Emit notifications on escrow state changes (escrow_held, delivery_confirmed, settled, refunded, dispute_raised)
+- [x] Emit notifications on dispute events (opened, resolved)
+- [x] tRPC router: wallet.exportLedgerCsv (returns CSV string for download)
+- [x] tRPC router: escrow.getTimeline (joins escrow_transactions + logistics_shipments + escrow_disputes into ordered event list)
+- [x] Frontend: NotificationCenter component (bell icon, dropdown, unread badge, mark-read)
+- [x] Frontend: Add NotificationCenter to PortalDashboard layout header
+- [x] Frontend: CSV export button on MerchantWallet page
+- [x] Frontend: EscrowTimeline component (vertical timeline, state icons, timestamps, logistics events)
+- [x] Frontend: EscrowDetail page or modal that shows timeline for a single escrow transaction
+- [x] Vitest: notification emit tests, CSV format tests, timeline query tests
 
 ## Notification Center, CSV Export & Escrow Timeline (v3)
 - [x] merchant_notifications table added to schema and migrated
@@ -420,3 +420,14 @@
 - [x] Timeline dialog in EscrowDashboard: Timeline button per transaction row
 - [x] NotificationCenter added to TenantPortalLayout top bar
 - [x] Wallet nav item added to TenantPortalLayout sidebar
+
+## Enhancement: Date Range CSV, Timeline Attachments, Notification Filters (v4)
+- [ ] Backend: wallet.exportLedgerCsv accepts optional startDate/endDate for date-range filtering
+- [ ] Backend: escrow_timeline_attachments table (id, escrowId, eventId, type: doc|note, fileUrl, fileKey, filename, mimeType, note, uploadedBy, createdAt)
+- [ ] Backend: escrow.addTimelineAttachment mutation (upload to S3, record in DB)
+- [ ] Backend: escrow.getTimeline includes attachments per event
+- [ ] Backend: notifications.list accepts optional type filter (payments|logistics|disputes|all)
+- [ ] Frontend: Date range picker dialog on MerchantWallet CSV export (shadcn Calendar, start/end)
+- [ ] Frontend: EscrowTimeline attachment panel per event (upload button, note input, list of existing attachments)
+- [ ] Frontend: NotificationCenter filter tabs (All / Payments / Logistics / Disputes)
+- [ ] Tests: date range CSV, attachment upload, notification filter

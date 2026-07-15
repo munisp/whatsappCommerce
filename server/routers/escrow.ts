@@ -8,6 +8,8 @@ import {
   orders, logisticsShipments,
   type EscrowTransaction, type EscrowConfig,
 } from "../../drizzle/schema";
+import { escrowTimelineAttachments } from "../../drizzle/schema";
+import { storagePut } from "../storage";
 import { emitNotification, NOTIFICATION_TEMPLATES } from "./notifications";
 
 // ─── Helper: get or seed escrow config ───────────────────────────────────────
@@ -746,18 +748,30 @@ export const walletRouter = router({
 
   /** Export full wallet ledger as CSV string */
   exportLedgerCsv: protectedProcedure
-    .input(z.object({ tenantId: z.string() }))
+    .input(z.object({
+      tenantId: z.string(),
+      startDate: z.string().optional(),
+      endDate: z.string().optional(),
+    }))
     .query(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const [wallet] = await db.select().from(merchantWallets)
         .where(eq(merchantWallets.tenantId, input.tenantId));
-      if (!wallet) return { csv: "", filename: "ledger.csv" };
+      if (!wallet) return { csv: "", filename: "ledger.csv", rowCount: 0 };
 
+      const conditions: any[] = [eq(walletTransactions.walletId, wallet.id)];
+      if (input.startDate) {
+        conditions.push(sql`${walletTransactions.createdAt} >= ${new Date(input.startDate)}`);
+      }
+      if (input.endDate) {
+        const end = new Date(input.endDate);
+        end.setHours(23, 59, 59, 999);
+        conditions.push(sql`${walletTransactions.createdAt} <= ${end}`);
+      }
       const txs = await db.select().from(walletTransactions)
-        .where(eq(walletTransactions.walletId, wallet.id))
+        .where(and(...conditions))
         .orderBy(desc(walletTransactions.createdAt));
-
       const header = ["Date", "Type", "Amount (NGN)", "Balance After (NGN)", "Reference", "Order ID", "Description"].join(",");
       const rows = txs.map((t) => [
         new Date(t.createdAt).toISOString(),
@@ -770,7 +784,64 @@ export const walletRouter = router({
       ].join(","));
 
       const csv = [header, ...rows].join("\n");
-      const filename = `wallet_ledger_${input.tenantId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.csv`;
-      return { csv, filename };
+      const dateTag = input.startDate && input.endDate
+        ? `${input.startDate}_to_${input.endDate}`
+        : new Date().toISOString().slice(0, 10);
+      const filename = `wallet_ledger_${input.tenantId.slice(0, 8)}_${dateTag}.csv`;
+      return { csv, filename, rowCount: txs.length };
+    }),
+});
+
+// ─── Timeline Attachments Router ─────────────────────────────────────────────
+export const timelineAttachmentRouter = router({
+
+  add: protectedProcedure
+    .input(z.object({
+      escrowId: z.string(),
+      eventId: z.string(),
+      attachmentType: z.enum(["document", "note"]).default("note"),
+      fileBase64: z.string().optional(),
+      filename: z.string().optional(),
+      mimeType: z.string().optional(),
+      note: z.string().optional(),
+      uploadedBy: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      let fileUrl: string | undefined;
+      let fileKey: string | undefined;
+      if (input.attachmentType === "document" && input.fileBase64 && input.filename) {
+        const buffer = Buffer.from(input.fileBase64, "base64");
+        const key = `escrow-attachments/${input.escrowId}/${input.eventId}/${Date.now()}-${input.filename}`;
+        const result = await storagePut(key, buffer, input.mimeType ?? "application/octet-stream");
+        fileUrl = result.url;
+        fileKey = result.key;
+      }
+      const id = crypto.randomUUID();
+      await db.insert(escrowTimelineAttachments).values({
+        id, escrowId: input.escrowId, eventId: input.eventId,
+        attachmentType: input.attachmentType,
+        fileUrl, fileKey, filename: input.filename, mimeType: input.mimeType,
+        note: input.note, uploadedBy: input.uploadedBy, createdAt: new Date(),
+      });
+      const [created] = await db.select().from(escrowTimelineAttachments)
+        .where(eq(escrowTimelineAttachments.id, id));
+      return created!;
+    }),
+
+  list: protectedProcedure
+    .input(z.object({
+      escrowId: z.string(),
+      eventId: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const conditions: any[] = [eq(escrowTimelineAttachments.escrowId, input.escrowId)];
+      if (input.eventId) conditions.push(eq(escrowTimelineAttachments.eventId, input.eventId));
+      return db.select().from(escrowTimelineAttachments)
+        .where(and(...conditions))
+        .orderBy(escrowTimelineAttachments.createdAt);
     }),
 });

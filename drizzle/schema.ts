@@ -1328,3 +1328,26 @@ export const merchantNotifications = pgTable("merchant_notifications", {
 
 export type MerchantNotification = typeof merchantNotifications.$inferSelect;
 export type NewMerchantNotification = typeof merchantNotifications.$inferInsert;
+
+// ─── Escrow Timeline Attachments ─────────────────────────────────────────────
+export const timelineAttachmentTypeEnum = pgEnum("timeline_attachment_type", ["document", "note"]);
+
+export const escrowTimelineAttachments = pgTable("escrow_timeline_attachments", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  escrowId: varchar("escrow_id", { length: 36 }).notNull(),
+  // eventId is a client-generated stable ID for the timeline event (e.g. "escrow-held", "shipment-created")
+  eventId: varchar("event_id", { length: 128 }).notNull(),
+  attachmentType: timelineAttachmentTypeEnum("attachment_type").notNull().default("document"),
+  fileUrl: text("file_url"),
+  fileKey: text("file_key"),
+  filename: varchar("filename", { length: 255 }),
+  mimeType: varchar("mime_type", { length: 128 }),
+  note: text("note"),
+  uploadedBy: varchar("uploaded_by", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("eta_escrow_idx").on(t.escrowId),
+  index("eta_event_idx").on(t.escrowId, t.eventId),
+]);
+export type EscrowTimelineAttachment = typeof escrowTimelineAttachments.$inferSelect;
+export type NewEscrowTimelineAttachment = typeof escrowTimelineAttachments.$inferInsert;

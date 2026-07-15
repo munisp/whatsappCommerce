@@ -8,6 +8,14 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 type NotifType = "escrow_held" | "delivery_confirmed" | "escrow_settled" | "escrow_refunded" | "dispute_opened" | "dispute_resolved" | "withdrawal_processed" | "shipment_update" | "system";
+type Category = "all" | "payments" | "logistics" | "disputes";
+
+const CATEGORIES: { key: Category; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "payments", label: "Payments" },
+  { key: "logistics", label: "Logistics" },
+  { key: "disputes", label: "Disputes" },
+];
 
 const NOTIF_ICONS: Record<NotifType, React.ElementType> = {
   escrow_held: Lock,
@@ -47,14 +55,15 @@ function formatRelativeTime(date: Date): string {
 
 export default function NotificationCenter() {
   const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState<Category>("all");
   const panelRef = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
 
   const { data: unreadData } = trpc.notifications.getUnreadCount.useQuery(undefined, {
-    refetchInterval: 30000, // poll every 30s for new notifications
+    refetchInterval: 30000,
   });
   const { data: listData, isLoading } = trpc.notifications.list.useQuery(
-    { limit: 30, unreadOnly: false },
+    { limit: 30, unreadOnly: false, category },
     { enabled: open }
   );
 
@@ -131,8 +140,26 @@ export default function NotificationCenter() {
             )}
           </div>
 
+          {/* Category filter tabs */}
+          <div className="flex items-center gap-0.5 px-3 py-2 border-b border-border bg-muted/30">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat.key}
+                onClick={() => setCategory(cat.key)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors",
+                  category === cat.key
+                    ? "bg-background text-foreground shadow-sm border border-border"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/40"
+                )}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+
           {/* List */}
-          <ScrollArea className="max-h-[420px]">
+          <ScrollArea className="max-h-[380px]">
             {isLoading ? (
               <div className="flex items-center justify-center py-10 text-muted-foreground text-sm">
                 Loading…
@@ -140,7 +167,9 @@ export default function NotificationCenter() {
             ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
                 <Bell className="h-8 w-8 opacity-30" />
-                <span className="text-sm">No notifications yet</span>
+                <span className="text-sm">
+                  {category === "all" ? "No notifications yet" : `No ${category} notifications`}
+                </span>
               </div>
             ) : (
               <div className="py-1">

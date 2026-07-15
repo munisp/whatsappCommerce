@@ -31,7 +31,7 @@ import { reconciliationRouter } from "./routers/reconciliation";
 import { cogsDisputeRouter } from "./routers/cogsDispute";
 import { keycloakRouter } from "./routers/keycloak";
 import { revenueRouter } from "./routers/revenue";
-import { escrowRouter, escrowDisputeRouter, walletRouter } from "./routers/escrow";
+import { escrowRouter, escrowDisputeRouter, walletRouter, timelineAttachmentRouter } from "./routers/escrow";
 import { logisticsRouter } from "./routers/logistics";
 import { notificationsRouter } from "./routers/notifications";
 
@@ -80,6 +80,7 @@ export const appRouter = router({
   wallet: walletRouter,
   logistics: logisticsRouter,
   notifications: notificationsRouter,
+  timelineAttachment: timelineAttachmentRouter,
 });
 
 export type AppRouter = typeof appRouter;

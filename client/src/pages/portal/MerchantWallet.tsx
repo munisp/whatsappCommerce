@@ -6,9 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { useState } from "react";
-import { Download } from "lucide-react";
+import { Download, CalendarIcon, X } from "lucide-react";
+import { format } from "date-fns";
+import type { DateRange } from "react-day-picker";
 
 const TX_TYPE_COLORS: Record<string, string> = {
   escrow_credit: "text-yellow-600",
@@ -24,6 +28,10 @@ function formatNGN(val: string | number | null | undefined) {
   return `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function toISODate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
 export default function MerchantWallet({ tenantId }: { tenantId: string }) {
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -31,6 +39,9 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
   const [bankCode, setBankCode] = useState("");
   const [bankName, setBankName] = useState("");
   const [csvLoading, setCsvLoading] = useState(false);
+  // Date range picker state
+  const [dateRangeOpen, setDateRangeOpen] = useState(false);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
   const { data: wallet, isLoading: walletLoading, refetch } = trpc.wallet.getBalance.useQuery({ tenantId });
   const { data: txs, isLoading: txLoading } = trpc.wallet.listTransactions.useQuery({ tenantId, limit: 50 });
@@ -48,18 +59,20 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
 
   const isPspMode = config?.custodyMode === "psp";
 
-  async function handleExportCsv() {
+  async function handleExportCsv(startDate?: string, endDate?: string) {
     setCsvLoading(true);
     try {
-      const result = await utils.wallet.exportLedgerCsv.fetch({ tenantId });
-      if (!result?.csv) { toast.info("No transactions to export yet."); return; }
+      const result = await utils.wallet.exportLedgerCsv.fetch({ tenantId, startDate, endDate });
+      if (!result?.csv) { toast.info("No transactions found for the selected period."); return; }
       const blob = new Blob([result.csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = result.filename;
       document.body.appendChild(a); a.click();
       document.body.removeChild(a); URL.revokeObjectURL(url);
-      toast.success("Ledger exported successfully.");
+      const rowMsg = result.rowCount != null ? ` (${result.rowCount} rows)` : "";
+      toast.success(`Ledger exported${rowMsg}.`);
+      setDateRangeOpen(false);
     } catch (e: any) {
       toast.error(e.message ?? "Export failed");
     } finally {
@@ -67,9 +80,25 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
     }
   }
 
+  function handleDateRangeExport() {
+    if (dateRange?.from && dateRange?.to) {
+      handleExportCsv(toISODate(dateRange.from), toISODate(dateRange.to));
+    } else if (dateRange?.from) {
+      handleExportCsv(toISODate(dateRange.from), undefined);
+    } else {
+      handleExportCsv();
+    }
+  }
+
+  const dateRangeLabel = dateRange?.from
+    ? dateRange.to
+      ? `${format(dateRange.from, "MMM d, yyyy")} – ${format(dateRange.to, "MMM d, yyyy")}`
+      : format(dateRange.from, "MMM d, yyyy")
+    : "All time";
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-xl font-bold">Merchant Wallet</h2>
           <p className="text-sm text-muted-foreground mt-1">
@@ -84,15 +113,17 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
             )}
           </p>
         </div>
-        {isPspMode && (
-          <Button onClick={() => setWithdrawOpen(true)} disabled={!wallet || parseFloat(wallet.availableBalance) <= 0}>
-            Request Withdrawal
+        <div className="flex items-center gap-2">
+          {isPspMode && (
+            <Button onClick={() => setWithdrawOpen(true)} disabled={!wallet || parseFloat(wallet.availableBalance) <= 0}>
+              Request Withdrawal
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => setDateRangeOpen(true)}>
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
           </Button>
-        )}
-        <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={csvLoading}>
-          <Download className="h-4 w-4 mr-2" />
-          {csvLoading ? "Exporting…" : "Export CSV"}
-        </Button>
+        </div>
       </div>
 
       {/* Balance Cards */}
@@ -140,9 +171,9 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Transaction History</CardTitle>
-            <Button variant="ghost" size="sm" onClick={handleExportCsv} disabled={csvLoading} className="text-xs text-muted-foreground">
+            <Button variant="ghost" size="sm" onClick={() => setDateRangeOpen(true)} className="text-xs text-muted-foreground">
               <Download className="h-3.5 w-3.5 mr-1" />
-              {csvLoading ? "…" : "Export CSV"}
+              Export CSV
             </Button>
           </div>
         </CardHeader>
@@ -174,6 +205,50 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
           )}
         </CardContent>
       </Card>
+
+      {/* Date Range Export Dialog */}
+      <Dialog open={dateRangeOpen} onOpenChange={setDateRangeOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarIcon className="h-4 w-4" />
+              Export Ledger
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Select a date range to export a filtered ledger, or export all transactions.
+            </p>
+            <div className="flex justify-center">
+              <Calendar
+                mode="range"
+                selected={dateRange}
+                onSelect={setDateRange}
+                numberOfMonths={1}
+                className="rounded-md border"
+              />
+            </div>
+            {dateRange?.from && (
+              <div className="flex items-center justify-between text-sm bg-muted rounded-md px-3 py-2">
+                <span className="text-muted-foreground">Selected:</span>
+                <span className="font-medium">{dateRangeLabel}</span>
+                <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setDateRange(undefined)}>
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setDateRange(undefined); handleExportCsv(); }} disabled={csvLoading}>
+              Export All
+            </Button>
+            <Button onClick={handleDateRangeExport} disabled={csvLoading}>
+              <Download className="h-4 w-4 mr-2" />
+              {csvLoading ? "Exporting…" : dateRange?.from ? "Export Range" : "Export All"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Withdrawal Dialog */}
       <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>

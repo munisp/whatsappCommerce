@@ -1,10 +1,16 @@
 import { trpc } from "@/lib/trpc";
 import {
   CircleDollarSign, Lock, PackageCheck, Send, CheckCircle, RotateCcw,
-  Truck, Package, Navigation, AlertTriangle, CheckCircle2, Info, Loader2
+  Truck, Package, Navigation, AlertTriangle, CheckCircle2, Info, Loader2,
+  Paperclip, FileText, StickyNote, ChevronDown, ChevronUp, Plus, Upload, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import { useState, useRef } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
 
 type TimelineVariant = "default" | "success" | "warning" | "error" | "info";
 type TimelineEventType = "escrow_state" | "logistics" | "dispute";
@@ -55,12 +61,144 @@ function formatDateTime(date: Date): string {
   });
 }
 
+// ─── Per-event attachment panel ───────────────────────────────────────────────
+function AttachmentPanel({ escrowId, eventId, uploadedBy }: { escrowId: string; eventId: string; uploadedBy: string }) {
+  const [open, setOpen] = useState(false);
+  const [noteText, setNoteText] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const utils = trpc.useUtils();
+
+  const { data: attachments, isLoading } = trpc.timelineAttachment.list.useQuery(
+    { escrowId, eventId },
+    { enabled: open }
+  );
+
+  const addAttachment = trpc.timelineAttachment.add.useMutation({
+    onSuccess: () => {
+      utils.timelineAttachment.list.invalidate({ escrowId, eventId });
+      setNoteText("");
+      toast.success("Attachment added.");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error("File must be under 10 MB"); return; }
+    setUploading(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const base64 = btoa(String.fromCharCode(...Array.from(new Uint8Array(buffer))));
+      await addAttachment.mutateAsync({
+        escrowId, eventId, attachmentType: "document",
+        fileBase64: base64, filename: file.name, mimeType: file.type,
+        uploadedBy,
+      });
+    } catch (e: any) {
+      toast.error(e.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function handleAddNote() {
+    if (!noteText.trim()) return;
+    await addAttachment.mutateAsync({
+      escrowId, eventId, attachmentType: "note",
+      note: noteText.trim(), uploadedBy,
+    });
+  }
+
+  const count = attachments?.length ?? 0;
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Paperclip className="h-3 w-3" />
+        {count > 0 ? `${count} attachment${count !== 1 ? "s" : ""}` : "Add attachment"}
+        {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </button>
+
+      {open && (
+        <div className="mt-2 ml-0 border rounded-lg p-3 bg-muted/30 space-y-3">
+          {/* Existing attachments */}
+          {isLoading ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : (attachments ?? []).length > 0 ? (
+            <div className="space-y-1.5">
+              {(attachments ?? []).map((att) => (
+                <div key={att.id} className="flex items-start gap-2 text-xs">
+                  {att.attachmentType === "document" ? (
+                    <FileText className="h-3.5 w-3.5 text-blue-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <StickyNote className="h-3.5 w-3.5 text-yellow-500 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    {att.attachmentType === "document" && att.fileUrl ? (
+                      <a href={att.fileUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-blue-400 hover:underline truncate block">
+                        {att.filename ?? "Document"}
+                      </a>
+                    ) : (
+                      <p className="text-foreground/80 whitespace-pre-wrap">{att.note}</p>
+                    )}
+                    <p className="text-muted-foreground/50 mt-0.5">
+                      {att.uploadedBy} · {formatDateTime(att.createdAt)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No attachments yet.</p>
+          )}
+
+          {/* Add note */}
+          <div className="space-y-1.5">
+            <Textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Add a note (e.g. delivery confirmed by customer call)…"
+              className="text-xs min-h-[60px] resize-none"
+            />
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" className="text-xs h-7"
+                onClick={handleAddNote}
+                disabled={!noteText.trim() || addAttachment.isPending}>
+                <Plus className="h-3 w-3 mr-1" />
+                Add Note
+              </Button>
+              <Button size="sm" variant="outline" className="text-xs h-7"
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}>
+                <Upload className="h-3 w-3 mr-1" />
+                {uploading ? "Uploading…" : "Upload Document"}
+              </Button>
+              <input ref={fileRef} type="file" className="hidden"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                onChange={handleFileUpload} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 interface EscrowTimelineProps {
   escrowId: string;
   className?: string;
 }
 
 export default function EscrowTimeline({ escrowId, className }: EscrowTimelineProps) {
+  const { user } = useAuth();
   const { data: events, isLoading, error } = trpc.escrow.getTimeline.useQuery({ escrowId });
 
   if (isLoading) {
@@ -87,16 +225,17 @@ export default function EscrowTimeline({ escrowId, className }: EscrowTimelinePr
     );
   }
 
+  const uploadedBy = user?.name ?? user?.openId ?? "merchant";
+
   return (
     <div className={cn("relative", className)}>
       {/* Vertical line */}
       <div className="absolute left-5 top-6 bottom-6 w-px bg-border" />
 
       <ol className="space-y-0">
-        {events.map((event, idx) => {
+        {events.map((event) => {
           const Icon = ICON_MAP[event.icon] ?? Info;
           const styles = VARIANT_STYLES[event.variant];
-          const isLast = idx === events.length - 1;
 
           return (
             <li key={event.id} className="relative flex gap-4 pb-6 last:pb-0">
@@ -120,6 +259,12 @@ export default function EscrowTimeline({ escrowId, className }: EscrowTimelinePr
                 <p className="text-[11px] text-muted-foreground/50 mt-1.5">
                   {formatDateTime(event.timestamp)}
                 </p>
+                {/* Attachment panel per event */}
+                <AttachmentPanel
+                  escrowId={escrowId}
+                  eventId={event.id}
+                  uploadedBy={uploadedBy}
+                />
               </div>
             </li>
           );
@@ -128,4 +273,3 @@ export default function EscrowTimeline({ escrowId, className }: EscrowTimelinePr
     </div>
   );
 }
-

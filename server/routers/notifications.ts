@@ -2,7 +2,14 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { merchantNotifications, NewMerchantNotification } from "../../drizzle/schema";
-import { eq, and, desc, lt, count } from "drizzle-orm";
+import { eq, and, desc, lt, count, inArray } from "drizzle-orm";
+
+// ─── Category → notification types mapping ───────────────────────────────────
+const CATEGORY_TYPES: Record<string, string[]> = {
+  payments: ["escrow_held", "escrow_settled", "escrow_refunded", "withdrawal_processed"],
+  logistics: ["shipment_update", "delivery_confirmed"],
+  disputes: ["dispute_opened", "dispute_resolved"],
+};
 
 // ─── Helper: emit a notification for a tenant ─────────────────────────────────
 export async function emitNotification(payload: NewMerchantNotification): Promise<void> {
@@ -65,6 +72,7 @@ export const notificationsRouter = router({
       limit: z.number().int().min(1).max(100).default(30),
       cursor: z.string().optional(), // ISO timestamp for pagination
       unreadOnly: z.boolean().default(false),
+      category: z.enum(["all", "payments", "logistics", "disputes"]).default("all"),
     }))
     .query(async ({ ctx, input }) => {
       if (!ctx.user.tenantId) throw new Error("No tenant associated with this account");
@@ -74,6 +82,10 @@ export const notificationsRouter = router({
       const conditions = [eq(merchantNotifications.tenantId, ctx.user.tenantId)];
       if (input.unreadOnly) conditions.push(eq(merchantNotifications.read, false));
       if (input.cursor) conditions.push(lt(merchantNotifications.createdAt, new Date(input.cursor)));
+      if (input.category !== "all") {
+        const types = CATEGORY_TYPES[input.category] ?? [];
+        if (types.length > 0) conditions.push(inArray(merchantNotifications.type, types as any[]));
+      }
 
       const rows = await db
         .select()
