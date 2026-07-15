@@ -56,6 +56,24 @@ export default function NLPSimulator() {
     { sessionId: session?.id ?? "" },
     { enabled: !!session?.id && !!user }
   );
+  // Load queued messages from DB on mount (survives page refresh)
+  const { data: dbQueuedMessages } = trpc.nlp.getQueuedMessages.useQuery(
+    { sessionId: session?.id ?? "" },
+    { enabled: !!session?.id && !!user }
+  );
+  useEffect(() => {
+    if (dbQueuedMessages?.messages && dbQueuedMessages.messages.length > 0 && offlineQueue.length === 0) {
+      setOfflineQueue(dbQueuedMessages.messages);
+      dbQueuedMessages.messages.forEach(msg => {
+        setMessages(prev => {
+          if (prev.some(m => m.content === msg + " ⏳")) return prev;
+          return [...prev, { role: "user" as const, content: msg + " ⏳", timestamp: new Date() }];
+        });
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbQueuedMessages]);
+
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

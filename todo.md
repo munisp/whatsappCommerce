@@ -603,3 +603,9 @@
 - [x] Backend: heartbeat job /api/scheduled/wa-media-download — fetch queued media from Meta Graph API, upload to S3, update whatsapp_media_files
 - [x] Backend: wire queueOfflineMessage / syncOfflineQueue / getOfflineQueueCount to offline_message_queue DB table (already fully wired in nlp.ts)
 - [x] Frontend: NLPSimulator offline queue persisted via tRPC queueOfflineMessage on send, syncOfflineQueue on reconnect, getOfflineQueueCount for badge
+## Round 14 — Webhook DLQ, retry heartbeat, offline queue load-on-mount
+- [x] Schema: wa_webhook_events table (messageId, phoneNumberId, waPhoneNumber, messageType, rawPayload, status, retryCount, lastError, processedAt, nextRetryAt)
+- [x] Backend: DLQ logging in POST /api/webhooks/whatsapp — insert waWebhookEvents on receive, update to processed/failed on outcome
+- [x] Backend: heartbeat /api/scheduled/wa-webhook-retry — retries failed events up to 3 times with exponential back-off (2^retryCount minutes), marks dead after 3 failures
+- [x] Backend: getQueuedMessages tRPC procedure (protectedProcedure) — returns queued offline messages for a session ordered by queuedAt
+- [x] Frontend: NLPSimulator load-on-mount useEffect — calls getQueuedMessages, pre-populates offlineQueue and messages with ⏳ from DB on page load

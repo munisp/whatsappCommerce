@@ -504,6 +504,19 @@ async function startServer() {
         }
       }
       const body = JSON.parse(rawBody.toString());
+      // ── DLQ: log every inbound payload ────────────────────────────────────
+      const waEventId = crypto.randomUUID();
+      const waMsg0 = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+      await db.insert(waWebhookEvents).values({
+        id: waEventId,
+        messageId: waMsg0?.id ?? null,
+        phoneNumberId: body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id ?? null,
+        waPhoneNumber: waMsg0?.from ?? null,
+        messageType: waMsg0?.type ?? null,
+        rawPayload: body,
+        status: "received",
+        retryCount: 0,
+      }).catch((e: any) => console.warn("[whatsapp-webhook] DLQ insert failed:", e?.message));
       // Acknowledge immediately (Meta requires 200 within 20s)
       res.status(200).json({ received: true });
       // Parse the Meta webhook payload
@@ -806,6 +819,67 @@ async function startServer() {
       return res.status(500).json({ error: err?.message });
     }
   });
+  // ── WhatsApp webhook retry heartbeat ─────────────────────────────────────
+  // Runs every 2 minutes; retries failed webhook events up to 3 times with
+  // exponential back-off (2^retryCount * 60s).
+  // After deploy: manus-heartbeat create --name wa-webhook-retry --cron "*/2 * * * *" --path /api/scheduled/wa-webhook-retry
+  app.post("/api/scheduled/wa-webhook-retry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const now = new Date();
+      // Find failed events that are due for retry and haven't exceeded 3 attempts
+      const due = await db.select().from(waWebhookEvents)
+        .where(sql`status = 'failed' AND "retryCount" < 3 AND ("nextRetryAt" IS NULL OR "nextRetryAt" <= ${now.toISOString()}::timestamp)`)
+        .limit(10);
+      let retried = 0;
+      let dead = 0;
+      for (const evt of due) {
+        const newRetryCount = (evt.retryCount ?? 0) + 1;
+        try {
+          // Re-process the raw payload through the NLP engine
+          const payload = evt.rawPayload as any;
+          const messages: any[] = payload?.entry?.[0]?.changes?.[0]?.value?.messages ?? [];
+          const phoneNumberId: string = payload?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id ?? "";
+          for (const msg of messages) {
+            if (msg.type === "text") {
+              const [tenant] = await db.select().from(tenants)
+                .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+                .limit(1).catch(() => [null as any]);
+              const tenantId: string = (tenant as any)?.id ?? "default";
+              const { appRouter: ar } = await import("../routers");
+              const caller = ar.createCaller({ user: null } as any);
+              await caller.nlp.processMessage({
+                tenantId,
+                waPhoneNumber: msg.from ?? "",
+                message: msg.text?.body ?? "",
+              });
+            }
+          }
+          // Mark as retried/processed
+          await db.update(waWebhookEvents)
+            .set({ status: "retried", retryCount: newRetryCount, processedAt: now, updatedAt: now })
+            .where(eq(waWebhookEvents.id, evt.id));
+          retried++;
+        } catch (e: any) {
+          // Exponential back-off: 2^retryCount minutes
+          const backoffMs = Math.pow(2, newRetryCount) * 60 * 1000;
+          const nextRetry = new Date(Date.now() + backoffMs);
+          const newStatus = newRetryCount >= 3 ? "dead" : "failed";
+          await db.update(waWebhookEvents)
+            .set({ status: newStatus, retryCount: newRetryCount, lastError: e?.message ?? "unknown", nextRetryAt: nextRetry, updatedAt: now })
+            .where(eq(waWebhookEvents.id, evt.id));
+          if (newStatus === "dead") dead++;
+        }
+      }
+      return res.json({ ok: true, retried, dead, checked: due.length });
+    } catch (err: any) {
+      console.error("[wa-webhook-retry]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
     app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -834,4 +908,4 @@ async function startServer() {
 
 startServer().catch(console.error);
 import { notifyOwner } from "./notification";
-import { whatsappMediaFiles, offlineMessageQueue } from "../../drizzle/schema";
+import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents } from "../../drizzle/schema";

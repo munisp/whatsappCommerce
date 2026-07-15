@@ -1511,3 +1511,28 @@ export const offlineMessageQueue = pgTable("offline_message_queue", {
   index("omq_status_idx").on(t.status),
 ]);
 export type OfflineMessage = typeof offlineMessageQueue.$inferSelect;
+
+// ── WhatsApp Webhook Dead-Letter Queue ────────────────────────────────────────
+// Logs every inbound Meta webhook payload with processing status for replay/audit
+export const waWebhookStatusEnum = pgEnum("wa_webhook_status", ["received", "processed", "failed", "retried", "dead"]);
+export const waWebhookEvents = pgTable("wa_webhook_events", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  messageId: varchar("messageId", { length: 128 }),
+  phoneNumberId: varchar("phoneNumberId", { length: 64 }),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 30 }),
+  messageType: varchar("messageType", { length: 30 }),
+  rawPayload: jsonb("rawPayload").notNull(),
+  status: waWebhookStatusEnum("status").default("received").notNull(),
+  retryCount: integer("retryCount").default(0).notNull(),
+  lastError: text("lastError"),
+  processedAt: timestamp("processedAt"),
+  nextRetryAt: timestamp("nextRetryAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("wa_wh_status_idx").on(t.status),
+  index("wa_wh_phone_idx").on(t.waPhoneNumber),
+  index("wa_wh_retry_idx").on(t.nextRetryAt),
+]);
+export type WaWebhookEvent = typeof waWebhookEvents.$inferSelect;
+export type InsertWaWebhookEvent = typeof waWebhookEvents.$inferInsert;

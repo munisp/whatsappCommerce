@@ -516,6 +516,20 @@ export const nlpRouter = router({
           eq(offlineMessageQueue.sessionId, input.sessionId),
           eq(offlineMessageQueue.status, "queued"),
         ));
-      return { count: rows.length };
+    return { count: rows.length };
+    }),
+  /** Load queued offline messages for a session (mount-time pre-population) */
+  getQueuedMessages: protectedProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { messages: [] };
+      const rows = await db.select().from(offlineMessageQueue)
+        .where(and(
+          eq(offlineMessageQueue.sessionId, input.sessionId),
+          eq(offlineMessageQueue.status, "queued"),
+        ))
+        .orderBy(offlineMessageQueue.queuedAt);
+      return { messages: rows.map(r => r.message) };
     }),
 });
