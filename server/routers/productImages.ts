@@ -82,6 +82,7 @@ export const productImagesRouter = router({
         usedInTraining: sql<number>`SUM(CASE WHEN ${productImageCollections.usedInTraining} THEN 1 ELSE 0 END)`,
         avgQuality: avg(productImageCollections.qualityScore),
         qualityGatedCount: sql<number>`SUM(CASE WHEN COALESCE(${productImageCollections.qualityScore}, 0) >= 3 THEN 1 ELSE 0 END)`,
+        bboxCount: sql<number>`SUM(CASE WHEN ${productImageCollections.bbox} IS NOT NULL THEN 1 ELSE 0 END)`,
       })
       .from(productImageCollections)
       .groupBy(productImageCollections.className);
@@ -91,6 +92,7 @@ export const productImagesRouter = router({
       trained: Number(c.usedInTraining),
       avgQuality: c.avgQuality ? parseFloat(String(c.avgQuality)) : null,
       qualityGated: Number(c.qualityGatedCount),
+      bboxImages: Number(c.bboxCount),
     }]));
 
     return Object.entries(FMCG_CLASSES).map(([className, displayName]) => ({
@@ -100,6 +102,7 @@ export const productImagesRouter = router({
       trainedImages: countMap[className]?.trained ?? 0,
       avgQualityScore: countMap[className]?.avgQuality ?? null,
       qualityImages: countMap[className]?.qualityGated ?? 0, // images with score >= 3
+      bboxImages: countMap[className]?.bboxImages ?? 0,
       isReady: (countMap[className]?.total ?? 0) >= 2,
     }));
   }),
@@ -251,6 +254,8 @@ export const productImagesRouter = router({
   datasetStats: publicProcedure.query(async () => {
     const db = (await getDb())!;
     const total = await db.select({ count: count() }).from(productImageCollections);
+    const bboxTotal = await db.select({ count: count() }).from(productImageCollections)
+      .where(sql`${productImageCollections.bbox} IS NOT NULL`);
     const byClass = await db
       .select({
         className: productImageCollections.className,
@@ -262,6 +267,7 @@ export const productImagesRouter = router({
     const classesReady = byClass.filter(c => Number(c.count) >= 2).length;
     return {
       totalImages: Number(total[0]?.count ?? 0),
+      bboxImages: Number(bboxTotal[0]?.count ?? 0),
       classesWithImages: byClass.length,
       classesReady,
       totalClasses: Object.keys(FMCG_CLASSES).length,

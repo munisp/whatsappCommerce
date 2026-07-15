@@ -858,3 +858,8 @@
   - [x] Heartbeat scheduled nightly fine-tune job (02:00 UTC, triggers when dataset grew ≥10 images since last run)
   - [x] Run history log drawer: expandable per-row log viewer in Run History panel showing logSnapshot
   - [x] YOLO bbox annotation editor: canvas drawing tool on image detail view, stores bbox, uses bbox in YOLO export
+
+## Round 29 (2026-07-15)
+  - [x] Bbox coverage KPI card: bboxImages count in listClasses/datasetStats, 5th KPI card on ProductImageCollector
+  - [x] Annotation review mode: "Needs Bbox" filter button showing only images where bbox IS NULL
+  - [x] YOLO export HTML preview: preview.html in ZIP with per-image canvas bbox overlays

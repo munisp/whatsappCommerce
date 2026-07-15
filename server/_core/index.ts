@@ -1232,6 +1232,49 @@ async function startServer() {
         })),
       }));
       archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
+      // Add HTML preview page with per-image bbox overlays
+      const previewRows = images.map((img: { id: string; imageUrl: string; className: string; bbox: { x: number; y: number; w: number; h: number } | null; qualityScore: number | null }) => {
+        const classId = (classMap as Record<string, number>)[img.className] ?? 0;
+        const bboxData = img.bbox ? JSON.stringify(img.bbox) : "null";
+        return `<div class="card">
+  <div class="img-wrap">
+    <img src="${img.imageUrl}" crossorigin="anonymous" onload="drawBbox(this,'${img.id}')" onerror="this.style.opacity='0.3'"/>
+    <canvas id="c-${img.id}" class="overlay"></canvas>
+  </div>
+  <div class="meta"><span class="cls">${img.className}</span> <span class="cid">#${classId}</span>${img.qualityScore ? ` ⭐${img.qualityScore}` : ""}</div>
+  <script>window.__bbox=window.__bbox||{};window.__bbox['${img.id}']=${bboxData};</script>
+</div>`;
+      }).join("\n");
+      const previewHtml = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><title>YOLO Dataset Preview</title>
+<style>
+body{font-family:sans-serif;background:#111;color:#eee;margin:0;padding:16px}
+h1{font-size:18px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.card{background:#1e1e1e;border-radius:6px;overflow:hidden;padding:6px}
+.img-wrap{position:relative;width:100%;aspect-ratio:1}
+.img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
+.overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
+.meta{font-size:11px;padding:4px 2px;display:flex;gap:6px;align-items:center}
+.cls{font-weight:600;color:#7dd3fc;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cid{color:#94a3b8}
+</style></head><body>
+<h1>YOLO Dataset Preview — ${images.length} images, ${classNames.length} classes</h1>
+<div class="grid">${previewRows}</div>
+<script>
+function drawBbox(img,id){
+  var bbox=window.__bbox&&window.__bbox[id];
+  if(!bbox)return;
+  var wrap=img.parentElement;
+  var c=document.getElementById('c-'+id);
+  if(!c)return;
+  c.width=wrap.offsetWidth;c.height=wrap.offsetHeight;
+  var ctx=c.getContext('2d');
+  ctx.strokeStyle='#22c55e';ctx.lineWidth=2;ctx.setLineDash([4,2]);
+  ctx.strokeRect(bbox.x*c.width,bbox.y*c.height,bbox.w*c.width,bbox.h*c.height);
+}
+</script></body></html>`;
+      archive.append(previewHtml, { name: "preview.html" });
       await archive.finalize();
     } catch (err) {
       if (!res.headersSent) res.status(500).json({ error: String(err) });
