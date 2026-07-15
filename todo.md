@@ -803,11 +803,11 @@
 - [x] LabelStudioPipe UI: location filter input + group-by-location checkbox
 
 ## Round 23 - Inline Corrections, Scheduled Fine-tuning, Scan Stats, Synthetic Data
-- [ ] Inline count correction in scan history bounding-box overlay
-- [ ] Scheduled fine-tuning heartbeat job (weekly, ≥50 corrections threshold)
-- [ ] Scan Statistics accuracy dashboard (per-location, AI vs corrected, heatmap)
-- [ ] Synthetic data pipeline (SD/SDXL + GroundingDINO zero-shot labelling)
-- [ ] SOTA research: synthetic vs manual labelling for Nigerian FMCG
+- [x] Inline count correction in scan history bounding-box overlay
+- [x] Scheduled fine-tuning heartbeat job (weekly, ≥50 corrections threshold)
+- [x] Scan Statistics accuracy dashboard (per-location, AI vs corrected, heatmap)
+- [x] Synthetic data pipeline (SD/SDXL + GroundingDINO zero-shot labelling)
+- [x] SOTA research: synthetic vs manual labelling for Nigerian FMCG
 
 ## Round 23 - Completed
 - [x] Inline count correction in scan history bounding-box overlay (edit quantities directly in history tab)
@@ -817,3 +817,14 @@
 - [x] Cut-paste augmentor (cutpaste_augmentor.py) for generating synthetic YOLO training data
 - [x] SDXL background generator (sdxl_background_gen.py) for Nigerian market scenes
 - [x] ScanStatsDashboard page wired into App.tsx and DashboardLayout nav
+
+## Round 24 (2026-07-15)
+- [x] Download 84 clean product images for all 30 Nigerian FMCG classes
+- [x] Build synthetic dataset (384 images: 294 train + 90 val) with cut-paste augmentation
+- [x] Write build_dataset.py - end-to-end YOLO dataset builder with GroundingDINO option
+- [x] Add Florence-2 zero-shot detection backend (florence2_detector.py)
+- [x] Build ProductImageCollector page (/product-images) with camera upload + S3 + class selector
+- [x] Fix DashboardLayout malformed nav item (BarChart2/ImagePlus)
+- [x] Add Product Images nav item to sidebar
+- [x] Wire productImages router into appRouter
+- [x] Add productImageCollections table to schema

@@ -125,6 +125,7 @@ function Router() {
           <Route path="/label-studio" component={LabelStudioPipe} />
           <Route path="/fmcg-taxonomy" component={FmcgTaxonomy} />
           <Route path="/scan-stats" component={ScanStatsDashboard} />
+          <Route path="/product-images" component={ProductImageCollector} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -164,4 +165,5 @@ import MedusaOnboarding from "./pages/MedusaOnboarding";
 import OdooMedusaBridge from "./pages/OdooMedusaBridge";
 import LabelStudioPipe from "./pages/LabelStudioPipe";
 import FmcgTaxonomy from "./pages/FmcgTaxonomy";
+import ProductImageCollector from "./pages/ProductImageCollector";
 import ScanStatsDashboard from "./pages/ScanStatsDashboard";

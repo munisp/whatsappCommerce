@@ -2164,3 +2164,24 @@ export const visualInventoryCorrections = pgTable("visual_inventory_corrections"
   index("vi_corrections_exported_idx").on(t.exportedToLabelStudio),
 ]);
 export type VisualInventoryCorrection = typeof visualInventoryCorrections.$inferSelect;
+
+// ── Product Image Collections (for YOLO training dataset) ──────────────────────
+export const productImageCollections = pgTable("product_image_collections", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  className: varchar("className", { length: 128 }).notNull(),
+  displayName: varchar("displayName", { length: 256 }).notNull(),
+  imageUrl: text("imageUrl").notNull(),
+  imageKey: text("imageKey").notNull(),
+  source: varchar("source", { length: 64 }).default("camera").notNull(),
+  notes: text("notes"),
+  uploadedBy: varchar("uploadedBy", { length: 36 }),
+  usedInTraining: boolean("usedInTraining").default(false).notNull(),
+  qualityScore: integer("qualityScore"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("pic_tenant_idx").on(t.tenantId),
+  index("pic_class_idx").on(t.className),
+  index("pic_training_idx").on(t.usedInTraining),
+]);
+export type ProductImageCollection = typeof productImageCollections.$inferSelect;

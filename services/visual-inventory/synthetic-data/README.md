@@ -95,6 +95,26 @@ Phase 4 (Month 3+): Active learning loop (corrections → fine-tune → deploy) 
 | **GPU required** | Yes (recommended) | No (runs on CPU) |
 | **Best for** | Bulk labelling of real images | Low-resource environments |
 
+## Directory Structure
+
+```
+scripts/
+  build_dataset.py      ← End-to-end dataset builder (cut-paste augmentation)
+  finetune.py           ← YOLO fine-tuning with active learning loop
+  zero_shot_labeller.py ← GroundingDINO / Autodistill zero-shot labeller
+  cutpaste_augmentor.py ← Advanced cut-paste augmentation utilities
+  sdxl_background_gen.py ← SDXL synthetic background generator
+```
+
+> **Note on large files**: The `products/` (84 raw product images) and `dataset/` (384-image
+> generated YOLO dataset) are stored at `/home/ubuntu/webdev-static-assets/fmcg-dataset/`
+> on the host, outside the project repo, to keep the repository lightweight.
+> When running locally, symlink them here:
+> ```bash
+> ln -s /home/ubuntu/webdev-static-assets/fmcg-dataset/products ./products
+> ln -s /home/ubuntu/webdev-static-assets/fmcg-dataset/dataset ./dataset
+> ```
+
 ## Nigerian FMCG Class List
 
 Run `python scripts/zero_shot_labeller.py --list-classes` to see all 30 classes with their text prompts.
@@ -104,4 +124,3 @@ noodles (Indomie, Dangote), seasoning (Maggi, Knorr, Royco, Gino, Tasty Tom),
 dairy (Dano, Peak, Cowbell), grains (Mama Gold, Caprice rice, Garri),
 cooking oil (Devon Kings, Mamador), detergent (Omo, Ariel, Key Soap),
 personal care (Dettol, Vaseline, Robb).
-

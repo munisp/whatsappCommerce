@@ -109,6 +109,7 @@ export const appRouter = router({
   taxonomy: taxonomyRouter,
   labelStudio: labelStudioRouter,
   viCorrections: viCorrectionsRouter,
+  productImages: productImagesRouter,
 });
 
 export type AppRouter = typeof appRouter;
@@ -118,6 +119,7 @@ import { visualInventoryRouter } from "./routers/visualInventory";
 import { taxonomyRouter } from "./routers/taxonomy";
 import { labelStudioRouter } from "./routers/labelStudio";
 import { viCorrectionsRouter } from "./routers/viCorrections";
+import { productImagesRouter } from "./routers/productImages";
 import { alertRulesRouter } from "./routers/alertRules";
 import { operatorTemplatesRouter } from "./routers/operatorTemplates";
 import { whatsappMediaRouter } from "./routers/whatsappMedia";
