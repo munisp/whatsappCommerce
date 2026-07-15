@@ -6,8 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Camera, Upload, Star, Trash2, CheckCircle2, AlertCircle, BarChart3, Download, RefreshCw } from "lucide-react";
+import {
+  Camera, Upload, Star, Trash2, CheckCircle2, AlertCircle,
+  BarChart3, Download, RefreshCw, Images, Filter, Layers
+} from "lucide-react";
 
 export default function ProductImageCollector() {
   const [selectedClass, setSelectedClass] = useState<string>("");
@@ -16,8 +21,17 @@ export default function ProductImageCollector() {
   const [qualityScore, setQualityScore] = useState<number>(3);
   const [source, setSource] = useState<"camera" | "upload">("upload");
   const [viewClass, setViewClass] = useState<string | null>(null);
+  const [targetCount, setTargetCount] = useState<number>(20);
+  const [filterNeedingImages, setFilterNeedingImages] = useState(false);
+
+  // Batch upload state
+  const [batchClass, setBatchClass] = useState<string>("");
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const batchInputRef = useRef<HTMLInputElement>(null);
 
   const { data: classes, refetch: refetchClasses } = trpc.productImages.listClasses.useQuery();
   const { data: classImages, refetch: refetchClassImages } = trpc.productImages.listByClass.useQuery(
@@ -66,6 +80,26 @@ export default function ProductImageCollector() {
     },
   });
 
+  const batchUploadMutation = trpc.productImages.batchUpload.useMutation({
+    onSuccess: (data) => {
+      setBatchProgress(null);
+      setBatchFiles([]);
+      setBatchClass("");
+      refetchClasses();
+      refetchStats();
+      if (viewClass) refetchClassImages();
+      if (data.failed > 0) {
+        toast.warning(`Uploaded ${data.uploaded} images, ${data.failed} failed`);
+      } else {
+        toast.success(`Batch upload complete: ${data.uploaded} images added`);
+      }
+    },
+    onError: (err) => {
+      setBatchProgress(null);
+      toast.error(err.message);
+    },
+  });
+
   const handleFileSelect = useCallback((file: File, src: "camera" | "upload") => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -89,36 +123,91 @@ export default function ProductImageCollector() {
     });
   };
 
-  const readyClasses = classes?.filter(c => c.isReady).length ?? 0;
+  const handleBatchFileSelect = (files: FileList) => {
+    const fileArray = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (fileArray.length === 0) { toast.error("No valid image files selected"); return; }
+    if (fileArray.length > 50) { toast.error("Maximum 50 files per batch"); return; }
+    setBatchFiles(fileArray);
+  };
+
+  const handleBatchUpload = async () => {
+    if (!batchClass || batchFiles.length === 0) {
+      toast.error("Please select a class and at least one image file");
+      return;
+    }
+    setBatchProgress({ current: 0, total: batchFiles.length });
+    const images: { imageBase64: string; source: "upload" }[] = [];
+    for (let i = 0; i < batchFiles.length; i++) {
+      setBatchProgress({ current: i + 1, total: batchFiles.length });
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(batchFiles[i]);
+      });
+      images.push({ imageBase64: base64, source: "upload" });
+    }
+    batchUploadMutation.mutate({ className: batchClass, images });
+  };
+
+  const readyClasses = classes?.filter(c => c.totalImages >= targetCount).length ?? 0;
   const totalClasses = classes?.length ?? 30;
+  const displayedClasses = filterNeedingImages
+    ? (classes?.filter(c => c.totalImages < targetCount) ?? [])
+    : (classes ?? []);
+
+  const getProgressColor = (count: number) => {
+    if (count >= targetCount) return "bg-green-500";
+    if (count >= Math.ceil(targetCount / 2)) return "bg-yellow-500";
+    return "bg-red-500";
+  };
+
+  const getProgressBadge = (count: number) => {
+    if (count >= targetCount) return <Badge className="text-xs bg-green-500/10 text-green-700 border-green-200">Ready</Badge>;
+    if (count >= Math.ceil(targetCount / 2)) return <Badge className="text-xs bg-yellow-500/10 text-yellow-700 border-yellow-200">Partial</Badge>;
+    return <Badge variant="outline" className="text-xs text-red-600 border-red-200">Need more</Badge>;
+  };
 
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Product Image Collector</h1>
-            <p className="text-muted-foreground mt-1">Collect product photos for YOLO training dataset — Nigerian FMCG classes</p>
+            <p className="text-muted-foreground mt-1">Collect product photos for YOLO training — Nigerian FMCG classes</p>
           </div>
-          <Button
-            onClick={() => exportMutation.mutate()}
-            disabled={exportMutation.isPending}
-            variant="outline"
-            className="gap-2"
-          >
-            <Download className="w-4 h-4" />
-            {exportMutation.isPending ? "Exporting..." : "Export Dataset Manifest"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-muted-foreground whitespace-nowrap">Target per class:</label>
+              <Input
+                type="number"
+                min={1}
+                max={100}
+                value={targetCount}
+                onChange={e => setTargetCount(Math.max(1, parseInt(e.target.value) || 20))}
+                className="w-20 h-8 text-sm"
+              />
+            </div>
+            <Button
+              onClick={() => exportMutation.mutate()}
+              disabled={exportMutation.isPending}
+              variant="outline"
+              className="gap-2"
+            >
+              <Download className="w-4 h-4" />
+              {exportMutation.isPending ? "Exporting..." : "Export Manifest"}
+            </Button>
+          </div>
         </div>
 
         {/* Dataset Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: "Total Images", value: stats?.totalImages ?? 0, icon: <BarChart3 className="w-5 h-5 text-blue-500" /> },
-            { label: "Classes with Images", value: stats?.classesWithImages ?? 0, icon: <CheckCircle2 className="w-5 h-5 text-green-500" /> },
-            { label: "Classes Ready (≥2)", value: `${readyClasses}/${totalClasses}`, icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" /> },
-            { label: "Classes Needed", value: totalClasses - readyClasses, icon: <AlertCircle className="w-5 h-5 text-amber-500" /> },
+            { label: "Classes with Images", value: stats?.classesWithImages ?? 0, icon: <Layers className="w-5 h-5 text-purple-500" /> },
+            { label: `At Target (≥${targetCount})`, value: `${readyClasses}/${totalClasses}`, icon: <CheckCircle2 className="w-5 h-5 text-green-500" /> },
+            { label: "Needing Images", value: totalClasses - readyClasses, icon: <AlertCircle className="w-5 h-5 text-amber-500" /> },
           ].map((s) => (
             <Card key={s.label}>
               <CardContent className="pt-4 pb-3">
@@ -135,10 +224,13 @@ export default function ProductImageCollector() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Upload Panel */}
+          {/* Single Upload Panel */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Add Product Image</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Camera className="w-4 h-4" />
+                Single Image Upload
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Class selector */}
@@ -154,7 +246,7 @@ export default function ProductImageCollector() {
                         <span className="flex items-center gap-2">
                           {c.displayName}
                           <span className="text-xs text-muted-foreground">({c.totalImages} imgs)</span>
-                          {c.isReady && <CheckCircle2 className="w-3 h-3 text-green-500" />}
+                          {c.totalImages >= targetCount && <CheckCircle2 className="w-3 h-3 text-green-500" />}
                         </span>
                       </SelectItem>
                     ))}
@@ -201,23 +293,6 @@ export default function ProductImageCollector() {
                 </div>
               )}
 
-              {/* Hidden file inputs */}
-              <input
-                ref={cameraInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "camera"); }}
-              />
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "upload"); }}
-              />
-
               {/* Quality rating */}
               <div>
                 <label className="text-sm font-medium mb-1 block">Image Quality</label>
@@ -258,40 +333,137 @@ export default function ProductImageCollector() {
             </CardContent>
           </Card>
 
-          {/* Class Grid */}
+          {/* Batch Upload Panel */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base flex items-center justify-between">
-                <span>Class Progress</span>
-                <Button variant="ghost" size="sm" onClick={() => refetchClasses()}>
-                  <RefreshCw className="w-3 h-3" />
-                </Button>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Images className="w-4 h-4" />
+                Batch Upload (up to 50 files)
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-1 max-h-96 overflow-y-auto pr-1">
-                {classes?.map(c => (
-                  <button
-                    key={c.className}
-                    onClick={() => setViewClass(viewClass === c.className ? null : c.className)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors text-left ${
-                      viewClass === c.className ? "bg-primary/10 border border-primary/20" : "hover:bg-muted/50"
-                    }`}
-                  >
-                    <span className="font-medium truncate">{c.displayName}</span>
-                    <div className="flex items-center gap-2 ml-2 shrink-0">
-                      <span className="text-xs text-muted-foreground">{c.totalImages} imgs</span>
-                      {c.isReady
-                        ? <Badge className="text-xs bg-green-500/10 text-green-700 border-green-200">Ready</Badge>
-                        : <Badge variant="outline" className="text-xs text-amber-600 border-amber-200">Need more</Badge>
-                      }
-                    </div>
-                  </button>
-                ))}
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-1 block">Product Class</label>
+                <Select value={batchClass} onValueChange={setBatchClass}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a product class..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes?.map(c => (
+                      <SelectItem key={c.className} value={c.className}>
+                        <span className="flex items-center gap-2">
+                          {c.displayName}
+                          <span className="text-xs text-muted-foreground">({c.totalImages} imgs)</span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
+              <div
+                className="h-36 border-2 border-dashed rounded-lg flex flex-col items-center justify-center gap-2 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => batchInputRef.current?.click()}
+              >
+                {batchFiles.length > 0 ? (
+                  <>
+                    <Images className="w-8 h-8 text-primary" />
+                    <p className="text-sm font-medium">{batchFiles.length} file{batchFiles.length !== 1 ? "s" : ""} selected</p>
+                    <p className="text-xs text-muted-foreground">Click to change selection</p>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-8 h-8 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Click to select multiple images</p>
+                    <p className="text-xs text-muted-foreground">JPG, PNG — up to 50 files</p>
+                  </>
+                )}
+              </div>
+              {batchProgress && (
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Preparing images...</span>
+                    <span>{batchProgress.current}/{batchProgress.total}</span>
+                  </div>
+                  <Progress value={(batchProgress.current / batchProgress.total) * 100} className="h-2" />
+                </div>
+              )}
+              {batchFiles.length > 0 && !batchProgress && (
+                <div className="text-xs text-muted-foreground bg-muted/50 rounded p-2 space-y-0.5">
+                  {batchFiles.slice(0, 5).map((f, i) => (
+                    <div key={i} className="truncate">• {f.name}</div>
+                  ))}
+                  {batchFiles.length > 5 && <div>...and {batchFiles.length - 5} more</div>}
+                </div>
+              )}
+              <Button
+                className="w-full gap-2"
+                onClick={handleBatchUpload}
+                disabled={!batchClass || batchFiles.length === 0 || batchUploadMutation.isPending || !!batchProgress}
+              >
+                <Upload className="w-4 h-4" />
+                {batchUploadMutation.isPending ? "Uploading to S3..." : `Upload ${batchFiles.length > 0 ? batchFiles.length + " " : ""}Images`}
+              </Button>
             </CardContent>
           </Card>
         </div>
+
+        {/* Class Progress Grid */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center justify-between">
+              <span>Class Progress ({readyClasses}/{totalClasses} at target)</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={filterNeedingImages ? "default" : "outline"}
+                  size="sm"
+                  className="gap-1 h-7 text-xs"
+                  onClick={() => setFilterNeedingImages(!filterNeedingImages)}
+                >
+                  <Filter className="w-3 h-3" />
+                  Needs Images
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => refetchClasses()}>
+                  <RefreshCw className="w-3 h-3" />
+                </Button>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-96 overflow-y-auto pr-1">
+              {displayedClasses.map(c => (
+                <button
+                  key={c.className}
+                  onClick={() => setViewClass(viewClass === c.className ? null : c.className)}
+                  className={`w-full px-3 py-2 rounded-lg text-sm transition-colors text-left border ${
+                    viewClass === c.className
+                      ? "bg-primary/10 border-primary/30"
+                      : "hover:bg-muted/50 border-transparent"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-medium truncate text-xs">{c.displayName}</span>
+                    {getProgressBadge(c.totalImages)}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${getProgressColor(c.totalImages)}`}
+                        style={{ width: `${Math.min(100, (c.totalImages / targetCount) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">{c.totalImages}/{targetCount}</span>
+                  </div>
+                </button>
+              ))}
+              {displayedClasses.length === 0 && (
+                <div className="col-span-3 text-center py-8 text-muted-foreground text-sm">
+                  <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto mb-2" />
+                  All classes have reached the target of {targetCount} images!
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Class Image Gallery */}
         {viewClass && classImages && (
@@ -345,6 +517,30 @@ export default function ProductImageCollector() {
           </Card>
         )}
       </div>
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "upload"); e.target.value = ""; }}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "camera"); e.target.value = ""; }}
+      />
+      <input
+        ref={batchInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={e => { if (e.target.files) handleBatchFileSelect(e.target.files); e.target.value = ""; }}
+      />
     </DashboardLayout>
   );
 }

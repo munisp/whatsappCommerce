@@ -31,6 +31,8 @@ from .config import settings
 from .image_utils import resize_for_vlm, get_image_dimensions
 from .ollama_client import analyse_image_with_vlm, probe_available_model
 from .yolo_detector import run_yolo_detection
+from .florence2_detector import detect_products_florence2, aggregate_detections_to_counts
+import io as _io
 
 log = structlog.get_logger(__name__)
 
@@ -85,6 +87,26 @@ class InventoryAnalysisResponse(BaseModel):
     confidence_score: float  # overall analysis confidence
     raw_vlm: dict[str, Any] = {}
     raw_yolo: dict[str, Any] = {}
+    detector_backend: str = "yolo+vlm"
+
+
+
+# ── Florence-2 result adapter ─────────────────────────────────────────────────
+def florence2_to_vlm_format(f2_result: dict[str, Any], hints: list[str]) -> dict[str, Any]:
+    """Convert Florence-2 detection output to the same format as Ollama VLM."""
+    detections = f2_result.get("detections", [])
+    counts = aggregate_detections_to_counts(detections)
+    items = [
+        {"label": lbl.title(), "count": cnt, "confidence": 0.88, "location": "", "notes": "Florence-2 detection"}
+        for lbl, cnt in counts.items()
+    ]
+    return {
+        "items": items,
+        "scene_description": f"Florence-2 zero-shot detection ({len(detections)} bboxes)",
+        "inventory_notes": f"Backend: {f2_result.get('backend', 'florence2')}",
+        "model_used": "florence2",
+        "counts": counts,
+    }
 
 
 # ── Rust bbox post-processor integration ─────────────────────────────────────
@@ -195,6 +217,7 @@ async def health():
         "active_vlm_model": settings.active_vlm_model,
         "yolo_model": settings.yolo_model,
         "ollama_url": settings.ollama_base_url,
+        "available_detectors": ["yolo+vlm", "florence2", "yolo_only", "vlm_only"],
     }
 
 
@@ -215,6 +238,7 @@ async def analyse_inventory(
     session_id: Annotated[str, Form()] = "",
     product_hints: Annotated[str, Form(description="Comma-separated known product names")] = "",
     vlm_model: Annotated[str, Form(description="Override VLM model")] = "",
+    detector: Annotated[str, Form(description="Detector: yolo+vlm | florence2 | yolo_only | vlm_only")] = "yolo+vlm",
 ):
     """
     Main endpoint: analyse an inventory image.
@@ -243,8 +267,38 @@ async def analyse_inventory(
              session_id=session_id,
              model=model,
              image_size=len(resized_bytes),
-             hints=hints)
+             hints=hints,
+             detector=detector)
 
+    # ── Florence-2 path ──────────────────────────────────────────────────────
+    if detector == "florence2":
+        from PIL import Image as PILImage
+        pil_image = PILImage.open(_io.BytesIO(resized_bytes)).convert("RGB")
+        f2_result = await detect_products_florence2(pil_image, hints or None)
+        vlm_result = florence2_to_vlm_format(f2_result, hints)
+        yolo_result = {"counts": {}, "detections": [], "total_detected": 0}
+        bbox_result = {"detections": [], "processed": False}
+        merged_items, overall_confidence = merge_results(vlm_result, yolo_result, bbox_result)
+        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+        return InventoryAnalysisResponse(
+            session_id=session_id or "unknown",
+            scene_description=vlm_result.get("scene_description", ""),
+            total_unique_products=len(merged_items),
+            total_items_counted=sum(i.count for i in merged_items),
+            items=merged_items,
+            yolo_detections=0,
+            vlm_model_used="florence2",
+            processing_ms=elapsed_ms,
+            image_width=img_w,
+            image_height=img_h,
+            inventory_notes=vlm_result.get("inventory_notes", ""),
+            confidence_score=overall_confidence,
+            raw_vlm=vlm_result,
+            raw_yolo={},
+            detector_backend="florence2",
+        )
+
+    # ── Default: YOLO + VLM (parallel) ───────────────────────────────────────
     # Run YOLO + VLM in parallel
     yolo_task = asyncio.get_event_loop().run_in_executor(
         None, run_yolo_detection, resized_bytes
@@ -285,6 +339,7 @@ async def analyse_inventory(
         confidence_score=overall_confidence,
         raw_vlm=vlm_result,
         raw_yolo={"counts": yolo_result.get("counts", {}), "total": yolo_result.get("total_detected", 0)},
+        detector_backend="yolo+vlm",
     )
 
 
