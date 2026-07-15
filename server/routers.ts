@@ -103,9 +103,15 @@ export const appRouter = router({
   medusa: medusaRouter,
   webhookDlq: webhookDlqRouter,
   provisioning: provisioningRouter,
+  medusaOnboarding: medusaOnboardingRouter,
+  odooMedusaBridge: odooMedusaBridgeRouter,
+  visualInventory: visualInventoryRouter,
 });
 
 export type AppRouter = typeof appRouter;
+import { medusaOnboardingRouter } from "./routers/medusaOnboarding";
+import { odooMedusaBridgeRouter } from "./routers/odooMedusaBridge";
+import { visualInventoryRouter } from "./routers/visualInventory";
 import { alertRulesRouter } from "./routers/alertRules";
 import { operatorTemplatesRouter } from "./routers/operatorTemplates";
 import { whatsappMediaRouter } from "./routers/whatsappMedia";

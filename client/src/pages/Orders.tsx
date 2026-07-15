@@ -6,8 +6,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
-import { Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
+import { Clock, Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { useLocation } from "wouter";
 
 
 const statusColors: Record<string, string> = {
@@ -23,6 +25,7 @@ const statusColors: Record<string, string> = {
 export default function Orders() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [, setLocation] = useLocation();
   const { data: stats } = trpc.order.stats.useQuery({ tenantId: DEMO_TENANT });
   const { data: orderList, isLoading } = trpc.order.list.useQuery({
     tenantId: DEMO_TENANT,
@@ -90,13 +93,14 @@ export default function Orders() {
                   <TableHead>Payment</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Created</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Loading orders...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading orders...</TableCell></TableRow>
                 ) : orderList?.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">No orders found</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No orders found</TableCell></TableRow>
                 ) : orderList?.map((o) => (
                   <TableRow key={o.id} className="border-border hover:bg-accent/30">
                     <TableCell className="font-mono text-xs">{o.orderNumber}</TableCell>
@@ -104,6 +108,16 @@ export default function Orders() {
                     <TableCell><Badge variant="outline" className={o.paymentStatus === "completed" ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-muted text-muted-foreground"}>{o.paymentStatus}</Badge></TableCell>
                     <TableCell className="font-mono">{o.currency} {Number(o.totalAmount).toFixed(2)}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">{formatDistanceToNow(new Date(o.createdAt), { addSuffix: true })}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                        onClick={() => setLocation(`/orders/${o.orderNumber}`)}
+                      >
+                        <Clock className="w-3 h-3" /> Timeline
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -1977,3 +1977,126 @@ export const unifiedOnboardingSessions = pgTable("unified_onboarding_sessions", 
   index("unified_onboarding_tenant_idx").on(t.tenantId),
 ]);
 export type UnifiedOnboardingSession = typeof unifiedOnboardingSessions.$inferSelect;
+
+// ─── Medusa Product Onboarding ────────────────────────────────────────────────
+export const medusaOnboardingStatusEnum = pgEnum("medusa_onboarding_status", [
+  "draft", "syncing", "synced", "failed"
+]);
+
+export const medusaProductOnboarding = pgTable("medusa_product_onboarding", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  // Local platform product reference
+  productId: varchar("productId", { length: 36 }),
+  // Medusa IDs after sync
+  medusaProductId: varchar("medusaProductId", { length: 128 }),
+  medusaVariantId: varchar("medusaVariantId", { length: 128 }),
+  medusaInventoryItemId: varchar("medusaInventoryItemId", { length: 128 }),
+  // Product data snapshot
+  title: varchar("title", { length: 256 }).notNull(),
+  description: text("description"),
+  sku: varchar("sku", { length: 64 }),
+  price: numeric("price", { precision: 12, scale: 2 }).notNull(),
+  currency: varchar("currency", { length: 8 }).default("NGN").notNull(),
+  stockQuantity: integer("stockQuantity").default(0).notNull(),
+  weight: numeric("weight", { precision: 8, scale: 2 }),
+  images: jsonb("images").default([]),
+  categories: jsonb("categories").default([]),
+  tags: jsonb("tags").default([]),
+  metadata: jsonb("metadata").default({}),
+  status: medusaOnboardingStatusEnum("status").default("draft").notNull(),
+  errorMessage: text("errorMessage"),
+  syncedAt: timestamp("syncedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("medusa_onboarding_tenant_idx").on(t.tenantId),
+  index("medusa_onboarding_product_idx").on(t.productId),
+]);
+export type MedusaProductOnboarding = typeof medusaProductOnboarding.$inferSelect;
+
+// ─── Odoo ↔ Medusa Inventory Bridge ──────────────────────────────────────────
+export const odooMedusaBridgeSyncStatusEnum = pgEnum("odoo_medusa_bridge_sync_status", [
+  "pending", "syncing", "synced", "conflict", "failed"
+]);
+
+export const odooMedusaInventoryBridge = pgTable("odoo_medusa_inventory_bridge", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  // Odoo side
+  odooProductId: varchar("odooProductId", { length: 64 }).notNull(),
+  odooProductName: varchar("odooProductName", { length: 256 }),
+  odooSku: varchar("odooSku", { length: 64 }),
+  odooStockQty: numeric("odooStockQty", { precision: 12, scale: 2 }).default("0"),
+  odooReservedQty: numeric("odooReservedQty", { precision: 12, scale: 2 }).default("0"),
+  odooWarehouse: varchar("odooWarehouse", { length: 128 }),
+  // Medusa side
+  medusaProductId: varchar("medusaProductId", { length: 128 }),
+  medusaVariantId: varchar("medusaVariantId", { length: 128 }),
+  medusaInventoryItemId: varchar("medusaInventoryItemId", { length: 128 }),
+  medusaStockableQty: integer("medusaStockableQty").default(0),
+  // Sync metadata
+  syncStatus: odooMedusaBridgeSyncStatusEnum("syncStatus").default("pending").notNull(),
+  syncDirection: varchar("syncDirection", { length: 16 }).default("odoo_to_medusa"),
+  conflictReason: text("conflictReason"),
+  lastSyncedAt: timestamp("lastSyncedAt"),
+  lastOdooUpdate: timestamp("lastOdooUpdate"),
+  lastMedusaUpdate: timestamp("lastMedusaUpdate"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("odoo_medusa_bridge_tenant_idx").on(t.tenantId),
+  index("odoo_medusa_bridge_odoo_idx").on(t.odooProductId),
+  index("odoo_medusa_bridge_medusa_idx").on(t.medusaVariantId),
+]);
+export type OdooMedusaInventoryBridge = typeof odooMedusaInventoryBridge.$inferSelect;
+
+// ─── AI Visual Inventory ──────────────────────────────────────────────────────
+export const visualInventoryStatusEnum = pgEnum("visual_inventory_status", [
+  "processing", "completed", "failed", "review_needed"
+]);
+
+export const visualInventorySessions = pgTable("visual_inventory_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  userId: varchar("userId", { length: 36 }),
+  // Image storage
+  imageUrl: text("imageUrl").notNull(),
+  imageKey: varchar("imageKey", { length: 256 }),
+  // AI analysis results
+  status: visualInventoryStatusEnum("status").default("processing").notNull(),
+  detectedItems: jsonb("detectedItems").default([]),  // [{label, count, confidence, bbox}]
+  totalItemsDetected: integer("totalItemsDetected").default(0),
+  vlmAnalysis: text("vlmAnalysis"),  // Raw VLM description
+  modelUsed: varchar("modelUsed", { length: 64 }),
+  processingMs: integer("processingMs"),
+  // Reconciliation
+  appliedToInventory: boolean("appliedToInventory").default(false).notNull(),
+  appliedAt: timestamp("appliedAt"),
+  appliedBy: varchar("appliedBy", { length: 36 }),
+  inventoryUpdates: jsonb("inventoryUpdates").default([]),  // [{productId, oldQty, newQty}]
+  notes: text("notes"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("visual_inventory_tenant_idx").on(t.tenantId),
+  index("visual_inventory_status_idx").on(t.status),
+]);
+export type VisualInventorySession = typeof visualInventorySessions.$inferSelect;
+
+export const visualInventoryMappings = pgTable("visual_inventory_mappings", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  // Maps AI-detected label to a platform product
+  detectedLabel: varchar("detectedLabel", { length: 256 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  productName: varchar("productName", { length: 256 }),
+  confidence: real("confidence").default(1.0),
+  isVerified: boolean("isVerified").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("visual_inventory_mapping_tenant_idx").on(t.tenantId),
+  uniqueIndex("visual_inventory_mapping_unique_idx").on(t.tenantId, t.detectedLabel),
+]);
+export type VisualInventoryMapping = typeof visualInventoryMappings.$inferSelect;

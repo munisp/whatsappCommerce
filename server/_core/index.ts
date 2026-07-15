@@ -765,6 +765,80 @@ async function startServer() {
     }
   });
 
+
+  // ── Medusa order fulfillment webhook (/api/webhooks/medusa) ──────────────
+  // Receives order.fulfillment_created, order.completed, order.canceled events
+  // from Medusa v2 and updates the platform order status accordingly.
+  // Register in Medusa Admin → Settings → Webhooks → POST /api/webhooks/medusa
+  app.post("/api/webhooks/medusa", express.json(), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+
+      // Optional HMAC verification using MEDUSA_WEBHOOK_SECRET
+      const webhookSecret = process.env.MEDUSA_WEBHOOK_SECRET;
+      if (webhookSecret) {
+        const sig = req.headers["x-medusa-signature"] as string ?? "";
+        const expected = crypto.createHmac("sha256", webhookSecret)
+          .update(JSON.stringify(req.body))
+          .digest("hex");
+        if (sig !== expected) {
+          console.warn("[medusa-webhook] Invalid HMAC signature — rejected");
+          return res.status(401).json({ error: "invalid-signature" });
+        }
+      }
+
+      const { event, data } = req.body as { event?: string; data?: Record<string, unknown> };
+      if (!event || !data) return res.status(400).json({ error: "missing event or data" });
+
+      console.log(`[medusa-webhook] Received event: ${event}`, { orderId: data?.id });
+
+      // Map Medusa event → platform order status
+      const eventStatusMap: Record<string, string> = {
+        "order.fulfillment_created": "shipped",
+        "order.completed":           "delivered",
+        "order.canceled":            "cancelled",
+        "order.payment_captured":    "confirmed",
+        "order.placed":              "pending",
+      };
+
+      const newStatus = eventStatusMap[event];
+      if (!newStatus) {
+        return res.json({ ok: true, action: "ignored", event });
+      }
+
+      // Find the platform order by Medusa order ID (stored in orders.metadata->>'medusaOrderId')
+      const medusaOrderId = (data?.id ?? data?.order_id) as string | undefined;
+      if (!medusaOrderId) return res.json({ ok: true, action: "no-order-id" });
+
+      // Look up by erpOrderId (we store the Medusa order ID there during sync)
+      const [platformOrder] = await db.select({ id: orders.id, orderNumber: orders.orderNumber })
+        .from(orders)
+        .where(eq(orders.erpOrderId, medusaOrderId))
+        .limit(1)
+        .catch(() => [null as any]);
+
+      if (!platformOrder) {
+        console.warn(`[medusa-webhook] No platform order found for medusaOrderId=${medusaOrderId}`);
+        return res.json({ ok: true, action: "order-not-found", medusaOrderId });
+      }
+
+      // Update the order status
+      await db.update(orders)
+        .set({
+          status: newStatus as typeof orders.$inferInsert.status,
+          updatedAt: new Date(),
+        })
+        .where(eq(orders.id, platformOrder.id));
+
+      console.log(`[medusa-webhook] Order ${platformOrder.orderNumber} → ${newStatus} (event: ${event})`);
+      return res.json({ ok: true, action: "updated", orderNumber: platformOrder.orderNumber, newStatus });
+    } catch (err: any) {
+      console.error("[medusa-webhook]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── WhatsApp media download heartbeat ────────────────────────────────────
   // Runs every 5 minutes; fetches media from Meta Graph API and uploads to S3.
   // After deploy: manus-heartbeat create --name wa-media-download --cron "0 */5 * * * *" --path /api/scheduled/wa-media-download

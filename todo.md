@@ -729,3 +729,23 @@
 - [x] Frontend: /orders/:orderNumber unified order timeline page with multi-system journey view
 - [x] Wire /orders/:orderNumber route in App.tsx
 - [x] 241 tests passing, 0 TypeScript errors
+
+## Round 19 — Medusa Onboarding, Odoo↔Medusa Bridge, AI Visual Inventory
+
+- [x] Answered architecture questions: Medusa onboarding flow, Odoo↔Medusa inventory bridge, SOTA visual AI
+- [x] Schema: medusaProductOnboarding, odooMedusaInventoryBridge, visualInventorySessions tables added
+- [x] Python VLM service: Ollama (Qwen2.5-VL/MiniCPM-V/Gemma3) + YOLO for object detection
+- [x] Go orchestrator: image preprocessing, resize, format conversion, pipeline routing
+- [x] Rust bbox post-processor: NMS, deduplication, confidence re-scoring via Axum REST API
+- [x] Docker Compose: full visual inventory stack (ollama, python-vlm, go-orchestrator, rust-bbox)
+- [x] TypeScript visualInventory tRPC router: analyzeImage, listSessions, getSession, updateInventory
+- [x] TypeScript medusaOnboarding tRPC router: list, addProduct, importFromCatalog, pushToMedusa, stats
+- [x] TypeScript odooMedusaBridge tRPC router: list, upsertMapping, syncOdooToMedusa, stats
+- [x] Frontend: VisualInventory page (mobile camera → AI analysis → inventory update)
+- [x] Frontend: MedusaOnboarding page (self-service product queue → push to Medusa)
+- [x] Frontend: OdooMedusaBridge page (bidirectional sync mappings + manual sync trigger)
+- [x] Sidebar nav: added Visual Inventory, Medusa Onboarding, Odoo↔Medusa Bridge entries
+- [x] App.tsx: wired /visual-inventory, /medusa-onboarding, /odoo-medusa-bridge routes
+- [x] Orders page: added "Timeline" button per row → navigates to /orders/:orderNumber
+- [x] Medusa webhook: POST /api/webhooks/medusa handles order.fulfillment_created, order.completed, order.canceled
+- [x] 241 tests passing, 0 TypeScript errors

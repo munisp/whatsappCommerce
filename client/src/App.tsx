@@ -119,6 +119,9 @@ function Router() {
           <Route path="/compliance" component={CompliancePortal} />
           <Route path="/medusa" component={MedusaIntegration} />
           <Route path="/webhook-dlq" component={WebhookDLQ} />
+          <Route path="/visual-inventory" component={VisualInventory} />
+          <Route path="/medusa-onboarding" component={MedusaOnboarding} />
+          <Route path="/odoo-medusa-bridge" component={OdooMedusaBridge} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -153,3 +156,6 @@ import MedusaIntegration from "./pages/MedusaIntegration";
 import WebhookDLQ from "./pages/WebhookDLQ";
 import UnifiedOnboarding from "./pages/UnifiedOnboarding";
 import IntegrationHealth from "./pages/IntegrationHealth";
+import VisualInventory from "./pages/VisualInventory";
+import MedusaOnboarding from "./pages/MedusaOnboarding";
+import OdooMedusaBridge from "./pages/OdooMedusaBridge";
