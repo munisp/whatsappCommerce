@@ -64,6 +64,8 @@ export const labelStudioRouter = router({
     .input(z.object({
       sessionIds: z.array(z.string()).optional(), // if empty, exports all un-exported sessions
       limit: z.number().min(1).max(100).default(50),
+      filterByLocation: z.string().optional(),   // filter sessions by scan location
+      groupByLocation: z.boolean().default(false), // group tasks by location in metadata
     }))
     .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
@@ -80,7 +82,14 @@ export const labelStudioRouter = router({
 
       const toExport = input.sessionIds?.length
         ? sessions.filter(s => input.sessionIds!.includes(s.id))
-        : sessions.filter(s => s.imageUrl && s.status === "completed");
+        : sessions.filter(s => {
+            if (!s.imageUrl || s.status !== "completed") return false;
+            if (input.filterByLocation) {
+              const loc = ((s as any).scanLocation ?? s.notes ?? "").toLowerCase();
+              return loc.includes(input.filterByLocation.toLowerCase());
+            }
+            return true;
+          });
 
       if (toExport.length === 0) return { exported: 0, message: "No sessions to export" };
 
@@ -90,7 +99,7 @@ export const labelStudioRouter = router({
           image: session.imageUrl,
           session_id: session.id,
           tenant_id: tenantId,
-          scan_location: session.notes ?? null,
+          scan_location: (session as any).scanLocation ?? session.notes ?? null,
           scanned_at: session.createdAt,
           detected_items: session.detectedItems,
           ai_model: session.modelUsed,
@@ -98,6 +107,9 @@ export const labelStudioRouter = router({
         meta: {
           session_id: session.id,
           platform: "whatsapp-commerce-visual-inventory",
+          ...(input.groupByLocation ? {
+            location_group: (session as any).scanLocation ?? session.notes ?? "unspecified",
+          } : {}),
         },
         annotations: [],
         predictions: [

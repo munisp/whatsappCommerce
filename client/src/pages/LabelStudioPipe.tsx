@@ -17,6 +17,8 @@ export default function LabelStudioPipe() {
   const [form, setForm] = useState({ labelStudioUrl: "", apiToken: "", projectId: "", projectName: "", autoExport: false });
   const [testing, setTesting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [locationFilter, setLocationFilter] = useState("");
+  const [groupByLocation, setGroupByLocation] = useState(false);
   const [testResult, setTestResult] = useState<{ connected: boolean; error?: string; projectCount?: number; projects?: { id: number; title: string }[] } | null>(null);
 
   const { data: configData, refetch: refetchConfig } = trpc.labelStudio.getConfig.useQuery();
@@ -71,7 +73,11 @@ export default function LabelStudioPipe() {
   const handleExportSessions = async () => {
     setExporting(true);
     try {
-      const result = await exportSessionsMutation.mutateAsync({ limit: 50 });
+      const result = await exportSessionsMutation.mutateAsync({
+        limit: 50,
+        filterByLocation: locationFilter.trim() || undefined,
+        groupByLocation,
+      });
       const r = result as { exported: number; message?: string; error?: string };
       if (r.error) toast.error(r.error);
       else toast.success(r.message ?? `Exported ${r.exported} sessions`);
@@ -186,7 +192,29 @@ export default function LabelStudioPipe() {
                 <CardTitle className="text-base flex items-center gap-2"><Upload className="w-4 h-4 text-violet-600" /> Export Scan Sessions</CardTitle>
                 <CardDescription className="text-xs">Push completed scan sessions as annotation tasks to Label Studio. Each task includes the shelf image and YOLO bounding box predictions as pre-annotations.</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-2">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Filter by Location (optional)</label>
+                  <input
+                    type="text"
+                    className="w-full mt-1 px-3 py-1.5 text-sm border rounded-md bg-background"
+                    placeholder="e.g. Shelf A3, Aisle 2 — leave blank for all"
+                    value={locationFilter}
+                    onChange={(e) => setLocationFilter(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="groupByLoc"
+                    checked={groupByLocation}
+                    onChange={(e) => setGroupByLocation(e.target.checked)}
+                    className="rounded"
+                  />
+                  <label htmlFor="groupByLoc" className="text-xs text-muted-foreground cursor-pointer">
+                    Group tasks by scan location in Label Studio metadata
+                  </label>
+                </div>
                 <Button onClick={handleExportSessions} disabled={exporting || !cfg?.isConnected} className="w-full gap-1">
                   {exporting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
                   Export Sessions to Label Studio
