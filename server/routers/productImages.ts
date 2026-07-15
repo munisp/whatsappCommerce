@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { productImageCollections } from "../../drizzle/schema";
-import { eq, and, desc, count, sql } from "drizzle-orm";
+import { eq, desc, count, sql } from "drizzle-orm";
 import { storagePut } from "../storage";
 
 function getTenantId(ctx: { user: { tenantId?: string | null; id: number } }): string {
@@ -117,6 +117,53 @@ export const productImagesRouter = router({
       }).returning();
 
       return { success: true, id: record.id, url };
+    }),
+
+  // Batch upload multiple images for a single class
+  batchUpload: protectedProcedure
+    .input(z.object({
+      className: z.string().min(1),
+      images: z.array(z.object({
+        imageBase64: z.string().min(1),
+        source: z.enum(["camera", "upload", "internet"]).default("upload"),
+        notes: z.string().optional(),
+        qualityScore: z.number().min(1).max(5).optional(),
+      })).min(1).max(50),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const tenantId = getTenantId(ctx);
+      const displayName = FMCG_CLASSES[input.className] ?? input.className;
+      const results: { id: string; url: string }[] = [];
+      const errors: string[] = [];
+      for (let i = 0; i < input.images.length; i++) {
+        const img = input.images[i];
+        try {
+          const matches = img.imageBase64.match(/^data:(.+);base64,(.+)$/);
+          if (!matches) { errors.push(`Image ${i + 1}: Invalid base64 format`); continue; }
+          const mimeType = matches[1];
+          const buffer = Buffer.from(matches[2], "base64");
+          const ext = mimeType.includes("png") ? "png" : "jpg";
+          const fileKey = `product-images/${input.className}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const { url } = await storagePut(fileKey, buffer, mimeType);
+          const [record] = await db.insert(productImageCollections).values({
+            id: crypto.randomUUID(),
+            tenantId,
+            className: input.className,
+            displayName,
+            imageUrl: url,
+            imageKey: fileKey,
+            source: img.source,
+            notes: img.notes,
+            uploadedBy: String(ctx.user.id),
+            qualityScore: img.qualityScore,
+          }).returning();
+          results.push({ id: record.id, url });
+        } catch (e) {
+          errors.push(`Image ${i + 1}: ${e instanceof Error ? e.message : "Unknown error"}`);
+        }
+      }
+      return { uploaded: results.length, failed: errors.length, errors, results };
     }),
 
   // Rate image quality

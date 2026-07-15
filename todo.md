@@ -828,3 +828,11 @@
 - [x] Add Product Images nav item to sidebar
 - [x] Wire productImages router into appRouter
 - [x] Add productImageCollections table to schema
+
+## Round 25 (2026-07-15) - Completed
+- [x] Compress training dataset (products + dataset) into tar.gz and push to GitHub
+- [x] Re-authenticate GitHub and push all code
+- [x] Wire Florence-2 as fallback detector in python-vlm/app/main.py (detector= query param: yolo+vlm, florence2, yolo_only, vlm_only)
+- [x] Build GPU training pipeline runner script (gpu_train_runner.py: RunPod/SSH/local GPU launcher with progress streaming)
+- [x] Expand ProductImageCollector UI: batch upload (up to 50 files), per-class progress bars (green/yellow/red), configurable target count, Needs Images filter
+- [x] Add batchUpload tRPC procedure to productImages router (accepts array of base64 images, uploads to S3, returns count)
