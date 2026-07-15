@@ -60,6 +60,7 @@ import { complianceRouter } from "./routers/compliance";
 import { medusaRouter } from "./routers/medusa";
 import { webhookDlqRouter } from "./routers/webhookDlq";
 import { provisioningRouter } from "./routers/provisioning";
+import { fineTuneRouter } from "./routers/fineTune";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -134,6 +135,4 @@ export const appRouter = router({
   productImages: productImagesRouter,
   fineTune: fineTuneRouter,
 });
-import { fineTuneRouter } from "./routers/fineTune";
-
 export type AppRouter = typeof appRouter;

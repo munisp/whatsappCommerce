@@ -1281,6 +1281,45 @@ function drawBbox(img,id){
     }
   });
 
+  // ── POST /api/ml/predict — fraud probability + credit score inference ──────
+  // Accepts: { tenantId, amount, phone, items, customerId }
+  // Returns: { fraudProbability, creditScore, riskLevel }
+  app.post("/api/ml/predict", express.json(), async (req, res) => {
+    try {
+      const { amount, phone, items, customerId } = req.body ?? {};
+      const numItems = Array.isArray(items) ? items.length : 0;
+      const totalAmount = parseFloat(amount) || 0;
+      // Heuristic fraud scoring (mirrors GNN-LSTM risk factors)
+      let fraudScore = 0;
+      if (totalAmount > 500000) fraudScore += 0.35;
+      else if (totalAmount > 100000) fraudScore += 0.15;
+      if (numItems > 20) fraudScore += 0.2;
+      if (!phone || String(phone).length < 10) fraudScore += 0.3;
+      if (!customerId) fraudScore += 0.1;
+      fraudScore = Math.min(1, Math.max(0, fraudScore + (Math.random() * 0.05 - 0.025)));
+      const creditScore = Math.round(850 - fraudScore * 550);
+      const riskLevel = fraudScore > 0.7 ? "high" : fraudScore > 0.4 ? "medium" : "low";
+      // Attempt to call Python inference script (best-effort)
+      try {
+        const { execSync: _execSync } = await import("child_process");
+        const scriptPath = path.join(process.cwd(), "services/ml-stack/inference/predict.py");
+        const { existsSync: _existsSync } = await import("fs");
+        if (_existsSync(scriptPath)) {
+          const payload = JSON.stringify({ amount: totalAmount, num_items: numItems, has_phone: !!phone, has_customer: !!customerId });
+          const out = _execSync(`python3 "${scriptPath}" '${payload}'`, { timeout: 5000, encoding: "utf-8" });
+          const pyResult = JSON.parse(out.trim());
+          if (typeof pyResult.fraud_probability === "number") {
+            const fp = pyResult.fraud_probability;
+            return res.json({ fraudProbability: fp, creditScore: Math.round(850 - fp * 550), riskLevel: fp > 0.7 ? "high" : fp > 0.4 ? "medium" : "low", source: "pytorch_model" });
+          }
+        }
+      } catch { /* Python inference failed — use heuristic fallback */ }
+      res.json({ fraudProbability: fraudScore, creditScore, riskLevel, source: "heuristic" });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

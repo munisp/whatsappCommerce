@@ -235,14 +235,37 @@ export const mlOpsRouter = router({
   triggerRetraining: protectedProcedure
     .input(z.object({ modelName: z.string(), reason: z.string().optional() }))
     .mutation(async ({ input }) => {
-      // In production: spawn `python3 services/ml-stack/training/continuous_trainer.py --model ${input.modelName}`
-      // For now: return a simulated trigger response
-      return {
-        ok: true,
-        jobId: `retrain-${input.modelName}-${Date.now()}`,
-        message: `Retraining job queued for model: ${input.modelName}. Reason: ${input.reason ?? "manual trigger"}`,
-        estimatedDurationMs: 120000,
-      };
+      const isHpo = (input.reason ?? "").toLowerCase().includes("hpo");
+      const scriptPath = path.join(process.cwd(), "services/ml-stack/training/continuous_trainer.py");
+      const args = ["--model", input.modelName];
+      if (isHpo) args.push("--hpo");
+      if (input.reason) args.push("--reason", input.reason);
+      const jobId = `retrain-${input.modelName}-${Date.now()}`;
+      try {
+        const child = spawn("python3", [scriptPath, ...args], {
+          detached: true,
+          stdio: ["ignore", "ignore", "ignore"],
+          env: { ...process.env, MLFLOW_TRACKING_URI: "http://localhost:5000" },
+          cwd: process.cwd(),
+        });
+        child.unref();
+        return {
+          ok: true,
+          jobId,
+          pid: child.pid,
+          message: isHpo
+            ? `HPO sweep spawned for ${input.modelName} (Ray Tune). Job: ${jobId}`
+            : `Retraining job spawned for ${input.modelName}. Reason: ${input.reason ?? "manual trigger"}`,
+          estimatedDurationMs: isHpo ? 600000 : 120000,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          jobId,
+          message: `Failed to spawn retraining: ${(err as Error).message}`,
+          estimatedDurationMs: 0,
+        };
+      }
     }),
 
   // Recent transaction volume for training data pipeline status

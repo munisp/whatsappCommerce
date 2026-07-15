@@ -154,8 +154,85 @@ class ContinuousTrainer:
 
 
 if __name__ == "__main__":
-    trainer = ContinuousTrainer(mlflow_uri="sqlite:///mlruns.db")
-    result = trainer.run_full_pipeline()
-    print(json.dumps(result, indent=2))
+    import argparse
+    parser = argparse.ArgumentParser(description="Continuous Trainer / HPO Runner")
+    parser.add_argument("--model", default="fraud_detection", help="Model name to retrain")
+    parser.add_argument("--hpo", action="store_true", help="Run Ray Tune HPO sweep instead of single training run")
+    parser.add_argument("--reason", default="", help="Reason for triggering retraining")
+    parser.add_argument("--dry-run", action="store_true", dest="dry_run", help="Dry run (no actual training)")
+    args = parser.parse_args()
 
+    if args.dry_run:
+        print(json.dumps({"status": "dry_run", "model": args.model, "hpo": args.hpo}))
+        sys.exit(0)
+
+    trainer = ContinuousTrainer(mlflow_uri="sqlite:///mlruns.db")
+
+    if args.hpo:
+        print(f"=== Ray Tune HPO sweep for {args.model} ===", flush=True)
+        try:
+            import ray
+            from ray import tune
+            from ray.tune.schedulers import ASHAScheduler
+
+            _model_name = args.model  # capture for closure
+
+            def hpo_train(config):
+                """Ray Tune trainable: train with given hyperparameters and report metrics."""
+                import mlflow as _mlflow
+                _mlflow.set_tracking_uri("sqlite:///mlruns.db")
+                with _mlflow.start_run(run_name=f"hpo_lr{config['lr']:.0e}_bs{config['batch_size']}"):
+                    _mlflow.log_params(config)
+                    try:
+                        from training.train_all import train_fraud_model, train_credit_model, WEIGHTS_DIR
+                        import torch as _torch
+                        if _model_name == "fraud_detection":
+                            train_fraud_model(epochs=config.get("epochs", 5))
+                            weight_file = WEIGHTS_DIR / "fraud_gnn_lstm.pt"
+                        else:
+                            train_credit_model(epochs=config.get("epochs", 5))
+                            weight_file = WEIGHTS_DIR / "credit_tabnet.pt"
+                        ckpt = _torch.load(weight_file, map_location="cpu")
+                        auprc = float(ckpt.get("best_auprc", 0.0))
+                        _mlflow.log_metric("val_auprc", auprc)
+                        tune.report({"val_auprc": auprc})
+                    except Exception as _e:
+                        tune.report({"val_auprc": 0.0})
+
+            ray.init(ignore_reinit_error=True, num_cpus=2)
+            scheduler = ASHAScheduler(metric="val_auprc", mode="max", max_t=10, grace_period=2)
+            search_space = {
+                "lr": tune.loguniform(1e-4, 1e-2),
+                "batch_size": tune.choice([32, 64, 128]),
+                "epochs": tune.choice([5, 10]),
+            }
+            analysis = tune.run(
+                hpo_train,
+                config=search_space,
+                num_samples=6,
+                scheduler=scheduler,
+                verbose=1,
+                name=f"hpo_{args.model}",
+            )
+            best = analysis.best_config
+            best_auprc = analysis.best_result.get("val_auprc", 0.0)
+            print(json.dumps({
+                "status": "hpo_complete",
+                "model": args.model,
+                "best_config": best,
+                "best_val_auprc": best_auprc,
+            }))
+            ray.shutdown()
+        except ImportError as _ie:
+            print(f"Ray not available ({_ie}), falling back to standard retraining", flush=True)
+            result = trainer.run_retraining(args.model)
+            print(json.dumps(result, indent=2))
+        except Exception as _e:
+            print(json.dumps({"status": "hpo_error", "error": str(_e)}))
+    else:
+        if args.model in ("fraud_detection", "credit_scoring"):
+            result = trainer.run_retraining(args.model)
+        else:
+            result = trainer.run_full_pipeline()
+        print(json.dumps(result, indent=2))
 

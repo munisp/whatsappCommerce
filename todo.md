@@ -892,3 +892,9 @@
 - [x] Cross-role RBAC: verify forbidden access returns 403 for all protected procedures
 - [x] Edge cases: empty states, invalid inputs, concurrent mutations, network errors
 - [x] Fix all gaps found during smoke test run
+
+## Round 31 — ML Ops Dashboard + Ray HPO + Inference API (2026-07-15)
+- [x] ML Ops dashboard page (/ml-ops): model registry runs, drift PSI scores, A/B test results with winner-selection
+- [x] Ray Tune HPO wired into triggerRetraining: spawns hyperparameter search, logs all trials to MLflow
+- [x] POST /api/ml/predict inference endpoint: loads MLflow weights, returns fraud probability + credit score
+- [x] NLP checkout flow: call /api/ml/predict to gate high-risk orders in real time

@@ -278,6 +278,31 @@ export const nlpRouter = router({
         const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
         if (items.length > 0) {
           const total = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+          // ── Fraud gate: call /api/ml/predict before creating the order ──────
+          let fraudBlocked = false;
+          try {
+            const fraudResp = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/ml/predict`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tenantId: input.tenantId,
+                amount: total,
+                phone: input.waPhoneNumber,
+                items: items.map(i => ({ productId: i.productId, qty: i.quantity })),
+                customerId: input.waPhoneNumber,
+              }),
+            });
+            if (fraudResp.ok) {
+              const fraudResult = await fraudResp.json() as { fraudProbability: number; riskLevel: string };
+              if (fraudResult.riskLevel === "high" || fraudResult.fraudProbability > 0.7) {
+                fraudBlocked = true;
+                llmResult.reply = `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${fraudResult.riskLevel})`;
+              }
+            }
+          } catch { /* fraud gate failure is non-blocking — allow order through */ }
+          if (fraudBlocked) {
+            // Skip order creation
+          } else {
           const orderId = crypto.randomUUID();
           const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
           await db.insert(orders).values({
@@ -294,8 +319,8 @@ export const nlpRouter = router({
             createdAt: new Date(),
             updatedAt: new Date(),
           });
-        ctx.lastOrderId = orderId;
-        ctx.lastOrderNumber = orderNumber;
+          ctx.lastOrderId = orderId;
+          ctx.lastOrderNumber = orderNumber;
         // ── Fire-and-forget sync to external systems ─────────────────────────
         (async () => {
           try {
@@ -385,8 +410,9 @@ export const nlpRouter = router({
             }
           }
         } catch (_) { /* payment link generation is best-effort */ }
-      }
-    }
+          } // end else (not fraudBlocked)
+        } // end if (items.length > 0)
+      } // end if (confirm_order)
 
       if (llmResult.extractedAddress) {
         ctx.deliveryAddress = llmResult.extractedAddress;
