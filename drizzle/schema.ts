@@ -1357,9 +1357,9 @@ export const merchantOnboardingProgress = pgTable("merchant_onboarding_progress"
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: varchar("tenant_id", { length: 36 }).notNull().unique(),
   currentStep: integer("current_step").notNull().default(0),
-  whatsappConnected: boolean("whatsapp_connected").notNull().default(false),
-  productsAdded: boolean("products_added").notNull().default(false),
-  deliveryZonesSet: boolean("delivery_zones_set").notNull().default(false),
+  completedSteps: jsonb("completed_steps").notNull().default([]),
+  stepData: jsonb("step_data").notNull().default({}),
+  isCompleted: boolean("is_completed").notNull().default(false),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1415,3 +1415,28 @@ export const disputeEvidenceSubmissions = pgTable("dispute_evidence_submissions"
   index("des_token_idx").on(t.token),
 ]);
 export type DisputeEvidenceSubmission = typeof disputeEvidenceSubmissions.$inferSelect;
+
+
+// ── Escrow SLA Extension Requests ────────────────────────────────────────────
+export const slaExtensionStatusEnum = pgEnum("sla_extension_status", [
+  "pending", "approved", "rejected", "expired",
+]);
+
+export const escrowSlaExtensions = pgTable("escrow_sla_extensions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  escrowId: varchar("escrow_id", { length: 36 }).notNull().references(() => escrowTransactions.id),
+  requestedByTenantId: varchar("requested_by_tenant_id", { length: 36 }).notNull(),
+  extensionHours: integer("extension_hours").notNull().default(24),
+  reason: text("reason"),
+  status: slaExtensionStatusEnum("status").notNull().default("pending"),
+  buyerToken: varchar("buyer_token", { length: 64 }).notNull().unique(),
+  buyerPhone: varchar("buyer_phone", { length: 30 }),
+  requestedAt: timestamp("requested_at").notNull().defaultNow(),
+  respondedAt: timestamp("responded_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  newDeadline: timestamp("new_deadline"),
+}, (t) => [
+  index("sla_ext_escrow_idx").on(t.escrowId),
+  index("sla_ext_token_idx").on(t.buyerToken),
+]);
+export type EscrowSlaExtension = typeof escrowSlaExtensions.$inferSelect;

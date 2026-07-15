@@ -14,6 +14,81 @@ import {
   Image as ImageIcon,
   X,
 } from "lucide-react";
+import { Sparkles, Eye, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+
+interface ScanResult {
+  isReadable: boolean;
+  clarityScore: number;
+  clarityIssues: string[];
+  documentType: string;
+  extractedText: string;
+  keyFields: Record<string, string>;
+  confidence: number;
+  summary: string;
+}
+
+function AiScanPanel({ result, onDismiss }: { result: ScanResult; onDismiss: () => void }) {
+  const [showText, setShowText] = useState(false);
+  const scoreColor = result.clarityScore >= 70 ? "text-green-600" : result.clarityScore >= 40 ? "text-amber-600" : "text-red-600";
+  const scoreBg = result.clarityScore >= 70 ? "bg-green-50 border-green-200" : result.clarityScore >= 40 ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200";
+  return (
+    <div className={`border rounded-lg p-4 space-y-3 ${scoreBg}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-sm font-medium">AI Scan Result</span>
+        </div>
+        <button type="button" onClick={onDismiss} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className={`text-2xl font-bold ${scoreColor}`}>{result.clarityScore}<span className="text-sm font-normal">/100</span></div>
+        <div>
+          <p className="text-xs font-medium">Image Clarity</p>
+          <p className="text-xs text-muted-foreground capitalize">{result.documentType.replace(/_/g, " ")}</p>
+        </div>
+        {!result.isReadable && (
+          <div className="ml-auto flex items-center gap-1 text-red-600 text-xs font-medium">
+            <AlertTriangle className="h-3.5 w-3.5" />Low quality
+          </div>
+        )}
+      </div>
+      {result.clarityIssues.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {result.clarityIssues.map((issue) => (
+            <span key={issue} className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full capitalize">{issue}</span>
+          ))}
+        </div>
+      )}
+      <p className="text-sm text-muted-foreground">{result.summary}</p>
+      {Object.entries(result.keyFields).some(([, v]) => v) && (
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          {Object.entries(result.keyFields).filter(([, v]) => v).map(([k, v]) => (
+            <div key={k}>
+              <p className="text-muted-foreground capitalize">{k.replace(/([A-Z])/g, " $1").trim()}</p>
+              <p className="font-medium truncate">{v}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {result.extractedText && (
+        <div>
+          <button type="button" onClick={() => setShowText((p) => !p)} className="flex items-center gap-1 text-xs text-primary hover:underline">
+            <Eye className="h-3 w-3" />
+            {showText ? "Hide" : "Show"} extracted text
+            {showText ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+          {showText && (
+            <pre className="mt-2 text-xs bg-background border rounded p-2 whitespace-pre-wrap max-h-32 overflow-y-auto">{result.extractedText}</pre>
+          )}
+        </div>
+      )}
+      {!result.isReadable && (
+        <p className="text-xs text-amber-700 font-medium">⚠ This image may be hard to read. Consider uploading a clearer photo before submitting.</p>
+      )}
+    </div>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface PortalData {
@@ -63,6 +138,9 @@ export default function EvidencePortal() {
   const [note, setNote] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const scanMutation = trpc.receiptScan.scanImage.useMutation();
 
   // Load portal data on mount
   const loadPortal = async () => {
@@ -98,6 +176,24 @@ export default function EvidencePortal() {
       return;
     }
     setSelectedFile(file);
+    setScanResult(null);
+    if (file.type.startsWith("image/")) {
+      setScanning(true);
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const dataUrl = ev.target?.result as string;
+        const base64 = dataUrl.split(",")[1];
+        try {
+          const result = await scanMutation.mutateAsync({
+            imageBase64: base64,
+            mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
+          });
+          setScanResult(result as ScanResult);
+        } catch { /* scan failed silently */ }
+        finally { setScanning(false); }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSubmit = async () => {
@@ -303,6 +399,16 @@ export default function EvidencePortal() {
               onChange={handleFileChange}
               className="hidden"
             />
+            {scanning && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="h-3 w-3 border border-primary border-t-transparent rounded-full animate-spin" />
+                <Sparkles className="h-3 w-3 text-primary" />
+                Scanning image with AI…
+              </div>
+            )}
+            {scanResult && !scanning && (
+              <div className="mt-3"><AiScanPanel result={scanResult} onDismiss={() => setScanResult(null)} /></div>
+            )}
           </div>
 
           {/* Note */}
@@ -343,4 +449,3 @@ export default function EvidencePortal() {
     </div>
   );
 }
-

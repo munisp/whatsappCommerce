@@ -36,6 +36,9 @@ import { logisticsRouter } from "./routers/logistics";
 import { notificationsRouter } from "./routers/notifications";
 import { slaRouter } from "./routers/sla";
 import { evidencePortalRouter } from "./routers/evidencePortal";
+import { receiptScanRouter } from "./routers/receiptScan";
+import { onboardingProgressRouter } from "./routers/onboardingProgress";
+import { slaExtensionRouter } from "./routers/slaExtension";
 
 export const appRouter = router({
   system: systemRouter,
@@ -85,6 +88,9 @@ export const appRouter = router({
   timelineAttachment: timelineAttachmentRouter,
   sla: slaRouter,
   evidencePortal: evidencePortalRouter,
+  receiptScan: receiptScanRouter,
+  onboardingProgress: onboardingProgressRouter,
+  slaExtension: slaExtensionRouter,
 });
 
 export type AppRouter = typeof appRouter;

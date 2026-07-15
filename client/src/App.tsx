@@ -99,6 +99,7 @@ function Router() {
           <Route path="/portal/wallet" component={PortalWallet} />
           <Route path="/portal/setup" component={() => <OnboardingWizard onComplete={() => { window.location.href = "/portal"; }} />} />
           <Route path="/evidence/:token" component={EvidencePortal} />
+          <Route path="/sla-extension/:token" component={SlaExtensionResponse} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -119,3 +120,4 @@ function App() {
 }
 
 export default App;
+import SlaExtensionResponse from "./pages/SlaExtensionResponse";

@@ -433,25 +433,38 @@
 - [x] Tests: date range CSV, attachment upload, notification filter
 
 ## Merchant Onboarding Wizard
-- [ ] Schema: merchant_onboarding_progress table (tenantId, step, completedSteps, whatsappConnected, productsAdded, deliveryZonesSet, completedAt)
-- [ ] Backend: onboardingWizard router (getProgress, completeStep, reset)
-- [ ] Frontend: OnboardingWizard multi-step component (WhatsApp → Products → Delivery Zones → Done)
-- [ ] Frontend: Show wizard automatically for new tenants on portal home
-- [ ] Frontend: Progress indicator and step validation
+- [x] Schema: merchant_onboarding_progress table (tenantId, step, completedSteps, whatsappConnected, productsAdded, deliveryZonesSet, completedAt)
+- [x] Backend: onboardingWizard router (getProgress, completeStep, reset)
+- [x] Frontend: OnboardingWizard multi-step component (WhatsApp → Products → Delivery Zones → Done)
+- [x] Frontend: Show wizard automatically for new tenants on portal home
+- [x] Frontend: Progress indicator and step validation
 
 ## Escrow SLA Alerts
-- [ ] Schema: escrow_sla_config table (tenantId, releaseDeadlineHours, warningHours, autoReleaseEnabled)
-- [ ] Backend: SLA deadline stored on escrow_transactions (slaDeadline column)
-- [ ] Backend: Heartbeat job: scan for escrows approaching/past SLA, emit notifications
-- [ ] Frontend: SLA countdown badge on EscrowDashboard rows
-- [ ] Frontend: SLA config editor in Escrow Dashboard settings panel
-- [ ] Frontend: Admin SLA overview widget
+- [x] Schema: escrow_sla_config table (tenantId, releaseDeadlineHours, warningHours, autoReleaseEnabled)
+- [x] Backend: SLA deadline stored on escrow_transactions (slaDeadline column)
+- [x] Backend: Heartbeat job: scan for escrows approaching/past SLA, emit notifications
+- [x] Frontend: SLA countdown badge on EscrowDashboard rows
+- [x] Frontend: SLA config editor in Escrow Dashboard settings panel
+- [x] Frontend: Admin SLA overview widget
 
 ## Dispute Evidence Portal
-- [ ] Schema: dispute_evidence_tokens table (token, disputeId, buyerPhone, expiresAt, usedAt)
-- [ ] Schema: dispute_evidence_submissions table (id, disputeId, token, fileUrl, fileKey, filename, mimeType, note, submittedAt)
-- [ ] Backend: generateEvidenceToken mutation (admin/merchant triggers)
-- [ ] Backend: Public route: GET /evidence/:token (validate token, return dispute summary)
-- [ ] Backend: Public route: POST /evidence/:token/submit (upload files + note, no auth)
-- [ ] Frontend: Public EvidencePortal page (/evidence/:token) — no login required
-- [ ] Frontend: Evidence submissions visible in DisputeManagement admin view
+- [x] Schema: dispute_evidence_tokens table (token, disputeId, buyerPhone, expiresAt, usedAt)
+- [x] Schema: dispute_evidence_submissions table (id, disputeId, token, fileUrl, fileKey, filename, mimeType, note, submittedAt)
+- [x] Backend: generateEvidenceToken mutation (admin/merchant triggers)
+- [x] Backend: Public route: GET /evidence/:token (validate token, return dispute summary)
+- [x] Backend: Public route: POST /evidence/:token/submit (upload files + note, no auth)
+- [x] Frontend: Public EvidencePortal page (/evidence/:token) — no login required
+- [x] Frontend: Evidence submissions visible in DisputeManagement admin view
+
+## Batch 5: AI Receipt Scanning, Onboarding Persistence, SLA Extension
+- [x] Schema: merchant_onboarding_progress table (tenantId, currentStep, stepData JSON, completedAt)
+- [x] Schema: escrow_sla_extensions table (id, escrowId, requestedByTenantId, extensionHours, reason, status, requestedAt, respondedAt, buyerToken)
+- [x] Backend: AI receipt scan tRPC procedure (vision LLM, extract text, validate clarity)
+- [x] Backend: onboarding.saveProgress and onboarding.getProgress procedures
+- [x] Backend: sla.requestExtension, sla.respondToExtension procedures
+- [x] Backend: Public route GET/POST /api/sla-extension/:token for buyer to approve/reject
+- [x] Frontend: AI scan panel in EvidencePortal with scan results and confidence score
+- [x] Frontend: "Save and Continue Later" button in OnboardingWizard
+- [x] Frontend: "Resume Onboarding" widget on PortalDashboard
+- [x] Frontend: "Request SLA Extension" button and dialog on EscrowDashboard
+- [x] Frontend: Buyer SLA extension response page (/sla-extension/:token)

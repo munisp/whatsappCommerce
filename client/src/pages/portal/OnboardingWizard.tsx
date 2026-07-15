@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ import {
   Trash2,
   AlertCircle,
 } from "lucide-react";
+import { Save, RefreshCw } from "lucide-react";
 
 // ─── Step definitions ─────────────────────────────────────────────────────────
 const STEPS = [
@@ -408,6 +409,38 @@ function ReviewStep({ onComplete, onBack }: { onComplete: () => void; onBack: ()
 export default function OnboardingWizard({ onComplete }: { onComplete?: () => void }) {
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Load saved progress on mount
+  const { data: savedProgress } = trpc.onboardingProgress.getProgress.useQuery();
+
+  // Restore progress when data loads
+  useEffect(() => {
+    if (savedProgress && !savedProgress.isCompleted && savedProgress.completedSteps.length > 0) {
+      setCurrentStep(savedProgress.currentStep);
+      setCompletedSteps(new Set(savedProgress.completedSteps as number[]));
+    }
+  }, [savedProgress?.tenantId]);
+
+  const saveProgressMutation = trpc.onboardingProgress.saveProgress.useMutation();
+
+  const handleSaveAndContinueLater = async () => {
+    setSaveStatus("saving");
+    try {
+      await saveProgressMutation.mutateAsync({
+        currentStep,
+        completedSteps: Array.from(completedSteps),
+        stepData: {},
+        isCompleted: false,
+      });
+      setSaveStatus("saved");
+      toast.success("Progress saved! You can resume anytime from your dashboard.");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    } catch {
+      setSaveStatus("idle");
+      toast.error("Failed to save progress");
+    }
+  };
 
   const markComplete = (step: number) => {
     setCompletedSteps((prev) => new Set([...Array.from(prev), step]));
@@ -422,6 +455,12 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
 
   const handleComplete = () => {
     markComplete(currentStep);
+    saveProgressMutation.mutateAsync({
+      currentStep: STEPS.length - 1,
+      completedSteps: Array.from(new Set([...Array.from(completedSteps), currentStep])),
+      stepData: {},
+      isCompleted: true,
+    }).catch(() => {});
     onComplete?.();
   };
 
@@ -479,6 +518,27 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
           {currentStep === 3 && <SlaConfigStep onNext={goNext} onBack={goBack} />}
           {currentStep === 4 && <ReviewStep onComplete={handleComplete} onBack={goBack} />}
         </div>
+
+        {/* Save and Continue Later */}
+        {currentStep < STEPS.length - 1 && (
+          <div className="mt-4 flex justify-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleSaveAndContinueLater}
+              disabled={saveStatus === "saving"}
+              className="text-muted-foreground hover:text-foreground gap-2"
+            >
+              {saveStatus === "saving" ? (
+                <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Saving…</>
+              ) : saveStatus === "saved" ? (
+                <><CheckCircle2 className="h-3.5 w-3.5 text-green-500" />Progress saved</>
+              ) : (
+                <><Save className="h-3.5 w-3.5" />Save and continue later</>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

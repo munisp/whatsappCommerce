@@ -14,7 +14,8 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import EscrowTimeline from "@/components/EscrowTimeline";
 import { SlaCountdown } from "@/components/SlaCountdown";
-import { GitBranch } from "lucide-react";
+import { GitBranch, Clock4 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 
 const STATE_COLORS: Record<string, string> = {
   payment_received: "bg-blue-100 text-blue-800",
@@ -49,6 +50,9 @@ export default function EscrowDashboard() {
   const [stateFilter, setStateFilter] = useState<string>("all");
   const [configEditing, setConfigEditing] = useState(false);
   const [timelineEscrowId, setTimelineEscrowId] = useState<string | null>(null);
+  const [slaExtensionTx, setSlaExtensionTx] = useState<{ id: string; orderId: string | null } | null>(null);
+  const [extensionHours, setExtensionHours] = useState("24");
+  const [extensionReason, setExtensionReason] = useState("");
 
   const { data: stats, isLoading: statsLoading } = trpc.escrow.getStats.useQuery();
   const { data: config, isLoading: configLoading, refetch: refetchConfig } = trpc.escrow.getConfig.useQuery();
@@ -75,6 +79,17 @@ export default function EscrowDashboard() {
   const initiateRefund = trpc.escrow.initiateRefund.useMutation({
     onSuccess: () => { toast.success("Refund initiated"); utils.escrow.listAll.invalidate(); utils.escrow.getStats.invalidate(); },
     onError: (e) => toast.error(e.message),
+  });
+
+  const requestExtension = trpc.slaExtension.requestExtension.useMutation({
+    onSuccess: () => {
+      toast.success("SLA extension request sent to buyer");
+      setSlaExtensionTx(null);
+      setExtensionHours("24");
+      setExtensionReason("");
+      utils.escrow.listAll.invalidate();
+    },
+    onError: (e: { message: string }) => toast.error(e.message),
   });
 
   const [cfgForm, setCfgForm] = useState<Record<string, string | boolean>>({});
@@ -239,6 +254,13 @@ export default function EscrowDashboard() {
                               <GitBranch className="h-3 w-3 mr-1" />
                               Timeline
                             </Button>
+                            {["escrow_held", "delivery_confirmed"].includes(tx.state) && (tx as any).buyerConfirmDeadline && (
+                              <Button size="sm" variant="ghost" className="text-xs h-7 text-amber-600 hover:bg-amber-50"
+                                onClick={() => setSlaExtensionTx({ id: tx.id, orderId: (tx as any).orderId })}>
+                                <Clock4 className="h-3 w-3 mr-1" />
+                                Extend SLA
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -392,6 +414,61 @@ export default function EscrowDashboard() {
         {timelineEscrowId && (
           <EscrowTimeline escrowId={timelineEscrowId} className="mt-2" />
         )}
+      </DialogContent>
+    </Dialog>
+    {/* SLA Extension Dialog */}
+    <Dialog open={!!slaExtensionTx} onOpenChange={(open) => { if (!open) setSlaExtensionTx(null); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Clock4 className="h-4 w-4 text-amber-500" />
+            Request SLA Extension
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <p className="text-sm text-muted-foreground">
+            Ask the buyer for additional delivery time. They will receive a notification to approve or reject this request.
+            {slaExtensionTx?.orderId && <span className="block mt-1 font-medium text-foreground">Order: {slaExtensionTx.orderId}</span>}
+          </p>
+          <div className="space-y-2">
+            <Label>Extension Duration</Label>
+            <Select value={extensionHours} onValueChange={setExtensionHours}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="12">12 hours</SelectItem>
+                <SelectItem value="24">24 hours (1 day)</SelectItem>
+                <SelectItem value="48">48 hours (2 days)</SelectItem>
+                <SelectItem value="72">72 hours (3 days)</SelectItem>
+                <SelectItem value="120">120 hours (5 days)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Reason for Extension</Label>
+            <Textarea
+              placeholder="e.g. Courier delay due to public holiday, awaiting customs clearance…"
+              value={extensionReason}
+              onChange={(e) => setExtensionReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+            />
+            <p className="text-xs text-muted-foreground text-right">{extensionReason.length}/500</p>
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="flex-1" onClick={() => setSlaExtensionTx(null)}>Cancel</Button>
+            <Button
+              className="flex-1 bg-amber-600 hover:bg-amber-500 text-white"
+              disabled={requestExtension.isPending}
+              onClick={() => slaExtensionTx && requestExtension.mutate({
+                escrowId: slaExtensionTx.id,
+                extensionHours: parseInt(extensionHours),
+                reason: extensionReason || undefined,
+              })}
+            >
+              {requestExtension.isPending ? "Sending…" : "Send Request"}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
     </>
