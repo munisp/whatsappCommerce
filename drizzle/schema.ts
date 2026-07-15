@@ -67,6 +67,7 @@ export const tenants = pgTable("tenants", {
   aiModel: varchar("aiModel", { length: 64 }).default("gpt-4o-mini"),
   settings: jsonb("settings"),
   cogsRate: real("cogsRate").default(0.40).notNull(),
+  smsFailoverEnabled: boolean("smsFailoverEnabled").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -883,6 +884,25 @@ export const nlpSessions = pgTable("nlp_sessions", {
   lastActivityAt: timestamp("lastActivityAt").notNull().defaultNow(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 });
+// ── WhatsApp Media Files ──────────────────────────────────────────────────────
+export const whatsappMediaFiles = pgTable("whatsapp_media_files", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().references(() => tenants.id, { onDelete: "cascade" }),
+  conversationId: varchar("conversationId", { length: 36 }),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }),
+  fileName: varchar("fileName", { length: 255 }).notNull(),
+  mimeType: varchar("mimeType", { length: 128 }).notNull(),
+  fileSize: integer("fileSize"),
+  storageKey: varchar("storageKey", { length: 512 }).notNull(),
+  storageUrl: varchar("storageUrl", { length: 1024 }).notNull(),
+  documentType: varchar("documentType", { length: 32 }).notNull().default("other"),
+  aiScanResult: jsonb("aiScanResult"),
+  uploadedAt: timestamp("uploadedAt").notNull().defaultNow(),
+}, (t) => [
+  index("wa_media_tenant_idx").on(t.tenantId),
+  index("wa_media_conversation_idx").on(t.conversationId),
+]);
+export type WhatsappMediaFile = typeof whatsappMediaFiles.$inferSelect;
 
 // ── Order items (normalised) ──────────────────────────────────────────────────
 export const orderItems = pgTable("order_items", {

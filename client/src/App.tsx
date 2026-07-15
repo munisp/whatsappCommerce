@@ -104,6 +104,7 @@ function Router() {
           <Route path="/portal/analytics" component={MerchantAnalytics} />
           <Route path="/portal/broadcasts" component={PortalBroadcasts} />
           <Route path="/audit-log" component={AuditLog} />
+          <Route path="/whatsapp-media" component={WhatsAppMediaPortal} />
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
           <Route path="/sla-extension/:token" component={SlaExtensionResponse} />
@@ -127,5 +128,6 @@ function App() {
 }
 
 export default App;
+import WhatsAppMediaPortal from "./pages/WhatsAppMediaPortal";
 import SlaExtensionResponse from "./pages/SlaExtensionResponse";
 import OperatorTemplates from "./pages/OperatorTemplates";

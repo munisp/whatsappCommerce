@@ -56,6 +56,7 @@ export const tenantRouter = router({
       chatwootAccountId: z.string().optional(),
       chatwootApiToken: z.string().optional(),
       cogsRate: z.number().min(0).max(0.99).optional(),
+      smsFailoverEnabled: z.boolean().optional(),
     }))
     .mutation(async ({ input }) => {
       const { id, ...data } = input;

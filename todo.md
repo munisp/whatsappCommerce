@@ -565,3 +565,27 @@
 - [x] NLPSimulator: Data-Lite mode toggle with explanatory banner
 - [x] NLPSimulator: 2G latency simulation (2-4s artificial delay)
 - [x] NLPSimulator: offline message queuing with ⏳ indicator
+
+## Round 11 — WhatsApp Media Uploads + Low-connectivity Optimisation
+- [ ] Backend: whatsappMedia router (uploadFromWhatsApp, listByConversation, getDownloadUrl)
+- [ ] Backend: document type detection (purchase_order, invoice, receipt, image, other)
+- [ ] Backend: S3 storage for WhatsApp media files
+- [ ] Backend: SMS fallback flag (smsFailoverEnabled) on tenants table
+- [ ] Backend: USSD menu mode session flag + numbered menu reply generator in NLP router
+- [ ] Backend: multilingual error message map (EN/YO/HA/IG/PID) in NLP router
+- [ ] Frontend: WhatsApp Media Upload page (upload, scan, download, type badge)
+- [ ] Frontend: NLP Simulator USSD mode toggle + numbered menu rendering
+- [ ] Frontend: SMS fallback toggle in tenant settings / PortalSettings
+- [ ] Frontend: multilingual error preview in NLP Simulator
+
+## Round 11 — Low-connectivity & WhatsApp Media (complete)
+- [x] WhatsApp media/document upload handler (whatsappMedia router: upload, list, getDownloadUrl, AI document type detection)
+- [x] whatsapp_media_files DB table with S3 storage
+- [x] smsFailoverEnabled column on tenants table + toggle in Tenants page
+- [x] USSD menu mode: ussdMode stored in nlp_sessions context jsonb, processMessage input accepts ussdMode flag
+- [x] Multilingual error messages in NLP router (Yoruba, Hausa, Igbo, Pidgin, English)
+- [x] NLP Simulator: USSD mode toggle, network quality selector (4G/2G/Offline), data-lite mode
+- [x] WhatsApp Media Portal page (/whatsapp-media) with upload, AI scan, download
+- [x] escalation_count alert rule type added to alertRules router + AlertRules page
+- [x] Broadcast send preview modal in BroadcastCampaigns
+- [x] WA Media nav item in DashboardLayout

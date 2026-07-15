@@ -19,6 +19,39 @@ import {
 import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
 
 // ── Language detection & system prompts ───────────────────────────────────────
+// ── USSD numbered menu builder ────────────────────────────────────────────────
+const USSD_MENUS: Record<string, Record<string, string>> = {
+  greeting: {
+    en: "Welcome! Reply:\n1. Browse products\n2. View my cart\n3. Check order status\n4. Help",
+    yo: "Ẹ káàbọ̀! Dáhùn:\n1. Wo àwọn ọjà\n2. Wo àpò mi\n3. Ṣàyẹ̀wò ìpèsè\n4. Ìrànlọ́wọ́",
+    ha: "Barka da zuwa! Amsa:\n1. Duba kayayyaki\n2. Duba kwandon saye\n3. Duba oda\n4. Taimako",
+    ig: "Nnọọ! Zaghachi:\n1. Lee ngwaahịa\n2. Lee ngọdo m\n3. Lelee ọrụ\n4. Enyemaka",
+    pidgin: "Welcome! Reply:\n1. See products\n2. My cart\n3. Check order\n4. Help",
+  },
+  browse: {
+    en: "Products menu:\n1. View all products\n2. Search by name\n3. View cart\n4. Back to main menu",
+    pidgin: "Products:\n1. See all\n2. Search\n3. My cart\n4. Back",
+  },
+  checkout_address: {
+    en: "Checkout:\n1. Enter delivery address\n2. Use saved address\n3. Cancel order",
+    pidgin: "Checkout:\n1. Enter address\n2. Saved address\n3. Cancel",
+  },
+};
+
+function buildUssdMenu(state: string, lang: string): string {
+  const menu = USSD_MENUS[state] ?? USSD_MENUS.greeting;
+  return menu[lang] ?? menu.en;
+}
+
+// ── Multilingual fallback error messages ──────────────────────────────────────
+const FALLBACK_ERRORS: Record<string, string> = {
+  english: "Sorry, I didn't understand that. Please try again or type 'help'.",
+  yoruba: "Pèlé, mi ò lóye ìyẹn. Jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan sí i tàbí kọ 'ìrànlọ́wọ́'.",
+  hausa: "Yi haƙuri, ban fahimci hakan ba. Don Allah sake gwadawa ko rubuta 'taimako'.",
+  igbo: "Ndo, aghaghị m ịghọta nke ahụ. Biko nwaa ọzọ ma ọ bụ dee 'enyemaka'.",
+  pidgin: "Sorry, I no understand wetin you talk. Try again or type 'help'.",
+};
+
 const LANGUAGE_HINTS: Record<string, string[]> = {
   yoruba: ["ẹ", "ọ", "ṣ", "jẹ", "wa", "mo", "ni", "fun", "ati", "se", "bawo", "kini", "ewo"],
   hausa: ["na", "da", "ba", "mai", "ina", "kuma", "don", "shi", "ta", "suna", "yaya", "wane"],
@@ -82,11 +115,12 @@ export const nlpRouter = router({
    */
   processMessage: publicProcedure
     .input(z.object({
-      tenantId: z.string(),
-      waPhoneNumber: z.string(),
-      message: z.string().max(4096),
-      customerName: z.string().optional(),
-    }))
+     tenantId: z.string(),
+     waPhoneNumber: z.string(),
+     message: z.string().max(4096),
+     customerName: z.string().optional(),
+      ussdMode: z.boolean().optional(),
+   }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
@@ -149,6 +183,14 @@ export const nlpRouter = router({
       const history = (session.messageHistory as Array<{ role: string; content: string }>).slice(-10);
 
       // 5. Call LLM
+      // 5a. USSD mode check — if session context has ussdMode=true, return numbered menu
+     const sessionCtx = (session.context as Record<string, unknown>) ?? {};
+      const isUssd = input.ussdMode ?? sessionCtx.ussdMode === true;
+      if (isUssd) {
+        const ussdMenu = buildUssdMenu(session.state, session.language);
+        await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+        return { reply: ussdMenu, intent: "ussd_menu", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
+      }
       const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
       const cartSummary = cartItemsList.length > 0
         ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
@@ -175,7 +217,7 @@ export const nlpRouter = router({
         llmResult = JSON.parse(cleaned);
       } catch {
         llmResult = {
-          reply: "Sorry, I had trouble understanding that. Could you rephrase?",
+          reply: FALLBACK_ERRORS[session.language] ?? FALLBACK_ERRORS.english,
           intent: "unknown", nextState: session.state,
           extractedProduct: null, extractedQuantity: null,
           extractedAddress: null, confidence: 0,
@@ -336,14 +378,6 @@ export const nlpRouter = router({
       return {
         reply: llmResult.reply,
         intent: llmResult.intent,
-        state: llmResult.nextState,
-        language: session.language,
-        sessionId: session.id,
-      };
-      return {
-        reply: llmResult.reply,
-        intent: llmResult.intent,
-        confidence: llmResult.confidence ?? 0,
         state: llmResult.nextState,
         language: session.language,
         sessionId: session.id,

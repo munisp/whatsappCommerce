@@ -92,8 +92,10 @@ export const appRouter = router({
   onboardingProgress: onboardingProgressRouter,
   slaExtension: slaExtensionRouter,
   operatorTemplates: operatorTemplatesRouter,
+  whatsappMedia: whatsappMediaRouter,
 });
 
 export type AppRouter = typeof appRouter;
 import { alertRulesRouter } from "./routers/alertRules";
 import { operatorTemplatesRouter } from "./routers/operatorTemplates";
+import { whatsappMediaRouter } from "./routers/whatsappMedia";

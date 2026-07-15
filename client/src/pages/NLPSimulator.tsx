@@ -38,6 +38,7 @@ export default function NLPSimulator() {
   const [isLoading, setIsLoading] = useState(false);
   const [networkQuality, setNetworkQuality] = useState<"good" | "2g" | "offline">("good");
   const [dataLiteMode, setDataLiteMode] = useState(false);
+  const [ussdMode, setUssdMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const processMessage = trpc.nlp.processMessage.useMutation();
@@ -70,6 +71,7 @@ export default function NLPSimulator() {
         waPhoneNumber: phone,
         message: msg,
         customerName: "Demo Buyer",
+        ussdMode,
       });
       setMessages(prev => [...prev, {
         role: "bot",
@@ -157,8 +159,24 @@ export default function NLPSimulator() {
           >
             <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${dataLiteMode ? "translate-x-4" : ""}`} />
           </button>
+          <span className="text-xs text-muted-foreground ml-2">USSD</span>
+          <button
+            onClick={() => setUssdMode(v => !v)}
+            className={`relative w-9 h-5 rounded-full transition-colors ${ussdMode ? "bg-violet-600" : "bg-zinc-700"}`}
+            title="USSD mode: numbered menus for feature phones"
+          >
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${ussdMode ? "translate-x-4" : ""}`} />
+          </button>
         </div>
       </div>
+      {ussdMode && (
+        <div className="flex items-start gap-2 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
+          <span className="text-xs text-violet-400 mt-0.5 shrink-0 font-mono">#</span>
+          <p className="text-xs text-violet-300">
+            <strong>USSD Mode ON:</strong> Bot replies with numbered menus (e.g. "1. View products\n2. Check order") — works on any phone without a data plan.
+          </p>
+        </div>
+      )}
       {dataLiteMode && (
         <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2">
           <Signal className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />

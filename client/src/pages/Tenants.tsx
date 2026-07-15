@@ -41,6 +41,11 @@ export default function Tenants() {
     onError: (e) => toast.error(e.message),
   });
 
+  const updateTenant = trpc.tenant.update.useMutation({
+    onSuccess: () => { toast.success("Tenant updated"); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
+
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
@@ -117,6 +122,7 @@ export default function Tenants() {
                   <TableHead>Currency</TableHead>
                   <TableHead>AI</TableHead>
                   <TableHead>SSO</TableHead>
+                  <TableHead>SMS Failover</TableHead>
                   <TableHead>Created</TableHead>
                 </TableRow>
               </TableHeader>
@@ -141,9 +147,21 @@ export default function Tenants() {
                         <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </TableCell>
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await updateTenant.mutateAsync({ id: t.id, smsFailoverEnabled: !(t as any).smsFailoverEnabled });
+                        }}
+                        className={`relative w-9 h-5 rounded-full transition-colors ${(t as any).smsFailoverEnabled ? "bg-emerald-600" : "bg-zinc-700"}`}
+                        title="Toggle SMS failover — auto-send via SMS when WhatsApp delivery fails"
+                      >
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${(t as any).smsFailoverEnabled ? "translate-x-4" : ""}`} />
+                      </button>
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-xs">{formatDistanceToNow(new Date(t.createdAt), { addSuffix: true })}</TableCell>
                   </TableRow>
-                ))}
+               ))}
               </TableBody>
             </Table>
           </CardContent>
