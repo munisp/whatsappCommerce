@@ -2185,3 +2185,19 @@ export const productImageCollections = pgTable("product_image_collections", {
   index("pic_training_idx").on(t.usedInTraining),
 ]);
 export type ProductImageCollection = typeof productImageCollections.$inferSelect;
+
+// ── Fine-Tune Run History ─────────────────────────────────────────────────────
+export const finetuneRuns = pgTable("finetune_runs", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  endedAt: timestamp("endedAt"),
+  exitCode: integer("exitCode"),
+  dryRun: boolean("dryRun").default(true).notNull(),
+  triggeredBy: varchar("triggeredBy", { length: 128 }).default("ui").notNull(),
+  logSnapshot: text("logSnapshot"),
+  status: varchar("status", { length: 32 }).default("running").notNull(),
+}, (t) => [
+  index("ft_runs_started_idx").on(t.startedAt),
+  index("ft_runs_status_idx").on(t.status),
+]);
+export type FinetuneRun = typeof finetuneRuns.$inferSelect;

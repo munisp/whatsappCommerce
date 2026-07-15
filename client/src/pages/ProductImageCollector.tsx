@@ -13,7 +13,8 @@ import { toast } from "sonner";
 import {
   Camera, Upload, Star, Trash2, CheckCircle2, AlertCircle,
   BarChart3, Download, RefreshCw, Images, Filter, Layers,
-  Play, Square, Terminal, Zap
+  Play, Square, Terminal, Zap,
+  History, FileArchive, Sparkles
 } from "lucide-react";
 
 // ── Fine-tune log streaming hook ──────────────────────────────────────────────
@@ -92,6 +93,7 @@ export default function ProductImageCollector() {
   const [isDraggingBatch, setIsDraggingBatch] = useState(false);
   const [showFineTune, setShowFineTune] = useState(false);
   const [dryRun, setDryRun] = useState(true);
+  const [showRunHistory, setShowRunHistory] = useState(false);
 
   // Batch upload state
   const [batchClass, setBatchClass] = useState<string>("");
@@ -251,6 +253,10 @@ export default function ProductImageCollector() {
   };
 
   const readyClasses = classes?.filter(c => c.totalImages >= targetCount).length ?? 0;
+  const { data: runHistory, refetch: refetchRunHistory } = trpc.fineTune.listRuns.useQuery(
+    { limit: 20 },
+    { enabled: showRunHistory }
+  );
   // Quality-gated: classes where qualityImages (score ≥ 3) meets target
   const qualityReadyClasses = classes?.filter(c => (c.qualityImages ?? 0) >= targetCount).length ?? 0;
   const totalClasses = classes?.length ?? 30;
@@ -315,6 +321,27 @@ export default function ProductImageCollector() {
             >
               <Download className="w-4 h-4" />
               {exportMutation.isPending ? "Exporting..." : "Export Manifest"}
+            </Button>
+            <Button
+              onClick={() => {
+                const a = document.createElement("a");
+                a.href = "/api/finetune/export-yolo";
+                a.download = `yolo-labels-${Date.now()}.zip`;
+                a.click();
+              }}
+              variant="outline"
+              className="gap-2"
+            >
+              <FileArchive className="w-4 h-4" />
+              Export YOLO Labels
+            </Button>
+            <Button
+              onClick={() => { setShowRunHistory(!showRunHistory); if (!showRunHistory) refetchRunHistory(); }}
+              variant={showRunHistory ? "default" : "outline"}
+              className="gap-2"
+            >
+              <History className="w-4 h-4" />
+              Run History
             </Button>
           </div>
         </div>
@@ -394,10 +421,55 @@ export default function ProductImageCollector() {
                   <span className="inline-block w-2 h-4 bg-green-400 animate-pulse ml-0.5" />
                 )}
               </div>
-              {ftStream.done && ftStream.logs.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Run complete. {dryRun ? "This was a dry run — no model weights were modified." : "Check your GPU server for the saved model checkpoint."}
-                </p>
+            {ftStream.done && ftStream.logs.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Run complete. {dryRun ? "This was a dry run — no model weights were modified." : "Check your GPU server for the saved model checkpoint."}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+        )}
+        {/* Run History Panel */}
+        {showRunHistory && (
+          <Card className="border-muted">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <History className="w-4 h-4 text-muted-foreground" />
+                Fine-Tune Run History
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!runHistory || runHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No runs recorded yet. Start a fine-tune run above to see history here.</p>
+              ) : (
+                <div className="space-y-2">
+                  {runHistory.map((run) => (
+                    <div key={run.id} className="flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm">
+                      <div className="flex items-center gap-3">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          run.status === "completed" ? "bg-green-500" :
+                          run.status === "failed" ? "bg-red-500" :
+                          run.status === "cancelled" ? "bg-amber-500" : "bg-blue-500 animate-pulse"
+                        }`} />
+                        <div>
+                          <span className="font-medium capitalize">{run.status}</span>
+                          {run.dryRun && <span className="ml-2 text-xs text-muted-foreground">(dry run)</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-muted-foreground text-xs">
+                        <span>{new Date(run.startedAt).toLocaleString()}</span>
+                        {run.endedAt && (
+                          <span>{Math.round((new Date(run.endedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s</span>
+                        )}
+                        {run.exitCode != null && (
+                          <span className={run.exitCode === 0 ? "text-green-600" : "text-red-500"}>
+                            exit {run.exitCode}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
