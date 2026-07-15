@@ -557,3 +557,11 @@
 - [x] R9-1: Broadcast scheduling enforcement — Heartbeat cron polls scheduled campaigns past scheduledAt and auto-triggers send
 - [x] R9-2: Dispute escalation SLA dashboard card — admin dashboard card showing escalated dispute count, avg time-to-escalation, drill-down link
 - [x] R9-3: varMapping substitution in broadcast send — merge campaign varMapping into each recipient's variables object during send
+
+## Round 10 — Low-connectivity UX + Round 9 follow-ups
+- [x] Broadcast send preview modal (WhatsApp bubble mock with varMapping rendered)
+- [x] escalation_count alert rule type added to AlertRules (color badge + create dialog)
+- [x] NLPSimulator: network quality simulator (4G/2G/Offline) with queuing behaviour
+- [x] NLPSimulator: Data-Lite mode toggle with explanatory banner
+- [x] NLPSimulator: 2G latency simulation (2-4s artificial delay)
+- [x] NLPSimulator: offline message queuing with ⏳ indicator

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Globe, RefreshCw, ShoppingCart } from "lucide-react";
+import { Send, Bot, User, Globe, RefreshCw, ShoppingCart, Wifi, WifiOff, Signal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +36,8 @@ export default function NLPSimulator() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [networkQuality, setNetworkQuality] = useState<"good" | "2g" | "offline">("good");
+  const [dataLiteMode, setDataLiteMode] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const processMessage = trpc.nlp.processMessage.useMutation();
@@ -49,12 +51,20 @@ export default function NLPSimulator() {
   const sendMessage = async (text?: string) => {
     const msg = text ?? input.trim();
     if (!msg) return;
+    if (networkQuality === "offline") {
+      toast.error("No connection — message queued for retry when signal restores.");
+      setMessages(prev => [...prev, { role: "user", content: msg + " ⏳", timestamp: new Date() }]);
+      return;
+    }
     setInput("");
     setIsLoading(true);
 
     setMessages(prev => [...prev, { role: "user", content: msg, timestamp: new Date() }]);
 
     try {
+      if (networkQuality === "2g") {
+        await new Promise(r => setTimeout(r, 2200 + Math.random() * 1800));
+      }
       const result = await processMessage.mutateAsync({
         tenantId,
         waPhoneNumber: phone,
@@ -119,6 +129,60 @@ export default function NLPSimulator() {
           <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+234..." />
         </div>
       </div>
+
+      {/* Network quality + data-lite controls */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-medium text-muted-foreground">Network:</span>
+        {(["good", "2g", "offline"] as const).map(q => {
+          const cfg = {
+            good: { label: "4G", icon: <Wifi className="w-3 h-3" />, cls: "border-emerald-500/40 text-emerald-400 bg-emerald-500/10" },
+            "2g": { label: "2G (slow)", icon: <Signal className="w-3 h-3" />, cls: "border-amber-500/40 text-amber-400 bg-amber-500/10" },
+            offline: { label: "Offline", icon: <WifiOff className="w-3 h-3" />, cls: "border-red-500/40 text-red-400 bg-red-500/10" },
+          }[q];
+          return (
+            <button
+              key={q}
+              onClick={() => setNetworkQuality(q)}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${networkQuality === q ? cfg.cls : "border-border text-muted-foreground hover:bg-accent"}`}
+            >
+              {cfg.icon}{cfg.label}
+            </button>
+          );
+        })}
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Data-Lite</span>
+          <button
+            onClick={() => setDataLiteMode(v => !v)}
+            className={`relative w-9 h-5 rounded-full transition-colors ${dataLiteMode ? "bg-emerald-600" : "bg-zinc-700"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${dataLiteMode ? "translate-x-4" : ""}`} />
+          </button>
+        </div>
+      </div>
+      {dataLiteMode && (
+        <div className="flex items-start gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-3 py-2">
+          <Signal className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
+          <p className="text-xs text-blue-300">
+            <strong>Data-Lite ON:</strong> Replies compressed to plain text — no rich cards, no images, no emoji. Optimised for feature phones and EDGE connections.
+          </p>
+        </div>
+      )}
+      {networkQuality === "offline" && (
+        <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+          <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" />
+          <p className="text-xs text-red-300">
+            <strong>Offline simulation active.</strong> Messages queued with ⏳. WhatsApp queues messages for up to 30 days in production.
+          </p>
+        </div>
+      )}
+      {networkQuality === "2g" && (
+        <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          <Signal className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-300">
+            <strong>2G simulation:</strong> 2–4 second latency per message to replicate rural network conditions.
+          </p>
+        </div>
+      )}
 
       {/* Session info */}
       {session && (

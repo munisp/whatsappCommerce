@@ -10,6 +10,7 @@ const RULE_TYPES = [
   "low_stock",
   "failed_payments",
   "model_drift",
+  "escalation_count",
 ] as const;
 
 // Default heartbeat task_uid for the nightly reconciliation alert
@@ -20,6 +21,7 @@ const ruleTypeLabels: Record<string, string> = {
   low_stock: "Low Stock",
   failed_payments: "Failed Payments",
   model_drift: "Model Drift (PSI)",
+  escalation_count: "Open Escalated Disputes",
 };
 
 const ruleTypeUnits: Record<string, string> = {
@@ -27,6 +29,7 @@ const ruleTypeUnits: Record<string, string> = {
   low_stock: "units",
   failed_payments: "%",
   model_drift: "PSI",
+  escalation_count: "disputes",
 };
 
 export const alertRulesRouter = router({
@@ -147,7 +150,9 @@ export const alertRulesRouter = router({
           ? "Alert when a product's stock quantity falls below this count"
           : t === "failed_payments"
           ? "Alert when failed payment attempts exceed this % of total in the window"
-        : "Alert when the Population Stability Index (PSI) exceeds this value",
+          : t === "escalation_count"
+          ? "Alert when the number of open escalated disputes exceeds this threshold"
+          : "Alert when the Population Stability Index (PSI) exceeds this value",
     }));
   }),
 
@@ -203,6 +208,17 @@ export const alertRulesRouter = router({
         notifyOwnerOnTrigger: true,
         heartbeatTaskUid: undefined,
         cooldownMinutes: 720,
+      },
+      {
+        id: randomUUID(),
+        name: "High Escalated Dispute Count",
+        ruleType: "escalation_count" as const,
+        threshold: "5",
+        windowHours: 24,
+        isEnabled: true,
+        notifyOwnerOnTrigger: true,
+        heartbeatTaskUid: undefined,
+        cooldownMinutes: 120,
       },
     ];
 

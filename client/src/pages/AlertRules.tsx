@@ -22,6 +22,7 @@ const RULE_TYPE_COLORS: Record<string, string> = {
   low_stock: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
   failed_payments: "bg-red-500/10 text-red-400 border-red-500/20",
   model_drift: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+  escalation_count: "bg-rose-500/10 text-rose-400 border-rose-500/20",
 };
 
 type RuleTypeMeta = {
@@ -82,7 +83,7 @@ function CreateRuleDialog({
     if (isNaN(t) || t <= 0) { toast.error("Threshold must be a positive number"); return; }
     createMutation.mutate({
       name: name.trim(),
-      ruleType: ruleType as "reconciliation_discrepancy" | "low_stock" | "failed_payments" | "model_drift",
+      ruleType: ruleType as "reconciliation_discrepancy" | "low_stock" | "failed_payments" | "model_drift" | "escalation_count",
       threshold: t,
       windowHours: parseInt(windowHours) || 24,
       notifyOwnerOnTrigger: notifyOwner,

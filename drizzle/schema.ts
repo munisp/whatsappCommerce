@@ -953,6 +953,7 @@ export const alertRuleTypeEnum = pgEnum("alert_rule_type", [
   "low_stock",
   "failed_payments",
   "model_drift",
+  "escalation_count",
 ]);
 
 export const alertRules = pgTable("alert_rules", {
