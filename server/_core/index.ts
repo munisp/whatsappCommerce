@@ -1069,4 +1069,4 @@ import { notifyOwner } from "./notification";
 import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
 import { products, tenantIntegrations } from "../../drizzle/schema";
-
+import { visualInventoryCorrections } from "../../drizzle/schema";

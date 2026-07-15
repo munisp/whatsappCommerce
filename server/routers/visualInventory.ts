@@ -14,8 +14,9 @@ import {
   visualInventoryMappings,
   products,
   inventorySnapshots,
+  visualInventoryCorrections,
 } from "../../drizzle/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, gte } from "drizzle-orm";
 import { storagePut } from "../storage";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -332,6 +333,79 @@ export const visualInventoryRouter = router({
   /**
    * Get label→product mappings for this tenant (used to auto-suggest matches).
    */
+  scanStats: protectedProcedure
+    .input(z.object({ days: z.number().min(1).max(90).default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const db = (await getDb())!;
+      const tenantId = (ctx.user as { tenantId?: string }).tenantId ?? ctx.user.openId;
+      const since = new Date(Date.now() - (input?.days ?? 30) * 24 * 60 * 60 * 1000);
+      // All sessions in window
+      const sessions = await db.select().from(visualInventorySessions)
+        .where(and(eq(visualInventorySessions.tenantId, tenantId), gte(visualInventorySessions.createdAt, since)));
+      // All corrections in window
+      const corrections = await db.select().from(visualInventoryCorrections)
+        .where(and(eq(visualInventoryCorrections.tenantId, tenantId), gte(visualInventoryCorrections.createdAt, since)));
+      // Per-location stats
+      const locationMap: Record<string, { scans: number; totalDetected: number; totalCorrected: number; corrections: number }> = {};
+      for (const s of sessions) {
+        const loc = (s.scanLocation as string | null) ?? "Unknown";
+        if (!locationMap[loc]) locationMap[loc] = { scans: 0, totalDetected: 0, totalCorrected: 0, corrections: 0 };
+        locationMap[loc].scans++;
+        locationMap[loc].totalDetected += s.totalItemsDetected ?? 0;
+      }
+      for (const c of corrections) {
+        // Find session location
+        const sess = sessions.find(s => s.id === c.sessionId);
+        const loc = (sess?.scanLocation as string | null) ?? "Unknown";
+        if (!locationMap[loc]) locationMap[loc] = { scans: 0, totalDetected: 0, totalCorrected: 0, corrections: 0 };
+        locationMap[loc].corrections++;
+        locationMap[loc].totalCorrected += c.correctedCount ?? 0;
+      }
+      // Per-product accuracy
+      const productMap: Record<string, { aiCount: number; correctedCount: number; corrections: number }> = {};
+      for (const c of corrections) {
+        const label = c.detectedLabel;
+        if (!productMap[label]) productMap[label] = { aiCount: 0, correctedCount: 0, corrections: 0 };
+        productMap[label].aiCount += c.originalCount ?? 0;
+        productMap[label].correctedCount += c.correctedCount ?? 0;
+        productMap[label].corrections++;
+      }
+      const productAccuracy = Object.entries(productMap).map(([label, v]) => ({
+        label,
+        aiCount: v.aiCount,
+        correctedCount: v.correctedCount,
+        corrections: v.corrections,
+        accuracyPct: v.aiCount > 0 ? Math.max(0, 100 - Math.abs(v.aiCount - v.correctedCount) / v.aiCount * 100) : 0,
+      })).sort((a, b) => a.accuracyPct - b.accuracyPct);
+      // Daily scan trend
+      const dailyMap: Record<string, { scans: number; corrections: number }> = {};
+      for (const s of sessions) {
+        const day = new Date(s.createdAt).toISOString().slice(0, 10);
+        if (!dailyMap[day]) dailyMap[day] = { scans: 0, corrections: 0 };
+        dailyMap[day].scans++;
+      }
+      for (const c of corrections) {
+        const day = new Date(c.createdAt).toISOString().slice(0, 10);
+        if (!dailyMap[day]) dailyMap[day] = { scans: 0, corrections: 0 };
+        dailyMap[day].corrections++;
+      }
+      const dailyTrend = Object.entries(dailyMap).sort().map(([date, v]) => ({ date, ...v }));
+      return {
+        totalScans: sessions.length,
+        totalCorrections: corrections.length,
+        appliedSessions: sessions.filter(s => s.appliedToInventory).length,
+        locationStats: Object.entries(locationMap).map(([location, v]) => ({
+          location,
+          ...v,
+          accuracyPct: v.totalDetected > 0
+            ? Math.max(0, 100 - (v.corrections / Math.max(v.scans, 1)) * 20)
+            : null,
+        })),
+        productAccuracy,
+        dailyTrend,
+      };
+    }),
+
   getMappings: protectedProcedure.query(async ({ ctx }) => {
       const db = (await getDb())!;
     const tenantId = getTenantId(ctx.user.id);

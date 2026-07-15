@@ -79,6 +79,9 @@ export default function VisualInventory() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Inline count correction state
+  const [inlineEditing, setInlineEditing] = useState<{ sessionId: string; label: string; count: number } | null>(null);
+  const [inlineEditValue, setInlineEditValue] = useState<number>(0);
   // FMCG autocomplete state
   const [hintsQuery, setHintsQuery] = useState("");
   const [showHintsSuggestions, setShowHintsSuggestions] = useState(false);
@@ -98,6 +101,14 @@ export default function VisualInventory() {
     { query: hintsQuery, limit: 8 },
     { enabled: hintsQuery.length >= 2 }
   );
+  const addCorrectionMutation = trpc.viCorrections.saveCorrection.useMutation({
+    onSuccess: () => {
+      toast.success("Correction saved — this will improve future AI accuracy");
+      setInlineEditing(null);
+      refetchSessions();
+    },
+    onError: (err: { message: string }) => toast.error(err.message),
+  });
   const applyMutation = trpc.visualInventory.applyToInventory.useMutation({
     onSuccess: (result) => {
       toast.success(`Applied to inventory: ${result.applied} product(s) updated`);
@@ -644,13 +655,45 @@ export default function VisualInventory() {
                               <p className="text-xs font-semibold text-muted-foreground mb-2">Detected Items</p>
                               <div className="space-y-1">
                                 {items.map((item, idx) => (
-                                  <div key={idx} className="flex items-center justify-between text-xs bg-muted/40 rounded px-2 py-1">
-                                    <span className="font-medium">{item.label}</span>
-                                    <div className="flex items-center gap-3">
-                                      <span className="text-muted-foreground">×{item.count}</span>
-                                      <span className={confidenceColor(item.confidence)}>
-                                        {(item.confidence * 100).toFixed(0)}%
-                                      </span>
+                                  <div key={idx} className="flex items-center justify-between text-xs bg-muted/40 rounded px-2 py-1 gap-2">
+                                    <span className="font-medium flex-1 truncate">{item.label}</span>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      {inlineEditing?.sessionId === s.id && inlineEditing?.label === item.label ? (
+                                        <div className="flex items-center gap-1">
+                                          <button className="w-5 h-5 rounded bg-muted hover:bg-muted/80 flex items-center justify-center font-bold"
+                                            onClick={() => setInlineEditValue(v => Math.max(0, v - 1))}>−</button>
+                                          <span className="w-8 text-center font-mono font-semibold">{inlineEditValue}</span>
+                                          <button className="w-5 h-5 rounded bg-muted hover:bg-muted/80 flex items-center justify-center font-bold"
+                                            onClick={() => setInlineEditValue(v => v + 1)}>+</button>
+                                          <button className="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700"
+                                            onClick={() => addCorrectionMutation.mutate({
+                                              sessionId: s.id,
+                                              detectedLabel: item.label,
+                                              originalCount: item.count,
+                                              correctedCount: inlineEditValue,
+                                            })}>
+                                            ✓
+                                          </button>
+                                          <button className="px-1.5 py-0.5 rounded bg-muted text-xs hover:bg-muted/80"
+                                            onClick={() => setInlineEditing(null)}>✕</button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <span className="text-muted-foreground">×{item.count}</span>
+                                          <span className={confidenceColor(item.confidence)}>
+                                            {(item.confidence * 100).toFixed(0)}%
+                                          </span>
+                                          <button
+                                            className="px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400"
+                                            title="Correct this count"
+                                            onClick={() => {
+                                              setInlineEditing({ sessionId: s.id, label: item.label, count: item.count });
+                                              setInlineEditValue(item.count);
+                                            }}>
+                                            ✏ Correct
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 ))}
