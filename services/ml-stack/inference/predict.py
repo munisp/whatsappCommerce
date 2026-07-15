@@ -24,7 +24,7 @@ import sys
 import json
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 # ── Feature engineering ───────────────────────────────────────────────────────
 def build_feature_vector(payload: dict) -> list:
@@ -32,7 +32,7 @@ def build_feature_vector(payload: dict) -> list:
     Map the /api/ml/predict payload fields to the 20-dim FRAUD_FEATURES vector.
     Missing fields are imputed with safe defaults.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     amount = float(payload.get("amount", 0))
     num_items = int(payload.get("num_items", 0))
     has_phone = bool(payload.get("has_phone", True))

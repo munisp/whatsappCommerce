@@ -903,3 +903,12 @@
 - [x] Inference model loading: wire predict.py to load fraud_gnn_lstm.pt weights via compatible FraudGNNLSTM(input_dim=5) constructor
 - [x] A/B test metrics heartbeat: /api/scheduled/ab-test-metrics job computes per-variant conversion rates and writes championMetric/challengerMetric to model_ab_tests table
 - [x] Drift alert notifications: heartbeat job sends owner push notification when PSI crosses 0.2 critical threshold with link to Drift Alerts tab
+
+## Round 33 — ML Model Training + Heartbeat Crons + Go-Live Activation (2026-07-15)
+- [x] Generate synthetic fraud_train.parquet, fraud_val.parquet, credit_train.parquet, credit_val.parquet
+- [x] Train FraudGNNLSTM and save fraud_gnn_lstm.pt weights to services/ml-stack/models/weights/
+- [x] Train TabNet credit scorer and save credit_tabnet.pt weights
+- [x] Register /api/scheduled/ab-test-metrics heartbeat cron in Deploy Checklist
+- [x] Register /api/scheduled/drift-alert heartbeat cron in Deploy Checklist
+- [x] Register /api/scheduled/nightly-finetune heartbeat cron in Deploy Checklist
+- [x] Update Deploy Checklist page with all three new ML Ops cron activation commands
