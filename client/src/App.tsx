@@ -108,6 +108,15 @@ function Router() {
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
           <Route path="/sla-extension/:token" component={SlaExtensionResponse} />
+          <Route path="/b2b" component={B2BPortal} />
+          <Route path="/multi-channel" component={MultiChannelHub} />
+          <Route path="/marketplace" component={MarketplacePortal} />
+          <Route path="/mobile-money" component={MobileMoneyPortal} />
+          <Route path="/service-commerce" component={ServiceCommercePage} />
+          <Route path="/analytics-bi" component={AnalyticsBIDashboard} />
+          <Route path="/compliance" component={CompliancePortal} />
+          <Route path="/medusa" component={MedusaIntegration} />
+          <Route path="/webhook-dlq" component={WebhookDLQ} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -131,3 +140,13 @@ export default App;
 import WhatsAppMediaPortal from "./pages/WhatsAppMediaPortal";
 import SlaExtensionResponse from "./pages/SlaExtensionResponse";
 import OperatorTemplates from "./pages/OperatorTemplates";
+import B2BPortal from "./pages/B2BPortal";
+import MultiChannelHub from "./pages/MultiChannelHub";
+import MarketplacePortal from "./pages/MarketplacePortal";
+import MobileMoneyPortal from "./pages/MobileMoneyPortal";
+import ServiceCommercePage from "./pages/ServiceCommercePage";
+import AnalyticsBIDashboard from "./pages/AnalyticsBIDashboard";
+import CompliancePortal from "./pages/CompliancePortal";
+import MedusaIntegration from "./pages/MedusaIntegration";
+import WebhookDLQ from "./pages/WebhookDLQ";
+

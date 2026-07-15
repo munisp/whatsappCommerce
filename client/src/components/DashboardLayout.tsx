@@ -6,7 +6,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
@@ -20,16 +21,24 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
-import { useIsMobile } from "@/hooks/useMobile";
-import { Activity, AlertTriangle, BarChart3, Bell, Bot, BrainCircuit, Building2, ChevronDown, CreditCard, FileCode, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, PanelLeft, Rocket, Server, Settings, Shield, Smartphone, TrendingUp, Truck, UserPlus, Users, Warehouse } from "lucide-react";
-import { ScrollText, Paperclip } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
-import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { Button } from "./ui/button";
-import { trpc } from "@/lib/trpc";
-import { useActiveTenant } from "@/contexts/TenantContext";
+import {
+startLogin } from "@/const";
+import {
+useIsMobile } from "@/hooks/useMobile";
+import {
+  Activity, AlertTriangle, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, FileCode, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse } from "lucide-react";
+import {
+CSSProperties, useEffect, useRef, useState } from "react";
+import {
+useLocation } from "wouter";
+import {
+DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import {
+Button } from "./ui/button";
+import {
+trpc } from "@/lib/trpc";
+import {
+useActiveTenant } from "@/contexts/TenantContext";
 
 type NavItem = { icon: React.ElementType; label: string; path: string; section?: string };
 const menuItems: NavItem[] = [
@@ -65,10 +74,20 @@ const menuItems: NavItem[] = [
   { icon: Bell,            label: "Alert Rules",     path: "/alert-rules",      section: "System" },
   { icon: Shield,          label: "SSO Users",       path: "/sso-users",        section: "System" },
   { icon: TrendingUp,      label: "Revenue",          path: "/revenue",          section: "System" },
+  { icon: AlertTriangle,    label: "Webhook DLQ",      path: "/webhook-dlq",      section: "System" },
   // ── Finance ───────────────────────────────────────────────────────────────
   { icon: Lock,            label: "Escrow",           path: "/escrow",           section: "Finance" },
   { icon: Truck,           label: "Logistics",        path: "/logistics",        section: "Finance" },
   { icon: AlertTriangle,   label: "Disputes",         path: "/disputes",         section: "Finance" },
+  { icon: Building2,       label: "B2B Portal",      path: "/b2b",            section: "Commerce" },
+  { icon: Globe,           label: "Multi-Channel",   path: "/multi-channel",  section: "Commerce" },
+  { icon: Store,           label: "Marketplace",     path: "/marketplace",    section: "Commerce" },
+  { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money",   section: "Commerce" },
+  { icon: Calendar,        label: "Service Commerce",path: "/service-commerce",section: "Commerce" },
+  { icon: BarChart3,       label: "Analytics BI",    path: "/analytics-bi",   section: "Commerce" },
+  { icon: Shield,          label: "Compliance/B2G",  path: "/compliance",     section: "Commerce" },
+  { icon: Package,         label: "Medusa Commerce", path: "/medusa",         section: "Commerce" },
+
   { icon: FileCode,        label: "Msg Templates",    path: "/operator-templates", section: "Platform" },
   { icon: ScrollText,      label: "Audit Log",        path: "/audit-log",        section: "System" },
   { icon: Paperclip,       label: "WA Media",         path: "/whatsapp-media",   section: "System" },

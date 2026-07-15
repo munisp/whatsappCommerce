@@ -1536,3 +1536,367 @@ export const waWebhookEvents = pgTable("wa_webhook_events", {
 ]);
 export type WaWebhookEvent = typeof waWebhookEvents.$inferSelect;
 export type InsertWaWebhookEvent = typeof waWebhookEvents.$inferInsert;
+
+// ── B2B Module ────────────────────────────────────────────────────────────────
+export const buyerTypeEnum = pgEnum("buyer_type", ["retail", "wholesale", "distributor", "government"]);
+export const rfqStatusEnum = pgEnum("rfq_status", ["draft", "submitted", "quoted", "accepted", "rejected", "expired"]);
+export const poStatusEnum = pgEnum("po_status", ["draft", "submitted", "approved", "rejected", "fulfilled", "cancelled"]);
+
+export const wholesalePriceTiers = pgTable("wholesale_price_tiers", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  buyerType: buyerTypeEnum("buyerType").notNull(),
+  minQuantity: integer("minQuantity").notNull().default(1),
+  maxQuantity: integer("maxQuantity"),
+  unitPrice: varchar("unitPrice", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  discountPercent: varchar("discountPercent", { length: 10 }),
+  paymentTermsDays: integer("paymentTermsDays").default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const b2bRfq = pgTable("b2b_rfq", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyerPhone", { length: 30 }).notNull(),
+  buyerName: varchar("buyerName", { length: 128 }),
+  buyerType: buyerTypeEnum("buyerType").notNull().default("wholesale"),
+  items: jsonb("items").notNull(),
+  totalEstimate: varchar("totalEstimate", { length: 20 }),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: rfqStatusEnum("status").notNull().default("submitted"),
+  quotedPrice: varchar("quotedPrice", { length: 20 }),
+  quotedAt: timestamp("quotedAt"),
+  expiresAt: timestamp("expiresAt"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const b2bPurchaseOrders = pgTable("b2b_purchase_orders", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  poNumber: varchar("poNumber", { length: 32 }).notNull().unique(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  rfqId: varchar("rfqId", { length: 36 }),
+  buyerPhone: varchar("buyerPhone", { length: 30 }).notNull(),
+  buyerName: varchar("buyerName", { length: 128 }),
+  buyerType: buyerTypeEnum("buyerType").notNull().default("wholesale"),
+  items: jsonb("items").notNull(),
+  totalAmount: varchar("totalAmount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  paymentTermsDays: integer("paymentTermsDays").default(0),
+  dueDate: timestamp("dueDate"),
+  status: poStatusEnum("status").notNull().default("submitted"),
+  approvedBy: varchar("approvedBy", { length: 36 }),
+  approvedAt: timestamp("approvedAt"),
+  deliveryAddress: jsonb("deliveryAddress"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+// ── Multi-Channel ─────────────────────────────────────────────────────────────
+export const channelEnum = pgEnum("channel", ["whatsapp", "ussd", "sms", "telegram", "instagram", "email"]);
+
+export const ussdSessions = pgTable("ussd_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: varchar("sessionId", { length: 128 }).notNull().unique(),
+  phoneNumber: varchar("phoneNumber", { length: 30 }).notNull(),
+  serviceCode: varchar("serviceCode", { length: 20 }),
+  tenantId: varchar("tenantId", { length: 36 }),
+  currentMenu: varchar("currentMenu", { length: 64 }).default("greeting"),
+  menuHistory: jsonb("menuHistory").default([]),
+  nlpSessionId: varchar("nlpSessionId", { length: 36 }),
+  isActive: boolean("isActive").default(true).notNull(),
+  lastInput: text("lastInput"),
+  lastResponse: text("lastResponse"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const channelMessages = pgTable("channel_messages", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  channel: channelEnum("channel").notNull(),
+  direction: varchar("direction", { length: 10 }).notNull().default("inbound"),
+  fromAddress: varchar("fromAddress", { length: 128 }).notNull(),
+  toAddress: varchar("toAddress", { length: 128 }),
+  tenantId: varchar("tenantId", { length: 36 }),
+  body: text("body").notNull(),
+  metadata: jsonb("metadata"),
+  processed: boolean("processed").default(false).notNull(),
+  nlpResponse: text("nlpResponse"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// ── Marketplace ───────────────────────────────────────────────────────────────
+export const sellerStatusEnum = pgEnum("seller_status", ["pending", "active", "suspended", "rejected"]);
+
+export const marketplaceSellers = pgTable("marketplace_sellers", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  businessName: varchar("businessName", { length: 128 }).notNull(),
+  ownerPhone: varchar("ownerPhone", { length: 30 }).notNull(),
+  ownerName: varchar("ownerName", { length: 128 }),
+  email: varchar("email", { length: 256 }),
+  category: varchar("category", { length: 64 }),
+  commissionRate: varchar("commissionRate", { length: 10 }).notNull().default("10.00"),
+  status: sellerStatusEnum("status").notNull().default("pending"),
+  kycVerified: boolean("kycVerified").default(false).notNull(),
+  bankAccount: jsonb("bankAccount"),
+  totalSales: varchar("totalSales", { length: 20 }).default("0.00"),
+  totalCommission: varchar("totalCommission", { length: 20 }).default("0.00"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const sellerProducts = pgTable("seller_products", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: varchar("sellerId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  price: varchar("price", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  stockQuantity: integer("stockQuantity").notNull().default(0),
+  category: varchar("category", { length: 64 }),
+  images: jsonb("images").default([]),
+  isApproved: boolean("isApproved").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const marketplaceCommissions = pgTable("marketplace_commissions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: varchar("sellerId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }).notNull(),
+  saleAmount: varchar("saleAmount", { length: 20 }).notNull(),
+  commissionRate: varchar("commissionRate", { length: 10 }).notNull(),
+  commissionAmount: varchar("commissionAmount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  settledAt: timestamp("settledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// ── Cross-Border / Mobile Money ───────────────────────────────────────────────
+export const momoProviderEnum = pgEnum("momo_provider", ["mtn_momo", "airtel_money", "mpesa", "orange_money", "wave"]);
+export const momoStatusEnum = pgEnum("momo_status", ["initiated", "pending", "successful", "failed", "cancelled", "refunded"]);
+
+export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }),
+  provider: momoProviderEnum("provider").notNull(),
+  externalRef: varchar("externalRef", { length: 128 }),
+  phoneNumber: varchar("phoneNumber", { length: 30 }).notNull(),
+  amount: varchar("amount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull(),
+  status: momoStatusEnum("status").notNull().default("initiated"),
+  providerResponse: jsonb("providerResponse"),
+  callbackPayload: jsonb("callbackPayload"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const forexRates = pgTable("forex_rates", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  baseCurrency: varchar("baseCurrency", { length: 3 }).notNull(),
+  quoteCurrency: varchar("quoteCurrency", { length: 3 }).notNull(),
+  rate: varchar("rate", { length: 20 }).notNull(),
+  source: varchar("source", { length: 64 }).default("manual"),
+  fetchedAt: timestamp("fetchedAt").defaultNow().notNull(),
+});
+
+// ── Service Commerce ──────────────────────────────────────────────────────────
+export const serviceTypeEnum = pgEnum("service_type", ["appointment", "digital", "subscription", "physical"]);
+export const appointmentStatusEnum = pgEnum("appointment_status", ["scheduled", "confirmed", "completed", "cancelled", "no_show"]);
+export const subscriptionStatusEnum = pgEnum("subscription_status", ["active", "paused", "cancelled", "expired", "trial"]);
+
+export const serviceCatalog = pgTable("service_catalog", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  serviceType: serviceTypeEnum("serviceType").notNull(),
+  price: varchar("price", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  duration: integer("duration"),
+  maxBookingsPerSlot: integer("maxBookingsPerSlot").default(1),
+  availableSlots: jsonb("availableSlots").default([]),
+  downloadUrl: text("downloadUrl"),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const appointments = pgTable("appointments", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  serviceId: varchar("serviceId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  customerName: varchar("customerName", { length: 128 }),
+  scheduledAt: timestamp("scheduledAt").notNull(),
+  durationMinutes: integer("durationMinutes").default(60),
+  status: appointmentStatusEnum("status").notNull().default("scheduled"),
+  notes: text("notes"),
+  reminderSent: boolean("reminderSent").default(false),
+  paymentStatus: varchar("paymentStatus", { length: 20 }).default("unpaid"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const digitalProducts = pgTable("digital_products", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  price: varchar("price", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  fileKey: varchar("fileKey", { length: 256 }),
+  fileUrl: text("fileUrl"),
+  mimeType: varchar("mimeType", { length: 128 }),
+  downloadLimit: integer("downloadLimit").default(3),
+  isActive: boolean("isActive").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const digitalProductPurchases = pgTable("digital_product_purchases", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  downloadToken: varchar("downloadToken", { length: 64 }).notNull().unique(),
+  downloadsUsed: integer("downloadsUsed").default(0).notNull(),
+  expiresAt: timestamp("expiresAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const subscriptions = pgTable("subscriptions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  serviceId: varchar("serviceId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  customerName: varchar("customerName", { length: 128 }),
+  status: subscriptionStatusEnum("status").notNull().default("active"),
+  billingCycle: varchar("billingCycle", { length: 20 }).notNull().default("monthly"),
+  amount: varchar("amount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  currentPeriodStart: timestamp("currentPeriodStart").notNull(),
+  currentPeriodEnd: timestamp("currentPeriodEnd").notNull(),
+  cancelledAt: timestamp("cancelledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+// ── Analytics BI ──────────────────────────────────────────────────────────────
+export const cohortSnapshots = pgTable("cohort_snapshots", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  cohortMonth: varchar("cohortMonth", { length: 7 }).notNull(),
+  totalCustomers: integer("totalCustomers").notNull().default(0),
+  retentionByMonth: jsonb("retentionByMonth").default({}),
+  avgOrderValue: varchar("avgOrderValue", { length: 20 }),
+  totalRevenue: varchar("totalRevenue", { length: 20 }),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+});
+
+export const ltvScores = pgTable("ltv_scores", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  predictedLtv: varchar("predictedLtv", { length: 20 }).notNull(),
+  historicalRevenue: varchar("historicalRevenue", { length: 20 }).notNull(),
+  orderCount: integer("orderCount").notNull().default(0),
+  avgOrderValue: varchar("avgOrderValue", { length: 20 }),
+  segment: varchar("segment", { length: 20 }).default("medium"),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+});
+
+export const churnPredictions = pgTable("churn_predictions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerPhone: varchar("customerPhone", { length: 30 }).notNull(),
+  churnScore: varchar("churnScore", { length: 10 }).notNull(),
+  riskLevel: varchar("riskLevel", { length: 10 }).notNull().default("medium"),
+  daysSinceLastOrder: integer("daysSinceLastOrder"),
+  predictedChurnDate: timestamp("predictedChurnDate"),
+  interventionSent: boolean("interventionSent").default(false),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+});
+
+// ── Compliance / B2G ──────────────────────────────────────────────────────────
+export const taxFilingStatusEnum = pgEnum("tax_filing_status", ["draft", "submitted", "accepted", "rejected", "under_review"]);
+export const procurementBidStatusEnum = pgEnum("procurement_bid_status", ["draft", "submitted", "shortlisted", "awarded", "rejected", "withdrawn"]);
+
+export const taxFilings = pgTable("tax_filings", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  filingType: varchar("filingType", { length: 32 }).notNull().default("vat"),
+  taxAuthority: varchar("taxAuthority", { length: 32 }).notNull().default("firs"),
+  periodStart: timestamp("periodStart").notNull(),
+  periodEnd: timestamp("periodEnd").notNull(),
+  grossRevenue: varchar("grossRevenue", { length: 20 }).notNull(),
+  taxableAmount: varchar("taxableAmount", { length: 20 }).notNull(),
+  taxAmount: varchar("taxAmount", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: taxFilingStatusEnum("status").notNull().default("draft"),
+  referenceNumber: varchar("referenceNumber", { length: 64 }),
+  submittedAt: timestamp("submittedAt"),
+  documents: jsonb("documents").default([]),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const cacRegistrations = pgTable("cac_registrations", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  businessName: varchar("businessName", { length: 256 }).notNull(),
+  businessType: varchar("businessType", { length: 64 }).notNull().default("sole_proprietorship"),
+  rcNumber: varchar("rcNumber", { length: 32 }),
+  tinNumber: varchar("tinNumber", { length: 32 }),
+  status: varchar("status", { length: 32 }).notNull().default("pending"),
+  documents: jsonb("documents").default([]),
+  submittedAt: timestamp("submittedAt"),
+  approvedAt: timestamp("approvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const procurementBids = pgTable("procurement_bids", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  contractTitle: varchar("contractTitle", { length: 256 }).notNull(),
+  procuringEntity: varchar("procuringEntity", { length: 256 }).notNull(),
+  contractValue: varchar("contractValue", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: procurementBidStatusEnum("status").notNull().default("draft"),
+  deadline: timestamp("deadline"),
+  documents: jsonb("documents").default([]),
+  technicalProposal: text("technicalProposal"),
+  financialProposal: text("financialProposal"),
+  submittedAt: timestamp("submittedAt"),
+  awardedAt: timestamp("awardedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export const governmentContracts = pgTable("government_contracts", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  bidId: varchar("bidId", { length: 36 }),
+  contractNumber: varchar("contractNumber", { length: 64 }).notNull(),
+  procuringEntity: varchar("procuringEntity", { length: 256 }).notNull(),
+  contractValue: varchar("contractValue", { length: 20 }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  startDate: timestamp("startDate"),
+  endDate: timestamp("endDate"),
+  status: varchar("status", { length: 32 }).notNull().default("active"),
+  milestones: jsonb("milestones").default([]),
+  invoicesRaised: integer("invoicesRaised").default(0),
+  amountPaid: varchar("amountPaid", { length: 20 }).default("0.00"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});

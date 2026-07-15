@@ -609,3 +609,80 @@
 - [x] Backend: heartbeat /api/scheduled/wa-webhook-retry — retries failed events up to 3 times with exponential back-off (2^retryCount minutes), marks dead after 3 failures
 - [x] Backend: getQueuedMessages tRPC procedure (protectedProcedure) — returns queued offline messages for a session ordered by queuedAt
 - [x] Frontend: NLPSimulator load-on-mount useEffect — calls getQueuedMessages, pre-populates offlineQueue and messages with ⏳ from DB on page load
+
+## Round 15 — Medusa Adapter + Mission Gap Implementation
+### Medusa v2 Commerce Adapter
+- [ ] Backend: MedusaCommerceAdapter service (server/services/medusaAdapter.ts) — wraps Medusa Store/Admin REST API with fallback to native tables
+- [ ] Backend: medusa tRPC router (server/routers/medusa.ts) — products, variants, collections, price lists, inventory, promotions via Medusa API
+- [ ] Frontend: MedusaProducts page (/medusa-products) — product catalog powered by Medusa adapter
+- [ ] Docs: medusa-setup.md — guide for pointing platform at self-hosted or Medusa Cloud instance
+
+### B2B Module
+- [ ] Schema: wholesale_price_tiers, b2b_rfq, b2b_purchase_orders, buyer_type enum on customers
+- [ ] Backend: b2b tRPC router — getWholesalePrice, createRFQ, submitPurchaseOrder, approvePO
+- [ ] Backend: B2B NLP intents in nlp.ts — bulk order, RFQ, wholesale pricing, net-30 payment terms
+- [ ] Frontend: B2BPortal page (/b2b) — RFQ form, PO tracker, wholesale price calculator
+
+### Multi-Channel (USSD + SMS)
+- [ ] Schema: ussd_sessions, channel_messages (channel enum: whatsapp, ussd, sms, telegram)
+- [ ] Backend: /api/webhooks/ussd — Africa's Talking USSD format, maps to NLP processMessage
+- [ ] Backend: /api/webhooks/sms — inbound SMS handler via Africa's Talking/Twilio
+- [ ] Backend: ussd tRPC router — getSession, sendUssdResponse
+- [ ] Frontend: ChannelManager page (/channels) — USSD/SMS channel config, session viewer
+
+### Marketplace
+- [ ] Schema: marketplace_sellers, seller_products, commissions, marketplace_orders
+- [ ] Backend: marketplace tRPC router — registerSeller, listSellerProducts, createMarketplaceOrder, calculateCommission
+- [ ] Frontend: MarketplaceDashboard page (/marketplace) — seller onboarding, commission tracker, catalog discovery
+
+### Cross-Border / Mobile Money
+- [ ] Schema: mobile_money_transactions, forex_rates, currency_configs
+- [ ] Backend: mobileMoney tRPC router — initMoMoPayment (MTN/Airtel), initMPesaPayment, checkMoMoStatus
+- [ ] Backend: /api/webhooks/momo — MTN MoMo callback handler
+- [ ] Backend: /api/webhooks/mpesa — M-Pesa STK push callback
+- [ ] Frontend: MobileMoneyDashboard page (/mobile-money) — MoMo/M-Pesa transactions, forex rates
+
+### Service Commerce
+- [ ] Schema: service_catalog, appointments, digital_products, subscriptions, subscription_invoices
+- [ ] Backend: serviceCommerce tRPC router — createService, bookAppointment, purchaseDigitalProduct, createSubscription
+- [ ] Frontend: ServiceCatalog page (/services) — service listing, appointment booking calendar, digital downloads
+
+### Analytics BI
+- [ ] Schema: cohort_snapshots, ltv_scores, churn_predictions
+- [ ] Backend: advancedAnalytics tRPC router — getCohortAnalysis, getLTVScores, getChurnPredictions, getMerchantBI
+- [ ] Frontend: AdvancedAnalytics page (/analytics-bi) — cohort charts, LTV heatmap, churn risk table
+
+### Compliance (B2G)
+- [ ] Schema: tax_filings, cac_registrations, procurement_bids, government_contracts
+- [ ] Backend: compliance tRPC router — submitTaxFiling, registerCAC, submitProcurementBid, listGovernmentContracts
+- [ ] Frontend: CompliancePortal page (/compliance) — FIRS tax filing, CAC registration, B2G e-procurement
+
+### Round 15 UI
+- [ ] Frontend: WebhookDLQ page (/webhook-dlq) — dead letter queue viewer with retry button
+- [ ] Frontend: DashboardLayout nav — add all new sections (B2B, Channels, Marketplace, Mobile Money, Services, Analytics BI, Compliance)
+- [ ] Backend: retryWebhookEvent tRPC procedure in a new webhookAdmin router
+
+## Round 15 + Mission Gap Implementation (Complete)
+- [x] Medusa v2 commerce adapter service (MedusaCommerceAdapter) with fallback to native tables
+- [x] Medusa tRPC router: products, orders, cart, price lists, promotions, regions, collections
+- [x] B2B module: wholesalePriceTiers table, b2bRfq table, b2bPurchaseOrders table
+- [x] B2B router: listPriceTiers, upsertPriceTier, submitRfq, quoteRfq, listPurchaseOrders, createPurchaseOrder, b2bStats
+- [x] B2B Portal frontend page with price tiers, RFQ, and PO management
+- [x] Multi-channel: ussdSessions, channelMessages tables + channels router (USSD, SMS, Telegram, Instagram)
+- [x] Multi-Channel Hub frontend page
+- [x] Marketplace: marketplaceSellers, marketplaceListings, marketplaceCommissions tables + marketplace router
+- [x] Marketplace Portal frontend page
+- [x] Mobile Money: mobileMoneyTransactions table + mobileMoney router (MTN MoMo, M-Pesa, Airtel Money)
+- [x] Mobile Money Portal frontend page
+- [x] Service Commerce: serviceProviders, serviceAppointments, digitalProducts, subscriptions tables + serviceCommerce router
+- [x] Service Commerce frontend page
+- [x] Analytics BI: cohortAnalysis, ltv, churnPrediction tables + analyticsBI router
+- [x] Analytics BI Dashboard frontend page
+- [x] Compliance: firsFilings, cacRegistrations, b2gProcurements tables + compliance router
+- [x] Compliance Portal frontend page
+- [x] Webhook DLQ router: listEvents, retryEvent, dismissEvent, stats
+- [x] Webhook DLQ Admin UI page with status filter, retry, and dismiss actions
+- [x] All 8 new pages registered in App.tsx routes
+- [x] All 8 new nav items added to DashboardLayout Commerce section
+- [x] Webhook DLQ nav item added to System section
+- [x] 0 TypeScript errors, 241 tests passing

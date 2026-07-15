@@ -93,9 +93,28 @@ export const appRouter = router({
   slaExtension: slaExtensionRouter,
   operatorTemplates: operatorTemplatesRouter,
   whatsappMedia: whatsappMediaRouter,
+  b2b: b2bRouter,
+  channels: channelsRouter,
+  marketplace: marketplaceRouter,
+  mobileMoney: mobileMoneyRouter,
+  serviceCommerce: serviceCommerceRouter,
+  analyticsBI: analyticsBIRouter,
+  compliance: complianceRouter,
+  medusa: medusaRouter,
+  webhookDlq: webhookDlqRouter,
 });
 
 export type AppRouter = typeof appRouter;
 import { alertRulesRouter } from "./routers/alertRules";
 import { operatorTemplatesRouter } from "./routers/operatorTemplates";
 import { whatsappMediaRouter } from "./routers/whatsappMedia";
+
+import { b2bRouter } from "./routers/b2b";
+import { channelsRouter } from "./routers/channels";
+import { marketplaceRouter } from "./routers/marketplace";
+import { mobileMoneyRouter } from "./routers/mobileMoney";
+import { serviceCommerceRouter } from "./routers/serviceCommerce";
+import { analyticsBIRouter } from "./routers/analyticsBI";
+import { complianceRouter } from "./routers/compliance";
+import { medusaRouter } from "./routers/medusa";
+import { webhookDlqRouter } from "./routers/webhookDlq";
