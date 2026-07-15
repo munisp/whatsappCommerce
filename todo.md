@@ -836,3 +836,9 @@
 - [x] Build GPU training pipeline runner script (gpu_train_runner.py: RunPod/SSH/local GPU launcher with progress streaming)
 - [x] Expand ProductImageCollector UI: batch upload (up to 50 files), per-class progress bars (green/yellow/red), configurable target count, Needs Images filter
 - [x] Add batchUpload tRPC procedure to productImages router (accepts array of base64 images, uploads to S3, returns count)
+
+## Round 26 (2026-07-15) - Completed
+- [x] Drag-and-drop batch upload on ProductImageCollector batch zone (onDragOver/onDragLeave/onDrop handlers, visual highlight)
+- [x] Per-class quality gate: qualityImages count (score ≥ 3) in listClasses, quality-gated Ready/Low Quality badge, Quality Ready KPI card
+- [x] Fine-tune trigger button (Fine-Tune Run) on ProductImageCollector with SSE log streaming, dry-run toggle, Stop button
+- [x] SSE endpoint: GET /api/finetune/stream?dryRun=true — spawns finetune.py, streams stdout/stderr as SSE events, kills on client disconnect
