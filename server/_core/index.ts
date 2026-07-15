@@ -6,7 +6,9 @@ import { spawn } from "child_process";
 // archiver loaded via createRequire (CJS module)
 import { createRequire as _cjsRequire } from "module";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const archiver: (format: string, opts?: Record<string, unknown>) => any = _cjsRequire(import.meta.url)("archiver");
+const { Archiver: _ArchiverClass } = _cjsRequire(import.meta.url)("archiver");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const archiver = (format: string, opts?: Record<string, unknown>): any => new _ArchiverClass(format, opts);
 import path from "path";
 import { fileURLToPath } from "url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -1138,6 +1140,63 @@ async function startServer() {
   });
 
 
+
+  // ── Nightly Fine-Tune Heartbeat ───────────────────────────────────────────
+  // POST /api/scheduled/nightly-finetune
+  // After deploy: manus-heartbeat create --name nightly-finetune --cron "0 0 2 * * *" --path /api/scheduled/nightly-finetune --description "Nightly YOLO fine-tune when dataset grew >=10 images"
+  app.post("/api/scheduled/nightly-finetune", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      // Check if dataset grew by >=10 images since the last completed run
+      const lastRun = (await db.select().from(finetuneRuns)
+        .where(eq(finetuneRuns.status, "completed"))
+        .orderBy(sql`"startedAt" DESC`).limit(1))[0];
+      const sinceDate = lastRun?.endedAt ?? new Date(0);
+      const newImagesResult = await db.select({ count: sql<number>`count(*)::int` })
+        .from(picTable)
+        .where(gte(picTable.createdAt, sinceDate));
+      const newImages = newImagesResult[0]?.count ?? 0;
+      if (newImages < 10) {
+        return res.json({ skipped: true, reason: `Only ${newImages} new images since last run (need >=10)` });
+      }
+      // Kick off a real fine-tune run (non-dry-run)
+      const runId = crypto.randomUUID();
+      const startedAt = new Date();
+      await db.insert(finetuneRuns).values({
+        id: runId, startedAt, dryRun: false, triggeredBy: "heartbeat", status: "running",
+      });
+      const scriptPath = path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../services/visual-inventory/python-vlm/scripts/finetune.py"
+      );
+      const python = spawn("python3", [scriptPath], {
+        env: { ...process.env, PYTHONUNBUFFERED: "1" },
+        detached: true, stdio: "pipe",
+      });
+      const logLines: string[] = [];
+      python.stdout?.on("data", (chunk: Buffer) => { chunk.toString().split("\n").filter(Boolean).forEach((l: string) => logLines.push(l)); });
+      python.stderr?.on("data", (chunk: Buffer) => { chunk.toString().split("\n").filter(Boolean).forEach((l: string) => logLines.push(`[stderr] ${l}`)); });
+      python.on("close", (code: number | null) => {
+        const status = (code === 0 || code === null) ? "completed" : "failed";
+        getDb().then(db2 => db2?.update(finetuneRuns)
+          .set({ endedAt: new Date(), exitCode: code ?? 0, status, logSnapshot: logLines.slice(-500).join("\n") })
+          .where(eq(finetuneRuns.id, runId)).catch(() => {}));
+      });
+      python.on("error", (err: Error) => {
+        getDb().then(db2 => db2?.update(finetuneRuns)
+          .set({ endedAt: new Date(), exitCode: -1, status: "failed", logSnapshot: err.message })
+          .where(eq(finetuneRuns.id, runId)).catch(() => {}));
+      });
+      python.unref();
+      res.json({ started: true, runId, newImages });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
   // ── YOLO Label Export ZIP ─────────────────────────────────────────────────
   // GET /api/finetune/export-yolo — generates per-class YOLO .txt label files and returns a zip
   app.get("/api/finetune/export-yolo", async (req, res) => {
@@ -1203,4 +1262,4 @@ import { notifyOwner } from "./notification";
 import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
 import { products, tenantIntegrations } from "../../drizzle/schema";
-import { visualInventoryCorrections, finetuneRuns } from "../../drizzle/schema";
+import { visualInventoryCorrections, finetuneRuns, productImageCollections as picTable } from "../../drizzle/schema";

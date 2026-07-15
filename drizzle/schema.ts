@@ -2178,6 +2178,7 @@ export const productImageCollections = pgTable("product_image_collections", {
   uploadedBy: varchar("uploadedBy", { length: 36 }),
   usedInTraining: boolean("usedInTraining").default(false).notNull(),
   qualityScore: integer("qualityScore"),
+  bbox: jsonb("bbox").$type<{ x: number; y: number; w: number; h: number } | null>().default(null),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
   index("pic_tenant_idx").on(t.tenantId),

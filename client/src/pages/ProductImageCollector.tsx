@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, DragEvent } from "react";
+import { useState, useRef, useCallback, useEffect, DragEvent, useLayoutEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,72 @@ import {
   Camera, Upload, Star, Trash2, CheckCircle2, AlertCircle,
   BarChart3, Download, RefreshCw, Images, Filter, Layers,
   Play, Square, Terminal, Zap,
-  History, FileArchive, Sparkles
+  History, FileArchive, Sparkles,
+  ChevronDown, ChevronRight, Pencil
 } from "lucide-react";
+
+// ── BboxEditor component ──────────────────────────────────────────────────────
+type Bbox = { x: number; y: number; w: number; h: number };
+function BboxEditor({
+  imageUrl, initialBbox, onSave, onClose,
+}: { imageUrl: string; initialBbox: Bbox | null; onSave: (bbox: Bbox | null) => void; onClose: () => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [bbox, setBbox] = useState<Bbox | null>(initialBbox);
+  const [drawing, setDrawing] = useState(false);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const drawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    if (bbox) {
+      ctx.strokeStyle = "#22c55e"; ctx.lineWidth = 2;
+      ctx.strokeRect(bbox.x * canvas.width, bbox.y * canvas.height, bbox.w * canvas.width, bbox.h * canvas.height);
+      ctx.fillStyle = "rgba(34,197,94,0.15)";
+      ctx.fillRect(bbox.x * canvas.width, bbox.y * canvas.height, bbox.w * canvas.width, bbox.h * canvas.height);
+    }
+  }, [bbox]);
+  useLayoutEffect(() => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { imgRef.current = img; drawCanvas(); };
+    img.src = imageUrl;
+  }, [imageUrl, drawCanvas]);
+  useEffect(() => { drawCanvas(); }, [drawCanvas]);
+  const getPos = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current!.getBoundingClientRect();
+    return { x: (e.clientX - rect.left) / rect.width, y: (e.clientY - rect.top) / rect.height };
+  };
+  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => { startRef.current = getPos(e); setDrawing(true); };
+  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!drawing || !startRef.current) return;
+    const cur = getPos(e);
+    setBbox({ x: Math.min(startRef.current.x, cur.x), y: Math.min(startRef.current.y, cur.y),
+      w: Math.abs(cur.x - startRef.current.x), h: Math.abs(cur.y - startRef.current.y) });
+  };
+  const onMouseUp = () => setDrawing(false);
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-card rounded-xl shadow-2xl max-w-lg w-full p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-sm">Draw Bounding Box</span>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-xs">Cancel</button>
+        </div>
+        <p className="text-xs text-muted-foreground">Click and drag to draw a tight bounding box around the product.</p>
+        <canvas ref={canvasRef} width={480} height={360} className="w-full rounded-lg border cursor-crosshair"
+          style={{ touchAction: "none" }}
+          onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp} />
+        <div className="flex gap-2 justify-end">
+          <Button size="sm" variant="outline" onClick={() => setBbox(null)}>Clear</Button>
+          <Button size="sm" onClick={() => onSave(bbox)}>Save Annotation</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Fine-tune log streaming hook ──────────────────────────────────────────────
 function useFineTuneStream() {
@@ -94,6 +158,8 @@ export default function ProductImageCollector() {
   const [showFineTune, setShowFineTune] = useState(false);
   const [dryRun, setDryRun] = useState(true);
   const [showRunHistory, setShowRunHistory] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [bboxEditorImg, setBboxEditorImg] = useState<{ id: string; url: string; bbox: Bbox | null } | null>(null);
 
   // Batch upload state
   const [batchClass, setBatchClass] = useState<string>("");
@@ -179,6 +245,11 @@ export default function ProductImageCollector() {
       setBatchProgress(null);
       toast.error(err.message);
     },
+  });
+
+  const updateBboxMutation = trpc.productImages.updateBbox.useMutation({
+    onSuccess: () => { setBboxEditorImg(null); if (viewClass) refetchClassImages(); toast.success("Bounding box saved"); },
+    onError: (e) => toast.error(`Failed to save bbox: ${e.message}`),
   });
 
   const handleFileSelect = useCallback((file: File, src: "camera" | "upload") => {
@@ -444,29 +515,30 @@ export default function ProductImageCollector() {
               ) : (
                 <div className="space-y-2">
                   {runHistory.map((run) => (
-                    <div key={run.id} className="flex items-center justify-between rounded-lg border px-4 py-2.5 text-sm">
-                      <div className="flex items-center gap-3">
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                          run.status === "completed" ? "bg-green-500" :
-                          run.status === "failed" ? "bg-red-500" :
-                          run.status === "cancelled" ? "bg-amber-500" : "bg-blue-500 animate-pulse"
-                        }`} />
-                        <div>
-                          <span className="font-medium capitalize">{run.status}</span>
-                          {run.dryRun && <span className="ml-2 text-xs text-muted-foreground">(dry run)</span>}
+                    <div key={run.id} className="rounded-lg border text-sm overflow-hidden">
+                      <button className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/40 transition-colors"
+                        onClick={() => setExpandedRunId(expandedRunId === run.id ? null : run.id)}>
+                        <div className="flex items-center gap-3">
+                          {expandedRunId === run.id ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${run.status === "completed" ? "bg-green-500" : run.status === "failed" ? "bg-red-500" : run.status === "cancelled" ? "bg-amber-500" : "bg-blue-500 animate-pulse"}`} />
+                          <div>
+                            <span className="font-medium capitalize">{run.status}</span>
+                            {run.dryRun && <span className="ml-2 text-xs text-muted-foreground">(dry run)</span>}
+                            {run.triggeredBy === "heartbeat" && <span className="ml-2 text-xs text-blue-500">(scheduled)</span>}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-4 text-muted-foreground text-xs">
-                        <span>{new Date(run.startedAt).toLocaleString()}</span>
-                        {run.endedAt && (
-                          <span>{Math.round((new Date(run.endedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s</span>
-                        )}
-                        {run.exitCode != null && (
-                          <span className={run.exitCode === 0 ? "text-green-600" : "text-red-500"}>
-                            exit {run.exitCode}
-                          </span>
-                        )}
-                      </div>
+                        <div className="flex items-center gap-4 text-muted-foreground text-xs">
+                          <span>{new Date(run.startedAt).toLocaleString()}</span>
+                          {run.endedAt && <span>{Math.round((new Date(run.endedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s</span>}
+                          {run.exitCode != null && <span className={run.exitCode === 0 ? "text-green-600" : "text-red-500"}>exit {run.exitCode}</span>}
+                        </div>
+                      </button>
+                      {expandedRunId === run.id && (
+                        <div className="border-t bg-black/80 px-4 py-3">
+                          {run.logSnapshot ? <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">{run.logSnapshot}</pre>
+                            : <p className="text-xs text-muted-foreground italic">No log snapshot available.</p>}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -728,6 +800,11 @@ export default function ProductImageCollector() {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
+                      <button onClick={() => setBboxEditorImg({ id: img.id, url: img.imageUrl, bbox: (img as any).bbox ?? null })}
+                        className="absolute top-1 left-1 bg-black/60 rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity" title="Edit bounding box">
+                        <Pencil className="w-3 h-3 text-white" />
+                      </button>
+                      {(img as any).bbox && <div className="absolute top-1 right-1 bg-green-500/80 rounded px-1 py-0.5 text-white" style={{ fontSize: "9px" }}>bbox</div>}
                       <div className="mt-1">
                         <Badge variant="outline" className="text-xs w-full justify-center">{img.source}</Badge>
                       </div>
@@ -747,6 +824,11 @@ export default function ProductImageCollector() {
         onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f, "camera"); e.target.value = ""; }} />
       <input ref={batchInputRef} type="file" accept="image/*" multiple className="hidden"
         onChange={e => { if (e.target.files) handleBatchFileSelect(e.target.files); e.target.value = ""; }} />
+      {bboxEditorImg && (
+        <BboxEditor imageUrl={bboxEditorImg.url} initialBbox={bboxEditorImg.bbox}
+          onSave={(bbox) => updateBboxMutation.mutate({ id: bboxEditorImg.id, bbox })}
+          onClose={() => setBboxEditorImg(null)} />
+      )}
     </DashboardLayout>
   );
 }

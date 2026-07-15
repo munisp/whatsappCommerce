@@ -1,0 +1,1 @@
+ALTER TABLE "product_image_collections" ADD COLUMN "bbox" jsonb DEFAULT 'null'::jsonb;
