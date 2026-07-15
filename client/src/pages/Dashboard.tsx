@@ -4,7 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { AlertTriangle, Building2, Bot, MessageSquare, ShoppingCart, TrendingUp, Users, CheckCircle2 } from "lucide-react";
+import { Siren } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
 
@@ -23,6 +25,7 @@ export default function Dashboard() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const { data: overview } = trpc.analytics.platformOverview.useQuery();
   const { data: tenantDash } = trpc.analytics.tenantDashboard.useQuery({ tenantId: DEMO_TENANT });
+  const { data: escalationSla } = trpc.escrowDispute.escalationSlaStats.useQuery();
   const { data: stockData } = trpc.inventory.getStockLevels.useQuery(
     { tenantId: DEMO_TENANT },
     { enabled: !!DEMO_TENANT }
@@ -157,6 +160,43 @@ export default function Dashboard() {
         )}
 
         {/* Onboarding Funnel Analytics */}
+        {/* Escalation SLA Card */}
+        <Card className={`border ${(escalationSla?.openEscalatedCount ?? 0) > 0 ? "border-red-500/40 bg-red-500/5" : "bg-card border-border"}`}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                <Siren className="w-4 h-4 text-red-400" />
+                Dispute Escalation SLA
+              </CardTitle>
+              <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground" onClick={() => setLocation("/dispute-management")}>
+                View all →
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="p-3 rounded-lg bg-accent/30 border border-border">
+                <p className="text-xs text-muted-foreground">Total Escalated</p>
+                <p className={`text-2xl font-bold mt-1 ${(escalationSla?.escalatedCount ?? 0) > 0 ? "text-red-400" : "text-foreground"}`}>
+                  {escalationSla?.escalatedCount ?? 0}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-accent/30 border border-border">
+                <p className="text-xs text-muted-foreground">Open Escalated</p>
+                <p className={`text-2xl font-bold mt-1 ${(escalationSla?.openEscalatedCount ?? 0) > 0 ? "text-amber-400" : "text-green-400"}`}>
+                  {escalationSla?.openEscalatedCount ?? 0}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-accent/30 border border-border">
+                <p className="text-xs text-muted-foreground">Avg Time to Escalate</p>
+                <p className="text-2xl font-bold mt-1 text-foreground">
+                  {escalationSla?.avgHoursToEscalation != null ? `${escalationSla.avgHoursToEscalation}h` : "—"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="bg-card border-border">
           <CardHeader>
             <div className="flex items-center justify-between">

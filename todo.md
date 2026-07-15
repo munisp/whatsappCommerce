@@ -552,3 +552,8 @@
 - [x] R8-1: Persist broadcast varMapping to DB — add varMapping jsonb column to broadcastCampaigns schema, migrate, update create/list procedures, display in PortalBroadcasts campaign detail
 - [x] R8-2: AuditLog CSV export — add "Download CSV" button to /audit-log page
 - [x] R8-3: Real escalation notifications — fire owner notification (notifyOwner) + merchant notification (emitNotification) when a dispute is escalated
+
+## Round 9: Suggested Next Steps
+- [x] R9-1: Broadcast scheduling enforcement — Heartbeat cron polls scheduled campaigns past scheduledAt and auto-triggers send
+- [x] R9-2: Dispute escalation SLA dashboard card — admin dashboard card showing escalated dispute count, avg time-to-escalation, drill-down link
+- [x] R9-3: varMapping substitution in broadcast send — merge campaign varMapping into each recipient's variables object during send

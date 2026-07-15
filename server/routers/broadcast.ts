@@ -124,6 +124,9 @@ export const broadcastRouter = router({
 
       if (!campaign) throw new Error("Campaign not found");
 
+      // Merge campaign-level varMapping into per-recipient variables
+      const campaignVarMap = (campaign.varMapping ?? {}) as Record<string, string>;
+
       // Pull contacts from Twenty CRM as recipients
       const contacts = await db
         .select()
@@ -144,6 +147,7 @@ export const broadcastRouter = router({
             order_number: `ORD-${Math.floor(Math.random() * 90000) + 10000}`,
             amount: `$${(Math.random() * 200 + 20).toFixed(2)}`,
             currency: "USD",
+            ...campaignVarMap,
           },
           status: "pending" as const,
           createdAt: new Date(),
@@ -155,13 +159,14 @@ export const broadcastRouter = router({
         campaignId: input.campaignId,
         phone: `+1555${String(i).padStart(7, "0")}`,
         name: ["Alice Johnson", "Bob Smith", "Carol White", "David Brown", "Emma Davis", "Frank Miller", "Grace Wilson", "Henry Moore", "Iris Taylor", "Jack Anderson", "Karen Thomas", "Leo Jackson"][i] ?? `Customer ${i + 1}`,
-        variables: {
-          customer_name: ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack", "Karen", "Leo"][i] ?? "Customer",
-          store_name: "WhatsApp Commerce",
-          order_number: `ORD-${10000 + i}`,
-          amount: `$${(50 + i * 15).toFixed(2)}`,
-          currency: "USD",
-        },
+          variables: {
+            customer_name: ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack", "Karen", "Leo"][i] ?? "Customer",
+            store_name: "WhatsApp Commerce",
+            order_number: `ORD-${10000 + i}`,
+            amount: `$${(50 + i * 15).toFixed(2)}`,
+            currency: "USD",
+            ...campaignVarMap,
+          },
         status: "pending" as const,
         createdAt: new Date(),
       }));

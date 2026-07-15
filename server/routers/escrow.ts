@@ -831,6 +831,23 @@ export const escrowDisputeRouter = router({
       }).catch(() => {/* non-fatal */});
       return updated!;
     }),
+
+
+  // Escalation SLA statistics for the admin dashboard
+  escalationSlaStats: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return { escalatedCount: 0, avgHoursToEscalation: null as number | null, openEscalatedCount: 0 };
+    const disputes = await db.select().from(escrowDisputes);
+    const escalated = disputes.filter(d => (d.status as string) === "escalated" || d.escalatedAt != null);
+    const openEscalated = escalated.filter(d => (d.status as string) === "escalated");
+    const withBoth = escalated.filter(d => d.escalatedAt != null);
+    const avgMs = withBoth.length > 0
+      ? withBoth.reduce((sum, d) => sum + (d.escalatedAt!.getTime() - d.createdAt.getTime()), 0) / withBoth.length
+      : null;
+    const avgHoursToEscalation = avgMs != null ? Math.round(avgMs / 3_600_000 * 10) / 10 : null;
+    return { escalatedCount: escalated.length, avgHoursToEscalation, openEscalatedCount: openEscalated.length };
+  }),
+
 });
 
 // ─── Wallet Router ────────────────────────────────────────────────────────────
