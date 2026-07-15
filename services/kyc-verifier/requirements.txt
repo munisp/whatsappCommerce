@@ -15,7 +15,7 @@ pypdf==5.1.0
 
 # VLM / AI Analysis (via Ollama or OpenAI-compatible)
 openai==1.59.9
-ollama==0.4.7
+ollama==0.6.2
 
 # Liveness Detection
 opencv-python-headless==4.10.0.84
