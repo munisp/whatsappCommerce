@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { paymentTransactions, modelAbTests, datasetSnapshots } from "../../drizzle/schema";
+import { paymentTransactions, modelAbTests, datasetSnapshots, agentEvents, orders } from "../../drizzle/schema";
 import { desc, gte, sql, eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
@@ -332,6 +332,113 @@ export const mlOpsRouter = router({
                warning: alerts.filter(a => a.isDrifted && a.psi <= 0.2).length, total: alerts.length };
     } catch { return { alerts: [], critical: 0, warning: 0, total: 0 }; }
   }),
+
+  // ── Model Performance: rolling precision/recall/F1 from agentEvents ──────────
+  getModelPerformance: protectedProcedure
+    .input(z.object({ windowHours: z.number().min(1).max(168).default(24) }).optional())
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { buckets: [], summary: { precision: 0, recall: 0, f1: 0, total: 0 } };
+      const windowH = input?.windowHours ?? 24;
+      const cutoff = new Date(Date.now() - windowH * 3600 * 1000);
+      // Fetch recent agent events with confidence scores (proxy for fraud model outputs)
+      const events = await db.select({
+        createdAt: agentEvents.createdAt,
+        confidence: agentEvents.confidence,
+        intentType: agentEvents.intentType,
+        escalated: agentEvents.escalated,
+      }).from(agentEvents)
+        .where(gte(agentEvents.createdAt, cutoff))
+        .orderBy(agentEvents.createdAt)
+        .limit(2000);
+      if (events.length === 0) {
+        return { buckets: [], summary: { precision: 0, recall: 0, f1: 0, total: 0 } };
+      }
+      // Build hourly buckets
+      const bucketMap = new Map<string, { tp: number; fp: number; fn: number; tn: number; ts: number }>();
+      for (const ev of events) {
+        const d = new Date(ev.createdAt);
+        const hourKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}T${String(d.getUTCHours()).padStart(2,'0')}:00`;
+        if (!bucketMap.has(hourKey)) bucketMap.set(hourKey, { tp: 0, fp: 0, fn: 0, tn: 0, ts: d.getTime() });
+        const b = bucketMap.get(hourKey)!;
+        const conf = parseFloat(String(ev.confidence ?? 0));
+        const predicted = conf >= 0.5;
+        const actual = ev.escalated; // escalated = fraud/high-risk in our domain
+        if (predicted && actual) b.tp++;
+        else if (predicted && !actual) b.fp++;
+        else if (!predicted && actual) b.fn++;
+        else b.tn++;
+      }
+      const buckets = Array.from(bucketMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([hour, b]) => {
+          const precision = (b.tp + b.fp) > 0 ? b.tp / (b.tp + b.fp) : 1;
+          const recall = (b.tp + b.fn) > 0 ? b.tp / (b.tp + b.fn) : 1;
+          const f1 = (precision + recall) > 0 ? 2 * precision * recall / (precision + recall) : 0;
+          return { hour, precision: parseFloat(precision.toFixed(3)), recall: parseFloat(recall.toFixed(3)), f1: parseFloat(f1.toFixed(3)), total: b.tp + b.fp + b.fn + b.tn };
+        });
+      // Overall summary
+      let totalTp = 0, totalFp = 0, totalFn = 0;
+      for (const b of Array.from(bucketMap.values())) { totalTp += b.tp; totalFp += b.fp; totalFn += b.fn; }
+      const precision = (totalTp + totalFp) > 0 ? totalTp / (totalTp + totalFp) : 1;
+      const recall = (totalTp + totalFn) > 0 ? totalTp / (totalTp + totalFn) : 1;
+      const f1 = (precision + recall) > 0 ? 2 * precision * recall / (precision + recall) : 0;
+      return {
+        buckets,
+        summary: {
+          precision: parseFloat(precision.toFixed(3)),
+          recall: parseFloat(recall.toFixed(3)),
+          f1: parseFloat(f1.toFixed(3)),
+          total: events.length,
+        },
+      };
+    }),
+  // ── Trigger real-data retrain: export orders → Parquet → run train_all.py ───
+  triggerRealDataRetrain: protectedProcedure
+    .input(z.object({ model: z.enum(["fraud", "credit", "all"]).default("fraud"), minRows: z.number().default(500) }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { ok: false, message: "Database unavailable" };
+      // Count available real orders
+      const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(orders);
+      const rowCount = count ?? 0;
+      if (rowCount < input.minRows) {
+        return {
+          ok: false,
+          message: `Insufficient real data: ${rowCount} orders found, minimum ${input.minRows} required. Continue accumulating transactions.`,
+          rowCount,
+        };
+      }
+      const exportScript = path.join(process.cwd(), "services/ml-stack/training/export_real_data.py");
+      const trainScript = path.join(process.cwd(), "services/ml-stack/training/train_all.py");
+      const jobId = `real-retrain-${input.model}-${Date.now()}`;
+      try {
+        // Step 1: export real data to Parquet (synchronous, fast)
+        const { execSync } = await import("child_process");
+        execSync(`python3 "${exportScript}" --model ${input.model}`, {
+          cwd: process.cwd(),
+          timeout: 60000,
+          stdio: "ignore",
+        });
+        // Step 2: spawn train_all.py in background
+        const child = spawn("python3", [trainScript, "--model", input.model, "--mlflow-uri", "sqlite:////tmp/mlruns.db"], {
+          detached: true,
+          stdio: ["ignore", "ignore", "ignore"],
+          cwd: process.cwd(),
+        });
+        child.unref();
+        return {
+          ok: true,
+          jobId,
+          pid: child.pid,
+          rowCount,
+          message: `Real-data retrain started for ${input.model} model using ${rowCount} orders. Job: ${jobId}`,
+          estimatedDurationMs: 180000,
+        };
+      } catch (err) {
+        return { ok: false, jobId, message: `Retrain failed: ${(err as Error).message}`, rowCount };
+      }
+    }),
 });
 
 // ── DB-backed A/B Test Management ────────────────────────────────────────────

@@ -76,6 +76,16 @@ export default function MLOpsDashboard() {
   const driftAlertsQ = trpc.mlOps.getDriftAlerts.useQuery();
   const abTestsQ = trpc.mlAbTest.list.useQuery();
   const snapshotsQ = trpc.datasetSnapshot.list.useQuery();
+  const [perfWindow, setPerfWindow] = useState(24);
+  const [realRetrainModel, setRealRetrainModel] = useState<"fraud" | "credit" | "all">("fraud");
+  const modelPerfQ = trpc.mlOps.getModelPerformance.useQuery({ windowHours: perfWindow });
+  const triggerRealRetrain = trpc.mlOps.triggerRealDataRetrain.useMutation({
+    onSuccess: (data) => {
+      if (data.ok) toast.success(data.message);
+      else toast.warning(data.message);
+    },
+    onError: (err) => toast.error(`Real-data retrain failed: ${err.message}`),
+  });
   const metricHistoryQ = trpc.mlOps.getMetricHistory.useQuery(
     { experimentId: selectedExperiment },
     { enabled: !!selectedExperiment }
@@ -124,6 +134,8 @@ export default function MLOpsDashboard() {
     setRetrainingModel(modelName);
     triggerRetrain.mutate({ modelName, reason: hpoMode ? "HPO sweep from ML Ops dashboard" : "Manual trigger from ML Ops dashboard" });
   };
+  const perfSummary = modelPerfQ.data?.summary;
+  const perfBuckets = modelPerfQ.data?.buckets ?? [];
 
   return (
     <DashboardLayout>
@@ -250,6 +262,107 @@ export default function MLOpsDashboard() {
                   )}
                 </>
               )}
+            </CardContent>
+          </Card>
+        </div>
+
+
+        {/* Model Performance Widget + Real-Data Retrain */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <Card className="bg-[#0f1923] border-white/10 lg:col-span-2">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between">
+              <CardTitle className="text-sm text-white/70 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-violet-400" /> Live Model Performance
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-white/40 text-xs">Window:</span>
+                <Select value={String(perfWindow)} onValueChange={(v) => setPerfWindow(Number(v))}>
+                  <SelectTrigger className="h-7 w-20 text-xs bg-white/5 border-white/10 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0f1923] border-white/10">
+                    {[6, 12, 24, 48, 72, 168].map(h => (
+                      <SelectItem key={h} value={String(h)} className="text-white/80 text-xs">{h}h</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {perfSummary && (
+                <div className="flex gap-6 mb-3">
+                  <div className="text-center">
+                    <p className="text-xs text-white/40">Precision</p>
+                    <p className="text-lg font-bold text-blue-400">{(perfSummary.precision * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-white/40">Recall</p>
+                    <p className="text-lg font-bold text-emerald-400">{(perfSummary.recall * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-white/40">F1</p>
+                    <p className="text-lg font-bold text-violet-400">{(perfSummary.f1 * 100).toFixed(1)}%</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-xs text-white/40">Events</p>
+                    <p className="text-lg font-bold text-white/70">{perfSummary.total.toLocaleString()}</p>
+                  </div>
+                </div>
+              )}
+              {perfBuckets.length > 0 ? (
+                <ResponsiveContainer width="100%" height={180}>
+                  <LineChart data={perfBuckets} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                    <XAxis dataKey="hour" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickFormatter={(v: string) => v.slice(11, 16)} />
+                    <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} domain={[0, 1]} tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`} />
+                    <Tooltip contentStyle={{ background: "#0f1923", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8 }} labelStyle={{ color: "rgba(255,255,255,0.6)", fontSize: 11 }} formatter={(v: number) => `${(v * 100).toFixed(1)}%`} />
+                    <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }} />
+                    <Line type="monotone" dataKey="precision" stroke="#60a5fa" dot={false} strokeWidth={2} name="Precision" />
+                    <Line type="monotone" dataKey="recall" stroke="#34d399" dot={false} strokeWidth={2} name="Recall" />
+                    <Line type="monotone" dataKey="f1" stroke="#a78bfa" dot={false} strokeWidth={2} name="F1" />
+                    <ReferenceLine y={0.8} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" label={{ value: "80%", fill: "rgba(255,255,255,0.3)", fontSize: 10 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[180px] flex items-center justify-center text-white/30 text-sm">
+                  No agent events in the selected window. Events will appear once conversations are processed.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          <Card className="bg-[#0f1923] border-white/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-white/70 flex items-center gap-2">
+                <Database className="w-4 h-4 text-teal-400" /> Retrain on Real Data
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-white/40 text-xs">Export real orders from PostgreSQL to Parquet and trigger train_all.py. Requires at least 500 orders.</p>
+              <div className="space-y-1">
+                <Label className="text-white/50 text-xs">Model</Label>
+                <Select value={realRetrainModel} onValueChange={(v) => setRealRetrainModel(v as "fraud" | "credit" | "all")}>
+                  <SelectTrigger className="h-8 text-xs bg-white/5 border-white/10 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#0f1923] border-white/10">
+                    <SelectItem value="fraud" className="text-white/80 text-xs">Fraud Detection</SelectItem>
+                    <SelectItem value="credit" className="text-white/80 text-xs">Credit Scoring</SelectItem>
+                    <SelectItem value="all" className="text-white/80 text-xs">All Models</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs h-8"
+                disabled={triggerRealRetrain.isPending}
+                onClick={() => triggerRealRetrain.mutate({ model: realRetrainModel, minRows: 500 })}
+              >
+                {triggerRealRetrain.isPending ? (
+                  <><RefreshCw className="w-3 h-3 mr-1 animate-spin" /> Exporting...</>
+                ) : (
+                  <><Play className="w-3 h-3 mr-1" /> Retrain on Real Data</>
+                )}
+              </Button>
+              <p className="text-white/25 text-xs">Exports data, then runs train_all.py in background. Check Run History tab for results.</p>
             </CardContent>
           </Card>
         </div>
