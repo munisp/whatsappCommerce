@@ -431,3 +431,27 @@
 - [x] Frontend: EscrowTimeline attachment panel per event (upload button, note input, list of existing attachments)
 - [x] Frontend: NotificationCenter filter tabs (All / Payments / Logistics / Disputes)
 - [x] Tests: date range CSV, attachment upload, notification filter
+
+## Merchant Onboarding Wizard
+- [ ] Schema: merchant_onboarding_progress table (tenantId, step, completedSteps, whatsappConnected, productsAdded, deliveryZonesSet, completedAt)
+- [ ] Backend: onboardingWizard router (getProgress, completeStep, reset)
+- [ ] Frontend: OnboardingWizard multi-step component (WhatsApp → Products → Delivery Zones → Done)
+- [ ] Frontend: Show wizard automatically for new tenants on portal home
+- [ ] Frontend: Progress indicator and step validation
+
+## Escrow SLA Alerts
+- [ ] Schema: escrow_sla_config table (tenantId, releaseDeadlineHours, warningHours, autoReleaseEnabled)
+- [ ] Backend: SLA deadline stored on escrow_transactions (slaDeadline column)
+- [ ] Backend: Heartbeat job: scan for escrows approaching/past SLA, emit notifications
+- [ ] Frontend: SLA countdown badge on EscrowDashboard rows
+- [ ] Frontend: SLA config editor in Escrow Dashboard settings panel
+- [ ] Frontend: Admin SLA overview widget
+
+## Dispute Evidence Portal
+- [ ] Schema: dispute_evidence_tokens table (token, disputeId, buyerPhone, expiresAt, usedAt)
+- [ ] Schema: dispute_evidence_submissions table (id, disputeId, token, fileUrl, fileKey, filename, mimeType, note, submittedAt)
+- [ ] Backend: generateEvidenceToken mutation (admin/merchant triggers)
+- [ ] Backend: Public route: GET /evidence/:token (validate token, return dispute summary)
+- [ ] Backend: Public route: POST /evidence/:token/submit (upload files + note, no auth)
+- [ ] Frontend: Public EvidencePortal page (/evidence/:token) — no login required
+- [ ] Frontend: Evidence submissions visible in DisputeManagement admin view

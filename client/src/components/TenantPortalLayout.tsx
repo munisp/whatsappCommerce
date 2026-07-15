@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
 import NotificationCenter from "@/components/NotificationCenter";
-import { Wallet } from "lucide-react";
+import { Wallet, Rocket } from "lucide-react";
 
 const NAV = [
   { label: "Dashboard", path: "/portal", icon: LayoutDashboard },
@@ -21,6 +21,7 @@ const NAV = [
   { label: "Invoices", path: "/portal/invoices", icon: FileText },
   { label: "Payments", path: "/portal/payments", icon: CreditCard },
   { label: "Wallet", path: "/portal/wallet", icon: Wallet },
+  { label: "Setup Wizard", path: "/portal/setup", icon: Rocket },
   { label: "Settings", path: "/portal/settings", icon: Settings },
 ];
 

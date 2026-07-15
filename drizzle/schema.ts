@@ -1351,3 +1351,67 @@ export const escrowTimelineAttachments = pgTable("escrow_timeline_attachments", 
 ]);
 export type EscrowTimelineAttachment = typeof escrowTimelineAttachments.$inferSelect;
 export type NewEscrowTimelineAttachment = typeof escrowTimelineAttachments.$inferInsert;
+
+// ─── Merchant Onboarding Progress ────────────────────────────────────────────
+export const merchantOnboardingProgress = pgTable("merchant_onboarding_progress", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull().unique(),
+  currentStep: integer("current_step").notNull().default(0),
+  whatsappConnected: boolean("whatsapp_connected").notNull().default(false),
+  productsAdded: boolean("products_added").notNull().default(false),
+  deliveryZonesSet: boolean("delivery_zones_set").notNull().default(false),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("onboarding_tenant_idx").on(t.tenantId),
+]);
+export type MerchantOnboardingProgress = typeof merchantOnboardingProgress.$inferSelect;
+export type NewMerchantOnboardingProgress = typeof merchantOnboardingProgress.$inferInsert;
+
+// ─── Escrow SLA Config ────────────────────────────────────────────────────────
+export const escrowSlaConfig = pgTable("escrow_sla_config", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }),
+  releaseDeadlineHours: integer("release_deadline_hours").notNull().default(72),
+  warningHours: integer("warning_hours").notNull().default(24),
+  autoReleaseEnabled: boolean("auto_release_enabled").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("sla_tenant_idx").on(t.tenantId),
+]);
+export type EscrowSlaConfig = typeof escrowSlaConfig.$inferSelect;
+
+// ─── Dispute Evidence Tokens ──────────────────────────────────────────────────
+export const disputeEvidenceTokens = pgTable("dispute_evidence_tokens", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  disputeId: varchar("dispute_id", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyer_phone", { length: 32 }),
+  buyerName: varchar("buyer_name", { length: 128 }),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("det_token_idx").on(t.token),
+  index("det_dispute_idx").on(t.disputeId),
+]);
+export type DisputeEvidenceToken = typeof disputeEvidenceTokens.$inferSelect;
+
+// ─── Dispute Evidence Submissions ────────────────────────────────────────────
+export const disputeEvidenceSubmissions = pgTable("dispute_evidence_submissions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  disputeId: varchar("dispute_id", { length: 36 }).notNull(),
+  token: varchar("token", { length: 64 }).notNull(),
+  fileUrl: text("file_url"),
+  fileKey: text("file_key"),
+  filename: varchar("filename", { length: 255 }),
+  mimeType: varchar("mime_type", { length: 128 }),
+  note: text("note"),
+  submittedAt: timestamp("submitted_at").defaultNow().notNull(),
+}, (t) => [
+  index("des_dispute_idx").on(t.disputeId),
+  index("des_token_idx").on(t.token),
+]);
+export type DisputeEvidenceSubmission = typeof disputeEvidenceSubmissions.$inferSelect;

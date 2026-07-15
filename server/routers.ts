@@ -34,6 +34,8 @@ import { revenueRouter } from "./routers/revenue";
 import { escrowRouter, escrowDisputeRouter, walletRouter, timelineAttachmentRouter } from "./routers/escrow";
 import { logisticsRouter } from "./routers/logistics";
 import { notificationsRouter } from "./routers/notifications";
+import { slaRouter } from "./routers/sla";
+import { evidencePortalRouter } from "./routers/evidencePortal";
 
 export const appRouter = router({
   system: systemRouter,
@@ -81,6 +83,8 @@ export const appRouter = router({
   logistics: logisticsRouter,
   notifications: notificationsRouter,
   timelineAttachment: timelineAttachmentRouter,
+  sla: slaRouter,
+  evidencePortal: evidencePortalRouter,
 });
 
 export type AppRouter = typeof appRouter;

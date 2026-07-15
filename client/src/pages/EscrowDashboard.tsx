@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import EscrowTimeline from "@/components/EscrowTimeline";
+import { SlaCountdown } from "@/components/SlaCountdown";
 import { GitBranch } from "lucide-react";
 
 const STATE_COLORS: Record<string, string> = {
@@ -186,12 +187,13 @@ export default function EscrowDashboard() {
                       <th className="text-left px-4 py-3 font-medium">State</th>
                       <th className="text-left px-4 py-3 font-medium">Mode</th>
                       <th className="text-left px-4 py-3 font-medium">Created</th>
+                      <th className="text-left px-4 py-3 font-medium">SLA Deadline</th>
                       <th className="text-left px-4 py-3 font-medium">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(txList?.items ?? []).length === 0 ? (
-                      <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">No escrow transactions found</td></tr>
+                      <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">No escrow transactions found</td></tr>
                     ) : (txList?.items ?? []).map((tx) => (
                       <tr key={tx.id} className="border-t hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-mono text-xs">{tx.id.slice(0, 8)}…</td>
@@ -210,6 +212,13 @@ export default function EscrowDashboard() {
                         </td>
                         <td className="px-4 py-3 text-muted-foreground text-xs">
                           {new Date(tx.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3">
+                          <SlaCountdown
+                            slaDeadline={(tx as any).buyerConfirmDeadline}
+                            warningHours={24}
+                            variant="compact"
+                          />
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1">

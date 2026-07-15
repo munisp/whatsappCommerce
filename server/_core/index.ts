@@ -17,6 +17,8 @@ import crypto from "crypto";
 import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { handleGetEvidencePortal, handleSubmitEvidence } from "../routers/evidencePortal";
+import { runSlaScan } from "../routers/sla";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -560,6 +562,43 @@ async function startServer() {
   });
 
   // tRPC API
+  // ── Public Evidence Portal (no auth required) ─────────────────────────────
+  app.get("/api/evidence/:token", async (req, res) => {
+    try {
+      const result = await handleGetEvidencePortal(req.params.token);
+      if (!result.valid) {
+        return res.status(result.expired ? 410 : 404).json({ error: result.expired ? "Link expired" : "Invalid link" });
+      }
+      return res.json(result);
+    } catch (err: any) {
+      console.error("[evidence-portal]", err);
+      return res.status(500).json({ error: "Service error" });
+    }
+  });
+
+  app.post("/api/evidence/:token/submit-json", express.json({ limit: "1mb" }), async (req, res) => {
+    try {
+      const { note } = req.body as { note?: string };
+      const result = await handleSubmitEvidence(req.params.token, note ?? null, null, null, null);
+      if (!result.success) return res.status(400).json({ error: result.error });
+      return res.json({ success: true, submissionId: result.submissionId });
+    } catch (err: any) {
+      console.error("[evidence-submit-json]", err);
+      return res.status(500).json({ error: "Service error" });
+    }
+  });
+
+  // ── SLA Heartbeat ─────────────────────────────────────────────────────────
+  app.post("/api/scheduled/sla-scan", async (req, res) => {
+    try {
+      const result = await runSlaScan();
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[sla-scan]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   app.use(
     "/api/trpc",
     createExpressMiddleware({
