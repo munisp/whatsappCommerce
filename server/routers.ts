@@ -102,6 +102,7 @@ export const appRouter = router({
   compliance: complianceRouter,
   medusa: medusaRouter,
   webhookDlq: webhookDlqRouter,
+  provisioning: provisioningRouter,
 });
 
 export type AppRouter = typeof appRouter;
@@ -118,3 +119,5 @@ import { analyticsBIRouter } from "./routers/analyticsBI";
 import { complianceRouter } from "./routers/compliance";
 import { medusaRouter } from "./routers/medusa";
 import { webhookDlqRouter } from "./routers/webhookDlq";
+
+import { provisioningRouter } from "./routers/provisioning";

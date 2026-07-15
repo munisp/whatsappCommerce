@@ -1900,3 +1900,80 @@ export const governmentContracts = pgTable("government_contracts", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
+
+// ── Unified Onboarding & Integration Provisioning ────────────────────────────
+export const integrationTypeEnum = pgEnum("integration_type", [
+  "medusa", "twenty_crm", "odoo_erp", "africa_talking", "mtn_momo", "mpesa",
+  "paystack", "stripe", "chatwoot", "keycloak", "shipbubble", "custom"
+]);
+export const provisioningStatusEnum = pgEnum("provisioning_status", [
+  "pending", "in_progress", "completed", "failed", "skipped"
+]);
+export const tenantIntegrationStatusEnum = pgEnum("tenant_integration_status", [
+  "not_configured", "pending", "active", "error", "disabled"
+]);
+
+export const tenantIntegrations = pgTable("tenant_integrations", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  integrationType: integrationTypeEnum("integrationType").notNull(),
+  status: tenantIntegrationStatusEnum("status").default("not_configured").notNull(),
+  displayName: varchar("displayName", { length: 128 }),
+  baseUrl: varchar("baseUrl", { length: 512 }),
+  apiKey: text("apiKey"),
+  apiSecret: text("apiSecret"),
+  webhookSecret: text("webhookSecret"),
+  config: jsonb("config").default({}),
+  lastHealthCheck: timestamp("lastHealthCheck"),
+  lastHealthStatus: varchar("lastHealthStatus", { length: 32 }),
+  lastError: text("lastError"),
+  enabledAt: timestamp("enabledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("tenant_integrations_tenant_idx").on(t.tenantId),
+  uniqueIndex("tenant_integrations_unique_idx").on(t.tenantId, t.integrationType),
+]);
+export type TenantIntegration = typeof tenantIntegrations.$inferSelect;
+
+export const provisioningJobs = pgTable("provisioning_jobs", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  integrationType: integrationTypeEnum("integrationType").notNull(),
+  status: provisioningStatusEnum("status").default("pending").notNull(),
+  stepName: varchar("stepName", { length: 128 }).notNull(),
+  stepIndex: integer("stepIndex").default(0).notNull(),
+  totalSteps: integer("totalSteps").default(1).notNull(),
+  inputPayload: jsonb("inputPayload").default({}),
+  outputPayload: jsonb("outputPayload").default({}),
+  errorMessage: text("errorMessage"),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("provisioning_jobs_tenant_idx").on(t.tenantId),
+  index("provisioning_jobs_status_idx").on(t.status),
+]);
+export type ProvisioningJob = typeof provisioningJobs.$inferSelect;
+
+export const unifiedOnboardingSessions = pgTable("unified_onboarding_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
+  currentStep: varchar("currentStep", { length: 64 }).default("welcome").notNull(),
+  completedSteps: jsonb("completedSteps").default([]),
+  businessProfile: jsonb("businessProfile").default({}),
+  whatsappConfig: jsonb("whatsappConfig").default({}),
+  crmConfig: jsonb("crmConfig").default({}),
+  erpConfig: jsonb("erpConfig").default({}),
+  ecommerceConfig: jsonb("ecommerceConfig").default({}),
+  channelsConfig: jsonb("channelsConfig").default({}),
+  paymentsConfig: jsonb("paymentsConfig").default({}),
+  billingConfig: jsonb("billingConfig").default({}),
+  isComplete: boolean("isComplete").default(false).notNull(),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("unified_onboarding_tenant_idx").on(t.tenantId),
+]);
+export type UnifiedOnboardingSession = typeof unifiedOnboardingSessions.$inferSelect;

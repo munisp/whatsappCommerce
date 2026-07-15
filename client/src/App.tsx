@@ -149,4 +149,6 @@ import AnalyticsBIDashboard from "./pages/AnalyticsBIDashboard";
 import CompliancePortal from "./pages/CompliancePortal";
 import MedusaIntegration from "./pages/MedusaIntegration";
 import WebhookDLQ from "./pages/WebhookDLQ";
+import UnifiedOnboarding from "./pages/UnifiedOnboarding";
+import IntegrationHealth from "./pages/IntegrationHealth";
 

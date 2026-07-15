@@ -686,3 +686,12 @@
 - [x] All 8 new nav items added to DashboardLayout Commerce section
 - [x] Webhook DLQ nav item added to System section
 - [x] 0 TypeScript errors, 241 tests passing
+
+## Round 16 — Unified Onboarding & Integration Health
+- [x] Add tenant_integrations, provisioning_jobs, unified_onboarding_sessions DB tables
+- [x] Build provisioningRouter: initSession, saveStep, provisionMedusa, provisionTwentyCrm, provisionOdooErp, provisionChannel, provisionPayment, listIntegrations, pingIntegration, listProvisioningJobs
+- [x] Build 10-step UnifiedOnboarding wizard page (welcome, business, WhatsApp, CRM, ERP, eCommerce, channels, payments, billing, review)
+- [x] Build IntegrationHealth dashboard with real-time status, ping, and job history
+- [x] Wire both pages into App.tsx routes and DashboardLayout navigation
+- [x] Africa's Talking + mobile money credential env vars documented
+- [x] 241 tests passing, 0 TypeScript errors
