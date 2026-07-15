@@ -695,3 +695,27 @@
 - [x] Wire both pages into App.tsx routes and DashboardLayout navigation
 - [x] Africa's Talking + mobile money credential env vars documented
 - [x] 241 tests passing, 0 TypeScript errors
+
+## Round 17 — Deep Integration Sync
+- [ ] Medusa sync: wire NLP processOrder to create orders in Medusa via adapter
+- [ ] Medusa sync: pull Medusa product catalog into WhatsApp menu builder (syncMedusaCatalog procedure)
+- [ ] Medusa sync: sync status updates back from Medusa to platform orders table
+- [ ] Twenty CRM: auto-create/update contact on every new WhatsApp conversation
+- [ ] Twenty CRM: push order events as CRM activities (note/task) on order creation
+- [ ] Twenty CRM: sync router with getContact, upsertContact, createActivity procedures
+- [ ] Odoo ERP: heartbeat job /api/scheduled/odoo-inventory-sync pulling stock from Odoo product.product
+- [ ] Odoo ERP: update platform inventory table with Odoo stock levels
+- [ ] Odoo ERP: push new orders to Odoo as sale.order records
+- [ ] Frontend: sync status badges in NLP simulator, menu builder, inventory pages
+
+## Round 17 - Deep Integration Sync (Complete)
+- [x] integrationSync.ts service: syncOrderToMedusa, syncOrderToOdoo, syncContactToTwenty, syncActivityToTwenty, fetchOdooStockLevels, fetchMedusaCatalog
+- [x] Wire Medusa order creation into NLP confirm_order flow (fire-and-forget)
+- [x] Wire Odoo sale.order push into NLP confirm_order flow (fire-and-forget)
+- [x] Wire Twenty CRM contact + activity sync into NLP confirm_order flow (fire-and-forget)
+- [x] Odoo inventory sync heartbeat (/api/scheduled/odoo-inventory-sync, every 10 min)
+- [x] Medusa catalog sync heartbeat (/api/scheduled/medusa-catalog-sync, every 30 min)
+- [x] getSyncEvents procedure in provisioning router for sync history
+- [x] Background Sync Status panel in IntegrationHealth page
+- [x] SyncEventRow component showing last sync time, products synced, contacts synced
+- [x] 241 tests passing, 0 TypeScript errors

@@ -18,6 +18,12 @@ import {
 } from "../../drizzle/schema";
 import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
 import { offlineMessageQueue } from "../../drizzle/schema";
+import {
+  syncOrderToMedusa,
+  syncOrderToOdoo,
+  syncContactToTwenty,
+  pushOrderActivityToTwenty,
+} from "../services/integrationSync";
 
 // ── Language detection & system prompts ───────────────────────────────────────
 // ── USSD numbered menu builder ────────────────────────────────────────────────
@@ -289,7 +295,32 @@ export const nlpRouter = router({
           });
         ctx.lastOrderId = orderId;
         ctx.lastOrderNumber = orderNumber;
-
+        // ── Fire-and-forget sync to external systems ─────────────────────────
+        (async () => {
+          try {
+            const syncItems = items.map(i => ({
+              productId: i.productId ?? "",
+              name: i.productName ?? "",
+              qty: i.quantity,
+              price: i.unitPrice,
+            }));
+            const syncPayload = {
+              id: orderId,
+              orderNumber,
+              total,
+              currency: items[0]?.currency ?? "NGN",
+              phone: input.waPhoneNumber,
+              address: llmResult.extractedAddress ?? null,
+              items: syncItems,
+            };
+            await syncOrderToMedusa(input.tenantId, syncPayload);
+            await syncOrderToOdoo(input.tenantId, syncPayload);
+            const personId = await syncContactToTwenty(input.tenantId, input.waPhoneNumber, input.customerName);
+            if (personId) {
+              await pushOrderActivityToTwenty(input.tenantId, personId, orderNumber, total, syncPayload.currency);
+            }
+          } catch (_) { /* best-effort — never block NLP */ }
+        })();
         // ── Initiate payment via configured gateway ──────────────────────────
         try {
           const [gwConfig] = await db.select().from(paymentGatewayConfigs)

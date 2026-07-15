@@ -6,6 +6,7 @@ import {
   tenants,
 } from "../../drizzle/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 function getTenantId(ctx: { user: { tenantId?: string | null } }): string {
@@ -426,5 +427,28 @@ export const provisioningRouter = router({
     const allTenants = await db.select({ id: tenants.id, name: tenants.name, slug: tenants.slug }).from(tenants);
     const tenantMap = new Map(allTenants.map(t => [t.id, t]));
     return sessions.map(s => ({ ...s, tenant: tenantMap.get(s.tenantId) ?? null }));
+  }),
+
+  // ── Sync events: last Medusa catalog + Odoo inventory + Twenty CRM sync ──
+  getSyncEvents: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return { medusa: null, odoo: null, twenty: null, recentHistory: [] };
+    const tenantId = getTenantId(ctx);
+    const jobs = await db.select().from(provisioningJobs)
+      .where(and(
+        eq(provisioningJobs.tenantId, tenantId),
+        inArray(provisioningJobs.stepName, ["medusa-catalog-sync", "odoo-inventory-sync", "twenty-crm-sync"])
+      ))
+      .orderBy(desc(provisioningJobs.createdAt))
+      .limit(30);
+    const medusaJobs = jobs.filter(j => j.stepName === "medusa-catalog-sync");
+    const odooJobs = jobs.filter(j => j.stepName === "odoo-inventory-sync");
+    const twentyJobs = jobs.filter(j => j.stepName === "twenty-crm-sync");
+    return {
+      medusa: medusaJobs[0] ?? null,
+      odoo: odooJobs[0] ?? null,
+      twenty: twentyJobs[0] ?? null,
+      recentHistory: jobs.slice(0, 10),
+    };
   }),
 });

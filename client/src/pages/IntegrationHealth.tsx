@@ -9,6 +9,32 @@ import {
   Globe, Radio, AlertCircle, Activity,
 } from "lucide-react";
 
+type SyncJob = { status: string; startedAt?: Date | null; completedAt?: Date | null; outputPayload?: Record<string, unknown> | null } | null;
+
+function SyncEventRow({ label, job }: { label: string; job: SyncJob }) {
+  if (!job) return (
+    <div className="flex items-center justify-between py-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground italic">Never synced</span>
+    </div>
+  );
+  const isOk = job.status === "completed";
+  const ts = job.completedAt ?? job.startedAt;
+  const out = job.outputPayload as Record<string, unknown> | null;
+  return (
+    <div className="flex items-center justify-between py-2 text-sm">
+      <div className="flex items-center gap-2">
+        {isOk ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <XCircle className="w-3.5 h-3.5 text-red-500" />}
+        <span className="font-medium">{label}</span>
+        {out?.productsSynced != null && <span className="text-xs text-muted-foreground">({String(out.productsSynced)} products)</span>}
+        {out?.productsUpdated != null && <span className="text-xs text-muted-foreground">({String(out.productsUpdated)} updated)</span>}
+        {out?.contactsSynced != null && <span className="text-xs text-muted-foreground">({String(out.contactsSynced)} contacts)</span>}
+      </div>
+      <span className="text-xs text-muted-foreground">{ts ? new Date(ts).toLocaleString() : "—"}</span>
+    </div>
+  );
+}
+
 const TYPE_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   medusa:         { label: "Medusa Commerce",    icon: ShoppingBag,   color: "text-purple-500" },
   twenty_crm:     { label: "Twenty CRM",         icon: Users,         color: "text-blue-500" },
@@ -114,6 +140,9 @@ export default function IntegrationHealth() {
   });
   const { data: jobs } = trpc.provisioning.listProvisioningJobs.useQuery(undefined, {
     refetchInterval: 15_000,
+  });
+  const { data: syncEvents } = trpc.provisioning.getSyncEvents.useQuery(undefined, {
+    refetchInterval: 60_000,
   });
   const pingMutation = trpc.provisioning.pingIntegration.useMutation({
     onSuccess: () => utils.provisioning.listIntegrations.invalidate(),
@@ -228,7 +257,25 @@ export default function IntegrationHealth() {
         {jobs && jobs.length > 0 && (
           <div>
             <Separator />
-            <h2 className="text-sm font-semibold mt-4 mb-2 flex items-center gap-1"><Activity className="w-4 h-4" /> Provisioning Job History</h2>
+            <h2 className="text-sm font-semibold mt-4 mb-3 flex items-center gap-1"><Activity className="w-4 h-4" /> Provisioning Job History</h2>
+          </div>
+        )}
+
+        {/* Background sync summary */}
+        <div>
+          <Separator />
+          <h2 className="text-sm font-semibold mt-4 mb-2 flex items-center gap-1">
+            <RefreshCw className="w-4 h-4" /> Background Sync Status
+          </h2>
+          <div className="border rounded-xl px-4 divide-y bg-card">
+            <SyncEventRow label="Medusa Catalog Sync (every 30 min)" job={syncEvents?.medusa as SyncJob} />
+            <SyncEventRow label="Odoo Inventory Sync (every 10 min)" job={syncEvents?.odoo as SyncJob} />
+            <SyncEventRow label="Twenty CRM Sync" job={syncEvents?.twenty as SyncJob} />
+          </div>
+        </div>
+
+        {jobs && jobs.length > 0 && (
+          <div>
             <div className="border rounded-xl overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">

@@ -880,7 +880,91 @@ async function startServer() {
       return res.status(500).json({ error: err?.message });
     }
   });
-    app.use(
+
+  // ── Odoo ERP inventory sync heartbeat ─────────────────────────────────────
+  // After deploy: manus-heartbeat create --name odoo-inventory-sync --cron "*/10 * * * *" --path /api/scheduled/odoo-inventory-sync
+  app.post("/api/scheduled/odoo-inventory-sync", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db unavailable" });
+      const odooIntegrations = await db
+        .select({ tenantId: tenantIntegrations.tenantId })
+        .from(tenantIntegrations)
+        .where(and(eq(tenantIntegrations.integrationType, "odoo_erp"), eq(tenantIntegrations.status, "active")));
+      let totalUpdated = 0;
+      for (const { tenantId } of odooIntegrations) {
+        try {
+          const stockLevels = await fetchOdooStockLevels(tenantId);
+          for (const { productId, qty } of stockLevels) {
+            // Match product by odoo product ID stored in metadata
+            await db.update(products)
+              .set({ stockQuantity: qty, updatedAt: new Date() })
+              .where(and(
+                eq(products.tenantId, tenantId),
+                sql`${products.metadata}->>'odooId' = ${productId}`
+              ));
+            totalUpdated++;
+          }
+        } catch (e: any) { console.error("[odoo-inventory-sync] tenant", tenantId, e?.message); }
+      }
+      return res.json({ ok: true, tenantsProcessed: odooIntegrations.length, productsUpdated: totalUpdated });
+    } catch (err: any) {
+      console.error("[odoo-inventory-sync]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Medusa catalog sync heartbeat ─────────────────────────────────────────
+  // After deploy: manus-heartbeat create --name medusa-catalog-sync --cron "*/30 * * * *" --path /api/scheduled/medusa-catalog-sync
+  app.post("/api/scheduled/medusa-catalog-sync", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db unavailable" });
+      const medusaIntegrations = await db
+        .select({ tenantId: tenantIntegrations.tenantId })
+        .from(tenantIntegrations)
+        .where(and(eq(tenantIntegrations.integrationType, "medusa"), eq(tenantIntegrations.status, "active")));
+      let totalSynced = 0;
+      for (const { tenantId } of medusaIntegrations) {
+        try {
+          const catalog = await fetchMedusaCatalog(tenantId);
+          for (const item of catalog) {
+            const existing = await db.select({ id: products.id }).from(products)
+              .where(and(
+                eq(products.tenantId, tenantId),
+                sql`${products.metadata}->>'medusaId' = ${item.id}`
+              )).limit(1);
+            if (existing.length > 0) {
+              await db.update(products)
+                .set({ name: item.title, price: item.price.toFixed(2), currency: item.currency, stockQuantity: item.stock, updatedAt: new Date() })
+                .where(eq(products.id, existing[0].id));
+            } else {
+              await db.insert(products).values({
+                id: randomUUID(), tenantId,
+                sku: `medusa-${item.id}`,
+                name: item.title,
+                price: item.price.toFixed(2), currency: item.currency, stockQuantity: item.stock,
+                status: "active",
+                metadata: { medusaId: item.id, syncSource: "medusa" },
+                createdAt: new Date(), updatedAt: new Date(),
+              });
+            }
+            totalSynced++;
+          }
+        } catch (e: any) { console.error("[medusa-catalog-sync] tenant", tenantId, e?.message); }
+      }
+      return res.json({ ok: true, tenantsProcessed: medusaIntegrations.length, productsSynced: totalSynced });
+    } catch (err: any) {
+      console.error("[medusa-catalog-sync]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.use(
     "/api/trpc",
     createExpressMiddleware({
       router: appRouter,
@@ -909,3 +993,6 @@ async function startServer() {
 startServer().catch(console.error);
 import { notifyOwner } from "./notification";
 import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents } from "../../drizzle/schema";
+import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
+import { products, tenantIntegrations } from "../../drizzle/schema";
+
