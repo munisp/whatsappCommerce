@@ -576,6 +576,31 @@ async function startServer() {
           }
         }
       }
+      // ── Delivery status receipts ───────────────────────────────────────────
+      const statuses: any[] = value?.statuses ?? [];
+      for (const st of statuses) {
+        const waMessageId: string = st.id ?? "";
+        const recipientPhone: string = st.recipient_id ?? "";
+        const statusVal: string = st.status ?? "";
+        const tsUnix: number = parseInt(st.timestamp ?? "0", 10);
+        const errorCode: string = st.errors?.[0]?.code?.toString() ?? "";
+        const errorMessage: string = st.errors?.[0]?.title ?? "";
+        if (!waMessageId || !["sent","delivered","read","failed"].includes(statusVal)) continue;
+        const [stTenant] = await db.select({ id: tenants.id }).from(tenants)
+          .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+          .limit(1).catch(() => [null as any]);
+        const stTenantId: string = (stTenant as any)?.id ?? "default";
+        await db.insert(waMessageDeliveryReceipts).values({
+          tenantId: stTenantId,
+          waMessageId,
+          recipientPhone,
+          status: statusVal as any,
+          errorCode: errorCode || null,
+          errorMessage: errorMessage || null,
+          timestamp: tsUnix ? new Date(tsUnix * 1000) : new Date(),
+          rawPayload: st,
+        }).catch((e: any) => console.warn("[whatsapp-webhook] delivery receipt insert failed:", e?.message));
+      }
     } catch (err: any) {
       console.error("[whatsapp-webhook]", err);
     }
@@ -1284,8 +1309,9 @@ function drawBbox(img,id){
   // ── POST /api/scheduled/ab-test-metrics ─────────────────────────────────────
   // Heartbeat: compute per-variant conversion rates from recent orders and update
   // championMetric / challengerMetric on running model_ab_tests rows.
+  // After deploy: manus-heartbeat create --name ab-test-metrics --cron "0 */30 * * * *" --path /api/scheduled/ab-test-metrics --description "Compute per-variant A/B test conversion rates every 30 min"
   app.post("/api/scheduled/ab-test-metrics", async (req, res) => {
-    const user = (req as any).cronUser;
+    const user = await sdk.authenticateRequest(req).catch(() => null);
     if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
     try {
       const db = await getDb();
@@ -1338,8 +1364,9 @@ function drawBbox(img,id){
   // ── POST /api/scheduled/drift-alert ──────────────────────────────────────────
   // Heartbeat: read drift_log.json, find critical PSI violations (>0.2),
   // send owner push notification with a link to the ML Ops Drift Alerts tab.
+  // After deploy: manus-heartbeat create --name drift-alert --cron "0 0 */6 * * *" --path /api/scheduled/drift-alert --description "Check PSI drift every 6 hours and notify owner of critical violations"
   app.post("/api/scheduled/drift-alert", async (req, res) => {
-    const user = (req as any).cronUser;
+    const user = await sdk.authenticateRequest(req).catch(() => null);
     if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
     try {
       const driftLogPath = path.join(process.cwd(), "services/ml-stack/data/lakehouse/drift_log.json");
@@ -1455,7 +1482,7 @@ function drawBbox(img,id){
 
 startServer().catch(console.error);
 import { notifyOwner } from "./notification";
-import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents } from "../../drizzle/schema";
+import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents, waMessageDeliveryReceipts } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
 import { products, tenantIntegrations } from "../../drizzle/schema";
 import { visualInventoryCorrections, finetuneRuns, productImageCollections as picTable, modelAbTests } from "../../drizzle/schema";

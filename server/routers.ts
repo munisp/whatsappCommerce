@@ -61,6 +61,8 @@ import { medusaRouter } from "./routers/medusa";
 import { webhookDlqRouter } from "./routers/webhookDlq";
 import { provisioningRouter } from "./routers/provisioning";
 import { fineTuneRouter } from "./routers/fineTune";
+import { tenantAnalyticsRouter } from "./routers/tenantAnalytics";
+import { deliveryReceiptsRouter } from "./routers/deliveryReceipts";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -134,5 +136,7 @@ export const appRouter = router({
   viCorrections: viCorrectionsRouter,
   productImages: productImagesRouter,
   fineTune: fineTuneRouter,
+  tenantAnalytics: tenantAnalyticsRouter,
+  deliveryReceipts: deliveryReceiptsRouter,
 });
 export type AppRouter = typeof appRouter;

@@ -2241,3 +2241,25 @@ export const modelAbTests = pgTable("model_ab_tests", {
   index("ab_status_idx").on(t.status),
 ]);
 export type ModelAbTest = typeof modelAbTests.$inferSelect;
+
+// ── WhatsApp Message Delivery Receipts ────────────────────────────────────────
+export const waDeliveryStatusEnum = pgEnum("wa_delivery_status", ["sent", "delivered", "read", "failed"]);
+
+export const waMessageDeliveryReceipts = pgTable("wa_message_delivery_receipts", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  waMessageId: varchar("waMessageId", { length: 128 }).notNull(),
+  recipientPhone: varchar("recipientPhone", { length: 30 }),
+  status: waDeliveryStatusEnum("status").notNull(),
+  errorCode: varchar("errorCode", { length: 32 }),
+  errorMessage: text("errorMessage"),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  rawPayload: jsonb("rawPayload"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("wa_dr_tenant_idx").on(t.tenantId),
+  index("wa_dr_msg_idx").on(t.waMessageId),
+  index("wa_dr_status_idx").on(t.status),
+  index("wa_dr_ts_idx").on(t.timestamp),
+]);
+export type WaMessageDeliveryReceipt = typeof waMessageDeliveryReceipts.$inferSelect;

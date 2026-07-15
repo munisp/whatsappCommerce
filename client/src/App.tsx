@@ -126,6 +126,7 @@ function Router() {
           <Route path="/fmcg-taxonomy" component={FmcgTaxonomy} />
           <Route path="/scan-stats" component={ScanStatsDashboard} />
           <Route path="/product-images" component={ProductImageCollector} />
+          <Route path="/tenant-analytics" component={TenantAnalytics} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -167,3 +168,4 @@ import LabelStudioPipe from "./pages/LabelStudioPipe";
 import FmcgTaxonomy from "./pages/FmcgTaxonomy";
 import ProductImageCollector from "./pages/ProductImageCollector";
 import ScanStatsDashboard from "./pages/ScanStatsDashboard";
+import TenantAnalytics from "./pages/TenantAnalytics";

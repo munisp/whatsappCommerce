@@ -41,6 +41,10 @@ export default function Conversations() {
     }
   }, [events.length]);
 
+  const { data: deliveryMetrics } = trpc.deliveryReceipts.getMetrics.useQuery(
+    { tenantId: DEMO_TENANT, days: 7 },
+    { enabled: !!DEMO_TENANT }
+  );
   const wsConnected = wsState === "connected";
   const wsConnecting = wsState === "connecting";
 
@@ -167,6 +171,41 @@ export default function Conversations() {
             </Table>
           </CardContent>
         </Card>
+        {/* Delivery Metrics */}
+        {deliveryMetrics && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-primary" />
+                Message Delivery Metrics (Last 7 Days)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-400">{deliveryMetrics.deliveryRate}%</div>
+                  <div className="text-xs text-muted-foreground mt-1">Delivery Rate</div>
+                  <div className="text-xs text-muted-foreground">{deliveryMetrics.delivered + deliveryMetrics.read} / {deliveryMetrics.total} msgs</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-400">{deliveryMetrics.readRate}%</div>
+                  <div className="text-xs text-muted-foreground mt-1">Read Rate</div>
+                  <div className="text-xs text-muted-foreground">{deliveryMetrics.read} read</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-400">{deliveryMetrics.failureRate}%</div>
+                  <div className="text-xs text-muted-foreground mt-1">Failure Rate</div>
+                  <div className="text-xs text-muted-foreground">{deliveryMetrics.failed} failed</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold">{deliveryMetrics.total}</div>
+                  <div className="text-xs text-muted-foreground mt-1">Total Messages</div>
+                  <div className="text-xs text-muted-foreground">{deliveryMetrics.sent} sent</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </DashboardLayout>
   );

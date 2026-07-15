@@ -919,3 +919,12 @@
 - [x] Add tRPC procedure mlOps.triggerRealDataRetrain to export real orders as Parquet and run train_all.py
 - [x] Add "Retrain on Real Data" button to ML Ops Overview tab with progress feedback
 - [x] Add export-to-parquet script: services/ml-stack/training/export_real_data.py
+
+## Round 35
+- [x] Register three ML Ops heartbeat crons in server/_core/heartbeat.ts
+- [ ] Update Deploy Checklist with heartbeat activation commands
+- [ ] Build tenant analytics dashboard page (/tenant-analytics)
+- [ ] Add tRPC procedures for tenant GMV, orders, top products, retention
+- [ ] Add delivery_status column to whatsapp_messages table (schema + migration)
+- [ ] Handle Meta webhook status callbacks (sent/delivered/read/failed)
+- [ ] Add delivery rate metrics to Conversations page
