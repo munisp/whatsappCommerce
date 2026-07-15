@@ -14,7 +14,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import EscrowTimeline from "@/components/EscrowTimeline";
 import { SlaCountdown } from "@/components/SlaCountdown";
-import { GitBranch, Clock4 } from "lucide-react";
+import { GitBranch, Clock4, History, CheckCircle2, XCircle } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 const STATE_COLORS: Record<string, string> = {
@@ -46,6 +46,50 @@ function StatCard({ title, value, sub, color }: { title: string; value: string; 
   );
 }
 
+const EXT_STATUS_STYLES: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
+  pending: { label: "Pending", className: "bg-yellow-100 text-yellow-800", icon: <Clock4 className="h-3 w-3" /> },
+  approved: { label: "Approved", className: "bg-green-100 text-green-800", icon: <CheckCircle2 className="h-3 w-3" /> },
+  rejected: { label: "Rejected", className: "bg-red-100 text-red-800", icon: <XCircle className="h-3 w-3" /> },
+  expired: { label: "Expired", className: "bg-gray-100 text-gray-500", icon: <XCircle className="h-3 w-3" /> },
+};
+
+function SlaExtensionHistoryPanel({ escrowId }: { escrowId: string }) {
+  const { data, isLoading } = trpc.slaExtension.listByEscrow.useQuery({ escrowId });
+  if (isLoading) return <div className="space-y-2 py-2">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-14" />)}</div>;
+  if (!data?.length) return <p className="text-sm text-muted-foreground py-4 text-center">No extension requests for this transaction.</p>;
+  return (
+    <div className="space-y-3 pt-2">
+      {data.map((ext: any) => {
+        const s = EXT_STATUS_STYLES[ext.status] ?? EXT_STATUS_STYLES.pending;
+        return (
+          <div key={ext.id} className="border rounded-lg p-3 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${s.className}`}>{s.icon}{s.label}</span>
+              <span className="text-xs text-muted-foreground">{new Date(ext.createdAt).toLocaleString()}</span>
+            </div>
+            <p className="text-sm font-medium">+{ext.extensionHours}h extension requested</p>
+            {ext.reason && <p className="text-xs text-muted-foreground">Reason: {ext.reason}</p>}
+            {ext.buyerResponse && <p className="text-xs text-muted-foreground italic">Buyer: "{ext.buyerResponse}"</p>}
+            {ext.respondedAt && <p className="text-xs text-muted-foreground">Responded: {new Date(ext.respondedAt).toLocaleString()}</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SlaExtensionAllList() {
+  const { data: txList } = trpc.escrow.listAll.useQuery({ limit: 200 });
+  const escrowIds = (txList?.items ?? []).map((t: any) => t.id).slice(0, 20);
+  // Show a placeholder — real usage is via the History button per row
+  if (!escrowIds.length) return <p className="text-sm text-muted-foreground py-6 text-center">No escrow transactions yet.</p>;
+  return (
+    <div className="px-4 py-3 text-sm text-muted-foreground">
+      Click the <span className="font-medium text-purple-600">History</span> button on any transaction row to view its SLA extension audit trail.
+    </div>
+  );
+}
+
 export default function EscrowDashboard() {
   const [stateFilter, setStateFilter] = useState<string>("all");
   const [configEditing, setConfigEditing] = useState(false);
@@ -53,6 +97,7 @@ export default function EscrowDashboard() {
   const [slaExtensionTx, setSlaExtensionTx] = useState<{ id: string; orderId: string | null } | null>(null);
   const [extensionHours, setExtensionHours] = useState("24");
   const [extensionReason, setExtensionReason] = useState("");
+  const [historyEscrowId, setHistoryEscrowId] = useState<string | null>(null);
 
   const { data: stats, isLoading: statsLoading } = trpc.escrow.getStats.useQuery();
   const { data: config, isLoading: configLoading, refetch: refetchConfig } = trpc.escrow.getConfig.useQuery();
@@ -172,6 +217,7 @@ export default function EscrowDashboard() {
             <TabsTrigger value="transactions">Transactions</TabsTrigger>
             <TabsTrigger value="state-breakdown">State Breakdown</TabsTrigger>
             <TabsTrigger value="config">Configuration</TabsTrigger>
+            <TabsTrigger value="sla-history">SLA Extensions</TabsTrigger>
           </TabsList>
 
           {/* Transactions Tab */}
@@ -252,9 +298,14 @@ export default function EscrowDashboard() {
                               </Button>
                             )}
                             <Button size="sm" variant="ghost" className="text-xs h-7 text-muted-foreground"
-                              onClick={() => setTimelineEscrowId(tx.id)}>
-                              <GitBranch className="h-3 w-3 mr-1" />
-                              Timeline
+                             onClick={() => setTimelineEscrowId(tx.id)}>
+                             <GitBranch className="h-3 w-3 mr-1" />
+                             Timeline
+                           </Button>
+                            <Button size="sm" variant="ghost" className="text-xs h-7 text-purple-600 hover:bg-purple-50"
+                              onClick={() => setHistoryEscrowId(tx.id)}>
+                              <History className="h-3 w-3 mr-1" />
+                              History
                             </Button>
                             {["escrow_held", "delivery_confirmed"].includes(tx.state) && (tx as any).buyerConfirmDeadline && (
                               <Button size="sm" variant="ghost" className="text-xs h-7 text-amber-600 hover:bg-amber-50"
@@ -420,9 +471,37 @@ export default function EscrowDashboard() {
               </Card>
             )}
           </TabsContent>
+          {/* SLA Extension History Tab */}
+          <TabsContent value="sla-history" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <History className="h-4 w-4" />
+                  SLA Extension Audit Trail
+                </CardTitle>
+                <p className="text-xs text-muted-foreground pt-1">Click the <span className="font-medium text-purple-600">History</span> button on any transaction row to view per-escrow extension history in a dialog.</p>
+              </CardHeader>
+              <CardContent>
+                <SlaExtensionAllList />
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
+    {/* SLA Extension History Dialog */}
+    <Dialog open={!!historyEscrowId} onOpenChange={(open) => { if (!open) setHistoryEscrowId(null); }}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <History className="h-4 w-4" />
+            SLA Extension History
+            {historyEscrowId && <span className="text-xs font-mono text-muted-foreground ml-1">{historyEscrowId.slice(0, 8)}…</span>}
+          </DialogTitle>
+        </DialogHeader>
+        {historyEscrowId && <SlaExtensionHistoryPanel escrowId={historyEscrowId} />}
+      </DialogContent>
+    </Dialog>
     {/* Escrow Timeline Dialog */}
     <Dialog open={!!timelineEscrowId} onOpenChange={(open) => { if (!open) setTimelineEscrowId(null); }}>
       <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">

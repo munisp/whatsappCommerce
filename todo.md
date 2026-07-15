@@ -474,3 +474,9 @@
 - [x] Onboarding funnel analytics chart on admin dashboard
 - [x] Configurable AI scan confidence threshold in Escrow Config
 - [x] Confidence threshold enforced in evidence portal submission
+- [ ] Backend: CSV product import endpoint (parse CSV, validate, bulk insert products)
+- [ ] Backend: Dispute resolution email to buyer (send email when dispute resolved)
+- [ ] Backend: SLA extension history query (list all extensions per escrow transaction)
+- [ ] Frontend: CSV upload UI on product management page
+- [ ] Frontend: SLA extension history tab in Escrow Dashboard
+- [ ] Frontend: Wire dispute resolution email confirmation in Dispute Management page

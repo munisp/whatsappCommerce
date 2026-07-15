@@ -247,6 +247,20 @@ export const slaExtensionRouter = router({
           : "Extension rejected. The original delivery deadline remains.",
       };
     }),
+
+  // Admin: list all extension requests for a specific escrow transaction
+  listByEscrow: protectedProcedure
+    .input(z.object({ escrowId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const { desc } = await import("drizzle-orm");
+      return db
+        .select()
+        .from(escrowSlaExtensions)
+        .where(eq(escrowSlaExtensions.escrowId, input.escrowId))
+        .orderBy(desc(escrowSlaExtensions.requestedAt));
+    }),
 });
 
 // ── WhatsApp helper ───────────────────────────────────────────────────────────

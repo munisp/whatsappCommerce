@@ -633,6 +633,7 @@ export const escrowDisputeRouter = router({
       refundAmount: z.number().optional(),
       resolverNotes: z.string().optional(),
       resolvedBy: z.string(),
+      buyerEmail: z.string().email().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -665,6 +666,41 @@ export const escrowDisputeRouter = router({
         metadata: { orderId: dispute.orderId, disputeId: input.disputeId, resolution: input.resolution },
         read: false, readAt: null, createdAt: new Date(),
       }).catch(() => {});
+      // Fire-and-forget: send buyer email notification if email provided
+      if (input.buyerEmail) {
+        const outcomeLabel = input.resolution === "full_refund_to_buyer"
+          ? "Full refund issued to you"
+          : input.resolution === "full_release_to_merchant"
+          ? "Payment released to merchant (no refund)"
+          : input.resolution === "partial_refund"
+          ? `Partial refund of ₦${(input.refundAmount ?? 0).toLocaleString()} issued to you`
+          : "No action taken";
+        const emailBody = [
+          "Dear Customer,",
+          "",
+          `Your dispute for Order ${dispute.orderId} has been reviewed and resolved.`,
+          "",
+          `Outcome: ${outcomeLabel}`,
+          input.resolverNotes ? `Notes from reviewer: ${input.resolverNotes}` : "",
+          "",
+          "If you have any questions, please contact our support team.",
+          "",
+          "Thank you for your patience.",
+        ].filter(Boolean).join("\n");
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.RESEND_API_KEY ?? ""}`,
+          },
+          body: JSON.stringify({
+            from: process.env.EMAIL_FROM ?? "disputes@whatsappcommerce.app",
+            to: [input.buyerEmail],
+            subject: `Dispute Resolution: Order ${dispute.orderId}`,
+            text: emailBody,
+          }),
+        }).catch(() => {});
+      }
       return updated!;
     }),
 });
