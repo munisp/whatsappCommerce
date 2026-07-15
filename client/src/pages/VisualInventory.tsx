@@ -79,6 +79,10 @@ export default function VisualInventory() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // FMCG autocomplete state
+  const [hintsQuery, setHintsQuery] = useState("");
+  const [showHintsSuggestions, setShowHintsSuggestions] = useState(false);
+  const [scanLocationInput, setScanLocationInput] = useState("");
   const [cameraActive, setCameraActive] = useState(false);
 
   const [selectedSession, setSelectedSession] = useState<string | null>(null);
@@ -89,6 +93,11 @@ export default function VisualInventory() {
   const analyseMutation = trpc.visualInventory.analyseImage.useMutation();
   const { data: sessions, refetch: refetchSessions } = trpc.visualInventory.listSessions.useQuery({ limit: 20 });
   const { data: modelsData } = trpc.visualInventory.getOllamaModels.useQuery();
+  // FMCG taxonomy autocomplete
+  const { data: hintsData } = trpc.taxonomy.searchHints.useQuery(
+    { query: hintsQuery, limit: 8 },
+    { enabled: hintsQuery.length >= 2 }
+  );
   const applyMutation = trpc.visualInventory.applyToInventory.useMutation({
     onSuccess: (result) => {
       toast.success(`Applied to inventory: ${result.applied} product(s) updated`);
@@ -183,6 +192,7 @@ export default function VisualInventory() {
         imageBase64: base64,
         mimeType: capturedMime,
         locationName: locationName.trim(),
+        scanLocation: scanLocationInput.trim() || locationName.trim(),
         notes: "",
         productHints: hints,
         vlmModel: vlmModel || undefined,
@@ -206,6 +216,7 @@ export default function VisualInventory() {
     setAnalysisResult(null);
     setProgress(0);
     setLocationName("");
+    setScanLocationInput("");
     setProductHints("");
   };
 
@@ -327,17 +338,57 @@ export default function VisualInventory() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="hints">Product Hints (comma-separated)</Label>
+                    <Label htmlFor="hints">Product Hints</Label>
+                    {/* Scan location field */}
+                    <Input
+                      className="mb-2 text-sm"
+                      placeholder="Scan location (e.g. Shelf A3, Aisle 2, Store Front)"
+                      value={scanLocationInput}
+                      onChange={(e) => setScanLocationInput(e.target.value)}
+                    />
+                    {/* FMCG taxonomy autocomplete */}
+                    <div className="relative">
+                      <Input
+                        id="hints-search"
+                        placeholder="Type to search Nigerian FMCG products…"
+                        value={hintsQuery}
+                        onChange={(e) => { setHintsQuery(e.target.value); setShowHintsSuggestions(true); }}
+                        onFocus={() => setShowHintsSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowHintsSuggestions(false), 150)}
+                        className="text-sm mb-1"
+                      />
+                      {showHintsSuggestions && hintsData?.hints && hintsData.hints.length > 0 && (
+                        <div className="absolute z-50 w-full bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                          {hintsData.hints.map((h) => (
+                            <button
+                              key={h.id}
+                              type="button"
+                              className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between gap-2"
+                              onMouseDown={() => {
+                                const current = productHints.trim();
+                                const newHint = h.label + (h.variants && h.variants.length > 0 ? ` (${h.variants.slice(0,2).join(", ")})` : "");
+                                setProductHints(current ? current + ", " + newHint : newHint);
+                                setHintsQuery("");
+                                setShowHintsSuggestions(false);
+                              }}
+                            >
+                              <span className="font-medium">{h.label}</span>
+                              <span className="text-xs text-muted-foreground shrink-0">{h.brand} · {h.category}{h.isSachet ? " · sachet" : ""}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <Textarea
                       id="hints"
-                      placeholder="e.g. Coca-Cola, Pepsi, water bottles, Indomie noodles"
+                      placeholder="e.g. Coca-Cola, Indomie Chicken, Dano Milk, Maggi cubes"
                       value={productHints}
                       onChange={(e) => setProductHints(e.target.value)}
                       rows={2}
                       className="text-sm"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Helps the AI match detected items to your known products
+                      Search Nigerian FMCG products above or type comma-separated hints. Helps the AI identify local brands accurately.
                     </p>
                   </div>
                   {modelsData?.models && modelsData.models.length > 0 && (

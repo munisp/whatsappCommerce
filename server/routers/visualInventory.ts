@@ -74,6 +74,7 @@ export const visualInventoryRouter = router({
         imageBase64: z.string().min(100),
         mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).default("image/jpeg"),
         locationName: z.string().min(1).max(200).default("Unnamed Location"),
+        scanLocation: z.string().max(256).optional(),
         notes: z.string().max(1000).optional(),
         productHints: z.array(z.string()).max(50).optional(),
         vlmModel: z.string().optional(),
@@ -106,6 +107,7 @@ export const visualInventoryRouter = router({
         imageKey: s3Key,
         status: "processing",
         notes: input.notes ?? null,
+        scanLocation: input.scanLocation ?? input.locationName ?? null,
       });
 
       // Call Go orchestrator → Python VLM → Rust BBox

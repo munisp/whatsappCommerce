@@ -2076,6 +2076,7 @@ export const visualInventorySessions = pgTable("visual_inventory_sessions", {
   appliedBy: varchar("appliedBy", { length: 36 }),
   inventoryUpdates: jsonb("inventoryUpdates").default([]),  // [{productId, oldQty, newQty}]
   notes: text("notes"),
+  scanLocation: varchar("scanLocation", { length: 256 }),  // shelf/aisle/store location
   errorMessage: text("errorMessage"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
