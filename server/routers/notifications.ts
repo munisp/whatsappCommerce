@@ -50,6 +50,10 @@ export const NOTIFICATION_TEMPLATES: Record<
     title: "Dispute Resolved",
     body: `The dispute on Order #${m.orderNumber ?? m.orderId} has been resolved. Resolution: ${m.resolution ?? "see details"}.`,
   }),
+  dispute_escalated: (m) => ({
+    title: "⚠️ Dispute Escalated to Admin",
+    body: `Dispute on Order #${m.orderNumber ?? m.orderId} has been escalated. Reason: ${m.reason ?? "unspecified"}. An admin will review within 24 hours.`,
+  }),
   withdrawal_processed: (m) => ({
     title: "Withdrawal Processed",
     body: `Your withdrawal of ₦${Number(m.amount ?? 0).toLocaleString()} has been processed and sent to your bank account.`,

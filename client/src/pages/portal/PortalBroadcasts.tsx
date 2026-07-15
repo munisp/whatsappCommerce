@@ -227,15 +227,27 @@ export default function PortalBroadcasts() {
                       )}
                       {/* Actions */}
                       {(c.status === "draft" || c.status === "scheduled") && (
-                        <Button
-                          size="sm"
-                          className="gap-2"
-                          onClick={(e) => { e.stopPropagation(); sendCampaign.mutate({ campaignId: c.id }); }}
-                          disabled={sendCampaign.isPending}
-                        >
-                          <Send className="w-3 h-3" />
-                          Send Now
-                        </Button>
+                        <>
+                          {(c as any).varMapping && Object.keys((c as any).varMapping as Record<string, string>).length > 0 && (
+                            <div className="text-xs text-muted-foreground flex flex-wrap gap-1 items-center">
+                              <span className="font-medium">Variables:</span>
+                              {Object.entries((c as any).varMapping as Record<string, string>).map(([k, v]) => (
+                                <span key={k} className="inline-flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded">
+                                  <span className="text-primary">{`{{${k}}}`}</span>→<span>{v}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <Button
+                            size="sm"
+                            className="gap-2"
+                            onClick={(e) => { e.stopPropagation(); sendCampaign.mutate({ campaignId: c.id }); }}
+                            disabled={sendCampaign.isPending}
+                          >
+                            <Send className="w-3 h-3" />
+                            Send Now
+                          </Button>
+                        </>
                       )}
                     </div>
                   )}
@@ -426,6 +438,7 @@ export default function PortalBroadcasts() {
                 templateId: selectedTemplateId || undefined,
                 segment: newSegment as any,
                 scheduledAt: scheduledAt ? new Date(scheduledAt).getTime() : undefined,
+                varMapping: Object.keys(varMapping).length > 0 ? varMapping : undefined,
               })}
               disabled={createCampaign.isPending || !newName.trim()}
             >

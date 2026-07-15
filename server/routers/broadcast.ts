@@ -84,6 +84,7 @@ export const broadcastRouter = router({
       segment: z.enum(["all", "new_contacts", "recent_orders", "overdue_invoices", "shipped_orders", "vip_customers", "custom"]).default("all"),
       segmentFilter: z.record(z.string(), z.unknown()).optional(),
       scheduledAt: z.number().optional(),
+      varMapping: z.record(z.string(), z.string()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -97,6 +98,7 @@ export const broadcastRouter = router({
         templateId: input.templateId ?? null,
         segment: input.segment,
         segmentFilter: input.segmentFilter ?? null,
+        varMapping: input.varMapping ?? null,
         status: "draft",
         scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
         createdBy: ctx.user?.name ?? ctx.user?.openId ?? "system",

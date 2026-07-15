@@ -547,3 +547,8 @@
 - [x] D3: Reconciliation export — "Export CSV" button on ReconciliationSim page
 - [x] D4: Service health history chart — sparkline trend of uptime % per service on ServiceHealth page
 - [x] D5: Admin audit log viewer — new /audit-log page listing all admin mutations with user, action, timestamp
+
+## Round 8: Suggested Next Steps
+- [x] R8-1: Persist broadcast varMapping to DB — add varMapping jsonb column to broadcastCampaigns schema, migrate, update create/list procedures, display in PortalBroadcasts campaign detail
+- [x] R8-2: AuditLog CSV export — add "Download CSV" button to /audit-log page
+- [x] R8-3: Real escalation notifications — fire owner notification (notifyOwner) + merchant notification (emitNotification) when a dispute is escalated

@@ -613,6 +613,7 @@ export const broadcastCampaigns = pgTable("broadcast_campaigns", {
   segment: varchar("segment", { length: 100 }).default("all"),
   segmentFilter: jsonb("segmentFilter"),
   status: broadcastStatusEnum("status").default("draft").notNull(),
+  varMapping: jsonb("varMapping"),
   scheduledAt: timestamp("scheduledAt"),
   startedAt: timestamp("startedAt"),
   completedAt: timestamp("completedAt"),

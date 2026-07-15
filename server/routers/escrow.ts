@@ -11,6 +11,7 @@ import {
 import { escrowTimelineAttachments } from "../../drizzle/schema";
 import { storagePut } from "../storage";
 import { emitNotification, NOTIFICATION_TEMPLATES } from "./notifications";
+import { notifyOwner } from "../_core/notification";
 
 // ─── Helper: get or seed escrow config ───────────────────────────────────────
 async function getEscrowConfig(db: Awaited<ReturnType<typeof getDb>>) {
@@ -801,7 +802,7 @@ export const escrowDisputeRouter = router({
   // Escalate a dispute that has been open too long
   escalate: protectedProcedure
     .input(z.object({ disputeId: z.string(), reason: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const [dispute] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
@@ -813,6 +814,21 @@ export const escrowDisputeRouter = router({
         updatedAt: new Date(),
       }).where(eq(escrowDisputes.id, input.disputeId));
       const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
+      // Notify the merchant
+      const tpl = NOTIFICATION_TEMPLATES["dispute_escalated"]?.({ orderId: dispute.orderId, reason: input.reason ?? dispute.reason });
+      if (tpl) {
+        await emitNotification({
+          tenantId: dispute.tenantId,
+          type: "system",
+          title: tpl.title,
+          body: tpl.body,
+        }).catch(() => {/* non-fatal */});
+      }
+      // Notify the platform owner (admin alert)
+      await notifyOwner({
+        title: `Dispute Escalated — Order ${dispute.orderId}`,
+        content: `Dispute ID ${dispute.id} on tenant ${dispute.tenantId} has been escalated by ${ctx.user?.name ?? ctx.user?.openId ?? "admin"}. Reason: ${input.reason ?? dispute.reason ?? "unspecified"}.`,
+      }).catch(() => {/* non-fatal */});
       return updated!;
     }),
 });

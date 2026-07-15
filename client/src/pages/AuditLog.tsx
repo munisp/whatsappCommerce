@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollText, RefreshCw, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Download } from "lucide-react";
 import { useState } from "react";
 import { format } from "date-fns";
 
@@ -52,6 +53,32 @@ export default function AuditLog() {
     setOffset(0);
   };
 
+  const handleExportCsv = () => {
+    const rows = filteredEvents;
+    if (rows.length === 0) return;
+    const headers = ["Time", "Tenant", "Event Type", "Intent", "Confidence", "Model", "Escalated", "Conversation ID"];
+    const csvRows = rows.map(e => [
+      new Date(e.createdAt).toISOString(),
+      e.tenantId ?? "",
+      e.eventType ?? "",
+      e.intentType ?? "",
+      e.confidence != null ? (parseFloat(e.confidence) * 100).toFixed(1) + "%" : "",
+      e.model ?? "",
+      e.escalated ? "Yes" : "No",
+      e.conversationId ?? "",
+    ]);
+    const csvContent = [headers, ...csvRows]
+      .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const filteredEvents = search
     ? events.filter(e =>
         e.intentType?.toLowerCase().includes(search.toLowerCase()) ||
@@ -76,6 +103,9 @@ export default function AuditLog() {
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-2">
             <RefreshCw className="w-4 h-4" /> Refresh
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportCsv} disabled={filteredEvents.length === 0} className="gap-2">
+            <Download className="w-4 h-4" /> Export CSV
           </Button>
         </div>
 
