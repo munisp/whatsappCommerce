@@ -26,7 +26,7 @@ startLogin } from "@/const";
 import {
 useIsMobile } from "@/hooks/useMobile";
 import {
-  Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Database, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Leaf, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse , BarChart2} from "lucide-react";
+  Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Database, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, ImagePlus, LayoutDashboard, Leaf, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse, BarChart2} from "lucide-react";
 import {
 CSSProperties, useEffect, useRef, useState } from "react";
 import {
@@ -93,6 +93,7 @@ const menuItems: NavItem[] = [
   { icon: Leaf,            label: "FMCG Taxonomy",    path: "/fmcg-taxonomy",    section: "Commerce" },
   { icon: Database,        label: "Label Studio Pipe", path: "/label-studio",     section: "Commerce" },
   { icon: BarChart2,       label: "Scan Accuracy",     path: "/scan-stats",       section: "Commerce" },
+  { icon: ImagePlus,       label: "Product Images",    path: "/product-images",   section: "Commerce" },
 
   { icon: FileCode,        label: "Msg Templates",    path: "/operator-templates", section: "Platform" },
   { icon: ScrollText,      label: "Audit Log",        path: "/audit-log",        section: "System" },
