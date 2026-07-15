@@ -122,6 +122,8 @@ function Router() {
           <Route path="/visual-inventory" component={VisualInventory} />
           <Route path="/medusa-onboarding" component={MedusaOnboarding} />
           <Route path="/odoo-medusa-bridge" component={OdooMedusaBridge} />
+          <Route path="/label-studio" component={LabelStudioPipe} />
+          <Route path="/fmcg-taxonomy" component={FmcgTaxonomy} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -159,3 +161,5 @@ import IntegrationHealth from "./pages/IntegrationHealth";
 import VisualInventory from "./pages/VisualInventory";
 import MedusaOnboarding from "./pages/MedusaOnboarding";
 import OdooMedusaBridge from "./pages/OdooMedusaBridge";
+import LabelStudioPipe from "./pages/LabelStudioPipe";
+import FmcgTaxonomy from "./pages/FmcgTaxonomy";

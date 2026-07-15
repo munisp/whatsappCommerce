@@ -106,12 +106,18 @@ export const appRouter = router({
   medusaOnboarding: medusaOnboardingRouter,
   odooMedusaBridge: odooMedusaBridgeRouter,
   visualInventory: visualInventoryRouter,
+  taxonomy: taxonomyRouter,
+  labelStudio: labelStudioRouter,
+  viCorrections: viCorrectionsRouter,
 });
 
 export type AppRouter = typeof appRouter;
 import { medusaOnboardingRouter } from "./routers/medusaOnboarding";
 import { odooMedusaBridgeRouter } from "./routers/odooMedusaBridge";
 import { visualInventoryRouter } from "./routers/visualInventory";
+import { taxonomyRouter } from "./routers/taxonomy";
+import { labelStudioRouter } from "./routers/labelStudio";
+import { viCorrectionsRouter } from "./routers/viCorrections";
 import { alertRulesRouter } from "./routers/alertRules";
 import { operatorTemplatesRouter } from "./routers/operatorTemplates";
 import { whatsappMediaRouter } from "./routers/whatsappMedia";

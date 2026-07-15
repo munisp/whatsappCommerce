@@ -26,7 +26,7 @@ startLogin } from "@/const";
 import {
 useIsMobile } from "@/hooks/useMobile";
 import {
-  Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse } from "lucide-react";
+  Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Database, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, LayoutDashboard, Leaf, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse } from "lucide-react";
 import {
 CSSProperties, useEffect, useRef, useState } from "react";
 import {
@@ -90,6 +90,8 @@ const menuItems: NavItem[] = [
   { icon: ShoppingBag,     label: "Medusa Onboarding", path: "/medusa-onboarding", section: "Commerce" },
   { icon: ArrowLeftRight,  label: "Odoo↔Medusa Bridge", path: "/odoo-medusa-bridge", section: "Commerce" },
   { icon: Eye,             label: "Visual Inventory", path: "/visual-inventory", section: "Commerce" },
+  { icon: Leaf,            label: "FMCG Taxonomy",    path: "/fmcg-taxonomy",    section: "Commerce" },
+  { icon: Database,        label: "Label Studio Pipe", path: "/label-studio",     section: "Commerce" },
 
   { icon: FileCode,        label: "Msg Templates",    path: "/operator-templates", section: "Platform" },
   { icon: ScrollText,      label: "Audit Log",        path: "/audit-log",        section: "System" },

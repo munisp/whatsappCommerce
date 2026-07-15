@@ -2100,3 +2100,66 @@ export const visualInventoryMappings = pgTable("visual_inventory_mappings", {
   uniqueIndex("visual_inventory_mapping_unique_idx").on(t.tenantId, t.detectedLabel),
 ]);
 export type VisualInventoryMapping = typeof visualInventoryMappings.$inferSelect;
+
+// ── Nigerian FMCG Product Taxonomy ────────────────────────────────────────────
+export const productTaxonomy = pgTable("product_taxonomy", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  category: varchar("category", { length: 128 }).notNull(),
+  subcategory: varchar("subcategory", { length: 128 }),
+  brand: varchar("brand", { length: 128 }).notNull(),
+  productName: varchar("productName", { length: 256 }).notNull(),
+  variants: jsonb("variants").default([]),
+  aliases: jsonb("aliases").default([]),
+  countryOrigin: varchar("countryOrigin", { length: 64 }).default("Nigeria"),
+  isLocal: boolean("isLocal").default(true).notNull(),
+  isSachet: boolean("isSachet").default(false).notNull(),
+  typicalUnit: varchar("typicalUnit", { length: 64 }).default("unit"),
+  isActive: boolean("isActive").default(true).notNull(),
+  isCustom: boolean("isCustom").default(false).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("product_taxonomy_category_idx").on(t.category),
+  index("product_taxonomy_brand_idx").on(t.brand),
+  index("product_taxonomy_tenant_idx").on(t.tenantId),
+]);
+export type ProductTaxonomy = typeof productTaxonomy.$inferSelect;
+
+// ── Label Studio Configuration ─────────────────────────────────────────────────
+export const labelStudioConfigs = pgTable("label_studio_configs", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().unique(),
+  labelStudioUrl: varchar("labelStudioUrl", { length: 512 }),
+  apiToken: varchar("apiToken", { length: 256 }),
+  projectId: integer("projectId"),
+  projectName: varchar("projectName", { length: 256 }),
+  autoExport: boolean("autoExport").default(false).notNull(),
+  lastExportedAt: timestamp("lastExportedAt"),
+  exportedCount: integer("exportedCount").default(0).notNull(),
+  isConnected: boolean("isConnected").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("label_studio_tenant_idx").on(t.tenantId),
+]);
+export type LabelStudioConfig = typeof labelStudioConfigs.$inferSelect;
+
+// ── Visual Inventory Ground-Truth Corrections ──────────────────────────────────
+export const visualInventoryCorrections = pgTable("visual_inventory_corrections", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: varchar("sessionId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  detectedLabel: varchar("detectedLabel", { length: 256 }).notNull(),
+  originalCount: integer("originalCount").notNull(),
+  correctedCount: integer("correctedCount").notNull(),
+  correctedBy: varchar("correctedBy", { length: 36 }),
+  boundingBoxes: jsonb("boundingBoxes").default([]),
+  exportedToLabelStudio: boolean("exportedToLabelStudio").default(false).notNull(),
+  labelStudioTaskId: integer("labelStudioTaskId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("vi_corrections_session_idx").on(t.sessionId),
+  index("vi_corrections_tenant_idx").on(t.tenantId),
+  index("vi_corrections_exported_idx").on(t.exportedToLabelStudio),
+]);
+export type VisualInventoryCorrection = typeof visualInventoryCorrections.$inferSelect;
