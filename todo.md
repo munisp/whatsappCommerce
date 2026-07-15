@@ -898,3 +898,8 @@
 - [x] Ray Tune HPO wired into triggerRetraining: spawns hyperparameter search, logs all trials to MLflow
 - [x] POST /api/ml/predict inference endpoint: loads MLflow weights, returns fraud probability + credit score
 - [x] NLP checkout flow: call /api/ml/predict to gate high-risk orders in real time
+
+## Round 32 — Inference Model Loading + A/B Metrics Heartbeat + Drift Alert Notifications (2026-07-15)
+- [x] Inference model loading: wire predict.py to load fraud_gnn_lstm.pt weights via compatible FraudGNNLSTM(input_dim=5) constructor
+- [x] A/B test metrics heartbeat: /api/scheduled/ab-test-metrics job computes per-variant conversion rates and writes championMetric/challengerMetric to model_ab_tests table
+- [x] Drift alert notifications: heartbeat job sends owner push notification when PSI crosses 0.2 critical threshold with link to Drift Alerts tab

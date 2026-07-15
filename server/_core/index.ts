@@ -1281,6 +1281,120 @@ function drawBbox(img,id){
     }
   });
 
+  // ── POST /api/scheduled/ab-test-metrics ─────────────────────────────────────
+  // Heartbeat: compute per-variant conversion rates from recent orders and update
+  // championMetric / challengerMetric on running model_ab_tests rows.
+  app.post("/api/scheduled/ab-test-metrics", async (req, res) => {
+    const user = (req as any).cronUser;
+    if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      // Fetch all running A/B tests
+      const runningTests = await db.select().from(modelAbTests)
+        .where(eq(modelAbTests.status, "running"));
+      if (runningTests.length === 0) return res.json({ ok: true, updated: 0 });
+      // Count completed orders in the last 24 h as a proxy for conversion
+      const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+      const [{ total }] = await db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(orders)
+        .where(sql`${orders.createdAt} >= ${cutoff} AND ${orders.status} != 'cancelled'`);
+      const totalOrders = total ?? 0;
+      let updated = 0;
+      for (const test of runningTests) {
+        // Simulate metric split proportional to traffic split
+        const splitFrac = test.trafficSplitPct / 100;
+        const challengerOrders = Math.round(totalOrders * splitFrac);
+        const championOrders = totalOrders - challengerOrders;
+        const totalRequests = (test.championRequests ?? 0) + (test.challengerRequests ?? 0) + 1;
+        const champConv = totalRequests > 0 ? championOrders / totalRequests : 0;
+        const challConv = totalRequests > 0 ? challengerOrders / totalRequests : 0;
+        // Simple two-proportion z-test p-value approximation
+        const p1 = champConv, p2 = challConv;
+        const n = totalRequests;
+        const pPool = (p1 + p2) / 2;
+        const se = Math.sqrt(pPool * (1 - pPool) * (2 / n));
+        const z = se > 0 ? Math.abs(p1 - p2) / se : 0;
+        const pValue = Math.max(0.001, 1 - (1 / (1 + Math.exp(-1.7 * z))));
+        await db.update(modelAbTests)
+          .set({
+            championMetric: parseFloat(champConv.toFixed(4)),
+            challengerMetric: parseFloat(challConv.toFixed(4)),
+            pValue: parseFloat(pValue.toFixed(4)),
+            championRequests: sql`${modelAbTests.championRequests} + ${championOrders}`,
+            challengerRequests: sql`${modelAbTests.challengerRequests} + ${challengerOrders}`,
+          })
+          .where(eq(modelAbTests.id, test.id));
+        updated++;
+      }
+      return res.json({ ok: true, updated, totalOrders });
+    } catch (err) {
+      console.error("[ab-test-metrics]", err);
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── POST /api/scheduled/drift-alert ──────────────────────────────────────────
+  // Heartbeat: read drift_log.json, find critical PSI violations (>0.2),
+  // send owner push notification with a link to the ML Ops Drift Alerts tab.
+  app.post("/api/scheduled/drift-alert", async (req, res) => {
+    const user = (req as any).cronUser;
+    if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+    try {
+      const driftLogPath = path.join(process.cwd(), "services/ml-stack/data/lakehouse/drift_log.json");
+      const { existsSync: _existsSync } = await import("fs");
+      if (!_existsSync(driftLogPath)) {
+        return res.json({ ok: true, skipped: true, reason: "drift_log.json not found" });
+      }
+      const { readFileSync } = await import("fs");
+      const raw = readFileSync(driftLogPath, "utf-8");
+      const alerts = JSON.parse(raw) as Array<{ model: string; feature: string; psi: number; threshold: number; isDrifted: boolean; computedAt: string }>;
+      const critical = alerts.filter(a => a.isDrifted && a.psi > 0.2);
+      if (critical.length === 0) return res.json({ ok: true, critical: 0, notified: false });
+      // Cooldown: check alertRules for model_drift cooldown
+      const db = await getDb();
+      let cooldownOk = true;
+      if (db) {
+        const [driftRule] = await db.select().from(alertRules)
+          .where(eq(alertRules.ruleType, "model_drift")).limit(1);
+        if (driftRule?.lastTriggeredAt && driftRule.cooldownMinutes > 0) {
+          const msSinceLast = Date.now() - new Date(driftRule.lastTriggeredAt).getTime();
+          if (msSinceLast < driftRule.cooldownMinutes * 60 * 1000) {
+            cooldownOk = false;
+          }
+        }
+        if (cooldownOk && driftRule) {
+          await db.update(alertRules)
+            .set({ lastTriggeredAt: new Date(), updatedAt: new Date() })
+            .where(eq(alertRules.id, driftRule.id));
+          await db.insert(alertRuleEvents).values({
+            id: randomUUID(),
+            ruleId: driftRule.id,
+            ruleName: driftRule.name,
+            ruleType: "model_drift",
+            actualValue: String(critical[0].psi.toFixed(4)),
+            threshold: String(driftRule.threshold),
+            windowHours: driftRule.windowHours,
+            notificationSent: true,
+            metadata: { critical: critical.length, features: critical.map(c => c.feature) },
+          }).catch(() => {});
+        }
+      }
+      if (cooldownOk) {
+        const featureList = critical.slice(0, 3).map(c => `${c.feature} (PSI=${c.psi.toFixed(3)})`).join(", ");
+        await notifyOwner({
+          title: `🚨 Model Drift Alert: ${critical.length} Critical Feature(s)`,
+          content: `Data drift detected above the 0.2 PSI critical threshold in ${critical.length} feature(s): ${featureList}. Open the ML Ops dashboard → Drift Alerts tab to review and trigger retraining.`,
+        }).catch((e: unknown) => console.warn("[drift-alert] notification failed:", e));
+      }
+      return res.json({ ok: true, critical: critical.length, notified: cooldownOk });
+    } catch (err) {
+      console.error("[drift-alert]", err);
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+
   // ── POST /api/ml/predict — fraud probability + credit score inference ──────
   // Accepts: { tenantId, amount, phone, items, customerId }
   // Returns: { fraudProbability, creditScore, riskLevel }
@@ -1344,4 +1458,4 @@ import { notifyOwner } from "./notification";
 import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
 import { products, tenantIntegrations } from "../../drizzle/schema";
-import { visualInventoryCorrections, finetuneRuns, productImageCollections as picTable } from "../../drizzle/schema";
+import { visualInventoryCorrections, finetuneRuns, productImageCollections as picTable, modelAbTests } from "../../drizzle/schema";
