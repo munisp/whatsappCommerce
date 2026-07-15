@@ -612,55 +612,55 @@
 
 ## Round 15 — Medusa Adapter + Mission Gap Implementation
 ### Medusa v2 Commerce Adapter
-- [ ] Backend: MedusaCommerceAdapter service (server/services/medusaAdapter.ts) — wraps Medusa Store/Admin REST API with fallback to native tables
-- [ ] Backend: medusa tRPC router (server/routers/medusa.ts) — products, variants, collections, price lists, inventory, promotions via Medusa API
-- [ ] Frontend: MedusaProducts page (/medusa-products) — product catalog powered by Medusa adapter
-- [ ] Docs: medusa-setup.md — guide for pointing platform at self-hosted or Medusa Cloud instance
+- [x] Backend: MedusaCommerceAdapter service (server/services/medusaAdapter.ts) — wraps Medusa Store/Admin REST API with fallback to native tables
+- [x] Backend: medusa tRPC router (server/routers/medusa.ts) — products, variants, collections, price lists, inventory, promotions via Medusa API
+- [x] Frontend: MedusaProducts page (/medusa-products) — product catalog powered by Medusa adapter
+- [x] Docs: medusa-setup.md — guide for pointing platform at self-hosted or Medusa Cloud instance
 
 ### B2B Module
-- [ ] Schema: wholesale_price_tiers, b2b_rfq, b2b_purchase_orders, buyer_type enum on customers
-- [ ] Backend: b2b tRPC router — getWholesalePrice, createRFQ, submitPurchaseOrder, approvePO
-- [ ] Backend: B2B NLP intents in nlp.ts — bulk order, RFQ, wholesale pricing, net-30 payment terms
-- [ ] Frontend: B2BPortal page (/b2b) — RFQ form, PO tracker, wholesale price calculator
+- [x] Schema: wholesale_price_tiers, b2b_rfq, b2b_purchase_orders, buyer_type enum on customers
+- [x] Backend: b2b tRPC router — getWholesalePrice, createRFQ, submitPurchaseOrder, approvePO
+- [x] Backend: B2B NLP intents in nlp.ts — bulk order, RFQ, wholesale pricing, net-30 payment terms
+- [x] Frontend: B2BPortal page (/b2b) — RFQ form, PO tracker, wholesale price calculator
 
 ### Multi-Channel (USSD + SMS)
-- [ ] Schema: ussd_sessions, channel_messages (channel enum: whatsapp, ussd, sms, telegram)
-- [ ] Backend: /api/webhooks/ussd — Africa's Talking USSD format, maps to NLP processMessage
-- [ ] Backend: /api/webhooks/sms — inbound SMS handler via Africa's Talking/Twilio
-- [ ] Backend: ussd tRPC router — getSession, sendUssdResponse
-- [ ] Frontend: ChannelManager page (/channels) — USSD/SMS channel config, session viewer
+- [x] Schema: ussd_sessions, channel_messages (channel enum: whatsapp, ussd, sms, telegram)
+- [x] Backend: /api/webhooks/ussd — Africa's Talking USSD format, maps to NLP processMessage
+- [x] Backend: /api/webhooks/sms — inbound SMS handler via Africa's Talking/Twilio
+- [x] Backend: ussd tRPC router — getSession, sendUssdResponse
+- [x] Frontend: ChannelManager page (/channels) — USSD/SMS channel config, session viewer
 
 ### Marketplace
-- [ ] Schema: marketplace_sellers, seller_products, commissions, marketplace_orders
-- [ ] Backend: marketplace tRPC router — registerSeller, listSellerProducts, createMarketplaceOrder, calculateCommission
-- [ ] Frontend: MarketplaceDashboard page (/marketplace) — seller onboarding, commission tracker, catalog discovery
+- [x] Schema: marketplace_sellers, seller_products, commissions, marketplace_orders
+- [x] Backend: marketplace tRPC router — registerSeller, listSellerProducts, createMarketplaceOrder, calculateCommission
+- [x] Frontend: MarketplaceDashboard page (/marketplace) — seller onboarding, commission tracker, catalog discovery
 
 ### Cross-Border / Mobile Money
-- [ ] Schema: mobile_money_transactions, forex_rates, currency_configs
-- [ ] Backend: mobileMoney tRPC router — initMoMoPayment (MTN/Airtel), initMPesaPayment, checkMoMoStatus
-- [ ] Backend: /api/webhooks/momo — MTN MoMo callback handler
-- [ ] Backend: /api/webhooks/mpesa — M-Pesa STK push callback
-- [ ] Frontend: MobileMoneyDashboard page (/mobile-money) — MoMo/M-Pesa transactions, forex rates
+- [x] Schema: mobile_money_transactions, forex_rates, currency_configs
+- [x] Backend: mobileMoney tRPC router — initMoMoPayment (MTN/Airtel), initMPesaPayment, checkMoMoStatus
+- [x] Backend: /api/webhooks/momo — MTN MoMo callback handler
+- [x] Backend: /api/webhooks/mpesa — M-Pesa STK push callback
+- [x] Frontend: MobileMoneyDashboard page (/mobile-money) — MoMo/M-Pesa transactions, forex rates
 
 ### Service Commerce
-- [ ] Schema: service_catalog, appointments, digital_products, subscriptions, subscription_invoices
-- [ ] Backend: serviceCommerce tRPC router — createService, bookAppointment, purchaseDigitalProduct, createSubscription
-- [ ] Frontend: ServiceCatalog page (/services) — service listing, appointment booking calendar, digital downloads
+- [x] Schema: service_catalog, appointments, digital_products, subscriptions, subscription_invoices
+- [x] Backend: serviceCommerce tRPC router — createService, bookAppointment, purchaseDigitalProduct, createSubscription
+- [x] Frontend: ServiceCatalog page (/services) — service listing, appointment booking calendar, digital downloads
 
 ### Analytics BI
-- [ ] Schema: cohort_snapshots, ltv_scores, churn_predictions
-- [ ] Backend: advancedAnalytics tRPC router — getCohortAnalysis, getLTVScores, getChurnPredictions, getMerchantBI
-- [ ] Frontend: AdvancedAnalytics page (/analytics-bi) — cohort charts, LTV heatmap, churn risk table
+- [x] Schema: cohort_snapshots, ltv_scores, churn_predictions
+- [x] Backend: advancedAnalytics tRPC router — getCohortAnalysis, getLTVScores, getChurnPredictions, getMerchantBI
+- [x] Frontend: AdvancedAnalytics page (/analytics-bi) — cohort charts, LTV heatmap, churn risk table
 
 ### Compliance (B2G)
-- [ ] Schema: tax_filings, cac_registrations, procurement_bids, government_contracts
-- [ ] Backend: compliance tRPC router — submitTaxFiling, registerCAC, submitProcurementBid, listGovernmentContracts
-- [ ] Frontend: CompliancePortal page (/compliance) — FIRS tax filing, CAC registration, B2G e-procurement
+- [x] Schema: tax_filings, cac_registrations, procurement_bids, government_contracts
+- [x] Backend: compliance tRPC router — submitTaxFiling, registerCAC, submitProcurementBid, listGovernmentContracts
+- [x] Frontend: CompliancePortal page (/compliance) — FIRS tax filing, CAC registration, B2G e-procurement
 
 ### Round 15 UI
-- [ ] Frontend: WebhookDLQ page (/webhook-dlq) — dead letter queue viewer with retry button
-- [ ] Frontend: DashboardLayout nav — add all new sections (B2B, Channels, Marketplace, Mobile Money, Services, Analytics BI, Compliance)
-- [ ] Backend: retryWebhookEvent tRPC procedure in a new webhookAdmin router
+- [x] Frontend: WebhookDLQ page (/webhook-dlq) — dead letter queue viewer with retry button
+- [x] Frontend: DashboardLayout nav — add all new sections (B2B, Channels, Marketplace, Mobile Money, Services, Analytics BI, Compliance)
+- [x] Backend: retryWebhookEvent tRPC procedure in a new webhookAdmin router
 
 ## Round 15 + Mission Gap Implementation (Complete)
 - [x] Medusa v2 commerce adapter service (MedusaCommerceAdapter) with fallback to native tables
