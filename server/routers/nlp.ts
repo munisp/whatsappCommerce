@@ -17,6 +17,7 @@ import {
   customers, products, conversations, agentEvents,
 } from "../../drizzle/schema";
 import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
+import { offlineMessageQueue } from "../../drizzle/schema";
 
 // ── Language detection & system prompts ───────────────────────────────────────
 // ── USSD numbered menu builder ────────────────────────────────────────────────
@@ -338,6 +339,17 @@ export const nlpRouter = router({
                 ? `\n\n💳 Pịa njikọ a iji kwụọ ụgwọ: ${paymentUrl}`
                 : `\n\n💳 Click here to complete payment: ${paymentUrl}`;
               llmResult.reply = (llmResult.reply ?? "") + payLinkSuffix;
+              // Airtime / mobile-money shortcode hint for low-income users without data
+              const airtimeSuffix = session.language === "pidgin"
+                ? `\n📱 No data? Dial *712*amount# to pay with MTN MoMo`
+                : session.language === "yo"
+                ? `\n📱 Ko si data? Pe *712*iye# lati san pẹlu MTN MoMo`
+                : session.language === "ha"
+                ? `\n📱 Babu data? Kira *712*adadin# don biyan kuɗi da MTN MoMo`
+                : session.language === "ig"
+                ? `\n📱 Enweghị data? Kpọọ *712*ọnụ ego# iji kwụọ ụgwọ na MTN MoMo`
+                : `\n📱 No data? Dial *712*amount# to pay via MTN MoMo`;
+              llmResult.reply = (llmResult.reply ?? "") + airtimeSuffix;
             }
           }
         } catch (_) { /* payment link generation is best-effort */ }
@@ -440,5 +452,69 @@ export const nlpRouter = router({
         results.push({ message: msg, processed: true });
       }
       return results;
+    }),
+
+  /** Queue a message for offline delivery (called when buyer is offline) */
+  queueOfflineMessage: protectedProcedure
+    .input(z.object({
+      sessionId: z.string(),
+      tenantId: z.string(),
+      waPhoneNumber: z.string(),
+      message: z.string(),
+      direction: z.enum(["inbound", "outbound"]).default("outbound"),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [row] = await db.insert(offlineMessageQueue).values({
+        id: crypto.randomUUID(),
+        sessionId: input.sessionId,
+        tenantId: input.tenantId,
+        waPhoneNumber: input.waPhoneNumber,
+        message: input.message,
+        direction: input.direction,
+        status: "queued",
+        queuedAt: new Date(),
+      }).returning();
+      return row;
+    }),
+
+  /** Sync (replay) queued offline messages when buyer reconnects */
+  syncOfflineQueue: protectedProcedure
+    .input(z.object({
+      sessionId: z.string(),
+      waPhoneNumber: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const queued = await db.select().from(offlineMessageQueue)
+        .where(and(
+          eq(offlineMessageQueue.sessionId, input.sessionId),
+          eq(offlineMessageQueue.status, "queued"),
+        ))
+        .orderBy(offlineMessageQueue.queuedAt);
+      if (queued.length === 0) return { synced: 0, messages: [] };
+      await db.update(offlineMessageQueue)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(and(
+          eq(offlineMessageQueue.sessionId, input.sessionId),
+          eq(offlineMessageQueue.status, "queued"),
+        ));
+      return { synced: queued.length, messages: queued };
+    }),
+
+  /** Get queued offline message count for a session */
+  getOfflineQueueCount: protectedProcedure
+    .input(z.object({ sessionId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { count: 0 };
+      const rows = await db.select().from(offlineMessageQueue)
+        .where(and(
+          eq(offlineMessageQueue.sessionId, input.sessionId),
+          eq(offlineMessageQueue.status, "queued"),
+        ));
+      return { count: rows.length };
     }),
 });

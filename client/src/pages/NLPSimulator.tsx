@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Globe, RefreshCw, ShoppingCart, Wifi, WifiOff, Signal } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Send, Bot, User, Globe, RefreshCw, ShoppingCart, Wifi, WifiOff, Signal, CloudOff, CloudUpload, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +39,10 @@ export default function NLPSimulator() {
   const [networkQuality, setNetworkQuality] = useState<"good" | "2g" | "offline">("good");
   const [dataLiteMode, setDataLiteMode] = useState(false);
   const [ussdMode, setUssdMode] = useState(false);
+  // Offline queue state
+  const [offlineQueue, setOfflineQueue] = useState<string[]>([]);
+  const [syncedMessages, setSyncedMessages] = useState<{ text: string; idx: number }[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const processMessage = trpc.nlp.processMessage.useMutation();
@@ -54,9 +58,52 @@ export default function NLPSimulator() {
     if (!msg) return;
     if (networkQuality === "offline") {
       toast.error("No connection — message queued for retry when signal restores.");
+      setOfflineQueue(prev => [...prev, msg]);
       setMessages(prev => [...prev, { role: "user", content: msg + " ⏳", timestamp: new Date() }]);
       return;
     }
+  // Replay queued messages when coming back online
+  const replayOfflineQueue = useCallback(async (queue: string[]) => {
+    if (queue.length === 0) return;
+    setIsSyncing(true);
+    setSyncedMessages([]);
+    for (let i = 0; i < queue.length; i++) {
+      const msg = queue[i];
+      // Staggered animation: reveal each queued message with 600ms delay
+      await new Promise(r => setTimeout(r, 600));
+      setSyncedMessages(prev => [...prev, { text: msg, idx: i }]);
+      // Actually send the message through NLP
+      try {
+        const result = await processMessage.mutateAsync({
+          tenantId,
+          waPhoneNumber: phone,
+          message: msg,
+          customerName: "Demo Buyer",
+          ussdMode,
+        });
+        setMessages(prev => [
+          ...prev.filter(m => m.content !== msg + " ⏳"),
+          { role: "user", content: msg, timestamp: new Date() },
+          { role: "bot", content: result.reply, intent: result.intent, language: result.language, timestamp: new Date(), confidence: result.confidence },
+        ]);
+      } catch {
+        // Keep the queued message as-is if it fails
+      }
+    }
+    setIsSyncing(false);
+    setOfflineQueue([]);
+    toast.success(`${queue.length} queued message${queue.length > 1 ? "s" : ""} delivered!`);
+  }, [processMessage, tenantId, phone, ussdMode]);
+
+  // When network quality changes from offline → online, replay the queue
+  const prevNetworkRef = useRef<"good" | "2g" | "offline">("good");
+  useEffect(() => {
+    if ((prevNetworkRef.current as string) === "offline" && (networkQuality as string) !== "offline" && offlineQueue.length > 0) {
+      replayOfflineQueue(offlineQueue);
+    }
+    prevNetworkRef.current = networkQuality;
+  }, [networkQuality, offlineQueue, replayOfflineQueue]);
+
     setInput("");
     setIsLoading(true);
 
@@ -190,6 +237,40 @@ export default function NLPSimulator() {
           <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" />
           <p className="text-xs text-red-300">
             <strong>Offline simulation active.</strong> Messages queued with ⏳. WhatsApp queues messages for up to 30 days in production.
+          </p>
+        </div>
+      )}
+      {/* Offline queue badge */}
+      {offlineQueue.length > 0 && networkQuality === "offline" && (
+        <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 rounded-lg px-3 py-2">
+          <CloudOff className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+          <p className="text-xs text-orange-300 flex-1">
+            <strong>{offlineQueue.length} message{offlineQueue.length > 1 ? "s" : ""} queued</strong> — will be delivered when connection restores.
+          </p>
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold">{offlineQueue.length}</span>
+        </div>
+      )}
+      {/* Sync replay animation */}
+      {isSyncing && (
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2 space-y-1">
+          <div className="flex items-center gap-2">
+            <CloudUpload className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
+            <p className="text-xs text-emerald-300 font-semibold">Syncing offline messages…</p>
+          </div>
+          {syncedMessages.map(({ text, idx }) => (
+            <div key={idx} className="flex items-center gap-2 text-xs text-emerald-200 animate-in fade-in slide-in-from-left-2 duration-300">
+              <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span className="truncate">{text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Post-sync summary */}
+      {!isSyncing && syncedMessages.length > 0 && (
+        <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <p className="text-xs text-emerald-300">
+            <strong>{syncedMessages.length} message{syncedMessages.length > 1 ? "s" : ""} sent while offline</strong> — all delivered successfully.
           </p>
         </div>
       )}

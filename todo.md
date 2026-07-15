@@ -567,16 +567,16 @@
 - [x] NLPSimulator: offline message queuing with ⏳ indicator
 
 ## Round 11 — WhatsApp Media Uploads + Low-connectivity Optimisation
-- [ ] Backend: whatsappMedia router (uploadFromWhatsApp, listByConversation, getDownloadUrl)
-- [ ] Backend: document type detection (purchase_order, invoice, receipt, image, other)
-- [ ] Backend: S3 storage for WhatsApp media files
-- [ ] Backend: SMS fallback flag (smsFailoverEnabled) on tenants table
-- [ ] Backend: USSD menu mode session flag + numbered menu reply generator in NLP router
-- [ ] Backend: multilingual error message map (EN/YO/HA/IG/PID) in NLP router
-- [ ] Frontend: WhatsApp Media Upload page (upload, scan, download, type badge)
-- [ ] Frontend: NLP Simulator USSD mode toggle + numbered menu rendering
-- [ ] Frontend: SMS fallback toggle in tenant settings / PortalSettings
-- [ ] Frontend: multilingual error preview in NLP Simulator
+- [x] Backend: whatsappMedia router (uploadFromWhatsApp, listByConversation, getDownloadUrl)
+- [x] Backend: document type detection (purchase_order, invoice, receipt, image, other)
+- [x] Backend: S3 storage for WhatsApp media files
+- [x] Backend: SMS fallback flag (smsFailoverEnabled) on tenants table
+- [x] Backend: USSD menu mode session flag + numbered menu reply generator in NLP router
+- [x] Backend: multilingual error message map (EN/YO/HA/IG/PID) in NLP router
+- [x] Frontend: WhatsApp Media Upload page (upload, scan, download, type badge)
+- [x] Frontend: NLP Simulator USSD mode toggle + numbered menu rendering
+- [x] Frontend: SMS fallback toggle in tenant settings / PortalSettings
+- [x] Frontend: multilingual error preview in NLP Simulator
 
 ## Round 11 — Low-connectivity & WhatsApp Media (complete)
 - [x] WhatsApp media/document upload handler (whatsappMedia router: upload, list, getDownloadUrl, AI document type detection)
@@ -589,3 +589,11 @@
 - [x] escalation_count alert rule type added to alertRules router + AlertRules page
 - [x] Broadcast send preview modal in BroadcastCampaigns
 - [x] WA Media nav item in DashboardLayout
+
+## Round 12 — Webhook ingestion, airtime top-up, offline sync
+- [x] Backend: /api/webhooks/whatsapp GET (verify token) + POST (media ingestion → S3 → whatsapp_media_files)
+- [x] Backend: airtime top-up USSD shortcode in NLP payment reply (MTN/Airtel/Glo/9mobile)
+- [x] Backend: offlineMessageQueue table + syncOfflineMessages procedure
+- [x] Frontend: NLP Simulator offline message queue badge + replay animation + summary card
+- [x] Frontend: airtime shortcode display in conversation payment messages
+- [x] Frontend: webhook status indicator on Service Health page

@@ -474,6 +474,80 @@ async function startServer() {
 
   // ── Bank escrow settlement callback (PSSP mode) ───────────────────────────
   app.post("/api/webhooks/escrow-bank", express.json(), async (req, res) => {
+  // ── WhatsApp Business API webhook (Meta) ──────────────────────────────────
+  // GET: verification challenge from Meta
+  app.get("/api/webhooks/whatsapp", (req, res) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN ?? "whatsapp_verify_token_demo";
+    if (mode === "subscribe" && token === verifyToken) {
+      console.log("[whatsapp-webhook] Verification successful");
+      return res.status(200).send(challenge);
+    }
+    return res.status(403).json({ error: "Forbidden" });
+  });
+  // POST: incoming messages and media from Meta
+  app.post("/api/webhooks/whatsapp", express.json(), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const body = req.body ?? {};
+      // Acknowledge immediately (Meta requires 200 within 20s)
+      res.status(200).json({ received: true });
+      // Parse the Meta webhook payload
+      const entry = body?.entry?.[0];
+      const changes = entry?.changes?.[0];
+      const value = changes?.value;
+      if (!value) return;
+      const messages: any[] = value?.messages ?? [];
+      const contacts: any[] = value?.contacts ?? [];
+      const phoneNumberId: string = value?.metadata?.phone_number_id ?? "";
+      for (const msg of messages) {
+        const waPhoneNumber: string = msg.from ?? "";
+        const contactName: string = contacts.find((c: any) => c.wa_id === waPhoneNumber)?.profile?.name ?? "";
+        // Determine tenant from phone number ID (look up in tenants table)
+        const [tenant] = await db.select().from(tenants)
+          .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+          .limit(1).catch(() => [null as any]);
+        const tenantId: string = (tenant as any)?.id ?? "default";
+        if (msg.type === "text") {
+          // Route text messages through the NLP engine
+          const { appRouter: ar } = await import("../routers");
+          const caller = ar.createCaller({ user: null } as any);
+          await caller.nlp.processMessage({
+            tenantId,
+            waPhoneNumber,
+            message: msg.text?.body ?? "",
+            customerName: contactName || undefined,
+          }).catch((e: any) => console.error("[whatsapp-webhook] NLP error:", e?.message));
+        } else if (msg.type === "image" || msg.type === "document" || msg.type === "video") {
+          // Store media file reference for later download
+          const mediaId: string = msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? "";
+          const mimeType: string = msg.image?.mime_type ?? msg.document?.mime_type ?? msg.video?.mime_type ?? "application/octet-stream";
+          const caption: string = msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? "";
+          const filename: string = msg.document?.filename ?? `${msg.type}_${Date.now()}`;
+          if (mediaId) {
+            await db.insert(whatsappMediaFiles).values({
+              id: crypto.randomUUID(),
+              tenantId,
+              waPhoneNumber,
+              mimeType,
+              fileName: filename,
+              storageKey: `wa-media/${mediaId}`,
+              storageUrl: `https://graph.facebook.com/v18.0/${mediaId}`,
+              documentType: msg.type === "document" ? "document" : msg.type === "image" ? "image" : "other",
+              aiScanResult: caption ? { caption } : null,
+              uploadedAt: new Date(),
+            }).catch((e: any) => console.error("[whatsapp-webhook] media insert error:", e?.message));
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("[whatsapp-webhook]", err);
+    }
+  });
+
     try {
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
@@ -695,3 +769,4 @@ async function startServer() {
 
 startServer().catch(console.error);
 import { notifyOwner } from "./notification";
+import { whatsappMediaFiles, offlineMessageQueue } from "../../drizzle/schema";

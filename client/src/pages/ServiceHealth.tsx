@@ -27,6 +27,7 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
 const SERVICES = [
   { name: "API Gateway", lang: "Go", port: 8080, desc: "APISIX-style reverse proxy, rate limiting, JWT validation" },
   { name: "Webhook Ingestor", lang: "Go", port: 8081, desc: "Chatwoot webhook verification, event parsing, Kafka producer" },
+  { name: "WhatsApp Webhook", lang: "TypeScript", port: 3000, desc: "Meta Business API webhook — GET verification + POST message/media ingestion at /api/webhooks/whatsapp" },
   { name: "Conversation Orchestrator", lang: "Go", port: 8082, desc: "Session resolution, intent routing, menu engine, handoff manager" },
   { name: "Commerce Engine", lang: "Go", port: 8083, desc: "Catalog, cart, checkout, orders, inventory projections" },
   { name: "Payment Orchestrator", lang: "Go", port: 8084, desc: "Mojaloop/Stripe integration, idempotent payment workflows" },
@@ -139,6 +140,40 @@ export default function ServiceHealth() {
             );
           })}
         </div>
+      {/* WhatsApp Webhook integration status */}
+      <div className="mt-2">
+        <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">WhatsApp Integration</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-green-500/20 bg-green-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
+                  <span className="font-medium text-sm">Webhook Verify (GET)</span>
+                </div>
+                <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">active</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mb-1">Meta hub.challenge verification endpoint</p>
+              <code className="text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded font-mono">GET /api/webhooks/whatsapp</code>
+              <p className="text-xs text-muted-foreground mt-2">Validates <span className="font-mono">hub.verify_token</span> against <span className="font-mono">WHATSAPP_VERIFY_TOKEN</span> env var and returns the challenge.</p>
+            </CardContent>
+          </Card>
+          <Card className="border-green-500/20 bg-green-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" />
+                  <span className="font-medium text-sm">Message Ingestion (POST)</span>
+                </div>
+                <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">active</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mb-1">Incoming messages &amp; media from Meta</p>
+              <code className="text-xs text-green-400 bg-green-500/10 px-2 py-0.5 rounded font-mono">POST /api/webhooks/whatsapp</code>
+              <p className="text-xs text-muted-foreground mt-2">Routes text through NLP engine; stores image/document/video refs in <span className="font-mono text-xs">whatsapp_media_files</span>.</p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
       </div>
     </DashboardLayout>
   );

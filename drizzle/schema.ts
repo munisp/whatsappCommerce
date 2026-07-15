@@ -1490,3 +1490,24 @@ export const operatorTemplates = pgTable("operator_templates", {
 
 export type OperatorTemplate = typeof operatorTemplates.$inferSelect;
 export type InsertOperatorTemplate = typeof operatorTemplates.$inferInsert;
+
+// ── Offline Message Queue ─────────────────────────────────────────────────
+// Stores messages sent while a buyer was offline (2G/no-signal) for replay
+export const offlineMsgStatusEnum = pgEnum("offline_msg_status", ["queued", "delivered", "failed"]);
+export const offlineMessageQueue = pgTable("offline_message_queue", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: varchar("sessionId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  waPhoneNumber: varchar("waPhoneNumber", { length: 30 }).notNull(),
+  message: text("message").notNull(),
+  direction: varchar("direction", { length: 10 }).default("outbound").notNull(),
+  status: offlineMsgStatusEnum("status").default("queued").notNull(),
+  queuedAt: timestamp("queuedAt").defaultNow().notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+}, (t) => [
+  index("omq_session_idx").on(t.sessionId),
+  index("omq_phone_idx").on(t.waPhoneNumber),
+  index("omq_status_idx").on(t.status),
+]);
+export type OfflineMessage = typeof offlineMessageQueue.$inferSelect;
