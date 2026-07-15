@@ -786,13 +786,13 @@
 - [x] Active learning loop: corrections → Label Studio → YOLO fine-tuning pipeline documented
 
 ## Round 22 - FMCG Autocomplete, YOLO Fine-tuning, Scan Location
-- [ ] FMCG taxonomy searchHints wired into VisualInventory scan form autocomplete
-- [ ] Scan Location field added to VisualInventory (shelf/aisle/store)
-- [ ] Label Studio task grouping by scan location
-- [ ] Python YOLO fine-tuning script (finetune.py) for active learning loop
-- [ ] Fine-tuning script: pull corrections from DB, download S3 images, build YOLO dataset YAML
-- [ ] Fine-tuning script: run yolo train with Nigerian FMCG dataset
-- [ ] 241+ tests passing, 0 TypeScript errors
+- [x] FMCG taxonomy searchHints wired into VisualInventory scan form autocomplete
+- [x] Scan Location field added to VisualInventory (shelf/aisle/store)
+- [x] Label Studio task grouping by scan location
+- [x] Python YOLO fine-tuning script (finetune.py) for active learning loop
+- [x] Fine-tuning script: pull corrections from DB, download S3 images, build YOLO dataset YAML
+- [x] Fine-tuning script: run yolo train with Nigerian FMCG dataset
+- [x] 241+ tests passing, 0 TypeScript errors
 
 ## Round 22 - FMCG Autocomplete, YOLO Fine-tuning, Scan Location
 - [x] Wire FMCG taxonomy searchHints into VisualInventory scan form (autocomplete dropdown)
@@ -801,3 +801,19 @@
 - [x] Active learning pipeline: DB corrections → YOLO dataset → fine-tune → deploy
 - [x] Label Studio export: filterByLocation and groupByLocation options
 - [x] LabelStudioPipe UI: location filter input + group-by-location checkbox
+
+## Round 23 - Inline Corrections, Scheduled Fine-tuning, Scan Stats, Synthetic Data
+- [ ] Inline count correction in scan history bounding-box overlay
+- [ ] Scheduled fine-tuning heartbeat job (weekly, ≥50 corrections threshold)
+- [ ] Scan Statistics accuracy dashboard (per-location, AI vs corrected, heatmap)
+- [ ] Synthetic data pipeline (SD/SDXL + GroundingDINO zero-shot labelling)
+- [ ] SOTA research: synthetic vs manual labelling for Nigerian FMCG
+
+## Round 23 - Completed
+- [x] Inline count correction in scan history bounding-box overlay (edit quantities directly in history tab)
+- [x] Weekly fine-tuning heartbeat job (checks ≥50 corrections, triggers finetune.py via GPU server)
+- [x] Scan Statistics accuracy dashboard (/scan-stats) with per-location accuracy, product heatmap, daily trend
+- [x] Synthetic data pipeline: zero_shot_labeller.py (GroundingDINO + Ollama VLM fallback)
+- [x] Cut-paste augmentor (cutpaste_augmentor.py) for generating synthetic YOLO training data
+- [x] SDXL background generator (sdxl_background_gen.py) for Nigerian market scenes
+- [x] ScanStatsDashboard page wired into App.tsx and DashboardLayout nav
