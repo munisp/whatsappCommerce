@@ -207,6 +207,25 @@ export const productImagesRouter = router({
       return { uploaded: results.length, failed: errors.length, errors, results };
     }),
 
+  // Update bounding box annotation for an image
+  updateBbox: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      bbox: z.object({
+        x: z.number().min(0).max(1),
+        y: z.number().min(0).max(1),
+        w: z.number().min(0).max(1),
+        h: z.number().min(0).max(1),
+      }).nullable(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      await db.update(productImageCollections)
+        .set({ bbox: input.bbox })
+        .where(eq(productImageCollections.id, input.id));
+      return { success: true };
+    }),
+
   // Rate image quality
   rateImage: protectedProcedure
     .input(z.object({ id: z.string(), qualityScore: z.number().min(1).max(5) }))

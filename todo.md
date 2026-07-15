@@ -851,3 +851,10 @@
 - [x] Auto-quality score on upload: call Florence-2 VLM /detect, map confidence 0-1 to 1-5 stars, pre-fill qualityScore (falls back gracefully if VLM offline)
 - [x] YOLO label export ZIP: GET /api/finetune/export-yolo — generates per-class YOLO .txt label files (class_id 0.5 0.5 1.0 1.0), classes.txt, manifest.json in a zip
 - [x] ProductImageCollector: Run History panel (toggle button), Export YOLO Labels button, History, FileArchive icons
+
+## Round 28 (2026-07-15)
+  - [x] Add bbox column (jsonb: {x,y,w,h} normalized 0-1) to product_image_collections, migrate DB
+  - [x] tRPC updateBbox procedure on productImages router
+  - [x] Heartbeat scheduled nightly fine-tune job (02:00 UTC, triggers when dataset grew ≥10 images since last run)
+  - [x] Run history log drawer: expandable per-row log viewer in Run History panel showing logSnapshot
+  - [x] YOLO bbox annotation editor: canvas drawing tool on image detail view, stores bbox, uses bbox in YOLO export
