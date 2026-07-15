@@ -106,6 +106,7 @@ export default function EscrowDashboard() {
       disputeWindowHours: String(config.disputeWindowHours),
       autoConfirmEnabled: config.autoConfirmEnabled,
       floatYieldRate: config.floatYieldRate,
+      minScanConfidence: String(Math.round(parseFloat(String((config as any).minScanConfidence ?? "0.6")) * 100)),
     });
     setConfigEditing(true);
   }
@@ -121,6 +122,7 @@ export default function EscrowDashboard() {
       disputeWindowHours: parseInt(cfgForm.disputeWindowHours as string),
       autoConfirmEnabled: cfgForm.autoConfirmEnabled as boolean,
       floatYieldRate: cfgForm.floatYieldRate as string,
+      minScanConfidence: String(parseInt(cfgForm.minScanConfidence as string) / 100),
     });
   }
 
@@ -370,6 +372,28 @@ export default function EscrowDashboard() {
                     ) : (
                       <p className="font-medium">{(parseFloat(config?.floatYieldRate ?? "0") * 100).toFixed(1)}% p.a.</p>
                     )}
+                  </div>
+                  {/* AI Scan Confidence Threshold */}
+                  <div className="space-y-1 md:col-span-2">
+                    <Label className="text-xs text-muted-foreground">Min. AI Scan Confidence — Evidence Portal</Label>
+                    {configEditing ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number" min="0" max="100"
+                          value={cfgForm.minScanConfidence as string}
+                          onChange={(e) => setCfgForm(p => ({ ...p, minScanConfidence: e.target.value }))}
+                          className="w-24"
+                        />
+                        <span className="text-sm text-muted-foreground">% — set to 0 to disable blocking</span>
+                      </div>
+                    ) : (
+                      <p className="font-medium">
+                        {(config as any)?.minScanConfidence && parseFloat(String((config as any).minScanConfidence)) > 0
+                          ? `${Math.round(parseFloat(String((config as any).minScanConfidence)) * 100)}% minimum clarity required`
+                          : "Disabled (all images accepted)"}
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">Evidence images below this AI clarity score will be blocked from submission on the dispute evidence portal.</p>
                   </div>
                   {/* Bank Partner (PSSP mode) */}
                   {(configEditing ? cfgForm.custodyMode === "pssp" : config?.custodyMode === "pssp") && (

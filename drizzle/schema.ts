@@ -1108,6 +1108,8 @@ export const escrowConfig = pgTable("escrow_config", {
   autoConfirmEnabled: boolean("auto_confirm_enabled").default(true).notNull(),
   // PSP mode: float income
   floatYieldRate: numeric("float_yield_rate", { precision: 6, scale: 4 }).default("0.08").notNull(),
+  // Evidence scan
+  minScanConfidence: numeric("min_scan_confidence", { precision: 4, scale: 2 }).default("0.70").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

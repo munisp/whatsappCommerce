@@ -468,3 +468,9 @@
 - [x] Frontend: "Resume Onboarding" widget on PortalDashboard
 - [x] Frontend: "Request SLA Extension" button and dialog on EscrowDashboard
 - [x] Frontend: Buyer SLA extension response page (/sla-extension/:token)
+
+## Next Steps (Round 4)
+- [x] WhatsApp SLA extension notification to buyer with response link
+- [x] Onboarding funnel analytics chart on admin dashboard
+- [x] Configurable AI scan confidence threshold in Escrow Config
+- [x] Confidence threshold enforced in evidence portal submission

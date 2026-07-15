@@ -143,6 +143,7 @@ export const escrowRouter = router({
       disputeWindowHours: z.number().optional(),
       autoConfirmEnabled: z.boolean().optional(),
       floatYieldRate: z.string().optional(),
+      minScanConfidence: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();

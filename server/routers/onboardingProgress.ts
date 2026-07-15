@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { merchantOnboardingProgress } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { eq, count } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
 
@@ -107,5 +107,37 @@ export const onboardingProgressRouter = router({
       .where(eq(merchantOnboardingProgress.tenantId, tenantId));
 
     return { success: true };
+  }),
+
+  // Admin: funnel analytics — how many tenants are at each step
+  getFunnelAnalytics: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+    const rows = await db
+      .select({
+        currentStep: merchantOnboardingProgress.currentStep,
+        isCompleted: merchantOnboardingProgress.isCompleted,
+        cnt: count(),
+      })
+      .from(merchantOnboardingProgress)
+      .groupBy(merchantOnboardingProgress.currentStep, merchantOnboardingProgress.isCompleted);
+    const STEP_LABELS = ["WhatsApp Setup", "Add Products", "Delivery Zones", "SLA Config", "Review"];
+    const stepMap: Record<number, number> = {};
+    let completedCount = 0;
+    for (const row of rows) {
+      if (row.isCompleted) {
+        completedCount += Number(row.cnt);
+      } else {
+        stepMap[row.currentStep] = (stepMap[row.currentStep] ?? 0) + Number(row.cnt);
+      }
+    }
+    const totalStarted = rows.reduce((s, r) => s + Number(r.cnt), 0);
+    const funnel = STEP_LABELS.map((label, idx) => ({
+      step: idx,
+      label,
+      count: stepMap[idx] ?? 0,
+      dropOff: idx === 0 ? 0 : Math.max(0, (stepMap[idx - 1] ?? 0) - (stepMap[idx] ?? 0)),
+    }));
+    return { funnel, completedCount, totalStarted, completionRate: totalStarted > 0 ? Math.round((completedCount / totalStarted) * 100) : 0 };
   }),
 });

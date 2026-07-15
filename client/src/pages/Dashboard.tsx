@@ -3,7 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
-import { AlertTriangle, Building2, Bot, MessageSquare, ShoppingCart, TrendingUp, Users } from "lucide-react";
+import { AlertTriangle, Building2, Bot, MessageSquare, ShoppingCart, TrendingUp, Users, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useLocation } from "wouter";
 
@@ -154,7 +154,69 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* Onboarding Funnel Analytics */}
+        <Card className="bg-card border-border">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Merchant Onboarding Funnel</CardTitle>
+              {funnelData && (
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span>{funnelData.totalStarted} started</span>
+                  <span className="flex items-center gap-1 text-green-400">
+                    <CheckCircle2 className="w-3 h-3" />
+                    {funnelData.completedCount} completed ({funnelData.completionRate}%)
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!funnelData || funnelData.totalStarted === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                No onboarding data yet. Funnel will populate as merchants start the wizard.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {funnelData.funnel.map((step, idx) => {
+                  const maxCount = Math.max(...funnelData.funnel.map((s) => s.count), 1);
+                  const pct = Math.round((step.count / maxCount) * 100);
+                  const colors = ["oklch(0.65 0.18 250)", "oklch(0.65 0.18 220)", "oklch(0.65 0.18 190)", "oklch(0.65 0.18 160)", "oklch(0.65 0.18 130)"];
+                  return (
+                    <div key={step.step} className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground w-32 shrink-0">Step {idx + 1}: {step.label}</span>
+                      <div className="flex-1 h-6 bg-accent/20 rounded overflow-hidden">
+                        <div
+                          className="h-full rounded transition-all duration-500 flex items-center px-2"
+                          style={{ width: `${Math.max(pct, 4)}%`, background: colors[idx] }}
+                        >
+                          <span className="text-xs font-medium text-white">{step.count}</span>
+                        </div>
+                      </div>
+                      {step.dropOff > 0 && (
+                        <span className="text-xs text-red-400 w-20 shrink-0">-{step.dropOff} drop</span>
+                      )}
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-border">
+                  <span className="text-xs text-muted-foreground w-32 shrink-0">Completed</span>
+                  <div className="flex-1 h-6 bg-accent/20 rounded overflow-hidden">
+                    <div
+                      className="h-full rounded flex items-center px-2"
+                      style={{ width: `${Math.max(funnelData.completionRate, 4)}%`, background: "oklch(0.65 0.18 130)" }}
+                    >
+                      <span className="text-xs font-medium text-white">{funnelData.completedCount}</span>
+                    </div>
+                  </div>
+                  <span className="text-xs text-green-400 w-20 shrink-0">{funnelData.completionRate}% rate</span>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </DashboardLayout>
   );
 }
+  const { data: funnelData } = trpc.onboardingProgress.getFunnelAnalytics.useQuery();

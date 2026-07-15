@@ -80,12 +80,24 @@ export const slaExtensionRouter = router({
       }).catch(() => {});
 
       const buyerUrl = `/sla-extension/${buyerToken}`;
+      // Send WhatsApp notification to buyer if phone provided
+      let whatsappSent = false;
+      const buyerPhone = input.buyerPhone ?? null;
+      if (buyerPhone) {
+        const { ENV } = await import("../_core/env");
+        const appUrl = ENV.appUrl ?? "http://localhost:3000";
+        const fullUrl = `${appUrl}/sla-extension/${buyerToken}`;
+        const waMsg = `Hello! The merchant has requested a ${input.extensionHours}-hour delivery extension for your order${escrow.orderId ? ` (${escrow.orderId.slice(0, 8)})` : ""}.\n\nReason: ${input.reason ?? "Not specified"}\n\nPlease click the link below to approve or reject:\n${fullUrl}\n\nThis link expires in 48 hours.`;
+        const result = await sendWhatsAppSLA(buyerPhone, waMsg);
+        whatsappSent = result.sent;
+      }
       return {
         success: true,
         extensionId: id,
         buyerToken,
         buyerUrl,
         expiresAt,
+        whatsappSent,
         message: `Extension request created. Share this link with the buyer: ${buyerUrl}`,
       };
     }),
@@ -237,3 +249,29 @@ export const slaExtensionRouter = router({
     }),
 });
 
+// ── WhatsApp helper ───────────────────────────────────────────────────────────
+async function sendWhatsAppSLA(phone: string, message: string): Promise<{ sent: boolean; error?: string }> {
+  const { ENV } = await import("../_core/env");
+  if (!ENV.waToken || !ENV.waPhoneNumberId) {
+    return { sent: false, error: "WhatsApp credentials not configured" };
+  }
+  const normalized = phone.startsWith("+") ? phone : `+234${phone.replace(/^0/, "")}`;
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/${ENV.waPhoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ENV.waToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: normalized,
+          type: "text",
+          text: { body: message },
+        }),
+      }
+    );
+    return res.ok ? { sent: true } : { sent: false, error: `HTTP ${res.status}` };
+  } catch (e: any) {
+    return { sent: false, error: e.message };
+  }
+}
