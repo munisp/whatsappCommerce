@@ -422,12 +422,12 @@
 - [x] Wallet nav item added to TenantPortalLayout sidebar
 
 ## Enhancement: Date Range CSV, Timeline Attachments, Notification Filters (v4)
-- [ ] Backend: wallet.exportLedgerCsv accepts optional startDate/endDate for date-range filtering
-- [ ] Backend: escrow_timeline_attachments table (id, escrowId, eventId, type: doc|note, fileUrl, fileKey, filename, mimeType, note, uploadedBy, createdAt)
-- [ ] Backend: escrow.addTimelineAttachment mutation (upload to S3, record in DB)
-- [ ] Backend: escrow.getTimeline includes attachments per event
-- [ ] Backend: notifications.list accepts optional type filter (payments|logistics|disputes|all)
-- [ ] Frontend: Date range picker dialog on MerchantWallet CSV export (shadcn Calendar, start/end)
-- [ ] Frontend: EscrowTimeline attachment panel per event (upload button, note input, list of existing attachments)
-- [ ] Frontend: NotificationCenter filter tabs (All / Payments / Logistics / Disputes)
-- [ ] Tests: date range CSV, attachment upload, notification filter
+- [x] Backend: wallet.exportLedgerCsv accepts optional startDate/endDate for date-range filtering
+- [x] Backend: escrow_timeline_attachments table (id, escrowId, eventId, type: doc|note, fileUrl, fileKey, filename, mimeType, note, uploadedBy, createdAt)
+- [x] Backend: escrow.addTimelineAttachment mutation (upload to S3, record in DB)
+- [x] Backend: escrow.getTimeline includes attachments per event
+- [x] Backend: notifications.list accepts optional type filter (payments|logistics|disputes|all)
+- [x] Frontend: Date range picker dialog on MerchantWallet CSV export (shadcn Calendar, start/end)
+- [x] Frontend: EscrowTimeline attachment panel per event (upload button, note input, list of existing attachments)
+- [x] Frontend: NotificationCenter filter tabs (All / Payments / Logistics / Disputes)
+- [x] Tests: date range CSV, attachment upload, notification filter
