@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 
 const DEMO_TENANTS = [
@@ -45,9 +46,16 @@ export default function NLPSimulator() {
   const [isSyncing, setIsSyncing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  const { user } = useAuth();
   const processMessage = trpc.nlp.processMessage.useMutation();
   const resetSession = trpc.nlp.resetSession.useMutation();
   const { data: session } = trpc.nlp.getSession.useQuery({ tenantId, waPhoneNumber: phone });
+  const queueOfflineMutation = trpc.nlp.queueOfflineMessage.useMutation();
+  const syncOfflineMutation = trpc.nlp.syncOfflineQueue.useMutation();
+  const { data: dbQueueCount, refetch: refetchQueueCount } = trpc.nlp.getOfflineQueueCount.useQuery(
+    { sessionId: session?.id ?? "" },
+    { enabled: !!session?.id && !!user }
+  );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -60,6 +68,17 @@ export default function NLPSimulator() {
       toast.error("No connection — message queued for retry when signal restores.");
       setOfflineQueue(prev => [...prev, msg]);
       setMessages(prev => [...prev, { role: "user", content: msg + " ⏳", timestamp: new Date() }]);
+      // Persist to DB if session and user are available
+      if (session?.id && user) {
+        queueOfflineMutation.mutate({
+          sessionId: session.id,
+          tenantId,
+          waPhoneNumber: phone,
+          message: msg,
+          direction: "inbound",
+        });
+        refetchQueueCount();
+      }
       return;
     }
   // Replay queued messages when coming back online
@@ -92,8 +111,13 @@ export default function NLPSimulator() {
     }
     setIsSyncing(false);
     setOfflineQueue([]);
+    // Mark all DB-persisted queued messages as delivered
+    if (session?.id && user) {
+      syncOfflineMutation.mutate({ sessionId: session.id, waPhoneNumber: phone });
+      refetchQueueCount();
+    }
     toast.success(`${queue.length} queued message${queue.length > 1 ? "s" : ""} delivered!`);
-  }, [processMessage, tenantId, phone, ussdMode]);
+  }, [processMessage, tenantId, phone, ussdMode, session, user, syncOfflineMutation, refetchQueueCount]);
 
   // When network quality changes from offline → online, replay the queue
   const prevNetworkRef = useRef<"good" | "2g" | "offline">("good");
@@ -241,13 +265,13 @@ export default function NLPSimulator() {
         </div>
       )}
       {/* Offline queue badge */}
-      {offlineQueue.length > 0 && networkQuality === "offline" && (
+      {(offlineQueue.length > 0 || (dbQueueCount?.count ?? 0) > 0) && networkQuality === "offline" && (
         <div className="flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 rounded-lg px-3 py-2">
           <CloudOff className="w-3.5 h-3.5 text-orange-400 shrink-0" />
           <p className="text-xs text-orange-300 flex-1">
-            <strong>{offlineQueue.length} message{offlineQueue.length > 1 ? "s" : ""} queued</strong> — will be delivered when connection restores.
+            <strong>{Math.max(offlineQueue.length, dbQueueCount?.count ?? 0)} message{Math.max(offlineQueue.length, dbQueueCount?.count ?? 0) !== 1 ? "s" : ""} queued</strong> — persisted to DB, will be delivered when connection restores.
           </p>
-          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold">{offlineQueue.length}</span>
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold">{Math.max(offlineQueue.length, dbQueueCount?.count ?? 0)}</span>
         </div>
       )}
       {/* Sync replay animation */}

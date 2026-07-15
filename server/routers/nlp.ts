@@ -393,6 +393,7 @@ export const nlpRouter = router({
         state: llmResult.nextState,
         language: session.language,
         sessionId: session.id,
+        confidence: llmResult.confidence ?? 0,
       };
     }),
 

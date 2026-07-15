@@ -26,6 +26,7 @@ export const ENV = {
   // WhatsApp
   waToken: process.env.WHATSAPP_TOKEN ?? "",
   waPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
+  waAppSecret: process.env.WHATSAPP_APP_SECRET ?? "",
   // Payment gateways
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
   flwSecretKey: process.env.FLW_SECRET_KEY ?? "",

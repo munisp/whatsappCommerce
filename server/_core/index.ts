@@ -488,11 +488,22 @@ async function startServer() {
     return res.status(403).json({ error: "Forbidden" });
   });
   // POST: incoming messages and media from Meta
-  app.post("/api/webhooks/whatsapp", express.json(), async (req, res) => {
+  app.post("/api/webhooks/whatsapp", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
-      const body = req.body ?? {};
+      // ── HMAC-SHA256 signature verification ────────────────────────────────
+      const rawBody = req.body as Buffer;
+      const appSecret = process.env.WHATSAPP_APP_SECRET ?? "";
+      if (appSecret) {
+        const sig = (req.headers["x-hub-signature-256"] as string ?? "").replace("sha256=", "");
+        const expected = crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
+        if (sig !== expected) {
+          console.warn("[whatsapp-webhook] Invalid HMAC signature — request rejected");
+          return res.status(401).json({ error: "invalid-signature" });
+        }
+      }
+      const body = JSON.parse(rawBody.toString());
       // Acknowledge immediately (Meta requires 200 within 20s)
       res.status(200).json({ received: true });
       // Parse the Meta webhook payload
@@ -741,7 +752,61 @@ async function startServer() {
     }
   });
 
-  app.use(
+  // ── WhatsApp media download heartbeat ────────────────────────────────────
+  // Runs every 5 minutes; fetches media from Meta Graph API and uploads to S3.
+  // After deploy: manus-heartbeat create --name wa-media-download --cron "0 */5 * * * *" --path /api/scheduled/wa-media-download
+  app.post("/api/scheduled/wa-media-download", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const waToken = process.env.WHATSAPP_TOKEN ?? "";
+      if (!waToken) return res.json({ ok: true, skipped: "WHATSAPP_TOKEN not configured" });
+      // Find media files that still have the placeholder storageKey (wa-media/<mediaId>)
+      const pending = await db.select().from(whatsappMediaFiles)
+        .where(sql`"storageKey" LIKE 'wa-media/%'`)
+        .limit(20);
+      let downloaded = 0;
+      let failed = 0;
+      for (const media of pending) {
+        try {
+          const mediaId = media.storageKey.replace("wa-media/", "");
+          // Step 1: Get download URL from Meta
+          const metaResp = await fetch(`https://graph.facebook.com/v18.0/${mediaId}`, {
+            headers: { Authorization: `Bearer ${waToken}` },
+          });
+          if (!metaResp.ok) { failed++; continue; }
+          const metaData = await metaResp.json() as { url?: string; mime_type?: string };
+          if (!metaData.url) { failed++; continue; }
+          // Step 2: Download the actual media bytes
+          const mediaResp = await fetch(metaData.url, {
+            headers: { Authorization: `Bearer ${waToken}` },
+          });
+          if (!mediaResp.ok) { failed++; continue; }
+          const buf = Buffer.from(await mediaResp.arrayBuffer());
+          // Step 3: Upload to S3
+          const ext = (media.fileName.split(".").pop() ?? "bin").toLowerCase();
+          const s3Key = `whatsapp-media/${media.tenantId}/${media.id}.${ext}`;
+          const { storagePut: sput } = await import("../storage");
+          const { url: s3Url } = await sput(s3Key, buf, media.mimeType);
+          // Step 4: Update the record
+          await db.update(whatsappMediaFiles)
+            .set({ storageKey: s3Key, storageUrl: s3Url })
+            .where(eq(whatsappMediaFiles.id, media.id));
+          downloaded++;
+        } catch (e: any) {
+          console.error("[wa-media-download] media", media.id, e?.message);
+          failed++;
+        }
+      }
+      return res.json({ ok: true, downloaded, failed, pending: pending.length });
+    } catch (err: any) {
+      console.error("[wa-media-download]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+    app.use(
     "/api/trpc",
     createExpressMiddleware({
       router: appRouter,

@@ -597,3 +597,9 @@
 - [x] Frontend: NLP Simulator offline message queue badge + replay animation + summary card
 - [x] Frontend: airtime shortcode display in conversation payment messages
 - [x] Frontend: webhook status indicator on Service Health page
+
+## Round 13 — Webhook HMAC validation, media download worker, offline queue persistence
+- [x] Backend: HMAC-SHA256 signature verification on POST /api/webhooks/whatsapp (X-Hub-Signature-256 header, WHATSAPP_APP_SECRET env var)
+- [x] Backend: heartbeat job /api/scheduled/wa-media-download — fetch queued media from Meta Graph API, upload to S3, update whatsapp_media_files
+- [x] Backend: wire queueOfflineMessage / syncOfflineQueue / getOfflineQueueCount to offline_message_queue DB table (already fully wired in nlp.ts)
+- [x] Frontend: NLPSimulator offline queue persisted via tRPC queueOfflineMessage on send, syncOfflineQueue on reconnect, getOfflineQueueCount for badge
