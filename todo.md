@@ -922,9 +922,9 @@
 
 ## Round 35
 - [x] Register three ML Ops heartbeat crons in server/_core/heartbeat.ts
-- [ ] Update Deploy Checklist with heartbeat activation commands
-- [ ] Build tenant analytics dashboard page (/tenant-analytics)
-- [ ] Add tRPC procedures for tenant GMV, orders, top products, retention
-- [ ] Add delivery_status column to whatsapp_messages table (schema + migration)
-- [ ] Handle Meta webhook status callbacks (sent/delivered/read/failed)
-- [ ] Add delivery rate metrics to Conversations page
+- [x] Update Deploy Checklist with heartbeat activation commands
+- [x] Build tenant analytics dashboard page (/tenant-analytics)
+- [x] Add tRPC procedures for tenant GMV, orders, top products, retention
+- [x] Add delivery_status column to whatsapp_messages table (schema + migration)
+- [x] Handle Meta webhook status callbacks (sent/delivered/read/failed)
+- [x] Add delivery rate metrics to Conversations page
