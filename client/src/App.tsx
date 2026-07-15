@@ -51,6 +51,7 @@ import PortalWallet from "./pages/portal/PortalWallet";
 import OnboardingWizard from "./pages/portal/OnboardingWizard";
 import EvidencePortal from "./pages/EvidencePortal";
 import MerchantAnalytics from "./pages/portal/MerchantAnalytics";
+import PortalBroadcasts from "./pages/portal/PortalBroadcasts";
 
 function Router() {
   return (
@@ -100,6 +101,7 @@ function Router() {
           <Route path="/portal/wallet" component={PortalWallet} />
           <Route path="/portal/setup" component={() => <OnboardingWizard onComplete={() => { window.location.href = "/portal"; }} />} />
           <Route path="/portal/analytics" component={MerchantAnalytics} />
+          <Route path="/portal/broadcasts" component={PortalBroadcasts} />
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
           <Route path="/sla-extension/:token" component={SlaExtensionResponse} />

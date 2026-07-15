@@ -191,6 +191,28 @@ export default function EscrowDashboard() {
     "release_instructed", "settled", "dispute_raised", "dispute_resolved", "refunded",
   ];
 
+  // Quick-filter chips: each chip sets the stateFilter AND selects all matching rows
+  const QUICK_FILTERS = [
+    { label: "All", state: "all", color: "bg-slate-100 text-slate-700 hover:bg-slate-200 border-slate-300" },
+    { label: "Held", state: "escrow_held", color: "bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-300" },
+    { label: "Disputed", state: "dispute_raised", color: "bg-red-100 text-red-700 hover:bg-red-200 border-red-300" },
+    { label: "Pending Release", state: "release_instructed", color: "bg-orange-100 text-orange-700 hover:bg-orange-200 border-orange-300" },
+    { label: "Settled", state: "settled", color: "bg-green-100 text-green-700 hover:bg-green-200 border-green-300" },
+    { label: "Refunded", state: "refunded", color: "bg-gray-100 text-gray-600 hover:bg-gray-200 border-gray-300" },
+  ] as const;
+
+  function applyQuickFilter(state: string) {
+    setStateFilter(state);
+    if (state === "all") {
+      setSelectedIds(new Set());
+    } else {
+      const matching = allItems
+        .filter(tx => tx.state === state && !["settled", "refunded", "expired"].includes(tx.state))
+        .map(tx => tx.id);
+      setSelectedIds(new Set(matching));
+    }
+  }
+
   const allItems = txList?.items ?? [];
   const selectableIds = useMemo(
     () => allItems.filter(tx => !["settled", "refunded", "expired"].includes(tx.state)).map(tx => tx.id),
@@ -261,6 +283,30 @@ export default function EscrowDashboard() {
 
           {/* Transactions Tab */}
           <TabsContent value="transactions" className="space-y-4">
+            {/* Quick-filter chips */}
+            <div className="flex flex-wrap gap-1.5">
+              {QUICK_FILTERS.map(({ label, state, color }) => {
+                const matchCount = state === "all"
+                  ? allItems.length
+                  : allItems.filter(tx => tx.state === state).length;
+                const isActive = stateFilter === state;
+                return (
+                  <button
+                    key={state}
+                    type="button"
+                    onClick={() => applyQuickFilter(state)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${color} ${
+                      isActive ? "ring-2 ring-offset-1 ring-primary font-semibold shadow-sm" : ""
+                    }`}
+                  >
+                    {label}
+                    <span className="inline-flex items-center justify-center rounded-full bg-black/10 px-1.5 min-w-[1.25rem] h-4 text-[10px] font-bold">
+                      {matchCount}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             <div className="flex items-center gap-3">
               <Label className="text-sm">Filter by state:</Label>
               <Select value={stateFilter} onValueChange={setStateFilter}>

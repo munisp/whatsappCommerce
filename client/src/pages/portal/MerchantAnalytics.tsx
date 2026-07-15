@@ -9,9 +9,22 @@ import { TenantPortalLayout } from "@/components/TenantPortalLayout";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
-import { TrendingUp, ShoppingCart, DollarSign, Package, BarChart3 } from "lucide-react";
+import { TrendingUp, ShoppingCart, DollarSign, Package, BarChart3, Download } from "lucide-react";
 
 type Period = "7d" | "30d" | "90d";
+
+/** Serialise rows to CSV and trigger a browser download */
+function downloadCsv(filename: string, rows: string[][]): void {
+  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const csv = rows.map(r => r.map(escape).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function fmt(n: number) {
   if (n >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
@@ -69,6 +82,43 @@ export default function MerchantAnalytics() {
             <h1 className="text-2xl font-bold">Analytics</h1>
             <p className="text-sm text-muted-foreground mt-1">{periodLabel}</p>
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={isLoading || !data}
+              onClick={() => {
+                if (!data) return;
+                const trendRows: string[][] = [
+                  ["Date", "GMV (NGN)", "Orders"],
+                  ...data.dailyTrend.map(r => [r.day, String(r.gmv), String(r.orderCount)]),
+                ];
+                const productRows: string[][] = [
+                  [],
+                  ["Product", "Revenue (NGN)", "Qty Sold", "Orders"],
+                  ...data.topProducts.map(p => [
+                    p.productName,
+                    String(p.totalRevenue),
+                    String(p.totalQuantity),
+                    String(p.orderCount),
+                  ]),
+                ];
+                const summaryRows: string[][] = [
+                  [],
+                  ["Summary", "Value"],
+                  ["Period", periodLabel],
+                  ["Total GMV (NGN)", String(data.summary.totalGmv)],
+                  ["Total Orders", String(data.summary.totalOrders)],
+                  ["Avg Order Value (NGN)", data.summary.aov.toFixed(2)],
+                ];
+                const dateStr = new Date().toISOString().slice(0, 10);
+                downloadCsv(`analytics_${period}_${dateStr}.csv`, [...trendRows, ...productRows, ...summaryRows]);
+              }}
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </Button>
           <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
             <SelectTrigger className="w-40">
               <SelectValue />
@@ -79,6 +129,7 @@ export default function MerchantAnalytics() {
               <SelectItem value="90d">Last 90 days</SelectItem>
             </SelectContent>
           </Select>
+          </div>
         </div>
 
         {/* KPI Cards */}

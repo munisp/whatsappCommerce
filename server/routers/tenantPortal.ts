@@ -6,8 +6,9 @@ import {
   tenants, products, orders, conversations, customers,
   invoices, paymentTransactions, paymentGatewayConfigs,
   orderItems,
+  operatorTemplates,
 } from "../../drizzle/schema";
-import { eq, and, desc, count, sum, gte, lte, sql } from "drizzle-orm";
+import { eq, and, desc, count, sum, gte, lte, sql, ilike } from "drizzle-orm";
 
 // Guard: user must have a tenantId in their session (set during onboarding)
 const tenantScopedProcedure = protectedProcedure.use(async ({ ctx, next }) => {
@@ -289,5 +290,26 @@ export const tenantPortalRouter = router({
           orderCount: Number(p.orderCount),
         })),
       };
+    }),
+
+  // ── Approved Operator Templates (for merchant broadcast use) ─────────────
+  listApprovedTemplates: tenantScopedProcedure
+    .input(z.object({
+      category: z.enum(["transactional", "marketing", "utility", "authentication", "custom", "all"]).default("all"),
+      search: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { items: [], total: 0 };
+      const conditions: any[] = [eq(operatorTemplates.isActive, true)];
+      if (input.search) conditions.push(ilike(operatorTemplates.name, `%${input.search}%`));
+      if (input.category !== "all") conditions.push(eq(operatorTemplates.category, input.category));
+      const items = await db
+        .select()
+        .from(operatorTemplates)
+        .where(and(...conditions))
+        .orderBy(desc(operatorTemplates.createdAt))
+        .limit(100);
+      return { items, total: items.length };
     }),
 });

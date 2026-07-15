@@ -499,3 +499,21 @@
 - [x] Backend: operatorTemplates router (list, getById, create, update, toggleActive, delete)
 - [x] Frontend: /operator-templates admin page with template grid, create/edit dialog, live WhatsApp-style preview
 - [x] Frontend: Added "Msg Templates" nav item to DashboardLayout Platform section
+
+## Round 6: Template Wiring, CSV Export, Escrow Filter Chips
+
+### Operator Templates → Portal Broadcasts
+- [x] Backend: tenantPortal.listApprovedTemplates procedure (returns active operator templates for merchant use)
+- [x] Frontend: Create /portal/broadcasts page with campaign list and create dialog
+- [x] Frontend: Template picker in create-campaign dialog uses operatorTemplates.list (activeOnly=true)
+- [x] Frontend: Live WhatsApp-style body preview when template is selected
+- [x] Frontend: Add "Broadcasts" nav item to TenantPortalLayout
+
+### CSV Export on Merchant Analytics
+- [x] Frontend: exportToCsv() helper that serialises dailyTrend + topProducts to CSV and triggers download
+- [x] Frontend: "Export CSV" button in MerchantAnalytics header (disabled when loading/no data)
+
+### Quick-Filter Chips on Escrow Dashboard
+- [x] Frontend: QUICK_FILTERS constant with label + state + color for key states (All, Held, Disputed, Pending Release, Settled)
+- [x] Frontend: Chip row above the transaction table; clicking a chip sets stateFilter and selects all matching rows
+- [x] Frontend: "Select matching" badge count on each chip showing how many rows match
