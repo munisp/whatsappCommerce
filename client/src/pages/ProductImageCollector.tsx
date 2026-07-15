@@ -17,6 +17,7 @@ import {
   History, FileArchive, Sparkles,
   ChevronDown, ChevronRight, Pencil
 } from "lucide-react";
+import { Database } from "lucide-react";
 
 // ── BboxEditor component ──────────────────────────────────────────────────────
 type Bbox = { x: number; y: number; w: number; h: number };
@@ -251,6 +252,32 @@ export default function ProductImageCollector() {
     onSuccess: () => { setBboxEditorImg(null); if (viewClass) refetchClassImages(); toast.success("Bounding box saved"); },
     onError: (e) => toast.error(`Failed to save bbox: ${e.message}`),
   });
+  const clearBboxMutation = trpc.productImages.clearClassBboxes.useMutation({
+    onSuccess: (d) => { if (viewClass) refetchClassImages(); refetchClasses(); toast.success(`Cleared all bboxes for ${d.className}`); },
+    onError: (e) => toast.error(`Failed to clear bboxes: ${e.message}`),
+  });
+  const { data: snapshots, refetch: refetchSnapshots } = trpc.datasetSnapshot.list.useQuery();
+  const snapshotMutation = trpc.datasetSnapshot.create.useMutation({
+    onSuccess: () => { refetchSnapshots(); toast.success("Dataset snapshot saved"); },
+    onError: (e) => toast.error(`Snapshot failed: ${e.message}`),
+  });
+  const [showSnapshotPanel, setShowSnapshotPanel] = useState(false);
+  const [snapshotLabel, setSnapshotLabel] = useState("");
+  const handleCreateSnapshot = () => {
+    if (!classes || !stats) return;
+    const classStats: Record<string, { total: number; bbox: number; quality: number }> = {};
+    for (const c of classes) {
+      classStats[c.className] = { total: c.totalImages, bbox: c.bboxImages ?? 0, quality: c.qualityImages ?? 0 };
+    }
+    snapshotMutation.mutate({
+      label: snapshotLabel || undefined,
+      totalImages: stats.totalImages,
+      bboxImages: stats.bboxImages,
+      qualityImages: classes.reduce((s, c) => s + (c.qualityImages ?? 0), 0),
+      classStats,
+    });
+    setSnapshotLabel("");
+  };
 
   const handleFileSelect = useCallback((file: File, src: "camera" | "upload") => {
     const reader = new FileReader();
@@ -418,6 +445,14 @@ export default function ProductImageCollector() {
             >
               <History className="w-4 h-4" />
               Run History
+            </Button>
+            <Button
+              onClick={() => setShowSnapshotPanel(!showSnapshotPanel)}
+              variant={showSnapshotPanel ? "default" : "outline"}
+              className="gap-2"
+            >
+              <Database className="w-4 h-4" />
+              Snapshots
             </Button>
           </div>
         </div>
@@ -731,6 +766,47 @@ export default function ProductImageCollector() {
           </Card>
         </div>
 
+        {/* Dataset Snapshot Panel */}
+        {showSnapshotPanel && (
+          <Card className="border-muted">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Database className="w-4 h-4 text-muted-foreground" />
+                Dataset Version Snapshots
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input placeholder="Snapshot label (optional, e.g. 'pre-training v1')" value={snapshotLabel}
+                  onChange={e => setSnapshotLabel(e.target.value)} className="flex-1 h-8 text-sm" />
+                <Button size="sm" onClick={handleCreateSnapshot} disabled={snapshotMutation.isPending || !stats}>
+                  {snapshotMutation.isPending ? "Saving..." : "Save Snapshot"}
+                </Button>
+              </div>
+              {!snapshots || snapshots.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No snapshots yet. Click Save Snapshot to record the current dataset state.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {snapshots.map(snap => (
+                    <div key={snap.id} className="rounded-lg border px-4 py-2.5 text-sm flex items-center justify-between gap-4">
+                      <div>
+                        <span className="font-medium">{snap.label ?? "Untitled snapshot"}</span>
+                        <span className="text-xs text-muted-foreground ml-2">{new Date(snap.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
+                        <span>{snap.totalImages} imgs</span>
+                        <span>{snap.bboxImages} bbox</span>
+                        <span>{snap.qualityImages} quality</span>
+                        <span className="text-muted-foreground/60">by {snap.createdBy}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         {/* Class Progress Grid */}
         <Card>
           <CardHeader>
@@ -776,6 +852,16 @@ export default function ProductImageCollector() {
                       )}
                     </span>
                   </div>
+                  {/* Bbox annotation progress bar */}
+                  {c.totalImages > 0 && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-orange-400 transition-all"
+                          style={{ width: `${Math.min(100, ((c.bboxImages ?? 0) / c.totalImages) * 100)}%` }} />
+                      </div>
+                      <span className="text-xs text-orange-500 shrink-0">{c.bboxImages ?? 0}/{c.totalImages} bbox</span>
+                    </div>
+                  )}
                 </button>
               ))}
               {displayedClasses.length === 0 && (
@@ -792,9 +878,19 @@ export default function ProductImageCollector() {
         {viewClass && classImages && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
+              <CardTitle className="text-base flex items-center justify-between">
                 {classes?.find(c => c.className === viewClass)?.displayName} — {classImages.length} images
               </CardTitle>
+              <Button size="sm" variant="outline" className="gap-1 h-7 text-xs text-red-600 hover:text-red-700"
+                onClick={() => {
+                  if (confirm(`Clear all bounding box annotations for ${viewClass}? This cannot be undone.`)) {
+                    clearBboxMutation.mutate({ className: viewClass });
+                  }
+                }}
+                disabled={clearBboxMutation.isPending}>
+                <Trash2 className="w-3 h-3" />
+                {clearBboxMutation.isPending ? "Clearing..." : "Clear All Bboxes"}
+              </Button>
             </CardHeader>
             <CardContent>
               {classImages.length === 0 ? (

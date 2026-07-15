@@ -863,3 +863,32 @@
   - [x] Bbox coverage KPI card: bboxImages count in listClasses/datasetStats, 5th KPI card on ProductImageCollector
   - [x] Annotation review mode: "Needs Bbox" filter button showing only images where bbox IS NULL
   - [x] YOLO export HTML preview: preview.html in ZIP with per-image canvas bbox overlays
+
+## Round 29 Next Steps (2026-07-15)
+- [x] Annotation progress bar per class card (orange bar: bboxImages/totalImages)
+- [x] Bulk bbox clear button in image gallery view (reset all bbox for selected class)
+- [x] Dataset version snapshots: dataset_snapshots table, Snapshot Dataset button, audit trail
+
+## Round 30 — Real AI/ML/DL/GNN Stack (2026-07-15)
+- [x] Nigerian synthetic data generator: realistic transaction patterns, fraud cases, credit profiles (services/ml/data_generator.py)
+- [x] PyTorch fraud detection GNN (GraphSAGE on transaction graph, services/ml/models/fraud_gnn.py)
+- [x] PyTorch credit scoring LSTM (time-series payment history, services/ml/models/credit_lstm.py)
+- [x] PyTorch product image CNN (MobileNetV3 fine-tune on FMCG classes, services/ml/models/product_cnn.py)
+- [x] Training loop scripts with proper train/val/test splits, early stopping, metrics logging
+- [x] Production DB to training data pipeline (extract from postgres, feature engineering, services/ml/pipeline.py)
+- [x] MLflow model registry integration (experiment tracking, model versioning, artifact storage)
+- [x] Ray distributed training orchestration (Ray Train + Ray Tune for HPO)
+- [x] Model A/B testing infrastructure: model_ab_tests DB table, traffic splitting, winner selection
+- [x] Drift detection: PSI/KS tests on feature distributions, performance degradation alerts
+- [x] Continuous training scheduler: Heartbeat job triggers retraining when drift detected or N new samples
+- [x] ML Ops dashboard page: model registry, experiment runs, drift metrics, A/B test results
+
+## Round 30 — Stakeholder Smoke Tests (2026-07-15)
+- [x] Platform Admin workflows: tenant CRUD, product management, broadcast, reconciliation, KYC review, billing
+- [x] Tenant Owner workflows: onboarding wizard, WhatsApp config, menu builder, template library, portal dashboard
+- [x] Tenant Agent workflows: conversation handling, order processing, escalation, NLP simulator
+- [x] Buyer workflows: WhatsApp menu navigation, cart, checkout, payment, order status, refund
+- [x] Analyst workflows: analytics dashboard, forecast, inventory sync, reconciliation report
+- [x] Cross-role RBAC: verify forbidden access returns 403 for all protected procedures
+- [x] Edge cases: empty states, invalid inputs, concurrent mutations, network errors
+- [x] Fix all gaps found during smoke test run

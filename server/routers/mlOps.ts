@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { paymentTransactions } from "../../drizzle/schema";
-import { desc, gte, sql } from "drizzle-orm";
+import { paymentTransactions, modelAbTests, datasetSnapshots } from "../../drizzle/schema";
+import { desc, gte, sql, eq } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { load as yamlLoad } from "js-yaml";
+import { spawn } from "child_process";
 
 const MLRUNS_DIR = path.join(process.cwd(), "services/ml-stack/mlruns");
 
@@ -298,5 +299,111 @@ export const mlOpsRouter = router({
         runNames: runs.slice(0, 5).map(r => r.runName),
         charts,
       };
+    }),
+  getDriftAlerts: protectedProcedure.query(async () => {
+    const driftLogPath = path.join(process.cwd(), "services/ml-stack/data/lakehouse/drift_log.json");
+    try {
+      const raw = fs.readFileSync(driftLogPath, "utf-8");
+      const alerts = JSON.parse(raw) as Array<{ model: string; feature: string; psi: number; threshold: number; isDrifted: boolean; computedAt: string }>;
+      return { alerts, critical: alerts.filter(a => a.isDrifted && a.psi > 0.2).length,
+               warning: alerts.filter(a => a.isDrifted && a.psi <= 0.2).length, total: alerts.length };
+    } catch { return { alerts: [], critical: 0, warning: 0, total: 0 }; }
+  }),
+});
+
+// ── DB-backed A/B Test Management ────────────────────────────────────────────
+export const mlAbTestRouter = router({
+  list: protectedProcedure
+    .input(z.object({ status: z.enum(["running", "concluded", "all"]).default("all") }).optional())
+    .query(async ({ input }) => {
+      const db = (await getDb())!;
+      const rows = await db.select().from(modelAbTests).orderBy(desc(modelAbTests.startedAt)).limit(50);
+      if (input?.status && input.status !== "all") return rows.filter(r => r.status === input.status);
+      return rows;
+    }),
+  create: protectedProcedure
+    .input(z.object({
+      modelName: z.string(),
+      championVersion: z.string(),
+      challengerVersion: z.string(),
+      trafficSplitPct: z.number().min(5).max(50).default(20),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [test] = await db.insert(modelAbTests).values({
+        modelName: input.modelName,
+        championVersion: input.championVersion,
+        challengerVersion: input.challengerVersion,
+        trafficSplitPct: input.trafficSplitPct,
+        status: "running",
+        notes: input.notes,
+      }).returning();
+      return test;
+    }),
+  conclude: protectedProcedure
+    .input(z.object({
+      id: z.string(),
+      winner: z.enum(["champion", "challenger"]),
+      championMetric: z.number().optional(),
+      challengerMetric: z.number().optional(),
+      pValue: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      const [test] = await db.update(modelAbTests)
+        .set({ status: "concluded", winner: input.winner, championMetric: input.championMetric,
+               challengerMetric: input.challengerMetric, pValue: input.pValue, concludedAt: new Date() })
+        .where(eq(modelAbTests.id, input.id)).returning();
+      return test;
+    }),
+  triggerRetrainingReal: protectedProcedure
+    .input(z.object({ modelName: z.string(), reason: z.string().optional(), dryRun: z.boolean().default(false) }))
+    .mutation(async ({ input }) => {
+      const scriptPath = path.join(process.cwd(), "services/ml-stack/training/continuous_trainer.py");
+      const args = ["--model", input.modelName];
+      if (input.dryRun) args.push("--dry-run");
+      if (input.reason) args.push("--reason", input.reason);
+      const jobId = `retrain-${input.modelName}-${Date.now()}`;
+      const child = spawn("python3", [scriptPath, ...args], {
+        detached: true, stdio: ["ignore", "ignore", "ignore"],
+        env: { ...process.env, MLFLOW_TRACKING_URI: "http://localhost:5000" },
+      });
+      child.unref();
+      return { ok: true, jobId, pid: child.pid,
+               message: `Retraining spawned for ${input.modelName}. Reason: ${input.reason ?? "manual"}`,
+               dryRun: input.dryRun };
+    }),
+});
+
+// ── Dataset Snapshots ─────────────────────────────────────────────────────────
+export const datasetSnapshotRouter = router({
+  list: protectedProcedure
+    .input(z.object({ limit: z.number().min(1).max(50).default(20) }).optional())
+    .query(async ({ input }) => {
+      const db = (await getDb())!;
+      return db.select().from(datasetSnapshots).orderBy(desc(datasetSnapshots.createdAt)).limit(input?.limit ?? 20);
+    }),
+  create: protectedProcedure
+    .input(z.object({
+      label: z.string().optional(),
+      totalImages: z.number(),
+      bboxImages: z.number(),
+      qualityImages: z.number(),
+      classStats: z.record(z.string(), z.object({ total: z.number(), bbox: z.number(), quality: z.number() })),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = (await getDb())!;
+      const [snap] = await db.insert(datasetSnapshots).values({
+        label: input.label,
+        totalImages: input.totalImages,
+        bboxImages: input.bboxImages,
+        qualityImages: input.qualityImages,
+        classStats: input.classStats as Record<string, { total: number; bbox: number; quality: number }>,
+        notes: input.notes,
+        createdBy: ctx.user?.name ?? "system",
+      }).returning();
+      return snap;
     }),
 });

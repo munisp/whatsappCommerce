@@ -275,6 +275,17 @@ export const productImagesRouter = router({
     };
   }),
 
+  // Bulk clear all bboxes for a given class (for re-annotation)
+  clearClassBboxes: protectedProcedure
+    .input(z.object({ className: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = (await getDb())!;
+      await db.update(productImageCollections)
+        .set({ bbox: null })
+        .where(eq(productImageCollections.className, input.className));
+      return { ok: true, className: input.className };
+    }),
+
   // Export dataset manifest (for synthetic pipeline)
   exportManifest: protectedProcedure.mutation(async () => {
     const db = (await getDb())!;

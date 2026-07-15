@@ -54,7 +54,6 @@ class LakehousePipeline:
                 tenant_id VARCHAR,
                 amount_ngn DOUBLE,
                 category VARCHAR,
-                state VARCHAR,
                 hour_of_day INTEGER,
                 day_of_week INTEGER,
                 is_weekend INTEGER,
@@ -131,10 +130,20 @@ class LakehousePipeline:
             df["tenant_id"] = "default"
         if "created_at" not in df.columns:
             df["created_at"] = datetime.now()
-
-        self.duck.execute(f"INSERT OR REPLACE INTO {table} SELECT * FROM df")
-        print(f"  Ingested {len(df)} rows into {table}")
-        return len(df)
+        # Select only the columns that exist in the warehouse schema
+        warehouse_cols = [
+            "transaction_id", "customer_id", "tenant_id", "amount_ngn",
+            "category", "hour_of_day", "day_of_week", "is_weekend",
+            "is_vpn", "is_tor", "is_fraud", "created_at",
+        ]
+        for col in warehouse_cols:
+            if col not in df.columns:
+                df[col] = 0 if col not in ("transaction_id", "customer_id", "tenant_id", "category") else "unknown"
+        df_insert = df[warehouse_cols].copy()
+        cols_str = ", ".join(warehouse_cols)
+        self.duck.execute(f"INSERT OR REPLACE INTO {table} ({cols_str}) SELECT {cols_str} FROM df_insert")
+        print(f"  Ingested {len(df_insert)} rows into {table}")
+        return len(df_insert)
 
     def compute_fraud_features(self, lookback_days: int = 30):
         """
@@ -272,4 +281,80 @@ class LakehousePipeline:
             print(f"  Delta snapshot: {len(df)} rows → {out_path}")
         return len(df)
 
+    def extract_from_postgres(self, days_back: int = 30) -> pd.DataFrame:
+        """
+        Pull real transaction data from the production PostgreSQL database.
+        Maps wallet_transactions → fraud feature schema.
+        Falls back to synthetic data if DB is empty or unreachable.
+        """
+        try:
+            import psycopg2
+            conn = psycopg2.connect(self.db_url)
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT
+                    wt.id::text AS transaction_id,
+                    wt.wallet_id::text AS customer_id,
+                    wt.tenant_id::text AS tenant_id,
+                    COALESCE(wt.amount, 0)::float AS amount_ngn,
+                    COALESCE(wt.type::text, 'unknown') AS category,
+                    EXTRACT(HOUR FROM wt.created_at)::int AS hour_of_day,
+                    EXTRACT(DOW FROM wt.created_at)::int AS day_of_week,
+                    CASE WHEN EXTRACT(DOW FROM wt.created_at) IN (0,6) THEN 1 ELSE 0 END AS is_weekend,
+                    0 AS is_vpn,
+                    0 AS is_tor,
+                    0 AS is_fraud,
+                    wt.created_at
+                FROM wallet_transactions wt
+                WHERE wt.created_at >= NOW() - INTERVAL '%s days'
+                ORDER BY wt.created_at DESC
+                LIMIT 50000
+            """, (days_back,))
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+            conn.close()
+            if len(rows) > 0:
+                df = pd.DataFrame(rows, columns=cols)
+                print(f"[Lakehouse] Extracted {len(df)} real transactions from production DB")
+                return df
+            else:
+                print("[Lakehouse] No production transactions found, using synthetic data")
+                return self._load_synthetic_fallback()
+        except Exception as e:
+            print(f"[Lakehouse] DB extraction failed ({e}), using synthetic data")
+            return self._load_synthetic_fallback()
 
+    def _load_synthetic_fallback(self) -> pd.DataFrame:
+        """Load synthetic training data as fallback when production DB is empty"""
+        parquet_path = Path(__file__).parent.parent / "data" / "generated" / "fraud_train.parquet"
+        if parquet_path.exists():
+            df = pd.read_parquet(parquet_path)
+            print(f"[Lakehouse] Loaded {len(df)} synthetic transactions as fallback")
+            return df
+        return pd.DataFrame()
+
+    def run_full_pipeline(self, days_back: int = 30) -> dict:
+        """
+        Run the complete ETL pipeline: extract → ingest → compute features → export snapshot.
+        Returns a summary dict with row counts and timing.
+        """
+        import time as _time
+        t0 = _time.time()
+        raw_df = self.extract_from_postgres(days_back=days_back)
+        n_raw = len(raw_df)
+        if n_raw > 0:
+            tmp_path = str(LAKEHOUSE_DIR / "raw_extract.parquet")
+            raw_df.to_parquet(tmp_path, index=False)
+            self.ingest_from_parquet(tmp_path, table="transactions_raw")
+        n_features = self.compute_fraud_features(lookback_days=days_back)
+        n_snapshot = self.export_delta_snapshot()
+        elapsed = round(_time.time() - t0, 2)
+        return {
+            "raw_rows": n_raw,
+            "feature_rows": n_features if isinstance(n_features, int) else 0,
+            "snapshot_rows": n_snapshot,
+            "elapsed_seconds": elapsed,
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+from typing import Optional, Tuple, List

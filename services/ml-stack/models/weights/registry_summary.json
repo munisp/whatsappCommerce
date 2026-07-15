@@ -1,0 +1,17 @@
+{
+  "registeredAt": "2026-07-15T20:38:58Z",
+  "models": [
+    {
+      "name": "fraud_detection_gnn_lstm",
+      "weightFile": "fraud_gnn_lstm.pt",
+      "auroc": 1.0,
+      "status": "registered"
+    },
+    {
+      "name": "credit_scoring_tabnet",
+      "weightFile": "credit_tabnet.pt",
+      "auroc": 1.0,
+      "status": "registered"
+    }
+  ]
+}
