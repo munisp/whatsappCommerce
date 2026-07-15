@@ -2,6 +2,9 @@ import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
+import { spawn } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
@@ -1045,6 +1048,52 @@ async function startServer() {
       createContext,
     })
   );
+  // ── Fine-tune SSE stream ──────────────────────────────────────────────────
+  // GET /api/finetune/stream — spawns finetune.py --dry-run and streams stdout/stderr as SSE
+  app.get("/api/finetune/stream", (req, res) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    const sendEvt = (event: string, data: string) => {
+      res.write(`event: ${event}\ndata: ${JSON.stringify({ message: data, ts: Date.now() })}\n\n`);
+    };
+
+    sendEvt("status", "Starting fine-tune pipeline...");
+
+    const scriptPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../services/visual-inventory/python-vlm/scripts/finetune.py"
+    );
+
+    const args = req.query.dryRun !== "false" ? [scriptPath, "--dry-run"] : [scriptPath];
+    const python = spawn("python3", args, {
+      env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    });
+
+    python.stdout.on("data", (chunk: Buffer) => {
+      chunk.toString().split("\n").filter(Boolean).forEach(line => sendEvt("log", line));
+    });
+
+    python.stderr.on("data", (chunk: Buffer) => {
+      chunk.toString().split("\n").filter(Boolean).forEach(line => sendEvt("log", `[stderr] ${line}`));
+    });
+
+    python.on("close", (code) => {
+      sendEvt("done", `Process exited with code ${code ?? 0}`);
+      res.end();
+    });
+
+    python.on("error", (err) => {
+      sendEvt("error", `Failed to start process: ${err.message}`);
+      res.end();
+    });
+
+    req.on("close", () => { python.kill("SIGTERM"); });
+  });
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

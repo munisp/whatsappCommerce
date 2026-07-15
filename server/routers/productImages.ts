@@ -3,6 +3,7 @@ import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { productImageCollections } from "../../drizzle/schema";
 import { eq, desc, count, sql } from "drizzle-orm";
+import { avg } from "drizzle-orm";
 import { storagePut } from "../storage";
 
 function getTenantId(ctx: { user: { tenantId?: string | null; id: number } }): string {
@@ -52,17 +53,26 @@ export const productImagesRouter = router({
         className: productImageCollections.className,
         count: count(),
         usedInTraining: sql<number>`SUM(CASE WHEN ${productImageCollections.usedInTraining} THEN 1 ELSE 0 END)`,
+        avgQuality: avg(productImageCollections.qualityScore),
+        qualityGatedCount: sql<number>`SUM(CASE WHEN COALESCE(${productImageCollections.qualityScore}, 0) >= 3 THEN 1 ELSE 0 END)`,
       })
       .from(productImageCollections)
       .groupBy(productImageCollections.className);
 
-    const countMap = Object.fromEntries(counts.map(c => [c.className, { total: Number(c.count), trained: Number(c.usedInTraining) }]));
+    const countMap = Object.fromEntries(counts.map(c => [c.className, {
+      total: Number(c.count),
+      trained: Number(c.usedInTraining),
+      avgQuality: c.avgQuality ? parseFloat(String(c.avgQuality)) : null,
+      qualityGated: Number(c.qualityGatedCount),
+    }]));
 
     return Object.entries(FMCG_CLASSES).map(([className, displayName]) => ({
       className,
       displayName,
       totalImages: countMap[className]?.total ?? 0,
       trainedImages: countMap[className]?.trained ?? 0,
+      avgQualityScore: countMap[className]?.avgQuality ?? null,
+      qualityImages: countMap[className]?.qualityGated ?? 0, // images with score >= 3
       isReady: (countMap[className]?.total ?? 0) >= 2,
     }));
   }),
