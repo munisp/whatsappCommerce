@@ -1,0 +1,23 @@
+artifact_path: /home/ubuntu/whatsapp-commerce/services/ml-stack/mlruns/1/models/m-d3864536cd60444e99e310f60a91de2d/artifacts
+flavors:
+  python_function:
+    config:
+      device: null
+    data: data
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.pytorch
+    pickle_module_name: mlflow.pytorch.pickle_module
+    python_version: 3.12.3
+  pytorch:
+    code: null
+    model_data: data
+    pytorch_version: 2.13.0+cpu
+mlflow_version: 3.14.0
+model_id: m-d3864536cd60444e99e310f60a91de2d
+model_size_bytes: 2542354
+model_uuid: m-d3864536cd60444e99e310f60a91de2d
+prompts: null
+run_id: 3ab1b6bc929044e5abd372eac6d752b9
+utc_time_created: '2026-07-15 20:37:12.629571'

@@ -2202,3 +2202,42 @@ export const finetuneRuns = pgTable("finetune_runs", {
   index("ft_runs_status_idx").on(t.status),
 ]);
 export type FinetuneRun = typeof finetuneRuns.$inferSelect;
+
+// ── Dataset Version Snapshots ─────────────────────────────────────────────────
+export const datasetSnapshots = pgTable("dataset_snapshots", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  createdBy: varchar("createdBy", { length: 128 }),
+  label: varchar("label", { length: 256 }),
+  totalImages: integer("totalImages").notNull(),
+  bboxImages: integer("bboxImages").notNull(),
+  qualityImages: integer("qualityImages").notNull(),
+  classStats: jsonb("classStats").$type<Record<string, { total: number; bbox: number; quality: number }>>().notNull(),
+  notes: text("notes"),
+}, (t) => [
+  index("ds_snap_created_idx").on(t.createdAt),
+]);
+export type DatasetSnapshot = typeof datasetSnapshots.$inferSelect;
+
+// ── Model A/B Tests ───────────────────────────────────────────────────────────
+export const modelAbTests = pgTable("model_ab_tests", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  modelName: varchar("modelName", { length: 128 }).notNull(),
+  championVersion: varchar("championVersion", { length: 128 }).notNull(),
+  challengerVersion: varchar("challengerVersion", { length: 128 }).notNull(),
+  trafficSplitPct: integer("trafficSplitPct").default(20).notNull(),
+  status: varchar("status", { length: 32 }).default("running").notNull(),
+  championRequests: integer("championRequests").default(0).notNull(),
+  challengerRequests: integer("challengerRequests").default(0).notNull(),
+  championMetric: real("championMetric"),
+  challengerMetric: real("challengerMetric"),
+  pValue: real("pValue"),
+  winner: varchar("winner", { length: 32 }),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  concludedAt: timestamp("concludedAt"),
+  notes: text("notes"),
+}, (t) => [
+  index("ab_model_idx").on(t.modelName),
+  index("ab_status_idx").on(t.status),
+]);
+export type ModelAbTest = typeof modelAbTests.$inferSelect;
