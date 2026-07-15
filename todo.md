@@ -697,16 +697,16 @@
 - [x] 241 tests passing, 0 TypeScript errors
 
 ## Round 17 — Deep Integration Sync
-- [ ] Medusa sync: wire NLP processOrder to create orders in Medusa via adapter
-- [ ] Medusa sync: pull Medusa product catalog into WhatsApp menu builder (syncMedusaCatalog procedure)
-- [ ] Medusa sync: sync status updates back from Medusa to platform orders table
-- [ ] Twenty CRM: auto-create/update contact on every new WhatsApp conversation
-- [ ] Twenty CRM: push order events as CRM activities (note/task) on order creation
-- [ ] Twenty CRM: sync router with getContact, upsertContact, createActivity procedures
-- [ ] Odoo ERP: heartbeat job /api/scheduled/odoo-inventory-sync pulling stock from Odoo product.product
-- [ ] Odoo ERP: update platform inventory table with Odoo stock levels
-- [ ] Odoo ERP: push new orders to Odoo as sale.order records
-- [ ] Frontend: sync status badges in NLP simulator, menu builder, inventory pages
+- [x] Medusa sync: wire NLP processOrder to create orders in Medusa via adapter
+- [x] Medusa sync: pull Medusa product catalog into WhatsApp menu builder (syncMedusaCatalog procedure)
+- [x] Medusa sync: sync status updates back from Medusa to platform orders table
+- [x] Twenty CRM: auto-create/update contact on every new WhatsApp conversation
+- [x] Twenty CRM: push order events as CRM activities (note/task) on order creation
+- [x] Twenty CRM: sync router with getContact, upsertContact, createActivity procedures
+- [x] Odoo ERP: heartbeat job /api/scheduled/odoo-inventory-sync pulling stock from Odoo product.product
+- [x] Odoo ERP: update platform inventory table with Odoo stock levels
+- [x] Odoo ERP: push new orders to Odoo as sale.order records
+- [x] Frontend: sync status badges in NLP simulator, menu builder, inventory pages
 
 ## Round 17 - Deep Integration Sync (Complete)
 - [x] integrationSync.ts service: syncOrderToMedusa, syncOrderToOdoo, syncContactToTwenty, syncActivityToTwenty, fetchOdooStockLevels, fetchMedusaCatalog
