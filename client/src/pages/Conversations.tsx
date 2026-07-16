@@ -9,6 +9,7 @@ import { formatDistanceToNow } from "date-fns";
 import { Bot, MessageSquare, Users, AlertTriangle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useConversationsWS } from "@/hooks/useConversationsWS";
+import ConversationTimeline from "@/components/ConversationTimeline";
 import { Button } from "@/components/ui/button";
 import { Wifi, WifiOff, Radio, X } from "lucide-react";
 
@@ -25,6 +26,8 @@ const statusColors: Record<string, string> = {
 export default function Conversations() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selectedConv, setSelectedConv] = useState<any>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
   const { data: stats } = trpc.conversation.stats.useQuery({ tenantId: DEMO_TENANT });
   const { data: convList, isLoading, refetch } = trpc.conversation.list.useQuery({
     tenantId: DEMO_TENANT,
@@ -165,7 +168,7 @@ export default function Conversations() {
                 ) : convList?.length === 0 ? (
                   <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No conversations found</TableCell></TableRow>
                 ) : convList?.map((c) => (
-                  <TableRow key={c.id} className="border-border hover:bg-accent/30">
+                  <TableRow key={c.id} className="border-border hover:bg-accent/30 cursor-pointer" onClick={() => { setSelectedConv(c as any); setTimelineOpen(true); }}>
                     <TableCell className="font-mono text-xs">{c.id.slice(0, 8)}...</TableCell>
                     <TableCell><Badge variant="outline" className={statusColors[c.status] ?? ""}>{c.status}</Badge></TableCell>
                     <TableCell className="text-muted-foreground text-xs">{c.channel}</TableCell>
@@ -228,6 +231,12 @@ export default function Conversations() {
           </Card>
         )}
       </div>
+      <ConversationTimeline
+        open={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        conversation={selectedConv as any}
+        tenantId={DEMO_TENANT}
+      />
     </DashboardLayout>
   );
 }

@@ -174,7 +174,36 @@ export async function getConversations(tenantId: string, status?: string, limit 
   if (!db) return [];
   const conditions = [eq(conversations.tenantId, tenantId)];
   if (status) conditions.push(eq(conversations.status, status as any));
-  return db.select().from(conversations).where(and(...conditions)).orderBy(desc(conversations.updatedAt)).limit(limit).offset(offset);
+  const rows = await db
+    .select({
+      id: conversations.id,
+      tenantId: conversations.tenantId,
+      customerId: conversations.customerId,
+      chatwootConversationId: conversations.chatwootConversationId,
+      status: conversations.status,
+      channel: conversations.channel,
+      assignedAgentId: conversations.assignedAgentId,
+      currentFlowStep: conversations.currentFlowStep,
+      lastIntent: conversations.lastIntent,
+      cartId: conversations.cartId,
+      messageCount: conversations.messageCount,
+      aiHandled: conversations.aiHandled,
+      escalatedAt: conversations.escalatedAt,
+      resolvedAt: conversations.resolvedAt,
+      firstResponseAt: conversations.firstResponseAt,
+      metadata: conversations.metadata,
+      createdAt: conversations.createdAt,
+      updatedAt: conversations.updatedAt,
+      customerPhone: customers.whatsappPhone,
+      customerName: customers.name,
+    })
+    .from(conversations)
+    .leftJoin(customers, eq(conversations.customerId, customers.id))
+    .where(and(...conditions))
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit)
+    .offset(offset);
+  return rows;
 }
 
 export async function getConversationStats(tenantId: string) {

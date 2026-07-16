@@ -933,3 +933,8 @@
 - [x] Add Tenant Analytics nav link to DashboardLayout sidebar
 - [x] Build /api/scheduled/delivery-summary heartbeat cron with owner notification
 - [x] Add delivery status badges to conversations table (latest outbound message status)
+
+## Round 37
+- [x] Add delivery-summary cron entry to Deploy Checklist page
+- [x] Enrich conversations query with customerPhone and customerName (join with customers table)
+- [x] Build per-conversation message timeline slide-over panel in Conversations page
