@@ -29,7 +29,7 @@ redis[asyncio]==5.2.1
 
 # Database
 asyncpg==0.30.0
-sqlalchemy[asyncio]==2.0.36
+sqlalchemy[asyncio]==2.0.51
 
 # Utilities
 python-jose[cryptography]==3.3.0
