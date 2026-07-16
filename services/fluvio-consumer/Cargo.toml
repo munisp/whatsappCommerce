@@ -26,7 +26,7 @@ dotenvy = "0.15"
 # HTTP server for health endpoint
 axum = { version = "0.7", features = ["json"] }
 # Fluvio client (feature-gated — only used when FLUVIO_ENDPOINT is set)
-fluvio = { version = "0.22", optional = true }
+fluvio = { version = "0.50", optional = true }
 
 [features]
 default = []
