@@ -938,3 +938,10 @@
 - [x] Add delivery-summary cron entry to Deploy Checklist page
 - [x] Enrich conversations query with customerPhone and customerName (join with customers table)
 - [x] Build per-conversation message timeline slide-over panel in Conversations page
+
+## Round 38
+- [x] Add sendMessage procedure to conversationRouter (sends outbound WA message)
+- [x] Add updateStatus procedure to conversationRouter (resolve/escalate)
+- [x] Add Reply input to ConversationTimeline panel
+- [x] Add Resolve/Escalate buttons to ConversationTimeline panel
+- [x] Add conversation search/filter by customer name/phone to Conversations page

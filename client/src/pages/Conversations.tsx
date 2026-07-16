@@ -3,10 +3,11 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
-import { Bot, MessageSquare, Users, AlertTriangle } from "lucide-react";
+import { Bot, MessageSquare, Users, AlertTriangle, Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useConversationsWS } from "@/hooks/useConversationsWS";
 import ConversationTimeline from "@/components/ConversationTimeline";
@@ -26,6 +27,7 @@ const statusColors: Record<string, string> = {
 export default function Conversations() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedConv, setSelectedConv] = useState<any>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const { data: stats } = trpc.conversation.stats.useQuery({ tenantId: DEMO_TENANT });
@@ -105,6 +107,15 @@ export default function Conversations() {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search by name or phone…"
+              className="pl-8 w-56 bg-card border-border"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-48 bg-card border-border"><SelectValue placeholder="Filter by status" /></SelectTrigger>
             <SelectContent>
@@ -167,7 +178,14 @@ export default function Conversations() {
                   <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Loading conversations...</TableCell></TableRow>
                 ) : convList?.length === 0 ? (
                   <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No conversations found</TableCell></TableRow>
-                ) : convList?.map((c) => (
+                ) : convList?.filter(c => {
+              if (!searchQuery) return true;
+              const q = searchQuery.toLowerCase();
+              return (
+                (c.customerName ?? "").toLowerCase().includes(q) ||
+                (c.customerPhone ?? "").toLowerCase().includes(q)
+              );
+            }).map((c) => (
                   <TableRow key={c.id} className="border-border hover:bg-accent/30 cursor-pointer" onClick={() => { setSelectedConv(c as any); setTimelineOpen(true); }}>
                     <TableCell className="font-mono text-xs">{c.id.slice(0, 8)}...</TableCell>
                     <TableCell><Badge variant="outline" className={statusColors[c.status] ?? ""}>{c.status}</Badge></TableCell>
