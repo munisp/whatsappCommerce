@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # npm / pnpm
+  # npm / pnpm — patch-only (lockfile-only keeps transitive deps pinned)
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -9,6 +9,7 @@ updates:
       time: "09:00"
       timezone: "Africa/Lagos"
     open-pull-requests-limit: 10
+    versioning-strategy: lockfile-only
     groups:
       production-dependencies:
         dependency-type: "production"
@@ -17,38 +18,89 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      - dependency-name: "*"
+        update-types: ["version-update:semver-minor"]
 
-  # Python (KYC verifier)
+  # Python (KYC verifier) — patch-only
   - package-ecosystem: "pip"
     directory: "/services/kyc-verifier"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "*"
+        update-types: ["version-update:semver-minor"]
 
-  # Python (ML stack)
+  # Python (ML stack) — patch-only
   - package-ecosystem: "pip"
     directory: "/services/ml-stack"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "*"
+        update-types: ["version-update:semver-minor"]
 
-  # Go (event gateway)
+  # Go (event gateway) — patch-only
   - package-ecosystem: "gomod"
     directory: "/services/event-gateway"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
-  # Rust (message processor)
+  # Go (gateway) — patch-only
+  - package-ecosystem: "gomod"
+    directory: "/services/gateway"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Rust (message processor) — patch-only
   - package-ecosystem: "cargo"
     directory: "/services/message-processor"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Rust (ledger-bridge) — patch-only
+  - package-ecosystem: "cargo"
+    directory: "/services/ledger-bridge"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Rust (fluvio-consumer) — patch-only
+  - package-ecosystem: "cargo"
+    directory: "/services/fluvio-consumer"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # Docker base images
   - package-ecosystem: "docker"
@@ -65,11 +117,24 @@ updates:
       day: "monday"
     open-pull-requests-limit: 3
 
-  # GitHub Actions
+  - package-ecosystem: "docker"
+    directory: "/services/ledger-bridge"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "docker"
+    directory: "/services/fluvio-consumer"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+
+  # GitHub Actions — keep up to date
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
-

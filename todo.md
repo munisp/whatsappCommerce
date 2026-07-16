@@ -1073,3 +1073,8 @@
 - [x] infraHealth tRPC procedure
 - [x] ServiceHealth 12-service infra grid
 - [x] infra ENV keys
+
+## Round 43 — CI/CD & Repository Hardening
+- [x] Add GitHub Actions CI workflow (.github/workflows/ci.yml) with Node.js, Go, Python, Rust, and Security jobs
+- [x] Enable branch protection on main: require 1 PR review + 5 CI status checks + no force push + no deletion
+- [x] Update dependabot.yml: lockfile-only strategy for npm, patch-only for all ecosystems, add ledger-bridge and fluvio-consumer Cargo entries
