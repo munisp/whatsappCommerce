@@ -45,6 +45,14 @@ export default function Conversations() {
     { tenantId: DEMO_TENANT, days: 7 },
     { enabled: !!DEMO_TENANT }
   );
+  // Extract phone numbers from conversations to look up delivery statuses
+  const phones = (convList ?? [])
+    .map((c: any) => (c as any).customerPhone ?? "")
+    .filter(Boolean);
+  const { data: deliveryStatuses } = trpc.deliveryReceipts.getLatestDeliveryStatuses.useQuery(
+    { tenantId: DEMO_TENANT, phones },
+    { enabled: !!DEMO_TENANT && phones.length > 0 }
+  );
   const wsConnected = wsState === "connected";
   const wsConnecting = wsState === "connecting";
 
@@ -148,13 +156,14 @@ export default function Conversations() {
                   <TableHead>Messages</TableHead>
                   <TableHead>AI</TableHead>
                   <TableHead>Updated</TableHead>
+                  <TableHead>Delivery</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
-                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Loading conversations...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Loading conversations...</TableCell></TableRow>
                 ) : convList?.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No conversations found</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No conversations found</TableCell></TableRow>
                 ) : convList?.map((c) => (
                   <TableRow key={c.id} className="border-border hover:bg-accent/30">
                     <TableCell className="font-mono text-xs">{c.id.slice(0, 8)}...</TableCell>
@@ -165,6 +174,18 @@ export default function Conversations() {
                     <TableCell className="font-mono text-xs">{c.messageCount}</TableCell>
                     <TableCell><Badge variant="outline" className={c.aiHandled ? "bg-primary/20 text-primary border-primary/30" : "bg-muted text-muted-foreground"}>{c.aiHandled ? "AI" : "Human"}</Badge></TableCell>
                     <TableCell className="text-muted-foreground text-xs">{formatDistanceToNow(new Date(c.updatedAt), { addSuffix: true })}</TableCell>
+                    <TableCell>
+                      {(() => {
+                        const phone = (c as any).customerPhone ?? "";
+                        const status = phone && deliveryStatuses ? deliveryStatuses[phone] : undefined;
+                        if (!status) return <span className="text-muted-foreground text-xs">—</span>;
+                        const cls = status === "read" ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                          : status === "delivered" ? "bg-green-500/20 text-green-400 border-green-500/30"
+                          : status === "sent" ? "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
+                          : "bg-red-500/20 text-red-400 border-red-500/30";
+                        return <Badge variant="outline" className={`text-xs ${cls}`}>{status}</Badge>;
+                      })()}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -928,3 +928,8 @@
 - [x] Add delivery_status column to whatsapp_messages table (schema + migration)
 - [x] Handle Meta webhook status callbacks (sent/delivered/read/failed)
 - [x] Add delivery rate metrics to Conversations page
+
+## Round 36
+- [x] Add Tenant Analytics nav link to DashboardLayout sidebar
+- [x] Build /api/scheduled/delivery-summary heartbeat cron with owner notification
+- [x] Add delivery status badges to conversations table (latest outbound message status)

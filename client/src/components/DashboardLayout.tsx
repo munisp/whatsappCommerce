@@ -85,6 +85,7 @@ const menuItems: NavItem[] = [
   { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money",   section: "Commerce" },
   { icon: Calendar,        label: "Service Commerce",path: "/service-commerce",section: "Commerce" },
   { icon: BarChart3,       label: "Analytics BI",    path: "/analytics-bi",   section: "Commerce" },
+  { icon: BarChart2,       label: "Tenant Analytics", path: "/tenant-analytics", section: "Commerce" },
   { icon: Shield,          label: "Compliance/B2G",  path: "/compliance",     section: "Commerce" },
   { icon: Package,         label: "Medusa Commerce", path: "/medusa",         section: "Commerce" },
   { icon: ShoppingBag,     label: "Medusa Onboarding", path: "/medusa-onboarding", section: "Commerce" },

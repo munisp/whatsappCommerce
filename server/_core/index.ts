@@ -1422,6 +1422,67 @@ function drawBbox(img,id){
     }
   });
 
+  // ── POST /api/scheduled/delivery-summary ─────────────────────────────────────
+  // Aggregates previous day delivery rates per tenant; notifies owner if any drops below 80%
+  // After deploy: manus-heartbeat create --name delivery-summary --cron "0 0 7 * * *" --path /api/scheduled/delivery-summary --description "Daily WhatsApp delivery rate summary — alert if any tenant drops below 80%"
+  app.post("/api/scheduled/delivery-summary", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const yesterday = new Date(Date.now() - 86400 * 1000);
+      yesterday.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      // Aggregate delivery counts per tenant for yesterday
+      const rows = await db
+        .select({
+          tenantId: waMessageDeliveryReceipts.tenantId,
+          status: waMessageDeliveryReceipts.status,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(waMessageDeliveryReceipts)
+        .where(
+          sql`${waMessageDeliveryReceipts.timestamp} >= ${yesterday} AND ${waMessageDeliveryReceipts.timestamp} < ${today}`
+        )
+        .groupBy(waMessageDeliveryReceipts.tenantId, waMessageDeliveryReceipts.status);
+      // Build per-tenant summary
+      const tenantMap: Record<string, Record<string, number>> = {};
+      for (const row of rows) {
+        if (!tenantMap[row.tenantId]) tenantMap[row.tenantId] = { sent: 0, delivered: 0, read: 0, failed: 0 };
+        tenantMap[row.tenantId][row.status] = row.n;
+      }
+      const alerts: string[] = [];
+      const summaries: Array<{ tenantId: string; total: number; deliveryRate: number }> = [];
+      for (const [tenantId, counts] of Object.entries(tenantMap)) {
+        const total = (counts.sent ?? 0) + (counts.delivered ?? 0) + (counts.read ?? 0) + (counts.failed ?? 0);
+        const delivered = (counts.delivered ?? 0) + (counts.read ?? 0);
+        const deliveryRate = total > 0 ? (delivered / total) * 100 : 100;
+        summaries.push({ tenantId, total, deliveryRate: parseFloat(deliveryRate.toFixed(1)) });
+        if (total >= 5 && deliveryRate < 80) {
+          alerts.push(`Tenant ${tenantId}: ${deliveryRate.toFixed(1)}% delivery rate (${delivered}/${total} msgs delivered)`);
+        }
+      }
+      if (alerts.length > 0) {
+        await notifyOwner({
+          title: "⚠️ WhatsApp Delivery Alert: Low Delivery Rate Detected",
+          content: `Daily delivery summary for ${yesterday.toISOString().slice(0, 10)}:\n\n${alerts.join("\n")}\n\nPlease check the Conversations page for delivery metrics and investigate failed messages.`,
+        }).catch((e: unknown) => console.warn("[delivery-summary] notification failed:", e));
+      }
+      return res.json({
+        ok: true,
+        date: yesterday.toISOString().slice(0, 10),
+        tenantsChecked: summaries.length,
+        alertsFired: alerts.length,
+        summaries,
+      });
+    } catch (err: any) {
+      console.error("[delivery-summary]", err);
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+
   // ── POST /api/ml/predict — fraud probability + credit score inference ──────
   // Accepts: { tenantId, amount, phone, items, customerId }
   // Returns: { fraudProbability, creditScore, riskLevel }

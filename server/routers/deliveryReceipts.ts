@@ -14,7 +14,7 @@ export const deliveryReceiptsRouter = router({
       status: z.enum(["sent", "delivered", "read", "failed"]),
       errorCode: z.string().optional(),
       errorMessage: z.string().optional(),
-      timestamp: z.number().optional(), // Unix seconds from Meta
+      timestamp: z.number().optional(),
       rawPayload: z.any().optional(),
     }))
     .mutation(async ({ input }) => {
@@ -42,10 +42,9 @@ export const deliveryReceiptsRouter = router({
     }))
     .query(async ({ input }) => {
       const db = await getDb();
-      if (!db) return { sent: 0, delivered: 0, read: 0, failed: 0, deliveryRate: 0, readRate: 0, failureRate: 0, recentMessages: [] };
+      if (!db) return { sent: 0, delivered: 0, read: 0, failed: 0, total: 0, deliveryRate: 0, readRate: 0, failureRate: 0, series: [], recentMessages: [] };
       const cutoff = new Date(Date.now() - input.days * 86400 * 1000);
 
-      // Aggregate counts by status
       const counts = await db
         .select({
           status: waMessageDeliveryReceipts.status,
@@ -67,7 +66,6 @@ export const deliveryReceiptsRouter = router({
       const failed = byStatus["failed"] ?? 0;
       const total = sent + delivered + read + failed;
 
-      // Daily time series (last N days)
       const dailySeries = await db
         .select({
           day: sql<string>`DATE("timestamp")::text`,
@@ -82,7 +80,6 @@ export const deliveryReceiptsRouter = router({
         .groupBy(sql`DATE("timestamp")`, waMessageDeliveryReceipts.status)
         .orderBy(sql`DATE("timestamp")`);
 
-      // Pivot daily series into { date, sent, delivered, read, failed }
       const dayMap: Record<string, Record<string, number>> = {};
       for (const row of dailySeries) {
         if (!dayMap[row.day]) dayMap[row.day] = { sent: 0, delivered: 0, read: 0, failed: 0 };
@@ -90,7 +87,6 @@ export const deliveryReceiptsRouter = router({
       }
       const series = Object.entries(dayMap).map(([date, v]) => ({ date, ...v }));
 
-      // Recent 20 messages with status
       const recentMessages = await db
         .select()
         .from(waMessageDeliveryReceipts)
@@ -110,5 +106,35 @@ export const deliveryReceiptsRouter = router({
         series,
         recentMessages,
       };
+    }),
+
+  // Returns the latest delivery status per phone number (for conversation table badges)
+  getLatestDeliveryStatuses: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      phones: z.array(z.string()).max(100),
+    }))
+    .query(async ({ input }) => {
+      if (input.phones.length === 0) return {};
+      const db = await getDb();
+      if (!db) return {};
+      const rows = await db
+        .select({
+          recipientPhone: waMessageDeliveryReceipts.recipientPhone,
+          status: waMessageDeliveryReceipts.status,
+        })
+        .from(waMessageDeliveryReceipts)
+        .where(and(
+          eq(waMessageDeliveryReceipts.tenantId, input.tenantId),
+          sql`"recipientPhone" = ANY(ARRAY[${sql.join(input.phones.map(p => sql`${p}`), sql`, `)}]::text[])`,
+        ))
+        .orderBy(desc(waMessageDeliveryReceipts.timestamp));
+      const result: Record<string, string> = {};
+      for (const row of rows) {
+        if (row.recipientPhone && !result[row.recipientPhone]) {
+          result[row.recipientPhone] = row.status;
+        }
+      }
+      return result;
     }),
 });
