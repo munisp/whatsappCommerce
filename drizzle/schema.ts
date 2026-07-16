@@ -2263,3 +2263,64 @@ export const waMessageDeliveryReceipts = pgTable("wa_message_delivery_receipts",
   index("wa_dr_ts_idx").on(t.timestamp),
 ]);
 export type WaMessageDeliveryReceipt = typeof waMessageDeliveryReceipts.$inferSelect;
+
+// ── Hermes Agent Integration ──────────────────────────────────────────────────
+export const hermesConfigs = pgTable("hermes_configs", {
+  tenantId: varchar("tenantId", { length: 36 }).primaryKey(),
+  hermesAgentUrl: text("hermesAgentUrl"),
+  hermesApiKey: text("hermesApiKey"),
+  enabledSkills: text("enabledSkills"),
+  autoApproveBelow: integer("autoApproveBelow"),
+  notifyPhone: varchar("notifyPhone", { length: 30 }),
+  woocommerceApiUrl: text("woocommerceApiUrl"),
+  woocommerceKey: text("woocommerceKey"),
+  woocommerceSecret: text("woocommerceSecret"),
+  active: boolean("active").default(true).notNull(),
+  createdAt: integer("createdAt").notNull(),
+  updatedAt: integer("updatedAt").notNull(),
+});
+export type HermesConfig = typeof hermesConfigs.$inferSelect;
+
+export const hermesEventLog = pgTable("hermes_event_log", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  eventType: varchar("eventType", { length: 64 }).notNull(),
+  eventId: varchar("eventId", { length: 36 }),
+  skillsTriggered: text("skillsTriggered"),
+  success: boolean("success").default(true).notNull(),
+  durationMs: integer("durationMs"),
+  errorMessage: text("errorMessage"),
+  rawPayload: jsonb("rawPayload"),
+  createdAt: integer("createdAt").notNull(),
+}, (t) => [
+  index("hermes_log_tenant_idx").on(t.tenantId),
+  index("hermes_log_event_type_idx").on(t.eventType),
+  index("hermes_log_created_idx").on(t.createdAt),
+]);
+export type HermesEventLog = typeof hermesEventLog.$inferSelect;
+
+export const hermesPOStatusEnum = pgEnum("hermes_po_status", ["pending", "approved", "rejected", "sent"]);
+export const hermesPODrafts = pgTable("hermes_po_drafts", {
+  poId: varchar("poId", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  supplierName: varchar("supplierName", { length: 128 }).notNull(),
+  supplierEmail: varchar("supplierEmail", { length: 256 }).notNull(),
+  merchantPhone: varchar("merchantPhone", { length: 30 }),
+  sku: varchar("sku", { length: 64 }).notNull(),
+  productName: varchar("productName", { length: 256 }).notNull(),
+  quantity: integer("quantity").notNull(),
+  unitCost: integer("unitCost").notNull(),
+  totalCost: integer("totalCost").notNull(),
+  currency: varchar("currency", { length: 8 }).default("NGN").notNull(),
+  approvalToken: varchar("approvalToken", { length: 32 }).notNull(),
+  status: hermesPOStatusEnum("status").default("pending").notNull(),
+  note: text("note"),
+  approvedBy: varchar("approvedBy", { length: 36 }),
+  approvedAt: integer("approvedAt"),
+  createdAt: integer("createdAt").notNull(),
+}, (t) => [
+  index("hermes_po_tenant_idx").on(t.tenantId),
+  index("hermes_po_status_idx").on(t.status),
+  index("hermes_po_created_idx").on(t.createdAt),
+]);
+export type HermesPODraft = typeof hermesPODrafts.$inferSelect;

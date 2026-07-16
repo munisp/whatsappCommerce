@@ -26,7 +26,7 @@ startLogin } from "@/const";
 import {
 useIsMobile } from "@/hooks/useMobile";
 import {
-  Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Database, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, ImagePlus, LayoutDashboard, Leaf, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse, BarChart2} from "lucide-react";
+  Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Database, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, ImagePlus, LayoutDashboard, Leaf, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse, BarChart2, Zap} from "lucide-react";
 import {
 CSSProperties, useEffect, useRef, useState } from "react";
 import {
@@ -86,6 +86,7 @@ const menuItems: NavItem[] = [
   { icon: Calendar,        label: "Service Commerce",path: "/service-commerce",section: "Commerce" },
   { icon: BarChart3,       label: "Analytics BI",    path: "/analytics-bi",   section: "Commerce" },
   { icon: BarChart2,       label: "Tenant Analytics", path: "/tenant-analytics", section: "Commerce" },
+  { icon: Zap,             label: "Hermes Agent",     path: "/hermes",           section: "Commerce" },
   { icon: Shield,          label: "Compliance/B2G",  path: "/compliance",     section: "Commerce" },
   { icon: Package,         label: "Medusa Commerce", path: "/medusa",         section: "Commerce" },
   { icon: ShoppingBag,     label: "Medusa Onboarding", path: "/medusa-onboarding", section: "Commerce" },

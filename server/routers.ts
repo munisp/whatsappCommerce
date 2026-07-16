@@ -63,6 +63,7 @@ import { provisioningRouter } from "./routers/provisioning";
 import { fineTuneRouter } from "./routers/fineTune";
 import { tenantAnalyticsRouter } from "./routers/tenantAnalytics";
 import { deliveryReceiptsRouter } from "./routers/deliveryReceipts";
+import { hermesRouter } from "./routers/hermes";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -138,5 +139,6 @@ export const appRouter = router({
   fineTune: fineTuneRouter,
   tenantAnalytics: tenantAnalyticsRouter,
   deliveryReceipts: deliveryReceiptsRouter,
+  hermes: hermesRouter,
 });
 export type AppRouter = typeof appRouter;

@@ -53,6 +53,12 @@ const CHECKLIST: CheckItem[] = [
   // Security
   { id: "admin-role", category: "Security", title: "Promote owner to admin", description: "After first login, run this SQL to give yourself admin access.", command: "UPDATE users SET role = 'admin' WHERE open_id = 'YOUR_OPEN_ID';", required: true },
   { id: "cors", category: "Security", title: "Review CORS settings", description: "Ensure ALLOWED_ORIGINS in env is set to your production domain only.", required: false },
+
+  // Hermes Agent Integration
+  { id: "hermes-api-key", category: "Hermes Agent", title: "Set HERMES_API_KEY secret", description: "Obtain an API key from Hermes Agent Cloud (hermes-agent.com) and add HERMES_API_KEY and HERMES_AGENT_URL to Settings → Secrets.", required: false },
+  { id: "hermes-hmac", category: "Hermes Agent", title: "Set PLATFORM_HMAC_SECRET", description: "Generate a 32-char random string and add it as PLATFORM_HMAC_SECRET to Settings → Secrets. Used to validate webhook calls between platform and Hermes bridge.", command: "openssl rand -hex 16", required: false },
+  { id: "hermes-bridge-deploy", category: "Hermes Agent", title: "Deploy Hermes bridge + router + skills", description: "Copy .env.hermes.example to .env.hermes, fill in credentials, then start the three Hermes microservices (Go bridge, Rust router, Python skills).", command: "cp .env.hermes.example .env.hermes && docker-compose --env-file .env.hermes up -d hermes-bridge hermes-router hermes-skills", required: false },
+  { id: "hermes-smtp", category: "Hermes Agent", title: "Set SMTP secrets for supplier emails", description: "Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD to Settings → Secrets so hermes-skills can send PO emails to suppliers.", required: false },
 ];
 
 const CATEGORIES = Array.from(new Set(CHECKLIST.map(c => c.category)));

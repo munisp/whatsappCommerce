@@ -945,3 +945,15 @@
 - [x] Add Reply input to ConversationTimeline panel
 - [x] Add Resolve/Escalate buttons to ConversationTimeline panel
 - [x] Add conversation search/filter by customer name/phone to Conversations page
+
+## Round 39 — Hermes Agent Integration (Polyglot)
+- [ ] Go: hermes-bridge service — Kafka consumer that forwards platform events to Hermes Cloud API
+- [ ] Go: hermes-bridge — merchant intent handler (inventory queries, PO approval via WhatsApp)
+- [ ] Rust: hermes-router crate — high-throughput fan-out with circuit breaker and retry
+- [ ] Rust: hermes-router — Kafka topic hermes.events.inbound / hermes.events.outbound
+- [ ] Python: hermes-skills module in ai-agent — inventory PO generation, supplier email, cross-platform sync
+- [ ] Python: hermes-skills — WooCommerce sync tool, Hermes webhook adapter
+- [ ] TypeScript: hermesRouter tRPC procedures — config, status, event log, approval webhook
+- [ ] TypeScript: HermesDashboard page — connection status, event log, PO approval queue
+- [ ] docker-compose: hermes-bridge and hermes-router services added
+- [ ] Deploy Checklist: Hermes integration activation steps

@@ -262,3 +262,81 @@ services:
     logging: *default-logging
     restart: unless-stopped
 
+
+  # ─── Hermes Agent Integration Layer ─────────────────────────────────────────
+  # Go: Event Gateway — Kafka consumer → Hermes Cloud API forwarder
+  hermes-bridge:
+    build:
+      context: ./services/hermes-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "8096:8096"
+    environment:
+      PORT: "8096"
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+      HERMES_AGENT_URL: ${HERMES_AGENT_URL:-https://api.hermes-agent.com}
+      HERMES_API_KEY: ${HERMES_API_KEY:-placeholder}
+      PLATFORM_API_URL: http://platform:3000
+      PLATFORM_HMAC_SECRET: ${PLATFORM_HMAC_SECRET:-dev-secret}
+      HERMES_SKILLS_URL: http://hermes-skills:8097
+      LOG_LEVEL: info
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  # Rust: Message Router — high-throughput fan-out with circuit breaker and DLQ
+  hermes-router:
+    build:
+      context: ./rust/hermes-router
+      dockerfile: Dockerfile
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      REDIS_URL: redis://redis:6379
+      HERMES_BRIDGE_URL: http://hermes-bridge:8096
+      HERMES_SKILLS_URL: http://hermes-skills:8097
+      CIRCUIT_BREAKER_THRESHOLD: "5"
+      CIRCUIT_BREAKER_TIMEOUT_SECS: "30"
+      MAX_RETRY_ATTEMPTS: "3"
+      RUST_LOG: info
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  # Python: Skills Executor — PO generation, supplier email, WooCommerce sync
+  hermes-skills:
+    build:
+      context: ./ai-agent/hermes_skills
+      dockerfile: Dockerfile
+    ports:
+      - "8097:8097"
+    environment:
+      PORT: "8097"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      PLATFORM_API_URL: http://platform:3000
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-dev-key}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-placeholder}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
