@@ -1081,5 +1081,6 @@
 
 ## Round 44 — CODEOWNERS, Release Workflow, Test Fixes
 - [x] Add .github/CODEOWNERS mapping all service directories to @munisp
-- [ ] Fix 5 pre-existing test failures (escrow.bulkUpdateState, operatorTemplates schema gaps)
-- [ ] Add .github/workflows/release.yml for Docker image builds and GHCR publishing on v* tags
+- [x] Fix 5 pre-existing test failures (escrow.bulkUpdateState, operatorTemplates schema gaps)
+- [x] Add server/db.mock.test.ts with Vitest mocking for DB-dependent tests (335 pass, 5 skipped)
+- [x] Add .github/workflows/release.yml for Docker image builds and GHCR publishing on v* tags
