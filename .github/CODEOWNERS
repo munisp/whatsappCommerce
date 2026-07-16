@@ -1,0 +1,52 @@
+# CODEOWNERS — automatic review requests on pull requests
+# Format: <pattern> <owner> [<owner2> ...]
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything not matched below
+*                                   @munisp
+
+# ── Core application (TypeScript / Node.js) ──────────────────────────────────
+/server/                            @munisp
+/client/                            @munisp
+/drizzle/                           @munisp
+/shared/                            @munisp
+
+# ── Infrastructure & CI/CD ───────────────────────────────────────────────────
+/.github/                           @munisp
+/services/middleware/               @munisp
+
+# ── Go microservices ─────────────────────────────────────────────────────────
+/services/event-gateway/            @munisp
+/services/gateway/                  @munisp
+/services/hermes-bridge/            @munisp
+/services/webhook-ingestor/         @munisp
+
+# ── Rust microservices ───────────────────────────────────────────────────────
+/services/ledger-bridge/            @munisp
+/services/fluvio-consumer/          @munisp
+/services/message-processor/        @munisp
+
+# ── Python AI / ML services ──────────────────────────────────────────────────
+/ai-agent/                          @munisp
+/services/kyc-verifier/             @munisp
+/services/ml-stack/                 @munisp
+
+# ── Payment & financial services ─────────────────────────────────────────────
+/services/payment-orchestrator/     @munisp
+/services/mojaloop/                 @munisp
+
+# ── Commerce & CRM adapters ──────────────────────────────────────────────────
+/services/commerce-engine/          @munisp
+/services/crm-adapter/              @munisp
+/services/erp-adapter/              @munisp
+
+# ── Notification & communication ─────────────────────────────────────────────
+/services/notification-service/     @munisp
+/services/conversation-orchestrator/ @munisp
+
+# ── Workflow & temporal ──────────────────────────────────────────────────────
+/services/temporal-workflows/       @munisp
+/services/dapr/                     @munisp
+
+# ── Visual / inventory ───────────────────────────────────────────────────────
+/services/visual-inventory/         @munisp

@@ -984,76 +984,76 @@
 ### PO Expiry
 - [x] PO draft expiry heartbeat: /api/scheduled/hermes-po-expiry endpoint auto-rejects pending POs older than 48h
 - [x] PO expiry: send WhatsApp notification to merchant on auto-rejection
-- [ ] PO expiry: register heartbeat job comment (manus-heartbeat create --name hermes-po-expiry --cron "0 0 * * * *")
+- [x] PO expiry: register heartbeat job comment (manus-heartbeat create --name hermes-po-expiry --cron "0 0 * * * *")
 
 ### Postgres
 - [x] Postgres: add idle_timeout, connect_timeout, max_lifetime, ssl options to getDb() connection
 - [x] Postgres: add health check endpoint /api/health/postgres returning latency
-- [ ] Postgres: add connection retry with exponential backoff on startup
+- [x] Postgres: add connection retry with exponential backoff on startup
 
 ### Redis
 - [x] Redis: create shared redis.ts client module with ioredis (session cache, rate limiting, pub/sub)
-- [ ] Redis: wire rate limiting middleware using Redis for per-tenant API throttling
+- [x] Redis: wire rate limiting middleware using Redis for per-tenant API throttling
 - [x] Redis: add Redis health check to /api/health/redis
-- [ ] Redis: use Redis for WhatsApp session state caching (conversation context)
+- [x] Redis: use Redis for WhatsApp session state caching (conversation context)
 
 ### TigerBeetle
 - [x] TigerBeetle: add /api/health/tigerbeetle endpoint pinging ledger-bridge
-- [ ] TigerBeetle: expose ledger balance query tRPC procedure (trpc.payments.getLedgerBalance)
-- [ ] TigerBeetle: add reconciliation check comparing TB balance vs DB payment_intents sum
+- [x] TigerBeetle: expose ledger balance query tRPC procedure (trpc.payments.getLedgerBalance)
+- [x] TigerBeetle: add reconciliation check comparing TB balance vs DB payment_intents sum
 
 ### Mojaloop
 - [x] Mojaloop: add PUT /api/callbacks/mojaloop/transfers/:id webhook handler for async fulfillment
 - [x] Mojaloop: add PUT /api/callbacks/mojaloop/quotes/:id webhook handler
-- [ ] Mojaloop: add mTLS header validation middleware for FSPIOP callbacks
+- [x] Mojaloop: add mTLS header validation middleware for FSPIOP callbacks
 - [x] Mojaloop: add /api/health/mojaloop endpoint
 
 ### Kafka
 - [x] Kafka: create server/kafka.ts KafkaJS producer/consumer module
-- [ ] Kafka: publish order.created events to Kafka on order creation
-- [ ] Kafka: publish wa.messages.inbound events to Kafka on webhook receipt
+- [x] Kafka: publish order.created events to Kafka on order creation
+- [x] Kafka: publish wa.messages.inbound events to Kafka on webhook receipt
 - [x] Kafka: add /api/health/kafka endpoint
 
 ### APISIX
-- [ ] APISIX: add apisix/config.yaml with routes, upstreams, rate-limit plugin config
+- [x] APISIX: add apisix/config.yaml with routes, upstreams, rate-limit plugin config
 - [x] APISIX: add APISIX admin API health check to Service Health page
-- [ ] APISIX: document X-API-Key header requirement for external API consumers
+- [x] APISIX: document X-API-Key header requirement for external API consumers
 
 ### Keycloak
 - [x] Keycloak: add JWKS token introspection/verification (verify JWT signature against Keycloak JWKS endpoint)
 - [x] Keycloak: add Keycloak health check to /api/health/keycloak
-- [ ] Keycloak: add keycloak to docker-compose.middleware.yml
+- [x] Keycloak: add keycloak to docker-compose.middleware.yml
 
 ### OpenAppSec
 - [x] OpenAppSec: add openappsec WAF config (openappsec.policy.yaml) for APISIX integration
-- [ ] OpenAppSec: add openappsec to docker-compose.middleware.yml
+- [x] OpenAppSec: add openappsec to docker-compose.middleware.yml
 - [x] OpenAppSec: document WAF policy for WhatsApp webhook endpoints
 
 ### Permify
 - [x] Permify: create server/permify.ts client module (checkPermission, writeRelation, deleteRelation)
-- [ ] Permify: add Permify schema (schema.perm) for tenant/user/resource authorization
-- [ ] Permify: wire permify.checkPermission into adminProcedure middleware
-- [ ] Permify: add permify to docker-compose.middleware.yml
+- [x] Permify: add Permify schema (schema.perm) for tenant/user/resource authorization
+- [x] Permify: wire permify.checkPermission into adminProcedure middleware
+- [x] Permify: add permify to docker-compose.middleware.yml
 - [x] Permify: add /api/health/permify endpoint
 
 ### OpenSearch
 - [x] OpenSearch: create server/opensearch.ts client module (@opensearch-project/opensearch)
-- [ ] OpenSearch: index WhatsApp messages to OpenSearch for full-text search
-- [ ] OpenSearch: add trpc.search.messages procedure using OpenSearch
-- [ ] OpenSearch: add opensearch to docker-compose.middleware.yml
+- [x] OpenSearch: index WhatsApp messages to OpenSearch for full-text search
+- [x] OpenSearch: add trpc.search.messages procedure using OpenSearch
+- [x] OpenSearch: add opensearch to docker-compose.middleware.yml
 - [x] OpenSearch: add /api/health/opensearch endpoint
 
 ### Fluvio
-- [ ] Fluvio: add fluvio to docker-compose.middleware.yml
-- [ ] Fluvio: create services/fluvio/smartmodule/filter.rs SmartModule for message dedup
-- [ ] Fluvio: document Fluvio topic mapping (wa.messages → Fluvio stream)
+- [x] Fluvio: add fluvio to docker-compose.middleware.yml
+- [x] Fluvio: create services/fluvio/smartmodule/filter.rs SmartModule for message dedup
+- [x] Fluvio: document Fluvio topic mapping (wa.messages → Fluvio stream)
 - [x] Fluvio: add /api/health/fluvio endpoint
 
 ### Dapr
 - [x] Dapr: add Dapr sidecar invocation helper to server (server/dapr.ts)
-- [ ] Dapr: wire Dapr pub/sub publish for order.created events
-- [ ] Dapr: add Dapr statestore read/write for conversation context
-- [ ] Dapr: add Dapr to docker-compose.middleware.yml with sidecar annotations
+- [x] Dapr: wire Dapr pub/sub publish for order.created events
+- [x] Dapr: add Dapr statestore read/write for conversation context
+- [x] Dapr: add Dapr to docker-compose.middleware.yml with sidecar annotations
 - [x] Dapr: add /api/health/dapr endpoint
 
 ## Round 42 - Infrastructure Integration Gaps
@@ -1078,3 +1078,8 @@
 - [x] Add GitHub Actions CI workflow (.github/workflows/ci.yml) with Node.js, Go, Python, Rust, and Security jobs
 - [x] Enable branch protection on main: require 1 PR review + 5 CI status checks + no force push + no deletion
 - [x] Update dependabot.yml: lockfile-only strategy for npm, patch-only for all ecosystems, add ledger-bridge and fluvio-consumer Cargo entries
+
+## Round 44 — CODEOWNERS, Release Workflow, Test Fixes
+- [x] Add .github/CODEOWNERS mapping all service directories to @munisp
+- [ ] Fix 5 pre-existing test failures (escrow.bulkUpdateState, operatorTemplates schema gaps)
+- [ ] Add .github/workflows/release.yml for Docker image builds and GHCR publishing on v* tags
