@@ -20,7 +20,7 @@ ollama==0.6.2
 # Liveness Detection
 opencv-python-headless==4.10.0.84
 mediapipe==0.10.35
-numpy==2.2.1
+numpy==2.2.6
 scikit-learn==1.6.0
 
 # Middleware
