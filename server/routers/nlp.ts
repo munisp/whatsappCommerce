@@ -25,6 +25,7 @@ import {
   syncContactToTwenty,
   pushOrderActivityToTwenty,
 } from "../services/integrationSync";
+import { hermesConfigs } from "../../drizzle/schema";
 
 // ── Language detection & system prompts ───────────────────────────────────────
 // ── USSD numbered menu builder ────────────────────────────────────────────────
@@ -191,15 +192,67 @@ export const nlpRouter = router({
       const history = (session.messageHistory as Array<{ role: string; content: string }>).slice(-10);
 
       // 5. Call LLM
-      // 5a. USSD mode check — if session context has ussdMode=true, return numbered menu
-     const sessionCtx = (session.context as Record<string, unknown>) ?? {};
-      const isUssd = input.ussdMode ?? sessionCtx.ussdMode === true;
-      if (isUssd) {
-        const ussdMenu = buildUssdMenu(session.state, session.language);
+     // 5a. USSD mode check — if session context has ussdMode=true, return numbered menu
+    const sessionCtx = (session.context as Record<string, unknown>) ?? {};
+     const isUssd = input.ussdMode ?? sessionCtx.ussdMode === true;
+     if (isUssd) {
+       const ussdMenu = buildUssdMenu(session.state, session.language);
+       await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+       return { reply: ussdMenu, intent: "ussd_menu", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
+     }
+      // 5b. Hermes setup / status commands — handled before LLM to avoid token cost
+      const trimmedMsg = input.message.trim().toLowerCase();
+      if (trimmedMsg === "hermes setup" || trimmedMsg === "hermes agent setup") {
+        const { ENV } = await import("../_core/env");
+        const existingCfg = await db.select().from(hermesConfigs)
+          .where(eq(hermesConfigs.tenantId, input.tenantId)).limit(1);
+        if (existingCfg.length === 0) {
+          await db.insert(hermesConfigs).values({
+            tenantId: input.tenantId,
+            active: true,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            hermesAgentUrl: (ENV as any).hermesAgentUrl ?? null,
+            hermesApiKey: (ENV as any).hermesApiKey ?? null,
+          });
+        } else {
+          await db.update(hermesConfigs)
+            .set({ active: true, updatedAt: Date.now() })
+            .where(eq(hermesConfigs.tenantId, input.tenantId));
+        }
+        const confirmMsg = [
+          "✅ *Hermes Agent is now active for your store!*",
+          "",
+          "Here is what Hermes can do for you:",
+          "• 📦 Auto-generate Purchase Orders when stock runs low",
+          "• 📧 Email suppliers automatically with PO details",
+          "• 🔄 Sync inventory across WooCommerce and other channels",
+          "• 💬 Reply APPROVE PO-XXXX or REJECT PO-XXXX to manage orders",
+          "",
+          "Your Hermes Agent dashboard is live at /hermes in your back-office.",
+          "Reply *hermes status* at any time to check the connection.",
+        ].join("\n");
+        if ((ENV as any).waToken && (ENV as any).waPhoneNumberId) {
+          const normalized = input.waPhoneNumber.startsWith("+") ? input.waPhoneNumber : `+${input.waPhoneNumber}`;
+          await fetch(`https://graph.facebook.com/v19.0/${(ENV as any).waPhoneNumberId}/messages`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${(ENV as any).waToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ messaging_product: "whatsapp", to: normalized, type: "text", text: { body: confirmMsg } }),
+          }).catch(() => {});
+        }
         await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
-        return { reply: ussdMenu, intent: "ussd_menu", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
+        return { reply: confirmMsg, intent: "hermes_setup", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
       }
-      const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
+      if (trimmedMsg === "hermes status") {
+        const cfg = await db.select().from(hermesConfigs)
+          .where(eq(hermesConfigs.tenantId, input.tenantId)).limit(1);
+        const statusMsg = cfg.length > 0 && cfg[0].active
+          ? "✅ *Hermes Agent is active* for your store. Type APPROVE PO-XXXX or REJECT PO-XXXX to manage purchase orders."
+          : "⚠️ *Hermes Agent is not yet configured.* Type *hermes setup* to activate it.";
+        await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+        return { reply: statusMsg, intent: "hermes_status", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
+      }
+     const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
       const cartSummary = cartItemsList.length > 0
         ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
         : "\nCURRENT CART: empty";

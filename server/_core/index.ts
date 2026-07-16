@@ -545,13 +545,88 @@ async function startServer() {
           .limit(1).catch(() => [null as any]);
         const tenantId: string = (tenant as any)?.id ?? "default";
         if (msg.type === "text") {
+          const textBody: string = msg.text?.body ?? "";
+          // ── Hermes PO approval/rejection via WhatsApp reply ───────────────
+          const poMatch = textBody.trim().match(/^(APPROVE|REJECT)\s+PO-([A-Z0-9]+)/i);
+          if (poMatch) {
+            const action = poMatch[1].toUpperCase();
+            const poId = poMatch[2];
+            try {
+              const { hermesPODrafts: hpd } = await import("../../drizzle/schema");
+              const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+              const dbInst = await getDb();
+              if (dbInst) {
+                // Find the PO by poId (partial match on poId suffix)
+                const [po] = await dbInst.select().from(hpd)
+                  .where(andOp(
+                    eqOp(hpd.tenantId, tenantId),
+                    eqOp(hpd.status, "pending"),
+                  ))
+                  .limit(20);
+                // Find the PO whose poId ends with the supplied suffix
+                const allPOs = await dbInst.select().from(hpd)
+                  .where(andOp(eqOp(hpd.tenantId, tenantId), eqOp(hpd.status, "pending")))
+                  .limit(50);
+                const matchedPO = allPOs.find(p =>
+                  p.poId.toUpperCase().endsWith(poId.toUpperCase()) ||
+                  p.poId.toUpperCase() === poId.toUpperCase()
+                );
+                if (matchedPO) {
+                  const newStatus = action === "APPROVE" ? "approved" : "rejected";
+                  await dbInst.update(hpd)
+                    .set({ status: newStatus as any, approvedAt: Date.now(), approvedBy: waPhoneNumber, note: `WhatsApp ${action} by ${waPhoneNumber}` })
+                    .where(eqOp(hpd.poId, matchedPO.poId));
+                  // If approved, trigger supplier email via hermes-skills
+                  if (action === "APPROVE") {
+                    const hermesSkillsUrl = process.env.HERMES_SKILLS_URL ?? "http://hermes-skills:8097";
+                    fetch(`${hermesSkillsUrl}/skills/po-approved`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        po_id: matchedPO.poId,
+                        tenant_id: matchedPO.tenantId,
+                        supplier_email: matchedPO.supplierEmail,
+                        supplier_name: matchedPO.supplierName,
+                        product_name: matchedPO.productName,
+                        sku: matchedPO.sku,
+                        quantity: matchedPO.quantity,
+                        unit_cost: matchedPO.unitCost,
+                        total_cost: matchedPO.totalCost,
+                        currency: matchedPO.currency,
+                        approved_at: new Date().toISOString(),
+                      }),
+                      signal: AbortSignal.timeout(10000),
+                    }).catch((e: any) => console.error("[hermes-webhook] skills trigger failed:", e?.message));
+                  }
+                  // Send WhatsApp confirmation back to merchant
+                  const waToken = process.env.WA_TOKEN ?? process.env.META_WA_TOKEN ?? "";
+                  const waPNId = phoneNumberId || (process.env.WA_PHONE_NUMBER_ID ?? "");
+                  if (waToken && waPNId) {
+                    const confirmText = action === "APPROVE"
+                      ? `✅ PO-${poId} *approved*! Supplier email is being sent to ${matchedPO.supplierName}.`
+                      : `❌ PO-${poId} *rejected*. No supplier email will be sent.`;
+                    fetch(`https://graph.facebook.com/v19.0/${waPNId}/messages`, {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${waToken}`, "Content-Type": "application/json" },
+                      body: JSON.stringify({ messaging_product: "whatsapp", to: waPhoneNumber, type: "text", text: { body: confirmText } }),
+                    }).catch((e: any) => console.error("[hermes-webhook] WA confirm send failed:", e?.message));
+                  }
+                } else {
+                  console.warn(`[hermes-webhook] PO-${poId} not found for tenant ${tenantId}`);
+                }
+              }
+            } catch (e: any) {
+              console.error("[hermes-webhook] PO approval error:", e?.message);
+            }
+            continue; // Skip NLP processing for PO commands
+          }
           // Route text messages through the NLP engine
           const { appRouter: ar } = await import("../routers");
           const caller = ar.createCaller({ user: null } as any);
           await caller.nlp.processMessage({
             tenantId,
             waPhoneNumber,
-            message: msg.text?.body ?? "",
+            message: textBody,
             customerName: contactName || undefined,
           }).catch((e: any) => console.error("[whatsapp-webhook] NLP error:", e?.message));
         } else if (msg.type === "image" || msg.type === "document" || msg.type === "video") {

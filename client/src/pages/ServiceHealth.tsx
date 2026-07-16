@@ -175,6 +175,89 @@ export default function ServiceHealth() {
         </div>
       </div>
       </div>
+      {/* Hermes Agent Layer health */}
+      <div className="mt-2">
+        <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Hermes Agent Layer</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="border-purple-500/20 bg-purple-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.6)]" />
+                  <span className="font-medium text-sm">Hermes Skills</span>
+                </div>
+                <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">Python</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mb-1">FastAPI skills executor — PO generation, supplier email, WooCommerce sync</p>
+              <code className="text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded font-mono">http://hermes-skills:8097/health</code>
+              <div className="mt-2 flex items-center gap-2">
+                <CheckCircle className="h-3 w-3 text-purple-400" />
+                <span className="text-xs text-muted-foreground">Endpoints: /skills/generate-po, /skills/po-approved, /skills/woo-sync</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-cyan-500/20 bg-cyan-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+                  <span className="font-medium text-sm">Hermes Bridge</span>
+                </div>
+                <Badge variant="outline" className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">Go</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mb-1">Kafka consumer — forwards platform inventory/order events to Hermes Cloud API</p>
+              <code className="text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded font-mono">http://hermes-bridge:8096/health</code>
+              <div className="mt-2 flex items-center gap-2">
+                <Activity className="h-3 w-3 text-cyan-400" />
+                <span className="text-xs text-muted-foreground">Kafka topic: hermes.platform.events → Hermes Cloud API</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-orange-500/20 bg-orange-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.6)]" />
+                  <span className="font-medium text-sm">Hermes Router</span>
+                </div>
+                <Badge variant="outline" className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-xs">Rust</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mb-1">Circuit breaker, exponential-backoff retry, dead-letter queue on hermes.events.dlq</p>
+              <code className="text-xs text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded font-mono">Redis heartbeat: hermes:router:heartbeat</code>
+              <div className="mt-2 flex items-center gap-2">
+                <Server className="h-3 w-3 text-orange-400" />
+                <span className="text-xs text-muted-foreground">DLQ: hermes.events.dlq | Retry: 3× with jitter backoff</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        {/* PO Approval WhatsApp Flow */}
+        <div className="mt-4">
+          <Card className="border-green-500/20 bg-green-500/5">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold text-green-400 flex items-center gap-2">
+                <CheckCircle className="h-4 w-4" />
+                PO Approval via WhatsApp
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <p className="text-xs text-muted-foreground mb-3">
+                Merchants can approve or reject Hermes-generated Purchase Orders directly from WhatsApp by replying to the notification message.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="bg-green-500/10 rounded p-3">
+                  <p className="text-xs font-mono text-green-400 mb-1">APPROVE PO-XXXX</p>
+                  <p className="text-xs text-muted-foreground">Marks PO as approved, triggers supplier email via hermes-skills, sends WhatsApp confirmation.</p>
+                </div>
+                <div className="bg-red-500/10 rounded p-3">
+                  <p className="text-xs font-mono text-red-400 mb-1">REJECT PO-XXXX</p>
+                  <p className="text-xs text-muted-foreground">Marks PO as rejected, no supplier email sent, sends WhatsApp confirmation.</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </DashboardLayout>
   );
 }

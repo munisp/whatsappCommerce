@@ -957,3 +957,11 @@
 - [x] TypeScript: HermesDashboard page — connection status, event log, PO approval queue
 - [x] docker-compose: hermes-bridge and hermes-router services added
 - [x] Deploy Checklist: Hermes integration activation steps
+
+## Round 40: Hermes WhatsApp Flows + Health Monitoring
+- [x] Hermes merchant onboarding: "hermes setup" WhatsApp command in NLP handler
+- [x] Hermes onboarding: hermesRouter.configure procedure + confirmation WhatsApp message
+- [x] PO approval handler: detect "APPROVE PO-XXXX" / "REJECT PO-XXXX" in Meta webhook
+- [x] PO approval handler: call hermesRouter.approvePO / rejectPO + send WhatsApp confirmation
+- [x] Service Health page: ping hermes-skills, hermes-bridge, hermes-router health endpoints
+- [x] Service Health page: Hermes layer status cards in /health UI
