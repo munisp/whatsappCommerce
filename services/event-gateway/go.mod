@@ -7,7 +7,7 @@ go 1.23
 // github.com/redis/go-redis/v9 v9.7.0
 // go.temporal.io/sdk v1.30.0
 
-require github.com/segmentio/kafka-go v0.4.47
+require github.com/segmentio/kafka-go v0.4.51
 
 require (
 	github.com/klauspost/compress v1.15.9 // indirect
