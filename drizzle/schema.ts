@@ -2276,6 +2276,7 @@ export const hermesConfigs = pgTable("hermes_configs", {
   woocommerceKey: text("woocommerceKey"),
   woocommerceSecret: text("woocommerceSecret"),
   active: boolean("active").default(true).notNull(),
+  tourCompleted: boolean("tourCompleted").default(false).notNull(),
   createdAt: integer("createdAt").notNull(),
   updatedAt: integer("updatedAt").notNull(),
 });

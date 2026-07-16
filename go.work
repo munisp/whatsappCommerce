@@ -10,3 +10,8 @@ use (
 	./services/payment-orchestrator
 	./services/webhook-ingestor
 )
+
+use (
+	./services/event-gateway
+	./services/hermes-bridge
+)

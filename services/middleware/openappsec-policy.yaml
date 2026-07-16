@@ -1,0 +1,51 @@
+# OpenAppSec WAF Policy for WhatsApp Commerce Platform
+# Docs: https://docs.openappsec.io/
+
+policies:
+  default:
+    mode: prevent-learn
+    practices:
+      - name: wacommerce-web-app-practice
+        web-attacks:
+          max-body-size-kb: 1024
+          max-header-size-bytes: 8192
+          max-url-size-bytes: 2048
+          override-mode: prevent
+        anti-bot:
+          injected-URIs:
+            - uri: /api/trpc/
+          validated-URIs:
+            - uri: /api/trpc/
+          override-mode: detect
+
+  # Relaxed policy for Meta webhook (signature-verified by app)
+  webhook-policy:
+    mode: detect-learn
+    triggers:
+      - name: webhook-log
+        log:
+          verbosity: standard
+          response-body: false
+          http-headers: true
+
+assets:
+  - name: wacommerce-app
+    urls:
+      - URL: http://host.docker.internal:3000
+    zones:
+      - name: api-zone
+        trusted-sources: []
+    practices:
+      - name: wacommerce-web-app-practice
+    source-identifiers:
+      - name: x-forwarded-for
+        identifier: x-forwarded-for
+
+# Protected endpoints
+exceptions:
+  - name: allow-meta-webhook
+    comment: "Meta webhook uses HMAC-SHA256 signature — WAF should not block"
+    match:
+      url: /api/webhook/whatsapp
+      method: POST
+    action: skip

@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { CheckCircle, XCircle, Zap, Settings, ClipboardList, Activity, RefreshCw } from "lucide-react";
+import { CheckCircle, XCircle, Zap, Settings, ClipboardList, Activity, RefreshCw, MessageSquare, Smartphone, ShoppingCart } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 // ─── Status indicator ─────────────────────────────────────────────────────────
 function ServiceBadge({ online }: { online: boolean }) {
@@ -81,6 +82,24 @@ export default function HermesDashboard() {
     onError: (e) => toast.error(e.message),
   });
 
+  // Onboarding tour state
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
+  const completeTour = trpc.hermes.completeTour.useMutation({
+    onSuccess: () => { configQ.refetch(); setTourOpen(false); },
+    onError: (e) => toast.error(e.message),
+  });
+  // Show tour if config loaded and tourCompleted is false
+  useEffect(() => {
+    if (configQ.data && !configQ.data.tourCompleted) {
+      setTourOpen(true);
+    }
+  }, [configQ.data]);
+  const handleCompleteTour = () => {
+    if (tenantId) completeTour.mutate({ tenantId });
+    else setTourOpen(false);
+  };
+
   const handleSave = () => {
     if (!tenantId) return;
     saveConfig.mutate({
@@ -96,7 +115,70 @@ export default function HermesDashboard() {
     });
   };
 
+  const TOUR_STEPS = [
+    {
+      icon: <MessageSquare className="h-8 w-8 text-emerald-400" />,
+      title: "Welcome to Hermes Agent",
+      desc: "Hermes is your AI-powered procurement assistant. It monitors inventory, generates Purchase Orders automatically, and lets you approve them directly from WhatsApp.",
+    },
+    {
+      icon: <ShoppingCart className="h-8 w-8 text-blue-400" />,
+      title: "Connect WooCommerce",
+      desc: "Go to the Configuration tab and enter your WooCommerce API URL, Consumer Key, and Consumer Secret. Hermes will sync your product catalog and inventory levels automatically.",
+    },
+    {
+      icon: <Smartphone className="h-8 w-8 text-purple-400" />,
+      title: "Set Your Notify Phone",
+      desc: "Enter your WhatsApp number in the Notify Phone field. When Hermes generates a PO, you'll receive a WhatsApp message with the details and APPROVE/REJECT reply instructions.",
+    },
+    {
+      icon: <CheckCircle className="h-8 w-8 text-green-400" />,
+      title: "Send the Setup Command",
+      desc: "From your WhatsApp, send the message: hermes setup — to the platform number. This activates Hermes for your account and confirms the connection.",
+    },
+  ];
+
   return (
+    <>
+      {/* Onboarding Tour Modal */}
+      <Dialog open={tourOpen} onOpenChange={setTourOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-lg">
+              {TOUR_STEPS[tourStep]?.icon}
+              {TOUR_STEPS[tourStep]?.title}
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-2 leading-relaxed">
+              {TOUR_STEPS[tourStep]?.desc}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between mt-4">
+            <div className="flex gap-1.5">
+              {TOUR_STEPS.map((_, i) => (
+                <div key={i} className={`h-1.5 w-6 rounded-full transition-colors ${i === tourStep ? "bg-emerald-400" : "bg-muted"}`} />
+              ))}
+            </div>
+            <div className="flex gap-2">
+              {tourStep > 0 && (
+                <Button variant="outline" size="sm" onClick={() => setTourStep(s => s - 1)}>Back</Button>
+              )}
+              {tourStep < TOUR_STEPS.length - 1 ? (
+                <Button size="sm" onClick={() => setTourStep(s => s + 1)}>Next</Button>
+              ) : (
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={handleCompleteTour}>
+                  Get Started
+                </Button>
+              )}
+            </div>
+          </div>
+          <button
+            className="absolute top-3 right-3 text-muted-foreground hover:text-foreground text-xs underline"
+            onClick={handleCompleteTour}
+          >
+            Skip tour
+          </button>
+        </DialogContent>
+      </Dialog>
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -315,5 +397,6 @@ export default function HermesDashboard() {
         </TabsContent>
       </Tabs>
     </div>
+    </>
   );
 }

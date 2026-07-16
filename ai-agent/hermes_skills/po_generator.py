@@ -26,6 +26,8 @@ FORGE_API_URL = os.getenv("BUILT_IN_FORGE_API_URL", "http://localhost:3000/api/f
 FORGE_API_KEY = os.getenv("BUILT_IN_FORGE_API_KEY", "")
 PLATFORM_API_URL = os.getenv("PLATFORM_API_URL", "http://localhost:3000")
 PLATFORM_API_KEY = os.getenv("PLATFORM_API_KEY", "")
+WA_TOKEN = os.getenv("WA_TOKEN", os.getenv("META_WA_TOKEN", ""))
+WA_PHONE_NUMBER_ID = os.getenv("WA_PHONE_NUMBER_ID", "")
 
 
 async def generate_po(request: SkillRequest) -> SkillResult:
@@ -83,6 +85,10 @@ async def generate_po(request: SkillRequest) -> SkillResult:
 
         # Persist the draft PO to the platform via internal API
         await _save_po_draft(po)
+
+        # Notify merchant via WhatsApp with PO summary and approval instructions
+        if merchant_phone:
+            await _notify_merchant_wa(po, merchant_phone)
 
         duration_ms = (time.monotonic() - start) * 1000
         logger.info(
@@ -169,6 +175,49 @@ async def _generate_po_notes(
         pass  # Fall back to default note
 
     return f"Auto-generated reorder for {product_name} (SKU: {sku}). Current stock: {current_stock} units."
+
+
+
+async def _notify_merchant_wa(po: PurchaseOrderDraft, merchant_phone: str) -> None:
+    """Send a WhatsApp notification to the merchant when a PO draft is created."""
+    if not WA_TOKEN or not WA_PHONE_NUMBER_ID:
+        logger.debug("WA_TOKEN or WA_PHONE_NUMBER_ID not set — skipping merchant WA notification")
+        return
+    po_suffix = po.po_id.upper().replace("-", "")[-8:]
+    line = po.line_items[0] if po.line_items else None
+    product_name = line.product_name if line else "N/A"
+    sku = line.sku if line else "N/A"
+    quantity = line.quantity if line else 0
+    currency = po.currency
+    total = po.total_cost
+    msg = (
+        f"📦 *New Purchase Order Ready for Approval*\n\n"
+        f"*PO-{po_suffix}* — {product_name} (SKU: {sku})\n"
+        f"Quantity: {quantity} units\n"
+        f"Total: {currency} {total:,.2f}\n"
+        f"Supplier: {po.supplier_name}\n\n"
+        f"Reply *APPROVE PO-{po_suffix}* to confirm and send supplier email.\n"
+        f"Reply *REJECT PO-{po_suffix}* to cancel this order."
+    )
+    normalized = merchant_phone if merchant_phone.startswith("+") else f"+{merchant_phone}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"https://graph.facebook.com/v19.0/{WA_PHONE_NUMBER_ID}/messages",
+                headers={"Authorization": f"Bearer {WA_TOKEN}", "Content-Type": "application/json"},
+                json={
+                    "messaging_product": "whatsapp",
+                    "to": normalized,
+                    "type": "text",
+                    "text": {"body": msg},
+                },
+            )
+            if resp.status_code not in (200, 201):
+                logger.warning("WA notify failed: %s %s", resp.status_code, resp.text[:200])
+            else:
+                logger.info("WA PO notification sent to %s for PO-%s", merchant_phone, po_suffix)
+    except Exception as exc:
+        logger.warning("WA notify exception: %s", exc)
 
 
 async def _save_po_draft(po: PurchaseOrderDraft) -> None:

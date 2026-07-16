@@ -1,0 +1,39 @@
+[package]
+name = "fluvio-consumer"
+version = "0.1.0"
+edition = "2021"
+description = "Fluvio event consumer for WhatsApp Commerce real-time stream processing"
+
+[[bin]]
+name = "fluvio-consumer"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# HTTP client for forwarding events
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Error handling
+anyhow = "1"
+# Config from env
+dotenvy = "0.15"
+# HTTP server for health endpoint
+axum = { version = "0.7", features = ["json"] }
+# Fluvio client (feature-gated — only used when FLUVIO_ENDPOINT is set)
+fluvio = { version = "0.22", optional = true }
+
+[features]
+default = []
+fluvio-enabled = ["fluvio"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

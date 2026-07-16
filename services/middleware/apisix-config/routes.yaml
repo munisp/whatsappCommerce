@@ -1,0 +1,59 @@
+routes:
+  # WhatsApp Webhook (public, no auth — Meta signature verified by app)
+  - id: wa-webhook
+    uri: /api/webhook/whatsapp
+    methods: [GET, POST]
+    upstream_id: wacommerce-app
+    plugins:
+      ip-restriction:
+        whitelist:
+          - 0.0.0.0/0  # Meta IPs — restrict in production
+      request-id:
+        header_name: X-Request-Id
+        include_in_response: true
+
+  # Internal tRPC API (JWT required)
+  - id: trpc-api
+    uri: /api/trpc/*
+    methods: [GET, POST]
+    upstream_id: wacommerce-app
+    plugins:
+      jwt-auth:
+        header: Authorization
+        query: token
+        cookie: token
+      rate-limiting:
+        count: 200
+        time_window: 60
+        key: consumer_name
+        rejected_code: 429
+      cors:
+        allow_origins: "*"
+        allow_methods: GET,POST,OPTIONS
+        allow_headers: Authorization,Content-Type,X-Request-Id
+
+  # External API (X-API-Key required for third-party integrations)
+  - id: external-api
+    uri: /api/external/*
+    methods: [GET, POST, PUT, DELETE]
+    upstream_id: wacommerce-app
+    plugins:
+      key-auth:
+        header: X-API-Key
+      rate-limiting:
+        count: 60
+        time_window: 60
+        key: remote_addr
+        rejected_code: 429
+
+upstreams:
+  - id: wacommerce-app
+    type: roundrobin
+    nodes:
+      "host.docker.internal:3000": 1
+    scheme: http
+    pass_host: pass
+    keepalive_pool:
+      size: 320
+      idle_timeout: 60
+      requests: 1000

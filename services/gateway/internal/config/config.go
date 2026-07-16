@@ -23,7 +23,25 @@ type Config struct {
 	AllowedOrigins []string
 	Services     ServiceEndpoints
 	Redis        RedisConfig
+	Keycloak     KeycloakConfig
+	APISIX       APISIXConfig
 }
+
+type KeycloakConfig struct {
+	URL          string // e.g. http://keycloak:8080
+	Realm        string // e.g. wacommerce
+	ClientID     string
+	ClientSecret string
+	// Derived — set by Load()
+	JWKSEndpoint    string
+	IntrospectURL   string
+}
+
+type APISIXConfig struct {
+	AdminURL string // e.g. http://apisix:9180
+	AdminKey string
+}
+
 
 type RedisConfig struct {
 	Addr     string
@@ -32,6 +50,8 @@ type RedisConfig struct {
 }
 
 func Load() *Config {
+	keycloakURL  := getEnv("KEYCLOAK_URL", "http://keycloak:8080")
+	keycloakRealm := getEnv("KEYCLOAK_REALM", "wacommerce")
 	return &Config{
 		Env:       getEnv("ENV", "development"),
 		Port:      getEnv("PORT", "8080"),
@@ -55,6 +75,18 @@ func Load() *Config {
 			Password: getEnv("REDIS_PASSWORD", ""),
 			DB:       0,
 		},
+		Keycloak: KeycloakConfig{
+			URL:           keycloakURL,
+			Realm:         keycloakRealm,
+			ClientID:      getEnv("KEYCLOAK_CLIENT_ID", "wacommerce-app"),
+			ClientSecret:  getEnv("KEYCLOAK_CLIENT_SECRET", ""),
+			JWKSEndpoint:  keycloakURL + "/realms/" + keycloakRealm + "/protocol/openid-connect/certs",
+			IntrospectURL: keycloakURL + "/realms/" + keycloakRealm + "/protocol/openid-connect/token/introspect",
+		},
+		APISIX: APISIXConfig{
+			AdminURL: getEnv("APISIX_ADMIN_URL", "http://apisix:9180"),
+			AdminKey: getEnv("APISIX_ADMIN_KEY", ""),
+		},
 	}
 }
 
@@ -64,4 +96,3 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
-

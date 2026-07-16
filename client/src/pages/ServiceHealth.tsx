@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
 import { Activity, CheckCircle, Server, XCircle } from "lucide-react";
+import { Database, Shield, Search, Zap, GitBranch, Globe } from "lucide-react";
 import { useState, useEffect } from "react";
 
 // Mini sparkline component using SVG
@@ -47,6 +48,14 @@ const langColors: Record<string, string> = {
 
 export default function ServiceHealth() {
   const { data: health } = trpc.agent.health.useQuery();
+  const { data: layerHealth, isLoading: layerLoading } = trpc.hermes.layerHealth.useQuery(
+    undefined,
+    { refetchInterval: 30_000, retry: false },
+  );
+  const { data: infraHealth, isLoading: infraLoading } = trpc.infra.infraHealth.useQuery(
+    undefined,
+    { refetchInterval: 30_000, retry: false },
+  );
   // Simulate latency history per service (last 8 checks)
   const [latencyHistory, setLatencyHistory] = useState<Record<string, number[]>>({});
 
@@ -175,61 +184,116 @@ export default function ServiceHealth() {
         </div>
       </div>
       </div>
-      {/* Hermes Agent Layer health */}
+      {/* Hermes Agent Layer health — live polling every 30s */}
       <div className="mt-2">
-        <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Hermes Agent Layer</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Hermes Agent Layer</h2>
+          {layerHealth && (
+            <span className="text-xs text-muted-foreground font-mono">
+              Last checked {new Date(layerHealth.checkedAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-purple-500/20 bg-purple-500/5">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.6)]" />
-                  <span className="font-medium text-sm">Hermes Skills</span>
-                </div>
-                <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">Python</Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mb-1">FastAPI skills executor — PO generation, supplier email, WooCommerce sync</p>
-              <code className="text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded font-mono">http://hermes-skills:8097/health</code>
-              <div className="mt-2 flex items-center gap-2">
-                <CheckCircle className="h-3 w-3 text-purple-400" />
-                <span className="text-xs text-muted-foreground">Endpoints: /skills/generate-po, /skills/po-approved, /skills/woo-sync</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-cyan-500/20 bg-cyan-500/5">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
-                  <span className="font-medium text-sm">Hermes Bridge</span>
-                </div>
-                <Badge variant="outline" className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">Go</Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mb-1">Kafka consumer — forwards platform inventory/order events to Hermes Cloud API</p>
-              <code className="text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded font-mono">http://hermes-bridge:8096/health</code>
-              <div className="mt-2 flex items-center gap-2">
-                <Activity className="h-3 w-3 text-cyan-400" />
-                <span className="text-xs text-muted-foreground">Kafka topic: hermes.platform.events → Hermes Cloud API</span>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-orange-500/20 bg-orange-500/5">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-orange-400 shadow-[0_0_8px_rgba(251,146,60,0.6)]" />
-                  <span className="font-medium text-sm">Hermes Router</span>
-                </div>
-                <Badge variant="outline" className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-xs">Rust</Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mb-1">Circuit breaker, exponential-backoff retry, dead-letter queue on hermes.events.dlq</p>
-              <code className="text-xs text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded font-mono">Redis heartbeat: hermes:router:heartbeat</code>
-              <div className="mt-2 flex items-center gap-2">
-                <Server className="h-3 w-3 text-orange-400" />
-                <span className="text-xs text-muted-foreground">DLQ: hermes.events.dlq | Retry: 3× with jitter backoff</span>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Hermes Skills */}
+          {(() => {
+            const svc = layerHealth?.skills;
+            const online = layerLoading ? null : (svc?.online ?? false);
+            const dotColor = layerLoading ? "bg-gray-500" : online ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" : "bg-red-400";
+            const badgeClass = layerLoading ? "bg-gray-500/20 text-gray-400 border-gray-500/30" : online ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30";
+            const statusLabel = layerLoading ? "checking…" : online ? "online" : "offline";
+            return (
+              <Card className="border-purple-500/20 bg-purple-500/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full flex-shrink-0 ${dotColor}`} />
+                      <span className="font-medium text-sm">Hermes Skills</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className={`text-xs ${badgeClass}`}>{statusLabel}</Badge>
+                      <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">Python</Badge>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-1">FastAPI skills executor — PO generation, supplier email, WooCommerce sync</p>
+                  <code className="text-xs text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded font-mono">http://hermes-skills:8097/health</code>
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {online ? <CheckCircle className="h-3 w-3 text-green-400" /> : <XCircle className="h-3 w-3 text-red-400" />}
+                      <span className="text-xs text-muted-foreground">Endpoints: /skills/generate-po, /skills/po-approved, /skills/woo-sync</span>
+                    </div>
+                    {svc?.latencyMs != null && <span className="text-xs text-muted-foreground font-mono">{svc.latencyMs}ms</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+          {/* Hermes Bridge */}
+          {(() => {
+            const svc = layerHealth?.bridge;
+            const online = layerLoading ? null : (svc?.online ?? false);
+            const dotColor = layerLoading ? "bg-gray-500" : online ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" : "bg-red-400";
+            const badgeClass = layerLoading ? "bg-gray-500/20 text-gray-400 border-gray-500/30" : online ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30";
+            const statusLabel = layerLoading ? "checking…" : online ? "online" : "offline";
+            return (
+              <Card className="border-cyan-500/20 bg-cyan-500/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full flex-shrink-0 ${dotColor}`} />
+                      <span className="font-medium text-sm">Hermes Bridge</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className={`text-xs ${badgeClass}`}>{statusLabel}</Badge>
+                      <Badge variant="outline" className="bg-cyan-500/20 text-cyan-400 border-cyan-500/30 text-xs">Go</Badge>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-1">Kafka consumer — forwards platform inventory/order events to Hermes Cloud API</p>
+                  <code className="text-xs text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded font-mono">http://hermes-bridge:8096/health</code>
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {online ? <CheckCircle className="h-3 w-3 text-green-400" /> : <XCircle className="h-3 w-3 text-red-400" />}
+                      <span className="text-xs text-muted-foreground">Kafka topic: hermes.platform.events → Hermes Cloud API</span>
+                    </div>
+                    {svc?.latencyMs != null && <span className="text-xs text-muted-foreground font-mono">{svc.latencyMs}ms</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
+          {/* Hermes Router */}
+          {(() => {
+            const svc = layerHealth?.router;
+            const online = layerLoading ? null : (svc?.online ?? false);
+            const dotColor = layerLoading ? "bg-gray-500" : online ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" : "bg-red-400";
+            const badgeClass = layerLoading ? "bg-gray-500/20 text-gray-400 border-gray-500/30" : online ? "bg-green-500/20 text-green-400 border-green-500/30" : "bg-red-500/20 text-red-400 border-red-500/30";
+            const statusLabel = layerLoading ? "checking…" : online ? "online" : "offline";
+            return (
+              <Card className="border-orange-500/20 bg-orange-500/5">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full flex-shrink-0 ${dotColor}`} />
+                      <span className="font-medium text-sm">Hermes Router</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className={`text-xs ${badgeClass}`}>{statusLabel}</Badge>
+                      <Badge variant="outline" className="bg-orange-500/20 text-orange-400 border-orange-500/30 text-xs">Rust</Badge>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-1">Circuit breaker, exponential-backoff retry, dead-letter queue on hermes.events.dlq</p>
+                  <code className="text-xs text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded font-mono">Redis heartbeat: hermes:router:heartbeat</code>
+                  <div className="mt-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {online ? <CheckCircle className="h-3 w-3 text-green-400" /> : <XCircle className="h-3 w-3 text-red-400" />}
+                      <span className="text-xs text-muted-foreground">DLQ: hermes.events.dlq | Retry: 3× with jitter backoff</span>
+                    </div>
+                    {svc?.latencyMs != null && <span className="text-xs text-muted-foreground font-mono">{svc.latencyMs}ms</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()}
         </div>
         {/* PO Approval WhatsApp Flow */}
         <div className="mt-4">
@@ -258,6 +322,84 @@ export default function ServiceHealth() {
           </Card>
         </div>
       </div>
+
+      {/* ── Infrastructure Health Grid (12 services, live polling every 30s) ── */}
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Infrastructure Layer</h2>
+          {infraHealth && (
+            <span className="text-xs text-muted-foreground font-mono">
+              Last checked {new Date(infraHealth.checkedAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {INFRA_SERVICES.map((svc) => {
+            const raw = infraHealth?.services?.[svc.key as keyof typeof infraHealth.services];
+            const online = infraLoading ? null : (raw?.online ?? false);
+            const latency = raw?.latencyMs;
+            const err = raw?.error;
+            const dotColor = infraLoading ? "bg-gray-500" : online ? "bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.6)]" : "bg-red-400";
+            const badgeClass = infraLoading
+              ? "bg-gray-500/20 text-gray-400 border-gray-500/30"
+              : online
+              ? "bg-green-500/20 text-green-400 border-green-500/30"
+              : "bg-red-500/20 text-red-400 border-red-500/30";
+            const statusLabel = infraLoading ? "checking..." : online ? "online" : err === "not_configured" ? "not configured" : "offline";
+            const langBadgeClass: Record<string, string> = {
+              Go: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+              Rust: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+              Python: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+              TS: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+            };
+            return (
+              <Card key={svc.key} className="bg-card border-border">
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full flex-shrink-0 ${dotColor}`} />
+                      <span className="font-semibold text-sm">{svc.label}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Badge variant="outline" className={`text-xs ${badgeClass}`}>{statusLabel}</Badge>
+                      <Badge variant="outline" className={`text-xs ${langBadgeClass[svc.lang] ?? ""}`}>{svc.lang}</Badge>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{svc.desc}</p>
+                  {latency != null && (
+                    <p className="text-xs text-muted-foreground font-mono mt-1">{latency}ms</p>
+                  )}
+                  {err && err !== "not_configured" && (
+                    <p className="text-xs text-red-400 mt-1 truncate" title={err}>{err}</p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
     </DashboardLayout>
   );
 }
+
+const INFRA_SERVICES: Array<{
+  key: string;
+  label: string;
+  lang: string;
+  desc: string;
+  color: string;
+}> = [
+  { key: "postgres",    label: "PostgreSQL",   lang: "TS",     desc: "Primary relational database — Drizzle ORM, connection pooling",               color: "blue" },
+  { key: "redis",       label: "Redis",        lang: "TS",     desc: "Session cache, rate-limiting, pub/sub, Hermes router heartbeat",               color: "red" },
+  { key: "kafka",       label: "Kafka",        lang: "Go",     desc: "Event streaming — order/payment/inventory/hermes topics",                      color: "cyan" },
+  { key: "tigerBeetle", label: "TigerBeetle",  lang: "Rust",   desc: "Double-entry financial ledger — reserve/commit/void via ledger-bridge:8095",   color: "orange" },
+  { key: "mojaloop",    label: "Mojaloop",     lang: "Go",     desc: "Open-loop mobile-money transfers — FSP callbacks, quote, transfer",            color: "green" },
+  { key: "apisix",      label: "APISIX",       lang: "Go",     desc: "API gateway — route management, rate limiting, JWT plugin",                    color: "purple" },
+  { key: "keycloak",    label: "Keycloak",     lang: "Go",     desc: "Identity provider — JWKS RS256 token validation, SSO",                         color: "yellow" },
+  { key: "openappsec",  label: "OpenAppSec",   lang: "Python", desc: "WAF — ML-based threat detection, policy enforcement",                          color: "pink" },
+  { key: "permify",     label: "Permify",      lang: "Python", desc: "Fine-grained authorization — RBAC/ABAC permission checks",                     color: "indigo" },
+  { key: "opensearch",  label: "OpenSearch",   lang: "Python", desc: "Full-text search — products, orders, conversations, audit logs",                color: "teal" },
+  { key: "fluvio",      label: "Fluvio",       lang: "Rust",   desc: "Streaming event consumer — wacommerce.* topics → Node webhook",                color: "amber" },
+  { key: "dapr",        label: "Dapr",         lang: "Go",     desc: "Sidecar runtime — pub/sub, state store, service invocation",                   color: "violet" },
+];

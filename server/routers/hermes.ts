@@ -99,6 +99,29 @@ export const hermesRouter = router({
       return { success: true };
     }),
 
+  // Mark onboarding tour as completed for a tenant
+  completeTour: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const now = Date.now();
+      await db
+        .insert(hermesConfigs)
+        .values({
+          tenantId: input.tenantId,
+          active: true,
+          tourCompleted: true,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: hermesConfigs.tenantId,
+          set: { tourCompleted: true, updatedAt: now },
+        });
+      return { success: true };
+    }),
+
   // Health check against hermes-bridge and hermes-skills
   getStatus: protectedProcedure.query(async () => {
     const checks = await Promise.allSettled([
@@ -283,4 +306,50 @@ export const hermesRouter = router({
 
       return { success: true, eventId };
     }),
+
+  // Live health check for all three Hermes layer services
+  // Returns real-time up/down status + latency for hermes-bridge, hermes-skills, and hermes-router (Redis heartbeat)
+  layerHealth: protectedProcedure.query(async () => {
+    const t0 = Date.now();
+    const [bridgeResult, skillsResult] = await Promise.allSettled([
+      fetch(`${HERMES_BRIDGE_URL}/health`, { signal: AbortSignal.timeout(4000) })
+        .then(async (r: Response) => {
+          const latencyMs = Date.now() - t0;
+          const body = await r.json().catch(() => ({}));
+          return { ok: r.ok, latencyMs, body };
+        }),
+      fetch(`${HERMES_SKILLS_URL}/health`, { signal: AbortSignal.timeout(4000) })
+        .then(async (r: Response) => {
+          const latencyMs = Date.now() - t0;
+          const body = await r.json().catch(() => ({}));
+          return { ok: r.ok, latencyMs, body };
+        }),
+    ]);
+    // Hermes Router: check via platform's own router-heartbeat endpoint (backed by Redis key hermes:router:heartbeat)
+    const routerStart = Date.now();
+    let routerOnline = false;
+    let routerLatency = 0;
+    let routerError: string | undefined;
+    try {
+      const hbResp = await fetch(
+        `http://localhost:${process.env.PORT ?? 3000}/api/hermes/router-heartbeat`,
+        { signal: AbortSignal.timeout(3000) },
+      );
+      routerOnline = hbResp.ok;
+      routerLatency = Date.now() - routerStart;
+    } catch (e: any) {
+      routerLatency = Date.now() - routerStart;
+      routerError = String(e?.message ?? e);
+    }
+    return {
+      bridge: bridgeResult.status === "fulfilled"
+        ? { online: bridgeResult.value.ok, latencyMs: bridgeResult.value.latencyMs, details: bridgeResult.value.body }
+        : { online: false, latencyMs: 0, error: String((bridgeResult as PromiseRejectedResult).reason) },
+      skills: skillsResult.status === "fulfilled"
+        ? { online: skillsResult.value.ok, latencyMs: skillsResult.value.latencyMs, details: skillsResult.value.body }
+        : { online: false, latencyMs: 0, error: String((skillsResult as PromiseRejectedResult).reason) },
+      router: { online: routerOnline, latencyMs: routerLatency, error: routerError },
+      checkedAt: Date.now(),
+    };
+  }),
 });

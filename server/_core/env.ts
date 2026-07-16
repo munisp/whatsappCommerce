@@ -1,6 +1,40 @@
 export const ENV = {
   // Database
   postgresUrl: process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? "",
+  // Middleware
+  redisUrl: process.env.REDIS_URL ?? process.env.REDIS_TLS_URL ?? "",
+  kafkaBrokers: process.env.KAFKA_BROKERS ?? "kafka:9092",
+  kafkaClientId: process.env.KAFKA_CLIENT_ID ?? "wacommerce-node",
+  kafkaGroupId: process.env.KAFKA_GROUP_ID ?? "wacommerce-consumers",
+  // TigerBeetle / Ledger
+  ledgerBridgeUrl: process.env.LEDGER_BRIDGE_URL ?? "http://ledger-bridge:8095",
+  tigerBeetleClusterId: process.env.TIGERBEETLE_CLUSTER_ID ?? "0",
+  tigerBeetleAddresses: process.env.TIGERBEETLE_ADDRESSES ?? "tigerbeetle:3000",
+  // Mojaloop
+  mojaloopUrl: process.env.MOJALOOP_URL ?? "http://mojaloop-simulator:3001",
+  mojaloopFspId: process.env.MOJALOOP_FSP_ID ?? "wacommerce",
+  // APISIX
+  apisixAdminUrl: process.env.APISIX_ADMIN_URL ?? "http://apisix:9180",
+  apisixAdminKey: process.env.APISIX_ADMIN_KEY ?? "",
+  // Permify
+  permifyUrl: process.env.PERMIFY_URL ?? "http://permify:3476",
+  permifyTenantId: process.env.PERMIFY_TENANT_ID ?? "t1",
+  // OpenSearch
+  opensearchUrl: process.env.OPENSEARCH_URL ?? "http://opensearch:9200",
+  opensearchUser: process.env.OPENSEARCH_USER ?? "admin",
+  opensearchPass: process.env.OPENSEARCH_PASS ?? "admin",
+  // Dapr
+  daprHttpPort: parseInt(process.env.DAPR_HTTP_PORT ?? "3500"),
+  daprGrpcPort: parseInt(process.env.DAPR_GRPC_PORT ?? "50001"),
+  daprAppId: process.env.DAPR_APP_ID ?? "wacommerce",
+  // Fluvio
+  fluvioEndpoint: process.env.FLUVIO_ENDPOINT ?? "http://fluvio-sc:9003",
+  fluvioConsumerUrl: process.env.FLUVIO_CONSUMER_URL ?? "http://fluvio-consumer:8098",
+  // OpenAppSec WAF
+  openappsecUrl: process.env.OPENAPPSEC_MGMT_URL ?? "",
+  openappsecToken: process.env.OPENAPPSEC_TOKEN ?? "",
+  // Ledger Bridge health URL (same as ledgerBridgeUrl but explicit alias)
+  ledgerBridgeHealthUrl: process.env.LEDGER_BRIDGE_URL ?? "http://ledger-bridge:8095",
   // Auth (self-hosted Keycloak)
   keycloakUrl: process.env.KEYCLOAK_URL ?? "http://localhost:8080",
   keycloakRealm: process.env.KEYCLOAK_REALM ?? "wacommerce",

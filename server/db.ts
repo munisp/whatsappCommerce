@@ -25,7 +25,14 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       const connStr = process.env.POSTGRES_URL || process.env.DATABASE_URL;
-      _client = postgres(connStr!, { max: 10 });
+      _client = postgres(connStr!, {
+        max: 10,
+        idle_timeout: 30,
+        connect_timeout: 10,
+        max_lifetime: 1800,
+        ssl: connStr!.includes("sslmode=require") ? { rejectUnauthorized: false } : undefined,
+        transform: { undefined: null },
+      });
       _db = drizzle(_client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
@@ -33,6 +40,39 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/**
+ * Execute a DB operation with exponential backoff retry.
+ * Retries up to 3 times on transient connection errors.
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  baseDelayMs = 200
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const isTransient =
+        err?.code === "ECONNRESET" ||
+        err?.code === "ECONNREFUSED" ||
+        err?.code === "ETIMEDOUT" ||
+        err?.message?.includes("connection") ||
+        err?.message?.includes("timeout");
+      if (!isTransient || attempt === retries - 1) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 50;
+      console.warn(`[DB] Transient error (attempt ${attempt + 1}/${retries}), retrying in ${Math.round(delay)}ms:`, err?.message);
+      await new Promise(r => setTimeout(r, delay));
+      // Reset connection on transient errors
+      _db = null;
+      _client = null;
+    }
+  }
+  throw lastErr;
 }
 
 // ─── User Helpers ─────────────────────────────────────────────────────────────

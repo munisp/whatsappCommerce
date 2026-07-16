@@ -140,5 +140,9 @@ export const appRouter = router({
   tenantAnalytics: tenantAnalyticsRouter,
   deliveryReceipts: deliveryReceiptsRouter,
   hermes: hermesRouter,
+  infra: infraRouter,
+  search: searchRouter,
 });
 export type AppRouter = typeof appRouter;
+import { infraRouter } from "./routers/infra";
+import { searchRouter } from "./routers/search";

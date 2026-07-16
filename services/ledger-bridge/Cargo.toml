@@ -1,0 +1,36 @@
+[package]
+name = "ledger-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "TigerBeetle HTTP bridge for WhatsApp Commerce payment orchestration"
+
+[[bin]]
+name = "ledger-bridge"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# HTTP server
+axum = { version = "0.7", features = ["json"] }
+# HTTP client (for TigerBeetle gRPC/HTTP proxy)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# UUIDs
+uuid = { version = "1", features = ["v4", "serde"] }
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Error handling
+anyhow = "1"
+thiserror = "1"
+# Config from env
+dotenvy = "0.15"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

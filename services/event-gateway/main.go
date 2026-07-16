@@ -14,8 +14,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	kafka "github.com/segmentio/kafka-go"
 )
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -141,15 +144,24 @@ type KafkaEvent struct {
 type Gateway struct {
 	cfg    Config
 	logger *slog.Logger
-	// In production: kafka producer from segmentio/kafka-go or confluent-kafka-go
-	// Here we stub it for compilation without external deps
+	writer *kafka.Writer
 }
 
 func NewGateway(cfg Config) *Gateway {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
-	return &Gateway{cfg: cfg, logger: logger}
+	var writer *kafka.Writer
+	if cfg.KafkaBrokers != "" {
+		writer = &kafka.Writer{
+			Addr:         kafka.TCP(strings.Split(cfg.KafkaBrokers, ",")...),
+			Balancer:     &kafka.LeastBytes{},
+			RequiredAcks: kafka.RequireOne,
+			Async:        false,
+			MaxAttempts:  3,
+		}
+	}
+	return &Gateway{cfg: cfg, logger: logger, writer: writer}
 }
 
 // verifySignature validates X-Hub-Signature-256 from Meta
@@ -163,15 +175,25 @@ func (g *Gateway) verifySignature(body []byte, signature string) bool {
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
-// publishToKafka publishes an event (stubbed — replace with real producer)
+// publishToKafka publishes an event to Kafka using segmentio/kafka-go
 func (g *Gateway) publishToKafka(ctx context.Context, topic string, event KafkaEvent) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal event: %w", err)
 	}
-	// TODO: Replace with real kafka-go producer:
-	// writer.WriteMessages(ctx, kafka.Message{Topic: topic, Value: data})
-	g.logger.Info("kafka.publish", "topic", topic, "event_type", event.EventType, "size", len(data))
+	if g.writer == nil {
+		g.logger.Info("kafka.publish.noop", "topic", topic, "event_type", event.EventType)
+		return nil
+	}
+	err = g.writer.WriteMessages(ctx, kafka.Message{
+		Topic: topic,
+		Key:   []byte(event.TraceID),
+		Value: data,
+	})
+	if err != nil {
+		return fmt.Errorf("kafka write: %w", err)
+	}
+	g.logger.Info("kafka.published", "topic", topic, "event_type", event.EventType)
 	return nil
 }
 
@@ -302,4 +324,3 @@ func getEnv(key, fallback string) string {
 	}
 	return fallback
 }
-

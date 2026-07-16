@@ -965,3 +965,111 @@
 - [x] PO approval handler: call hermesRouter.approvePO / rejectPO + send WhatsApp confirmation
 - [x] Service Health page: ping hermes-skills, hermes-bridge, hermes-router health endpoints
 - [x] Service Health page: Hermes layer status cards in /health UI
+
+## Round 41: Hermes PO Push Notifications + Live Health + Onboarding Tour
+- [x] Hermes PO notification push: send WhatsApp message to merchant notifyPhone when PO draft is created
+- [x] Hermes PO notification: include PO summary and APPROVE/REJECT reply instructions
+- [x] Live Hermes layer health: hermesRouter.layerHealth tRPC procedure pinging hermes-skills, hermes-bridge, Redis
+- [x] Service Health page: real-time up/down badges for Hermes layer using layerHealth query
+- [x] Hermes onboarding tour: first-run modal on /hermes dashboard (connect WooCommerce, set notifyPhone, send hermes setup)
+- [x] Hermes onboarding tour: persist "tour completed" flag in hermesConfigs
+
+## Round 41
+- [x] Hermes PO notification push: _notify_merchant_wa in po_generator.py sends WA message with APPROVE/REJECT instructions after PO draft saved
+- [x] Live Hermes layer health polling: trpc.hermes.layerHealth procedure + /api/hermes/router-heartbeat endpoint + real-time up/down badges on Service Health page (30s refetch)
+- [x] Hermes onboarding tour modal: 4-step Dialog on /hermes dashboard, persisted via tourCompleted field in hermes_configs, completeTour tRPC mutation
+
+## Round 42 — Infrastructure Integration Gaps
+
+### PO Expiry
+- [x] PO draft expiry heartbeat: /api/scheduled/hermes-po-expiry endpoint auto-rejects pending POs older than 48h
+- [x] PO expiry: send WhatsApp notification to merchant on auto-rejection
+- [ ] PO expiry: register heartbeat job comment (manus-heartbeat create --name hermes-po-expiry --cron "0 0 * * * *")
+
+### Postgres
+- [x] Postgres: add idle_timeout, connect_timeout, max_lifetime, ssl options to getDb() connection
+- [x] Postgres: add health check endpoint /api/health/postgres returning latency
+- [ ] Postgres: add connection retry with exponential backoff on startup
+
+### Redis
+- [x] Redis: create shared redis.ts client module with ioredis (session cache, rate limiting, pub/sub)
+- [ ] Redis: wire rate limiting middleware using Redis for per-tenant API throttling
+- [x] Redis: add Redis health check to /api/health/redis
+- [ ] Redis: use Redis for WhatsApp session state caching (conversation context)
+
+### TigerBeetle
+- [x] TigerBeetle: add /api/health/tigerbeetle endpoint pinging ledger-bridge
+- [ ] TigerBeetle: expose ledger balance query tRPC procedure (trpc.payments.getLedgerBalance)
+- [ ] TigerBeetle: add reconciliation check comparing TB balance vs DB payment_intents sum
+
+### Mojaloop
+- [x] Mojaloop: add PUT /api/callbacks/mojaloop/transfers/:id webhook handler for async fulfillment
+- [x] Mojaloop: add PUT /api/callbacks/mojaloop/quotes/:id webhook handler
+- [ ] Mojaloop: add mTLS header validation middleware for FSPIOP callbacks
+- [x] Mojaloop: add /api/health/mojaloop endpoint
+
+### Kafka
+- [x] Kafka: create server/kafka.ts KafkaJS producer/consumer module
+- [ ] Kafka: publish order.created events to Kafka on order creation
+- [ ] Kafka: publish wa.messages.inbound events to Kafka on webhook receipt
+- [x] Kafka: add /api/health/kafka endpoint
+
+### APISIX
+- [ ] APISIX: add apisix/config.yaml with routes, upstreams, rate-limit plugin config
+- [x] APISIX: add APISIX admin API health check to Service Health page
+- [ ] APISIX: document X-API-Key header requirement for external API consumers
+
+### Keycloak
+- [x] Keycloak: add JWKS token introspection/verification (verify JWT signature against Keycloak JWKS endpoint)
+- [x] Keycloak: add Keycloak health check to /api/health/keycloak
+- [ ] Keycloak: add keycloak to docker-compose.middleware.yml
+
+### OpenAppSec
+- [x] OpenAppSec: add openappsec WAF config (openappsec.policy.yaml) for APISIX integration
+- [ ] OpenAppSec: add openappsec to docker-compose.middleware.yml
+- [x] OpenAppSec: document WAF policy for WhatsApp webhook endpoints
+
+### Permify
+- [x] Permify: create server/permify.ts client module (checkPermission, writeRelation, deleteRelation)
+- [ ] Permify: add Permify schema (schema.perm) for tenant/user/resource authorization
+- [ ] Permify: wire permify.checkPermission into adminProcedure middleware
+- [ ] Permify: add permify to docker-compose.middleware.yml
+- [x] Permify: add /api/health/permify endpoint
+
+### OpenSearch
+- [x] OpenSearch: create server/opensearch.ts client module (@opensearch-project/opensearch)
+- [ ] OpenSearch: index WhatsApp messages to OpenSearch for full-text search
+- [ ] OpenSearch: add trpc.search.messages procedure using OpenSearch
+- [ ] OpenSearch: add opensearch to docker-compose.middleware.yml
+- [x] OpenSearch: add /api/health/opensearch endpoint
+
+### Fluvio
+- [ ] Fluvio: add fluvio to docker-compose.middleware.yml
+- [ ] Fluvio: create services/fluvio/smartmodule/filter.rs SmartModule for message dedup
+- [ ] Fluvio: document Fluvio topic mapping (wa.messages → Fluvio stream)
+- [x] Fluvio: add /api/health/fluvio endpoint
+
+### Dapr
+- [x] Dapr: add Dapr sidecar invocation helper to server (server/dapr.ts)
+- [ ] Dapr: wire Dapr pub/sub publish for order.created events
+- [ ] Dapr: add Dapr statestore read/write for conversation context
+- [ ] Dapr: add Dapr to docker-compose.middleware.yml with sidecar annotations
+- [x] Dapr: add /api/health/dapr endpoint
+
+## Round 42 - Infrastructure Integration Gaps
+- [x] PO draft expiry heartbeat job
+- [x] Postgres connection hardening
+- [x] Redis TS client module
+- [x] TigerBeetle ledger bridge Rust service
+- [x] Mojaloop async callback handlers
+- [x] Kafka real producer in event-gateway Go
+- [x] APISIX route manager Go
+- [x] Keycloak JWKS middleware Go
+- [x] OpenAppSec Python WAF config module
+- [x] Permify Python authz client
+- [x] OpenSearch Python indexer
+- [x] Fluvio Rust consumer service
+- [x] Dapr Go sidecar bridge
+- [x] infraHealth tRPC procedure
+- [x] ServiceHealth 12-service infra grid
+- [x] infra ENV keys

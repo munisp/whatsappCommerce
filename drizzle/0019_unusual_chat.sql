@@ -1,0 +1,1 @@
+ALTER TABLE "hermes_configs" ADD COLUMN "tourCompleted" boolean DEFAULT false NOT NULL;

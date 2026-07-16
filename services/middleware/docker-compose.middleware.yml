@@ -150,9 +150,155 @@ services:
       redis:
         condition: service_healthy
 
+  # ── Keycloak Identity Provider ──────────────────────────────────────────────
+  keycloak-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+      POSTGRES_DB: keycloak
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.5
+    command: start-dev
+    ports:
+      - "8180:8080"
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin_dev_2026}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ── OpenAppSec WAF ──────────────────────────────────────────────────────────
+  openappsec-agent:
+    image: ghcr.io/openappsec/agent:latest
+    privileged: true
+    network_mode: host
+    environment:
+      OPENAPPSEC_TOKEN: ${OPENAPPSEC_TOKEN:-}
+      OPENAPPSEC_POLICY: /etc/openappsec/policy.yaml
+    volumes:
+      - ./openappsec-policy.yaml:/etc/openappsec/policy.yaml:ro
+      - openappsec_data:/etc/cp/conf
+    restart: unless-stopped
+
+  # ── Permify Authorization Engine ────────────────────────────────────────────
+  permify-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: permify
+      POSTGRES_PASSWORD: permify
+      POSTGRES_DB: permify
+    volumes:
+      - permify_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U permify"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  permify:
+    image: ghcr.io/permify/permify:v0.9.6
+    ports:
+      - "3476:3476"
+      - "3478:3478"
+    command: serve
+    environment:
+      PERMIFY_DATABASE_ENGINE: postgres
+      PERMIFY_DATABASE_URI: postgres://permify:permify@permify-db:5432/permify?sslmode=disable
+      PERMIFY_DATABASE_AUTO_MIGRATE: "true"
+      PERMIFY_LOG_LEVEL: info
+    depends_on:
+      permify-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3476/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── OpenSearch ───────────────────────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    ports:
+      - "9200:9200"
+      - "9600:9600"
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_ADMIN_PASSWORD:-WaCommerce_2026!}
+      plugins.security.disabled: "false"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf -u admin:${OPENSEARCH_ADMIN_PASSWORD:-WaCommerce_2026!} https://localhost:9200/_cluster/health --insecure || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.17.1
+    ports:
+      - "5601:5601"
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch:9200"]'
+    depends_on:
+      - opensearch
+
+  # ── Fluvio Streaming ────────────────────────────────────────────────────────
+  fluvio-sc:
+    image: infinyon/fluvio:0.11.11
+    command: run sc --local
+    ports:
+      - "9003:9003"
+    volumes:
+      - fluvio_data:/var/lib/fluvio
+    healthcheck:
+      test: ["CMD-SHELL", "fluvio cluster status || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  fluvio-spu:
+    image: infinyon/fluvio:0.11.11
+    command: run spu --id 5001 --sc-addr fluvio-sc:9003
+    depends_on:
+      fluvio-sc:
+        condition: service_healthy
+    volumes:
+      - fluvio_spu_data:/var/lib/fluvio-spu
+
+
 volumes:
   zookeeper_data:
   kafka_data:
   redis_data:
   temporal_db_data:
-
+  keycloak_db_data:
+  openappsec_data:
+  permify_db_data:
+  opensearch_data:
+  fluvio_data:
+  fluvio_spu_data:

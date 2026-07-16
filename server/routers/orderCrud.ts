@@ -82,6 +82,19 @@ export const orderCrudRouter = router({
       }
 
       return { orderId, orderNumber, total };
+      // Publish order.created event to Kafka and Dapr (fire-and-forget)
+      const orderEvent = {
+        eventType: "order.created",
+        orderId,
+        orderNumber,
+        tenantId: input.tenantId,
+        customerId: input.customerId,
+        total,
+        currency: input.currency,
+        timestamp: Date.now(),
+      };
+      publishOrderEvent(orderId, input.tenantId, "created", { orderNumber, total, currency: input.currency }).catch(() => {});
+      daprPublish("wacommerce-pubsub", "wacommerce.orders.created", orderEvent).catch(() => {});
     }),
 
   /** Update order status */
@@ -216,4 +229,5 @@ export const orderCrudRouter = router({
       return { ok: true };
     }),
 });
-
+import { publishOrderEvent } from "../kafka";
+import { daprPublish } from "../dapr";

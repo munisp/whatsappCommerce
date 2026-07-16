@@ -1,0 +1,52 @@
+schema:
+
+entity user {}
+
+entity tenant {
+  relation owner @user
+  relation member @user
+  relation admin @user
+
+  action manage = owner or admin
+  action view   = owner or admin or member
+  action invite = owner or admin
+}
+
+entity product {
+  relation tenant @tenant
+  relation owner  @user
+
+  action create = tenant.admin or tenant.owner
+  action update = tenant.admin or tenant.owner or owner
+  action delete = tenant.admin or tenant.owner
+  action view   = tenant.member or tenant.admin or tenant.owner
+}
+
+entity order {
+  relation tenant  @tenant
+  relation buyer   @user
+  relation merchant @user
+
+  action view   = tenant.admin or tenant.owner or buyer or merchant
+  action update = tenant.admin or tenant.owner or merchant
+  action refund = tenant.admin or tenant.owner
+  action cancel = buyer or tenant.admin or tenant.owner
+}
+
+entity escrow_transaction {
+  relation tenant   @tenant
+  relation operator @user
+
+  action release = tenant.admin or tenant.owner or operator
+  action refund  = tenant.admin or tenant.owner or operator
+  action view    = tenant.admin or tenant.owner or operator
+}
+
+entity conversation {
+  relation tenant   @tenant
+  relation assignee @user
+
+  action view    = tenant.admin or tenant.owner or tenant.member or assignee
+  action assign  = tenant.admin or tenant.owner
+  action resolve = tenant.admin or tenant.owner or assignee
+}
