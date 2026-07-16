@@ -25,7 +25,7 @@ import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { broadcastCampaigns, broadcastRecipients, twentyContacts } from "../../drizzle/schema";
-import { hermesPODrafts } from "../../drizzle/schema";
+import { hermesPODrafts, hermesHealthLog } from "../../drizzle/schema";
 import { eq, and, gte, lte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { handleGetEvidencePortal, handleSubmitEvidence } from "../routers/evidencePortal";
@@ -1889,6 +1889,57 @@ function drawBbox(img,id){
         }
       } catch { /* Python inference failed — use heuristic fallback */ }
       res.json({ fraudProbability: fraudScore, creditScore, riskLevel, source: "heuristic" });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── Hermes layer health snapshot heartbeat ────────────────────────────────
+  // Runs every 5 minutes. Calls layerHealth, writes one row per layer to
+  // hermes_health_log, then prunes rows older than 25 hours.
+  // After deploy: manus-heartbeat create --name hermes-health-snapshot --cron "0 */5 * * * *" --path /api/scheduled/hermes-health-snapshot
+  app.post("/api/scheduled/hermes-health-snapshot", async (req, res) => {
+    try {
+      const { sdk } = await import("./sdk");
+      const user = await sdk.authenticateRequest(req);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+
+      const HERMES_BRIDGE_URL = process.env.HERMES_BRIDGE_URL ?? "http://localhost:8095";
+      const HERMES_SKILLS_URL = process.env.HERMES_SKILLS_URL ?? "http://localhost:8097";
+      const now = Date.now();
+
+      // Probe each layer
+      const [bridgeResult, skillsResult] = await Promise.allSettled([
+        fetch(`${HERMES_BRIDGE_URL}/health`, { signal: AbortSignal.timeout(4000) }).then(r => ({ ok: r.ok, latencyMs: Date.now() - now })),
+        fetch(`${HERMES_SKILLS_URL}/health`, { signal: AbortSignal.timeout(4000) }).then(r => ({ ok: r.ok, latencyMs: Date.now() - now })),
+      ]);
+      const routerStart = Date.now();
+      let routerOnline = false;
+      let routerLatency = 0;
+      try {
+        const hbResp = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/hermes/router-heartbeat`, { signal: AbortSignal.timeout(3000) });
+        routerOnline = hbResp.ok;
+        routerLatency = Date.now() - routerStart;
+      } catch { routerLatency = Date.now() - routerStart; }
+
+      const layers = [
+        { layer: "bridge", online: bridgeResult.status === "fulfilled" ? bridgeResult.value.ok : false, latencyMs: bridgeResult.status === "fulfilled" ? bridgeResult.value.latencyMs : 0 },
+        { layer: "skills", online: skillsResult.status === "fulfilled" ? skillsResult.value.ok : false, latencyMs: skillsResult.status === "fulfilled" ? skillsResult.value.latencyMs : 0 },
+        { layer: "router", online: routerOnline, latencyMs: routerLatency },
+      ];
+
+      // Insert snapshot rows
+      await db.insert(hermesHealthLog).values(layers.map(l => ({ ...l, recordedAt: now })));
+
+      // Prune rows older than 25 hours
+      const { lt: ltOp } = await import("drizzle-orm");
+      const cutoff = now - 25 * 60 * 60 * 1000;
+      await db.delete(hermesHealthLog).where(ltOp(hermesHealthLog.recordedAt, cutoff));
+
+      res.json({ ok: true, layers, recordedAt: now });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

@@ -2325,3 +2325,19 @@ export const hermesPODrafts = pgTable("hermes_po_drafts", {
   index("hermes_po_created_idx").on(t.createdAt),
 ]);
 export type HermesPODraft = typeof hermesPODrafts.$inferSelect;
+
+// ── Hermes Layer Health History ───────────────────────────────────────────────
+// Stores periodic health snapshots for bridge / skills / router layers.
+// Used to render 24-hour sparkline charts on the Hermes Dashboard.
+// Rows older than 25 hours are pruned by the heartbeat handler.
+export const hermesHealthLog = pgTable("hermes_health_log", {
+  id: serial("id").primaryKey(),
+  layer: varchar("layer", { length: 32 }).notNull(),   // "bridge" | "skills" | "router"
+  online: boolean("online").notNull(),
+  latencyMs: integer("latencyMs").notNull().default(0),
+  recordedAt: integer("recordedAt").notNull(),          // Unix timestamp (ms)
+}, (t) => [
+  index("hermes_health_log_layer_idx").on(t.layer),
+  index("hermes_health_log_recorded_idx").on(t.recordedAt),
+]);
+export type HermesHealthLog = typeof hermesHealthLog.$inferSelect;

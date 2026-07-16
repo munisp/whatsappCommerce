@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+// useRef kept for future canvas-based sparklines if needed
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,8 +11,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { CheckCircle, XCircle, Zap, Settings, ClipboardList, Activity, RefreshCw, MessageSquare, Smartphone, ShoppingCart } from "lucide-react";
+import { CheckCircle, XCircle, Zap, Settings, ClipboardList, Activity, RefreshCw, MessageSquare, Smartphone, ShoppingCart, TrendingUp } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+
+// ─── Sparkline SVG ────────────────────────────────────────────────────────────
+type HealthPoint = { online: boolean; latencyMs: number; recordedAt: number };
+
+function Sparkline({ points, color }: { points: HealthPoint[]; color: string }) {
+  const W = 240, H = 48;
+  if (!points.length) {
+    return <div className="w-[240px] h-[48px] flex items-center justify-center text-xs text-muted-foreground">No data yet</div>;
+  }
+  const maxLatency = Math.max(...points.map(p => p.latencyMs), 1);
+  const xs = points.map((_, i) => (i / Math.max(points.length - 1, 1)) * W);
+  const ys = points.map(p => p.online ? H - 4 - (p.latencyMs / maxLatency) * (H - 12) : H - 4);
+  const pathD = xs.map((x, i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
+  const uptime = Math.round((points.filter(p => p.online).length / points.length) * 100);
+  return (
+    <div className="space-y-1">
+      <svg width={W} height={H} className="overflow-visible">
+        {points.map((p, i) => !p.online ? (
+          <rect key={i} x={(xs[i] - 2).toFixed(1)} y="0" width="4" height={H} fill="#ef4444" opacity="0.25" rx="1" />
+        ) : null)}
+        <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+        <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="3" fill={color} />
+      </svg>
+      <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>24h ago</span>
+        <span className={uptime >= 95 ? "text-emerald-600 font-medium" : uptime >= 80 ? "text-yellow-600 font-medium" : "text-red-600 font-medium"}>
+          {uptime}% uptime
+        </span>
+        <span>now</span>
+      </div>
+    </div>
+  );
+}
 
 // ─── Status indicator ─────────────────────────────────────────────────────────
 function ServiceBadge({ online }: { online: boolean }) {
@@ -60,6 +94,7 @@ export default function HermesDashboard() {
     setWooKey(d.woocommerceKey ?? "");
     setWooSecret(d.woocommerceSecret ?? "");
   }, [configQ.data]);
+  const healthHistoryQ = trpc.hermes.healthHistory.useQuery(undefined, { refetchInterval: 5 * 60 * 1000 });
   const statusQ = trpc.hermes.getStatus.useQuery(undefined, { refetchInterval: 30000 });
   const eventLogQ = trpc.hermes.getEventLog.useQuery({ tenantId, limit: 50, offset: 0 }, { enabled: !!tenantId });
   const poQueueQ = trpc.hermes.getPOQueue.useQuery({ tenantId }, { enabled: !!tenantId });
@@ -216,7 +251,59 @@ export default function HermesDashboard() {
           </TabsTrigger>
           <TabsTrigger value="events"><Activity className="w-3 h-3 mr-1" />Event Log</TabsTrigger>
           <TabsTrigger value="test"><ClipboardList className="w-3 h-3 mr-1" />Test</TabsTrigger>
+          <TabsTrigger value="health"><TrendingUp className="w-3 h-3 mr-1" />24h Health</TabsTrigger>
         </TabsList>
+
+        {/* ── 24h Health sparklines tab ── */}
+        <TabsContent value="health" className="pt-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-violet-500" />
+                Layer Health — Last 24 Hours
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                Snapshots recorded every 5 minutes. Red bars = offline intervals. Line height = response latency.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {healthHistoryQ.isLoading ? (
+                <div className="space-y-4">{["bridge", "skills", "router"].map(l => <Skeleton key={l} className="h-20 w-full" />)}</div>
+              ) : (
+                <>
+                  {(["bridge", "skills", "router"] as const).map((layer, idx) => {
+                    const pts = (healthHistoryQ.data?.[layer] ?? []) as HealthPoint[];
+                    const colors = ["#8b5cf6", "#06b6d4", "#10b981"];
+                    const labels: Record<string, string> = { bridge: "Hermes Bridge", skills: "Hermes Skills", router: "Hermes Router" };
+                    const latest = pts[pts.length - 1];
+                    return (
+                      <div key={layer} className="flex items-start gap-6">
+                        <div className="w-32 shrink-0">
+                          <div className="text-sm font-medium">{labels[layer]}</div>
+                          {latest ? (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              {latest.online
+                                ? <CheckCircle className="w-3 h-3 text-emerald-500" />
+                                : <XCircle className="w-3 h-3 text-red-500" />}
+                              <span className="text-xs text-muted-foreground">{latest.latencyMs}ms</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No data</span>
+                          )}
+                        </div>
+                        <Sparkline points={pts} color={colors[idx]} />
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-muted-foreground pt-2 border-t">
+                    Data collected by the <code className="bg-muted px-1 rounded">hermes-health-snapshot</code> heartbeat job (5-min interval).
+                    After deploying, run: <code className="bg-muted px-1 rounded text-[10px]">manus-heartbeat create --name hermes-health-snapshot --cron "0 */5 * * * *" --path /api/scheduled/hermes-health-snapshot</code>
+                  </p>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {/* ── Config tab ── */}
         <TabsContent value="config" className="space-y-4 pt-4">

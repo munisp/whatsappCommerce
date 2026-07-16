@@ -14,8 +14,8 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { hermesConfigs, hermesEventLog, hermesPODrafts } from "../../drizzle/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { hermesConfigs, hermesEventLog, hermesPODrafts, hermesHealthLog } from "../../drizzle/schema";
+import { eq, desc, and, sql, gte, asc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
 const HERMES_BRIDGE_URL = process.env.HERMES_BRIDGE_URL ?? "http://localhost:8095";
@@ -351,5 +351,24 @@ export const hermesRouter = router({
       router: { online: routerOnline, latencyMs: routerLatency, error: routerError },
       checkedAt: Date.now(),
     };
+  }),
+
+  // 24-hour health history for sparkline charts on the Hermes Dashboard.
+  // Returns rows grouped by layer (bridge / skills / router) for the last 25 h.
+  healthHistory: protectedProcedure.query(async () => {
+    const db = await getDb();
+    if (!db) return { bridge: [], skills: [], router: [] };
+    const since = Date.now() - 25 * 60 * 60 * 1000; // 25-hour window
+    const rows = await db
+      .select()
+      .from(hermesHealthLog)
+      .where(gte(hermesHealthLog.recordedAt, since))
+      .orderBy(asc(hermesHealthLog.recordedAt))
+      .limit(1000);
+    const byLayer: Record<string, typeof rows> = { bridge: [], skills: [], router: [] };
+    for (const r of rows) {
+      if (byLayer[r.layer]) byLayer[r.layer].push(r);
+    }
+    return byLayer;
   }),
 });
