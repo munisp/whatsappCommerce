@@ -32,6 +32,7 @@ import { cogsDisputeRouter } from "./routers/cogsDispute";
 import { keycloakRouter } from "./routers/keycloak";
 import { phoneAuthRouter } from "./routers/phoneAuth";
 import { whatsappNotificationsRouter } from "./routers/whatsappNotifications";
+import { quickReplyTemplatesRouter } from "./routers/quickReplyTemplates";
 import { revenueRouter } from "./routers/revenue";
 import { escrowRouter, escrowDisputeRouter, walletRouter, timelineAttachmentRouter } from "./routers/escrow";
 import { logisticsRouter } from "./routers/logistics";
@@ -107,6 +108,7 @@ export const appRouter = router({
   keycloak: keycloakRouter,
   phoneAuth: phoneAuthRouter,
   whatsappNotifications: whatsappNotificationsRouter,
+  quickReplyTemplates: quickReplyTemplatesRouter,
   cogsDispute: cogsDisputeRouter,
   alertRules: alertRulesRouter,
   revenue: revenueRouter,

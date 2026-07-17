@@ -12,7 +12,13 @@ import {
   MessageSquare, Truck, RefreshCw,
   Reply, Eye, EyeOff, Image, FileText, Mic, User2,
 } from "lucide-react";
-import { Sparkles, Paperclip, X as XIcon, Send, UploadCloud, BellOff } from "lucide-react";
+import { Sparkles, Paperclip, X as XIcon, Send, UploadCloud, BellOff, BookMarked, Search, ChevronDown, Trash2, Check } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { toast } from "sonner";
 import { useCallback, useRef, useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -322,6 +328,46 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
   // Drag-and-drop state
   const [isDragOver, setIsDragOver] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  // Drop confirmation dialog state
+  const [pendingDropFile, setPendingDropFile] = useState<File | null>(null);
+  const [pendingDropPreview, setPendingDropPreview] = useState<string | null>(null);
+
+  // Message search state
+  const [messageSearch, setMessageSearch] = useState("");
+
+  // Quick-reply templates state
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateTitle, setTemplateTitle] = useState("");
+  const [templateCategory, setTemplateCategory] = useState("general");
+
+  const { data: templatesData, refetch: refetchTemplates } = trpc.quickReplyTemplates.list.useQuery(
+    { search: templateSearch || undefined, limit: 50 },
+    { enabled: templatePickerOpen || saveTemplateOpen }
+  );
+  const templates = templatesData?.templates ?? [];
+
+  const createTemplate = trpc.quickReplyTemplates.create.useMutation({
+    onSuccess: () => {
+      toast.success("Template saved");
+      setSaveTemplateOpen(false);
+      setTemplateTitle("");
+      setTemplateCategory("general");
+      refetchTemplates();
+    },
+    onError: (err) => toast.error(`Failed to save template: ${err.message}`),
+  });
+
+  const deleteTemplate = trpc.quickReplyTemplates.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Template deleted");
+      refetchTemplates();
+    },
+    onError: (err) => toast.error(`Failed to delete template: ${err.message}`),
+  });
+
+  const incrementUsage = trpc.quickReplyTemplates.incrementUsage.useMutation();
 
   const processDroppedFile = useCallback((file: File) => {
     const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"] as const;
@@ -361,11 +407,40 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
     e.stopPropagation();
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) processDroppedFile(file);
+    if (!file) return;
+    // Validate before showing confirmation
+    const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"] as const;
+    type AllowedMime = typeof ALLOWED[number];
+    if (!ALLOWED.includes(file.type as AllowedMime)) {
+      toast.error("Only JPEG, PNG, WebP, GIF, and PDF files are supported");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File must be under 10 MB");
+      return;
+    }
+    // Show confirmation dialog with preview
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setPendingDropPreview(reader.result as string);
+        setPendingDropFile(file);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setPendingDropPreview(null);
+      setPendingDropFile(file);
+    }
   }
 
   if (!isLoading && replies.length === 0) return null;
   const unreadCount = replies.filter((r) => !r.read).length;
+  const filteredReplies = messageSearch.trim()
+    ? replies.filter((r) =>
+        (r.body ?? "").toLowerCase().includes(messageSearch.toLowerCase()) ||
+        (r.fromPhone ?? "").includes(messageSearch)
+      )
+    : replies;
 
   return (
     <Card className="mt-6">
@@ -387,6 +462,25 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
               WhatsApp messages received from the customer for this order
             </CardDescription>
           </div>
+          {/* Message search bar */}
+          <div className="relative mt-2">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search messages…"
+              value={messageSearch}
+              onChange={(e) => setMessageSearch(e.target.value)}
+              className="pl-8 h-8 text-xs"
+            />
+            {messageSearch && (
+              <button
+                type="button"
+                onClick={() => setMessageSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -399,7 +493,9 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
         ) : (
           <ScrollArea className="max-h-[360px]">
             <div className="space-y-2 pr-2">
-              {replies.map((reply) => {
+              {filteredReplies.length === 0 && messageSearch ? (
+                <p className="text-xs text-muted-foreground text-center py-4">No messages match "{messageSearch}"</p>
+              ) : filteredReplies.map((reply) => {
                 const MsgIcon = MSG_TYPE_ICON[reply.messageType ?? "text"] ?? MessageSquare;
                 return (
                   <div
@@ -649,6 +745,87 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
+                {/* Save as Template button — only shown when there's text to save */}
+                {replyText.trim() && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={() => { setTemplateTitle(""); setSaveTemplateOpen(true); }}
+                    title="Save as quick-reply template"
+                  >
+                    <BookMarked className="h-3.5 w-3.5" />
+                    Save
+                  </Button>
+                )}
+                {/* Template picker button */}
+                <Popover open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs gap-1.5"
+                      title="Insert quick-reply template"
+                    >
+                      <BookMarked className="h-3.5 w-3.5" />
+                      Templates
+                      <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80 p-2" align="end">
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <Input
+                          placeholder="Search templates…"
+                          value={templateSearch}
+                          onChange={(e) => setTemplateSearch(e.target.value)}
+                          className="pl-7 h-7 text-xs"
+                          autoFocus
+                        />
+                      </div>
+                      {templates.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-3">
+                          {templateSearch ? "No templates match your search" : "No templates saved yet"}
+                        </p>
+                      ) : (
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {templates.map((t) => (
+                            <div
+                              key={t.id}
+                              className="flex items-start gap-2 p-2 rounded-md hover:bg-muted/60 cursor-pointer group"
+                              onClick={() => {
+                                setReplyText(t.body);
+                                setTemplatePickerOpen(false);
+                                incrementUsage.mutate({ id: t.id });
+                                toast.success(`Template "${t.title}" inserted`);
+                              }}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate">{t.title}</p>
+                                <p className="text-[10px] text-muted-foreground line-clamp-2">{t.body}</p>
+                                <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+                                  {t.category} · used {t.usageCount}×
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/10 transition-opacity"
+                                title="Delete template"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteTemplate.mutate({ id: t.id });
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3 text-destructive" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 {/* Attach file button */}
                 <Button
                   variant="outline"
@@ -697,6 +874,114 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
           </div>
         )}
       </CardContent>
+      {/* Drop confirmation dialog */}
+      <Dialog open={!!pendingDropFile} onOpenChange={(open) => { if (!open) { setPendingDropFile(null); setPendingDropPreview(null); } }}>
+        <DialogContent className="max-w-sm">
+          <div className="space-y-4">
+            <div>
+              <h3 className="font-semibold text-sm">Attach file?</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Review the file before sending it to the customer.</p>
+            </div>
+            {pendingDropPreview ? (
+              <img
+                src={pendingDropPreview}
+                alt="File preview"
+                className="w-full max-h-48 object-contain rounded-lg border border-border bg-muted"
+              />
+            ) : (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted border border-border">
+                <FileText className="h-8 w-8 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium truncate">{pendingDropFile?.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {pendingDropFile ? (pendingDropFile.size / 1024).toFixed(0) : 0} KB · {pendingDropFile?.type}
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setPendingDropFile(null); setPendingDropPreview(null); }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={() => {
+                  if (pendingDropFile) {
+                    processDroppedFile(pendingDropFile);
+                  }
+                  setPendingDropFile(null);
+                  setPendingDropPreview(null);
+                }}
+              >
+                <Check className="h-3.5 w-3.5" />
+                Attach File
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save as Template dialog */}
+      <Dialog open={saveTemplateOpen} onOpenChange={setSaveTemplateOpen}>
+        <DialogContent className="max-w-sm">
+          <div className="space-y-4">
+            <div>
+              <h3 className="font-semibold text-sm">Save as Quick-Reply Template</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">Save this reply for reuse in future conversations.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium">Title</label>
+              <Input
+                placeholder="e.g. Order confirmation, Shipping update…"
+                value={templateTitle}
+                onChange={(e) => setTemplateTitle(e.target.value)}
+                className="h-8 text-xs"
+                maxLength={120}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-medium">Category</label>
+              <Input
+                placeholder="e.g. general, shipping, refunds…"
+                value={templateCategory}
+                onChange={(e) => setTemplateCategory(e.target.value)}
+                className="h-8 text-xs"
+                maxLength={60}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Message body</label>
+              <div className="p-2 rounded-md bg-muted text-xs text-muted-foreground max-h-24 overflow-y-auto">
+                {replyText}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSaveTemplateOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                disabled={!templateTitle.trim() || createTemplate.isPending}
+                onClick={() => createTemplate.mutate({
+                  title: templateTitle.trim(),
+                  body: replyText.trim(),
+                  category: templateCategory.trim() || "general",
+                })}
+              >
+                <BookMarked className="h-3.5 w-3.5" />
+                {createTemplate.isPending ? "Saving…" : "Save Template"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Image lightbox modal */}
       <Dialog open={!!lightboxUrl} onOpenChange={(open) => !open && setLightboxUrl(null)}>
         <DialogContent className="max-w-3xl p-2 bg-black/90 border-0">

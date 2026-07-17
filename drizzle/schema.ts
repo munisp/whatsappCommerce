@@ -2429,3 +2429,19 @@ export const whatsappCustomerReplies = pgTable("whatsapp_customer_replies", {
   index("wacr_user_id_idx").on(t.userId),
   index("wacr_context_wamid_idx").on(t.contextWamid),
 ]);
+
+// ── Quick Reply Templates ─────────────────────────────────────────────────────
+export const quickReplyTemplates = pgTable("quick_reply_templates", {
+  id:         uuid("id").primaryKey().defaultRandom(),
+  tenantId:   text("tenant_id"),
+  title:      varchar("title", { length: 120 }).notNull(),
+  body:       text("body").notNull(),
+  category:   varchar("category", { length: 60 }).default("general").notNull(),
+  usageCount: integer("usage_count").default(0).notNull(),
+  createdBy:  integer("created_by"),   // user.id of the admin who saved it
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+  updatedAt:  timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("qrt_tenant_idx").on(t.tenantId),
+  index("qrt_category_idx").on(t.category),
+]);
