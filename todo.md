@@ -1094,7 +1094,7 @@
 - [x] Add 24h Health sparkline tab to Hermes Dashboard (SVG latency line + red offline bars + uptime %)
 - [x] Push all Round 45 changes to GitHub main (commit a2fca63) — 335 tests pass, 0 TS errors
 - [ ] Push CI/release workflow files to GitHub (requires PAT with `workflow` scope — see delivery note)
-- [ ] Tag v1.0.0 release on GitHub (requires workflow files to be present first)
+- [x] Tag v1.0.0 release on GitHub — https://github.com/munisp/whatsappCommerce/releases/tag/v1.0.0
 - [ ] Register hermes-health-snapshot heartbeat job after deploy: manus-heartbeat create --name hermes-health-snapshot --cron "0 */5 * * * *" --path /api/scheduled/hermes-health-snapshot
 
 ## Round 46 — Caddy + Keycloak Integration
@@ -1103,7 +1103,50 @@
 - [x] Write combined Caddy + Keycloak integration analysis document (docs/caddy-keycloak-integration-analysis.md)
 - [x] Scaffold services/caddy-edge/: Dockerfile (xcaddy + Coraza + L4 + caddy-security), Caddyfile, docker-compose, K8s ingress manifests
 - [x] Scaffold services/keycloak/: Dockerfile (keycloak-kafka SPI), realm-export.json (Organizations + 4 clients + 5 roles), docker-compose, K8s StatefulSet manifests
-- [ ] Phase 1 deployment: Caddy edge TLS in front of APISIX (production)
-- [ ] Phase 2 deployment: Keycloak Organizations — migrate tenants from realm-level clients
-- [ ] Phase 3 deployment: Caddy internal PKI + Dapr mTLS unification
-- [ ] Phase 4 deployment: Keycloak Kafka SPI + phone OTP auth flow
+- [ ] [POST-PRODUCTION] Phase 1 deployment: Caddy edge TLS in front of APISIX
+- [ ] [POST-PRODUCTION] Phase 2 deployment: Keycloak Organizations — migrate tenants
+- [ ] [POST-PRODUCTION] Phase 3 deployment: Caddy internal PKI + Dapr mTLS unification
+- [ ] [POST-PRODUCTION] Phase 4 deployment: Keycloak Kafka SPI + phone OTP auth flow
+
+## Round 47 — Keycloak Phone OTP (WhatsApp) + Caddy Edge Deployment
+- [ ] Keycloak SPI: Java Maven project (keycloak-whatsapp-otp) with AuthenticatorFactory + Authenticator
+- [ ] Keycloak SPI: OTP generation (6-digit HOTP, 5-min TTL) with in-memory + Redis fallback store
+- [ ] Keycloak SPI: WhatsApp Cloud API sender (POST /messages, OTP template, HMAC verification)
+- [ ] Keycloak SPI: Freemarker login theme pages (phone-entry.ftl, otp-entry.ftl)
+- [ ] Keycloak SPI: META-INF/services registration + pom.xml with keycloak-core dependency
+- [ ] Keycloak SPI: JUnit 5 unit tests for OTP generation, expiry, and WhatsApp sender mock
+- [ ] Keycloak realm: custom auth flow wired (Browser → Phone OTP → WhatsApp send → OTP verify)
+- [ ] Keycloak realm: realm-export.json updated with whatsapp-otp auth flow
+- [ ] Caddy edge: Caddyfile updated with APISIX mTLS upstream (internal CA cert)
+- [ ] Caddy edge: APISIX config for Keycloak OIDC plugin (openid-connect + authz-keycloak)
+- [ ] Caddy edge: docker-compose.middleware.yml updated with Caddy as TLS terminator
+- [ ] Caddy edge: K8s manifests updated with Caddy Ingress + APISIX ClusterIP
+- [ ] Caddy edge: deployment runbook (DEPLOYMENT.md) with step-by-step production setup
+- [ ] Platform: tRPC auth.initiatePhoneOtp + auth.verifyPhoneOtp procedures
+- [ ] Platform: Frontend OTP login dialog (phone input → OTP entry → session)
+- [ ] Platform: DB schema — phone_otp_sessions table
+- [ ] Platform: integration tests for Phone OTP flow
+
+## Round 47 — Phone OTP Auth + Caddy Edge
+
+- [x] Keycloak WhatsApp OTP SPI: Java Maven project scaffolded
+- [x] SPI: OtpGenerator (crypto-secure 6-digit), InMemoryOtpStore, RedisOtpStore interfaces
+- [x] SPI: WhatsAppOtpSender calling WhatsApp Cloud API v21.0 template messages
+- [x] SPI: WhatsAppOtpAuthenticator (Keycloak AuthenticatorFactory + SPI registration)
+- [x] SPI: Freemarker templates (phone-entry.ftl, otp-entry.ftl) + i18n bundles
+- [x] SPI: 16 JUnit 5 unit tests — all pass
+- [x] SPI: Shaded JAR built (3.7 MB) and copied to services/keycloak/providers/
+- [x] DB: phone_otp_sessions table (migration 0021) — phone, otp_hash, attempts, expiresAt
+- [x] DB: users.phone + users.phoneVerified columns added
+- [x] Backend: phoneAuth tRPC router (sendOtp, verifyOtp, linkPhone, getPhoneStatus, cleanupExpired)
+- [x] Backend: phoneAuth router registered in routers.ts
+- [x] Frontend: PhoneAuthPage with PhoneVerificationCard, OtpTestPanel, ArchitectureCard
+- [x] Frontend: /phone-auth route registered in App.tsx
+- [x] Frontend: "Phone Auth" nav item added to DashboardLayout System section
+- [x] Caddy edge: Dockerfile (xcaddy + Coraza WAF + caddy-l4 + caddy-security modules)
+- [x] Caddy edge: Production Caddyfile (TLS, WAF, mTLS upstream to APISIX, on-demand TLS)
+- [x] Caddy edge: docker-compose.yml with APISIX + Keycloak stubs
+- [x] Caddy edge: K8s Ingress manifests (caddy-ingress-controller.yaml)
+- [x] Caddy edge: Coraza WAF config + APISIX mTLS upstream config
+- [x] Caddy edge: cert generation script (gen-internal-certs.sh)
+- [x] TypeScript: 0 errors, 335 tests pass, 5 skipped

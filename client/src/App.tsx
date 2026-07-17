@@ -128,6 +128,7 @@ function Router() {
           <Route path="/product-images" component={ProductImageCollector} />
           <Route path="/tenant-analytics" component={TenantAnalytics} />
           <Route path="/hermes" component={HermesDashboard} />
+          <Route path="/phone-auth" component={PhoneAuthPage} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -171,3 +172,4 @@ import ProductImageCollector from "./pages/ProductImageCollector";
 import ScanStatsDashboard from "./pages/ScanStatsDashboard";
 import TenantAnalytics from "./pages/TenantAnalytics";
 import HermesDashboard from "./pages/HermesDashboard";
+import PhoneAuthPage from "./pages/PhoneAuthPage";

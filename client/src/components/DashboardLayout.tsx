@@ -27,6 +27,7 @@ import {
 useIsMobile } from "@/hooks/useMobile";
 import {
   Activity, AlertTriangle, ArrowLeftRight, BarChart3, Bell, Bot, BrainCircuit, Building2, Calendar, ChevronDown, CreditCard, Database, Eye, FileCode, FileText, GitBranch, GitMerge, Globe, ImagePlus, LayoutDashboard, Leaf, Link2, Lock, LogOut, Megaphone, MessageSquare, MessagesSquare, Network, Package, Paperclip, PanelLeft, Rocket, ScrollText, Server, Settings, Shield, ShoppingBag, Smartphone, Store, TrendingUp, Truck, UserPlus, Users, Warehouse, BarChart2, Zap} from "lucide-react";
+import { KeyRound } from "lucide-react";
 import {
 CSSProperties, useEffect, useRef, useState } from "react";
 import {
@@ -73,6 +74,7 @@ const menuItems: NavItem[] = [
   { icon: GitMerge,        label: "Reconciliation",  path: "/reconciliation",   section: "System" },
   { icon: Bell,            label: "Alert Rules",     path: "/alert-rules",      section: "System" },
   { icon: Shield,          label: "SSO Users",       path: "/sso-users",        section: "System" },
+  { icon: KeyRound,        label: "Phone Auth",       path: "/phone-auth",       section: "System" },
   { icon: TrendingUp,      label: "Revenue",          path: "/revenue",          section: "System" },
   { icon: AlertTriangle,    label: "Webhook DLQ",      path: "/webhook-dlq",      section: "System" },
   // ── Finance ───────────────────────────────────────────────────────────────

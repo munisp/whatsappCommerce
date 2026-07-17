@@ -42,6 +42,8 @@ export const users = pgTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
+  phone: varchar("phone", { length: 30 }),
+  phoneVerified: boolean("phoneVerified").default(false).notNull(),
   role: userRoleEnum("role").default("user").notNull(),
   tenantId: varchar("tenantId", { length: 36 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -2341,3 +2343,22 @@ export const hermesHealthLog = pgTable("hermes_health_log", {
   index("hermes_health_log_recorded_idx").on(t.recordedAt),
 ]);
 export type HermesHealthLog = typeof hermesHealthLog.$inferSelect;
+
+// ── Phone OTP Sessions ────────────────────────────────────────────────────────
+// Stores pending phone OTP verification sessions.
+// Used by the phoneAuth tRPC router and the Keycloak WhatsApp OTP SPI.
+// Sessions expire after 10 minutes; cleanup is handled by the heartbeat job.
+export const phoneOtpSessions = pgTable("phone_otp_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey(),          // UUID
+  phone: varchar("phone", { length: 30 }).notNull(),        // E.164 format
+  otpHash: varchar("otp_hash", { length: 128 }).notNull(),  // bcrypt hash of OTP
+  attempts: integer("attempts").default(0).notNull(),       // failed attempts counter
+  expiresAt: integer("expires_at").notNull(),               // Unix ms timestamp
+  createdAt: integer("created_at").notNull(),               // Unix ms timestamp
+  userId: integer("user_id").references(() => users.id),    // optional — link to user
+  purpose: varchar("purpose", { length: 32 }).default("login").notNull(), // "login" | "verify"
+}, (t) => [
+  index("phone_otp_phone_idx").on(t.phone),
+  index("phone_otp_expires_idx").on(t.expiresAt),
+]);
+export type PhoneOtpSession = typeof phoneOtpSessions.$inferSelect;

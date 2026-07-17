@@ -30,6 +30,7 @@ import { mlOpsRouter, mlAbTestRouter, datasetSnapshotRouter } from "./routers/ml
 import { reconciliationRouter } from "./routers/reconciliation";
 import { cogsDisputeRouter } from "./routers/cogsDispute";
 import { keycloakRouter } from "./routers/keycloak";
+import { phoneAuthRouter } from "./routers/phoneAuth";
 import { revenueRouter } from "./routers/revenue";
 import { escrowRouter, escrowDisputeRouter, walletRouter, timelineAttachmentRouter } from "./routers/escrow";
 import { logisticsRouter } from "./routers/logistics";
@@ -103,6 +104,7 @@ export const appRouter = router({
   datasetSnapshot: datasetSnapshotRouter,
   reconciliation: reconciliationRouter,
   keycloak: keycloakRouter,
+  phoneAuth: phoneAuthRouter,
   cogsDispute: cogsDisputeRouter,
   alertRules: alertRulesRouter,
   revenue: revenueRouter,

@@ -1,0 +1,152 @@
+# Caddy Edge — Kubernetes Deployment
+# Requires: cert-manager or Caddy's built-in ACME CA for TLS
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: wac-edge
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caddy-config
+  namespace: wac-edge
+data:
+  Caddyfile: |
+    {
+      admin 0.0.0.0:2019
+      servers {
+        protocols h1 h2 h3
+      }
+      pki {
+        ca local {
+          name "WhatsApp Commerce Internal CA"
+        }
+      }
+      email ops@whatsapp-commerce.example.com
+    }
+    api.whatsapp-commerce.example.com {
+      reverse_proxy https://apisix.wac-internal.svc.cluster.local:9443 {
+        transport http {
+          tls
+          tls_trusted_ca_certs /etc/caddy/certs/internal-ca.crt
+        }
+      }
+    }
+    auth.whatsapp-commerce.example.com {
+      reverse_proxy https://keycloak.wac-internal.svc.cluster.local:8443 {
+        transport http {
+          tls
+          tls_trusted_ca_certs /etc/caddy/certs/internal-ca.crt
+        }
+      }
+    }
+    whatsapp-commerce.example.com {
+      reverse_proxy http://webapp.wac-internal.svc.cluster.local:3000
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caddy-edge
+  namespace: wac-edge
+  labels:
+    app: caddy-edge
+    version: "2.9"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: caddy-edge
+  template:
+    metadata:
+      labels:
+        app: caddy-edge
+    spec:
+      containers:
+        - name: caddy
+          image: ghcr.io/munisp/whatsapp-commerce/caddy-edge:latest
+          ports:
+            - containerPort: 80
+              name: http
+            - containerPort: 443
+              name: https
+            - containerPort: 443
+              protocol: UDP
+              name: https-quic
+            - containerPort: 2019
+              name: admin
+          volumeMounts:
+            - name: caddy-config
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config-dir
+              mountPath: /config
+            - name: internal-ca-cert
+              mountPath: /etc/caddy/certs
+              readOnly: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 2019
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 2019
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: caddy-config
+          configMap:
+            name: caddy-config
+        - name: caddy-data
+          persistentVolumeClaim:
+            claimName: caddy-data-pvc
+        - name: caddy-config-dir
+          emptyDir: {}
+        - name: internal-ca-cert
+          secret:
+            secretName: wac-internal-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: caddy-edge
+  namespace: wac-edge
+spec:
+  type: LoadBalancer
+  selector:
+    app: caddy-edge
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+    - name: https
+      port: 443
+      targetPort: 443
+    - name: https-quic
+      port: 443
+      targetPort: 443
+      protocol: UDP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: caddy-data-pvc
+  namespace: wac-edge
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
