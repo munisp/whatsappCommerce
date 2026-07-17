@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
@@ -199,8 +201,24 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
   });
 
   const replies = data?.replies ?? [];
-  if (!isLoading && replies.length === 0) return null;
+  // Lightbox state for image previews
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  // Send reply state
+  const [replyText, setReplyText] = useState("");
+  const sendReply = trpc.whatsappNotifications.sendAdminReply.useMutation({
+    onSuccess: (result) => {
+      if (result.simulated) {
+        toast.info("Reply simulated — no WhatsApp credentials configured");
+      } else {
+        toast.success("Reply sent via WhatsApp");
+      }
+      setReplyText("");
+    },
+    onError: (err) => toast.error(`Send failed: ${err.message}`),
+  });
+  const customerPhone = replies[0]?.fromPhone ?? null;
 
+  if (!isLoading && replies.length === 0) return null;
   const unreadCount = replies.filter((r) => !r.read).length;
 
   return (
@@ -279,7 +297,33 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
                       {reply.body && (
                         <p className="text-sm mt-1 break-words">{reply.body}</p>
                       )}
-                      {reply.messageType !== "text" && !reply.body && (
+                      {/* Image thumbnail with lightbox */}
+                      {reply.messageType === "image" && reply.mediaUrl && (
+                        <button
+                          type="button"
+                          className="mt-2 block"
+                          onClick={() => setLightboxUrl(reply.mediaUrl!)}
+                          title="Click to enlarge"
+                        >
+                          <img
+                            src={reply.mediaUrl}
+                            alt="Customer image"
+                            className="max-h-32 max-w-[240px] rounded border border-border object-contain cursor-zoom-in hover:opacity-90 transition-opacity"
+                          />
+
+                        </button>
+                      )}
+                      {/* Inline audio player for voice notes */}
+                      {reply.messageType === "audio" && reply.mediaUrl && (
+                        <div className="mt-2">
+                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                          <audio controls src={reply.mediaUrl} className="w-full max-w-xs h-8" />
+                        </div>
+                      )}
+                      {/* Fallback placeholder for other media types without a URL */}
+                      {reply.messageType !== "text" && !reply.body &&
+                        !(reply.messageType === "image" && reply.mediaUrl) &&
+                        !(reply.messageType === "audio" && reply.mediaUrl) && (
                         <p className="text-sm mt-1 text-muted-foreground italic">
                           [{reply.messageType} message]
                         </p>
@@ -296,7 +340,55 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
             </div>
           </ScrollArea>
         )}
+        {/* Send Reply section */}
+        {customerPhone && (
+          <div className="mt-4 pt-4 border-t space-y-2">
+            <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+              <Reply className="h-3.5 w-3.5" />
+              Reply to customer via WhatsApp
+            </p>
+            <Textarea
+              placeholder="Type your reply…"
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              rows={2}
+              className="resize-none text-sm"
+              disabled={sendReply.isPending}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && replyText.trim()) {
+                  sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId });
+                }
+              }}
+            />
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] text-muted-foreground/60">Ctrl/⌘+Enter to send quickly</p>
+              <Button
+                size="sm"
+                className="h-7 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                disabled={!replyText.trim() || sendReply.isPending}
+                onClick={() =>
+                  sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId })
+                }
+              >
+                <Reply className="h-3.5 w-3.5" />
+                {sendReply.isPending ? "Sending…" : "Send Reply"}
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
+      {/* Image lightbox modal */}
+      <Dialog open={!!lightboxUrl} onOpenChange={(open) => !open && setLightboxUrl(null)}>
+        <DialogContent className="max-w-3xl p-2 bg-black/90 border-0">
+          {lightboxUrl && (
+            <img
+              src={lightboxUrl}
+              alt="Customer image"
+              className="max-h-[80vh] w-auto mx-auto rounded object-contain"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -109,7 +109,10 @@ export const phoneAuthRouter = router({
   sendOtp: publicProcedure
     .input(
       z.object({
-        phone: z.string().min(7).max(20),
+        phone: z.string().min(7).max(20).refine(
+          (p) => /^\+?[0-9\s\-()]{7,20}$/.test(p),
+          { message: "Invalid phone number format. Must contain only digits, +, spaces, dashes, or parentheses." }
+        ),
         purpose: z.enum(["login", "verify"]).default("login"),
       })
     )

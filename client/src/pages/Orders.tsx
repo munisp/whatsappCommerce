@@ -6,9 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
-import { Clock, Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
+import { Clock, MessageSquare, Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 
 
@@ -32,6 +32,12 @@ export default function Orders() {
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 50,
   });
+  const orderIds = useMemo(() => (orderList ?? []).map((o) => o.id), [orderList]);
+  const { data: unreadData } = trpc.whatsappNotifications.getBulkUnreadReplyCounts.useQuery(
+    { orderIds },
+    { enabled: orderIds.length > 0, refetchInterval: 30000 }
+  );
+  const unreadCounts = unreadData?.counts ?? {};
 
   return (
     <DashboardLayout>
@@ -109,14 +115,26 @@ export default function Orders() {
                     <TableCell className="font-mono">{o.currency} {Number(o.totalAmount).toFixed(2)}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">{formatDistanceToNow(new Date(o.createdAt), { addSuffix: true })}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
-                        onClick={() => setLocation(`/orders/${o.orderNumber}`)}
-                      >
-                        <Clock className="w-3 h-3" /> Timeline
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                          onClick={() => setLocation(`/orders/${o.orderNumber}`)}
+                        >
+                          <Clock className="w-3 h-3" /> Timeline
+                        </Button>
+                        {(unreadCounts[o.id] ?? 0) > 0 && (
+                          <button
+                            onClick={() => setLocation(`/orders/${o.orderNumber}`)}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500/20 border border-green-500/40 text-green-400 text-[10px] font-semibold hover:bg-green-500/30 transition-colors"
+                            title={`${unreadCounts[o.id]} unread WhatsApp ${unreadCounts[o.id] === 1 ? "reply" : "replies"}`}
+                          >
+                            <MessageSquare className="w-2.5 h-2.5" />
+                            {unreadCounts[o.id]}
+                          </button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

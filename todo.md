@@ -1183,17 +1183,17 @@
 - [x] 350 tests pass, 7 skipped, 0 TypeScript errors
 
 ## Round 49 — Notification History + WhatsApp Delivery Webhooks
-- [ ] DB: whatsapp_notification_log table (id, userId, orderId, phone, notifType, status, wamid, sentAt, deliveredAt, readAt, failedAt, failReason)
-- [ ] Migration 0024: create whatsapp_notification_log
-- [ ] Backend: persist log row on every sendOrderNotification call
-- [ ] Backend: getNotificationHistory tRPC query (by userId, paginated, last 50)
-- [ ] Frontend: Notification History section on WhatsAppProfilePage (table with type, order, status badge, timestamps)
-- [ ] Backend: POST /api/webhooks/whatsapp endpoint (HMAC-SHA256 signature verification, delivery receipt parsing)
-- [ ] Backend: GET /api/webhooks/whatsapp endpoint (Meta webhook verification challenge)
-- [ ] Backend: update whatsapp_notification_log status on delivery receipt (sent→delivered→read / failed)
-- [ ] Backend: getOrderNotifLog tRPC query (by orderId, returns log rows with delivery status)
-- [ ] Frontend: WhatsApp Delivery Status panel on admin order page (status badges, timestamps)
-- [ ] Tests: webhook signature verification, receipt parsing, log persistence, history query
+- [x] DB: whatsapp_notification_log table (id, userId, orderId, phone, notifType, status, wamid, sentAt, deliveredAt, readAt, failedAt, failReason)
+- [x] Migration 0024: create whatsapp_notification_log
+- [x] Backend: persist log row on every sendOrderNotification call
+- [x] Backend: getNotificationHistory tRPC query (by userId, paginated, last 50)
+- [x] Frontend: Notification History section on WhatsAppProfilePage (table with type, order, status badge, timestamps)
+- [x] Backend: POST /api/webhooks/whatsapp endpoint (HMAC-SHA256 signature verification, delivery receipt parsing)
+- [x] Backend: GET /api/webhooks/whatsapp endpoint (Meta webhook verification challenge)
+- [x] Backend: update whatsapp_notification_log status on delivery receipt (sent→delivered→read / failed)
+- [x] Backend: getOrderNotifLog tRPC query (by orderId, returns log rows with delivery status)
+- [x] Frontend: WhatsApp Delivery Status panel on admin order page (status badges, timestamps)
+- [x] Tests: webhook signature verification, receipt parsing, log persistence, history query
 
 ## Round 49 — Notification History & Delivery Receipts
 - [x] Add whatsapp_notification_log table to schema (migration 0024)
@@ -1205,3 +1205,35 @@
 - [x] Wire delivery receipt webhook to cross-reference whatsapp_notification_log by WAMID
 - [x] Add WhatsAppNotifPanel to OrderTimeline page with status badges and timestamps
 - [x] Fix whatsappNotifications tests for new return type (350 pass, 7 skipped)
+
+## Round 50 — Resend Button, Notification Filters, Customer Replies
+- [x] Backend: resendNotification tRPC mutation (admin, by log id)
+- [x] Frontend: Resend button on WhatsAppNotifPanel for failed status rows
+- [x] Frontend: Search + date range filter on Notification History card (WhatsAppProfilePage)
+- [x] DB: whatsapp_customer_replies table (id, phone, orderId, wamid, body, receivedAt, read)
+- [x] Migration 0025: create whatsapp_customer_replies
+- [x] Backend: webhook inbound message handler — parse text replies, match to order by phone
+- [x] Backend: getCustomerReplies tRPC query (by orderId)
+- [x] Frontend: Customer Replies panel on OrderTimeline admin page
+- [x] Tests: resend mutation, reply capture, getCustomerReplies query
+
+## Round 50 — Resend, Filters, Customer Replies (2026-07-16)
+- [x] Add resendNotification tRPC mutation (whatsappNotifications router)
+- [x] Add Resend button to admin order page WhatsApp panel for failed notifications
+- [x] Add search (order number / phone) and date range filters to Notification History card
+- [x] Update getNotificationHistory procedure to accept search/dateFrom/dateTo params
+- [x] Add whatsapp_customer_replies table to schema (migration 0025)
+- [x] Extend WhatsApp webhook to capture inbound text/image/audio/document replies
+- [x] Add getCustomerReplies, markReplyRead, getUnreadReplyCount tRPC procedures
+- [x] Add CustomerRepliesPanel to admin order page with unread badge and mark-as-read
+- [x] Fix: users import in index.ts, status enum cast in getNotificationHistory
+
+## Round 51 — Unread Badges, Rich Media, Send Reply (2026-07-17)
+- [x] Backend: getBulkUnreadReplyCounts tRPC query (returns map of orderId → unreadCount)
+- [x] Frontend: Unread reply badge on admin orders list rows
+- [x] Frontend: Clickable image thumbnails in CustomerRepliesPanel (lightbox/modal)
+- [x] Frontend: Inline HTML5 audio player for voice notes in CustomerRepliesPanel
+- [x] Backend: sendAdminReply tRPC mutation (sends WhatsApp text message to customer)
+- [x] Frontend: Send Reply text box + send button in CustomerRepliesPanel
+- [x] Tests: getBulkUnreadReplyCounts, sendAdminReply (7 new tests, 356 total pass)
+- [x] Fix: E.164 phone validation in sendOtp (phoneAuth router)

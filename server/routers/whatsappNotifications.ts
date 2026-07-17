@@ -20,10 +20,9 @@
  */
 
 import { TRPCError } from "@trpc/server";
-import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { customers, orders, users, whatsappNotificationLog, whatsappCustomerReplies } from "../../drizzle/schema";
-import { desc, and, ilike, gte, lte, or } from "drizzle-orm";
+import { eq, desc, and, ilike, gte, lte, or, sql, inArray } from "drizzle-orm";
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 
@@ -417,6 +416,75 @@ export const whatsappNotificationsRouter = router({
         .where(eq(whatsappCustomerReplies.read, false));
       return { count: rows.length };
     }),
+  /** Get unread reply counts for multiple orders at once (for admin orders list badges). */
+  getBulkUnreadReplyCounts: protectedProcedure
+    .input(z.object({ orderIds: z.array(z.string()).max(200) }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db || input.orderIds.length === 0) return { counts: {} };
+      const rows = await db
+        .select({
+          orderId: whatsappCustomerReplies.orderId,
+          count: sql<number>`cast(count(*) as int)`,
+        })
+        .from(whatsappCustomerReplies)
+        .where(
+          and(
+            inArray(whatsappCustomerReplies.orderId, input.orderIds),
+            eq(whatsappCustomerReplies.read, false)
+          )
+        )
+        .groupBy(whatsappCustomerReplies.orderId);
+      const counts: Record<string, number> = {};
+      for (const row of rows) {
+        if (row.orderId) counts[row.orderId] = row.count;
+      }
+      return { counts };
+    }),
+
+  /** Send a text reply from admin to a customer via WhatsApp. */
+  sendAdminReply: protectedProcedure
+    .input(z.object({
+      phone: z.string().min(7),
+      message: z.string().min(1).max(4096),
+      orderId: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const token = process.env.WAC_WHATSAPP_TOKEN;
+      const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
+      if (!token || !phoneId) {
+        return { sent: false, simulated: true, wamid: null };
+      }
+      const payload = {
+        messaging_product: "whatsapp",
+        to: input.phone.replace(/[^0-9]/g, ""),
+        type: "text",
+        text: { body: input.message, preview_url: false },
+      };
+      const resp = await fetch(
+        `https://graph.facebook.com/v21.0/${phoneId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(12000),
+        }
+      );
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: (err as any)?.error?.message ?? "WhatsApp send failed",
+        });
+      }
+      const data = await resp.json() as any;
+      const wamid: string | null = data?.messages?.[0]?.id ?? null;
+      return { sent: true, simulated: false, wamid };
+    }),
+
 });
 
 // ── Log-Persisting Wrapper ────────────────────────────────────────────────────
@@ -485,7 +553,7 @@ export async function sendOrderNotificationWithLog(
       status: notifType.replace("order_", ""),
       notifType,
     
-});
+    });
 
     if (result.simulated) {
       await db.update(whatsappNotificationLog)
