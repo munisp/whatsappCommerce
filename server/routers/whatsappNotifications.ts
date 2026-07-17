@@ -22,7 +22,8 @@
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { customers, orders, users } from "../../drizzle/schema";
+import { customers, orders, users, whatsappNotificationLog } from "../../drizzle/schema";
+import { desc, and } from "drizzle-orm";
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 
@@ -103,7 +104,13 @@ function buildOrderNotifPayload(p: OrderNotifPayload): object {
  * Returns true on success, false if WAC credentials are not configured (simulation mode).
  * Throws TRPCError on API errors.
  */
-export async function sendOrderNotification(p: OrderNotifPayload): Promise<boolean> {
+export interface SendOrderNotifResult {
+  sent: boolean;
+  simulated: boolean;
+  wamid: string | null;
+}
+
+export async function sendOrderNotification(p: OrderNotifPayload): Promise<SendOrderNotifResult> {
   const token = process.env.WAC_WHATSAPP_TOKEN;
   const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
 
@@ -112,7 +119,7 @@ export async function sendOrderNotification(p: OrderNotifPayload): Promise<boole
     console.info(
       `[whatsappNotif] SIMULATION: ${p.notifType} → ${p.phone.slice(-4).padStart(p.phone.length, "*")} | Order ${p.orderNumber} | ${p.totalAmount} ${p.currency}`
     );
-    return false;
+    return { sent: false, simulated: true, wamid: null };
   }
 
   const payload = buildOrderNotifPayload(p);
@@ -132,10 +139,12 @@ export async function sendOrderNotification(p: OrderNotifPayload): Promise<boole
     const body = await res.text().catch(() => "");
     console.error(`[whatsappNotif] API error ${res.status}: ${body}`);
     // Don't throw — notification failures should not block order updates
-    return false;
+    return { sent: false, simulated: false, wamid: null };
   }
 
-  return true;
+  const data = await res.json().catch(() => ({})) as any;
+  const wamid: string | null = data?.messages?.[0]?.id ?? null;
+  return { sent: true, simulated: false, wamid };
 }
 
 // ── Resolver: get recipient phone for an order ────────────────────────────────
@@ -205,54 +214,153 @@ export async function resolveOrderNotifRecipient(
 // ── tRPC Router ───────────────────────────────────────────────────────────────
 
 export const whatsappNotificationsRouter = router({
-  /**
-   * Manually trigger an order notification (admin use / testing).
-   */
+  /** Manually trigger an order notification (admin use / testing). */
   sendOrderNotif: protectedProcedure
     .input(z.object({
       orderId: z.string(),
       notifType: z.enum(["order_confirmation", "order_shipped", "order_delivered", "order_cancelled"]),
     }))
-    .mutation(async ({ input }) => {
-      const { phone, customerName, orderNumber, totalAmount, currency } =
-        await resolveOrderNotifRecipient(input.orderId, input.notifType);
-
-      if (!phone) {
-        return { sent: false, reason: "No verified WhatsApp number found for this order's customer." };
-      }
-
-      const sent = await sendOrderNotification({
-        phone,
-        orderNumber,
-        customerName,
-        totalAmount,
-        currency,
-        status: input.notifType.replace("order_", ""),
-        notifType: input.notifType,
-      });
-
-      return { sent, phone: phone.slice(-4).padStart(phone.length, "*") };
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      await sendOrderNotificationWithLog(
+        input.orderId,
+        input.notifType,
+        order.tenantId,
+        ctx.user?.id ?? null,
+      );
+      return { sent: true };
     }),
 
-  /**
-   * Get notification send history for an order (last 20 events from logs).
-   * Returns a lightweight in-memory list — for a production system, persist to a
-   * whatsapp_notification_log table.
-   */
+  /** Get notification log for a specific order (admin). */
   getOrderNotifStatus: protectedProcedure
     .input(z.object({ orderId: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();
-      if (!db) return { order: null };
+      if (!db) return { order: null, logs: [] };
       const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      const logs = await db
+        .select()
+        .from(whatsappNotificationLog)
+        .where(eq(whatsappNotificationLog.orderId, input.orderId))
+        .orderBy(desc(whatsappNotificationLog.createdAt))
+        .limit(20);
       return {
-        order: {
-          id: order.id,
-          orderNumber: order.orderNumber,
-          status: order.status,
-          customerId: order.customerId,
-        },
+        order: { id: order.id, orderNumber: order.orderNumber, status: order.status, customerId: order.customerId },
+        logs,
       };
     }),
+
+  /** Get the current user's notification history (paginated). */
+  getNotificationHistory: protectedProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(50).default(10),
+      offset: z.number().int().min(0).default(0),
+    }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { logs: [] };
+      const logs = await db
+        .select()
+        .from(whatsappNotificationLog)
+        .where(eq(whatsappNotificationLog.userId, ctx.user.id))
+        .orderBy(desc(whatsappNotificationLog.createdAt))
+        .limit(input.limit)
+        .offset(input.offset);
+      return { logs };
+    }),
 });
+
+// ── Log-Persisting Wrapper ────────────────────────────────────────────────────
+/**
+ * Send an order notification AND persist a log row to whatsapp_notification_log.
+ * Updates the log row with the wamid on success, or marks it failed on error.
+ * This is the function called by orderCrud.updateStatus.
+ */
+export async function sendOrderNotificationWithLog(
+  orderId: string,
+  notifType: OrderNotifType,
+  tenantId: string,
+  userId?: number | null,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  const { phone, customerName, orderNumber, totalAmount, currency } =
+    await resolveOrderNotifRecipient(orderId, notifType);
+
+  // Create a pending log row first
+  const logId = crypto.randomUUID();
+  const templateMap: Record<OrderNotifType, string> = {
+    order_confirmation: process.env.WAC_TEMPLATE_ORDER_CONFIRM || "wac_order_confirmation",
+    order_shipped:      process.env.WAC_TEMPLATE_ORDER_SHIPPED || "wac_order_shipped",
+    order_delivered:    process.env.WAC_TEMPLATE_ORDER_DELIVERED || "wac_order_delivered",
+    order_cancelled:    process.env.WAC_TEMPLATE_ORDER_CANCELLED || "wac_order_cancelled",
+  };
+
+  if (!phone) {
+    // Log a failed attempt — no recipient found
+    await db.insert(whatsappNotificationLog).values({
+      id: logId,
+      userId: userId ?? null,
+      orderId,
+      tenantId,
+      phone: "unknown",
+      notifType,
+      templateName: templateMap[notifType],
+      status: "failed",
+      failedAt: new Date(),
+      failReason: "No verified WhatsApp number found for this order's customer.",
+    }).catch((e: any) => console.warn("[wa-notif-log] insert failed:", e?.message));
+    return;
+  }
+
+  // Insert pending row
+  await db.insert(whatsappNotificationLog).values({
+    id: logId,
+    userId: userId ?? null,
+    orderId,
+    tenantId,
+    phone,
+    notifType,
+    templateName: templateMap[notifType],
+    status: "pending",
+  }).catch((e: any) => console.warn("[wa-notif-log] insert failed:", e?.message));
+
+  try {
+    const result = await sendOrderNotification({
+      phone,
+      orderNumber,
+      customerName,
+      totalAmount,
+      currency,
+      status: notifType.replace("order_", ""),
+      notifType,
+    });
+
+    if (result.simulated) {
+      await db.update(whatsappNotificationLog)
+        .set({ status: "simulated", sentAt: new Date(), updatedAt: new Date() })
+        .where(eq(whatsappNotificationLog.id, logId))
+        .catch((e: any) => console.warn("[wa-notif-log] update failed:", e?.message));
+    } else if (result.sent) {
+      await db.update(whatsappNotificationLog)
+        .set({ status: "sent", wamid: result.wamid, sentAt: new Date(), updatedAt: new Date() })
+        .where(eq(whatsappNotificationLog.id, logId))
+        .catch((e: any) => console.warn("[wa-notif-log] update failed:", e?.message));
+    } else {
+      await db.update(whatsappNotificationLog)
+        .set({ status: "failed", failedAt: new Date(), failReason: "API returned non-OK status", updatedAt: new Date() })
+        .where(eq(whatsappNotificationLog.id, logId))
+        .catch((e: any) => console.warn("[wa-notif-log] update failed:", e?.message));
+    }
+  } catch (err: any) {
+    await db.update(whatsappNotificationLog)
+      .set({ status: "failed", failedAt: new Date(), failReason: err?.message ?? "Unknown error", updatedAt: new Date() })
+      .where(eq(whatsappNotificationLog.id, logId))
+      .catch((e: any) => console.warn("[wa-notif-log] update failed:", e?.message));
+  }
+}

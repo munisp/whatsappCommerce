@@ -42,6 +42,16 @@ import {
   Phone,
   ArrowRight,
 } from "lucide-react";
+import {
+  Clock,
+  Send,
+  Eye,
+  XCircle,
+  Package,
+  ChevronLeft,
+  ChevronRight,
+  History,
+} from "lucide-react";
 import { Link } from "wouter";
 
 // ── Linked Number Card ────────────────────────────────────────────────────────
@@ -325,6 +335,157 @@ function NotificationPreferencesCard() {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
+// ── Notification History Card ─────────────────────────────────────────────────
+type NotifStatus = "pending" | "sent" | "delivered" | "read" | "failed" | "simulated";
+
+const STATUS_CONFIG: Record<NotifStatus, { label: string; icon: React.ElementType; className: string }> = {
+  pending:   { label: "Pending",   icon: Clock,        className: "text-yellow-600 bg-yellow-50 border-yellow-200" },
+  sent:      { label: "Sent",      icon: Send,         className: "text-blue-600 bg-blue-50 border-blue-200" },
+  delivered: { label: "Delivered", icon: CheckCircle2, className: "text-green-600 bg-green-50 border-green-200" },
+  read:      { label: "Read",      icon: Eye,          className: "text-purple-600 bg-purple-50 border-purple-200" },
+  failed:    { label: "Failed",    icon: XCircle,      className: "text-red-600 bg-red-50 border-red-200" },
+  simulated: { label: "Simulated", icon: Package,      className: "text-gray-600 bg-gray-50 border-gray-200" },
+};
+
+const NOTIF_TYPE_LABELS: Record<string, string> = {
+  order_confirmation: "Order Confirmed",
+  order_shipped:      "Order Shipped",
+  order_delivered:    "Order Delivered",
+  order_cancelled:    "Order Cancelled",
+};
+
+const PAGE_SIZE = 10;
+
+function NotificationHistoryCard() {
+  const [page, setPage] = useState(0);
+
+  const { data, isLoading } = trpc.whatsappNotifications.getNotificationHistory.useQuery({
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+  });
+
+  const logs = data?.logs ?? [];
+  const hasNext = logs.length === PAGE_SIZE;
+  const hasPrev = page > 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
+            <History className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div>
+            <CardTitle className="text-base">Notification History</CardTitle>
+            <CardDescription>Recent WhatsApp messages sent to your number</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+              <History className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">No notifications yet</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Messages sent to your WhatsApp number will appear here.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {logs.map((log) => {
+              const status = (log.status ?? "pending") as NotifStatus;
+              const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
+              const Icon = cfg.icon;
+              const typeLabel = NOTIF_TYPE_LABELS[log.notifType] ?? log.notifType;
+              const sentAt = log.sentAt ? new Date(log.sentAt).toLocaleString() : null;
+              const createdAt = new Date(log.createdAt).toLocaleString();
+
+              return (
+                <div
+                  key={log.id}
+                  className="flex items-start gap-3 p-3 rounded-lg border bg-card hover:bg-muted/30 transition-colors"
+                >
+                  <div className={`mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0 border ${cfg.className}`}>
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium truncate">{typeLabel}</p>
+                      <Badge
+                        variant="outline"
+                        className={`text-xs shrink-0 ${cfg.className}`}
+                      >
+                        {cfg.label}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                      {log.phone?.replace(/(\+\d{3})\d+(\d{4})/, "$1****$2")}
+                      {log.orderId && (
+                        <span className="ml-2 text-muted-foreground/70">
+                          · Order {log.orderId.slice(0, 8)}…
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground/60 mt-1">
+                      {sentAt ? `Sent ${sentAt}` : `Queued ${createdAt}`}
+                      {log.wamid && (
+                        <span className="ml-2 font-mono text-[10px]">
+                          WAMID: {log.wamid.slice(0, 16)}…
+                        </span>
+                      )}
+                    </p>
+                    {log.failReason && (
+                      <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                        <XCircle className="h-3 w-3" />
+                        {log.failReason}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Pagination */}
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-xs text-muted-foreground">
+                Page {page + 1}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={!hasPrev}
+                  className="h-7 px-2"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!hasNext}
+                  className="h-7 px-2"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function WhatsAppProfilePage() {
   return (
     <DashboardLayout>
@@ -341,6 +502,7 @@ export default function WhatsAppProfilePage() {
 
         <LinkedNumberCard />
         <NotificationPreferencesCard />
+        <NotificationHistoryCard />
       </div>
     </DashboardLayout>
   );

@@ -2365,3 +2365,42 @@ export const phoneOtpSessions = pgTable("phone_otp_sessions", {
   index("phone_otp_expires_idx").on(t.expiresAt),
 ]);
 export type PhoneOtpSession = typeof phoneOtpSessions.$inferSelect;
+
+// ── WhatsApp Notification Log ─────────────────────────────────────────────────
+// Persistent record of every outbound WhatsApp order notification.
+// The wamid field is populated from the Cloud API response and used to
+// correlate delivery receipts from the webhook back to this log row.
+export const whatsappNotifStatusEnum = pgEnum("whatsapp_notif_status", [
+  "pending",    // queued but not yet sent
+  "sent",       // Cloud API accepted (wamid assigned)
+  "delivered",  // recipient device confirmed delivery
+  "read",       // recipient opened the message
+  "failed",     // Cloud API or delivery error
+  "simulated",  // simulation mode (no real API call)
+]);
+
+export const whatsappNotificationLog = pgTable("whatsapp_notification_log", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: integer("userId").references(() => users.id),          // linked user (if any)
+  orderId: varchar("orderId", { length: 36 }),                   // linked order
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),             // E.164 recipient
+  notifType: varchar("notifType", { length: 64 }).notNull(),     // "order_confirmation" etc.
+  templateName: varchar("templateName", { length: 128 }),
+  status: whatsappNotifStatusEnum("status").notNull().default("pending"),
+  wamid: varchar("wamid", { length: 128 }),                      // WhatsApp message ID from API
+  sentAt: timestamp("sentAt"),
+  deliveredAt: timestamp("deliveredAt"),
+  readAt: timestamp("readAt"),
+  failedAt: timestamp("failedAt"),
+  failReason: text("failReason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("wa_notif_log_user_idx").on(t.userId),
+  index("wa_notif_log_order_idx").on(t.orderId),
+  index("wa_notif_log_tenant_idx").on(t.tenantId),
+  index("wa_notif_log_wamid_idx").on(t.wamid),
+  index("wa_notif_log_created_idx").on(t.createdAt),
+]);
+export type WhatsappNotificationLog = typeof whatsappNotificationLog.$inferSelect;

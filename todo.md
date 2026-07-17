@@ -1157,16 +1157,16 @@
 - [ ] [BLOCKED: needs K8s cluster] Execute Phase 1-4 deployment (see DEPLOYMENT.md for step-by-step runbook)
 
 ## Round 48 — Phone Auth UX + Profile WhatsApp Management + Order Notifications
-- [ ] PhoneAuthPage: searchable country code selector with flag emojis and dial codes
-- [ ] PhoneAuthPage: 60-second countdown timer on resend OTP button
-- [ ] PhoneAuthPage: phone number formatting as user types (E.164 preview)
-- [ ] Profile: WhatsApp number management panel (linked number, verification badge, unlink)
-- [ ] Profile: notification preference toggles (order confirmations, status updates, promotions)
-- [ ] DB: user_notification_preferences table (order_confirm, status_update, promotions)
-- [ ] Backend: whatsApp order confirmation message sender (template + tRPC procedure)
-- [ ] Backend: whatsApp order status update message sender (template + tRPC procedure)
-- [ ] Backend: auto-trigger WhatsApp messages on order state changes
-- [ ] Tests: PhoneAuthPage countdown timer, profile WhatsApp panel, order notification triggers
+- [x] PhoneAuthPage: searchable country code selector with flag emojis and dial codes
+- [x] PhoneAuthPage: 60-second countdown timer on resend OTP button
+- [x] PhoneAuthPage: phone number formatting as user types (E.164 preview)
+- [x] Profile: WhatsApp number management panel (linked number, verification badge, unlink)
+- [x] Profile: notification preference toggles (order confirmations, status updates, promotions)
+- [x] DB: user_notification_preferences table (order_confirm, status_update, promotions)
+- [x] Backend: whatsApp order confirmation message sender (template + tRPC procedure)
+- [x] Backend: whatsApp order status update message sender (template + tRPC procedure)
+- [x] Backend: auto-trigger WhatsApp messages on order state changes
+- [x] Tests: PhoneAuthPage countdown timer, profile WhatsApp panel, order notification triggers
 
 ## Round 48 — Phone Auth UX + WhatsApp Profile + Order Notifications
 - [x] Enhanced /phone-auth: searchable country code selector (240+ countries with flags and dial codes)
@@ -1181,3 +1181,27 @@
 - [x] Registered whatsappNotificationsRouter in routers.ts
 - [x] Added 8 unit tests for whatsappNotifications (sendOrderNotification + resolveOrderNotifRecipient)
 - [x] 350 tests pass, 7 skipped, 0 TypeScript errors
+
+## Round 49 — Notification History + WhatsApp Delivery Webhooks
+- [ ] DB: whatsapp_notification_log table (id, userId, orderId, phone, notifType, status, wamid, sentAt, deliveredAt, readAt, failedAt, failReason)
+- [ ] Migration 0024: create whatsapp_notification_log
+- [ ] Backend: persist log row on every sendOrderNotification call
+- [ ] Backend: getNotificationHistory tRPC query (by userId, paginated, last 50)
+- [ ] Frontend: Notification History section on WhatsAppProfilePage (table with type, order, status badge, timestamps)
+- [ ] Backend: POST /api/webhooks/whatsapp endpoint (HMAC-SHA256 signature verification, delivery receipt parsing)
+- [ ] Backend: GET /api/webhooks/whatsapp endpoint (Meta webhook verification challenge)
+- [ ] Backend: update whatsapp_notification_log status on delivery receipt (sent→delivered→read / failed)
+- [ ] Backend: getOrderNotifLog tRPC query (by orderId, returns log rows with delivery status)
+- [ ] Frontend: WhatsApp Delivery Status panel on admin order page (status badges, timestamps)
+- [ ] Tests: webhook signature verification, receipt parsing, log persistence, history query
+
+## Round 49 — Notification History & Delivery Receipts
+- [x] Add whatsapp_notification_log table to schema (migration 0024)
+- [x] Update sendOrderNotification to return {sent, simulated, wamid} and persist log rows
+- [x] Add sendOrderNotificationWithLog function for order event triggers
+- [x] Add getNotificationHistory tRPC procedure (paginated, per-user)
+- [x] Add getOrderNotifStatus tRPC procedure (per-order, admin)
+- [x] Add notification history section to WhatsAppProfilePage
+- [x] Wire delivery receipt webhook to cross-reference whatsapp_notification_log by WAMID
+- [x] Add WhatsAppNotifPanel to OrderTimeline page with status badges and timestamps
+- [x] Fix whatsappNotifications tests for new return type (350 pass, 7 skipped)

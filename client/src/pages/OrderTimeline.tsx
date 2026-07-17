@@ -62,6 +62,90 @@ function IntegrationBadge({ label, active, color }: { label: string; active: boo
   );
 }
 
+
+// ── WhatsApp Notification Status Panel ───────────────────────────────────────
+const WA_STATUS_CONFIG: Record<string, { label: string; className: string }> = {
+  pending:   { label: "Pending",   className: "text-yellow-600 bg-yellow-50 border-yellow-200" },
+  sent:      { label: "Sent",      className: "text-blue-600 bg-blue-50 border-blue-200" },
+  delivered: { label: "Delivered", className: "text-green-600 bg-green-50 border-green-200" },
+  read:      { label: "Read",      className: "text-purple-600 bg-purple-50 border-purple-200" },
+  failed:    { label: "Failed",    className: "text-red-600 bg-red-50 border-red-200" },
+  simulated: { label: "Simulated", className: "text-gray-600 bg-gray-50 border-gray-200" },
+};
+const WA_TYPE_LABELS: Record<string, string> = {
+  order_confirmation: "Order Confirmed",
+  order_shipped:      "Order Shipped",
+  order_delivered:    "Order Delivered",
+  order_cancelled:    "Order Cancelled",
+};
+function WhatsAppNotifPanel({ orderId }: { orderId: string }) {
+  const { data, isLoading } = trpc.whatsappNotifications.getOrderNotifStatus.useQuery(
+    { orderId },
+    { enabled: !!orderId }
+  );
+  const logs = data?.logs ?? [];
+  if (isLoading) return null;
+  if (logs.length === 0) return null;
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden">
+      <div className="px-5 py-3 border-b bg-green-500/5 flex items-center gap-2">
+        <MessageSquare className="w-4 h-4 text-green-600" />
+        <span className="text-sm font-medium">WhatsApp Notifications</span>
+        <Badge variant="outline" className="ml-auto text-xs text-green-600 border-green-200 bg-green-50">
+          {logs.length} sent
+        </Badge>
+      </div>
+      <div className="p-4 space-y-2">
+        {logs.map((log) => {
+          const status = (log.status ?? "pending") as string;
+          const cfg = WA_STATUS_CONFIG[status] ?? WA_STATUS_CONFIG.pending;
+          const typeLabel = WA_TYPE_LABELS[log.notifType] ?? log.notifType;
+          return (
+            <div key={log.id} className="flex items-center gap-3 p-3 rounded-lg border bg-background">
+              <MessageSquare className="h-4 w-4 text-green-600 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{typeLabel}</span>
+                  <Badge variant="outline" className={`text-xs shrink-0 ${cfg.className}`}>
+                    {cfg.label}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5 font-mono">
+                  {log.phone?.replace(/(\+\d{3})\d+(\d{4})/, "$1****$2")}
+                </p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  {log.sentAt && (
+                    <span className="text-xs text-muted-foreground/60">
+                      Sent {new Date(log.sentAt).toLocaleString()}
+                    </span>
+                  )}
+                  {log.deliveredAt && (
+                    <span className="text-xs text-green-600/70">
+                      · Delivered {new Date(log.deliveredAt).toLocaleString()}
+                    </span>
+                  )}
+                  {log.readAt && (
+                    <span className="text-xs text-purple-600/70">
+                      · Read {new Date(log.readAt).toLocaleString()}
+                    </span>
+                  )}
+                </div>
+                {log.failReason && (
+                  <p className="text-xs text-red-600 mt-0.5">Error: {log.failReason}</p>
+                )}
+                {log.wamid && (
+                  <p className="text-[10px] text-muted-foreground/40 font-mono mt-0.5">
+                    WAMID: {log.wamid}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 export default function OrderTimeline() {
   const [, params] = useRoute("/orders/:orderNumber");
   const orderNumber = params?.orderNumber ?? "";
@@ -264,6 +348,8 @@ export default function OrderTimeline() {
           )}
         </div>
       </div>
+      {/* WhatsApp Notification Status */}
+      {order?.id && <WhatsAppNotifPanel orderId={order.id} />}
     </div>
   );
 }

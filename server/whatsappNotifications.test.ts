@@ -29,7 +29,8 @@ describe("sendOrderNotification", () => {
       status: "confirmed",
       notifType: "order_confirmation",
     });
-    expect(result).toBe(false);
+    expect(result.sent).toBe(false);
+    expect(result.simulated).toBe(true);
   });
 
   it("calls WhatsApp Cloud API when credentials are set", async () => {
@@ -52,7 +53,8 @@ describe("sendOrderNotification", () => {
       notifType: "order_confirmation",
     });
 
-    expect(result).toBe(true);
+    expect(result.sent).toBe(true);
+    expect(result.wamid).toBe("wamid.test");
     expect(mockFetch).toHaveBeenCalledOnce();
     const [url, opts] = mockFetch.mock.calls[0];
     expect(url).toContain("graph.facebook.com");
@@ -82,7 +84,8 @@ describe("sendOrderNotification", () => {
       notifType: "order_shipped",
     });
 
-    expect(result).toBe(false);
+    expect(result.sent).toBe(false);
+    expect(result.simulated).toBe(false);
   });
 });
 

@@ -712,6 +712,18 @@ async function startServer() {
           timestamp: tsUnix ? new Date(tsUnix * 1000) : new Date(),
           rawPayload: st,
         }).catch((e: any) => console.warn("[whatsapp-webhook] delivery receipt insert failed:", e?.message));
+        // Cross-reference: update whatsapp_notification_log if this wamid was sent by our platform
+        if (waMessageId && ["sent", "delivered", "read", "failed"].includes(statusVal)) {
+          db.update(whatsappNotificationLog)
+            .set({
+              status: statusVal as any,
+              deliveredAt: statusVal === "delivered" ? new Date(tsUnix * 1000) : undefined,
+              readAt: statusVal === "read" ? new Date(tsUnix * 1000) : undefined,
+              failReason: statusVal === "failed" ? (errorMessage || errorCode || "Unknown error") : undefined,
+            })
+            .where(eq(whatsappNotificationLog.wamid, waMessageId))
+            .catch((e: any) => console.warn("[whatsapp-webhook] notif log update failed:", e?.message));
+        }
       }
     } catch (err: any) {
       console.error("[whatsapp-webhook]", err);
@@ -1966,7 +1978,7 @@ function drawBbox(img,id){
 
 startServer().catch(console.error);
 import { notifyOwner } from "./notification";
-import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents, waMessageDeliveryReceipts } from "../../drizzle/schema";
+import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents, waMessageDeliveryReceipts, whatsappNotificationLog } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
 import { products, tenantIntegrations } from "../../drizzle/schema";
 import { visualInventoryCorrections, finetuneRuns, productImageCollections as picTable, modelAbTests } from "../../drizzle/schema";

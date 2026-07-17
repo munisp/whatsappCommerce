@@ -7,7 +7,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders, orderItems, refunds, inventorySnapshots, paymentIntents } from "../../drizzle/schema";
-import { sendOrderNotification, resolveOrderNotifRecipient, type OrderNotifType } from "./whatsappNotifications";
+import { sendOrderNotificationWithLog, type OrderNotifType } from "./whatsappNotifications";
 
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
@@ -105,9 +105,11 @@ export const orderCrudRouter = router({
       status: z.enum(["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]),
       notes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       await db.update(orders).set({
         status: input.status,
         notes: input.notes,
@@ -123,13 +125,12 @@ export const orderCrudRouter = router({
       };
       const notifType = notifTypeMap[input.status];
       if (notifType) {
-        resolveOrderNotifRecipient(input.orderId, notifType)
-          .then(({ phone, customerName, orderNumber, totalAmount, currency }) => {
-            if (phone) {
-              return sendOrderNotification({ phone, orderNumber, customerName, totalAmount, currency, status: input.status, notifType: notifType! });
-            }
-          })
-          .catch((err) => console.error("[orderCrud] WhatsApp notif error:", err));
+        sendOrderNotificationWithLog(
+          input.orderId,
+          notifType,
+          order.tenantId,
+          ctx.user?.id ?? null,
+        ).catch((e: unknown) => console.error("[orderCrud] WhatsApp notif error:", (e as Error)?.message));
       }
 
       return { ok: true };
