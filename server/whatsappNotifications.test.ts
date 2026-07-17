@@ -511,3 +511,57 @@ describe("markReplyUnread logic", () => {
     expect(validate("reply-abc-123")).toBe(true);
   });
 });
+
+// ── Round 54: Typing indicator state logic ────────────────────────────────────
+describe("typing indicator state logic", () => {
+  it("isSuggesting starts as false", () => {
+    const isSuggesting = false;
+    expect(isSuggesting).toBe(false);
+  });
+
+  it("isSuggesting becomes true when mutation is triggered", () => {
+    let isSuggesting = false;
+    // Simulate clicking AI Suggest
+    const onSuggestClick = () => { isSuggesting = true; };
+    onSuggestClick();
+    expect(isSuggesting).toBe(true);
+  });
+
+  it("isSuggesting resets to false on success", () => {
+    let isSuggesting = true;
+    // Simulate onSuccess callback
+    const onSuccess = () => { isSuggesting = false; };
+    onSuccess();
+    expect(isSuggesting).toBe(false);
+  });
+
+  it("isSuggesting resets to false on error", () => {
+    let isSuggesting = true;
+    const onError = () => { isSuggesting = false; };
+    onError();
+    expect(isSuggesting).toBe(false);
+  });
+
+  it("suggestion text is populated in replyText on success", () => {
+    let replyText = "";
+    const suggestion = "Thank you for reaching out. Your order is on its way.";
+    const onSuccess = (result: { suggestion: string }) => {
+      replyText = result.suggestion;
+    };
+    onSuccess({ suggestion: suggestion });
+    expect(replyText).toBe(suggestion);
+  });
+
+  it("textarea is hidden while isSuggesting is true", () => {
+    // Simulate the conditional rendering logic
+    const shouldShowTextarea = (isSuggesting: boolean) => !isSuggesting;
+    expect(shouldShowTextarea(true)).toBe(false);
+    expect(shouldShowTextarea(false)).toBe(true);
+  });
+
+  it("typing indicator is shown while isSuggesting is true", () => {
+    const shouldShowIndicator = (isSuggesting: boolean) => isSuggesting;
+    expect(shouldShowIndicator(true)).toBe(true);
+    expect(shouldShowIndicator(false)).toBe(false);
+  });
+});

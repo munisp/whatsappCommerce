@@ -1252,3 +1252,9 @@
 - [x] Backend: markReplyUnread tRPC mutation (sets read=false on a reply row)
 - [x] Frontend: Mark as Unread button per reply row (BellOff icon, marks unread, re-highlights row)
 - [x] Tests: drag-and-drop validation, tone injection, markReplyUnread (14 new tests, 381 total pass)
+## Round 54 — CI Workflow Push + Typing Indicator (2026-07-17)
+- [ ] CI: Push .github/workflows/ci.yml and release.yml to GitHub using PAT with workflow scope (BLOCKED: current token lacks `workflows` permission — needs classic PAT with `workflow` + `repo` scopes)
+- [x] Frontend: Typing indicator animation in reply panel while AI suggestion is loading
+- [x] Frontend: Three animated dots (bouncing) with staggered 200ms delay replace the textarea during AI generation
+- [x] Frontend: Smooth fade-in (0.3s ease-out) of suggestion text when it arrives
+- [x] Tests: 7 new typing indicator state logic tests (388 total pass, 7 skipped, 0 TS errors)

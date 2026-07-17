@@ -546,23 +546,49 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
                 </button>
               </div>
             )}
-            <Textarea
-              placeholder={attachment ? "Add a caption (optional)…" : "Type your reply…"}
-              value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
-              rows={2}
-              className="resize-none text-sm"
-              disabled={sendReply.isPending || sendAttachment.isPending}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  if (attachment) {
-                    handleSendAttachment();
-                  } else if (replyText.trim()) {
-                    sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId });
-                  }
-                }
-              }}
-            />
+            {/* Typing indicator while AI is generating */}
+            {isSuggesting ? (
+              <div className="flex items-center gap-3 px-3 py-3 rounded-md border border-purple-200 bg-purple-50/50 min-h-[64px]">
+                <div className="flex items-center gap-1 shrink-0">
+                  <Sparkles className="h-3.5 w-3.5 text-purple-400 animate-pulse" />
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-purple-400"
+                    style={{ animation: "aiDot 1.2s ease-in-out infinite", animationDelay: "0ms" }}
+                  />
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-purple-400"
+                    style={{ animation: "aiDot 1.2s ease-in-out infinite", animationDelay: "200ms" }}
+                  />
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-purple-400"
+                    style={{ animation: "aiDot 1.2s ease-in-out infinite", animationDelay: "400ms" }}
+                  />
+                </div>
+                <p className="text-xs text-purple-500 font-medium">AI is composing a reply…</p>
+              </div>
+            ) : (
+              <div className={replyText && !isSuggesting ? "animate-[fadeIn_0.3s_ease-out]" : ""}>
+                <Textarea
+                  placeholder={attachment ? "Add a caption (optional)…" : "Type your reply…"}
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  rows={2}
+                  className="resize-none text-sm"
+                  disabled={sendReply.isPending || sendAttachment.isPending}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      if (attachment) {
+                        handleSendAttachment();
+                      } else if (replyText.trim()) {
+                        sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId });
+                      }
+                    }
+                  }}
+                />
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <p className="text-[10px] text-muted-foreground/60">Ctrl/⌘+Enter to send quickly</p>
               <div className="flex items-center gap-1.5">
