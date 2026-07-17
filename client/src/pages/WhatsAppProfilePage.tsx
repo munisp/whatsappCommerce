@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,6 +53,9 @@ import {
   ChevronLeft,
   ChevronRight,
   History,
+  Search,
+  Filter,
+  X,
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -355,19 +360,34 @@ const NOTIF_TYPE_LABELS: Record<string, string> = {
 };
 
 const PAGE_SIZE = 10;
-
 function NotificationHistoryCard() {
   const [page, setPage] = useState(0);
-
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const timerRef = useState<ReturnType<typeof setTimeout> | null>(null);
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    if (timerRef[0]) clearTimeout(timerRef[0]);
+    timerRef[1](setTimeout(() => { setDebouncedSearch(val); setPage(0); }, 350));
+  };
+  const hasFilters = !!(debouncedSearch || statusFilter || dateFrom || dateTo);
+  const clearFilters = () => {
+    setSearch(""); setDebouncedSearch(""); setStatusFilter(""); setDateFrom(""); setDateTo(""); setPage(0);
+  };
   const { data, isLoading } = trpc.whatsappNotifications.getNotificationHistory.useQuery({
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    status: statusFilter || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
   });
-
   const logs = data?.logs ?? [];
   const hasNext = logs.length === PAGE_SIZE;
   const hasPrev = page > 0;
-
   return (
     <Card>
       <CardHeader>
@@ -375,10 +395,55 @@ function NotificationHistoryCard() {
           <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
             <History className="h-5 w-5 text-muted-foreground" />
           </div>
-          <div>
+          <div className="flex-1">
             <CardTitle className="text-base">Notification History</CardTitle>
             <CardDescription>Recent WhatsApp messages sent to your number</CardDescription>
           </div>
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 text-xs gap-1 text-muted-foreground">
+              <X className="h-3 w-3" /> Clear filters
+            </Button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <div className="relative flex-1 min-w-[160px]">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Search by type, phone, WAMID…"
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
+          <Select value={statusFilter || "all"} onValueChange={(v) => { setStatusFilter(v === "all" ? "" : v); setPage(0); }}>
+            <SelectTrigger className="h-8 w-[130px] text-xs">
+              <Filter className="h-3 w-3 mr-1 text-muted-foreground" />
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="sent">Sent</SelectItem>
+              <SelectItem value="delivered">Delivered</SelectItem>
+              <SelectItem value="read">Read</SelectItem>
+              <SelectItem value="failed">Failed</SelectItem>
+              <SelectItem value="simulated">Simulated</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            className="h-8 w-[130px] text-xs"
+            title="From date"
+          />
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            className="h-8 w-[130px] text-xs"
+            title="To date"
+          />
         </div>
       </CardHeader>
       <CardContent>

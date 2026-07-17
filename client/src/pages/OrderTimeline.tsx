@@ -1,5 +1,7 @@
 import { useRoute, Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -7,8 +9,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowLeft, CheckCircle2, Clock, XCircle, Info,
   ShoppingCart, CreditCard, Package, Building2, Users,
-  MessageSquare, Truck,
+  MessageSquare, Truck, RefreshCw,
+  Reply, Eye, EyeOff, Image, FileText, Mic, User2,
 } from "lucide-react";
+import { toast } from "sonner";
+import { useState } from "react";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
@@ -79,6 +84,15 @@ const WA_TYPE_LABELS: Record<string, string> = {
   order_cancelled:    "Order Cancelled",
 };
 function WhatsAppNotifPanel({ orderId }: { orderId: string }) {
+  const utils = trpc.useUtils();
+  const resendMutation = trpc.whatsappNotifications.resendNotification.useMutation({
+    onSuccess: (result) => {
+      toast.success(result.success ? "Notification resent successfully" : "Resend queued (simulation mode)");
+      utils.whatsappNotifications.getOrderNotifStatus.invalidate({ orderId });
+    },
+    onError: (err) => toast.error(`Resend failed: ${err.message}`),
+  });
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const { data, isLoading } = trpc.whatsappNotifications.getOrderNotifStatus.useQuery(
     { orderId },
     { enabled: !!orderId }
@@ -139,6 +153,24 @@ function WhatsAppNotifPanel({ orderId }: { orderId: string }) {
                   </p>
                 )}
               </div>
+              {status === "failed" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 h-7 text-xs gap-1 border-red-200 text-red-600 hover:bg-red-50"
+                  disabled={resendingId === log.id || resendMutation.isPending}
+                  onClick={() => {
+                    setResendingId(log.id);
+                    resendMutation.mutate(
+                      { logId: log.id },
+                      { onSettled: () => setResendingId(null) }
+                    );
+                  }}
+                >
+                  <RefreshCw className={`w-3 h-3 ${resendingId === log.id ? "animate-spin" : ""}`} />
+                  Resend
+                </Button>
+              )}
             </div>
           );
         })}
@@ -146,6 +178,129 @@ function WhatsAppNotifPanel({ orderId }: { orderId: string }) {
     </div>
   );
 }
+
+// ── Customer Replies Panel ────────────────────────────────────────────────────
+const MSG_TYPE_ICON: Record<string, React.ElementType> = {
+  text: MessageSquare,
+  image: Image,
+  document: FileText,
+  audio: Mic,
+  video: Package,
+};
+
+function CustomerRepliesPanel({ orderId }: { orderId: string }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.whatsappNotifications.getCustomerReplies.useQuery(
+    { orderId },
+    { refetchInterval: 30_000 }
+  );
+  const markRead = trpc.whatsappNotifications.markReplyRead.useMutation({
+    onSuccess: () => utils.whatsappNotifications.getCustomerReplies.invalidate({ orderId }),
+  });
+
+  const replies = data?.replies ?? [];
+  if (!isLoading && replies.length === 0) return null;
+
+  const unreadCount = replies.filter((r) => !r.read).length;
+
+  return (
+    <Card className="mt-6">
+      <CardHeader className="pb-3">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-green-50 border border-green-200 flex items-center justify-center">
+            <Reply className="h-5 w-5 text-green-600" />
+          </div>
+          <div className="flex-1">
+            <CardTitle className="text-base flex items-center gap-2">
+              Customer Replies
+              {unreadCount > 0 && (
+                <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-green-600 text-white text-[10px] font-bold">
+                  {unreadCount}
+                </span>
+              )}
+            </CardTitle>
+            <CardDescription>
+              WhatsApp messages received from the customer for this order
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2].map((i) => (
+              <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <ScrollArea className="max-h-[360px]">
+            <div className="space-y-2 pr-2">
+              {replies.map((reply) => {
+                const MsgIcon = MSG_TYPE_ICON[reply.messageType ?? "text"] ?? MessageSquare;
+                return (
+                  <div
+                    key={reply.id}
+                    className={`flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+                      reply.read
+                        ? "bg-card border-border"
+                        : "bg-green-50/50 border-green-200"
+                    }`}
+                  >
+                    <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <User2 className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <MsgIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                          <p className="text-xs text-muted-foreground font-mono">
+                            {reply.fromPhone?.replace(/(\+\d{3})\d+(\d{4})/, "$1****$2")}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <p className="text-[10px] text-muted-foreground/60">
+                            {new Date(reply.createdAt).toLocaleString()}
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            title={reply.read ? "Mark as unread" : "Mark as read"}
+                            onClick={() => markRead.mutate({ replyId: reply.id })}
+                            disabled={markRead.isPending}
+                          >
+                            {reply.read
+                              ? <EyeOff className="h-3 w-3 text-muted-foreground" />
+                              : <Eye className="h-3 w-3 text-green-600" />
+                            }
+                          </Button>
+                        </div>
+                      </div>
+                      {reply.body && (
+                        <p className="text-sm mt-1 break-words">{reply.body}</p>
+                      )}
+                      {reply.messageType !== "text" && !reply.body && (
+                        <p className="text-sm mt-1 text-muted-foreground italic">
+                          [{reply.messageType} message]
+                        </p>
+                      )}
+                      {reply.contextWamid && (
+                        <p className="text-[10px] text-muted-foreground/50 mt-1 font-mono">
+                          ↩ Reply to WAMID: {reply.contextWamid.slice(0, 20)}…
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function OrderTimeline() {
   const [, params] = useRoute("/orders/:orderNumber");
   const orderNumber = params?.orderNumber ?? "";
@@ -350,6 +505,7 @@ export default function OrderTimeline() {
       </div>
       {/* WhatsApp Notification Status */}
       {order?.id && <WhatsAppNotifPanel orderId={order.id} />}
+      {order?.id && <CustomerRepliesPanel orderId={order.id} />}
     </div>
   );
 }

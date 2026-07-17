@@ -22,8 +22,8 @@
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
-import { customers, orders, users, whatsappNotificationLog } from "../../drizzle/schema";
-import { desc, and } from "drizzle-orm";
+import { customers, orders, users, whatsappNotificationLog, whatsappCustomerReplies } from "../../drizzle/schema";
+import { desc, and, ilike, gte, lte, or } from "drizzle-orm";
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
 
@@ -133,6 +133,7 @@ export async function sendOrderNotification(p: OrderNotifPayload): Promise<SendO
     },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(12000),
+
   });
 
   if (!res.ok) {
@@ -259,18 +260,162 @@ export const whatsappNotificationsRouter = router({
     .input(z.object({
       limit: z.number().int().min(1).max(50).default(10),
       offset: z.number().int().min(0).default(0),
+      search: z.string().optional(),
+      status: z.string().optional(),
+      dateFrom: z.string().optional(), // ISO date string
+      dateTo: z.string().optional(),   // ISO date string
     }))
     .query(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) return { logs: [] };
+      if (!db) return { logs: [], total: 0 };
+      const conditions = [eq(whatsappNotificationLog.userId, ctx.user.id)];
+      if (input.search) {
+        conditions.push(
+          or(
+            ilike(whatsappNotificationLog.notifType, `%${input.search}%`),
+            ilike(whatsappNotificationLog.phone, `%${input.search}%`),
+            ilike(whatsappNotificationLog.wamid ?? "", `%${input.search}%`)
+          )!
+        );
+      }
+      if (input.status) {
+        conditions.push(eq(whatsappNotificationLog.status, input.status as any));
+      }
+      if (input.dateFrom) {
+        conditions.push(gte(whatsappNotificationLog.createdAt, new Date(input.dateFrom)));
+      }
+      if (input.dateTo) {
+        const toDate = new Date(input.dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        conditions.push(lte(whatsappNotificationLog.createdAt, toDate));
+      }
       const logs = await db
         .select()
         .from(whatsappNotificationLog)
-        .where(eq(whatsappNotificationLog.userId, ctx.user.id))
+        .where(and(...conditions))
         .orderBy(desc(whatsappNotificationLog.createdAt))
         .limit(input.limit)
         .offset(input.offset);
       return { logs };
+    }),
+
+  /** Admin: Resend a failed notification by log ID. Creates a new log row. */
+  resendNotification: protectedProcedure
+    .input(z.object({ logId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [original] = await db
+        .select()
+        .from(whatsappNotificationLog)
+        .where(eq(whatsappNotificationLog.id, input.logId))
+        .limit(1);
+      if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "Notification log not found" });
+      if (original.status !== "failed") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Only failed notifications can be resent" });
+      }
+      // Resolve fresh order details
+      let orderNumber = original.orderId ?? "";
+      let customerName = "";
+      let totalAmount = "0.00";
+      let currency = "NGN";
+      if (original.orderId) {
+        const [ord] = await db.select().from(orders).where(eq(orders.id, original.orderId)).limit(1);
+        if (ord) {
+          orderNumber = ord.orderNumber;
+          totalAmount = ord.totalAmount?.toString() ?? "0.00";
+          currency = ord.currency ?? "NGN";
+          if (ord.customerId) {
+            const [cust] = await db.select().from(customers).where(eq(customers.id, ord.customerId)).limit(1);
+            customerName = (cust as any)?.name ?? "";
+          }
+        }
+      }
+      // Create a new pending log row for the retry
+      const newLogId = crypto.randomUUID();
+      await db.insert(whatsappNotificationLog).values({
+        id: newLogId,
+        userId: original.userId,
+        orderId: original.orderId,
+        tenantId: original.tenantId,
+        phone: original.phone,
+        notifType: original.notifType,
+        templateName: original.templateName,
+        status: "pending",
+      });
+      try {
+        const result = await sendOrderNotification({
+          phone: original.phone,
+          orderNumber,
+          customerName,
+          totalAmount,
+          currency,
+          status: original.notifType.replace("order_", ""),
+          notifType: original.notifType as OrderNotifType,
+        });
+        const newStatus = result.simulated ? "simulated" : result.sent ? "sent" : "failed";
+        await db.update(whatsappNotificationLog)
+          .set({
+            status: newStatus as any,
+            wamid: result.wamid,
+            sentAt: result.sent || result.simulated ? new Date() : undefined,
+            failedAt: !result.sent && !result.simulated ? new Date() : undefined,
+            failReason: !result.sent && !result.simulated ? "API returned non-OK status" : undefined,
+            updatedAt: new Date(),
+          })
+          .where(eq(whatsappNotificationLog.id, newLogId));
+        return { success: result.sent || result.simulated, newLogId, wamid: result.wamid };
+      } catch (err: any) {
+        await db.update(whatsappNotificationLog)
+          .set({ status: "failed", failedAt: new Date(), failReason: err?.message ?? "Unknown error", updatedAt: new Date() })
+          .where(eq(whatsappNotificationLog.id, newLogId));
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err?.message ?? "Send failed" });
+      }
+    }),
+
+  /** Get customer replies for an order (admin only). */
+  getCustomerReplies: protectedProcedure
+    .input(z.object({
+      orderId: z.string(),
+      limit: z.number().int().min(1).max(100).default(50),
+      offset: z.number().int().min(0).default(0),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { replies: [] };
+      const replies = await db
+        .select()
+        .from(whatsappCustomerReplies)
+        .where(eq(whatsappCustomerReplies.orderId, input.orderId))
+        .orderBy(desc(whatsappCustomerReplies.createdAt))
+        .limit(input.limit)
+        .offset(input.offset);
+      return { replies };
+    }),
+
+  /** Mark a customer reply as read. */
+  markReplyRead: protectedProcedure
+    .input(z.object({ replyId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      await db
+        .update(whatsappCustomerReplies)
+        .set({ read: true, readAt: new Date() })
+        .where(eq(whatsappCustomerReplies.id, input.replyId));
+      return { success: true };
+    }),
+
+  /** Get unread reply count across all orders (for badge). */
+  getUnreadReplyCount: protectedProcedure
+    .query(async () => {
+      const db = await getDb();
+      if (!db) return { count: 0 };
+      const rows = await db
+        .select({ id: whatsappCustomerReplies.id })
+        .from(whatsappCustomerReplies)
+        .where(eq(whatsappCustomerReplies.read, false));
+      return { count: rows.length };
     }),
 });
 
@@ -339,7 +484,8 @@ export async function sendOrderNotificationWithLog(
       currency,
       status: notifType.replace("order_", ""),
       notifType,
-    });
+    
+});
 
     if (result.simulated) {
       await db.update(whatsappNotificationLog)

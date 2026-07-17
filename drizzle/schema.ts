@@ -2404,3 +2404,28 @@ export const whatsappNotificationLog = pgTable("whatsapp_notification_log", {
   index("wa_notif_log_created_idx").on(t.createdAt),
 ]);
 export type WhatsappNotificationLog = typeof whatsappNotificationLog.$inferSelect;
+
+// ── WhatsApp Customer Replies ─────────────────────────────────────────────────
+export const whatsappCustomerReplies = pgTable("whatsapp_customer_replies", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     text("tenant_id"),
+  orderId:      text("order_id"),          // resolved from context_wamid lookup
+  userId:       integer("user_id"),        // resolved from phone lookup
+  fromPhone:    text("from_phone").notNull(),
+  toPhone:      text("to_phone"),
+  wamid:        text("wamid").notNull().unique(),
+  contextWamid: text("context_wamid"),     // wamid of the notification being replied to
+  messageType:  text("message_type").notNull().default("text"), // text | image | audio | document
+  body:         text("body"),              // text content
+  mediaId:      text("media_id"),          // for media messages
+  mediaUrl:     text("media_url"),
+  sentiment:    text("sentiment"),         // positive | neutral | negative (optional AI tag)
+  read:         boolean("read").notNull().default(false),
+  readAt:       timestamp("read_at"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("wacr_from_phone_idx").on(t.fromPhone),
+  index("wacr_order_id_idx").on(t.orderId),
+  index("wacr_user_id_idx").on(t.userId),
+  index("wacr_context_wamid_idx").on(t.contextWamid),
+]);

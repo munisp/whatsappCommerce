@@ -572,6 +572,45 @@ async function startServer() {
         const tenantId: string = (tenant as any)?.id ?? "default";
         if (msg.type === "text") {
           const textBody: string = msg.text?.body ?? "";
+          // ── Capture customer reply in whatsapp_customer_replies ────────────
+          try {
+            const contextWamid: string | undefined = msg.context?.id;
+            // Resolve orderId from contextWamid (look up in notification log)
+            let replyOrderId: string | undefined;
+            let replyUserId: number | undefined;
+            if (contextWamid) {
+              const [notifLog] = await db.select()
+                .from(whatsappNotificationLog)
+                .where(eq(whatsappNotificationLog.wamid, contextWamid))
+                .limit(1).catch(() => [null as any]);
+              if (notifLog) {
+                replyOrderId = notifLog.orderId ?? undefined;
+                replyUserId = notifLog.userId ?? undefined;
+              }
+            }
+            // Resolve userId from phone if not found via contextWamid
+            if (!replyUserId) {
+              const [matchedUser] = await db.select({ id: users.id })
+                .from(users)
+                .where(eq(users.phone, waPhoneNumber))
+                .limit(1).catch(() => [null as any]);
+              if (matchedUser) replyUserId = matchedUser.id;
+            }
+            await db.insert(whatsappCustomerReplies).values({
+              id: crypto.randomUUID(),
+              tenantId,
+              orderId: replyOrderId ?? null,
+              userId: replyUserId ?? null,
+              fromPhone: waPhoneNumber,
+              toPhone: phoneNumberId,
+              wamid: msg.id ?? crypto.randomUUID(),
+              contextWamid: contextWamid ?? null,
+              messageType: "text",
+              body: textBody,
+            }).onConflictDoNothing();
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] customer reply capture error:", e?.message);
+          }
           // ── Hermes PO approval/rejection via WhatsApp reply ───────────────
           const poMatch = textBody.trim().match(/^(APPROVE|REJECT)\s+PO-([A-Z0-9]+)/i);
           if (poMatch) {
@@ -666,7 +705,46 @@ async function startServer() {
             message: textBody,
             customerName: contactName || undefined,
           }).catch((e: any) => console.error("[whatsapp-webhook] NLP error:", e?.message));
-        } else if (msg.type === "image" || msg.type === "document" || msg.type === "video") {
+        } else if (msg.type === "image" || msg.type === "document" || msg.type === "video" || msg.type === "audio") {
+          // ── Capture media reply in whatsapp_customer_replies ──────────────
+          try {
+            const contextWamid: string | undefined = msg.context?.id;
+            const mediaId: string = msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? msg.audio?.id ?? "";
+            let replyOrderId2: string | undefined;
+            let replyUserId2: number | undefined;
+            if (contextWamid) {
+              const [notifLog2] = await db.select()
+                .from(whatsappNotificationLog)
+                .where(eq(whatsappNotificationLog.wamid, contextWamid))
+                .limit(1).catch(() => [null as any]);
+              if (notifLog2) {
+                replyOrderId2 = notifLog2.orderId ?? undefined;
+                replyUserId2 = notifLog2.userId ?? undefined;
+              }
+            }
+            if (!replyUserId2) {
+              const [matchedUser2] = await db.select({ id: users.id })
+                .from(users)
+                .where(eq(users.phone, waPhoneNumber))
+                .limit(1).catch(() => [null as any]);
+              if (matchedUser2) replyUserId2 = matchedUser2.id;
+            }
+            await db.insert(whatsappCustomerReplies).values({
+              id: crypto.randomUUID(),
+              tenantId,
+              orderId: replyOrderId2 ?? null,
+              userId: replyUserId2 ?? null,
+              fromPhone: waPhoneNumber,
+              toPhone: phoneNumberId,
+              wamid: msg.id ?? crypto.randomUUID(),
+              contextWamid: contextWamid ?? null,
+              messageType: msg.type,
+              body: msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? null,
+              mediaId: mediaId || null,
+            }).onConflictDoNothing();
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] media reply capture error:", e?.message);
+          }
           // Store media file reference for later download
           const mediaId: string = msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? "";
           const mimeType: string = msg.image?.mime_type ?? msg.document?.mime_type ?? msg.video?.mime_type ?? "application/octet-stream";
@@ -1978,7 +2056,7 @@ function drawBbox(img,id){
 
 startServer().catch(console.error);
 import { notifyOwner } from "./notification";
-import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents, waMessageDeliveryReceipts, whatsappNotificationLog } from "../../drizzle/schema";
+import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents, waMessageDeliveryReceipts, whatsappNotificationLog, whatsappCustomerReplies, users } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";
 import { products, tenantIntegrations } from "../../drizzle/schema";
 import { visualInventoryCorrections, finetuneRuns, productImageCollections as picTable, modelAbTests } from "../../drizzle/schema";
