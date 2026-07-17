@@ -1,0 +1,136 @@
+# Keycloak Kubernetes StatefulSet
+# TLS cert issued by Caddy internal CA; mounted as keycloak-tls Secret.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: identity
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db-secret
+  namespace: identity
+type: Opaque
+stringData:
+  password: "REPLACE_WITH_STRONG_PASSWORD"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-admin-secret
+  namespace: identity
+type: Opaque
+stringData:
+  username: "admin"
+  password: "REPLACE_WITH_STRONG_PASSWORD"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: keycloak
+  namespace: identity
+spec:
+  serviceName: keycloak-headless
+  replicas: 2
+  selector:
+    matchLabels:
+      app: keycloak
+  template:
+    metadata:
+      labels:
+        app: keycloak
+    spec:
+      containers:
+        - name: keycloak
+          image: ghcr.io/munisp/whatsapp-commerce/keycloak:latest
+          args: ["start", "--import-realm"]
+          env:
+            - name: KC_DB
+              value: postgres
+            - name: KC_DB_URL
+              value: jdbc:postgresql://keycloak-db.identity.svc.cluster.local:5432/keycloak
+            - name: KC_DB_USERNAME
+              value: keycloak
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-db-secret
+                  key: password
+            - name: KEYCLOAK_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-admin-secret
+                  key: username
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-admin-secret
+                  key: password
+            - name: KC_HOSTNAME
+              value: auth.whatsapp-commerce.com
+            - name: KC_FEATURES
+              value: organization,token-exchange,fine-grained-admin-permissions
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka.messaging.svc.cluster.local:9092
+            - name: KAFKA_TOPIC
+              value: keycloak.events
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8443
+              name: https
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /opt/keycloak/certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 120
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: keycloak-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  namespace: identity
+spec:
+  selector:
+    app: keycloak
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: https
+      port: 8443
+      targetPort: 8443
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-headless
+  namespace: identity
+spec:
+  clusterIP: None
+  selector:
+    app: keycloak
+  ports:
+    - port: 8080

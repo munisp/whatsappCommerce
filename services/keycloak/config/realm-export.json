@@ -1,0 +1,83 @@
+{
+  "realm": "whatsapp-commerce",
+  "displayName": "WhatsApp Commerce Platform",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "failureFactor": 5,
+  "organizationsEnabled": true,
+  "attributes": {
+    "organizationsEnabled": "true"
+  },
+  "roles": {
+    "realm": [
+      { "name": "platform-admin", "description": "Full platform administration access" },
+      { "name": "tenant-owner",   "description": "Tenant owner — manages their organisation" },
+      { "name": "tenant-agent",   "description": "Tenant agent — handles customer conversations" },
+      { "name": "tenant-analyst", "description": "Tenant analyst — read-only analytics access" },
+      { "name": "buyer",          "description": "End buyer — WhatsApp customer" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "apisix-gateway",
+      "name": "APISIX API Gateway",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocol": "openid-connect"
+    },
+    {
+      "clientId": "webapp",
+      "name": "WhatsApp Commerce Web App",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": ["https://app.whatsapp-commerce.com/*", "http://localhost:3000/*"],
+      "webOrigins": ["https://app.whatsapp-commerce.com", "http://localhost:3000"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    },
+    {
+      "clientId": "ai-agent",
+      "name": "AI Purchasing Agent",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": { "token.exchange.grant.enabled": "true" }
+    },
+    {
+      "clientId": "webhook-ingestor",
+      "name": "WhatsApp Webhook Ingestor",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocol": "openid-connect"
+    }
+  ],
+  "eventsEnabled": true,
+  "eventsListeners": ["jboss-logging", "kafka-event-listener"],
+  "enabledEventTypes": [
+    "LOGIN", "LOGIN_ERROR", "LOGOUT", "REGISTER", "REGISTER_ERROR",
+    "TOKEN_EXCHANGE", "CLIENT_LOGIN", "CLIENT_LOGIN_ERROR",
+    "UPDATE_PASSWORD", "RESET_PASSWORD"
+  ],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": true
+}

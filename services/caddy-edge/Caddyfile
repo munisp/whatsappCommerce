@@ -1,0 +1,83 @@
+{
+    email {$ACME_EMAIL:ops@whatsapp-commerce.com}
+    admin 0.0.0.0:2019
+    order coraza_waf first
+    pki {
+        ca local {
+            name "WhatsApp Commerce Internal CA"
+        }
+    }
+    on_demand_tls {
+        ask http://apisix:9080/internal/tls-ask
+        interval 2m
+        burst 5
+    }
+}
+
+acme.internal.{$PLATFORM_DOMAIN:whatsapp-commerce.com}:8443 {
+    tls internal
+    acme_server {
+        ca local
+    }
+}
+
+api.{$PLATFORM_DOMAIN:whatsapp-commerce.com} {
+    coraza_waf {
+        load_owasp_crs
+        directives `
+            Include @coraza.conf-recommended
+            Include @crs-setup.conf.example
+            Include @owasp_crs/*.conf
+            SecRuleEngine On
+            SecRequestBodyAccess On
+            SecResponseBodyAccess On
+        `
+    }
+    reverse_proxy https://{$APISIX_UPSTREAM:apisix:9443} {
+        transport http {
+            tls
+            tls_trusted_ca_certs /data/caddy/pki/authorities/local/root.crt
+        }
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Real-IP {remote_host}
+        header_up X-Request-ID {http.request.uuid}
+    }
+    log {
+        output file /var/log/caddy/api-access.log
+        format json
+    }
+}
+
+auth.{$PLATFORM_DOMAIN:whatsapp-commerce.com} {
+    reverse_proxy https://{$KEYCLOAK_UPSTREAM:keycloak:8443} {
+        transport http {
+            tls
+            tls_trusted_ca_certs /data/caddy/pki/authorities/local/root.crt
+        }
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+}
+
+:443 {
+    tls {
+        on_demand
+    }
+    coraza_waf {
+        load_owasp_crs
+        directives `
+            Include @coraza.conf-recommended
+            Include @crs-setup.conf.example
+            Include @owasp_crs/*.conf
+            SecRuleEngine On
+        `
+    }
+    reverse_proxy https://{$APISIX_UPSTREAM:apisix:9443} {
+        transport http {
+            tls
+            tls_trusted_ca_certs /data/caddy/pki/authorities/local/root.crt
+        }
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

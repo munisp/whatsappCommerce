@@ -1084,3 +1084,26 @@
 - [x] Fix 5 pre-existing test failures (escrow.bulkUpdateState, operatorTemplates schema gaps)
 - [x] Add server/db.mock.test.ts with Vitest mocking for DB-dependent tests (335 pass, 5 skipped)
 - [x] Add .github/workflows/release.yml for Docker image builds and GHCR publishing on v* tags
+
+## Round 45 — Dependabot Merge, Health Sparklines, GitHub Sync
+- [x] Merge all 11 open Dependabot PRs to main (squash merge with admin bypass)
+- [x] Delete all stale branches — only main remains on GitHub
+- [x] Add hermes_health_log DB table (layer, online, latencyMs, recordedAt) + migration 0020
+- [x] Add hermes.healthHistory tRPC procedure (25h window, grouped by layer)
+- [x] Add /api/scheduled/hermes-health-snapshot heartbeat endpoint (5-min cron, prunes >25h rows)
+- [x] Add 24h Health sparkline tab to Hermes Dashboard (SVG latency line + red offline bars + uptime %)
+- [x] Push all Round 45 changes to GitHub main (commit a2fca63) — 335 tests pass, 0 TS errors
+- [ ] Push CI/release workflow files to GitHub (requires PAT with `workflow` scope — see delivery note)
+- [ ] Tag v1.0.0 release on GitHub (requires workflow files to be present first)
+- [ ] Register hermes-health-snapshot heartbeat job after deploy: manus-heartbeat create --name hermes-health-snapshot --cron "0 */5 * * * *" --path /api/scheduled/hermes-health-snapshot
+
+## Round 46 — Caddy + Keycloak Integration
+- [x] Research Caddy capabilities: auto-TLS, HTTP/3, Coraza WAF, internal PKI, L4 proxy
+- [x] Research Keycloak capabilities: Organizations, FGAP, token exchange, Kafka SPI, Dapr integration
+- [x] Write combined Caddy + Keycloak integration analysis document (docs/caddy-keycloak-integration-analysis.md)
+- [x] Scaffold services/caddy-edge/: Dockerfile (xcaddy + Coraza + L4 + caddy-security), Caddyfile, docker-compose, K8s ingress manifests
+- [x] Scaffold services/keycloak/: Dockerfile (keycloak-kafka SPI), realm-export.json (Organizations + 4 clients + 5 roles), docker-compose, K8s StatefulSet manifests
+- [ ] Phase 1 deployment: Caddy edge TLS in front of APISIX (production)
+- [ ] Phase 2 deployment: Keycloak Organizations — migrate tenants from realm-level clients
+- [ ] Phase 3 deployment: Caddy internal PKI + Dapr mTLS unification
+- [ ] Phase 4 deployment: Keycloak Kafka SPI + phone OTP auth flow

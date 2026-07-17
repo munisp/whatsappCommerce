@@ -1,0 +1,64 @@
+version: "3.9"
+services:
+  caddy:
+    build: .
+    container_name: wac-caddy-edge
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      - "8443:8443"
+      - "2019:2019"
+    environment:
+      ACME_EMAIL: ops@whatsapp-commerce.com
+      PLATFORM_DOMAIN: localhost
+      APISIX_UPSTREAM: apisix:9443
+      KEYCLOAK_UPSTREAM: keycloak:8443
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./config/coraza:/etc/caddy/coraza:ro
+      - ./logs:/var/log/caddy
+    networks:
+      - wac-internal
+    depends_on:
+      - apisix
+      - keycloak
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  apisix:
+    image: apache/apisix:3.11.0-debian
+    container_name: wac-apisix-stub
+    restart: unless-stopped
+    ports:
+      - "9080:9080"
+      - "9443:9443"
+      - "9180:9180"
+    networks:
+      - wac-internal
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: wac-keycloak-stub
+    restart: unless-stopped
+    command: start-dev --features organization
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
+    networks:
+      - wac-internal
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  wac-internal:
+    driver: bridge
