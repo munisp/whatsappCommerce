@@ -1244,3 +1244,11 @@
 - [x] Backend: sendAttachment tRPC mutation (S3 upload → WhatsApp media API → send media message)
 - [x] Frontend: File attachment picker in reply panel (image/PDF, preview, send via WhatsApp)
 - [x] Tests: suggestReply + sendAttachment (11 new tests, 367 total pass)
+## Round 53 — Drag-and-Drop, Tone Selector, Mark Unread (2026-07-17)
+- [x] Frontend: Drag-and-drop file zone in CustomerRepliesPanel (drag image/PDF onto chat area)
+- [x] Frontend: Visual drop overlay with dashed border + icon when dragging over panel
+- [x] Frontend: Tone selector dropdown on AI Suggest button (professional, friendly, empathetic, concise)
+- [x] Backend: Update suggestReply to accept tone parameter and include it in system prompt
+- [x] Backend: markReplyUnread tRPC mutation (sets read=false on a reply row)
+- [x] Frontend: Mark as Unread button per reply row (BellOff icon, marks unread, re-highlights row)
+- [x] Tests: drag-and-drop validation, tone injection, markReplyUnread (14 new tests, 381 total pass)

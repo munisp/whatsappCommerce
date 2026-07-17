@@ -12,11 +12,17 @@ import {
   MessageSquare, Truck, RefreshCw,
   Reply, Eye, EyeOff, Image, FileText, Mic, User2,
 } from "lucide-react";
-import { Sparkles, Paperclip, X as XIcon, Send } from "lucide-react";
+import { Sparkles, Paperclip, X as XIcon, Send, UploadCloud, BellOff } from "lucide-react";
 import { toast } from "sonner";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
@@ -290,6 +296,69 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
     });
   }
 
+  // Mark as unread mutation
+  const markUnread = trpc.whatsappNotifications.markReplyUnread.useMutation({
+    onSuccess: () => {
+      utils.whatsappNotifications.getCustomerReplies.invalidate({ orderId });
+      toast.info("Marked as unread");
+    },
+    onError: (err) => toast.error(`Failed: ${err.message}`),
+  });
+
+  // Tone selector state for AI suggestions
+  const [selectedTone, setSelectedTone] = useState<"professional" | "friendly" | "empathetic" | "concise">("professional");
+  const TONE_LABELS: Record<string, string> = {
+    professional: "Professional",
+    friendly: "Friendly",
+    empathetic: "Empathetic",
+    concise: "Concise",
+  };
+
+  // Drag-and-drop state
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
+  const processDroppedFile = useCallback((file: File) => {
+    const ALLOWED = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"] as const;
+    type AllowedMime = typeof ALLOWED[number];
+    if (!ALLOWED.includes(file.type as AllowedMime)) {
+      toast.error("Only JPEG, PNG, WebP, GIF, and PDF files are supported");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File must be under 10 MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] ?? "";
+      const previewUrl = file.type.startsWith("image/") ? result : null;
+      setAttachment({ file, previewUrl, base64 });
+      toast.success(`${file.name} attached — ready to send`);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }
+  function handleDragLeave(e: React.DragEvent) {
+    // Only clear if leaving the drop zone itself (not a child)
+    if (!dropZoneRef.current?.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false);
+    }
+  }
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processDroppedFile(file);
+  }
+
   if (!isLoading && replies.length === 0) return null;
   const unreadCount = replies.filter((r) => !r.read).length;
 
@@ -351,19 +420,32 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
                           <p className="text-[10px] text-muted-foreground/60">
                             {new Date(reply.createdAt).toLocaleString()}
                           </p>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6"
-                            title={reply.read ? "Mark as unread" : "Mark as read"}
-                            onClick={() => markRead.mutate({ replyId: reply.id })}
-                            disabled={markRead.isPending}
-                          >
-                            {reply.read
-                              ? <EyeOff className="h-3 w-3 text-muted-foreground" />
-                              : <Eye className="h-3 w-3 text-green-600" />
-                            }
-                          </Button>
+                          {/* Mark as read button */}
+                          {!reply.read && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="Mark as read"
+                              onClick={() => markRead.mutate({ replyId: reply.id })}
+                              disabled={markRead.isPending}
+                            >
+                              <Eye className="h-3 w-3 text-green-600" />
+                            </Button>
+                          )}
+                          {/* Mark as unread button — only visible on read messages */}
+                          {reply.read && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              title="Mark as unread (follow up later)"
+                              onClick={() => markUnread.mutate({ replyId: reply.id })}
+                              disabled={markUnread.isPending}
+                            >
+                              <BellOff className="h-3 w-3 text-muted-foreground hover:text-orange-500" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                       {reply.body && (
@@ -412,9 +494,24 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
             </div>
           </ScrollArea>
         )}
-        {/* Send Reply section */}
+        {/* Send Reply section — also serves as drag-and-drop zone */}
         {customerPhone && (
-          <div className="mt-4 pt-4 border-t space-y-2">
+          <div
+            ref={dropZoneRef}
+            className={`mt-4 pt-4 border-t space-y-2 relative transition-colors rounded-lg ${
+              isDragOver ? "bg-green-50/60 ring-2 ring-green-400 ring-dashed" : ""
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {/* Drop overlay */}
+            {isDragOver && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center z-10 rounded-lg pointer-events-none">
+                <UploadCloud className="h-8 w-8 text-green-500 mb-1" />
+                <p className="text-sm font-medium text-green-700">Drop to attach file</p>
+              </div>
+            )}
             <p className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
               <Reply className="h-3.5 w-3.5" />
               Reply to customer via WhatsApp
@@ -469,29 +566,58 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
             <div className="flex items-center justify-between">
               <p className="text-[10px] text-muted-foreground/60">Ctrl/⌘+Enter to send quickly</p>
               <div className="flex items-center gap-1.5">
-                {/* AI Suggest button */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs gap-1.5"
-                  disabled={isSuggesting || suggestReply.isPending || replies.length === 0}
-                  onClick={() => {
-                    setIsSuggesting(true);
-                    suggestReply.mutate({
-                      orderId,
-                      recentReplies: replies.slice(0, 10).map((r) => ({
-                        messageType: r.messageType ?? "text",
-                        body: r.body ?? null,
-                        fromPhone: r.fromPhone ?? "",
-                        createdAt: new Date(r.createdAt).toISOString(),
-                      })),
-                    });
-                  }}
-                  title="Get AI-suggested reply based on customer messages"
-                >
-                  <Sparkles className="h-3.5 w-3.5 text-purple-500" />
-                  {isSuggesting ? "Thinking…" : "AI Suggest"}
-                </Button>
+                {/* AI Suggest split button: tone dropdown + suggest */}
+                <div className="flex items-center rounded-md border border-input overflow-hidden h-7">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5 rounded-none border-0 px-2"
+                    disabled={isSuggesting || suggestReply.isPending || replies.length === 0}
+                    onClick={() => {
+                      setIsSuggesting(true);
+                      suggestReply.mutate({
+                        orderId,
+                        tone: selectedTone,
+                        recentReplies: replies.slice(0, 10).map((r) => ({
+                          messageType: r.messageType ?? "text",
+                          body: r.body ?? null,
+                          fromPhone: r.fromPhone ?? "",
+                          createdAt: new Date(r.createdAt).toISOString(),
+                        })),
+                      });
+                    }}
+                    title={`Get AI-suggested reply (${TONE_LABELS[selectedTone]} tone)`}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+                    {isSuggesting ? "Thinking…" : `AI Suggest`}
+                  </Button>
+                  <div className="w-px h-4 bg-border" />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-[10px] rounded-none border-0 px-1.5 text-muted-foreground"
+                        disabled={isSuggesting || suggestReply.isPending}
+                        title="Select tone"
+                      >
+                        {TONE_LABELS[selectedTone]}
+                        <svg className="h-3 w-3 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6"/></svg>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[130px]">
+                      {(["professional", "friendly", "empathetic", "concise"] as const).map((tone) => (
+                        <DropdownMenuItem
+                          key={tone}
+                          onClick={() => setSelectedTone(tone)}
+                          className={selectedTone === tone ? "font-medium text-purple-600" : ""}
+                        >
+                          {TONE_LABELS[tone]}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
                 {/* Attach file button */}
                 <Button
                   variant="outline"

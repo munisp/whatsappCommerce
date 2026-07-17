@@ -405,6 +405,19 @@ export const whatsappNotificationsRouter = router({
       return { success: true };
     }),
 
+  /** Mark a specific reply as unread so the admin can follow up later. */
+  markReplyUnread: protectedProcedure
+    .input(z.object({ replyId: z.string() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      await db
+        .update(whatsappCustomerReplies)
+        .set({ read: false, readAt: null })
+        .where(eq(whatsappCustomerReplies.id, input.replyId));
+      return { success: true };
+    }),
+
   /** Get unread reply count across all orders (for badge). */
   getUnreadReplyCount: protectedProcedure
     .query(async () => {
@@ -502,6 +515,7 @@ export const whatsappNotificationsRouter = router({
         totalAmount: z.string().optional(),
         currency: z.string().optional(),
       }).optional(),
+      tone: z.enum(["professional", "friendly", "empathetic", "concise"]).default("professional"),
     }))
     .mutation(async ({ input }) => {
       const { invokeLLM } = await import("../_core/llm");
@@ -515,10 +529,16 @@ export const whatsappNotificationsRouter = router({
         ? `Order #${input.orderContext.orderNumber ?? "?"} — Status: ${input.orderContext.status ?? "?"}, Total: ${input.orderContext.currency ?? ""} ${input.orderContext.totalAmount ?? "?"}`
         : "Order context unavailable";
 
-      const systemPrompt = `You are a helpful WhatsApp customer support agent for an e-commerce platform.
-Your job is to draft a concise, friendly, professional reply to a customer's WhatsApp message.
-Keep responses under 200 words. Be empathetic, clear, and solution-oriented.
-Do not include greetings like "Dear Customer" — be conversational.
+      const toneInstructions: Record<string, string> = {
+        professional: "Use a formal, polished, business-appropriate tone. Be precise and courteous.",
+        friendly: "Use a warm, conversational, approachable tone. Be cheerful and personable.",
+        empathetic: "Use a compassionate, understanding tone. Acknowledge the customer's feelings first before offering solutions.",
+        concise: "Be extremely brief and to the point. Use short sentences. Maximum 3 sentences total.",
+      };
+      const toneGuide = toneInstructions[input.tone] ?? toneInstructions.professional;
+      const systemPrompt = `You are a WhatsApp customer support agent for an e-commerce platform.
+Tone instruction: ${toneGuide}
+Keep responses under 200 words. Do not include greetings like "Dear Customer" — be conversational.
 Context: ${orderCtx}`;
 
       const userPrompt = `Customer message history (most recent last):

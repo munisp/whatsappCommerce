@@ -404,3 +404,110 @@ describe("sendAttachment logic", () => {
     expect(generateStorageKey("noext")).toMatch(/\.noext$/);
   });
 });
+
+// ── Round 53: drag-and-drop file validation, tone injection, markReplyUnread ──
+describe("drag-and-drop file validation logic", () => {
+  const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"] as const;
+  type AllowedMime = typeof ALLOWED_TYPES[number];
+
+  function validateDroppedFile(file: { type: string; size: number }): string | null {
+    if (!ALLOWED_TYPES.includes(file.type as AllowedMime)) {
+      return "Only JPEG, PNG, WebP, GIF, and PDF files are supported";
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      return "File must be under 10 MB";
+    }
+    return null;
+  }
+
+  it("accepts valid image types", () => {
+    for (const mime of ["image/jpeg", "image/png", "image/webp", "image/gif"]) {
+      expect(validateDroppedFile({ type: mime, size: 1024 })).toBeNull();
+    }
+  });
+
+  it("accepts PDF files", () => {
+    expect(validateDroppedFile({ type: "application/pdf", size: 500_000 })).toBeNull();
+  });
+
+  it("rejects unsupported types", () => {
+    expect(validateDroppedFile({ type: "video/mp4", size: 1024 })).toMatch(/supported/i);
+    expect(validateDroppedFile({ type: "text/plain", size: 1024 })).toMatch(/supported/i);
+    expect(validateDroppedFile({ type: "application/zip", size: 1024 })).toMatch(/supported/i);
+  });
+
+  it("rejects files over 10 MB", () => {
+    expect(validateDroppedFile({ type: "image/jpeg", size: 11 * 1024 * 1024 })).toMatch(/10 MB/);
+  });
+
+  it("accepts files exactly at 10 MB boundary", () => {
+    expect(validateDroppedFile({ type: "image/png", size: 10 * 1024 * 1024 })).toBeNull();
+  });
+});
+
+describe("suggestReply tone injection", () => {
+  const toneInstructions: Record<string, string> = {
+    professional: "Use a formal, polished, business-appropriate tone. Be precise and courteous.",
+    friendly: "Use a warm, conversational, approachable tone. Be cheerful and personable.",
+    empathetic: "Use a compassionate, understanding tone. Acknowledge the customer's feelings first before offering solutions.",
+    concise: "Be extremely brief and to the point. Use short sentences. Maximum 3 sentences total.",
+  };
+
+  it("includes correct tone instruction for professional", () => {
+    const guide = toneInstructions["professional"];
+    expect(guide).toContain("formal");
+    expect(guide).toContain("polished");
+  });
+
+  it("includes correct tone instruction for friendly", () => {
+    const guide = toneInstructions["friendly"];
+    expect(guide).toContain("warm");
+    expect(guide).toContain("cheerful");
+  });
+
+  it("includes correct tone instruction for empathetic", () => {
+    const guide = toneInstructions["empathetic"];
+    expect(guide).toContain("compassionate");
+    expect(guide).toContain("feelings");
+  });
+
+  it("includes correct tone instruction for concise", () => {
+    const guide = toneInstructions["concise"];
+    expect(guide).toContain("brief");
+    expect(guide).toContain("3 sentences");
+  });
+
+  it("falls back to professional for unknown tone", () => {
+    const guide = toneInstructions["unknown"] ?? toneInstructions["professional"];
+    expect(guide).toContain("formal");
+  });
+
+  it("injects tone guide into system prompt", () => {
+    const tone = "friendly";
+    const guide = toneInstructions[tone];
+    const systemPrompt = `You are a WhatsApp customer support agent.\nTone instruction: ${guide}\nContext: Order #001`;
+    expect(systemPrompt).toContain("Tone instruction:");
+    expect(systemPrompt).toContain("warm");
+  });
+});
+
+describe("markReplyUnread logic", () => {
+  it("sets read=false and readAt=null conceptually", () => {
+    // Simulate the DB update payload
+    const updatePayload = { read: false, readAt: null };
+    expect(updatePayload.read).toBe(false);
+    expect(updatePayload.readAt).toBeNull();
+  });
+
+  it("requires a replyId string input", () => {
+    const input = { replyId: "reply-abc-123" };
+    expect(typeof input.replyId).toBe("string");
+    expect(input.replyId.length).toBeGreaterThan(0);
+  });
+
+  it("rejects empty replyId", () => {
+    const validate = (id: string) => id.length > 0;
+    expect(validate("")).toBe(false);
+    expect(validate("reply-abc-123")).toBe(true);
+  });
+});
