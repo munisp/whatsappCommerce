@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
-import { Clock, MessageSquare, Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
+import { Bell, Clock, MessageSquare, Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
@@ -25,6 +25,7 @@ const statusColors: Record<string, string> = {
 export default function Orders() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [, setLocation] = useLocation();
   const { data: stats } = trpc.order.stats.useQuery({ tenantId: DEMO_TENANT });
   const { data: orderList, isLoading } = trpc.order.list.useQuery({
@@ -38,6 +39,15 @@ export default function Orders() {
     { enabled: orderIds.length > 0, refetchInterval: 30000 }
   );
   const unreadCounts = unreadData?.counts ?? {};
+  // Derived list: when unreadOnly is on, hide rows with 0 unread replies
+  const totalUnreadOrders = useMemo(
+    () => Object.values(unreadCounts).filter((n) => n > 0).length,
+    [unreadCounts]
+  );
+  const displayedOrders = useMemo(() => {
+    if (!unreadOnly) return orderList ?? [];
+    return (orderList ?? []).filter((o) => (unreadCounts[o.id] ?? 0) > 0);
+  }, [orderList, unreadCounts, unreadOnly]);
 
   return (
     <DashboardLayout>
@@ -86,6 +96,33 @@ export default function Orders() {
             </SelectContent>
           </Select>
         </div>
+        {/* Unread-only toggle */}
+        <div className="flex items-center gap-3 -mt-3">
+          <button
+            type="button"
+            onClick={() => setUnreadOnly((v) => !v)}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
+              unreadOnly
+                ? "bg-green-500/20 border-green-500/40 text-green-400 hover:bg-green-500/30"
+                : "bg-card border-border text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            }`}
+          >
+            <Bell className={`w-3.5 h-3.5 ${unreadOnly ? "text-green-400" : ""}`} />
+            Unread replies only
+            {totalUnreadOrders > 0 && (
+              <span className={`inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full text-[10px] font-bold ${
+                unreadOnly ? "bg-green-500 text-white" : "bg-green-500/20 text-green-400"
+              }`}>
+                {totalUnreadOrders}
+              </span>
+            )}
+          </button>
+          {unreadOnly && (
+            <span className="text-xs text-muted-foreground">
+              Showing {displayedOrders.length} order{displayedOrders.length !== 1 ? "s" : ""} with unread replies
+            </span>
+          )}
+        </div>
 
         {/* Table */}
         <Card className="bg-card border-border">
@@ -105,9 +142,11 @@ export default function Orders() {
               <TableBody>
                 {isLoading ? (
                   <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading orders...</TableCell></TableRow>
-                ) : orderList?.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No orders found</TableCell></TableRow>
-                ) : orderList?.map((o) => (
+                ) : displayedOrders.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                    {unreadOnly ? "No orders with unread WhatsApp replies" : "No orders found"}
+                  </TableCell></TableRow>
+                ) : displayedOrders.map((o) => (
                   <TableRow key={o.id} className="border-border hover:bg-accent/30">
                     <TableCell className="font-mono text-xs">{o.orderNumber}</TableCell>
                     <TableCell><Badge variant="outline" className={statusColors[o.status] ?? ""}>{o.status}</Badge></TableCell>

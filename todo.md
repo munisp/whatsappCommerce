@@ -1237,3 +1237,10 @@
 - [x] Frontend: Send Reply text box + send button in CustomerRepliesPanel
 - [x] Tests: getBulkUnreadReplyCounts, sendAdminReply (7 new tests, 356 total pass)
 - [x] Fix: E.164 phone validation in sendOtp (phoneAuth router)
+## Round 52 — Unread Filter, AI Suggestions, File Attachments (2026-07-17)
+- [x] Frontend: Unread-only filter toggle on admin orders list (shows orders with unread WhatsApp replies)
+- [x] Backend: suggestReply tRPC mutation (LLM-powered, uses gpt-5-mini, reads customer reply history)
+- [x] Frontend: AI Suggest button in CustomerRepliesPanel (populates reply textarea with suggestion)
+- [x] Backend: sendAttachment tRPC mutation (S3 upload → WhatsApp media API → send media message)
+- [x] Frontend: File attachment picker in reply panel (image/PDF, preview, send via WhatsApp)
+- [x] Tests: suggestReply + sendAttachment (11 new tests, 367 total pass)

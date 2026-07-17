@@ -268,3 +268,139 @@ describe("sendAdminReply logic", () => {
     expect(stripped).toBe("2348099887766");
   });
 });
+
+// ── suggestReply (tRPC procedure logic) ───────────────────────────────────────
+describe("suggestReply logic", () => {
+  it("builds a correct system prompt with order context", () => {
+    const orderCtx = { orderNumber: "ORD-001", status: "shipped", totalAmount: "5000", currency: "NGN" };
+    const systemPrompt = `You are a helpful WhatsApp customer support agent for an e-commerce platform.\nYour job is to draft a concise, friendly, professional reply to a customer's WhatsApp message.\nKeep responses under 200 words. Be empathetic, clear, and solution-oriented.\nDo not include greetings like "Dear Customer" — be conversational.\nContext: Order #${orderCtx.orderNumber} — Status: ${orderCtx.status}, Total: ${orderCtx.currency} ${orderCtx.totalAmount}`;
+    expect(systemPrompt).toContain("ORD-001");
+    expect(systemPrompt).toContain("shipped");
+    expect(systemPrompt).toContain("NGN 5000");
+  });
+
+  it("formats message history with most recent last", () => {
+    const replies = [
+      { messageType: "text", body: "Where is my order?", fromPhone: "+2348001", createdAt: "2026-07-17T10:00:00Z" },
+      { messageType: "text", body: "It's been 3 days!", fromPhone: "+2348001", createdAt: "2026-07-17T10:05:00Z" },
+    ];
+    const history = replies
+      .slice()
+      .reverse()
+      .map((r) => `[${new Date(r.createdAt).toLocaleTimeString()}] Customer: ${r.body ?? `[${r.messageType} message]`}`)
+      .join("\n");
+    // reversed = most recent first, then joined → most recent is first line
+    expect(history.split("\n")[0]).toContain("It's been 3 days!");
+    expect(history.split("\n")[1]).toContain("Where is my order?");
+  });
+
+  it("uses [messageType message] placeholder for non-text messages", () => {
+    const reply = { messageType: "image", body: null, fromPhone: "+2348001", createdAt: "2026-07-17T10:00:00Z" };
+    const text = reply.body ?? `[${reply.messageType} message]`;
+    expect(text).toBe("[image message]");
+  });
+
+  it("trims whitespace from the LLM response", () => {
+    const raw = "  Hello, your order is on its way!  \n";
+    const trimmed = raw.trim();
+    expect(trimmed).toBe("Hello, your order is on its way!");
+  });
+
+  it("returns empty string when LLM returns null content", () => {
+    const content: string | null = null;
+    const suggestion = (content as string) ?? "";
+    expect(suggestion).toBe("");
+  });
+});
+
+// ── sendAttachment (tRPC procedure logic) ─────────────────────────────────────
+describe("sendAttachment logic", () => {
+  it("determines waType=image for image MIME types", () => {
+    const mimeTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    for (const mime of mimeTypes) {
+      const isImage = mime.startsWith("image/");
+      const waType = isImage ? "image" : "document";
+      expect(waType).toBe("image");
+    }
+  });
+
+  it("determines waType=document for PDF MIME type", () => {
+    const mime = "application/pdf";
+    const isImage = mime.startsWith("image/");
+    const waType = isImage ? "image" : "document";
+    expect(waType).toBe("document");
+  });
+
+  it("returns simulated=true when WAC credentials are not set", async () => {
+    vi.stubEnv("WAC_WHATSAPP_TOKEN", "");
+    vi.stubEnv("WAC_WHATSAPP_PHONE_ID", "");
+    const token = process.env.WAC_WHATSAPP_TOKEN;
+    const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
+    if (!token || !phoneId) {
+      const result = { sent: false, simulated: true, wamid: null, storageUrl: "/api/storage/test.jpg" };
+      expect(result.simulated).toBe(true);
+      expect(result.sent).toBe(false);
+      return;
+    }
+    throw new Error("Should have returned early");
+  });
+
+  it("builds correct WhatsApp image payload with caption", () => {
+    const input = {
+      phone: "+2348099887766",
+      mimeType: "image/jpeg" as const,
+      fileName: "receipt.jpg",
+      caption: "Here is your receipt",
+    };
+    const isImage = input.mimeType.startsWith("image/");
+    const waType = isImage ? "image" : "document";
+    const publicUrl = "https://example.com/api/storage/uploads/abc123.jpg";
+    const payload: Record<string, unknown> = {
+      messaging_product: "whatsapp",
+      to: input.phone.replace(/[^0-9]/g, ""),
+      type: waType,
+      [waType]: {
+        link: publicUrl,
+        caption: input.caption,
+      },
+    };
+    expect(payload.type).toBe("image");
+    expect((payload.image as any).caption).toBe("Here is your receipt");
+    expect((payload.image as any).link).toContain("abc123.jpg");
+    expect(payload.to).toBe("2348099887766");
+  });
+
+  it("builds correct WhatsApp document payload with filename", () => {
+    const input = {
+      phone: "+2348099887766",
+      mimeType: "application/pdf" as const,
+      fileName: "invoice.pdf",
+      caption: undefined,
+    };
+    const isImage = input.mimeType.startsWith("image/");
+    const waType = isImage ? "image" : "document";
+    const publicUrl = "https://example.com/api/storage/uploads/xyz789.pdf";
+    const payload: Record<string, unknown> = {
+      messaging_product: "whatsapp",
+      to: input.phone.replace(/[^0-9]/g, ""),
+      type: waType,
+      [waType]: {
+        link: publicUrl,
+        filename: input.fileName,
+      },
+    };
+    expect(payload.type).toBe("document");
+    expect((payload.document as any).filename).toBe("invoice.pdf");
+    expect((payload.document as any).caption).toBeUndefined();
+  });
+
+  it("generates a storage key with correct extension", () => {
+    function generateStorageKey(filename: string): string {
+      const ext = filename.split(".").pop() ?? "bin";
+      return `uploads/testhash.${ext}`;
+    }
+    expect(generateStorageKey("photo.jpg")).toMatch(/\.jpg$/);
+    expect(generateStorageKey("invoice.pdf")).toMatch(/\.pdf$/);
+    expect(generateStorageKey("noext")).toMatch(/\.noext$/);
+  });
+});

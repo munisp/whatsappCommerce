@@ -485,6 +485,131 @@ export const whatsappNotificationsRouter = router({
       return { sent: true, simulated: false, wamid };
     }),
 
+
+  /** AI-powered reply suggestion based on customer message history. */
+  suggestReply: protectedProcedure
+    .input(z.object({
+      orderId: z.string(),
+      recentReplies: z.array(z.object({
+        messageType: z.string(),
+        body: z.string().nullable(),
+        fromPhone: z.string(),
+        createdAt: z.string(),
+      })).max(20),
+      orderContext: z.object({
+        orderNumber: z.string().optional(),
+        status: z.string().optional(),
+        totalAmount: z.string().optional(),
+        currency: z.string().optional(),
+      }).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { invokeLLM } = await import("../_core/llm");
+      const messageHistory = input.recentReplies
+        .slice()
+        .reverse()
+        .map((r) => `[${new Date(r.createdAt).toLocaleTimeString()}] Customer: ${r.body ?? `[${r.messageType} message]`}`)
+        .join("\n");
+
+      const orderCtx = input.orderContext
+        ? `Order #${input.orderContext.orderNumber ?? "?"} — Status: ${input.orderContext.status ?? "?"}, Total: ${input.orderContext.currency ?? ""} ${input.orderContext.totalAmount ?? "?"}`
+        : "Order context unavailable";
+
+      const systemPrompt = `You are a helpful WhatsApp customer support agent for an e-commerce platform.
+Your job is to draft a concise, friendly, professional reply to a customer's WhatsApp message.
+Keep responses under 200 words. Be empathetic, clear, and solution-oriented.
+Do not include greetings like "Dear Customer" — be conversational.
+Context: ${orderCtx}`;
+
+      const userPrompt = `Customer message history (most recent last):
+${messageHistory}
+
+Draft a helpful reply to the customer's most recent message. Reply in plain text only (no markdown).`;
+
+      const result = await invokeLLM({
+        model: "gpt-5-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      });
+
+      const suggestion = (result.choices[0]?.message?.content as string) ?? "";
+      return { suggestion: suggestion.trim() };
+    }),
+
+  /** Upload a file (image/PDF) to S3 and send it as a WhatsApp media message. */
+  sendAttachment: protectedProcedure
+    .input(z.object({
+      phone: z.string().min(7),
+      orderId: z.string().optional(),
+      fileBase64: z.string(),          // base64-encoded file content
+      fileName: z.string(),
+      mimeType: z.enum([
+        "image/jpeg", "image/png", "image/webp",
+        "application/pdf",
+        "image/gif",
+      ]),
+      caption: z.string().max(1024).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const { storagePut, generateStorageKey } = await import("../storage");
+      // 1. Upload to S3
+      const fileBuffer = Buffer.from(input.fileBase64, "base64");
+      const storageKey = generateStorageKey(input.fileName);
+      const { url: storageUrl } = await storagePut(storageKey, fileBuffer, input.mimeType);
+
+      // 2. Determine WhatsApp message type
+      const isImage = input.mimeType.startsWith("image/");
+      const waType = isImage ? "image" : "document";
+
+      // 3. Send via WhatsApp Cloud API
+      const token = process.env.WAC_WHATSAPP_TOKEN;
+      const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
+      if (!token || !phoneId) {
+        return { sent: false, simulated: true, wamid: null, storageUrl };
+      }
+
+      // Build absolute URL for WhatsApp (needs a public URL)
+      const appUrl = process.env.VITE_FRONTEND_FORGE_API_URL?.replace("/v1", "") ?? "";
+      const publicUrl = storageUrl.startsWith("http") ? storageUrl : `${appUrl}${storageUrl}`;
+
+      const mediaPayload: Record<string, unknown> = {
+        messaging_product: "whatsapp",
+        to: input.phone.replace(/[^0-9]/g, ""),
+        type: waType,
+        [waType]: {
+          link: publicUrl,
+          ...(input.caption ? { caption: input.caption } : {}),
+          ...(waType === "document" ? { filename: input.fileName } : {}),
+        },
+      };
+
+      const resp = await fetch(
+        `https://graph.facebook.com/v21.0/${phoneId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(mediaPayload),
+          signal: AbortSignal.timeout(15000),
+        }
+      );
+
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: (err as any)?.error?.message ?? "WhatsApp media send failed",
+        });
+      }
+
+      const data = await resp.json() as any;
+      const wamid: string | null = data?.messages?.[0]?.id ?? null;
+      return { sent: true, simulated: false, wamid, storageUrl };
+    }),
 });
 
 // ── Log-Persisting Wrapper ────────────────────────────────────────────────────

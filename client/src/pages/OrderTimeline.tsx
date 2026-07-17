@@ -12,8 +12,9 @@ import {
   MessageSquare, Truck, RefreshCw,
   Reply, Eye, EyeOff, Image, FileText, Mic, User2,
 } from "lucide-react";
+import { Sparkles, Paperclip, X as XIcon, Send } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -218,6 +219,77 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
   });
   const customerPhone = replies[0]?.fromPhone ?? null;
 
+  // AI suggestion state
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const suggestReply = trpc.whatsappNotifications.suggestReply.useMutation({
+    onSuccess: (result) => {
+      setReplyText(result.suggestion);
+      setIsSuggesting(false);
+      toast.success("AI suggestion ready — review and send");
+    },
+    onError: (err) => {
+      setIsSuggesting(false);
+      toast.error(`AI suggestion failed: ${err.message}`);
+    },
+  });
+
+  // File attachment state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachment, setAttachment] = useState<{
+    file: File;
+    previewUrl: string | null;
+    base64: string;
+  } | null>(null);
+  const sendAttachment = trpc.whatsappNotifications.sendAttachment.useMutation({
+    onSuccess: (result) => {
+      if (result.simulated) {
+        toast.info("Attachment simulated — no WhatsApp credentials configured");
+      } else {
+        toast.success("Attachment sent via WhatsApp");
+      }
+      setAttachment(null);
+      setReplyText("");
+    },
+    onError: (err) => toast.error(`Attachment send failed: ${err.message}`),
+  });
+
+  const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"] as const;
+  type AllowedMime = typeof ALLOWED_TYPES[number];
+
+  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!ALLOWED_TYPES.includes(file.type as AllowedMime)) {
+      toast.error("Only JPEG, PNG, WebP, GIF, and PDF files are supported");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File must be under 10 MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1] ?? "";
+      const previewUrl = file.type.startsWith("image/") ? result : null;
+      setAttachment({ file, previewUrl, base64 });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }
+
+  function handleSendAttachment() {
+    if (!attachment || !customerPhone) return;
+    sendAttachment.mutate({
+      phone: customerPhone,
+      orderId,
+      fileBase64: attachment.base64,
+      fileName: attachment.file.name,
+      mimeType: attachment.file.type as AllowedMime,
+      caption: replyText.trim() || undefined,
+    });
+  }
+
   if (!isLoading && replies.length === 0) return null;
   const unreadCount = replies.filter((r) => !r.read).length;
 
@@ -347,32 +419,123 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
               <Reply className="h-3.5 w-3.5" />
               Reply to customer via WhatsApp
             </p>
+            {/* Attachment preview */}
+            {attachment && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50 border border-border">
+                {attachment.previewUrl ? (
+                  <img
+                    src={attachment.previewUrl}
+                    alt="Attachment preview"
+                    className="h-12 w-12 rounded object-cover border border-border"
+                  />
+                ) : (
+                  <div className="h-12 w-12 rounded bg-muted flex items-center justify-center border border-border">
+                    <FileText className="h-6 w-6 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{attachment.file.name}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {(attachment.file.size / 1024).toFixed(0)} KB · {attachment.file.type}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAttachment(null)}
+                  className="p-1 rounded hover:bg-muted transition-colors"
+                  title="Remove attachment"
+                >
+                  <XIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            )}
             <Textarea
-              placeholder="Type your reply…"
+              placeholder={attachment ? "Add a caption (optional)…" : "Type your reply…"}
               value={replyText}
               onChange={(e) => setReplyText(e.target.value)}
               rows={2}
               className="resize-none text-sm"
-              disabled={sendReply.isPending}
+              disabled={sendReply.isPending || sendAttachment.isPending}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && replyText.trim()) {
-                  sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId });
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  if (attachment) {
+                    handleSendAttachment();
+                  } else if (replyText.trim()) {
+                    sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId });
+                  }
                 }
               }}
             />
             <div className="flex items-center justify-between">
               <p className="text-[10px] text-muted-foreground/60">Ctrl/⌘+Enter to send quickly</p>
-              <Button
-                size="sm"
-                className="h-7 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
-                disabled={!replyText.trim() || sendReply.isPending}
-                onClick={() =>
-                  sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId })
-                }
-              >
-                <Reply className="h-3.5 w-3.5" />
-                {sendReply.isPending ? "Sending…" : "Send Reply"}
-              </Button>
+              <div className="flex items-center gap-1.5">
+                {/* AI Suggest button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  disabled={isSuggesting || suggestReply.isPending || replies.length === 0}
+                  onClick={() => {
+                    setIsSuggesting(true);
+                    suggestReply.mutate({
+                      orderId,
+                      recentReplies: replies.slice(0, 10).map((r) => ({
+                        messageType: r.messageType ?? "text",
+                        body: r.body ?? null,
+                        fromPhone: r.fromPhone ?? "",
+                        createdAt: new Date(r.createdAt).toISOString(),
+                      })),
+                    });
+                  }}
+                  title="Get AI-suggested reply based on customer messages"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+                  {isSuggesting ? "Thinking…" : "AI Suggest"}
+                </Button>
+                {/* Attach file button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1.5"
+                  disabled={sendAttachment.isPending}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Attach image or PDF"
+                >
+                  <Paperclip className="h-3.5 w-3.5" />
+                  Attach
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                  className="hidden"
+                  onChange={handleFileSelected}
+                />
+                {/* Send button */}
+                {attachment ? (
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                    disabled={sendAttachment.isPending}
+                    onClick={handleSendAttachment}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    {sendAttachment.isPending ? "Sending…" : "Send File"}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                    disabled={!replyText.trim() || sendReply.isPending}
+                    onClick={() =>
+                      sendReply.mutate({ phone: customerPhone, message: replyText.trim(), orderId })
+                    }
+                  >
+                    <Reply className="h-3.5 w-3.5" />
+                    {sendReply.isPending ? "Sending…" : "Send Reply"}
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         )}
