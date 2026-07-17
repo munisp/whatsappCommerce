@@ -1095,7 +1095,7 @@
 - [x] Push all Round 45 changes to GitHub main (commit a2fca63) — 335 tests pass, 0 TS errors
 - [ ] Push CI/release workflow files to GitHub (requires PAT with `workflow` scope — see delivery note)
 - [x] Tag v1.0.0 release on GitHub — https://github.com/munisp/whatsappCommerce/releases/tag/v1.0.0
-- [ ] Register hermes-health-snapshot heartbeat job after deploy: manus-heartbeat create --name hermes-health-snapshot --cron "0 */5 * * * *" --path /api/scheduled/hermes-health-snapshot
+- [x] Register hermes-health-snapshot heartbeat job after deploy: manus-heartbeat create --name hermes-health-snapshot --cron "0 */5 * * * *" --path /api/scheduled/hermes-health-snapshot
 
 ## Round 46 — Caddy + Keycloak Integration
 - [x] Research Caddy capabilities: auto-TLS, HTTP/3, Coraza WAF, internal PKI, L4 proxy
