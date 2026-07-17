@@ -1,0 +1,122 @@
+# APISIX Keycloak OIDC Plugin Configuration
+# Apply this to routes that require Keycloak JWT validation
+#
+# Usage: Merge this into routes.yaml for protected API routes
+# The openid-connect plugin validates JWTs issued by Keycloak
+# The authz-keycloak plugin enforces fine-grained permissions via Keycloak Authorization Services
+
+# ── Global Keycloak OIDC plugin config ────────────────────────────────────────
+# Add to APISIX plugin_configs or inline in each route
+keycloak_oidc_plugin: &keycloak_oidc
+  openid-connect:
+    client_id: "apisix-gateway"
+    client_secret: "${APISIX_CLIENT_SECRET}"
+    discovery: "https://auth.whatsapp-commerce.com/realms/whatsapp-commerce/.well-known/openid-configuration"
+    # For local dev, use the internal Keycloak URL:
+    # discovery: "http://keycloak:8080/realms/whatsapp-commerce/.well-known/openid-configuration"
+    redirect_uri: "https://api.whatsapp-commerce.com/api/oidc/callback"
+    scope: "openid profile email"
+    bearer_only: true
+    realm: "whatsapp-commerce"
+    introspection_endpoint_auth_method: "client_secret_post"
+    # Cache token introspection results for 60 seconds
+    cache_ttl: 60
+    # Reject tokens without these claims
+    required_claims:
+      - sub
+      - realm_access
+    # Map Keycloak roles to APISIX consumer groups
+    set_access_token_header: true
+    access_token_in_authorization_header: true
+
+# ── Fine-grained authorization via Keycloak Authorization Services ─────────────
+keycloak_authz_plugin: &keycloak_authz
+  authz-keycloak:
+    token_endpoint: "https://auth.whatsapp-commerce.com/realms/whatsapp-commerce/protocol/openid-connect/token"
+    permissions:
+      - "resource#scope"
+    client_id: "apisix-gateway"
+    client_secret: "${APISIX_CLIENT_SECRET}"
+    grant_type: "urn:ietf:params:oauth:grant-type:uma-ticket"
+    audience: "apisix-gateway"
+
+# ── Example protected route using Keycloak OIDC ───────────────────────────────
+routes:
+  - id: "api-protected"
+    uri: "/api/trpc/*"
+    name: "WhatsApp Commerce tRPC API (Keycloak protected)"
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+    upstream:
+      type: roundrobin
+      nodes:
+        "webapp:3000": 1
+      scheme: "http"
+      pass_host: "pass"
+    plugins:
+      <<: *keycloak_oidc
+      # Rate limiting per authenticated user
+      limit-req:
+        rate: 100
+        burst: 50
+        key: "consumer_name"
+        rejected_code: 429
+      # CORS for browser clients
+      cors:
+        allow_origins: "https://app.whatsapp-commerce.com,http://localhost:3000"
+        allow_methods: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
+        allow_headers: "Authorization,Content-Type,X-Tenant-ID"
+        allow_credential: true
+        max_age: 3600
+
+  - id: "api-public"
+    uri: "/api/oauth/*"
+    name: "OAuth callback (public)"
+    methods: ["GET", "POST"]
+    upstream:
+      type: roundrobin
+      nodes:
+        "webapp:3000": 1
+    plugins:
+      # No auth required for OAuth callback
+      limit-req:
+        rate: 20
+        burst: 10
+        key: "remote_addr"
+        rejected_code: 429
+
+  - id: "keycloak-proxy"
+    uri: "/auth/*"
+    name: "Keycloak auth server proxy"
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    upstream:
+      type: roundrobin
+      nodes:
+        "keycloak:8080": 1
+      scheme: "http"
+    plugins:
+      # Strip /auth prefix and forward to Keycloak
+      proxy-rewrite:
+        regex_uri: ["^/auth/(.*)", "/$1"]
+      limit-req:
+        rate: 50
+        burst: 20
+        key: "remote_addr"
+        rejected_code: 429
+
+  - id: "webhook-ingestor"
+    uri: "/webhooks/*"
+    name: "Webhook ingestor (HMAC validated)"
+    methods: ["POST"]
+    upstream:
+      type: roundrobin
+      nodes:
+        "webapp:3000": 1
+    plugins:
+      # Webhooks use HMAC validation, not JWT
+      hmac-auth:
+        signed_headers: ["x-hub-signature-256", "x-timestamp"]
+      limit-req:
+        rate: 200
+        burst: 100
+        key: "remote_addr"
+        rejected_code: 429

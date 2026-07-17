@@ -2353,8 +2353,8 @@ export const phoneOtpSessions = pgTable("phone_otp_sessions", {
   phone: varchar("phone", { length: 30 }).notNull(),        // E.164 format
   otpHash: varchar("otp_hash", { length: 128 }).notNull(),  // bcrypt hash of OTP
   attempts: integer("attempts").default(0).notNull(),       // failed attempts counter
-  expiresAt: integer("expires_at").notNull(),               // Unix ms timestamp
-  createdAt: integer("created_at").notNull(),               // Unix ms timestamp
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().$defaultFn(() => new Date()),
   userId: integer("user_id").references(() => users.id),    // optional — link to user
   purpose: varchar("purpose", { length: 32 }).default("login").notNull(), // "login" | "verify"
 }, (t) => [

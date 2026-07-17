@@ -128,7 +128,7 @@ export const phoneAuthRouter = router({
         .where(and(eq(phoneOtpSessions.phone, phone), eq(phoneOtpSessions.purpose, input.purpose)))
         .limit(1);
 
-      if (existing[0] && existing[0].expiresAt > now && existing[0].createdAt > now - 60_000) {
+      if (existing[0] && existing[0].expiresAt && existing[0].expiresAt > new Date(now) && existing[0].createdAt && existing[0].createdAt > new Date(now - 60_000)) {
         throw new TRPCError({
           code: "TOO_MANY_REQUESTS",
           message: "Please wait 60 seconds before requesting another OTP.",
@@ -149,8 +149,8 @@ export const phoneAuthRouter = router({
         phone,
         otpHash: hashOtp(otp),
         attempts: 0,
-        expiresAt,
-        createdAt: now,
+        expiresAt: new Date(expiresAt),
+        createdAt: new Date(now),
         purpose: input.purpose,
       });
 
@@ -189,7 +189,7 @@ export const phoneAuthRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "OTP session not found or expired." });
       }
 
-      if (session.expiresAt < now) {
+      if (!session.expiresAt || session.expiresAt < new Date(now)) {
         await db.delete(phoneOtpSessions).where(eq(phoneOtpSessions.id, input.sessionId));
         throw new TRPCError({ code: "UNAUTHORIZED", message: "OTP has expired. Please request a new one." });
       }
@@ -262,8 +262,8 @@ export const phoneAuthRouter = router({
         phone,
         otpHash: hashOtp(otp),
         attempts: 0,
-        expiresAt,
-        createdAt: now,
+        expiresAt: new Date(expiresAt),
+        createdAt: new Date(now),
         purpose: "verify",
         userId: ctx.user.id,
       });
@@ -299,7 +299,7 @@ export const phoneAuthRouter = router({
     const now = Date.now();
     const result = await db
       .delete(phoneOtpSessions)
-      .where(lt(phoneOtpSessions.expiresAt, now));
+      .where(lt(phoneOtpSessions.expiresAt, new Date(now)));
 
     return { deleted: 0 }; // Drizzle doesn't return affected rows count for delete
   }),

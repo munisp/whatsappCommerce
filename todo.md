@@ -1109,23 +1109,23 @@
 - [ ] [POST-PRODUCTION] Phase 4 deployment: Keycloak Kafka SPI + phone OTP auth flow
 
 ## Round 47 — Keycloak Phone OTP (WhatsApp) + Caddy Edge Deployment
-- [ ] Keycloak SPI: Java Maven project (keycloak-whatsapp-otp) with AuthenticatorFactory + Authenticator
-- [ ] Keycloak SPI: OTP generation (6-digit HOTP, 5-min TTL) with in-memory + Redis fallback store
-- [ ] Keycloak SPI: WhatsApp Cloud API sender (POST /messages, OTP template, HMAC verification)
-- [ ] Keycloak SPI: Freemarker login theme pages (phone-entry.ftl, otp-entry.ftl)
-- [ ] Keycloak SPI: META-INF/services registration + pom.xml with keycloak-core dependency
-- [ ] Keycloak SPI: JUnit 5 unit tests for OTP generation, expiry, and WhatsApp sender mock
-- [ ] Keycloak realm: custom auth flow wired (Browser → Phone OTP → WhatsApp send → OTP verify)
-- [ ] Keycloak realm: realm-export.json updated with whatsapp-otp auth flow
-- [ ] Caddy edge: Caddyfile updated with APISIX mTLS upstream (internal CA cert)
-- [ ] Caddy edge: APISIX config for Keycloak OIDC plugin (openid-connect + authz-keycloak)
-- [ ] Caddy edge: docker-compose.middleware.yml updated with Caddy as TLS terminator
-- [ ] Caddy edge: K8s manifests updated with Caddy Ingress + APISIX ClusterIP
-- [ ] Caddy edge: deployment runbook (DEPLOYMENT.md) with step-by-step production setup
-- [ ] Platform: tRPC auth.initiatePhoneOtp + auth.verifyPhoneOtp procedures
-- [ ] Platform: Frontend OTP login dialog (phone input → OTP entry → session)
-- [ ] Platform: DB schema — phone_otp_sessions table
-- [ ] Platform: integration tests for Phone OTP flow
+- [x] Keycloak SPI: Java Maven project (keycloak-whatsapp-otp) with AuthenticatorFactory + Authenticator
+- [x] Keycloak SPI: OTP generation (6-digit HOTP, 5-min TTL) with in-memory + Redis fallback store
+- [x] Keycloak SPI: WhatsApp Cloud API sender (POST /messages, OTP template, HMAC verification)
+- [x] Keycloak SPI: Freemarker login theme pages (phone-entry.ftl, otp-entry.ftl)
+- [x] Keycloak SPI: META-INF/services registration + pom.xml with keycloak-core dependency
+- [x] Keycloak SPI: JUnit 5 unit tests for OTP generation, expiry, and WhatsApp sender mock
+- [x] Keycloak realm: custom auth flow wired (Browser → Phone OTP → WhatsApp send → OTP verify)
+- [x] Keycloak realm: realm-export.json updated with whatsapp-otp auth flow
+- [x] Caddy edge: Caddyfile updated with APISIX mTLS upstream (internal CA cert)
+- [x] Caddy edge: APISIX config for Keycloak OIDC plugin (openid-connect + authz-keycloak)
+- [x] Caddy edge: docker-compose.middleware.yml updated with Caddy as TLS terminator
+- [x] Caddy edge: K8s manifests updated with Caddy Ingress + APISIX ClusterIP
+- [x] Caddy edge: deployment runbook (DEPLOYMENT.md) with step-by-step production setup
+- [x] Platform: tRPC auth.initiatePhoneOtp + auth.verifyPhoneOtp procedures
+- [x] Platform: Frontend OTP login dialog (phone input → OTP entry → session)
+- [x] Platform: DB schema — phone_otp_sessions table
+- [x] Platform: integration tests for Phone OTP flow
 
 ## Round 47 — Phone OTP Auth + Caddy Edge
 

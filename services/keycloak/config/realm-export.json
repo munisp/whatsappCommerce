@@ -4,25 +4,27 @@
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
-  "loginWithEmailAllowed": true,
+  "loginWithEmailAllowed": false,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
   "bruteForceProtected": true,
   "permanentLockout": false,
   "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "waitIncrementSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
   "failureFactor": 5,
-  "organizationsEnabled": true,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "accessCodeLifespan": 60,
   "attributes": {
-    "organizationsEnabled": "true"
-  },
-  "roles": {
-    "realm": [
-      { "name": "platform-admin", "description": "Full platform administration access" },
-      { "name": "tenant-owner",   "description": "Tenant owner — manages their organisation" },
-      { "name": "tenant-agent",   "description": "Tenant agent — handles customer conversations" },
-      { "name": "tenant-analyst", "description": "Tenant analyst — read-only analytics access" },
-      { "name": "buyer",          "description": "End buyer — WhatsApp customer" }
-    ]
+    "organizationsEnabled": "true",
+    "frontendUrl": "https://auth.whatsapp-commerce.com"
   },
   "clients": [
     {
@@ -30,54 +32,139 @@
       "name": "APISIX API Gateway",
       "enabled": true,
       "clientAuthenticatorType": "client-secret",
-      "serviceAccountsEnabled": true,
-      "authorizationServicesEnabled": true,
-      "standardFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
-      "protocol": "openid-connect"
+      "secret": "${APISIX_CLIENT_SECRET}",
+      "redirectUris": ["https://api.whatsapp-commerce.com/*"],
+      "webOrigins": ["https://api.whatsapp-commerce.com"],
+      "bearerOnly": false,
+      "publicClient": false,
+      "protocol": "openid-connect",
+      "attributes": {
+        "access.token.lifespan": "300"
+      }
     },
     {
       "clientId": "webapp",
       "name": "WhatsApp Commerce Web App",
       "enabled": true,
-      "clientAuthenticatorType": "client-secret",
-      "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": false,
-      "protocol": "openid-connect",
+      "publicClient": true,
       "redirectUris": ["https://app.whatsapp-commerce.com/*", "http://localhost:3000/*"],
       "webOrigins": ["https://app.whatsapp-commerce.com", "http://localhost:3000"],
-      "attributes": { "pkce.code.challenge.method": "S256" }
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false
     },
     {
       "clientId": "ai-agent",
-      "name": "AI Purchasing Agent",
+      "name": "Hermes AI Agent",
       "enabled": true,
       "clientAuthenticatorType": "client-secret",
+      "secret": "${AI_AGENT_CLIENT_SECRET}",
       "serviceAccountsEnabled": true,
-      "standardFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
-      "protocol": "openid-connect",
-      "attributes": { "token.exchange.grant.enabled": "true" }
+      "publicClient": false,
+      "protocol": "openid-connect"
     },
     {
       "clientId": "webhook-ingestor",
-      "name": "WhatsApp Webhook Ingestor",
+      "name": "Webhook Ingestor Service",
       "enabled": true,
       "clientAuthenticatorType": "client-secret",
+      "secret": "${WEBHOOK_CLIENT_SECRET}",
       "serviceAccountsEnabled": true,
-      "standardFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
+      "publicClient": false,
       "protocol": "openid-connect"
     }
   ],
-  "eventsEnabled": true,
-  "eventsListeners": ["jboss-logging", "kafka-event-listener"],
-  "enabledEventTypes": [
-    "LOGIN", "LOGIN_ERROR", "LOGOUT", "REGISTER", "REGISTER_ERROR",
-    "TOKEN_EXCHANGE", "CLIENT_LOGIN", "CLIENT_LOGIN_ERROR",
-    "UPDATE_PASSWORD", "RESET_PASSWORD"
+  "roles": {
+    "realm": [
+      { "name": "platform-admin", "description": "Full platform administrator" },
+      { "name": "tenant-owner", "description": "Tenant owner with full tenant access" },
+      { "name": "tenant-operator", "description": "Tenant operator with limited access" },
+      { "name": "ai-agent", "description": "Service account role for AI agents" },
+      { "name": "webhook-ingestor", "description": "Service account role for webhook processing" }
+    ]
+  },
+  "authenticationFlows": [
+    {
+      "alias": "browser",
+      "description": "Browser based authentication",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false
+        },
+        {
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "flowAlias": "whatsapp-otp-flow",
+          "userSetupAllowed": false,
+          "autheticatorFlow": true
+        }
+      ]
+    },
+    {
+      "alias": "whatsapp-otp-flow",
+      "description": "Phone number + WhatsApp OTP authentication",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "whatsapp-otp-authenticator",
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false,
+          "autheticatorFlow": false,
+          "authenticatorConfig": "whatsapp-otp-config"
+        }
+      ]
+    },
+    {
+      "alias": "direct grant",
+      "description": "OpenID Connect Resource Owner Grant",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": true,
+      "authenticationExecutions": [
+        {
+          "authenticator": "direct-grant-validate-username",
+          "requirement": "REQUIRED",
+          "priority": 10
+        },
+        {
+          "authenticator": "direct-grant-validate-password",
+          "requirement": "REQUIRED",
+          "priority": 20
+        }
+      ]
+    }
   ],
+  "authenticatorConfig": [
+    {
+      "alias": "whatsapp-otp-config",
+      "config": {
+        "wac.whatsapp.token": "${WAC_WHATSAPP_TOKEN}",
+        "wac.whatsapp.phone.id": "${WAC_WHATSAPP_PHONE_ID}",
+        "wac.whatsapp.otp.template": "wac_otp",
+        "wac.whatsapp.template.lang": "en_US",
+        "wac.otp.ttl.seconds": "300",
+        "wac.otp.max.attempts": "3",
+        "wac.redis.url": "${REDIS_URL}"
+      }
+    }
+  ],
+  "eventsEnabled": true,
+  "eventsListeners": ["jboss-logging", "keycloak-to-kafka"],
   "adminEventsEnabled": true,
-  "adminEventsDetailsEnabled": true
+  "adminEventsDetailsEnabled": true,
+  "requiredActions": [
+    "VERIFY_EMAIL", "UPDATE_PROFILE", "CONFIGURE_TOTP",
+    "UPDATE_PASSWORD", "RESET_PASSWORD"
+  ]
 }

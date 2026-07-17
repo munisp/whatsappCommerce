@@ -117,6 +117,36 @@ services:
     ports:
       - "50006:50006"
 
+  # ── Caddy Edge (TLS terminator + WAF) ─────────────────────────────────────
+  caddy:
+    build:
+      context: ../caddy-edge
+      dockerfile: Dockerfile
+    image: whatsapp-commerce/caddy-edge:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3 QUIC
+    volumes:
+      - ../caddy-edge/config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../caddy-edge/config/coraza.conf:/etc/caddy/coraza.conf:ro
+      - ../caddy-edge/config/coraza:/etc/caddy/coraza:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - ./certs:/etc/caddy/certs:ro
+    environment:
+      DOMAIN: "${DOMAIN:-whatsapp-commerce.com}"
+      ACME_EMAIL: "${ACME_EMAIL:-ops@whatsapp-commerce.com}"
+    depends_on:
+      - apisix
+    networks:
+      - middleware
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2019/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
   # ── APISix Gateway ──────────────────────────────────────────────────────────
   apisix:
     image: apache/apisix:3.11.0-debian
