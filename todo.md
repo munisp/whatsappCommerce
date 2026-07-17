@@ -1258,3 +1258,16 @@
 - [x] Frontend: Three animated dots (bouncing) with staggered 200ms delay replace the textarea during AI generation
 - [x] Frontend: Smooth fade-in (0.3s ease-out) of suggestion text when it arrives
 - [x] Tests: 7 new typing indicator state logic tests (388 total pass, 7 skipped, 0 TS errors)
+
+## Round 55 — Quick-Reply Templates, Message Search, Drop Confirmation (2026-07-17)
+- [x] DB: Add quick_reply_templates table (id, tenantId, title, body, category, usageCount, createdBy, createdAt, updatedAt)
+- [x] Backend: listQuickReplyTemplates procedure (filter by category, search by title/body)
+- [x] Backend: createQuickReplyTemplate procedure (save AI suggestion or custom text)
+- [x] Backend: deleteQuickReplyTemplate procedure
+- [x] Backend: incrementTemplateUsage procedure (called when a template is used)
+- [x] Frontend: "Save as Template" button on AI suggestion text (opens save dialog with title/category fields)
+- [x] Frontend: Template picker button in reply panel (opens dropdown/sheet with searchable template list)
+- [x] Frontend: Clicking a template inserts its body into the reply textarea
+- [x] Frontend: Search bar in Customer Replies panel (filters displayed messages by keyword in real-time)
+- [x] Frontend: Drag-and-drop confirmation dialog (shows image preview or PDF icon, filename, size; Cancel/Send buttons)
+- [x] Tests: CRUD procedures, search filtering, usage count increment
