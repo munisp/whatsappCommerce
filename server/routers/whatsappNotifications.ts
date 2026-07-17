@@ -525,9 +525,24 @@ export const whatsappNotificationsRouter = router({
         .map((r) => `[${new Date(r.createdAt).toLocaleTimeString()}] Customer: ${r.body ?? `[${r.messageType} message]`}`)
         .join("\n");
 
-      const orderCtx = input.orderContext
-        ? `Order #${input.orderContext.orderNumber ?? "?"} — Status: ${input.orderContext.status ?? "?"}, Total: ${input.orderContext.currency ?? ""} ${input.orderContext.totalAmount ?? "?"}`
-        : "Order context unavailable";
+      // Auto-fetch order context from DB if orderId is provided and no context was passed
+      let orderCtx = "Order context unavailable";
+      if (input.orderId) {
+        const db = await getDb();
+        if (db) {
+          const [ord] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+          if (ord) {
+            const totalDisplay = ord.totalAmount != null
+              ? `${ord.currency ?? ""} ${Number(ord.totalAmount).toFixed(2)}`
+              : "?";
+            orderCtx = `Order #${ord.orderNumber ?? ord.id} — Status: ${ord.status ?? "?"}, Total: ${totalDisplay}`;
+          }
+        }
+      }
+      // Allow frontend-provided context to override DB context
+      if (input.orderContext) {
+        orderCtx = `Order #${input.orderContext.orderNumber ?? "?"} — Status: ${input.orderContext.status ?? "?"}, Total: ${input.orderContext.currency ?? ""} ${input.orderContext.totalAmount ?? "?"}`;
+      }
 
       const toneInstructions: Record<string, string> = {
         professional: "Use a formal, polished, business-appropriate tone. Be precise and courteous.",

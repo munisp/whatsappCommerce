@@ -204,7 +204,11 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
     { refetchInterval: 30_000 }
   );
   const markRead = trpc.whatsappNotifications.markReplyRead.useMutation({
-    onSuccess: () => utils.whatsappNotifications.getCustomerReplies.invalidate({ orderId }),
+    onSuccess: () => {
+      utils.whatsappNotifications.getCustomerReplies.invalidate({ orderId });
+      utils.whatsappNotifications.getBulkUnreadReplyCounts.invalidate();
+    },
+    onError: (err) => toast.error(`Failed to mark as read: ${err.message}`),
   });
 
   const replies = data?.replies ?? [];
@@ -300,9 +304,10 @@ function CustomerRepliesPanel({ orderId }: { orderId: string }) {
   const markUnread = trpc.whatsappNotifications.markReplyUnread.useMutation({
     onSuccess: () => {
       utils.whatsappNotifications.getCustomerReplies.invalidate({ orderId });
-      toast.info("Marked as unread");
+      utils.whatsappNotifications.getBulkUnreadReplyCounts.invalidate();
+      toast.info("Marked as unread — you can follow up later");
     },
-    onError: (err) => toast.error(`Failed: ${err.message}`),
+    onError: (err) => toast.error(`Failed to mark as unread: ${err.message}`),
   });
 
   // Tone selector state for AI suggestions
