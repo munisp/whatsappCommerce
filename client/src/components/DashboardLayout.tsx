@@ -75,6 +75,7 @@ const menuItems: NavItem[] = [
   { icon: Bell,            label: "Alert Rules",     path: "/alert-rules",      section: "System" },
   { icon: Shield,          label: "SSO Users",       path: "/sso-users",        section: "System" },
   { icon: KeyRound,        label: "Phone Auth",       path: "/phone-auth",       section: "System" },
+  { icon: MessageSquare,   label: "WhatsApp Profile", path: "/whatsapp-profile", section: "System" },
   { icon: TrendingUp,      label: "Revenue",          path: "/revenue",          section: "System" },
   { icon: AlertTriangle,    label: "Webhook DLQ",      path: "/webhook-dlq",      section: "System" },
   // ── Finance ───────────────────────────────────────────────────────────────

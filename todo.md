@@ -1150,3 +1150,34 @@
 - [x] Caddy edge: Coraza WAF config + APISIX mTLS upstream config
 - [x] Caddy edge: cert generation script (gen-internal-certs.sh)
 - [x] TypeScript: 0 errors, 335 tests pass, 5 skipped
+
+## External Infrastructure Dependencies (Cannot complete in sandbox)
+- [ ] [BLOCKED: needs user PAT with `workflow` scope] Push CI/release workflow files to GitHub
+- [x] [REGISTERED] hermes-health-snapshot heartbeat job (task_uid: 8VDzqmHuaVTPC2kWqtkMAx)
+- [ ] [BLOCKED: needs K8s cluster] Execute Phase 1-4 deployment (see DEPLOYMENT.md for step-by-step runbook)
+
+## Round 48 — Phone Auth UX + Profile WhatsApp Management + Order Notifications
+- [ ] PhoneAuthPage: searchable country code selector with flag emojis and dial codes
+- [ ] PhoneAuthPage: 60-second countdown timer on resend OTP button
+- [ ] PhoneAuthPage: phone number formatting as user types (E.164 preview)
+- [ ] Profile: WhatsApp number management panel (linked number, verification badge, unlink)
+- [ ] Profile: notification preference toggles (order confirmations, status updates, promotions)
+- [ ] DB: user_notification_preferences table (order_confirm, status_update, promotions)
+- [ ] Backend: whatsApp order confirmation message sender (template + tRPC procedure)
+- [ ] Backend: whatsApp order status update message sender (template + tRPC procedure)
+- [ ] Backend: auto-trigger WhatsApp messages on order state changes
+- [ ] Tests: PhoneAuthPage countdown timer, profile WhatsApp panel, order notification triggers
+
+## Round 48 — Phone Auth UX + WhatsApp Profile + Order Notifications
+- [x] Enhanced /phone-auth: searchable country code selector (240+ countries with flags and dial codes)
+- [x] Enhanced /phone-auth: 60-second countdown timer with visual progress ring for resend OTP button
+- [x] Enhanced /phone-auth: phone number formatting and validation per country
+- [x] Added whatsappNotifOrders, whatsappNotifStatus, whatsappNotifMarketing columns to users table (migration 0023)
+- [x] Built WhatsAppProfilePage: linked number display, verification status badge, notification preference toggles, unlink action
+- [x] Registered /whatsapp-profile route in App.tsx and DashboardLayout nav
+- [x] Added phoneAuth.unlinkPhone and phoneAuth.updateNotifPrefs tRPC procedures
+- [x] Built whatsappNotifications.ts: sendOrderNotification, resolveOrderNotifRecipient, whatsappNotificationsRouter
+- [x] Wired WhatsApp order notifications into orderCrud.updateStatus (fire-and-forget for confirmed/shipped/delivered/cancelled)
+- [x] Registered whatsappNotificationsRouter in routers.ts
+- [x] Added 8 unit tests for whatsappNotifications (sendOrderNotification + resolveOrderNotifRecipient)
+- [x] 350 tests pass, 7 skipped, 0 TypeScript errors

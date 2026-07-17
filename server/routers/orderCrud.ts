@@ -7,6 +7,7 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders, orderItems, refunds, inventorySnapshots, paymentIntents } from "../../drizzle/schema";
+import { sendOrderNotification, resolveOrderNotifRecipient, type OrderNotifType } from "./whatsappNotifications";
 
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
@@ -112,6 +113,25 @@ export const orderCrudRouter = router({
         notes: input.notes,
         updatedAt: new Date(),
       }).where(eq(orders.id, input.orderId));
+
+      // Fire WhatsApp notification asynchronously (non-blocking — never fails the update)
+      const notifTypeMap: Partial<Record<string, OrderNotifType>> = {
+        confirmed:  "order_confirmation",
+        shipped:    "order_shipped",
+        delivered:  "order_delivered",
+        cancelled:  "order_cancelled",
+      };
+      const notifType = notifTypeMap[input.status];
+      if (notifType) {
+        resolveOrderNotifRecipient(input.orderId, notifType)
+          .then(({ phone, customerName, orderNumber, totalAmount, currency }) => {
+            if (phone) {
+              return sendOrderNotification({ phone, orderNumber, customerName, totalAmount, currency, status: input.status, notifType: notifType! });
+            }
+          })
+          .catch((err) => console.error("[orderCrud] WhatsApp notif error:", err));
+      }
+
       return { ok: true };
     }),
 

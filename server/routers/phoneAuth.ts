@@ -278,15 +278,21 @@ export const phoneAuthRouter = router({
    */
   getPhoneStatus: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    if (!db) return { phone: null, phoneVerified: false };
+    if (!db) return { phone: null, phoneVerified: false, whatsappNotifOrders: true, whatsappNotifStatus: true, whatsappNotifMarketing: false };
 
     const rows = await db
-      .select({ phone: users.phone, phoneVerified: users.phoneVerified })
+      .select({
+        phone: users.phone,
+        phoneVerified: users.phoneVerified,
+        whatsappNotifOrders: users.whatsappNotifOrders,
+        whatsappNotifStatus: users.whatsappNotifStatus,
+        whatsappNotifMarketing: users.whatsappNotifMarketing,
+      })
       .from(users)
       .where(eq(users.id, ctx.user.id))
       .limit(1);
 
-    return rows[0] ?? { phone: null, phoneVerified: false };
+    return rows[0] ?? { phone: null, phoneVerified: false, whatsappNotifOrders: true, whatsappNotifStatus: true, whatsappNotifMarketing: false };
   }),
 
   /**
@@ -303,4 +309,38 @@ export const phoneAuthRouter = router({
 
     return { deleted: 0 }; // Drizzle doesn't return affected rows count for delete
   }),
+
+  /**
+   * Unlink the verified phone number from the user's account.
+   */
+  unlinkPhone: protectedProcedure.mutation(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+    await db.update(users).set({
+      phone: null,
+      phoneVerified: false,
+      updatedAt: new Date(),
+    }).where(eq(users.id, ctx.user.id));
+    return { ok: true };
+  }),
+
+  /**
+   * Update WhatsApp notification preferences for the authenticated user.
+   */
+  updateNotifPrefs: protectedProcedure
+    .input(z.object({
+      whatsappNotifOrders: z.boolean().optional(),
+      whatsappNotifStatus: z.boolean().optional(),
+      whatsappNotifMarketing: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const update: Partial<typeof users.$inferInsert> & { updatedAt: Date } = { updatedAt: new Date() };
+      if (input.whatsappNotifOrders !== undefined) update.whatsappNotifOrders = input.whatsappNotifOrders;
+      if (input.whatsappNotifStatus !== undefined) update.whatsappNotifStatus = input.whatsappNotifStatus;
+      if (input.whatsappNotifMarketing !== undefined) update.whatsappNotifMarketing = input.whatsappNotifMarketing;
+      await db.update(users).set(update).where(eq(users.id, ctx.user.id));
+      return { ok: true };
+    }),
 });
