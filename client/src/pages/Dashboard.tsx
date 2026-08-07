@@ -168,7 +168,7 @@ export default function Dashboard() {
                 <Siren className="w-4 h-4 text-red-400" />
                 Dispute Escalation SLA
               </CardTitle>
-              <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground" onClick={() => setLocation("/dispute-management")}>
+              <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground" onClick={() => setLocation("/disputes")}>
                 View all →
               </Button>
             </div>
