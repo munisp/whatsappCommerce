@@ -1,0 +1,38 @@
+# APISIX 3.9 standalone (etcd-less) configuration for docker-compose.
+# Routes are loaded from conf/apisix.yaml (mounted alongside this file).
+# APISIX_ADMIN_KEY must match the X-API-KEY used by the gateway admin client.
+apisix:
+  node_listen: 9080
+  enable_ipv6: false
+  enable_admin: true
+
+deployment:
+  role: standalone
+  role_standalone:
+    config_provider: yaml
+  admin:
+    admin_listen:
+      ip: 0.0.0.0
+      port: 9180
+    admin_key:
+      - name: admin
+        key: ${APISIX_ADMIN_KEY:-edd1c9f034335f136f87ad84b625c8f1}
+        role: admin
+    allow_admin:
+      - 0.0.0.0/0
+
+plugin_attr:
+  prometheus:
+    export_uri: /apisix/prometheus/metrics
+    export_addr:
+      ip: 0.0.0.0
+      port: 9091
+
+plugins:
+  - jwt-auth
+  - key-auth
+  - rate-limiting
+  - ip-restriction
+  - cors
+  - request-id
+  - prometheus

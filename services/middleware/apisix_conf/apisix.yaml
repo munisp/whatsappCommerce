@@ -1,0 +1,13 @@
+# APISIX standalone routes (loaded when deployment.role = standalone).
+# Keep in sync with services/middleware/apisix-config/routes.yaml when adding routes.
+routes:
+  - uri: /api/*
+    name: platform-api
+    upstream:
+      type: roundrobin
+      nodes:
+        "api-gateway:8080": 1
+    plugins:
+      request-id: {}
+      cors: {}
+#END
