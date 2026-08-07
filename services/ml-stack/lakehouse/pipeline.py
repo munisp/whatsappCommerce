@@ -332,6 +332,11 @@ def _export_onnx(model, dummy_input, onnx_path: Path, input_name: str = "feature
             input_names=[input_name], output_names=["logits"],
             dynamic_axes={input_name: {0: "batch"}, "logits": {0: "batch"}},
             opset_version=17,
+            # Pin the legacy TorchScript exporter: torch>=2.9 defaults
+            # dynamo=True, which emits graphs onnxruntime rejects (e.g.
+            # Split with num_outputs attr at opset 17). dynamo=False is
+            # supported since torch 2.5 (our pin), so this is safe there.
+            dynamo=False,
         )
         log.info("ONNX export written to %s", onnx_path)
         return True
