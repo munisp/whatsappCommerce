@@ -67,6 +67,7 @@ import { fineTuneRouter } from "./routers/fineTune";
 import { tenantAnalyticsRouter } from "./routers/tenantAnalytics";
 import { deliveryReceiptsRouter } from "./routers/deliveryReceipts";
 import { hermesRouter } from "./routers/hermes";
+import { aiRouter } from "./routers/ai";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -149,6 +150,7 @@ export const appRouter = router({
   infra: infraRouter,
   temporal: temporalRouter,
   search: searchRouter,
+  ai: aiRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
