@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq, and, desc } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
@@ -99,6 +100,134 @@ export const twentyRouter = router({
         .set({ status })
         .where(eq(twentyIntegrations.tenantId, tenantId));
       return { success: ok, status };
+    }),
+
+  // Validate and persist connection settings for a tenant. Used by the admin
+  // portal, which passes an explicit tenantId; falls back to the caller's
+  // tenant when omitted. The admin form field `apiUrl` maps to the `baseUrl`
+  // column on twenty_integrations.
+  configure: protectedProcedure
+    .input(z.object({
+      tenantId: z.string().optional(),
+      apiUrl: z.string().url(),
+      apiKey: z.string().min(1),
+      workspaceId: z.string().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const tenantId = input.tenantId ?? getTenantId(ctx);
+      const config = {
+        baseUrl: input.apiUrl,
+        apiKey: input.apiKey,
+        workspaceId: input.workspaceId || null,
+      };
+      const existing = await db
+        .select({ id: twentyIntegrations.id })
+        .from(twentyIntegrations)
+        .where(eq(twentyIntegrations.tenantId, tenantId))
+        .limit(1);
+      if (existing[0]) {
+        await db
+          .update(twentyIntegrations)
+          .set({ ...config, status: "disconnected" })
+          .where(eq(twentyIntegrations.tenantId, tenantId));
+        return { id: existing[0].id, success: true };
+      }
+      const id = nanoid();
+      await db.insert(twentyIntegrations).values({ id, tenantId, ...config, status: "disconnected" });
+      return { id, success: true };
+    }),
+
+  // Pull contacts (people) from the Twenty REST API for the configured tenant
+  // and upsert them into twenty_contacts. Requires a saved configuration.
+  syncContacts: protectedProcedure
+    .input(z.object({ tenantId: z.string().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const tenantId = input?.tenantId ?? getTenantId(ctx);
+      const cfg = await db
+        .select()
+        .from(twentyIntegrations)
+        .where(eq(twentyIntegrations.tenantId, tenantId))
+        .limit(1);
+      if (!cfg[0]) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "NOT_CONFIGURED: Twenty CRM is not configured for this tenant",
+        });
+      }
+
+      type TwentyPerson = {
+        id: string;
+        name?: { firstName?: string | null; lastName?: string | null } | null;
+        emails?: { primaryEmail?: string | null } | null;
+        phones?: { primaryPhoneNumber?: string | null; primaryPhoneCountryCode?: string | null } | null;
+        jobTitle?: string | null;
+        companyId?: string | null;
+      };
+      const baseUrl = cfg[0].baseUrl.replace(/\/+$/, "");
+      let people: TwentyPerson[];
+      try {
+        const resp = await fetch(`${baseUrl}/rest/people?limit=100`, {
+          headers: { Authorization: `Bearer ${cfg[0].apiKey}`, Accept: "application/json" },
+        });
+        if (!resp.ok) {
+          throw new TRPCError({
+            code: resp.status === 401 || resp.status === 403 ? "UNAUTHORIZED" : "INTERNAL_SERVER_ERROR",
+            message: `Twenty API request failed with status ${resp.status}`,
+          });
+        }
+        const body = (await resp.json()) as { data?: { people?: TwentyPerson[] } };
+        people = body.data?.people ?? [];
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Failed to reach Twenty API: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+
+      let contactsSynced = 0;
+      for (const p of people) {
+        const name = [p.name?.firstName, p.name?.lastName].filter(Boolean).join(" ").trim();
+        const phone = p.phones?.primaryPhoneNumber ?? "";
+        const email = p.emails?.primaryEmail ?? "";
+        await db
+          .insert(twentyContacts)
+          .values({
+            id: nanoid(),
+            tenantId,
+            twentyId: p.id,
+            name: name || email || phone || p.id,
+            email,
+            phone,
+            company: "",
+            jobTitle: p.jobTitle ?? "",
+            stage: "Lead",
+            whatsappPhone: phone,
+            syncedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [twentyContacts.tenantId, twentyContacts.twentyId],
+            set: {
+              name: name || email || phone || p.id,
+              email,
+              phone,
+              jobTitle: p.jobTitle ?? "",
+              syncedAt: new Date(),
+            },
+          });
+        contactsSynced++;
+      }
+
+      await db
+        .update(twentyIntegrations)
+        .set({ lastSyncAt: new Date(), status: "connected" })
+        .where(eq(twentyIntegrations.tenantId, tenantId));
+
+      return { contactsSynced };
     }),
 
   // ── Sync ───────────────────────────────────────────────────────────────────
