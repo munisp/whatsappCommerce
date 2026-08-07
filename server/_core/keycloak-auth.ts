@@ -200,7 +200,7 @@ export async function syncKeycloakUserToDb(userInfo: KeycloakUserInfo): Promise<
 
 export type AuthenticatedUser = User & {
   keycloakSub?: string;
-  tenantId?: string;
+  tenantId?: string | null;
   roles?: string[];
 };
 
@@ -278,7 +278,7 @@ export async function authenticateRequest(req: Request): Promise<AuthenticatedUs
   return {
     ...user,
     keycloakSub: session.sub,
-    tenantId: session.tenantId,
+    tenantId: session.tenantId ?? user.tenantId,
     roles: session.roles,
   };
 }
