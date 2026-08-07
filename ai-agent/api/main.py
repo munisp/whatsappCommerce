@@ -16,9 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
 
-# Import our modules
+# Import our modules — resolve the ai-agent package root relative to this file
 import sys
-sys.path.insert(0, "/home/ubuntu/whatsapp-commerce-platform/ai-agent")
+from pathlib import Path
+
+_AI_AGENT_DIR = Path(__file__).resolve().parent.parent
+if str(_AI_AGENT_DIR) not in sys.path:
+    sys.path.insert(0, str(_AI_AGENT_DIR))
 
 from config import get_config
 from agents.orchestrator import AIOrchestrator, AgentInput
@@ -182,4 +186,3 @@ async def generate_handoff_summary(req: HandoffSummaryRequest):
 if __name__ == "__main__":
     cfg = get_config()
     uvicorn.run("main:app", host="0.0.0.0", port=cfg.port, reload=(cfg.env == "development"), log_level="info")
-

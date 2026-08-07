@@ -5,11 +5,18 @@ ML Inference Endpoint Helper
 Called by POST /api/ml/predict in index.ts via execSync.
 Accepts a JSON payload as the first CLI argument and prints a JSON result.
 
+Loads the REAL trained weights committed at
+services/ml-stack/models/weights/ (fraud_gnn_lstm.pt / credit_tabnet.pt, or
+their .onnx siblings) via the shared loader in services/ml-stack/model_io.py
+— the same loader the FastAPI inference server uses. CPU only. If the model
+cannot be loaded, a deterministic, clearly labeled heuristic fallback is
+used (source="heuristic-fallback").
+
 Usage:
     python3 predict.py '{"amount": 50000, "num_items": 3, "has_phone": true, "has_customer": true}'
 
 Output:
-    {"fraud_probability": 0.12, "credit_score": 784, "risk_level": "low", "source": "pytorch_model"}
+    {"fraud_probability": 0.12, "credit_score": 784, "risk_level": "low", "source": "model"}
 
 Feature vector (20 dims, matches FRAUD_FEATURES in train_all.py):
     amount_ngn, hour_of_day, day_of_week, is_weekend,
@@ -20,126 +27,65 @@ Feature vector (20 dims, matches FRAUD_FEATURES in train_all.py):
     time_on_site_sec, pages_visited, cart_abandon_rate,
     days_since_account_creation, device_age_days
 """
-import sys
 import json
-import os
+import sys
 from pathlib import Path
-from datetime import datetime, timezone
 
-# ── Feature engineering ───────────────────────────────────────────────────────
-def build_feature_vector(payload: dict) -> list:
+# Shared loader: services/ml-stack/model_io.py
+_ML_STACK_DIR = Path(__file__).resolve().parent.parent
+if str(_ML_STACK_DIR) not in sys.path:
+    sys.path.insert(0, str(_ML_STACK_DIR))
+
+import model_io  # noqa: E402
+
+
+def predict(payload: dict) -> dict:
     """
-    Map the /api/ml/predict payload fields to the 20-dim FRAUD_FEATURES vector.
-    Missing fields are imputed with safe defaults.
+    Fraud + credit prediction for one transaction payload.
+    Uses the loaded model when available; otherwise the deterministic
+    heuristic fallback (source="heuristic-fallback"). No randomness.
     """
-    now = datetime.now(timezone.utc)
-    amount = float(payload.get("amount", 0))
-    num_items = int(payload.get("num_items", 0))
-    has_phone = bool(payload.get("has_phone", True))
-    has_customer = bool(payload.get("has_customer", True))
+    payload = {k: v for k, v in payload.items() if v is not None}
+    features = model_io.build_fraud_features(payload)
 
-    return [
-        amount,                                      # amount_ngn
-        float(now.hour),                             # hour_of_day
-        float(now.weekday()),                        # day_of_week
-        1.0 if now.weekday() >= 5 else 0.0,         # is_weekend
-        0.0 if has_customer else 1.0,               # is_new_device (proxy: no customer = new device)
-        0.0,                                         # is_vpn (unknown)
-        0.0,                                         # is_tor (unknown)
-        1.0,                                         # tx_count_1h (this tx)
-        1.0,                                         # tx_count_24h
-        1.0,                                         # tx_count_7d
-        amount,                                      # tx_amount_1h
-        amount,                                      # tx_amount_24h
-        1.0,                                         # unique_merchants_24h
-        amount,                                      # avg_amount_7d
-        amount,                                      # max_amount_7d
-        0.0,                                         # time_on_site_sec (unknown)
-        float(num_items),                            # pages_visited (proxy: item count)
-        0.0 if num_items > 0 else 1.0,              # cart_abandon_rate
-        30.0 if has_customer else 0.0,              # days_since_account_creation
-        30.0 if has_customer else 0.0,              # device_age_days
-    ]
+    fraud_bundle = model_io.load_fraud_bundle()
+    if fraud_bundle:
+        try:
+            prob = model_io.predict_fraud_proba(fraud_bundle, features)
+            fraud_source = "model"
+        except Exception as e:
+            print(f"model fraud inference failed, heuristic fallback: {e}",
+                  file=sys.stderr)
+            prob, _ = model_io.heuristic_fraud_score(features)
+            fraud_source = "heuristic-fallback"
+    else:
+        prob, _ = model_io.heuristic_fraud_score(features)
+        fraud_source = "heuristic-fallback"
 
+    credit_bundle = model_io.load_credit_bundle()
+    if credit_bundle:
+        try:
+            default_prob = model_io.predict_default_proba(
+                credit_bundle, model_io.build_credit_features(payload))
+            credit_score, _grade = model_io.credit_score_from_default_prob(default_prob)
+            credit_source = "model"
+        except Exception as e:
+            print(f"model credit inference failed, heuristic fallback: {e}",
+                  file=sys.stderr)
+            credit_score, _grade = model_io.heuristic_credit_score(features)
+            credit_source = "heuristic-fallback"
+    else:
+        credit_score, _grade = model_io.heuristic_credit_score(features)
+        credit_source = "heuristic-fallback"
 
-# ── PyTorch model inference ───────────────────────────────────────────────────
-def _pytorch_predict(features: dict) -> dict | None:
-    """Attempt real model inference. Returns None if model/weights unavailable."""
-    try:
-        import torch
-        import numpy as np
-
-        # Locate weights
-        weights_dir = Path(__file__).parent.parent / "models" / "weights"
-        weight_file = weights_dir / "fraud_gnn_lstm.pt"
-        if not weight_file.exists():
-            return None
-
-        # Load checkpoint
-        ckpt = torch.load(weight_file, map_location="cpu")
-        input_dim = ckpt.get("input_dim", 20)
-        scaler_mean = ckpt.get("scaler_mean")
-        scaler_scale = ckpt.get("scaler_scale")
-
-        # Build feature vector
-        feat_raw = np.array(build_feature_vector(features), dtype=np.float32)
-        if len(feat_raw) != input_dim:
-            # Pad or truncate to match saved model's input_dim
-            if len(feat_raw) < input_dim:
-                feat_raw = np.pad(feat_raw, (0, input_dim - len(feat_raw)))
-            else:
-                feat_raw = feat_raw[:input_dim]
-
-        # Apply saved StandardScaler parameters
-        if scaler_mean and scaler_scale:
-            mean = np.array(scaler_mean, dtype=np.float32)
-            scale = np.array(scaler_scale, dtype=np.float32)
-            feat_scaled = (feat_raw - mean) / (scale + 1e-8)
-        else:
-            feat_scaled = feat_raw / (np.abs(feat_raw).max() + 1e-8)
-
-        # Import model architecture from the training module
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from models.fraud_gnn_lstm import FraudGNNLSTM
-
-        model = FraudGNNLSTM(input_dim=input_dim)
-        model.load_state_dict(ckpt["model_state_dict"])
-        model.eval()
-
-        with torch.no_grad():
-            # Shape: (batch=1, seq_len=10, input_dim)
-            x = torch.tensor(feat_scaled).unsqueeze(0).unsqueeze(0).repeat(1, 10, 1)
-            logit = model(x)
-            prob = torch.sigmoid(logit).item()
-
-        return {"fraud_probability": round(prob, 4), "source": "pytorch_model"}
-    except Exception as e:
-        # Silently fall through to heuristic
-        return None
-
-
-# ── Heuristic fallback ────────────────────────────────────────────────────────
-def _heuristic_predict(features: dict) -> dict:
-    """Deterministic heuristic fallback matching the TypeScript scoring in index.ts."""
-    import random
-    amount = float(features.get("amount", 0))
-    num_items = int(features.get("num_items", 0))
-    has_phone = bool(features.get("has_phone", True))
-    has_customer = bool(features.get("has_customer", True))
-
-    score = 0.0
-    if amount > 500_000:
-        score += 0.35
-    elif amount > 100_000:
-        score += 0.15
-    if num_items > 20:
-        score += 0.2
-    if not has_phone:
-        score += 0.3
-    if not has_customer:
-        score += 0.1
-    score = min(1.0, max(0.0, score + (random.random() * 0.05 - 0.025)))
-    return {"fraud_probability": round(score, 4), "source": "heuristic"}
+    return {
+        "fraud_probability": round(prob, 4),
+        "credit_score": credit_score,
+        "risk_level": model_io.risk_level(prob),
+        "source": fraud_source,
+        "fraud_source": fraud_source,
+        "credit_source": credit_source,
+    }
 
 
 def main():
@@ -153,11 +99,7 @@ def main():
         print(json.dumps({"error": f"Invalid JSON: {e}"}))
         sys.exit(1)
 
-    result = _pytorch_predict(payload) or _heuristic_predict(payload)
-    fp = result["fraud_probability"]
-    result["credit_score"] = round(850 - fp * 550)
-    result["risk_level"] = "high" if fp > 0.7 else "medium" if fp > 0.4 else "low"
-    print(json.dumps(result))
+    print(json.dumps(predict(payload)))
 
 
 if __name__ == "__main__":
