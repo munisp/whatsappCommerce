@@ -5,8 +5,15 @@ ML Inference FastAPI Server — WhatsApp Commerce Platform
 Serves CPU-optimized fraud detection, credit scoring, and NLP models.
 All models run on CPU (no GPU required) using ONNX Runtime or PyTorch CPU.
 
+Real trained weights are loaded from services/ml-stack/models/weights/
+(fraud_gnn_lstm.pt / credit_tabnet.pt, or their .onnx siblings when present)
+via the shared loader in services/ml-stack/model_io.py. When a model cannot
+be loaded, a deterministic, clearly labeled heuristic fallback is used
+(source="heuristic-fallback").
+
 Endpoints:
   POST /predict           — fraud + credit score prediction
+  POST /predict/fraud     — backward-compat alias of /predict
   POST /nlp/intent        — NLP intent classification
   POST /nlp/sentiment     — sentiment analysis
   POST /recommend         — product recommendations
@@ -34,6 +41,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+# ── Shared model loading (services/ml-stack/model_io.py) ─────────────────────
+_ML_STACK_DIR = Path(__file__).resolve().parent.parent
+if str(_ML_STACK_DIR) not in sys.path:
+    sys.path.insert(0, str(_ML_STACK_DIR))
+
+import model_io  # noqa: E402
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -45,52 +59,44 @@ log = logging.getLogger("ml-inference")
 # ── Config ────────────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://wc_user:wc_secret@localhost:5432/whatsapp_commerce")
 PORT = int(os.getenv("PORT", "8099"))
-MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models"))
+MODEL_DIR = model_io.resolve_weights_dir()  # MODEL_DIR env override or committed repo weights
 PLATFORM_API_URL = os.getenv("PLATFORM_API_URL", "http://localhost:3000")
 PLATFORM_API_KEY = os.getenv("PLATFORM_API_KEY", "")
 LAKEHOUSE_PIPELINE_URL = os.getenv("LAKEHOUSE_PIPELINE_URL", "")
+PIPELINE_SCRIPT = _ML_STACK_DIR / "lakehouse" / "pipeline.py"
 
 # ── Model registry ────────────────────────────────────────────────────────────
 _models: dict[str, Any] = {}
 _model_versions: dict[str, str] = {}
 
+
 def load_models() -> None:
-    """Load all models from disk. Falls back to lightweight heuristics if not found."""
+    """
+    Load the committed trained weights (CPU only). Anything that fails to load
+    leaves a clearly logged gap and the corresponding heuristic fallback stays
+    active and is labeled "heuristic-fallback" in responses.
+    """
     global _models, _model_versions
 
-    # Try to load PyTorch fraud model
-    fraud_model_path = MODEL_DIR / "fraud_model.pt"
-    if fraud_model_path.exists():
-        try:
-            import torch
-            torch.set_num_threads(int(os.getenv("TORCH_NUM_THREADS", "2")))
-            model = torch.jit.load(str(fraud_model_path), map_location="cpu")
-            model.eval()
-            _models["fraud"] = model
-            _model_versions["fraud"] = "pytorch_v1"
-            log.info("Fraud model loaded from %s", fraud_model_path)
-        except Exception as e:
-            log.warning("Failed to load fraud model: %s — using heuristic", e)
+    model_io.get_torch()  # sets CPU thread count once
+
+    fraud = model_io.load_fraud_bundle(MODEL_DIR)
+    if fraud:
+        _models["fraud"] = fraud
+        _model_versions["fraud"] = fraud["version"]
+        log.info("Fraud model ACTIVE: %s (%s backend)", fraud["version"], fraud["kind"])
     else:
-        log.info("Fraud model not found at %s — using heuristic", fraud_model_path)
+        log.warning("Fraud model NOT loaded — deterministic heuristic fallback active")
 
-    # Try ONNX fraud model
-    fraud_onnx_path = MODEL_DIR / "fraud_model.onnx"
-    if fraud_onnx_path.exists() and "fraud" not in _models:
-        try:
-            import onnxruntime as ort
-            sess_opts = ort.SessionOptions()
-            sess_opts.intra_op_num_threads = 2
-            sess_opts.inter_op_num_threads = 2
-            sess = ort.InferenceSession(str(fraud_onnx_path), sess_opts=sess_opts,
-                                         providers=["CPUExecutionProvider"])
-            _models["fraud_onnx"] = sess
-            _model_versions["fraud"] = "onnx_v1"
-            log.info("Fraud ONNX model loaded")
-        except Exception as e:
-            log.warning("Failed to load ONNX fraud model: %s", e)
+    credit = model_io.load_credit_bundle(MODEL_DIR)
+    if credit:
+        _models["credit"] = credit
+        _model_versions["credit"] = credit["version"]
+        log.info("Credit model ACTIVE: %s (%s backend)", credit["version"], credit["kind"])
+    else:
+        log.warning("Credit model NOT loaded — deterministic heuristic fallback active")
 
-    # NLP intent model (transformers or ONNX)
+    # NLP intent model (transformers or ONNX) — optional
     nlp_model_path = MODEL_DIR / "intent_model"
     if nlp_model_path.exists():
         try:
@@ -149,141 +155,62 @@ async def persist_lakehouse_run(pipeline_type: str, stage: str, status: str,
         conn.close()
 
 
-# ── Feature engineering ───────────────────────────────────────────────────────
-
-def build_fraud_features(payload: dict) -> list[float]:
-    """Map prediction request to 20-dim fraud feature vector."""
-    now = datetime.now(timezone.utc)
-    amount = float(payload.get("amount", 0))
-    num_items = int(payload.get("num_items", 0))
-    has_phone = bool(payload.get("has_phone", True))
-    has_customer = bool(payload.get("has_customer", True))
-    tx_count_1h = int(payload.get("tx_count_1h", 1))
-    tx_count_24h = int(payload.get("tx_count_24h", 1))
-    tx_count_7d = int(payload.get("tx_count_7d", 1))
-    is_new_device = float(payload.get("is_new_device", 0.0))
-    is_vpn = float(payload.get("is_vpn", 0.0))
-    is_tor = float(payload.get("is_tor", 0.0))
-    return [
-        amount,                                          # amount_ngn
-        float(now.hour),                                 # hour_of_day
-        float(now.weekday()),                            # day_of_week
-        1.0 if now.weekday() >= 5 else 0.0,             # is_weekend
-        is_new_device if not has_customer else 0.0,     # is_new_device
-        is_vpn,                                          # is_vpn
-        is_tor,                                          # is_tor
-        float(tx_count_1h),                              # tx_count_1h
-        float(tx_count_24h),                             # tx_count_24h
-        float(tx_count_7d),                              # tx_count_7d
-        amount * tx_count_1h,                            # tx_amount_1h
-        amount * tx_count_24h,                           # tx_amount_24h
-        float(payload.get("unique_merchants_24
-h", 1)),          # unique_merchants_24h
-        float(payload.get("avg_amount_7d", amount)),    # avg_amount_7d
-        float(payload.get("max_amount_7d", amount)),    # max_amount_7d
-        float(payload.get("time_on_site_sec", 0)),      # time_on_site_sec
-        float(num_items),                                # pages_visited (proxy)
-        0.0 if num_items > 0 else 1.0,                  # cart_abandon_rate
-        30.0 if has_customer else 0.0,                  # days_since_account_creation
-        float(payload.get("device_age_days", 30)),      # device_age_days
-    ]
+async def update_lakehouse_run(run_id: str, status: str, duration_ms: int = None,
+                                error_msg: str = None, metadata: dict = None) -> None:
+    """Mark a previously created lakehouse run as completed/failed (honest lifecycle)."""
+    conn = get_db()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """UPDATE lakehouse_pipeline_runs SET
+               status = %s, duration_ms = COALESCE(%s, duration_ms),
+               error_msg = COALESCE(%s, error_msg),
+               metadata = COALESCE(%s, metadata),
+               completed_at = CASE WHEN %s IN ('completed','failed','partial') THEN NOW()
+                                   ELSE completed_at END
+               WHERE id = %s::uuid""",
+            (status, duration_ms, error_msg,
+             json.dumps(metadata) if metadata else None, status, run_id)
+        )
+        conn.commit()
+    except Exception as e:
+        log.warning("Failed to update lakehouse run %s: %s", run_id, e)
+    finally:
+        conn.close()
 
 
-def heuristic_fraud_score(features: list[float]) -> tuple[float, str]:
-    """Rule-based fraud scoring when ML model unavailable."""
-    amount = features[0]
-    hour = features[1]
-    is_new_device = features[4]
-    is_vpn = features[5]
-    is_tor = features[6]
-    tx_count_1h = features[7]
-    cart_abandon = features[17]
-    days_account = features[18]
-
-    score = 0.0
-    # High amount at odd hours
-    if amount > 500_000 and (hour < 6 or hour > 22):
-        score += 0.3
-    # VPN/Tor usage
-    if is_vpn > 0.5:
-        score += 0.2
-    if is_tor > 0.5:
-        score += 0.4
-    # New device + new account
-    if is_new_device > 0.5 and days_account < 7:
-        score += 0.25
-    # High velocity
-    if tx_count_1h > 5:
-        score += 0.2
-    # Very high amount
-    if amount > 2_000_000:
-        score += 0.15
-    # Cart abandon
-    if cart_abandon > 0.8:
-        score += 0.05
-
-    score = min(score, 1.0)
-    risk = "low" if score < 0.3 else ("medium" if score < 0.6 else "high")
-    return score, risk
-
+# ── Fraud / credit inference (real model first, labeled heuristic fallback) ──
 
 def run_fraud_inference(features: list[float]) -> tuple[float, str, str]:
     """Run fraud inference. Returns (probability, risk_level, source)."""
-    # Try PyTorch model
-    if "fraud" in _models:
+    bundle = _models.get("fraud")
+    if bundle:
         try:
-            import torch
-            x = torch.tensor([features], dtype=torch.float32)
-            with torch.no_grad():
-                out = _models["fraud"](x)
-                prob = float(torch.sigmoid(out[0][0]).item())
-            risk = "low" if prob < 0.3 else ("medium" if prob < 0.6 else "high")
-            return prob, risk, "pytorch_model"
+            prob = model_io.predict_fraud_proba(bundle, features)
+            return prob, model_io.risk_level(prob), "model"
         except Exception as e:
-            log.warning("PyTorch inference failed: %s", e)
+            log.warning("Model fraud inference failed: %s — falling back to heuristic", e)
 
-    # Try ONNX model
-    if "fraud_onnx" in _models:
+    prob, risk = model_io.heuristic_fraud_score(features)
+    return prob, risk, "heuristic-fallback"
+
+
+def compute_credit_score(payload: dict, fraud_features: list[float]) -> tuple[int, str, str]:
+    """Compute a credit score (300-850 range). Returns (score, grade, source)."""
+    bundle = _models.get("credit")
+    if bundle:
         try:
-            import numpy as np
-            sess = _models["fraud_onnx"]
-            x = np.array([features], dtype=np.float32)
-            out = sess.run(None, {sess.get_inputs()[0].name: x})
-            prob = float(1 / (1 + np.exp(-out[0][0][0])))  # sigmoid
-            risk = "low" if prob < 0.3 else ("medium" if prob < 0.6 else "high")
-            return prob, risk, "onnx_model"
+            credit_features = model_io.build_credit_features(payload)
+            default_prob = model_io.predict_default_proba(bundle, credit_features)
+            score, grade = model_io.credit_score_from_default_prob(default_prob)
+            return score, grade, "model"
         except Exception as e:
-            log.warning("ONNX inference failed: %s", e)
+            log.warning("Model credit inference failed: %s — falling back to heuristic", e)
 
-    # Heuristic fallback
-    prob, risk = heuristic_fraud_score(features)
-    return prob, risk, "heuristic"
-
-
-def compute_credit_score(features: list[float]) -> tuple[int, str]:
-    """Compute a credit score (300-850 range) from features."""
-    amount = features[0]
-    tx_count_7d = features[9]
-    days_account = features[18]
-    device_age = features[19]
-    is_vpn = features[5]
-    is_tor = features[6]
-
-    base = 650.0
-    # Positive signals
-    base += min(days_account * 0.5, 100)
-    base += min(tx_count_7d * 5, 50)
-    base += min(device_age * 0.2, 30)
-    # Negative signals
-    base -= min(amount / 100_000, 50)
-    if is_vpn > 0.5:
-        base -= 30
-    if is_tor > 0.5:
-        base -= 80
-
-    score = max(300, min(850, int(base)))
-    grade = "A" if score >= 750 else ("B" if score >= 650 else ("C" if score >= 550 else "D"))
-    return score, grade
+    score, grade = model_io.heuristic_credit_score(fraud_features)
+    return score, grade, "heuristic-fallback"
 
 
 INTENT_KEYWORDS = {
@@ -331,12 +258,18 @@ class PredictRequest(BaseModel):
     tx_count_1h: int = 1
     tx_count_24h: int = 1
     tx_count_7d: int = 1
-    is_new_device: float = 0.0
+    is_new_device: Optional[float] = None
     is_vpn: float = 0.0
     is_tor: float = 0.0
+    unique_merchants_24h: Optional[float] = None
     avg_amount_7d: Optional[float] = None
     max_amount_7d: Optional[float] = None
-    device_age_days: float = 30.0
+    time_on_site_sec: Optional[float] = None
+    pages_visited: Optional[float] = None
+    cart_abandon_rate: Optional[float] = None
+    days_since_account_creation: Optional[float] = None
+    device_age_days: Optional[float] = None
+    timestamp: Optional[str] = None  # ISO-8601 transaction time (defaults to now)
     tenant_id: Optional[str] = None
     order_id: Optional[str] = None
 
@@ -391,8 +324,9 @@ async def health():
         "service": "ml-inference",
         "ts": datetime.now(timezone.utc).isoformat(),
         "models": {
-            name: _model_versions.get(name, "unknown")
-            for name in (["fraud", "intent"] + list(_models.keys()))
+            "fraud": _model_versions.get("fraud", "heuristic-fallback"),
+            "credit": _model_versions.get("credit", "heuristic-fallback"),
+            "intent": _model_versions.get("intent", "heuristic-fallback"),
         },
         "cpu_mode": True,
     }
@@ -407,15 +341,15 @@ async def list_models():
     }
 
 
-@app.post("/predict")
-async def predict(req: PredictRequest):
-    """Fraud detection + credit scoring."""
+async def _run_prediction(req: PredictRequest) -> dict:
+    """Shared fraud + credit prediction handler (POST /predict and /predict/fraud)."""
     t0 = time.time()
-    payload = req.model_dump()
-    features = build_fraud_features(payload)
+    # Drop unset (None) optional fields so feature builders apply their defaults
+    payload = {k: v for k, v in req.model_dump().items() if v is not None}
+    features = model_io.build_fraud_features(payload)
 
-    fraud_prob, risk_level, source = run_fraud_inference(features)
-    credit_score, credit_grade = compute_credit_score(features)
+    fraud_prob, risk_level, fraud_source = run_fraud_inference(features)
+    credit_score, credit_grade, credit_source = compute_credit_score(payload, features)
 
     duration_ms = int((time.time() - t0) * 1000)
 
@@ -424,7 +358,9 @@ async def predict(req: PredictRequest):
         "risk_level": risk_level,
         "credit_score": credit_score,
         "credit_grade": credit_grade,
-        "source": source,
+        "source": fraud_source,
+        "fraud_source": fraud_source,
+        "credit_source": credit_source,
         "duration_ms": duration_ms,
         "tenant_id": req.tenant_id,
         "order_id": req.order_id,
@@ -437,12 +373,25 @@ async def predict(req: PredictRequest):
         status="completed",
         records_extracted=1,
         records_loaded=1,
-        model_version=source,
+        model_version=fraud_source,
         duration_ms=duration_ms,
-        metadata={"risk_level": risk_level, "tenant_id": req.tenant_id},
+        metadata={"risk_level": risk_level, "tenant_id": req.tenant_id,
+                  "credit_source": credit_source},
     )
 
     return result
+
+
+@app.post("/predict")
+async def predict(req: PredictRequest):
+    """Fraud detection + credit scoring."""
+    return await _run_prediction(req)
+
+
+@app.post("/predict/fraud")
+async def predict_fraud(req: PredictRequest):
+    """Backward-compat alias of POST /predict."""
+    return await _run_prediction(req)
 
 
 @app.post("/nlp/intent")
@@ -501,9 +450,84 @@ async def recommend(req: RecommendRequest):
     return {"tenant_id": req.tenant_id, "recommendations": [], "count": 0, "source": "unavailable"}
 
 
+# ── Lakehouse trigger: actually run the pipeline in a subprocess ──────────────
+
+async def _execute_pipeline(run_id: Optional[str], pipeline_type: str,
+                            tenant_id: Optional[str]) -> None:
+    """
+    Run lakehouse/pipeline.py as a subprocess and honestly record the outcome:
+    the run row moves started("running") → completed/failed with duration and,
+    on failure, the subprocess stderr tail. Never leaves a phantom "running".
+    """
+    t0 = time.time()
+    cmd = [sys.executable, str(PIPELINE_SCRIPT), pipeline_type]
+    if tenant_id:
+        cmd.append(tenant_id)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env={**os.environ, "DATABASE_URL": DATABASE_URL},
+        )
+        stdout, stderr = await proc.communicate()
+        duration_ms = int((time.time() - t0) * 1000)
+
+        final_status = "completed"
+        error_msg = None
+        result: dict = {}
+        out_text = stdout.decode().strip()
+        if out_text:
+            try:
+                # pipeline.py prints one JSON result document on stdout
+                parsed = json.loads(out_text)
+                if isinstance(parsed, dict):
+                    result = parsed
+            except json.JSONDecodeError:
+                # Fall back to the last JSON-looking line
+                for line in reversed(out_text.splitlines()):
+                    line = line.strip()
+                    if line.startswith("{"):
+                        try:
+                            parsed = json.loads(line)
+                            if isinstance(parsed, dict):
+                                result = parsed
+                                break
+                        except json.JSONDecodeError:
+                            continue
+        final_status = result.get("status", "completed")
+        if final_status not in ("completed", "partial", "failed"):
+            final_status = "completed"
+        if proc.returncode != 0:
+            final_status = "failed"
+            error_msg = (stderr.decode() or stdout.decode())[-2000:]
+
+        log.info("Lakehouse pipeline %s finished: status=%s rc=%s duration=%dms",
+                 pipeline_type, final_status, proc.returncode, duration_ms)
+        if run_id:
+            await update_lakehouse_run(
+                run_id, final_status, duration_ms=duration_ms, error_msg=error_msg,
+                metadata={"pipeline_type": pipeline_type, "tenant_id": tenant_id,
+                          "returncode": proc.returncode, "result": result},
+            )
+    except Exception as e:
+        duration_ms = int((time.time() - t0) * 1000)
+        log.error("Lakehouse pipeline subprocess failed: %s", e)
+        if run_id:
+            await update_lakehouse_run(run_id, "failed", duration_ms=duration_ms,
+                                       error_msg=str(e)[:2000])
+
+
 @app.post("/lakehouse/trigger")
 async def trigger_lakehouse(req: LakehouseTriggerRequest):
-    """Trigger a lakehouse pipeline run."""
+    """
+    Trigger a lakehouse pipeline run. The pipeline executes in the background
+    as a subprocess; its run row is created with status "running" and updated
+    to completed/failed when the subprocess exits.
+    """
+    if req.pipeline_type not in ("etl", "feature_engineering", "model_training", "full"):
+        raise HTTPException(status_code=400, detail=f"unknown pipeline_type: {req.pipeline_type}")
+
     run_id = await persist_lakehouse_run(
         pipeline_type=req.pipeline_type,
         stage="triggered",
@@ -522,10 +546,12 @@ async def trigger_lakehouse(req: LakehouseTriggerRequest):
             except Exception as e:
                 log.warning("Lakehouse pipeline trigger failed: %s", e)
 
+    asyncio.create_task(_execute_pipeline(run_id, req.pipeline_type, req.tenant_id))
+
     return {
         "run_id": run_id,
         "pipeline_type": req.pipeline_type,
-        "status": "triggered",
+        "status": "running",
         "ts": datetime.now(timezone.utc).isoformat(),
     }
 
