@@ -1,11 +1,13 @@
 import { z } from "zod";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { ENV } from "../_core/env";
 import {
   escrowTransactions, escrowConfig, escrowDisputes,
   merchantWallets, walletTransactions,
-  orders, logisticsShipments,
+  orders, logisticsShipments, paymentIntents,
   type EscrowTransaction, type EscrowConfig,
 } from "../../drizzle/schema";
 import { escrowTimelineAttachments } from "../../drizzle/schema";
@@ -972,7 +974,11 @@ export const walletRouter = router({
       const filename = `wallet_ledger_${input.tenantId.slice(0, 8)}_${dateTag}.csv`;
       return { csv, filename, rowCount: txs.length };
     }),
-  // Top up / deposit funds into a merchant wallet (mock flow)
+  // Top up / deposit funds into a merchant wallet.
+  // Creates a REAL payment_intent via the configured provider (same pattern as
+  // payment.ts initiate). The wallet is NOT credited here — credit only happens
+  // after the provider callback confirms the payment (payment intent → completed,
+  // reconciled via metadata.type = "wallet_topup" + metadata.walletId).
   topUp: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
@@ -981,14 +987,114 @@ export const walletRouter = router({
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      if (!db) throw new Error("DB unavailable");
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
+
+      // A real top-up requires a configured payment provider — never fake success.
+      const provider: "paystack" | "flutterwave" | null = ENV.paystackSecretKey
+        ? "paystack"
+        : ENV.flwSecretKey
+          ? "flutterwave"
+          : null;
+      if (!provider) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "No payment provider configured (set PAYSTACK_SECRET_KEY or FLW_SECRET_KEY). " +
+            "Wallet top-up cannot be initiated without a real provider.",
+        });
+      }
+
+      const paymentIntentId = crypto.randomUUID();
       const ref = `TOPUP-${Date.now()}-${input.tenantId.slice(0, 6).toUpperCase()}`;
-      await recordWalletTx(db, wallet.id, input.tenantId, "float_income", input.amount, {
-        description: input.note ?? "Manual top-up / deposit",
-        reference: ref,
+      const baseMetadata: Record<string, unknown> = {
+        type: "wallet_topup",
+        walletId: wallet.id,
+        note: input.note ?? null,
+      };
+
+      // payment_intents.orderId / customerId are NOT NULL. A top-up has no order
+      // and the merchant funds their own wallet, so we scope by wallet/tenant id.
+      await db.insert(paymentIntents).values({
+        id: paymentIntentId,
+        tenantId: input.tenantId,
+        orderId: wallet.id,
+        customerId: input.tenantId,
+        amount: input.amount.toFixed(2),
+        currency: wallet.currency ?? "NGN",
+        provider,
+        status: "pending",
+        providerPaymentId: ref,
+        idempotencyKey: `wallet-topup:${ref}`,
+        metadata: baseMetadata,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
-      return { success: true, reference: ref, amount: input.amount };
+
+      // Initialize the transaction with the provider to get a real payment URL.
+      let paymentUrl: string | null = null;
+      try {
+        if (provider === "paystack") {
+          const psRes = await fetch("https://api.paystack.co/transaction/initialize", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${ENV.paystackSecretKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: `wallet-${input.tenantId.replace(/[^a-zA-Z0-9]/g, "")}@wa.commerce`,
+              amount: Math.round(input.amount * 100),
+              currency: wallet.currency ?? "NGN",
+              reference: ref,
+              metadata: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, type: "wallet_topup" },
+              callback_url: `${ENV.appUrl}/api/webhooks/paystack/callback`,
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!psRes.ok) throw new Error(`Paystack initialization failed: ${await psRes.text()}`);
+          const psData = await psRes.json() as { status: boolean; data: { authorization_url: string } };
+          if (!psData.status) throw new Error("Paystack returned status=false");
+          paymentUrl = psData.data.authorization_url;
+        } else {
+          const fwRes = await fetch("https://api.flutterwave.com/v3/payments", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${ENV.flwSecretKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tx_ref: ref,
+              amount: input.amount,
+              currency: wallet.currency ?? "NGN",
+              redirect_url: `${ENV.appUrl}/api/webhooks/flutterwave/callback`,
+              customer: { email: `wallet-${input.tenantId.replace(/[^a-zA-Z0-9]/g, "")}@wa.commerce` },
+              meta: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, type: "wallet_topup" },
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!fwRes.ok) throw new Error(`Flutterwave initialization failed: ${await fwRes.text()}`);
+          const fwData = await fwRes.json() as { status: string; data: { link: string } };
+          paymentUrl = fwData.data.link;
+        }
+      } catch (err: any) {
+        // Mark the intent failed — never leave a pending intent for a top-up
+        // that was never initialized with the provider.
+        await db.update(paymentIntents)
+          .set({ status: "failed", failureReason: err.message, updatedAt: new Date() })
+          .where(eq(paymentIntents.id, paymentIntentId));
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Wallet top-up initiation failed: ${err.message}`,
+        });
+      }
+
+      await db.update(paymentIntents)
+        .set({ metadata: { ...baseMetadata, paymentUrl }, updatedAt: new Date() })
+        .where(eq(paymentIntents.id, paymentIntentId));
+
+      // Wallet credit remains PENDING until the provider webhook confirms payment.
+      return {
+        success: true,
+        reference: ref,
+        amount: input.amount,
+        paymentIntentId,
+        paymentUrl,
+        status: "pending",
+      };
     }),
 });
 
