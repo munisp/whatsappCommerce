@@ -262,6 +262,12 @@ export const paymentGatewayRouter = router({
       let verified = false;
       let paidAt: Date | null = null;
 
+      // Only paystack/flutterwave with a configured secret can be auto-verified
+      // via real reference verification against the provider API. Manual,
+      // Mojaloop, or unconfigured providers can never self-verify.
+      const autoVerifiable =
+        (tx.provider === "paystack" || tx.provider === "flutterwave") && !!config?.secretKey;
+
       try {
         if (tx.provider === "paystack" && config?.secretKey) {
           const r = await paystackVerify(config.secretKey, input.providerRef ?? tx.providerRef ?? "");
@@ -271,16 +277,15 @@ export const paymentGatewayRouter = router({
           const r = await flutterwaveVerify(config.secretKey, tx.providerTxId ?? "");
           verified = r.status === "successful";
           paidAt = verified ? new Date(r.paidAt) : null;
-        } else {
-          // Manual / Mojaloop / mock — treat as verified
-          verified = true;
-          paidAt = new Date();
         }
-      } catch {
+      } catch (err: any) {
+        console.error(`[PaymentGateway] ${tx.provider} verification failed:`, err?.message ?? err);
         verified = false;
       }
 
-      const newStatus = verified ? "completed" : "failed";
+      // Unverifiable providers go to pending_review for ops/manual reconciliation
+      // instead of being silently marked completed.
+      const newStatus = verified ? "completed" : autoVerifiable ? "failed" : "pending_review";
       await db.update(paymentTransactions)
         .set({ status: newStatus, paidAt: paidAt ?? undefined, updatedAt: new Date() })
         .where(eq(paymentTransactions.id, input.transactionId));
