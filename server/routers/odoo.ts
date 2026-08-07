@@ -69,6 +69,39 @@ export const odooRouter = router({
       return { id };
     }),
 
+  // Validate and persist connection settings for a tenant. Used by the admin
+  // portal, which passes an explicit tenantId; falls back to the caller's
+  // tenant when omitted.
+  configure: protectedProcedure
+    .input(z.object({
+      tenantId: z.string().optional(),
+      baseUrl: z.string().url(),
+      database: z.string().min(1),
+      username: z.string().min(1),
+      apiKey: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const { tenantId: requestedTenant, ...config } = input;
+      const tenantId = requestedTenant ?? getTenantId(ctx);
+      const existing = await db
+        .select({ id: odooIntegrations.id })
+        .from(odooIntegrations)
+        .where(eq(odooIntegrations.tenantId, tenantId))
+        .limit(1);
+      if (existing[0]) {
+        await db
+          .update(odooIntegrations)
+          .set({ ...config, status: "disconnected" })
+          .where(eq(odooIntegrations.tenantId, tenantId));
+        return { id: existing[0].id, success: true };
+      }
+      const id = nanoid();
+      await db.insert(odooIntegrations).values({ id, tenantId, ...config, status: "disconnected" });
+      return { id, success: true };
+    }),
+
   testConnection: protectedProcedure
     .input(z.object({ baseUrl: z.string(), database: z.string(), username: z.string(), apiKey: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -80,10 +113,12 @@ export const odooRouter = router({
       return { success: ok, status: ok ? "connected" : "error" };
     }),
 
-  syncAll: protectedProcedure.mutation(async ({ ctx }) => {
+  syncAll: protectedProcedure
+    .input(z.object({ tenantId: z.string().optional() }).optional())
+    .mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new Error("DB unavailable");
-    const tenantId = getTenantId(ctx);
+    const tenantId = input?.tenantId ?? getTenantId(ctx);
     const cfg = await db.select().from(odooIntegrations).where(eq(odooIntegrations.tenantId, tenantId)).limit(1);
     if (!cfg[0]) throw new Error("Odoo not configured");
 
