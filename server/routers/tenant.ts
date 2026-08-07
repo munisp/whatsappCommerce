@@ -43,6 +43,53 @@ export const tenantRouter = router({
       return { id, ...input };
     }),
 
+  // WhatsApp Business API credentials for a tenant. The phone number ID,
+  // business account ID, and webhook verify token live in dedicated columns on
+  // the tenants table; the permanent access token is stored inside the tenant's
+  // `settings` JSON blob (never returned in full — only a masked hint).
+  getWhatsAppConfig: adminProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ input }) => {
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const settings = (t.settings ?? {}) as Record<string, unknown>;
+      const wa = (settings.whatsapp ?? {}) as Record<string, unknown>;
+      const accessToken = typeof wa.accessToken === "string" ? wa.accessToken : "";
+      return {
+        tenantId: t.id,
+        phoneNumberId: t.whatsappPhoneNumberId ?? "",
+        wabaId: t.whatsappBusinessAccountId ?? "",
+        verifyToken: t.webhookVerifyToken ?? "",
+        accessToken: accessToken ? "••••••••" + accessToken.slice(-4) : "",
+        configured: Boolean(t.whatsappPhoneNumberId && accessToken),
+      };
+    }),
+
+  updateWhatsAppConfig: adminProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      phoneNumberId: z.string().min(1),
+      wabaId: z.string().min(1),
+      accessToken: z.string().min(1),
+      verifyToken: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const settings = { ...((t.settings ?? {}) as Record<string, unknown>) };
+      settings.whatsapp = {
+        ...((settings.whatsapp ?? {}) as Record<string, unknown>),
+        accessToken: input.accessToken,
+      };
+      await db.updateTenant(input.tenantId, {
+        whatsappPhoneNumberId: input.phoneNumberId,
+        whatsappBusinessAccountId: input.wabaId,
+        webhookVerifyToken: input.verifyToken,
+        settings,
+      });
+      return { success: true };
+    }),
+
   update: adminProcedure
     .input(z.object({
       id: z.string(),

@@ -371,14 +371,18 @@ function OdooConfigPanel({ tenantId, onClose }: { tenantId: string; onClose: () 
           <Button size="sm" onClick={() => save?.mutate?.({ tenantId, ...form })} disabled={save?.isPending || !tenantId}>
             {save?.isPending ? "Saving..." : "Save"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => testConn?.mutate?.({ tenantId })} disabled={testConn?.isPending}>
+          <Button variant="outline" size="sm" onClick={() => testConn?.mutate?.({ ...form })} disabled={testConn?.isPending}>
             {testConn?.isPending ? "Testing..." : "Test Connection"}
           </Button>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
         </div>
         {testConn?.data && (
           <Alert variant={testConn.data.success ? "default" : "destructive"}>
-            <AlertDescription className="text-xs">{testConn.data.message}</AlertDescription>
+            <AlertDescription className="text-xs">
+              {testConn.data.success
+                ? "Connection successful — Odoo status set to connected."
+                : `Connection failed (status: ${testConn.data.status}). Check the URL, database name, username and API key.`}
+            </AlertDescription>
           </Alert>
         )}
       </CardContent>
