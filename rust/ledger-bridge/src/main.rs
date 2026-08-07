@@ -3,8 +3,13 @@
 //! Architecture:
 //!   - Accepts reserve/commit/void requests from the Node.js platform
 //!   - Persists all ledger operations to PostgreSQL (tigerbeetle_accounts table)
-//!   - Forwards actual accounting to TigerBeetle via HTTP when TIGERBEETLE_ADDRESS is set
-//!   - Falls back to in-memory accounting when TigerBeetle is unavailable
+//!   - Forwards actual accounting to TigerBeetle via a TigerBeetle HTTP sidecar
+//!     (TIGERBEETLE_ADDRESS, default tigerbeetle:3000). Native TigerBeetle speaks
+//!     a binary protocol; this bridge targets an HTTP sidecar/REST bridge that
+//!     fronts the cluster.
+//!   - When TigerBeetle is unreachable, requests fail with 503 SERVICE_UNAVAILABLE.
+//!     An in-memory ledger exists ONLY for local development and must be enabled
+//!     explicitly with LEDGER_ALLOW_INMEMORY=true. It never pre-funds accounts.
 //!
 //! Endpoints:
 //!   GET  /health                    — health check
@@ -40,6 +45,7 @@ struct Config {
     database_url: String,
     tigerbeetle_address: String,
     tigerbeetle_cluster_id: u32,
+    allow_inmemory: bool,
 }
 
 impl Config {
@@ -48,12 +54,19 @@ impl Config {
             port: env::var("PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8095),
             database_url: env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "postgres://wc_user:wc_secret@localhost:5432/whatsapp_commerce".into()),
+            // Address of the TigerBeetle HTTP sidecar fronting the cluster
+            // (native TigerBeetle speaks a binary protocol, not HTTP).
             tigerbeetle_address: env::var("TIGERBEETLE_ADDRESS")
-                .unwrap_or_else(|_| "127.0.0.1:3000".into()),
+                .unwrap_or_else(|_| "tigerbeetle:3000".into()),
             tigerbeetle_cluster_id: env::var("TIGERBEETLE_CLUSTER_ID")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0),
+            // Dev-only escape hatch: allow the in-memory ledger fallback.
+            // NEVER enable in production — it is not durable and not replicated.
+            allow_inmemory: env::var("LEDGER_ALLOW_INMEMORY")
+                .map(|v| v == "true")
+                .unwrap_or(false),
         }
     }
 }
@@ -129,16 +142,19 @@ impl TigerBeetleClient {
         Self {
             address,
             cluster_id,
+            // Fall back to a default client rather than panicking if the
+            // customised builder fails (e.g. platform TLS initialisation).
             http: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
-                .unwrap(),
+                .unwrap_or_else(|_| reqwest::Client::new()),
         }
     }
 
     fn base_url(&self) -> String {
-        // TigerBeetle doesn't have a native HTTP API — we use the tigerbeetle-node
-        // sidecar or the REST bridge. Format: http://<address>/api/v1
+        // Native TigerBeetle speaks a binary protocol and has no HTTP API.
+        // This client targets a TigerBeetle HTTP sidecar / REST bridge that
+        // fronts the cluster. Format: http://<address>/api/v1
         format!("http://{}/api/v1", self.address)
     }
 
@@ -254,13 +270,29 @@ impl TigerBeetleClient {
 
 #[derive(Clone)]
 struct AppState {
-    // In-memory fallback when TigerBeetle is unavailable
+    // In-memory ledger — DEV ONLY, used solely when allow_inmemory is set.
     pending: Arc<DashMap<Uuid, PendingTransfer>>,
     balances: Arc<DashMap<String, (f64, f64)>>, // (reserved, available)
     // PostgreSQL pool for persistence
     pg: Option<Pool>,
     // TigerBeetle client
     tb: Arc<TigerBeetleClient>,
+    // LEDGER_ALLOW_INMEMORY=true — dev-mode escape hatch for the in-memory ledger
+    allow_inmemory: bool,
+}
+
+/// Structured 503 returned when the TigerBeetle ledger cannot serve the request
+/// and the dev-only in-memory fallback is disabled.
+fn ledger_unavailable(detail: &str) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+            "error": "ledger_unavailable",
+            "message": "TigerBeetle ledger is unreachable; refusing to fabricate a ledger result. \
+                        Set LEDGER_ALLOW_INMEMORY=true only in local development to use the in-memory ledger.",
+            "detail": detail,
+        })),
+    )
 }
 
 impl AppState {
@@ -275,6 +307,7 @@ impl AppState {
             balances: Arc::new(DashMap::new()),
             pg,
             tb,
+            allow_inmemory: cfg.allow_inmemory,
         }
     }
 
@@ -301,12 +334,13 @@ impl AppState {
         }
     }
 
-    /// Reserve funds — try TigerBeetle first, fall back to in-memory.
+    /// Reserve funds in the dev-only in-memory ledger. Accounts start at zero —
+    /// no synthetic pre-funding. Only reachable when LEDGER_ALLOW_INMEMORY=true.
     fn reserve_local(&self, req: ReserveRequest) -> Result<ReserveResponse, String> {
         let pending_id = Uuid::new_v4();
         let mut entry = self.balances
             .entry(req.account_id.clone())
-            .or_insert((0.0, 10_000_000.0));
+            .or_insert((0.0, 0.0));
         if entry.1 < req.amount {
             return Err(format!("insufficient funds: available={:.2}", entry.1));
         }
@@ -412,8 +446,9 @@ async fn get_balance_handler(
     Path(account_id): Path<String>,
 ) -> (StatusCode, Json<serde_json::Value>) {
     // Try to get from TigerBeetle first
-    if state.tb.health().await {
-        // Query via TB HTTP API (if available)
+    let tb_healthy = state.tb.health().await;
+    if tb_healthy {
+        // Query via TB HTTP sidecar API (if available)
         let tb_url = format!("{}/accounts/{}", state.tb.base_url(), account_id);
         if let Ok(resp) = state.tb.http.get(&tb_url).send().await {
             if resp.status().is_success() {
@@ -439,7 +474,19 @@ async fn get_balance_handler(
         }
     }
 
-    // Fall back to in-memory
+    // TigerBeetle could not serve the balance.
+    if !state.allow_inmemory {
+        if tb_healthy {
+            // TB is up but the account query failed — that is a lookup failure,
+            // not an outage.
+            return (StatusCode::NOT_FOUND, Json(serde_json::json!({
+                "error": "account_not_found",
+                "account_id": account_id,
+            })));
+        }
+        return ledger_unavailable("tigerbeetle health check failed");
+    }
+    warn!(account_id = %account_id, "DEV MODE: serving balance from in-memory ledger");
     let entry = state.balances.get(&account_id);
     let (reserved, available) = entry.map(|e| *e).unwrap_or((0.0, 0.0));
     (StatusCode::OK, Json(serde_json::json!({
@@ -448,7 +495,7 @@ async fn get_balance_handler(
         "reserved": reserved,
         "available": available,
         "currency": "NGN",
-        "source": "in_memory",
+        "source": "in_memory_dev",
     })))
 }
 
@@ -459,6 +506,14 @@ async fn reserve_handler(
     let account_id = req.account_id.clone();
     let amount = req.amount;
     let currency = req.currency.clone();
+
+    // Basic input validation — never fabricate a reservation for bad input.
+    if !amount.is_finite() || amount <= 0.0 {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "invalid_amount",
+            "message": "amount must be a positive finite number",
+        })));
+    }
 
     // Try TigerBeetle first
     if state.tb.health().await {
@@ -482,14 +537,27 @@ async fn reserve_handler(
                 })));
             }
             Err(e) => {
-                warn!("TB reserve failed, falling back to local: {}", e);
+                if !state.allow_inmemory {
+                    error!("TB reserve failed and in-memory fallback is disabled: {}", e);
+                    return ledger_unavailable(&e);
+                }
+                warn!("TB reserve failed; DEV MODE in-memory fallback: {}", e);
             }
         }
+    } else if !state.allow_inmemory {
+        return ledger_unavailable("tigerbeetle health check failed");
+    } else {
+        warn!("TigerBeetle unreachable; DEV MODE in-memory fallback (LEDGER_ALLOW_INMEMORY=true)");
     }
 
-    // Local fallback
+    // Dev-only local fallback
     match state.reserve_local(ReserveRequest { account_id, amount, currency, reference: req.reference }) {
-        Ok(r) => (StatusCode::CREATED, Json(serde_json::to_value(r).unwrap())),
+        Ok(r) => match serde_json::to_value(r) {
+            Ok(v) => (StatusCode::CREATED, Json(v)),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+                "error": "serialization_failed", "detail": e.to_string(),
+            }))),
+        },
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e }))),
     }
 }
@@ -513,8 +581,16 @@ async fn commit_handler(
                     "source": "tigerbeetle",
                 })));
             }
-            Err(e) => warn!("TB commit failed, falling back: {}", e),
+            Err(e) => {
+                if !state.allow_inmemory {
+                    error!("TB commit failed and in-memory fallback is disabled: {}", e);
+                    return ledger_unavailable(&e);
+                }
+                warn!("TB commit failed; DEV MODE in-memory fallback: {}", e);
+            }
         }
+    } else if !state.allow_inmemory {
+        return ledger_unavailable("tigerbeetle health check failed");
     }
 
     match state.commit_local(pending_id) {
@@ -542,8 +618,16 @@ async fn void_handler(
                     "source": "tigerbeetle",
                 })));
             }
-            Err(e) => warn!("TB void failed, falling back: {}", e),
+            Err(e) => {
+                if !state.allow_inmemory {
+                    error!("TB void failed and in-memory fallback is disabled: {}", e);
+                    return ledger_unavailable(&e);
+                }
+                warn!("TB void failed; DEV MODE in-memory fallback: {}", e);
+            }
         }
+    } else if !state.allow_inmemory {
+        return ledger_unavailable("tigerbeetle health check failed");
     }
 
     match state.void_local(pending_id) {
@@ -552,18 +636,23 @@ async fn void_handler(
     }
 }
 
-async fn balances_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
+async fn balances_handler(State(state): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
+    if !state.allow_inmemory {
+        // The in-memory map is empty unless the dev fallback served traffic;
+        // never present it as a real ledger view.
+        return ledger_unavailable("in-memory balance listing is only available with LEDGER_ALLOW_INMEMORY=true");
+    }
     let b: std::collections::HashMap<String, serde_json::Value> = state.balances.iter()
         .map(|e| (e.key().clone(), serde_json::json!({
             "reserved": e.0,
             "available": e.1,
         })))
         .collect();
-    Json(serde_json::json!({
+    (StatusCode::OK, Json(serde_json::json!({
         "balances": b,
         "pending_count": state.pending.len(),
-        "source": "in_memory",
-    }))
+        "source": "in_memory_dev",
+    })))
 }
 
 async fn provision_account_handler(
@@ -574,30 +663,54 @@ async fn provision_account_handler(
     let currency = req.currency.unwrap_or_else(|| "NGN".into());
     let ledger_id = 700i32; // NGN ledger
 
-    // Try to create in TigerBeetle
+    // Create in TigerBeetle first — a Postgres mirror without a real ledger
+    // account is a lie, so fail loudly unless the dev fallback is enabled.
+    let mut source = "tigerbeetle";
     if state.tb.health().await {
         let id_u128 = u128::from_str_radix(&tb_account_id.chars().take(32).collect::<String>(), 16)
-            .unwrap_or(rand_u128());
+            .unwrap_or_else(|_| rand_u128());
         if let Err(e) = state.tb.create_account(id_u128, ledger_id as u32, 1000).await {
-            warn!("TB create_account failed: {}", e);
+            if !state.allow_inmemory {
+                error!("TB create_account failed and in-memory fallback is disabled: {}", e);
+                return ledger_unavailable(&e);
+            }
+            warn!("TB create_account failed; DEV MODE continues with PG-only record: {}", e);
+            source = "in_memory_dev";
         }
+    } else if !state.allow_inmemory {
+        return ledger_unavailable("tigerbeetle health check failed");
+    } else {
+        warn!("TigerBeetle unreachable; DEV MODE provisions PG-only account (LEDGER_ALLOW_INMEMORY=true)");
+        source = "in_memory_dev";
     }
 
     // Persist to PostgreSQL
     state.persist_account(&tb_account_id, req.tenant_id.as_deref(), &req.account_type, &currency).await;
 
-    info!(tb_account_id = %tb_account_id, account_type = %req.account_type, "account provisioned");
-    (StatusCode::CREATED, Json(serde_json::to_value(ProvisionAccountResponse {
+    info!(tb_account_id = %tb_account_id, account_type = %req.account_type, source = source, "account provisioned");
+    let resp = ProvisionAccountResponse {
         tb_account_id,
         account_type: req.account_type,
         currency,
         ledger_id,
-    }).unwrap()))
+    };
+    match serde_json::to_value(&resp) {
+        Ok(mut v) => {
+            v["source"] = serde_json::Value::String(source.into());
+            (StatusCode::CREATED, Json(v))
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({
+            "error": "serialization_failed", "detail": e.to_string(),
+        }))),
+    }
 }
 
 fn rand_u128() -> u128 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u128
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -606,11 +719,27 @@ fn rand_u128() -> u128 {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().json().init();
     let cfg = Config::from_env();
+
+    // Fail loudly on a malformed TigerBeetle sidecar address — silently
+    // starting against a bad address would turn every ledger call into a 503
+    // (or worse, dev-mode in-memory results) with no obvious cause.
+    if !cfg.tigerbeetle_address.contains(':') {
+        error!(
+            tigerbeetle = %cfg.tigerbeetle_address,
+            "TIGERBEETLE_ADDRESS must be host:port of the TigerBeetle HTTP sidecar (e.g. tigerbeetle:3000)"
+        );
+        std::process::exit(1);
+    }
+    if cfg.allow_inmemory {
+        warn!("LEDGER_ALLOW_INMEMORY=true — DEV MODE: in-memory ledger fallback is ENABLED. Do not use in production.");
+    }
+
     let state = AppState::new(&cfg).await;
 
     info!(
         port = cfg.port,
         tigerbeetle = %cfg.tigerbeetle_address,
+        allow_inmemory = cfg.allow_inmemory,
         "Ledger Bridge starting"
     );
 
