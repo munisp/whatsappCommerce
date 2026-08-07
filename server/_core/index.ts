@@ -20,12 +20,12 @@ import { serveStatic, setupVite } from "./vite";
 import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
 import { getDb } from "../db";
-import { inventorySnapshots } from "../../drizzle/schema";
+import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
-import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
+import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { broadcastCampaigns, broadcastRecipients, twentyContacts } from "../../drizzle/schema";
-import { hermesPODrafts, hermesHealthLog } from "../../drizzle/schema";
+import { hermesPODrafts, hermesHealthLog, fluvioEventLog } from "../../drizzle/schema";
 import { eq, and, gte, lte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { handleGetEvidencePortal, handleSubmitEvidence } from "../routers/evidencePortal";
@@ -105,6 +105,38 @@ async function startServer() {
     } else {
       socket.destroy();
     }
+  });
+
+  // ── CORS (hand-rolled, no external dependency) ────────────────────────────
+  // Allowed origins come from CORS_ORIGIN (comma-separated, or "*" for any).
+  // Default: same-origin only — no Access-Control-Allow-Origin header is
+  // emitted for cross-origin requests. Handles OPTIONS preflights.
+  const corsAllowedOrigins = (process.env.CORS_ORIGIN ?? "")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      if (corsAllowedOrigins.includes("*")) {
+        res.setHeader("Access-Control-Allow-Origin", "*");
+      } else if (corsAllowedOrigins.includes(origin)) {
+        res.setHeader("Access-Control-Allow-Origin", origin);
+        res.setHeader("Vary", "Origin");
+        res.setHeader("Access-Control-Allow-Credentials", "true");
+      }
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, X-Internal-Api-Key, X-API-Key, X-Tenant-Id, X-Filename, X-Note"
+      );
+      res.setHeader("Access-Control-Max-Age", "86400");
+    }
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    next();
   });
 
   // Configure body parser with larger size limit for file uploads
@@ -509,6 +541,22 @@ async function startServer() {
 
   // ── Bank escrow settlement callback (PSSP mode) ───────────────────────────
   app.post("/api/webhooks/escrow-bank", express.json(), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const { escrowId, bankRef, status } = req.body ?? {};
+      if (!escrowId || !bankRef) return res.status(400).json({ error: "Missing escrowId or bankRef" });
+      if (status === "settled") {
+        await db.update(escrowTransactions).set({
+          state: "settled", bankRef, bankSettlementConfirmedAt: new Date(), settledAt: new Date(), updatedAt: new Date(),
+        }).where(and(eq(escrowTransactions.id, escrowId), eq(escrowTransactions.state, "release_instructed")));
+      }
+      return res.status(200).json({ received: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── WhatsApp Business API webhook (Meta) ──────────────────────────────────
   // GET: verification challenge from Meta
   app.get("/api/webhooks/whatsapp", (req, res) => {
@@ -808,22 +856,6 @@ async function startServer() {
     }
   });
 
-    try {
-      const db = await getDb();
-      if (!db) return res.status(503).json({ error: "DB unavailable" });
-      const { escrowId, bankRef, status } = req.body ?? {};
-      if (!escrowId || !bankRef) return res.status(400).json({ error: "Missing escrowId or bankRef" });
-      if (status === "settled") {
-        await db.update(escrowTransactions).set({
-          state: "settled", bankRef, bankSettlementConfirmedAt: new Date(), settledAt: new Date(), updatedAt: new Date(),
-        }).where(and(eq(escrowTransactions.id, escrowId), eq(escrowTransactions.state, "release_instructed")));
-      }
-      return res.status(200).json({ received: true });
-    } catch (err: any) {
-      return res.status(500).json({ error: err?.message });
-    }
-  });
-
   // ── Escrow auto-confirm heartbeat ─────────────────────────────────────────
   app.post("/api/scheduled/escrow-auto-confirm", async (req, res) => {
     try {
@@ -920,6 +952,295 @@ async function startServer() {
     } catch (err: any) {
       console.error("[evidence-submit-json]", err);
       return res.status(500).json({ error: "Service error" });
+    }
+  });
+
+  // Raw binary file upload — EvidencePortal.tsx POSTs file bytes with
+  // Content-Type (mime), X-Filename and X-Note headers.
+  app.post(
+    "/api/evidence/:token/submit",
+    express.raw({ type: () => true, limit: "25mb" }),
+    async (req, res) => {
+      try {
+        const fileBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body ?? []);
+        if (!fileBuffer.length) return res.status(400).json({ error: "Empty file body" });
+        const filename = ((req.headers["x-filename"] as string) ?? "evidence.bin").slice(0, 255);
+        const mimeType = (req.headers["content-type"] ?? "application/octet-stream").split(";")[0].trim();
+        const note = (req.headers["x-note"] as string) ?? null;
+        const result = await handleSubmitEvidence(req.params.token, note, fileBuffer, filename, mimeType);
+        if (!result.success) return res.status(400).json({ error: result.error });
+        console.log(`[evidence-submit] stored ${filename} (${mimeType}, ${fileBuffer.length} bytes) for token ${req.params.token.slice(0, 8)}…`);
+        return res.json({ success: true, submissionId: result.submissionId, contentType: mimeType, size: fileBuffer.length });
+      } catch (err: any) {
+        console.error("[evidence-submit]", err);
+        return res.status(500).json({ error: "Service error" });
+      }
+    }
+  );
+
+  // ── Public SLA Extension Response (no auth required) ─────────────────────
+  // REST mirror of slaExtension.getByToken — used by client/src/pages/SlaExtensionResponse.tsx
+  app.get("/api/sla-extension/:token", async (req, res) => {
+    try {
+      const token = req.params.token;
+      if (!/^[a-f0-9]{64}$/i.test(token)) {
+        return res.status(404).json({ valid: false, error: "Invalid link" });
+      }
+      const db = await getDb();
+      if (!db) return res.status(503).json({ valid: false, error: "DB unavailable" });
+
+      const [ext] = await db
+        .select()
+        .from(escrowSlaExtensions)
+        .where(eq(escrowSlaExtensions.buyerToken, token))
+        .limit(1);
+      if (!ext) return res.status(404).json({ valid: false, error: "Extension request not found" });
+
+      // Lazily expire pending requests past their expiry
+      if (ext.status === "pending" && new Date() > ext.expiresAt) {
+        await db.update(escrowSlaExtensions)
+          .set({ status: "expired" })
+          .where(eq(escrowSlaExtensions.id, ext.id));
+        return res.status(410).json({ valid: false, expired: true, error: "This extension request has expired" });
+      }
+      if (ext.status === "expired") {
+        return res.status(410).json({ valid: false, expired: true, error: "This extension request has expired" });
+      }
+      if (ext.status !== "pending") {
+        return res.status(409).json({ valid: false, alreadyResponded: true, error: `Request already ${ext.status}` });
+      }
+
+      const [escrow] = await db
+        .select({
+          orderId: escrowTransactions.orderId,
+          amount: escrowTransactions.amount,
+          state: escrowTransactions.state,
+          buyerConfirmDeadline: escrowTransactions.buyerConfirmDeadline,
+        })
+        .from(escrowTransactions)
+        .where(eq(escrowTransactions.id, ext.escrowId))
+        .limit(1);
+      const [merchant] = await db
+        .select({ name: tenants.name })
+        .from(tenants)
+        .where(eq(tenants.id, ext.requestedByTenantId))
+        .limit(1)
+        .catch(() => [null as any]);
+
+      return res.json({
+        valid: true,
+        extension: {
+          id: ext.id,
+          escrowId: ext.escrowId,
+          extensionHours: ext.extensionHours,
+          reason: ext.reason,
+          status: ext.status,
+          requestedAt: ext.requestedAt?.toISOString?.() ?? ext.requestedAt,
+          expiresAt: ext.expiresAt?.toISOString?.() ?? ext.expiresAt,
+          merchantName: (merchant as any)?.name ?? null,
+          orderId: escrow?.orderId ?? null,
+          orderAmount: escrow?.amount ?? null,
+          currentDeadline: escrow?.buyerConfirmDeadline?.toISOString?.() ?? escrow?.buyerConfirmDeadline ?? null,
+          newDeadline: ext.newDeadline?.toISOString?.() ?? ext.newDeadline ?? null,
+        },
+      });
+    } catch (err: any) {
+      console.error("[sla-extension-get]", err);
+      return res.status(500).json({ valid: false, error: "Service error" });
+    }
+  });
+
+  // REST mirror of slaExtension.respondToExtension — buyer approves/rejects
+  app.post("/api/sla-extension/:token", express.json(), async (req, res) => {
+    try {
+      const token = req.params.token;
+      if (!/^[a-f0-9]{64}$/i.test(token)) {
+        return res.status(404).json({ error: "Extension request not found" });
+      }
+      const rawAction = (req.body?.action ?? req.body?.decision) as string | undefined;
+      const decision = rawAction === "approve" ? "approved" : rawAction === "reject" ? "rejected" : rawAction;
+      if (decision !== "approved" && decision !== "rejected") {
+        return res.status(400).json({ error: "action must be 'approve' or 'reject'" });
+      }
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+
+      const [ext] = await db
+        .select()
+        .from(escrowSlaExtensions)
+        .where(eq(escrowSlaExtensions.buyerToken, token))
+        .limit(1);
+      if (!ext) return res.status(404).json({ error: "Extension request not found" });
+      if (ext.status !== "pending") return res.status(400).json({ error: `Request already ${ext.status}` });
+      if (new Date() > ext.expiresAt) {
+        await db.update(escrowSlaExtensions)
+          .set({ status: "expired" })
+          .where(eq(escrowSlaExtensions.id, ext.id));
+        return res.status(400).json({ error: "This request has expired" });
+      }
+
+      const now = new Date();
+      let newDeadline: Date | null = null;
+      if (decision === "approved") {
+        const [escrow] = await db
+          .select({ buyerConfirmDeadline: escrowTransactions.buyerConfirmDeadline })
+          .from(escrowTransactions)
+          .where(eq(escrowTransactions.id, ext.escrowId))
+          .limit(1);
+        const currentDeadline = escrow?.buyerConfirmDeadline ?? now;
+        newDeadline = new Date(currentDeadline.getTime() + ext.extensionHours * 60 * 60 * 1000);
+        await db.update(escrowTransactions)
+          .set({ buyerConfirmDeadline: newDeadline, updatedAt: now })
+          .where(eq(escrowTransactions.id, ext.escrowId));
+      }
+
+      await db.update(escrowSlaExtensions)
+        .set({ status: decision, respondedAt: now, newDeadline })
+        .where(eq(escrowSlaExtensions.id, ext.id));
+
+      // Notify merchant of buyer's decision (same as slaExtension.respondToExtension)
+      const { emitNotification } = await import("../routers/notifications");
+      await emitNotification({
+        tenantId: ext.requestedByTenantId,
+        type: "system",
+        title: decision === "approved" ? "SLA Extension Approved" : "SLA Extension Rejected",
+        body: decision === "approved"
+          ? `Buyer approved your ${ext.extensionHours}-hour extension. New deadline: ${newDeadline?.toLocaleString()}`
+          : "Buyer rejected your SLA extension request. Original deadline still applies.",
+        metadata: { escrowId: ext.escrowId, extensionId: ext.id },
+      }).catch(() => {});
+
+      return res.json({
+        success: true,
+        decision,
+        newDeadline: newDeadline?.toISOString() ?? null,
+        message: decision === "approved"
+          ? `Extension approved. Delivery deadline extended by ${ext.extensionHours} hours.`
+          : "Extension rejected. The original delivery deadline remains.",
+      });
+    } catch (err: any) {
+      console.error("[sla-extension-respond]", err);
+      return res.status(500).json({ error: "Service error" });
+    }
+  });
+
+  // ── Internal platform events (fluvio-consumer → platform bridge) ─────────
+  // services/fluvio-consumer POSTs batches of Fluvio stream events here.
+  // Auth: shared secret header X-Internal-Api-Key (X-API-Key also accepted)
+  // matching INTERNAL_API_KEY. Fails closed when the secret is unset outside dev.
+  app.post("/api/internal/events", express.json({ limit: "5mb" }), async (req, res) => {
+    try {
+      const configuredSecret = process.env.INTERNAL_API_KEY ?? "";
+      const presented =
+        (req.headers["x-internal-api-key"] as string) ??
+        (req.headers["x-api-key"] as string) ??
+        "";
+      if (!configuredSecret) {
+        if (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") {
+          console.error("[internal-events] INTERNAL_API_KEY is not configured — refusing request (fail closed)");
+          return res.status(503).json({ error: "internal-api-not-configured" });
+        }
+        console.warn("[internal-events] INTERNAL_API_KEY unset — allowing request (non-production mode)");
+      } else if (presented !== configuredSecret) {
+        return res.status(401).json({ error: "invalid-internal-api-key" });
+      }
+
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+
+      // Accept both a batch { events: [...] } (fluvio-consumer ForwardBatch)
+      // and a single event object matching infra.recordFluvioEvent's shape.
+      const body = req.body ?? {};
+      const events: any[] = Array.isArray(body.events) ? body.events : [body];
+      let recorded = 0;
+      for (const evt of events) {
+        if (!evt || typeof evt.topic !== "string" || typeof evt.offset !== "number") continue;
+        await db.insert(fluvioEventLog).values({
+          topic: evt.topic,
+          offset: evt.offset,
+          partition: typeof evt.partition === "number" ? evt.partition : 0,
+          tenantId: typeof evt.tenantId === "string" ? evt.tenantId : (typeof evt.tenant_id === "string" ? evt.tenant_id : null),
+          eventType: typeof evt.eventType === "string" ? evt.eventType : (typeof evt.event_type === "string" ? evt.event_type : null),
+          payload: (evt.payload ?? {}) as Record<string, unknown>,
+          processed: false,
+          receivedAt: new Date(),
+        });
+        recorded++;
+      }
+      return res.json({ ok: true, recorded, received: events.length });
+    } catch (err: any) {
+      console.error("[internal-events]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── GET /api/scheduled/generate-invoices ──────────────────────────────────
+  // Generates due monthly subscription invoices for active tenants that do not
+  // yet have one for the current billing period. Same insert logic as
+  // server/routers/invoice.ts `generate` (subscription branch).
+  // After deploy: manus-heartbeat create --name generate-invoices --cron "0 0 1 1 * *" --path /api/scheduled/generate-invoices
+  app.get("/api/scheduled/generate-invoices", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+
+      // Monthly fees per plan (mirrors BILLING_PLANS subscription tiers in onboarding.ts)
+      const PLAN_MONTHLY_FEES: Record<string, number> = { starter: 49, growth: 149, enterprise: 499 };
+      const now = new Date();
+      const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const dueDate = new Date(now.getTime() + 14 * 86400000); // 14 days
+
+      const activeTenants = await db.select().from(tenants).where(eq(tenants.status, "active"));
+      let generated = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+      for (const tenant of activeTenants) {
+        try {
+          // Skip tenants already invoiced for this period
+          const [existing] = await db.select({ id: invoices.id }).from(invoices)
+            .where(and(
+              eq(invoices.tenantId, tenant.id),
+              eq(invoices.type, "subscription"),
+              gte(invoices.periodStart, periodStart),
+              lte(invoices.periodStart, periodEnd),
+            ))
+            .limit(1);
+          if (existing) { skipped++; continue; }
+
+          const currency = tenant.defaultCurrency ?? "NGN";
+          const subscriptionFee = PLAN_MONTHLY_FEES[tenant.plan] ?? 0;
+          const invoiceNumber = `INV-${tenant.id.slice(0, 6).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`;
+          await db.insert(invoices).values({
+            id: crypto.randomUUID(),
+            tenantId: tenant.id,
+            invoiceNumber,
+            type: "subscription",
+            status: "draft",
+            periodStart,
+            periodEnd,
+            subtotal: subscriptionFee.toFixed(2),
+            commissionAmount: "0.00",
+            subscriptionFee: subscriptionFee.toFixed(2),
+            totalAmount: subscriptionFee.toFixed(2),
+            currency,
+            lineItems: [{ description: `Monthly subscription fee (${tenant.plan})`, amount: subscriptionFee, currency }],
+            dueDate,
+            createdAt: now,
+            updatedAt: now,
+          });
+          generated++;
+        } catch (tenantErr: any) {
+          console.error(`[generate-invoices] tenant ${tenant.id}:`, tenantErr?.message);
+          errors.push(tenant.id);
+        }
+      }
+      return res.json({ ok: true, generated, skipped, errors, periodStart, periodEnd });
+    } catch (err: any) {
+      console.error("[generate-invoices]", err);
+      return res.status(500).json({ error: err?.message });
     }
   });
 
@@ -1975,18 +2296,18 @@ function drawBbox(img,id){
       const mlStackUrl = process.env.ML_STACK_URL ?? "http://localhost:8099";
 
       // 1. Try FastAPI inference server (CPU-optimized PyTorch/ONNX models)
+      // The ML stack exposes POST /predict (services/ml-stack/inference/server.py)
+      // with payload: { amount, num_items, has_phone, has_customer, tenant_id, ... }
       try {
-        const inferRes = await fetch(`${mlStackUrl}/predict/fraud`, {
+        const inferRes = await fetch(`${mlStackUrl}/predict`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tenant_id: tenantId,
+            tenant_id: tenantId ?? null,
             amount: totalAmount,
             num_items: numItems,
             has_phone: !!phone,
             has_customer: !!customerId,
-            phone_length: phone ? String(phone).length : 0,
-            text: text ?? "",
           }),
           signal: AbortSignal.timeout(5000),
         });
@@ -1994,19 +2315,23 @@ function drawBbox(img,id){
           const result = await inferRes.json() as {
             fraud_probability: number;
             credit_score: number;
+            credit_grade?: string;
             risk_level: string;
-            model_version?: string;
+            source?: string;
+            duration_ms?: number;
           };
           return res.json({
             fraudProbability: result.fraud_probability,
             creditScore: result.credit_score,
+            creditGrade: result.credit_grade,
             riskLevel: result.risk_level,
-            modelVersion: result.model_version,
-            source: "ml_inference_server",
+            modelVersion: result.source,
+            source: "ml-stack",
           });
         }
+        console.warn(`[ML] FastAPI inference server returned ${inferRes.status}, using fallback heuristic`);
       } catch (inferErr: any) {
-        console.warn("[ML] FastAPI inference server unavailable, using statistical model:", inferErr?.message);
+        console.warn("[ML] FastAPI inference server unavailable, using fallback heuristic:", inferErr?.message);
       }
 
       // 2. Statistical fallback — calibrated against Nigerian e-commerce fraud patterns
@@ -2022,7 +2347,7 @@ function drawBbox(img,id){
       const fraudProbability = Math.min(0.99, Math.max(0.01, riskScore));
       const creditScore = Math.round(850 - fraudProbability * 550);
       const riskLevel = fraudProbability > 0.7 ? "high" : fraudProbability > 0.4 ? "medium" : "low";
-      res.json({ fraudProbability, creditScore, riskLevel, source: "statistical_model" });
+      res.json({ fraudProbability, creditScore, riskLevel, source: "fallback-heuristic" });
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -2085,6 +2410,22 @@ function drawBbox(img,id){
   } else {
     serveStatic(app);
   }
+
+  // ── Global error-handling middleware (must be registered last) ────────────
+  // Catches any error thrown/next(err)'d from route handlers and returns a
+  // structured JSON 500 instead of Express' default HTML error page.
+  app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error(`[express-error] ${req.method} ${req.path}:`, err);
+    if (res.headersSent) return;
+    const status = typeof err?.status === "number" && err.status >= 400 && err.status < 600 ? err.status : 500;
+    res.status(status).json({
+      error: {
+        code: status,
+        message: status === 500 ? "Internal server error" : String(err?.message ?? "Request failed"),
+        path: req.path,
+      },
+    });
+  });
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
