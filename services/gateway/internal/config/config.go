@@ -16,6 +16,7 @@ NotificationService      string
 AIAgent                  string
 Gateway                  string
 MLStack                  string
+Platform                 string
 }
 
 type Config struct {
@@ -107,6 +108,7 @@ NotificationService:      getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8
 AIAgent:                  getEnv("AI_AGENT_URL", "http://localhost:8090"),
 Gateway:                  getEnv("GATEWAY_SELF_URL", "http://localhost:8080"),
 MLStack:                  getEnv("ML_STACK_URL", "http://localhost:8099"),
+Platform:                 getEnv("PLATFORM_URL", platformURL),
 },
 Redis: RedisConfig{
 Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
