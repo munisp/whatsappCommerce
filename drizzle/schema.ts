@@ -52,7 +52,10 @@ export const users = pgTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, (t) => [
+  index("users_phone_idx").on(t.phone),
+  index("users_tenant_idx").on(t.tenantId),
+]);
 
 // ─── Tenants ──────────────────────────────────────────────────────────────────
 export const tenants = pgTable("tenants", {
@@ -821,7 +824,11 @@ export const cartSessions = pgTable("cart_sessions", {
   expiresAt: timestamp("expiresAt").notNull().$defaultFn(() => new Date(Date.now() + 86400000)),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
-});
+}, (t) => [
+  index("cart_sessions_tenant_idx").on(t.tenantId),
+  index("cart_sessions_phone_idx").on(t.waPhoneNumber),
+  index("cart_sessions_customer_idx").on(t.customerId),
+]);
 
 export const cartItems = pgTable("cart_items", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -832,7 +839,9 @@ export const cartItems = pgTable("cart_items", {
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
-});
+}, (t) => [
+  index("cart_items_session_idx").on(t.cartSessionId),
+]);
 
 // ── Refunds ───────────────────────────────────────────────────────────────────
 export const refundStatusEnum = pgEnum("refund_status", ["pending", "approved", "rejected", "processed"]);
@@ -847,7 +856,11 @@ export const refunds = pgTable("refunds", {
   processedAt: timestamp("processedAt"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
-});
+}, (t) => [
+  index("refunds_order_idx").on(t.orderId),
+  index("refunds_tenant_idx").on(t.tenantId),
+  index("refunds_status_idx").on(t.status),
+]);
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
 export const invoiceTypeEnum = pgEnum("invoice_type", ["subscription", "profit_share", "one_time"]);
@@ -873,7 +886,10 @@ export const invoices = pgTable("invoices", {
   lineItems: jsonb("lineItems").notNull().default([]),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
-});
+}, (t) => [
+  index("invoices_tenant_idx").on(t.tenantId),
+  index("invoices_status_idx").on(t.status),
+]);
 
 // ── NLP sessions (WhatsApp buyer conversations) ───────────────────────────────
 export const nlpSessions = pgTable("nlp_sessions", {
@@ -888,7 +904,10 @@ export const nlpSessions = pgTable("nlp_sessions", {
   cartSessionId: varchar("cartSessionId", { length: 36 }).references(() => cartSessions.id),
   lastActivityAt: timestamp("lastActivityAt").notNull().defaultNow(),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
-});
+}, (t) => [
+  index("nlp_sessions_tenant_idx").on(t.tenantId),
+  index("nlp_sessions_phone_idx").on(t.waPhoneNumber),
+]);
 // ── WhatsApp Media Files ──────────────────────────────────────────────────────
 export const whatsappMediaFiles = pgTable("whatsapp_media_files", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -918,7 +937,10 @@ export const orderItems = pgTable("order_items", {
   quantity: integer("quantity").notNull().default(1),
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
-});
+}, (t) => [
+  index("order_items_order_idx").on(t.orderId),
+  index("order_items_product_idx").on(t.productId),
+]);
 
 // ── Type exports ──────────────────────────────────────────────────────────────
 export type CartSession = typeof cartSessions.$inferSelect;
@@ -1560,7 +1582,10 @@ export const wholesalePriceTiers = pgTable("wholesale_price_tiers", {
   paymentTermsDays: integer("paymentTermsDays").default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("wholesale_tiers_product_idx").on(t.productId),
+  index("wholesale_tiers_tenant_idx").on(t.tenantId),
+]);
 
 export const b2bRfq = pgTable("b2b_rfq", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1578,7 +1603,11 @@ export const b2bRfq = pgTable("b2b_rfq", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("b2b_rfq_tenant_idx").on(t.tenantId),
+  index("b2b_rfq_status_idx").on(t.status),
+  index("b2b_rfq_buyer_phone_idx").on(t.buyerPhone),
+]);
 
 export const b2bPurchaseOrders = pgTable("b2b_purchase_orders", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1600,7 +1629,10 @@ export const b2bPurchaseOrders = pgTable("b2b_purchase_orders", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("b2b_po_tenant_idx").on(t.tenantId),
+  index("b2b_po_status_idx").on(t.status),
+]);
 
 // ── Multi-Channel ─────────────────────────────────────────────────────────────
 export const channelEnum = pgEnum("channel", ["whatsapp", "ussd", "sms", "telegram", "instagram", "email"]);
@@ -1619,7 +1651,9 @@ export const ussdSessions = pgTable("ussd_sessions", {
   lastResponse: text("lastResponse"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("ussd_sessions_phone_idx").on(t.phoneNumber),
+]);
 
 export const channelMessages = pgTable("channel_messages", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1633,7 +1667,11 @@ export const channelMessages = pgTable("channel_messages", {
   processed: boolean("processed").default(false).notNull(),
   nlpResponse: text("nlpResponse"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("channel_messages_tenant_idx").on(t.tenantId),
+  index("channel_messages_channel_idx").on(t.channel),
+  index("channel_messages_created_idx").on(t.createdAt),
+]);
 
 // ── Marketplace ───────────────────────────────────────────────────────────────
 export const sellerStatusEnum = pgEnum("seller_status", ["pending", "active", "suspended", "rejected"]);
@@ -1654,7 +1692,11 @@ export const marketplaceSellers = pgTable("marketplace_sellers", {
   totalCommission: varchar("totalCommission", { length: 20 }).default("0.00"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("marketplace_sellers_tenant_idx").on(t.tenantId),
+  index("marketplace_sellers_status_idx").on(t.status),
+  index("marketplace_sellers_owner_phone_idx").on(t.ownerPhone),
+]);
 
 export const sellerProducts = pgTable("seller_products", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1670,7 +1712,10 @@ export const sellerProducts = pgTable("seller_products", {
   isApproved: boolean("isApproved").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("seller_products_seller_idx").on(t.sellerId),
+  index("seller_products_tenant_idx").on(t.tenantId),
+]);
 
 export const marketplaceCommissions = pgTable("marketplace_commissions", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1683,7 +1728,11 @@ export const marketplaceCommissions = pgTable("marketplace_commissions", {
   status: varchar("status", { length: 20 }).notNull().default("pending"),
   settledAt: timestamp("settledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("marketplace_commissions_seller_idx").on(t.sellerId),
+  index("marketplace_commissions_order_idx").on(t.orderId),
+  index("marketplace_commissions_status_idx").on(t.status),
+]);
 
 // ── Cross-Border / Mobile Money ───────────────────────────────────────────────
 export const momoProviderEnum = pgEnum("momo_provider", ["mtn_momo", "airtel_money", "mpesa", "orange_money", "wave"]);
@@ -1704,7 +1753,12 @@ export const mobileMoneyTransactions = pgTable("mobile_money_transactions", {
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("mobile_money_tenant_idx").on(t.tenantId),
+  index("mobile_money_status_idx").on(t.status),
+  index("mobile_money_extref_idx").on(t.externalRef),
+  index("mobile_money_order_idx").on(t.orderId),
+]);
 
 export const forexRates = pgTable("forex_rates", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1751,7 +1805,11 @@ export const appointments = pgTable("appointments", {
   paymentStatus: varchar("paymentStatus", { length: 20 }).default("unpaid"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("appointments_tenant_idx").on(t.tenantId),
+  index("appointments_status_idx").on(t.status),
+  index("appointments_customer_phone_idx").on(t.customerPhone),
+]);
 
 export const digitalProducts = pgTable("digital_products", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1777,7 +1835,10 @@ export const digitalProductPurchases = pgTable("digital_product_purchases", {
   downloadsUsed: integer("downloadsUsed").default(0).notNull(),
   expiresAt: timestamp("expiresAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("dpp_product_idx").on(t.productId),
+  index("dpp_customer_phone_idx").on(t.customerPhone),
+]);
 
 export const subscriptions = pgTable("subscriptions", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -1794,7 +1855,10 @@ export const subscriptions = pgTable("subscriptions", {
   cancelledAt: timestamp("cancelledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("subscriptions_tenant_idx").on(t.tenantId),
+  index("subscriptions_status_idx").on(t.status),
+]);
 
 // ── Analytics BI ──────────────────────────────────────────────────────────────
 export const cohortSnapshots = pgTable("cohort_snapshots", {
@@ -2284,7 +2348,9 @@ export const hermesConfigs = pgTable("hermes_configs", {
   tourCompleted: boolean("tourCompleted").default(false).notNull(),
   createdAt: integer("createdAt").notNull(),
   updatedAt: integer("updatedAt").notNull(),
-});
+}, (t) => [
+  index("hermes_configs_tenant_idx").on(t.tenantId),
+]);
 export type HermesConfig = typeof hermesConfigs.$inferSelect;
 
 export const hermesEventLog = pgTable("hermes_event_log", {
@@ -2471,6 +2537,7 @@ export const temporalWorkflowRuns = pgTable("temporal_workflow_runs", {
   index("temporal_runs_type_idx").on(t.workflowType),
   index("temporal_runs_status_idx").on(t.status),
   index("temporal_runs_started_idx").on(t.startedAt),
+  index("temporal_runs_run_id_idx").on(t.runId),
 ]);
 export type TemporalWorkflowRun = typeof temporalWorkflowRuns.$inferSelect;
 
