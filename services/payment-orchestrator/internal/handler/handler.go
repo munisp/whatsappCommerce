@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -292,4 +293,3 @@ func mustUUID(s string) uuid.UUID {
 	id, _ := uuid.Parse(s)
 	return id
 }
-
