@@ -131,20 +131,28 @@ async fn reserve(
         }
         Ok(resp) => {
             let status = resp.status().as_u16();
-            warn!("ledger.reserve tb_error status={}", status);
-            // Return a synthetic pending_id so the payment can continue
-            // (TigerBeetle is best-effort in this integration)
-            Ok(Json(ReserveResponse {
-                pending_id,
-                status: format!("tb_error_{}", status),
-            }))
+            let body = resp.text().await.unwrap_or_default();
+            warn!("ledger.reserve tb_error status={} body={}", status, body);
+            // Propagate the failure — never fabricate a pending_id the ledger
+            // does not know about.
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "ledger_rejected",
+                    "tb_status": status,
+                    "detail": body,
+                })),
+            ))
         }
         Err(e) => {
             warn!("ledger.reserve unreachable: {}", e);
-            Ok(Json(ReserveResponse {
-                pending_id,
-                status: "tb_unreachable".to_string(),
-            }))
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "ledger_unavailable",
+                    "detail": e.to_string(),
+                })),
+            ))
         }
     }
 }
@@ -171,12 +179,27 @@ async fn commit(
             Ok(Json(serde_json::json!({"status": "committed", "pending_id": req.pending_id})))
         }
         Ok(resp) => {
-            warn!("ledger.commit tb_error status={}", resp.status());
-            Ok(Json(serde_json::json!({"status": "tb_error", "pending_id": req.pending_id})))
+            let status = resp.status().as_u16();
+            warn!("ledger.commit tb_error status={}", status);
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "ledger_rejected",
+                    "tb_status": status,
+                    "pending_id": req.pending_id,
+                })),
+            ))
         }
         Err(e) => {
             warn!("ledger.commit unreachable: {}", e);
-            Ok(Json(serde_json::json!({"status": "tb_unreachable", "pending_id": req.pending_id})))
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "ledger_unavailable",
+                    "pending_id": req.pending_id,
+                    "detail": e.to_string(),
+                })),
+            ))
         }
     }
 }
@@ -198,13 +221,32 @@ async fn void_transfer(
         .send()
         .await
     {
-        Ok(_) => {
+        Ok(resp) if resp.status().is_success() => {
             info!("ledger.void ok pending_id={}", req.pending_id);
             Ok(Json(serde_json::json!({"status": "voided", "pending_id": req.pending_id})))
         }
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            warn!("ledger.void tb_error status={}", status);
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "ledger_rejected",
+                    "tb_status": status,
+                    "pending_id": req.pending_id,
+                })),
+            ))
+        }
         Err(e) => {
             warn!("ledger.void unreachable: {}", e);
-            Ok(Json(serde_json::json!({"status": "tb_unreachable", "pending_id": req.pending_id})))
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "ledger_unavailable",
+                    "pending_id": req.pending_id,
+                    "detail": e.to_string(),
+                })),
+            ))
         }
     }
 }
@@ -234,15 +276,29 @@ async fn transfer(
         .send()
         .await
     {
-        Ok(_) => Ok(Json(TransferResponse {
+        Ok(resp) if resp.status().is_success() => Ok(Json(TransferResponse {
             transfer_id,
             status: "posted".to_string(),
         })),
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            error!("ledger.transfer tb_error status={}", status);
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "ledger_rejected",
+                    "tb_status": status,
+                })),
+            ))
+        }
         Err(e) => {
             error!("ledger.transfer failed: {}", e);
             Err((
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({"error": "ledger_unavailable"})),
+                Json(serde_json::json!({
+                    "error": "ledger_unavailable",
+                    "detail": e.to_string(),
+                })),
             ))
         }
     }
@@ -271,10 +327,27 @@ async fn account_balance(
                 currency: data["currency"].as_str().unwrap_or("USD").to_string(),
             }))
         }
-        _ => Err((
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "account_not_found"})),
-        )),
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            warn!("ledger.account_balance tb_error status={}", status);
+            Err((
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({
+                    "error": "ledger_rejected",
+                    "tb_status": status,
+                })),
+            ))
+        }
+        Err(e) => {
+            warn!("ledger.account_balance unreachable: {}", e);
+            Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "ledger_unavailable",
+                    "detail": e.to_string(),
+                })),
+            ))
+        }
     }
 }
 
