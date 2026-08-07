@@ -91,7 +91,10 @@ async function fetchOdooStockQuants(
         },
       }),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`Odoo stock fetch failed (${res.status}): ${body.slice(0, 300)}`);
+    }
     const data = await res.json() as { result?: Array<{ product_id: [number, string]; quantity: number; reserved_quantity: number; location_id: [number, string] }> };
     return (data.result ?? []).map(q => ({
       odooProductId: String(q.product_id[0]),
@@ -101,8 +104,9 @@ async function fetchOdooStockQuants(
       reservedQty: q.reserved_quantity ?? 0,
       warehouse: q.location_id[1] ?? "default",
     }));
-  } catch {
-    return [];
+  } catch (err: any) {
+    console.error("[OdooMedusaBridge] fetchOdooStockQuants failed:", err?.message ?? err);
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -119,7 +123,10 @@ async function updateMedusaInventoryLevel(
     const levelsRes = await fetch(`${base}/admin/inventory-items/${inventoryItemId}/location-levels`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
-    if (!levelsRes.ok) return false;
+    if (!levelsRes.ok) {
+      const body = await levelsRes.text().catch(() => "");
+      throw new Error(`Medusa location-levels fetch failed (${levelsRes.status}): ${body.slice(0, 300)}`);
+    }
     const { inventory_levels } = await levelsRes.json() as { inventory_levels?: Array<{ id: string; location_id: string }> };
     const locationId = inventory_levels?.[0]?.location_id ?? "default";
 
@@ -132,9 +139,14 @@ async function updateMedusaInventoryLevel(
         body: JSON.stringify({ stocked_quantity: stockedQty }),
       },
     );
-    return updateRes.ok;
-  } catch {
-    return false;
+    if (!updateRes.ok) {
+      const body = await updateRes.text().catch(() => "");
+      throw new Error(`Medusa stock update failed (${updateRes.status}): ${body.slice(0, 300)}`);
+    }
+    return true;
+  } catch (err: any) {
+    console.error("[OdooMedusaBridge] updateMedusaInventoryLevel failed:", err?.message ?? err);
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
@@ -289,38 +301,36 @@ export const odooMedusaBridgeRouter = router({
             .where(eq(odooMedusaInventoryBridge.id, mapping.id));
           if (ok) synced++; else failed++;
         } else {
-          // Simulation: mark synced with Odoo qty
+          // No Medusa mapping/config: record the real Odoo stock but keep the
+          // mapping pending — it has NOT been pushed to Medusa.
           await db.update(odooMedusaInventoryBridge)
             .set({
               medusaStockableQty: availableQty,
-              syncStatus: "synced",
-              lastSyncedAt: new Date(),
+              syncStatus: "pending",
               updatedAt: new Date(),
             })
             .where(eq(odooMedusaInventoryBridge.id, mapping.id));
-          synced++;
         }
       }
     } else {
-      // Simulation mode: generate mock stock levels
-      for (const mapping of mappings) {
-        const mockQty = Math.floor(Math.random() * 100) + 10;
-        await db.update(odooMedusaInventoryBridge)
-          .set({
-            odooStockQty: String(mockQty),
-            odooReservedQty: "0",
-            medusaStockableQty: mockQty,
-            syncStatus: "synced",
-            lastSyncedAt: new Date(),
-            lastOdooUpdate: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(odooMedusaInventoryBridge.id, mapping.id));
-        synced++;
-      }
+      // Odoo is unreachable or unconfigured: return a structured error status
+      // and DO NOT write any inventory quantities to the database.
+      const reason = !odooConfig
+        ? "Odoo integration is not configured for this tenant"
+        : odooConfig.status !== "active"
+          ? `Odoo integration status is '${odooConfig.status}' (expected 'active')`
+          : "Odoo integration is missing baseUrl or apiKey";
+      console.warn(`[OdooMedusaBridge] syncOdooToMedusa aborted: ${reason}`);
+      return {
+        synced: 0,
+        failed: 0,
+        total: mappings.length,
+        status: "odoo_unavailable" as const,
+        error: reason,
+      };
     }
 
-    return { synced, failed, total: mappings.length };
+    return { synced, failed, total: mappings.length, status: "ok" as const, error: null };
   }),
 
   /** Return a log of the last N sync events (derived from bridge records with lastSyncedAt) */

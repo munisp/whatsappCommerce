@@ -6,8 +6,9 @@ import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { orders, orderItems, refunds, inventorySnapshots, paymentIntents } from "../../drizzle/schema";
+import { orders, orderItems, refunds, inventorySnapshots, paymentIntents, customers } from "../../drizzle/schema";
 import { sendOrderNotificationWithLog, type OrderNotifType } from "./whatsappNotifications";
+import { startOrderFulfillmentWorkflow } from "../temporal";
 
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
@@ -82,7 +83,22 @@ export const orderCrudRouter = router({
         });
       }
 
-      return { orderId, orderNumber, total };
+      // Start the Temporal order-fulfillment workflow. startWorkflow already
+      // falls back to a DB-only record when Temporal is unavailable, so this
+      // never blocks or fails order creation.
+      const [customer] = await db.select({ whatsappPhone: customers.whatsappPhone })
+        .from(customers)
+        .where(and(eq(customers.id, input.customerId), eq(customers.tenantId, input.tenantId)))
+        .limit(1);
+      startOrderFulfillmentWorkflow({
+        orderId,
+        tenantId: input.tenantId,
+        customerId: input.customerId,
+        items: input.items.map((i) => ({ productId: i.productId, quantity: i.quantity, price: i.unitPrice })),
+        totalAmount: total,
+        waPhoneNumber: customer?.whatsappPhone ?? "",
+      }).catch((e: unknown) => console.warn("[orderCrud] OrderFulfillmentWorkflow start failed:", (e as Error)?.message));
+
       // Publish order.created event to Kafka and Dapr (fire-and-forget)
       const orderEvent = {
         eventType: "order.created",
@@ -96,6 +112,8 @@ export const orderCrudRouter = router({
       };
       publishOrderEvent(orderId, input.tenantId, "created", { orderNumber, total, currency: input.currency }).catch(() => {});
       daprPublish("wacommerce-pubsub", "wacommerce.orders.created", orderEvent).catch(() => {});
+
+      return { orderId, orderNumber, total };
     }),
 
   /** Update order status */

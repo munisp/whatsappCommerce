@@ -18,7 +18,7 @@ import { TRPCError } from "@trpc/server";
 import { randomUUID } from "crypto";
 import { paymentIntents } from "../../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { publishDaprEvent } from "../dapr";
+import { publishPaymentEvent as publishPaymentDaprEvent, daprPublish } from "../dapr";
 import { getRedis } from "../redis";
 
 // ── TigerBeetle ledger helper ─────────────────────────────────────────────────
@@ -70,8 +70,8 @@ async function triggerPaymentSaga(workflowId: string, input: {
 }) {
   try {
     const { Client, Connection } = await import("@temporalio/client");
-    const connection = await Connection.connect({ address: ENV.temporalAddress ?? "temporal:7233" });
-    const client = new Client({ connection, namespace: ENV.temporalNamespace ?? "default" });
+    const connection = await Connection.connect({ address: process.env.TEMPORAL_ADDRESS ?? "temporal:7233" });
+    const client = new Client({ connection, namespace: process.env.TEMPORAL_NAMESPACE ?? "default" });
     await client.workflow.start("paymentSagaWorkflow", {
       taskQueue: "commerce-engine",
       workflowId,
@@ -89,7 +89,7 @@ async function triggerPaymentSaga(workflowId: string, input: {
 
 async function publishPaymentEvent(topic: string, payload: Record<string, unknown>) {
   try {
-    const res = await fetch(`${ENV.fluvioHttpGateway ?? "http://fluvio-consumer:8098"}/produce`, {
+    const res = await fetch(`${ENV.fluvioConsumerUrl}/produce`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ topic, payload }),
@@ -157,11 +157,14 @@ export const paymentRouter = router({
           amount: String(input.amount),
           currency: input.currency,
           provider: input.provider,
-          reference,
+          providerPaymentId: reference,
+          idempotencyKey,
           status: "pending",
-          customerPhone: input.customerPhone,
-          customerId: input.customerId ?? null,
-          metadata: input.metadata ?? {},
+          // customerId is NOT NULL in the schema; fall back to the phone number
+          // for guest/WhatsApp checkouts that have no customer record yet.
+          customerId: input.customerId ?? input.customerPhone,
+          // customerPhone has no dedicated column — persisted in jsonb metadata.
+          metadata: { ...(input.metadata ?? {}), customerPhone: input.customerPhone },
           createdAt: new Date(),
           updatedAt: new Date(),
         });
@@ -219,8 +222,8 @@ export const paymentRouter = router({
           providerResponse = psData.data as Record<string, unknown>;
 
         } else if (input.provider === "flutterwave") {
-          const fwKey = ENV.flutterwaveSecretKey;
-          if (!fwKey) throw new Error("FLUTTERWAVE_SECRET_KEY not configured");
+          const fwKey = ENV.flwSecretKey;
+          if (!fwKey) throw new Error("FLW_SECRET_KEY not configured");
           const fwRes = await fetch("https://api.flutterwave.com/v3/payments", {
             method: "POST",
             headers: { Authorization: `Bearer ${fwKey}`, "Content-Type": "application/json" },
@@ -244,9 +247,19 @@ export const paymentRouter = router({
           providerResponse = { mojaloop: true, transferId: paymentIntentId };
         }
 
-        // Step 6: Update DB with payment URL
+        // Step 6: Update DB with payment URL (stored in jsonb metadata —
+        // payment_intents has no paymentUrl / providerResponse columns)
         await database.update(paymentIntents)
-          .set({ status: "initiated", paymentUrl: paymentUrl ?? undefined, providerResponse, updatedAt: new Date() })
+          .set({
+            status: "initiated",
+            metadata: {
+              ...(input.metadata ?? {}),
+              customerPhone: input.customerPhone,
+              paymentUrl,
+              providerResponse,
+            },
+            updatedAt: new Date(),
+          })
           .where(eq(paymentIntents.id, paymentIntentId));
 
         // Step 7: Publish events
@@ -255,7 +268,7 @@ export const paymentRouter = router({
           amount: input.amount, currency: input.currency, provider: input.provider,
           reference, tbDebitOk, sagaStarted: sagaResult.started, timestamp: new Date().toISOString(),
         });
-        await publishDaprEvent("payment-events", "payment.initiated", {
+        await publishPaymentDaprEvent("payment.initiated", {
           paymentIntentId, tenantId: input.tenantId, amount: input.amount, currency: input.currency,
         });
 
@@ -266,7 +279,7 @@ export const paymentRouter = router({
         // Compensation: mark payment as failed
         try {
           await database.update(paymentIntents)
-            .set({ status: "failed", updatedAt: new Date() })
+            .set({ status: "failed", failureReason: err.message, updatedAt: new Date() })
             .where(eq(paymentIntents.id, paymentIntentId));
         } catch { /* best effort */ }
         await releaseIdempotencyLock(idempotencyKey);
@@ -289,7 +302,7 @@ export const paymentRouter = router({
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
       const [intent] = await database.select().from(paymentIntents)
-        .where(eq(paymentIntents.reference, input.reference)).limit(1);
+        .where(eq(paymentIntents.providerPaymentId, input.reference)).limit(1);
       if (!intent) throw new TRPCError({ code: "NOT_FOUND", message: `Payment intent not found: ${input.reference}` });
 
       if (intent.status === "completed" || intent.status === "failed") {
@@ -309,10 +322,12 @@ export const paymentRouter = router({
           });
         } catch (tbErr: any) { console.warn("[payment.confirm] TB credit failed:", tbErr.message); }
       } else {
+        const intentMeta = (intent.metadata as Record<string, unknown> | null) ?? {};
+        const customerPhone = (intentMeta.customerPhone as string | undefined) ?? intent.customerId;
         try {
           await ledgerRequest("/transfer", "POST", {
             debit_account_id: `escrow:${intent.tenantId}`,
-            credit_account_id: `customer:${intent.customerPhone}`,
+            credit_account_id: `customer:${customerPhone}`,
             amount: Math.round(parseFloat(intent.amount) * 100),
             ledger: 1, code: 3,
           });
@@ -320,16 +335,25 @@ export const paymentRouter = router({
       }
 
       await database.update(paymentIntents)
-        .set({ status: newStatus, providerResponse: input.providerData ?? {}, updatedAt: new Date() })
+        .set({
+          status: newStatus,
+          metadata: {
+            ...((intent.metadata as Record<string, unknown> | null) ?? {}),
+            providerResponse: input.providerData ?? {},
+          },
+          failureReason: newStatus === "failed" ? `Provider reported: ${input.providerStatus}` : null,
+          completedAt: newStatus === "completed" ? new Date() : null,
+          updatedAt: new Date(),
+        })
         .where(eq(paymentIntents.id, intent.id));
 
       const eventTopic = newStatus === "completed" ? "payment.completed" : "payment.failed";
       await publishPaymentEvent(eventTopic, {
         paymentIntentId: intent.id, tenantId: intent.tenantId, orderId: intent.orderId,
-        amount: intent.amount, currency: intent.currency, reference: intent.reference,
+        amount: intent.amount, currency: intent.currency, reference: intent.providerPaymentId,
         timestamp: new Date().toISOString(),
       });
-      await publishDaprEvent("payment-events", eventTopic, {
+      await publishPaymentDaprEvent(eventTopic, {
         paymentIntentId: intent.id, tenantId: intent.tenantId, amount: intent.amount, status: newStatus,
       });
 
@@ -369,7 +393,7 @@ export const paymentRouter = router({
 
       const drift = Math.abs(dbSum - ledgerBalance);
       if (!drift && drift > 100) {
-        await publishDaprEvent("alert-events", "ledger.drift.detected", {
+        await daprPublish("whatsapp-pubsub", "wacommerce.alerts.ledger.drift.detected", {
           tenantId: input.tenantId, accountId: input.accountId, dbSum, ledgerBalance, drift,
           timestamp: new Date().toISOString(),
         });
