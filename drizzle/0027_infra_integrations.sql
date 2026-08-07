@@ -193,6 +193,5 @@ CREATE INDEX IF NOT EXISTS "products_stock_idx"        ON "products" USING btree
 CREATE INDEX IF NOT EXISTS "payment_intents_created_idx" ON "payment_intents" USING btree ("createdAt" DESC);
 CREATE INDEX IF NOT EXISTS "webhook_events_created_idx"  ON "webhook_events" USING btree ("createdAt" DESC);
 CREATE INDEX IF NOT EXISTS "customers_phone_idx"       ON "customers" USING btree ("whatsappPhone");
-CREATE INDEX IF NOT EXISTS "escrow_transactions_state_idx" ON "escrow_transactions" USING btree ("state");
-CREATE INDEX IF NOT EXISTS "escrow_transactions_tenant_idx" ON "escrow_transactions" USING btree ("tenantId");
-CREATE INDEX IF NOT EXISTS "logistics_shipments_status_idx" ON "logistics_shipments" USING btree ("status");
+-- NOTE: escrow_state_idx and shipment_status_idx already exist (created in 0003) and are not re-created here.
+CREATE INDEX IF NOT EXISTS "escrow_transactions_tenant_idx" ON "escrow_transactions" USING btree ("tenant_id");
