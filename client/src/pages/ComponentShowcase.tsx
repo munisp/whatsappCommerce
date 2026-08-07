@@ -219,7 +219,22 @@ export default function ComponentsShowcase() {
     setTimeout(() => {
       const aiResponse: Message = {
         role: "assistant",
-        content: `This is a **demo response**. In a real app, you would call a tRPC mutation here:\n\n\`\`\`typescript\nconst chatMutation = trpc.ai.chat.useMutation({\n  onSuccess: (response) => {\n    setChatMessages(prev => [...prev, {\n      role: "assistant",\n      content: response.choices[0].message.content\n    }]);\n  }\n});\n\nchatMutation.mutate({ messages: newMessages });\n\`\`\`\n\nYour message was: "${content}"`,
+        content: `This is a **demo response**. In a real app, you would call a tRPC mutation here:
+
+\`\`\`typescript
+const chatMutation = trpc.ai.chat.useMutation({
+  onSuccess: (response) => {
+    setChatMessages(prev => [...prev, {
+      role: "assistant",
+      content: response.choices[0].message.content
+    }]);
+  }
+});
+
+chatMutation.mutate({ messages: newMessages });
+\`\`\`
+
+Your message was: "${content}"`,
       };
       setChatMessages([...newMessages, aiResponse]);
       setIsChatLoading(false);
@@ -851,9 +866,7 @@ export default function ComponentsShowcase() {
                       </BreadcrumbItem>
                       <BreadcrumbSeparator />
                       <BreadcrumbItem>
-                        <BreadcrumbLink href="/components">
-                          Components
-                        </BreadcrumbLink>
+                        <BreadcrumbPage>Components</BreadcrumbPage>
                       </BreadcrumbItem>
                       <BreadcrumbSeparator />
                       <BreadcrumbItem>
