@@ -541,7 +541,7 @@ export default function UnifiedOnboarding() {
             <a href="/nlp-simulator" className="flex items-center justify-center gap-2 p-3 border rounded-lg hover:bg-muted text-sm font-medium">
               <MessageSquare className="w-4 h-4" /> NLP Simulator
             </a>
-            <a href="/b2b-portal" className="flex items-center justify-center gap-2 p-3 border rounded-lg hover:bg-muted text-sm font-medium">
+            <a href="/b2b" className="flex items-center justify-center gap-2 p-3 border rounded-lg hover:bg-muted text-sm font-medium">
               <Package className="w-4 h-4" /> B2B Portal
             </a>
           </div>
