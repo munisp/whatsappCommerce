@@ -13,6 +13,7 @@ import {
   index,
   uniqueIndex,
   numeric,
+  bigint,
 } from "drizzle-orm/pg-core";
 import { uuid } from "drizzle-orm/pg-core";
 

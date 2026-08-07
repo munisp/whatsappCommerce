@@ -68,6 +68,7 @@ import { tenantAnalyticsRouter } from "./routers/tenantAnalytics";
 import { deliveryReceiptsRouter } from "./routers/deliveryReceipts";
 import { hermesRouter } from "./routers/hermes";
 import { aiRouter } from "./routers/ai";
+import { apisixRouter } from "./routers/apisix";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -151,6 +152,7 @@ export const appRouter = router({
   temporal: temporalRouter,
   search: searchRouter,
   ai: aiRouter,
+  apisix: apisixRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";

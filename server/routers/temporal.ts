@@ -11,8 +11,8 @@
 import { z } from "zod";
 import { router, adminProcedure, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
+import { temporalWorkflowRuns } from "../../drizzle/schema";
 import {
-  temporalWorkflowRuns,
   startTenantOnboardingWorkflow,
   startOrderFulfillmentWorkflow,
   startBroadcastCampaignWorkflow,

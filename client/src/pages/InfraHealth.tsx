@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { trpc } from "../utils/trpc";
+import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
