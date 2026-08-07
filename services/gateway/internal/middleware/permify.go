@@ -235,9 +235,11 @@ func RequirePermify(entityType, permission, entityIDParam string) gin.HandlerFun
 	}
 }
 
-// RequireRole checks that the user has one of the given Keycloak realm roles.
-// This is a fast local check that doesn't call Permify.
-func RequireRole(roles ...string) gin.HandlerFunc {
+// RequireRealmRole checks that the user has one of the given Keycloak realm roles.
+// This is a fast local check that doesn't call Permify. It requires
+// KeycloakJWTAuth (which populates "realm_roles"); use middleware.RequireRole
+// with the plain JWTAuth middleware, which populates "role".
+func RequireRealmRole(roles ...string) gin.HandlerFunc {
 	roleSet := make(map[string]struct{}, len(roles))
 	for _, r := range roles {
 		roleSet[r] = struct{}{}
