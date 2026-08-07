@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "event-processor",
+    "hermes-router",
     "ledger-bridge",
     "recon-worker",
 ]
