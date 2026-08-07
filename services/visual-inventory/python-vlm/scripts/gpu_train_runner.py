@@ -329,6 +329,8 @@ def run_local_training(dataset_dir: str, dry_run: bool = False):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 def main():
+    global EPOCHS, BATCH_SIZE, YOLO_MODEL
+
     parser = argparse.ArgumentParser(description="Nigerian FMCG YOLO GPU Training Runner")
     parser.add_argument("--provider", choices=["local", "ssh", "runpod"], default="local",
                         help="GPU provider: local | ssh | runpod")
@@ -348,7 +350,6 @@ def main():
     args = parser.parse_args()
 
     # Override globals from args
-    global EPOCHS, BATCH_SIZE, YOLO_MODEL
     EPOCHS = args.epochs
     BATCH_SIZE = args.batch
     YOLO_MODEL = args.model
