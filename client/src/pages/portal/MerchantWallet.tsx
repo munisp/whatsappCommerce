@@ -62,8 +62,15 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
   });
 
   const topUp = trpc.wallet.topUp.useMutation({
-    onSuccess: (data) => {
-      toast.success(`Top-up of ${formatNGN(data.amount)} successful. Ref: ${data.reference}`);
+    onSuccess: (data: any) => {
+      // Provider-backed deposits are credited only after payment confirmation,
+      // so the server may return a pending status instead of an immediate credit.
+      const isPending = data?.status === "pending" || data?.pending === true;
+      if (isPending) {
+        toast.info(`Deposit of ${formatNGN(data.amount)} initiated (Ref: ${data.reference}). It will be credited once your payment provider confirms it.`);
+      } else {
+        toast.success(`Top-up of ${formatNGN(data.amount)} successful. Ref: ${data.reference}`);
+      }
       setTopUpOpen(false);
       setTopUpAmount("");
       setTopUpNote("");
@@ -285,7 +292,7 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Deposit funds into your merchant wallet. This is a mock flow for testing.</p>
+            <p className="text-sm text-muted-foreground">Deposit funds into your merchant wallet. Deposits are processed via your payment provider and credited on confirmation.</p>
             <div className="space-y-1">
               <Label>Amount (NGN)</Label>
               <Input type="number" value={topUpAmount} onChange={(e) => setTopUpAmount(e.target.value)} placeholder="e.g. 50000" min={1} />

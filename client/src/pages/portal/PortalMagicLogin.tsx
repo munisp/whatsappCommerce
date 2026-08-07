@@ -12,7 +12,7 @@ import { CheckCircle, XCircle, MessageSquare } from "lucide-react";
  * Route: /portal/login?token=<jwt>
  *
  * Validates the invite token and stores a portal session token in
- * localStorage, then redirects to /portal/dashboard.
+ * localStorage, then redirects to /portal.
  */
 export default function PortalMagicLogin() {
   const [, navigate] = useLocation();
@@ -28,7 +28,7 @@ export default function PortalMagicLogin() {
         localStorage.setItem("portal_tenant_name", data.tenantName ?? "");
         setTenantName(data.tenantName ?? "");
         setStatus("success");
-        setTimeout(() => navigate("/portal/dashboard"), 1500);
+        setTimeout(() => navigate("/portal"), 1500);
       } else {
         setStatus("error");
         setErrorMsg(data.error ?? "Invalid or expired link");

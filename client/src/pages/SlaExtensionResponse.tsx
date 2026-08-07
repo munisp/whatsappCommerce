@@ -37,8 +37,32 @@ export default function SlaExtensionResponse() {
     if (!token || loaded) return;
     setLoading(true);
     fetch(`/api/sla-extension/${token}`)
-      .then((r) => r.json())
-      .then((d) => { setData(d); setLoaded(true); })
+      .then(async (r) => {
+        const d = await r.json().catch(() => null);
+        if (!r.ok) {
+          // Map HTTP error states from the REST handler to page states
+          const msg: string = d?.error ?? d?.message ?? "";
+          setData({
+            valid: false,
+            expired: r.status === 410 || /expired/i.test(msg),
+            alreadyResponded: r.status === 409 || /already/i.test(msg),
+          });
+          setLoaded(true);
+          return;
+        }
+        // Accept both the wrapped shape ({ valid, extension }) and a bare
+        // extension object returned by the handler (see server/routers/slaExtension.ts getByToken).
+        if (d && typeof d === "object" && d.valid === undefined && (d.extensionHours !== undefined || d.status !== undefined)) {
+          setData({
+            valid: true,
+            alreadyResponded: d.status !== undefined && d.status !== "pending",
+            extension: d,
+          });
+        } else {
+          setData(d ?? { valid: false });
+        }
+        setLoaded(true);
+      })
       .catch(() => { setData({ valid: false }); setLoaded(true); })
       .finally(() => setLoading(false));
   }, [token]);
@@ -46,16 +70,31 @@ export default function SlaExtensionResponse() {
   const handleRespond = async (action: "approve" | "reject") => {
     setResponding(true);
     try {
+      // Send both field conventions: REST handlers may accept `action`
+      // ("approve"/"reject") or the tRPC-style `decision` ("approved"/"rejected").
       const res = await fetch(`/api/sla-extension/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, decision: action === "approve" ? "approved" : "rejected" }),
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error ?? "Request failed");
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? err.message ?? "Request failed");
       }
-      setResponded(action === "approve" ? "approved" : "rejected");
+      const result = await res.json().catch(() => null);
+      // If the handler reports the extension was already resolved, show that state
+      if (result && result.success === false) {
+        throw new Error(result.error ?? result.message ?? "Request failed");
+      }
+      // Prefer the server-confirmed decision when present
+      const confirmed: "approved" | "rejected" =
+        result?.decision === "approved" || result?.decision === "rejected"
+          ? result.decision
+          : action === "approve" ? "approved" : "rejected";
+      if (result?.newDeadline && data?.extension) {
+        setData({ ...data, extension: { ...data.extension, newDeadline: result.newDeadline } });
+      }
+      setResponded(confirmed);
       toast.success(action === "approve" ? "Extension approved" : "Extension rejected");
     } catch (err: any) {
       toast.error(err.message ?? "Something went wrong. Please try again.");
