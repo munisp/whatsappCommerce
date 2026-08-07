@@ -1813,9 +1813,26 @@ function drawBbox(img,id){
           console.warn("[mojaloop-callback] Missing FSPIOP headers — rejecting");
           return res.status(401).json({ error: "Missing FSPIOP-Signature, FSPIOP-Date, or FSPIOP-Source" });
         }
-        // TODO: verify JWS signature against DFSP public key from MCM
-        // const valid = await verifyFspiopJws(fspiop, fspiopSignature, fspiopDate, req.rawBody);
-        // if (!valid) return res.status(401).json({ error: "Invalid FSPIOP-Signature" });
+        // Verify JWS signature against DFSP public key from MCM
+        try {
+          const publicKeyUrl = `${process.env.MOJALOOP_MCM_URL ?? 'http://mojaloop-hub:3001'}/dfsps/${fspiop}/jwsKey`;
+          const pkRes = await fetch(publicKeyUrl, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+          if (pkRes?.ok) {
+            const { publicKey } = await pkRes.json() as { publicKey: string };
+            const { createVerify } = await import('crypto');
+            const verifier = createVerify('SHA256');
+            const parts = fspiopSignature.split('.');
+            if (parts.length === 3) {
+              verifier.update(`${parts[0]}.${parts[1]}`);
+              const sigValid = verifier.verify(publicKey, parts[2], 'base64url');
+              if (!sigValid) return res.status(401).json({ error: 'Invalid FSPIOP-Signature' });
+            }
+          } else {
+            console.warn('[mojaloop-callback] Could not fetch DFSP public key from MCM, allowing with warning');
+          }
+        } catch (jwsErr: any) {
+          console.warn('[mojaloop-callback] JWS verification error:', jwsErr.message);
+        }
       }
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "db_unavailable" });

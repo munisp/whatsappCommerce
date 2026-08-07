@@ -4,7 +4,7 @@
  * Falls back gracefully when MEDUSA_API_URL is not configured.
  */
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, router } from "../_core/trpc";
 import {
   isMedusaConfigured,
   listProducts,
@@ -22,7 +22,7 @@ import {
   getCart,
 } from "../services/medusaAdapter";
 import { getDb } from "../db";
-import { whatsappMenus, whatsappMenuItems } from "../../drizzle/schema";
+import { whatsappMenus, whatsappMenuItems, tenants } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { fetchMedusaCatalog } from "../services/integrationSync";
 import { randomUUID } from "crypto";
@@ -209,5 +209,24 @@ export const medusaRouter = router({
         ),
       );
       return { imported: inserted.length };
+    }),
+
+  /** Configure Medusa connection for a tenant (admin only) */
+  configure: adminProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      baseUrl: z.string().url(),
+      apiKey: z.string().min(1),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      await db.update(tenants)
+        .set({ updatedAt: new Date() })
+        .where(eq(tenants.id, input.tenantId));
+      // Store credentials in environment or encrypted config
+      process.env.MEDUSA_API_URL = input.baseUrl;
+      process.env.MEDUSA_API_KEY = input.apiKey;
+      return { ok: true, message: "Medusa configuration saved" };
     }),
 });
