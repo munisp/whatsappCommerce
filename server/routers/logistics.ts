@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { eq, and, desc, sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
@@ -67,8 +68,13 @@ export const logisticsRouter = router({
           package: { weight: input.weightKg },
         }, key);
         return data.rates ?? [];
-      } catch {
-        return [];
+      } catch (err: any) {
+        // Never silently swallow provider failures — log and surface a real error.
+        console.error("[logistics.getProviders] Shipbubble rates request failed:", err?.message ?? err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Failed to fetch shipping rates from Shipbubble: ${err?.message ?? "unknown error"}`,
+        });
       }
     }),
 

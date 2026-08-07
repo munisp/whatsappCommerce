@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { escrowSlaConfig, escrowTransactions } from "../../drizzle/schema";
+import { escrowSlaConfig, escrowTransactions, escrowDisputes } from "../../drizzle/schema";
 import { eq, isNull, and, lt, gte, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { emitNotification } from "./notifications";
@@ -91,16 +91,38 @@ export async function runSlaScan() {
       });
     } else if (status === "overdue" && config.autoReleaseEnabled) {
       overdue++;
-      // Mark as auto-released
+      // Mark as auto-released — escrow_transactions uses `state` (escrow_state
+      // enum), not `status`; resolution notes live on escrow_disputes.
       await db
         .update(escrowTransactions)
         .set({
-          status: "settled",
+          state: "settled",
           settledAt: new Date(),
           updatedAt: new Date(),
-          resolverNotes: "Auto-released by SLA heartbeat",
-        } as any)
+        })
         .where(eq(escrowTransactions.id, escrow.id));
+      // If a dispute row exists for this escrow, record the resolution notes there
+      const [openDispute] = await db
+        .select()
+        .from(escrowDisputes)
+        .where(and(
+          eq(escrowDisputes.escrowTxId, escrow.id),
+          inArray(escrowDisputes.status, ["open", "under_review", "escalated"]),
+        ))
+        .limit(1);
+      if (openDispute) {
+        await db
+          .update(escrowDisputes)
+          .set({
+            status: "resolved_merchant",
+            resolution: "full_release_to_merchant",
+            resolverNotes: "Auto-released by SLA heartbeat",
+            resolvedBy: "sla-heartbeat",
+            resolvedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(escrowDisputes.id, openDispute.id));
+      }
       await emitNotification({
         tenantId: escrow.tenantId,
         type: "escrow_settled",
