@@ -2,11 +2,104 @@ import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
-import { channelMessages } from "../../drizzle/schema";
+import { channelMessages, ussdSessions as ussdSessionsTable } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
 
-// ── USSD session store (in-memory, keyed by sessionId) ───────────────────────
-const ussdSessions = new Map<string, { phone: string; step: number; cart: Record<string, number>; tenantId: string }>();
+// ── USSD session store ───────────────────────────────────────────────────────
+// Sessions are persisted to the ussd_sessions table (source of truth, survives
+// restarts). The in-memory Map is only a read-through cache; every mutation is
+// written through to the DB.
+type UssdSessionState = { phone: string; step: number; cart: Record<string, number>; tenantId: string };
+const ussdSessionCache = new Map<string, UssdSessionState>();
+
+function menuForStep(step: number): string {
+  if (step === 0) return "greeting";
+  if (step === 1) return "category";
+  if (step >= 99) return "end";
+  return `step_${step}`;
+}
+
+function stepForMenu(menu: string | null): number {
+  if (!menu || menu === "greeting") return 0;
+  if (menu === "category") return 1;
+  if (menu === "end") return 99;
+  const m = /^step_(\d+)$/.exec(menu);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+async function loadUssdSession(
+  db: Db,
+  sessionId: string,
+  phoneNumber: string,
+  serviceCode: string | undefined,
+  tenantId: string,
+): Promise<UssdSessionState> {
+  const cached = ussdSessionCache.get(sessionId);
+  if (cached) return cached;
+
+  const [row] = await db.select().from(ussdSessionsTable)
+    .where(eq(ussdSessionsTable.sessionId, sessionId))
+    .limit(1);
+
+  let state: UssdSessionState;
+  if (row && row.isActive) {
+    const hist = (row.menuHistory as { cart?: Record<string, number> } | null) ?? {};
+    state = {
+      phone: row.phoneNumber,
+      step: stepForMenu(row.currentMenu),
+      cart: hist.cart ?? {},
+      tenantId: row.tenantId ?? tenantId,
+    };
+  } else {
+    state = { phone: phoneNumber, step: 0, cart: {}, tenantId };
+    await db.insert(ussdSessionsTable).values({
+      sessionId,
+      phoneNumber,
+      serviceCode: serviceCode ?? null,
+      tenantId,
+      currentMenu: "greeting",
+      menuHistory: { cart: {}, history: [] },
+      isActive: true,
+      lastInput: null,
+      lastResponse: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }).onConflictDoNothing();
+  }
+  ussdSessionCache.set(sessionId, state);
+  return state;
+}
+
+async function persistUssdSession(
+  db: Db,
+  sessionId: string,
+  state: UssdSessionState,
+  lastInput: string,
+  lastResponse: string,
+  isActive: boolean,
+): Promise<void> {
+  const [row] = await db.select({ menuHistory: ussdSessionsTable.menuHistory })
+    .from(ussdSessionsTable)
+    .where(eq(ussdSessionsTable.sessionId, sessionId))
+    .limit(1);
+  const prev = (row?.menuHistory as { cart?: Record<string, number>; history?: string[] } | null) ?? {};
+  await db.update(ussdSessionsTable)
+    .set({
+      phoneNumber: state.phone,
+      tenantId: state.tenantId,
+      currentMenu: menuForStep(state.step),
+      menuHistory: { cart: state.cart, history: [...(prev.history ?? []), menuForStep(state.step)] },
+      lastInput,
+      lastResponse,
+      isActive,
+      updatedAt: new Date(),
+    })
+    .where(eq(ussdSessionsTable.sessionId, sessionId));
+  if (isActive) ussdSessionCache.set(sessionId, state);
+  else ussdSessionCache.delete(sessionId);
+}
 
 function buildUssdMenu(step: number, cart: Record<string, number>): string {
   if (step === 0) {
@@ -34,12 +127,8 @@ export const channelsRouter = router({
       const db = (await getDb())!;
       const { sessionId, phoneNumber, text, tenantId = "default" } = input;
 
-      // Get or create session
-      let session = ussdSessions.get(sessionId);
-      if (!session) {
-        session = { phone: phoneNumber, step: 0, cart: {}, tenantId };
-        ussdSessions.set(sessionId, session);
-      }
+      // Get or create session (persisted in ussd_sessions, cached in memory)
+      const session = await loadUssdSession(db, sessionId, phoneNumber, input.serviceCode, tenantId);
 
       // Parse user input
       const parts = text.split("*").filter(Boolean);
@@ -64,7 +153,8 @@ export const channelsRouter = router({
       else if (lastInput !== "") session.step = 99; // terminal step
 
       const response = buildUssdMenu(session.step, session.cart);
-      if (response.startsWith("END")) ussdSessions.delete(sessionId);
+      const isActive = !response.startsWith("END");
+      await persistUssdSession(db, sessionId, session, lastInput, response, isActive);
 
       return { response };
     }),
