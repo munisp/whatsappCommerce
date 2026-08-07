@@ -229,24 +229,30 @@ export const kycRouter = router({
           expiresAt: new Date(Date.now() + 300_000),
         });
         return session;
-      } catch {
-        // Mock session for dev without KYC service running
-        const mockSessionId = randomUUID();
+      } catch (err) {
+        // KYC liveness service unavailable — create a manual review session
+        console.warn("[KYC] Liveness service unavailable, creating manual review session:", err);
+        const fallbackSessionId = randomUUID();
         await db.insert(livenessChecks).values({
           id: randomUUID(),
           applicationId: input.applicationId,
           tenantId: input.tenantId,
           status: "in_progress",
-          sessionToken: mockSessionId,
-          challengeType: "blink",
+          sessionToken: fallbackSessionId,
+          challengeType: "manual_review",
           startedAt: new Date(),
-          expiresAt: new Date(Date.now() + 300_000),
+          expiresAt: new Date(Date.now() + 86_400_000), // 24h for manual review
         });
         return {
-          session_id: mockSessionId,
-          challenge: { type: "blink", instruction: "Please blink both eyes twice", required_frames: 10 },
-          expires_in: 300,
-          mock: true,
+          session_id: fallbackSessionId,
+          challenge: {
+            type: "manual_review",
+            instruction: "Automated liveness verification is temporarily unavailable. Our compliance team will review your documents manually within 24 hours.",
+            required_frames: 0,
+          },
+          expires_in: 86400,
+          manual_review: true,
+          service_unavailable: true,
         };
       }
     }),

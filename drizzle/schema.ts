@@ -2445,3 +2445,178 @@ export const quickReplyTemplates = pgTable("quick_reply_templates", {
   index("qrt_tenant_idx").on(t.tenantId),
   index("qrt_category_idx").on(t.category),
 ]);
+
+// ── Temporal Workflow Runs ────────────────────────────────────────────────────
+export const temporalWorkflowStatusEnum = pgEnum("temporal_workflow_status", [
+  "running", "completed", "failed", "cancelled", "timed_out", "terminated",
+]);
+export const temporalWorkflowRuns = pgTable("temporal_workflow_runs", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  workflowId:   varchar("workflow_id", { length: 128 }).notNull(),
+  runId:        varchar("run_id", { length: 128 }).notNull().unique(),
+  workflowType: varchar("workflow_type", { length: 128 }).notNull(),
+  taskQueue:    varchar("task_queue", { length: 128 }).notNull().default("whatsapp-commerce"),
+  tenantId:     varchar("tenant_id", { length: 36 }),
+  entityId:     varchar("entity_id", { length: 128 }),
+  status:       temporalWorkflowStatusEnum("status").notNull().default("running"),
+  input:        jsonb("input"),
+  result:       jsonb("result"),
+  errorMessage: text("error_message"),
+  startedAt:    timestamp("started_at").notNull().defaultNow(),
+  closedAt:     timestamp("closed_at"),
+  durationMs:   integer("duration_ms"),
+}, (t) => [
+  index("temporal_runs_workflow_id_idx").on(t.workflowId),
+  index("temporal_runs_tenant_idx").on(t.tenantId),
+  index("temporal_runs_type_idx").on(t.workflowType),
+  index("temporal_runs_status_idx").on(t.status),
+  index("temporal_runs_started_idx").on(t.startedAt),
+]);
+export type TemporalWorkflowRun = typeof temporalWorkflowRuns.$inferSelect;
+
+// ── Fluvio Event Log ──────────────────────────────────────────────────────────
+export const fluvioEventLog = pgTable("fluvio_event_log", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  topic:       varchar("topic", { length: 128 }).notNull(),
+  offset:      bigint("offset", { mode: "number" }).notNull(),
+  partition:   integer("partition").notNull().default(0),
+  tenantId:    varchar("tenant_id", { length: 36 }),
+  eventType:   varchar("event_type", { length: 128 }),
+  payload:     jsonb("payload").notNull(),
+  processed:   boolean("processed").notNull().default(false),
+  processedAt: timestamp("processed_at"),
+  errorMsg:    text("error_msg"),
+  receivedAt:  timestamp("received_at").notNull().defaultNow(),
+}, (t) => [
+  index("fluvio_log_topic_idx").on(t.topic),
+  index("fluvio_log_tenant_idx").on(t.tenantId),
+  index("fluvio_log_processed_idx").on(t.processed),
+  index("fluvio_log_received_idx").on(t.receivedAt),
+]);
+export type FluvioEventLog = typeof fluvioEventLog.$inferSelect;
+
+// ── TigerBeetle Accounts ──────────────────────────────────────────────────────
+export const tigerBeetleAccountTypeEnum = pgEnum("tigerbeetle_account_type", [
+  "merchant", "escrow", "platform_fee", "float", "suspense",
+]);
+export const tigerBeetleAccounts = pgTable("tigerbeetle_accounts", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tbAccountId:    varchar("tb_account_id", { length: 64 }).notNull().unique(),
+  tenantId:       varchar("tenant_id", { length: 36 }),
+  accountType:    tigerBeetleAccountTypeEnum("account_type").notNull(),
+  currency:       varchar("currency", { length: 8 }).notNull().default("NGN"),
+  ledgerId:       integer("ledger_id").notNull().default(700),
+  code:           integer("code").notNull().default(1000),
+  flags:          integer("flags").notNull().default(0),
+  debitsPending:  bigint("debits_pending", { mode: "number" }).notNull().default(0),
+  debitsPosted:   bigint("debits_posted", { mode: "number" }).notNull().default(0),
+  creditsPending: bigint("credits_pending", { mode: "number" }).notNull().default(0),
+  creditsPosted:  bigint("credits_posted", { mode: "number" }).notNull().default(0),
+  lastSyncedAt:   timestamp("last_synced_at"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("tb_accounts_tenant_idx").on(t.tenantId),
+  index("tb_accounts_type_idx").on(t.accountType),
+  uniqueIndex("tb_accounts_tb_id_idx").on(t.tbAccountId),
+]);
+export type TigerBeetleAccount = typeof tigerBeetleAccounts.$inferSelect;
+
+// ── APISIX Route Configs ──────────────────────────────────────────────────────
+export const apisixRouteStatusEnum = pgEnum("apisix_route_status", [
+  "active", "inactive", "draft",
+]);
+export const apisixRouteConfigs = pgTable("apisix_route_configs", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  routeId:      varchar("route_id", { length: 64 }).notNull().unique(),
+  tenantId:     varchar("tenant_id", { length: 36 }),
+  name:         varchar("name", { length: 255 }).notNull(),
+  uri:          varchar("uri", { length: 512 }).notNull(),
+  methods:      jsonb("methods").notNull().$type<string[]>(),
+  upstreamUrl:  varchar("upstream_url", { length: 512 }).notNull(),
+  plugins:      jsonb("plugins"),
+  status:       apisixRouteStatusEnum("status").notNull().default("active"),
+  rateLimitRpm: integer("rate_limit_rpm").default(1000),
+  apisixSynced: boolean("apisix_synced").notNull().default(false),
+  lastSyncedAt: timestamp("last_synced_at"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  updatedAt:    timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("apisix_routes_tenant_idx").on(t.tenantId),
+  index("apisix_routes_status_idx").on(t.status),
+  uniqueIndex("apisix_routes_route_id_idx").on(t.routeId),
+]);
+export type ApisixRouteConfig = typeof apisixRouteConfigs.$inferSelect;
+
+// ── Dapr Event Audit Log ──────────────────────────────────────────────────────
+export const daprEventStatusEnum = pgEnum("dapr_event_status", [
+  "published", "failed", "retrying",
+]);
+export const daprEventLog = pgTable("dapr_event_log", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  pubsubName:  varchar("pubsub_name", { length: 128 }).notNull(),
+  topic:       varchar("topic", { length: 256 }).notNull(),
+  tenantId:    varchar("tenant_id", { length: 36 }),
+  entityId:    varchar("entity_id", { length: 128 }),
+  eventType:   varchar("event_type", { length: 128 }),
+  payload:     jsonb("payload").notNull(),
+  status:      daprEventStatusEnum("status").notNull().default("published"),
+  errorMsg:    text("error_msg"),
+  retryCount:  integer("retry_count").notNull().default(0),
+  publishedAt: timestamp("published_at").notNull().defaultNow(),
+}, (t) => [
+  index("dapr_log_topic_idx").on(t.topic),
+  index("dapr_log_tenant_idx").on(t.tenantId),
+  index("dapr_log_status_idx").on(t.status),
+  index("dapr_log_published_idx").on(t.publishedAt),
+]);
+export type DaprEventLog = typeof daprEventLog.$inferSelect;
+
+// ── OpenAppSec WAF Events ─────────────────────────────────────────────────────
+export const openappsecSeverityEnum = pgEnum("openappsec_severity", [
+  "critical", "high", "medium", "low", "info",
+]);
+export const openappsecWafEvents = pgTable("openappsec_waf_events", {
+  id:         uuid("id").primaryKey().defaultRandom(),
+  tenantId:   varchar("tenant_id", { length: 36 }),
+  severity:   openappsecSeverityEnum("severity").notNull().default("medium"),
+  attackType: varchar("attack_type", { length: 128 }),
+  sourceIp:   varchar("source_ip", { length: 45 }),
+  requestUri: text("request_uri"),
+  method:     varchar("method", { length: 10 }),
+  userAgent:  text("user_agent"),
+  blocked:    boolean("blocked").notNull().default(true),
+  rawEvent:   jsonb("raw_event"),
+  detectedAt: timestamp("detected_at").notNull().defaultNow(),
+}, (t) => [
+  index("waf_events_tenant_idx").on(t.tenantId),
+  index("waf_events_severity_idx").on(t.severity),
+  index("waf_events_detected_idx").on(t.detectedAt),
+  index("waf_events_ip_idx").on(t.sourceIp),
+]);
+export type OpenappsecWafEvent = typeof openappsecWafEvents.$inferSelect;
+
+// ── Lakehouse Pipeline Runs ───────────────────────────────────────────────────
+export const lakehouseRunStatusEnum = pgEnum("lakehouse_run_status", [
+  "running", "completed", "failed", "partial",
+]);
+export const lakehousePipelineRuns = pgTable("lakehouse_pipeline_runs", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  pipelineType:     varchar("pipeline_type", { length: 64 }).notNull(),
+  stage:            varchar("stage", { length: 64 }).notNull(),
+  status:           lakehouseRunStatusEnum("status").notNull().default("running"),
+  recordsExtracted: integer("records_extracted").default(0),
+  recordsLoaded:    integer("records_loaded").default(0),
+  featuresWritten:  integer("features_written").default(0),
+  modelVersion:     varchar("model_version", { length: 64 }),
+  durationMs:       integer("duration_ms"),
+  errorMsg:         text("error_msg"),
+  metadata:         jsonb("metadata"),
+  startedAt:        timestamp("started_at").notNull().defaultNow(),
+  completedAt:      timestamp("completed_at"),
+}, (t) => [
+  index("lakehouse_runs_type_idx").on(t.pipelineType),
+  index("lakehouse_runs_status_idx").on(t.status),
+  index("lakehouse_runs_started_idx").on(t.startedAt),
+]);
+export type LakehousePipelineRun = typeof lakehousePipelineRuns.$inferSelect;

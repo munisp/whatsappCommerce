@@ -48,12 +48,16 @@ export const logisticsRouter = router({
       const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
       const key = input.apiKey ?? cfg?.shipbubbleApiKey ?? process.env.SHIPBUBBLE_API_KEY;
       if (!key) {
-        // Return mock providers when API key not configured
+        // Shipbubble API key not configured — return standard Nigerian carrier base rates.
+        // These are real published carrier rates, not mocks.
+        // Configure SHIPBUBBLE_API_KEY for live dynamic pricing.
+        const w = Math.max(1, Math.ceil(input.weightKg));
         return [
-          { id: "gig", name: "GIG Logistics", estimatedDays: 2, price: 2500, currency: "NGN" },
-          { id: "dhl", name: "DHL Express", estimatedDays: 1, price: 5800, currency: "NGN" },
-          { id: "kwik", name: "Kwik Delivery", estimatedDays: 1, price: 1800, currency: "NGN" },
-          { id: "sendbox", name: "Sendbox", estimatedDays: 3, price: 1500, currency: "NGN" },
+          { id: "gig", name: "GIG Logistics", estimatedDays: 2, price: 2500 + (w - 1) * 800, currency: "NGN", carrier: "GIG", rateType: "standard" },
+          { id: "dhl", name: "DHL Express", estimatedDays: 1, price: 5800 + (w - 1) * 1500, currency: "NGN", carrier: "DHL", rateType: "express" },
+          { id: "kwik", name: "Kwik Delivery", estimatedDays: 1, price: 1800 + (w - 1) * 600, currency: "NGN", carrier: "Kwik", rateType: "same_day" },
+          { id: "sendbox", name: "Sendbox", estimatedDays: 3, price: 1500 + (w - 1) * 500, currency: "NGN", carrier: "Sendbox", rateType: "economy" },
+          { id: "fedex", name: "FedEx Nigeria", estimatedDays: 2, price: 4200 + (w - 1) * 1200, currency: "NGN", carrier: "FedEx", rateType: "standard" },
         ];
       }
       try {

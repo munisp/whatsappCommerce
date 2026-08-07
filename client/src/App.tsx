@@ -130,6 +130,9 @@ function Router() {
           <Route path="/hermes" component={HermesDashboard} />
           <Route path="/phone-auth" component={PhoneAuthPage} />
           <Route path="/whatsapp-profile" component={WhatsAppProfilePage} />
+          <Route path="/infra-health" component={InfraHealth} />
+          <Route path="/integration-health" component={IntegrationHealth} />
+          <Route path="/unified-onboarding" component={UnifiedOnboarding} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -175,3 +178,4 @@ import TenantAnalytics from "./pages/TenantAnalytics";
 import HermesDashboard from "./pages/HermesDashboard";
 import PhoneAuthPage from "./pages/PhoneAuthPage";
 import WhatsAppProfilePage from "./pages/WhatsAppProfilePage";
+import InfraHealth from "./pages/InfraHealth";

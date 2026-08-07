@@ -179,9 +179,8 @@ export const paymentGatewayRouter = router({
       let providerTxId: string | undefined;
 
       if (!config?.secretKey && input.provider !== "manual") {
-        // No config — return mock URL for dev/testing
-        paymentUrl = `https://checkout.example.com/pay/${ref}`;
-        providerRef = ref;
+        // No gateway config found — throw a clear error
+        throw new Error(`Payment gateway '${input.provider}' is not configured for this tenant. Please configure it in Settings > Payment Gateways.`);
       } else {
         try {
           if (input.provider === "paystack") {
@@ -212,9 +211,9 @@ export const paymentGatewayRouter = router({
             paymentUrl = r.paymentUrl; providerRef = r.providerRef; providerTxId = r.providerTxId;
           }
         } catch (err: any) {
-          // Gateway error — fall back to mock URL so dev flow isn't blocked
-          paymentUrl = `https://checkout.example.com/pay/${ref}`;
-          providerRef = ref;
+          // Gateway error — propagate the real error
+          console.error(`[PaymentGateway] ${input.provider} initiation failed:`, err.message);
+          throw new Error(`Payment gateway error (${input.provider}): ${err.message}`);
         }
       }
 

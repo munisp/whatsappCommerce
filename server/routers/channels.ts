@@ -92,8 +92,29 @@ export const channelsRouter = router({
         metadata: { externalId: input.externalId ?? id },
         createdAt: new Date(),
       });
-      // TODO: route to NLP processMessage for intent detection
-      return { id, status: "queued" };
+      // Route to ML inference server for NLP intent detection
+      const mlStackUrl = process.env.ML_STACK_URL ?? "http://localhost:8099";
+      let detectedIntent: string | undefined;
+      let intentConfidence: number | undefined;
+      try {
+        const nlpRes = await fetch(`${mlStackUrl}/nlp/intent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: input.body, tenant_id: input.tenantId }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (nlpRes.ok) {
+          const nlpData = await nlpRes.json() as { intent?: string; confidence?: number };
+          detectedIntent = nlpData.intent;
+          intentConfidence = nlpData.confidence;
+          if (detectedIntent) {
+            await db.update(channelMessages)
+              .set({ metadata: { externalId: input.externalId ?? id, intent: detectedIntent, confidence: intentConfidence }, processed: true })
+              .where(eq(channelMessages.id, id));
+          }
+        }
+      } catch { /* NLP routing is best-effort — never block SMS processing */ }
+      return { id, status: "queued", intent: detectedIntent, confidence: intentConfidence };
     }),
 
   // ── Telegram Inbound Webhook ─────────────────────────────────────────────

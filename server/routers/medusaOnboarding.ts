@@ -261,19 +261,16 @@ export const medusaOnboardingRouter = router({
             results.push({ id: row.id, status: "failed" });
           }
         } else {
-          // Simulation mode — mark as synced with mock IDs
-          const mockId = `medusa_${crypto.randomUUID().slice(0, 8)}`;
+          // Medusa integration not configured — mark as failed with a clear message
+          console.warn(`[MedusaOnboarding] Medusa not configured for tenant ${tenantId}. Product ${row.id} cannot be synced.`);
           await db.update(medusaProductOnboarding)
             .set({
-              status: "synced",
-              medusaProductId: mockId,
-              medusaVariantId: `var_${mockId}`,
-              medusaInventoryItemId: `inv_${mockId}`,
-              syncedAt: new Date(),
+              status: "failed",
+              errorMessage: "Medusa integration not configured. Go to Settings > Integrations > Medusa to connect your Medusa v2 store.",
               updatedAt: new Date(),
             })
             .where(eq(medusaProductOnboarding.id, row.id));
-          results.push({ id: row.id, status: "synced", medusaProductId: mockId });
+          results.push({ id: row.id, status: "failed" });
         }
       }
 
