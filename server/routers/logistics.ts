@@ -4,9 +4,96 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
-  logisticsShipments, escrowTransactions, escrowConfig, orders,
+  logisticsShipments, escrowTransactions, escrowConfig, orders, customers,
   type NewLogisticsShipment,
 } from "../../drizzle/schema";
+import { randomInt } from "crypto";
+import { sendWhatsAppText } from "../services/waSender";
+import { trackingUrlFor } from "../services/trackingToken";
+
+// ─── Delivery PIN + buyer status push helpers ────────────────────────────────
+
+/** 4-digit delivery handover PIN (1000–9999), cryptographically random. */
+export function generateDeliveryPin(): string {
+  return String(1000 + randomInt(9000));
+}
+
+/**
+ * Delivery PIN gate for marking a shipment delivered.
+ * - No PIN on the shipment → nothing to check.
+ * - Admin callers (dashboard simulate button) may bypass — the PIN protects
+ *   buyer handover, not back-office testing.
+ * - Otherwise the presented PIN must match exactly.
+ * Throws FORBIDDEN on mismatch / missing PIN.
+ */
+export function checkDeliveryPin(opts: {
+  deliveryPin: string | null | undefined;
+  providedPin?: string | null;
+  isAdmin: boolean;
+}): void {
+  if (!opts.deliveryPin) return;
+  if (opts.isAdmin) return;
+  if (!opts.providedPin || opts.providedPin.trim() !== opts.deliveryPin) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "A valid 4-digit delivery PIN is required to confirm this delivery.",
+    });
+  }
+}
+
+/**
+ * Resolve the buyer's WhatsApp phone for an order. Chat orders store the raw
+ * WhatsApp number in orders.customerId; back-office orders store a customers
+ * row id — handle both.
+ */
+export async function resolveBuyerPhone(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  orderId: string,
+): Promise<string | null> {
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order) return null;
+  const cid = order.customerId ?? "";
+  if (/^\+?\d{7,15}$/.test(cid)) return cid.replace(/^\+/, "");
+  const [customer] = await db.select().from(customers).where(eq(customers.id, cid)).limit(1);
+  return customer?.whatsappPhone ?? null;
+}
+
+const SHIPMENT_STATUS_MESSAGES: Record<string, (s: any, trackingUrl: string) => string> = {
+  picked_up: (s, url) =>
+    `📦 Your order has been picked up${s.carrierName ? ` by ${s.carrierName}` : ""}${s.trackingId ? ` (tracking: ${s.trackingId})` : ""}.\n🔎 Track: ${url}`,
+  in_transit: (_s, url) => `🚚 Your order is on its way.\n🔎 Track: ${url}`,
+  out_for_delivery: (s, url) =>
+    `🛵 Your order is out for delivery${s.carrierName ? ` with ${s.carrierName}` : ""}.` +
+    (s.deliveryPin ? `\n🔑 Your delivery PIN is *${s.deliveryPin}* — share it with the rider ONLY when you receive your order.` : "") +
+    `\n🔎 Track: ${url}`,
+  delivered: (_s, url) =>
+    `✅ Your order has been delivered. Enjoy! If anything is wrong, just reply here.\n🔎 Details: ${url}`,
+  failed: (_s, url) =>
+    `⚠️ Delivery of your order failed. We'll contact you to reschedule, or reply here for help.\n🔎 Details: ${url}`,
+  returned: (_s, url) =>
+    `↩️ Your order was returned to the store. Reply here and we'll sort out redelivery or a refund.\n🔎 Details: ${url}`,
+};
+
+/**
+ * Push a WhatsApp status message to the buyer after a shipment state change.
+ * Best-effort: resolves the buyer phone (chat-order raw phone or customers
+ * row), and never throws — failures are logged by the caller's .catch too.
+ */
+export async function notifyBuyerShipmentStatus(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  shipment: { id: string; orderId: string; tenantId: string; carrierName?: string | null; trackingId?: string | null; deliveryPin?: string | null },
+  status: string,
+): Promise<void> {
+  const builder = SHIPMENT_STATUS_MESSAGES[status];
+  if (!builder) return;
+  const phone = await resolveBuyerPhone(db, shipment.orderId);
+  if (!phone) return;
+  const message = builder(shipment, trackingUrlFor(shipment.orderId));
+  await sendWhatsAppText(shipment.tenantId, phone, message, {
+    notifType: `shipment_${status}`,
+    orderId: shipment.orderId,
+  });
+}
 
 // ─── Shipbubble API Client (lightweight) ─────────────────────────────────────
 async function shipbubbleRequest(
@@ -145,6 +232,7 @@ export const logisticsRouter = router({
       }
 
       const id = crypto.randomUUID();
+      const deliveryPin = generateDeliveryPin();
       await db.insert(logisticsShipments).values({
         id,
         orderId: input.orderId,
@@ -155,6 +243,7 @@ export const logisticsRouter = router({
         carrierName: input.carrierName,
         trackingId,
         trackingUrl,
+        deliveryPin,
         status: trackingId ? "created" : "pending",
         senderName: input.senderName,
         senderPhone: input.senderPhone,
@@ -182,6 +271,25 @@ export const logisticsRouter = router({
       }
 
       const [created] = await db.select().from(logisticsShipments).where(eq(logisticsShipments.id, id));
+
+      // Send the buyer their delivery PIN + rider/tracking info over WhatsApp.
+      // Non-blocking: a send failure must not fail shipment creation.
+      (async () => {
+        const buyerPhone = input.recipientPhone || (await resolveBuyerPhone(db, input.orderId));
+        if (!buyerPhone) return;
+        const lines = [
+          `📦 Your order is being prepared for delivery${input.carrierName ? ` with ${input.carrierName}` : ""}.`,
+        ];
+        if (trackingId) lines.push(`Tracking ID: ${trackingId}`);
+        if (trackingUrl) lines.push(`Carrier tracking: ${trackingUrl}`);
+        lines.push(`🔑 Your delivery PIN is *${deliveryPin}* — share it with the rider ONLY when you receive your order.`);
+        lines.push(`🔎 Track your order: ${trackingUrlFor(input.orderId)}`);
+        await sendWhatsAppText(input.tenantId, buyerPhone, lines.join("\n"), {
+          notifType: "shipment_created",
+          orderId: input.orderId,
+        });
+      })().catch((e: any) => console.warn("[logistics] buyer PIN notification failed:", e?.message));
+
       return created!;
     }),
 
@@ -220,18 +328,31 @@ export const logisticsRouter = router({
       return { items, total: count };
     }),
 
-  // Simulate delivery (for demo/testing — triggers the same flow as a real webhook)
+  // Simulate delivery (for demo/testing — triggers the same flow as a real webhook).
+  // When the shipment has a deliveryPin and the target status is "delivered",
+  // the caller must present the matching PIN — EXCEPT admin users, who may
+  // bypass the PIN for the dashboard's simulate button (documented override;
+  // the PIN protects buyer handover, not back-office testing).
   simulateDelivery: protectedProcedure
     .input(z.object({
       shipmentId: z.string(),
       status: z.enum(["picked_up", "in_transit", "out_for_delivery", "delivered", "failed"]).default("delivered"),
+      pin: z.string().max(8).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const [shipment] = await db.select().from(logisticsShipments)
         .where(eq(logisticsShipments.id, input.shipmentId));
       if (!shipment) throw new Error("Shipment not found");
+
+      if (input.status === "delivered") {
+        checkDeliveryPin({
+          deliveryPin: shipment.deliveryPin,
+          providedPin: input.pin ?? null,
+          isAdmin: (ctx as any)?.user?.role === "admin",
+        });
+      }
 
       const now = new Date();
       const statusTimestamps: Record<string, Partial<typeof shipment>> = {
@@ -269,6 +390,12 @@ export const logisticsRouter = router({
       }
 
       const [updated] = await db.select().from(logisticsShipments).where(eq(logisticsShipments.id, input.shipmentId));
+
+      // Push a WhatsApp status update to the buyer (picked_up → delivered …).
+      // Non-blocking: notification failures never fail the state change.
+      notifyBuyerShipmentStatus(db, { ...shipment, deliveryPin: shipment.deliveryPin }, input.status)
+        .catch((e: any) => console.warn("[logistics] buyer status push failed:", e?.message));
+
       return updated!;
     }),
 

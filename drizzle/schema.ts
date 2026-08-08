@@ -185,6 +185,9 @@ export const orders = pgTable("orders", {
   paymentIntentId: varchar("paymentIntentId", { length: 64 }),
   shippingAddress: jsonb("shippingAddress"),
   items: jsonb("items"),
+  // Structured extras: fulfillment ("pickup"|"delivery"), subtotal,
+  // deliveryFee, receiptReview flag, receipt scan details.
+  metadata: jsonb("metadata"),
   notes: text("notes"),
   erpOrderId: varchar("erpOrderId", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1278,6 +1281,9 @@ export const logisticsShipments = pgTable("logistics_shipments", {
   deliveredAt: timestamp("delivered_at"),
   failedAt: timestamp("failed_at"),
   returnedAt: timestamp("returned_at"),
+  // 4-digit PIN the rider must collect from the buyer at handover
+  // (see logistics.createShipment / simulateDelivery).
+  deliveryPin: varchar("delivery_pin", { length: 8 }),
   // Webhook audit trail (array of raw payloads)
   webhookPayloads: jsonb("webhook_payloads").default([]).notNull(),
   providerResponse: jsonb("provider_response"),

@@ -25,6 +25,242 @@ import {
   syncContactToTwenty,
   pushOrderActivityToTwenty,
 } from "../services/integrationSync";
+import { normalizeExtractedItems, addExtractedItemsToCart } from "../services/nlpCart";
+import { quoteDeliveryFee } from "../services/deliveryQuote";
+import { trackingUrlFor } from "../services/trackingToken";
+
+// ── Checkout message builders ────────────────────────────────────────────────
+type CartLine = { productName: string; quantity: number; unitPrice: string; currency: string };
+
+/** Format a major-unit amount with the currency symbol where we know it. */
+export function fmtMoney(amount: number, currency: string): string {
+  const symbols: Record<string, string> = { NGN: "₦", USD: "$", GHS: "GH₵", KES: "KSh " };
+  const sym = symbols[(currency ?? "").toUpperCase()] ?? `${currency} `;
+  return `${sym}${amount.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function itemizedLines(items: CartLine[]): string[] {
+  return items.map(i => `${i.quantity} × ${i.productName} — ${fmtMoney(Number(i.unitPrice), i.currency)} each`);
+}
+
+/** Step-1 checkout card: itemized cart + subtotal + fulfillment prompt. */
+function buildFulfillmentPrompt(items: CartLine[], subtotal: number, currency: string): string {
+  return [
+    "🛒 *Your order*",
+    ...itemizedLines(items),
+    `Subtotal: ${fmtMoney(subtotal, currency)}`,
+    "",
+    "How would you like to receive your order?",
+    "1️⃣ Pickup",
+    "2️⃣ Delivery",
+  ].join("\n");
+}
+
+/** Final order summary (pickup or delivery) incl. payment + tracking links. */
+function buildOrderSummary(opts: {
+  fulfillment: "pickup" | "delivery";
+  orderNumber: string;
+  items: CartLine[];
+  subtotal: number;
+  deliveryFee: number;
+  deliveryZone?: string;
+  address?: string | null;
+  total: number;
+  currency: string;
+  paymentUrl: string | null;
+  trackingUrl: string;
+}): string {
+  const lines: string[] = [
+    opts.fulfillment === "delivery"
+      ? `🧾 *Delivery Order ${opts.orderNumber}*`
+      : `🧾 *Pickup Order ${opts.orderNumber}*`,
+    ...itemizedLines(opts.items),
+  ];
+  if (opts.fulfillment === "delivery") {
+    if (opts.address) lines.push(`📍 Deliver to: ${opts.address}`);
+    lines.push(`Subtotal: ${fmtMoney(opts.subtotal, opts.currency)}`);
+    lines.push(`Delivery fee${opts.deliveryZone ? ` (${opts.deliveryZone})` : ""}: ${fmtMoney(opts.deliveryFee, opts.currency)}`);
+  }
+  lines.push(`*Total: ${fmtMoney(opts.total, opts.currency)}*`);
+  if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
+  if (opts.paymentUrl) {
+    lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
+    lines.push("📱 No data? Dial *712*amount# to pay via MTN MoMo");
+  }
+  lines.push("", `🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.`);
+  lines.push(`🔎 Track your order: ${opts.trackingUrl}`);
+  return lines.join("\n");
+}
+
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+export interface ChatOrderResult {
+  created: boolean;
+  fraudBlocked?: boolean;
+  riskLevel?: string;
+  orderId?: string;
+  orderNumber?: string;
+  items?: CartLine[];
+  subtotal?: number;
+  deliveryFee?: number;
+  deliveryZone?: string;
+  total?: number;
+  currency?: string;
+  paymentUrl?: string | null;
+}
+
+/**
+ * Create an order from the buyer's cart: totals (incl. delivery fee for
+ * delivery fulfillment), fraud gate, order row (with metadata breakdown),
+ * fire-and-forget integration sync, and payment-link initiation via the
+ * tenant's configured gateway. The payment link always covers the full total
+ * (subtotal + delivery fee).
+ */
+export async function createChatOrder(
+  db: Db,
+  opts: {
+    tenantId: string;
+    waPhoneNumber: string;
+    customerName?: string;
+    cartSessionId: string;
+    fulfillment: "pickup" | "delivery";
+    address: string | null;
+  },
+): Promise<ChatOrderResult> {
+  const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
+  if (items.length === 0) return { created: false };
+
+  const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+  const quote = opts.fulfillment === "delivery" ? quoteDeliveryFee({ address: opts.address }) : null;
+  const deliveryFee = quote?.fee ?? 0;
+  const total = subtotal + deliveryFee;
+  const currency = items[0].currency;
+
+  // ── Fraud gate: call /api/ml/predict before creating the order ──────
+  try {
+    const fraudResp = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/ml/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenantId: opts.tenantId,
+        amount: total,
+        phone: opts.waPhoneNumber,
+        items: items.map(i => ({ productId: i.productId, qty: i.quantity })),
+        customerId: opts.waPhoneNumber,
+      }),
+    });
+    if (fraudResp.ok) {
+      const fraudResult = await fraudResp.json() as { fraudProbability: number; riskLevel: string };
+      if (fraudResult.riskLevel === "high" || fraudResult.fraudProbability > 0.7) {
+        return { created: false, fraudBlocked: true, riskLevel: fraudResult.riskLevel };
+      }
+    }
+  } catch { /* fraud gate failure is non-blocking — allow order through */ }
+
+  const orderId = crypto.randomUUID();
+  const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+  await db.insert(orders).values({
+    id: orderId,
+    tenantId: opts.tenantId,
+    customerId: opts.waPhoneNumber, // use phone as customer ref until resolved
+    orderNumber,
+    status: "pending",
+    totalAmount: total.toFixed(2),
+    currency,
+    paymentStatus: "unpaid",
+    shippingAddress: opts.address ? { raw: opts.address } : null,
+    items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
+    metadata: {
+      fulfillment: opts.fulfillment,
+      subtotal: subtotal.toFixed(2),
+      deliveryFee: deliveryFee.toFixed(2),
+      deliveryZone: quote?.zone ?? null,
+      source: "whatsapp_chat",
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  // ── Fire-and-forget sync to external systems ─────────────────────────
+  (async () => {
+    try {
+      const syncItems = items.map(i => ({
+        productId: i.productId ?? "",
+        name: i.productName ?? "",
+        qty: i.quantity,
+        price: i.unitPrice,
+      }));
+      const syncPayload = {
+        id: orderId,
+        orderNumber,
+        total,
+        currency,
+        phone: opts.waPhoneNumber,
+        address: opts.address ?? null,
+        items: syncItems,
+      };
+      await syncOrderToMedusa(opts.tenantId, syncPayload);
+      await syncOrderToOdoo(opts.tenantId, syncPayload);
+      const personId = await syncContactToTwenty(opts.tenantId, opts.waPhoneNumber, opts.customerName);
+      if (personId) {
+        await pushOrderActivityToTwenty(opts.tenantId, personId, orderNumber, total, currency);
+      }
+    } catch (_) { /* best-effort — never block NLP */ }
+  })();
+
+  // ── Initiate payment via configured gateway (amount = total incl. fee) ──
+  let paymentUrl: string | null = null;
+  try {
+    const [gwConfig] = await db.select().from(paymentGatewayConfigs)
+      .where(and(eq(paymentGatewayConfigs.tenantId, opts.tenantId), eq(paymentGatewayConfigs.isActive, true)))
+      .limit(1);
+    if (gwConfig) {
+      const txId = crypto.randomUUID();
+      const callbackUrl = gwConfig.callbackUrl ?? `https://wa.me/${opts.waPhoneNumber}`;
+      if (gwConfig.provider === "paystack") {
+        const resp = await fetch("https://api.paystack.co/transaction/initialize", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ amount: Math.round(total * 100), currency, reference: txId, callback_url: callbackUrl }),
+        }).then(r => r.json()).catch(() => null);
+        paymentUrl = resp?.data?.authorization_url ?? null;
+      } else if (gwConfig.provider === "flutterwave") {
+        const resp = await fetch("https://api.flutterwave.com/v3/payments", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ tx_ref: txId, amount: total, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber } }),
+        }).then(r => r.json()).catch(() => null);
+        paymentUrl = resp?.data?.link ?? null;
+      }
+      await db.insert(paymentTransactions).values({
+        id: txId,
+        tenantId: opts.tenantId,
+        orderId,
+        provider: gwConfig.provider,
+        providerRef: txId,
+        amount: total.toFixed(2),
+        currency,
+        status: "initiated",
+        paymentUrl,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+  } catch (_) { /* payment link generation is best-effort */ }
+
+  return {
+    created: true,
+    orderId,
+    orderNumber,
+    items,
+    subtotal,
+    deliveryFee,
+    deliveryZone: quote ? (quote.zone === "same_city" ? "same-city estimate" : "intercity estimate") : undefined,
+    total,
+    currency,
+    paymentUrl,
+  };
+}
 import { hermesConfigs } from "../../drizzle/schema";
 
 // ── Language detection & system prompts ───────────────────────────────────────
@@ -109,7 +345,8 @@ RESPOND WITH JSON (no markdown):
   "reply": "<message to send to customer>",
   "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|unknown",
   "nextState": "greeting|browse|product_detail|add_to_cart|checkout_address|checkout_confirm|payment|order_confirmed|support",
-  "extractedProduct": "<product name if mentioned, or null>",
+  "extractedItems": [{"product": "<product name>", "quantity": <number>}] — EVERY product the customer wants to add in this message (multi-item orders are common, e.g. "2 spicy wraps and 1 malt"); empty array if none,
+  "extractedProduct": "<single product name if exactly one mentioned, else null>",
   "extractedQuantity": <number or null>,
   "extractedAddress": "<delivery address if provided, or null>",
   "confidence": <0.0-1.0>
@@ -188,6 +425,119 @@ export const nlpRouter = router({
         cartItemsList = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
       }
 
+      // 3b. Deterministic checkout steps — when the session is awaiting a
+      // structured answer (fulfillment choice / delivery address) parse it
+      // directly instead of spending an LLM call on a structured reply.
+      {
+        const stepCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+        if (cartSession && (stepCtx.awaitingFulfillment === true || stepCtx.awaitingAddress === true)) {
+          const text = input.message.trim();
+          const lower = text.toLowerCase();
+          let reply: string;
+          let stepIntent = "checkout_fulfillment";
+          let nextState = "checkout_confirm";
+          const activeCartId: string = cartSession.id;
+
+          const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
+            const order = await createChatOrder(db, {
+              tenantId: input.tenantId,
+              waPhoneNumber: input.waPhoneNumber,
+              customerName: input.customerName,
+              cartSessionId: activeCartId,
+              fulfillment,
+              address,
+            });
+            if (order.fraudBlocked) {
+              return `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
+            }
+            if (!order.created) return "Your cart appears to be empty — what would you like to order?";
+            stepCtx.fulfillment = fulfillment;
+            stepCtx.lastOrderId = order.orderId;
+            stepCtx.lastOrderNumber = order.orderNumber;
+            nextState = "payment";
+            stepIntent = "confirm_order";
+            return buildOrderSummary({
+              fulfillment,
+              orderNumber: order.orderNumber!,
+              items: order.items!,
+              subtotal: order.subtotal!,
+              deliveryFee: order.deliveryFee!,
+              deliveryZone: order.deliveryZone,
+              address,
+              total: order.total!,
+              currency: order.currency!,
+              paymentUrl: order.paymentUrl ?? null,
+              trackingUrl: trackingUrlFor(order.orderId!),
+            });
+          };
+
+          if (stepCtx.awaitingFulfillment === true) {
+            const wantsPickup = /^(1|pickup|pick up|pick-up|collect|i'?ll pick|i go pick)/.test(lower);
+            const wantsDelivery = /^(2|deliver|delivery|bring it|send it)/.test(lower);
+            delete stepCtx.awaitingFulfillment;
+            if (wantsPickup) {
+              reply = await finalizeOrder("pickup", null);
+            } else if (wantsDelivery) {
+              stepCtx.fulfillment = "delivery";
+              const knownAddress = typeof stepCtx.deliveryAddress === "string" ? stepCtx.deliveryAddress : null;
+              if (knownAddress) {
+                reply = await finalizeOrder("delivery", knownAddress);
+              } else {
+                stepCtx.awaitingAddress = true;
+                nextState = "checkout_address";
+                reply = "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city).";
+              }
+            } else {
+              // Unrecognized — re-ask, keep awaiting the choice.
+              stepCtx.awaitingFulfillment = true;
+              reply = "Please reply 1️⃣ for Pickup or 2️⃣ for Delivery.";
+            }
+          } else {
+            // awaitingAddress — treat the whole message as the address.
+            delete stepCtx.awaitingAddress;
+            if (text.length >= 6) {
+              stepCtx.deliveryAddress = text;
+              reply = await finalizeOrder("delivery", text);
+            } else {
+              stepCtx.awaitingAddress = true;
+              nextState = "checkout_address";
+              reply = "That looks a bit short — please send your full delivery address (street, area, city).";
+            }
+          }
+
+          const stepHistory = [
+            ...((session.messageHistory as Array<{ role: string; content: string }>).slice(-10)),
+            { role: "user", content: input.message },
+            { role: "assistant", content: reply },
+          ].slice(-20);
+          await db.update(nlpSessions).set({
+            state: nextState,
+            context: stepCtx,
+            messageHistory: stepHistory,
+            lastActivityAt: new Date(),
+          }).where(eq(nlpSessions.id, session.id));
+          await db.insert(agentEvents).values({
+            id: crypto.randomUUID(),
+            tenantId: input.tenantId,
+            conversationId: session.id,
+            eventType: "nlp_message",
+            intentType: stepIntent,
+            confidence: "1.000",
+            escalated: false,
+            model: "deterministic-checkout",
+            createdAt: new Date(),
+          });
+          return {
+            reply,
+            intent: stepIntent,
+            state: nextState,
+            language: session.language,
+            sessionId: session.id,
+            confidence: 1,
+          };
+        }
+      }
+
       // 4. Build message history for LLM context (last 10 turns)
       const history = (session.messageHistory as Array<{ role: string; content: string }>).slice(-10);
 
@@ -232,14 +582,9 @@ export const nlpRouter = router({
           "Your Hermes Agent dashboard is live at /hermes in your back-office.",
           "Reply *hermes status* at any time to check the connection.",
         ].join("\n");
-        if ((ENV as any).waToken && (ENV as any).waPhoneNumberId) {
-          const normalized = input.waPhoneNumber.startsWith("+") ? input.waPhoneNumber : `+${input.waPhoneNumber}`;
-          await fetch(`https://graph.facebook.com/v19.0/${(ENV as any).waPhoneNumberId}/messages`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${(ENV as any).waToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ messaging_product: "whatsapp", to: normalized, type: "text", text: { body: confirmMsg } }),
-          }).catch(() => {});
-        }
+        // Delivery is handled by the caller: the WhatsApp webhook now sends the
+        // returned reply via services/waSender (tenant-aware credentials), so
+        // sending here as well would double-deliver the confirmation.
         await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
         return { reply: confirmMsg, intent: "hermes_setup", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
       }
@@ -265,6 +610,7 @@ export const nlpRouter = router({
 
       let llmResult: {
         reply: string; intent: string; nextState: string;
+        extractedItems?: Array<{ product?: string | null; quantity?: number | null }> | null;
         extractedProduct: string | null; extractedQuantity: number | null;
         extractedAddress: string | null; confidence: number;
       };
@@ -280,6 +626,7 @@ export const nlpRouter = router({
         llmResult = {
           reply: FALLBACK_ERRORS[session.language] ?? FALLBACK_ERRORS.english,
           intent: "unknown", nextState: session.state,
+          extractedItems: [],
           extractedProduct: null, extractedQuantity: null,
           extractedAddress: null, confidence: 0,
         };
@@ -288,183 +635,87 @@ export const nlpRouter = router({
       // 6. Act on intent
       const ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
 
-      if (llmResult.intent === "add_to_cart" && llmResult.extractedProduct) {
-        // Find matching product
-        const matched = tenantProducts.find(p =>
-          p.name.toLowerCase().includes(llmResult.extractedProduct!.toLowerCase()) ||
-          llmResult.extractedProduct!.toLowerCase().includes(p.name.toLowerCase())
-        );
-        if (matched && matched.stockQuantity > 0) {
-          // Ensure cart session exists
-          if (!cartSession) {
-            const [cs] = await db.insert(cartSessions).values({
-              id: crypto.randomUUID(),
-              tenantId: input.tenantId,
-              waPhoneNumber: input.waPhoneNumber,
-              sessionData: {},
-              currentStep: "browse",
-              language: session.language,
-              expiresAt: new Date(Date.now() + 86400000),
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            }).returning();
-            cartSession = cs;
-            await db.update(nlpSessions).set({ cartSessionId: cs.id }).where(eq(nlpSessions.id, session.id));
-          }
-          // Add item
-          const qty = llmResult.extractedQuantity ?? 1;
-          await db.insert(cartItems).values({
-            id: crypto.randomUUID(),
-            cartSessionId: cartSession.id,
-            productId: matched.id,
-            productName: matched.name,
-            quantity: qty,
-            unitPrice: matched.price,
-            currency: matched.currency,
-            createdAt: new Date(),
+      if (llmResult.intent === "add_to_cart") {
+        // Multi-item support: the LLM returns extractedItems[] for messages like
+        // "2 spicy chicken wraps and 1 sweet chilli wrap"; the legacy single
+        // extractedProduct/extractedQuantity fields are the fallback. Each item
+        // is matched with per-item confidence — ambiguous mentions are NOT
+        // guessed; they get a clarification line appended to the reply.
+        const itemsToAdd = normalizeExtractedItems(llmResult);
+        if (itemsToAdd.length > 0) {
+          const result = await addExtractedItemsToCart(db, {
+            tenantId: input.tenantId,
+            waPhoneNumber: input.waPhoneNumber,
+            session: { id: session.id, language: session.language },
+            cartSession,
+            products: tenantProducts,
+            items: itemsToAdd,
           });
+          cartSession = result.cartSession;
+          if (result.added.length > 0) {
+            // Keep the in-memory cart context in sync for this turn.
+            cartItemsList = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, result.cartSession.id));
+            const addedSummary = result.added
+              .map(a => `✅ ${a.quantity} × ${a.productName}`)
+              .join("\n");
+            llmResult.reply = `${addedSummary}\n${llmResult.reply ?? ""}`.trim();
+          }
+          if (result.clarifications.length > 0) {
+            llmResult.reply = `${llmResult.reply ?? ""}\n\n${result.clarifications.join("\n")}`.trim();
+          }
         }
       }
 
       if (llmResult.intent === "confirm_order" && cartSession) {
-        // Create order from cart
         const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
         if (items.length > 0) {
-          const total = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
-          // ── Fraud gate: call /api/ml/predict before creating the order ──────
-          let fraudBlocked = false;
-          try {
-            const fraudResp = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/ml/predict`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                tenantId: input.tenantId,
-                amount: total,
-                phone: input.waPhoneNumber,
-                items: items.map(i => ({ productId: i.productId, qty: i.quantity })),
-                customerId: input.waPhoneNumber,
-              }),
-            });
-            if (fraudResp.ok) {
-              const fraudResult = await fraudResp.json() as { fraudProbability: number; riskLevel: string };
-              if (fraudResult.riskLevel === "high" || fraudResult.fraudProbability > 0.7) {
-                fraudBlocked = true;
-                llmResult.reply = `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${fraudResult.riskLevel})`;
-              }
-            }
-          } catch { /* fraud gate failure is non-blocking — allow order through */ }
-          if (fraudBlocked) {
-            // Skip order creation
+          const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+          const currency = items[0].currency;
+          const fulfillment = typeof ctx.fulfillment === "string" ? ctx.fulfillment as "pickup" | "delivery" : null;
+
+          if (!fulfillment) {
+            // Checkout step 1: itemized cart + subtotal, then ask pickup or
+            // delivery. The order (and payment link) is only created once the
+            // fulfillment choice — and for delivery, the address + fee — is
+            // known, so the payment link always covers the true total.
+            ctx.awaitingFulfillment = true;
+            llmResult.nextState = "checkout_confirm";
+            llmResult.reply = buildFulfillmentPrompt(items, subtotal, currency);
           } else {
-          const orderId = crypto.randomUUID();
-          const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
-          await db.insert(orders).values({
-            id: orderId,
-            tenantId: input.tenantId,
-            customerId: input.waPhoneNumber, // use phone as customer ref until resolved
-            orderNumber,
-            status: "pending",
-            totalAmount: total.toFixed(2),
-            currency: items[0].currency,
-            paymentStatus: "unpaid",
-            shippingAddress: llmResult.extractedAddress ? { raw: llmResult.extractedAddress } : null,
-            items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          });
-          ctx.lastOrderId = orderId;
-          ctx.lastOrderNumber = orderNumber;
-        // ── Fire-and-forget sync to external systems ─────────────────────────
-        (async () => {
-          try {
-            const syncItems = items.map(i => ({
-              productId: i.productId ?? "",
-              name: i.productName ?? "",
-              qty: i.quantity,
-              price: i.unitPrice,
-            }));
-            const syncPayload = {
-              id: orderId,
-              orderNumber,
-              total,
-              currency: items[0]?.currency ?? "NGN",
-              phone: input.waPhoneNumber,
-              address: llmResult.extractedAddress ?? null,
-              items: syncItems,
-            };
-            await syncOrderToMedusa(input.tenantId, syncPayload);
-            await syncOrderToOdoo(input.tenantId, syncPayload);
-            const personId = await syncContactToTwenty(input.tenantId, input.waPhoneNumber, input.customerName);
-            if (personId) {
-              await pushOrderActivityToTwenty(input.tenantId, personId, orderNumber, total, syncPayload.currency);
-            }
-          } catch (_) { /* best-effort — never block NLP */ }
-        })();
-        // ── Initiate payment via configured gateway ──────────────────────────
-        try {
-          const [gwConfig] = await db.select().from(paymentGatewayConfigs)
-            .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.isActive, true)))
-            .limit(1);
-          if (gwConfig) {
-            const txId = crypto.randomUUID();
-            let paymentUrl: string | null = null;
-            const callbackUrl = gwConfig.callbackUrl ?? `https://wa.me/${input.waPhoneNumber}`;
-            if (gwConfig.provider === "paystack") {
-              const resp = await fetch("https://api.paystack.co/transaction/initialize", {
-                method: "POST",
-                headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ amount: Math.round(total * 100), currency: items[0].currency, reference: txId, callback_url: callbackUrl }),
-              }).then(r => r.json()).catch(() => null);
-              paymentUrl = resp?.data?.authorization_url ?? null;
-            } else if (gwConfig.provider === "flutterwave") {
-              const resp = await fetch("https://api.flutterwave.com/v3/payments", {
-                method: "POST",
-                headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ tx_ref: txId, amount: total, currency: items[0].currency, redirect_url: callbackUrl, customer: { phone_number: input.waPhoneNumber } }),
-              }).then(r => r.json()).catch(() => null);
-              paymentUrl = resp?.data?.link ?? null;
-            }
-            await db.insert(paymentTransactions).values({
-              id: txId,
+            // Fulfillment already chosen earlier in the session — create the
+            // order immediately (e.g. buyer re-confirming).
+            const address = fulfillment === "delivery"
+              ? (llmResult.extractedAddress ?? (typeof ctx.deliveryAddress === "string" ? ctx.deliveryAddress : null))
+              : null;
+            const order = await createChatOrder(db, {
               tenantId: input.tenantId,
-              orderId,
-              provider: gwConfig.provider,
-              providerRef: txId,
-              amount: total.toFixed(2),
-              currency: items[0].currency,
-              status: "initiated",
-              paymentUrl,
-              createdAt: new Date(),
-              updatedAt: new Date(),
+              waPhoneNumber: input.waPhoneNumber,
+              customerName: input.customerName,
+              cartSessionId: cartSession.id,
+              fulfillment,
+              address,
             });
-            if (paymentUrl) {
-              // Append payment link to the LLM reply
-              const payLinkSuffix = session.language === "pidgin"
-                ? `\n\n💳 Click dis link to pay: ${paymentUrl}`
-                : session.language === "yo"
-                ? `\n\n💳 Tẹ ọna asopọ yii lati san: ${paymentUrl}`
-                : session.language === "ha"
-                ? `\n\n💳 Danna wannan hanyar haɗi don biyan kuɗi: ${paymentUrl}`
-                : session.language === "ig"
-                ? `\n\n💳 Pịa njikọ a iji kwụọ ụgwọ: ${paymentUrl}`
-                : `\n\n💳 Click here to complete payment: ${paymentUrl}`;
-              llmResult.reply = (llmResult.reply ?? "") + payLinkSuffix;
-              // Airtime / mobile-money shortcode hint for low-income users without data
-              const airtimeSuffix = session.language === "pidgin"
-                ? `\n📱 No data? Dial *712*amount# to pay with MTN MoMo`
-                : session.language === "yo"
-                ? `\n📱 Ko si data? Pe *712*iye# lati san pẹlu MTN MoMo`
-                : session.language === "ha"
-                ? `\n📱 Babu data? Kira *712*adadin# don biyan kuɗi da MTN MoMo`
-                : session.language === "ig"
-                ? `\n📱 Enweghị data? Kpọọ *712*ọnụ ego# iji kwụọ ụgwọ na MTN MoMo`
-                : `\n📱 No data? Dial *712*amount# to pay via MTN MoMo`;
-              llmResult.reply = (llmResult.reply ?? "") + airtimeSuffix;
+            if (order.fraudBlocked) {
+              llmResult.reply = `\u26a0\ufe0f Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
+            } else if (order.created) {
+              ctx.lastOrderId = order.orderId;
+              ctx.lastOrderNumber = order.orderNumber;
+              llmResult.reply = buildOrderSummary({
+                fulfillment,
+                orderNumber: order.orderNumber!,
+                items: order.items!,
+                subtotal: order.subtotal!,
+                deliveryFee: order.deliveryFee!,
+                deliveryZone: order.deliveryZone,
+                address,
+                total: order.total!,
+                currency: order.currency!,
+                paymentUrl: order.paymentUrl ?? null,
+                trackingUrl: trackingUrlFor(order.orderId!),
+              });
             }
           }
-        } catch (_) { /* payment link generation is best-effort */ }
-          } // end else (not fraudBlocked)
-        } // end if (items.length > 0)
+        }
       } // end if (confirm_order)
 
       if (llmResult.extractedAddress) {
