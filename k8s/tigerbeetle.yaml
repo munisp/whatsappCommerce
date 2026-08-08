@@ -1,0 +1,131 @@
+# TigerBeetle ledger (single replica, development mode — mirrors docker-compose).
+# The init container formats the data file once; the main container starts the
+# replica. TigerBeetle speaks its own binary protocol on 3000 (no HTTP), so
+# probes are tcpSocket.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tigerbeetle
+  namespace: whatsapp-commerce
+  labels:
+    app: tigerbeetle
+    app.kubernetes.io/name: tigerbeetle
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  # Recreate: the init container would re-format a data file still held by the
+  # old replica under RollingUpdate.
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tigerbeetle
+  template:
+    metadata:
+      labels:
+        app: tigerbeetle
+        app.kubernetes.io/name: tigerbeetle
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Mirrors docker-compose tigerbeetle-init. format is idempotent-guarded:
+        # it exits non-zero if the data file already exists, hence the test.
+        - name: tigerbeetle-format
+          image: ghcr.io/tigerbeetle/tigerbeetle:0.16.40
+          command:
+            - sh
+            - -c
+            - |
+              if [ -f /data/0_0.tigerbeetle ]; then
+                echo "data file exists — skipping format";
+              else
+                /tigerbeetle format --cluster=0 --replica=0 --replica-count=1 --development /data/0_0.tigerbeetle;
+              fi
+          volumeMounts:
+            - name: tigerbeetle-data
+              mountPath: /data
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+      containers:
+        - name: tigerbeetle
+          # Pinned (was :latest).
+          image: ghcr.io/tigerbeetle/tigerbeetle:0.16.40
+          command:
+            - /tigerbeetle
+            - start
+            - --addresses=0.0.0.0:3000
+            - --development
+            - /data/0_0.tigerbeetle
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: tigerbeetle-data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          # No HTTP endpoint exists; deep health is surfaced via ledger-bridge
+          # GET /health (tigerbeetle.healthy) and platform GET /api/health/tigerbeetle.
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tigerbeetle-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tigerbeetle
+  namespace: whatsapp-commerce
+  labels:
+    app: tigerbeetle
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  selector:
+    app: tigerbeetle
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP

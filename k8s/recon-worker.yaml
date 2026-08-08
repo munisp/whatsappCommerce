@@ -1,23 +1,26 @@
+# recon-worker (Rust) — rust/recon-worker. Periodic financial reconciliation
+# between payment_intents (Postgres) and the TigerBeetle ledger via
+# ledger-bridge; actively voids orphaned pending transfers.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-gateway
+  name: recon-worker
   namespace: whatsapp-commerce
   labels:
-    app: api-gateway
-    app.kubernetes.io/name: api-gateway
+    app: recon-worker
+    app.kubernetes.io/name: recon-worker
     app.kubernetes.io/part-of: whatsapp-commerce-platform
     version: v1
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: api-gateway
+      app: recon-worker
   template:
     metadata:
       labels:
-        app: api-gateway
-        app.kubernetes.io/name: api-gateway
+        app: recon-worker
+        app.kubernetes.io/name: recon-worker
         app.kubernetes.io/part-of: whatsapp-commerce-platform
         version: v1
     spec:
@@ -29,12 +32,27 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: api-gateway
-          # Pinned tag — no :latest (see docs/RUNBOOK_ROLLBACK.md GitOps policy).
-          image: whatsapp-commerce/api-gateway:v1.0.0
+        - name: recon-worker
+          image: whatsapp-commerce/recon-worker:v1.0.0
           ports:
-            - containerPort: 8080
+            - containerPort: 8096
+          env:
+            # Default in code is 8096 (rust/recon-worker/src/main.rs Config::from_env).
+            - name: PORT
+              value: "8096"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://wc_user:$(POSTGRES_PASSWORD)@postgres:5432/whatsapp_commerce?sslmode=disable
+            - name: PLATFORM_API_URL
+              value: http://platform:3000
+            - name: RUST_LOG
+              value: info
           envFrom:
+            # Provides LEDGER_BRIDGE_URL and RECON_INTERVAL_SECS.
             - configMapRef:
                 name: platform-config
             - secretRef:
@@ -57,20 +75,18 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-          # Probe paths verified against services/gateway/cmd/main.go:
-          #   GET /health (main.go:144), GET /ready (main.go:159).
-          # NOTE: previous revision probed /healthz, which the gateway does
-          # NOT serve — the readiness/liveness probes were broken.
+          # Probe path verified: GET /health — rust/recon-worker/src/main.rs:307
+          # (route table: /health, /recon/trigger, /recon/last).
           readinessProbe:
             httpGet:
-              path: /ready
-              port: 8080
+              path: /health
+              port: 8096
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: 8096
             initialDelaySeconds: 15
             periodSeconds: 20
       volumes:
@@ -80,41 +96,15 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: api-gateway
+  name: recon-worker
   namespace: whatsapp-commerce
   labels:
-    app: api-gateway
+    app: recon-worker
     app.kubernetes.io/part-of: whatsapp-commerce-platform
 spec:
   selector:
-    app: api-gateway
+    app: recon-worker
   ports:
-    - port: 8080
-      targetPort: 8080
+    - port: 8096
+      targetPort: 8096
   type: ClusterIP
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: api-gateway-hpa
-  namespace: whatsapp-commerce
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: api-gateway
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80

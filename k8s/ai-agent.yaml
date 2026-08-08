@@ -5,6 +5,8 @@ metadata:
   namespace: whatsapp-commerce
   labels:
     app: ai-agent
+    app.kubernetes.io/name: ai-agent
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
     version: v1
 spec:
   replicas: 2
@@ -15,13 +17,27 @@ spec:
     metadata:
       labels:
         app: ai-agent
+        app.kubernetes.io/name: ai-agent
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: ai-agent
-          image: whatsapp-commerce/ai-agent:latest
+          image: whatsapp-commerce/ai-agent:v1.0.0
           ports:
             - containerPort: 8090
+          env:
+            # Python writes caches/HF artifacts under HOME — keep it on the
+            # writable emptyDir since the root filesystem is read-only.
+            - name: HOME
+              value: /tmp
           envFrom:
             - configMapRef:
                 name: platform-config
@@ -34,6 +50,18 @@ spec:
             limits:
               cpu: "1000m"
               memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # Probe path verified: GET /health — ai-agent/api/main.py (@app.get("/health")).
           readinessProbe:
             httpGet:
               path: /health
@@ -46,12 +74,18 @@ spec:
               port: 8090
             initialDelaySeconds: 30
             periodSeconds: 30
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: ai-agent
   namespace: whatsapp-commerce
+  labels:
+    app: ai-agent
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
 spec:
   selector:
     app: ai-agent
@@ -79,4 +113,3 @@ spec:
         target:
           type: Utilization
           averageUtilization: 65
-

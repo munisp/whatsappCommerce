@@ -1,0 +1,190 @@
+# APISIX edge gateway (standalone, etcd-less) — mirrors docker-compose apisix
+# service and services/middleware/apisix_conf/. The ONLY externally exposed
+# data-plane entrypoint: Ingress → apisix:9080 → api-gateway:8080 (route
+# /api/* per conf/apisix.yaml). No other Service is exposed outside the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apisix-standalone-config
+  namespace: whatsapp-commerce
+  labels:
+    app: apisix
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+data:
+  # Source: services/middleware/apisix_conf/config.yaml (kept in sync manually).
+  # Deviation from compose file: allow_admin restricted to cluster-internal
+  # CIDRs instead of 0.0.0.0/0 (zero-trust hardening).
+  config.yaml: |
+    apisix:
+      node_listen: 9080
+      enable_ipv6: false
+      enable_admin: true
+
+    deployment:
+      role: standalone
+      role_standalone:
+        config_provider: yaml
+      admin:
+        admin_listen:
+          ip: 0.0.0.0
+          port: 9180
+        admin_key:
+          - name: admin
+            key: ${APISIX_ADMIN_KEY:-edd1c9f034335f136f87ad84b625c8f1}
+            role: admin
+        allow_admin:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+
+    plugin_attr:
+      prometheus:
+        export_uri: /apisix/prometheus/metrics
+        export_addr:
+          ip: 0.0.0.0
+          port: 9091
+
+    plugins:
+      - jwt-auth
+      - key-auth
+      - rate-limiting
+      - ip-restriction
+      - cors
+      - request-id
+      - prometheus
+  # Source: services/middleware/apisix_conf/apisix.yaml.
+  apisix.yaml: |
+    routes:
+      - uri: /api/*
+        name: platform-api
+        upstream:
+          type: roundrobin
+          nodes:
+            "api-gateway:8080": 1
+        plugins:
+          request-id: {}
+          cors: {}
+    #END
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apisix
+  namespace: whatsapp-commerce
+  labels:
+    app: apisix
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: apisix
+  template:
+    metadata:
+      labels:
+        app: apisix
+        app.kubernetes.io/name: apisix
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: /apisix/prometheus/metrics
+    spec:
+      # EXCEPTION (documented in docs/ZERO_TRUST.md): the official
+      # apache/apisix image runs the OpenResty master process as root, so
+      # runAsNonRoot cannot be enforced here. All other controls are applied;
+      # data-plane ports (9080/9091/9180) are unprivileged (>1024), so no
+      # capabilities are required.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: apisix
+          # Pinned (matches docker-compose).
+          image: apache/apisix:3.9.1
+          ports:
+            - name: data
+              containerPort: 9080
+            - name: admin
+              containerPort: 9180
+            - name: metrics
+              containerPort: 9091
+          env:
+            - name: APISIX_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: APISIX_ADMIN_KEY
+                  optional: true
+          volumeMounts:
+            - name: config
+              mountPath: /usr/local/apisix/conf/config.yaml
+              subPath: config.yaml
+            - name: config
+              mountPath: /usr/local/apisix/conf/apisix.yaml
+              subPath: apisix.yaml
+            - name: logs
+              mountPath: /usr/local/apisix/logs
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          # Real endpoints: prometheus export (plugin_attr above) on 9091.
+          readinessProbe:
+            httpGet:
+              path: /apisix/prometheus/metrics
+              port: 9091
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 9080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: config
+          configMap:
+            name: apisix-standalone-config
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apisix
+  namespace: whatsapp-commerce
+  labels:
+    app: apisix
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    app: apisix
+  ports:
+    - name: data
+      port: 9080
+      targetPort: 9080
+    - name: admin
+      port: 9180
+      targetPort: 9180
+    - name: metrics
+      port: 9091
+      targetPort: 9091
+  type: ClusterIP

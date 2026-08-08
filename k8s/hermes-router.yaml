@@ -1,25 +1,35 @@
+# hermes-router (Rust) — rust/hermes-router. High-throughput event router for
+# the Hermes Agent integration with circuit breaker, retry, DLQ, and the only
+# first-party Prometheus-text /metrics endpoint
+# (hermes_router_events_{routed,failed,dlq}_total — rust/hermes-router/src/main.rs
+# handle_metrics). Deployed so the DLQ alert rules in
+# k8s/monitoring/prometheus-rules.yaml have a real target.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-gateway
+  name: hermes-router
   namespace: whatsapp-commerce
   labels:
-    app: api-gateway
-    app.kubernetes.io/name: api-gateway
+    app: hermes-router
+    app.kubernetes.io/name: hermes-router
     app.kubernetes.io/part-of: whatsapp-commerce-platform
     version: v1
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
-      app: api-gateway
+      app: hermes-router
   template:
     metadata:
       labels:
-        app: api-gateway
-        app.kubernetes.io/name: api-gateway
+        app: hermes-router
+        app.kubernetes.io/name: hermes-router
         app.kubernetes.io/part-of: whatsapp-commerce-platform
         version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8096"
+        prometheus.io/path: /metrics
     spec:
       securityContext:
         runAsNonRoot: true
@@ -29,12 +39,21 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: api-gateway
-          # Pinned tag — no :latest (see docs/RUNBOOK_ROLLBACK.md GitOps policy).
-          image: whatsapp-commerce/api-gateway:v1.0.0
+        - name: hermes-router
+          image: whatsapp-commerce/hermes-router:v1.0.0
           ports:
-            - containerPort: 8080
+            - containerPort: 8096
+          env:
+            - name: PORT
+              value: "8096"
+            - name: ENV
+              value: production   # fail-closed when INTERNAL_API_KEY is unset
+            - name: DLQ_DIR
+              value: /tmp/hermes-dlq
+            - name: RUST_LOG
+              value: info
           envFrom:
+            # Provides KAFKA_BROKERS and REDIS_URL.
             - configMapRef:
                 name: platform-config
             - secretRef:
@@ -55,22 +74,21 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
+            # DLQ_DIR lives under /tmp (writable emptyDir).
             - name: tmp
               mountPath: /tmp
-          # Probe paths verified against services/gateway/cmd/main.go:
-          #   GET /health (main.go:144), GET /ready (main.go:159).
-          # NOTE: previous revision probed /healthz, which the gateway does
-          # NOT serve — the readiness/liveness probes were broken.
+          # Probe paths verified: GET /health + GET /metrics —
+          # rust/hermes-router/src/main.rs route table.
           readinessProbe:
             httpGet:
-              path: /ready
-              port: 8080
+              path: /health
+              port: 8096
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
+              port: 8096
             initialDelaySeconds: 15
             periodSeconds: 20
       volumes:
@@ -80,41 +98,18 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: api-gateway
+  name: hermes-router
   namespace: whatsapp-commerce
   labels:
-    app: api-gateway
+    app: hermes-router
     app.kubernetes.io/part-of: whatsapp-commerce-platform
+    # Picked up by k8s/monitoring/servicemonitors.yaml.
+    prometheus.io/scrape: "true"
 spec:
   selector:
-    app: api-gateway
+    app: hermes-router
   ports:
-    - port: 8080
-      targetPort: 8080
+    - name: http
+      port: 8096
+      targetPort: 8096
   type: ClusterIP
----
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: api-gateway-hpa
-  namespace: whatsapp-commerce
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: api-gateway
-  minReplicas: 2
-  maxReplicas: 10
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80

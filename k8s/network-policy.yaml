@@ -1,46 +1,19 @@
+# Default-deny baseline for the whatsapp-commerce namespace.
+#
+# HISTORY: this file previously also contained `allow-platform-internal`, which
+# allowed any pod in the namespace to reach any other pod on any port —
+# effectively no isolation. That policy is removed and replaced by the
+# explicit, per-service allow-list in k8s/network-policies.yaml (zero-trust
+# model, documented in docs/ZERO_TRUST.md).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-all
   namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
 spec:
   podSelector: {}
   policyTypes:
     - Ingress
     - Egress
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-platform-internal
-  namespace: whatsapp-commerce
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/part-of: whatsapp-commerce-platform
-  policyTypes:
-    - Ingress
-    - Egress
-  ingress:
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: whatsapp-commerce
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: whatsapp-commerce
-    - to: []
-      ports:
-        - port: 53
-          protocol: UDP
-        - port: 443
-          protocol: TCP
-        - port: 5432
-          protocol: TCP
-        - port: 6379
-          protocol: TCP
-        - port: 9092
-          protocol: TCP
-
