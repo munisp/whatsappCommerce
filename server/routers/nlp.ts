@@ -797,6 +797,8 @@ export const nlpRouter = router({
             sessionId: session.id,
             confidence: 1,
           };
+        }
+      }
 
       // 4. Build message history for LLM context (last 10 turns)
       const history = (session.messageHistory as Array<{ role: string; content: string }>).slice(-10);
