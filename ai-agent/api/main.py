@@ -11,7 +11,7 @@ import structlog
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import Depends, FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
@@ -29,6 +29,11 @@ from agents.orchestrator import AIOrchestrator, AgentInput
 from tools.commerce_tools import CommerceTools
 from memory.conversation_memory import ConversationMemory
 from guardrails.guardrails import Guardrails
+
+try:  # package context (uvicorn api.main:app)
+    from .internal_auth import require_internal_token
+except ImportError:  # script context (python main.py / uvicorn main:app)
+    from internal_auth import require_internal_token
 
 log = structlog.get_logger()
 
@@ -115,7 +120,7 @@ async def health():
     return {"status": "ok", "service": "ai-agent", "version": "1.0.0"}
 
 
-@app.post("/intent", response_model=IntentResponse)
+@app.post("/intent", response_model=IntentResponse, dependencies=[Depends(require_internal_token)])
 async def classify_intent(req: IntentRequest):
     """Classify user intent and generate a conversational reply."""
     try:
@@ -143,7 +148,7 @@ async def classify_intent(req: IntentRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/recommend")
+@app.post("/recommend", dependencies=[Depends(require_internal_token)])
 async def recommend_products(req: RecommendRequest):
     """Generate product recommendations based on conversation context."""
     try:
@@ -155,7 +160,7 @@ async def recommend_products(req: RecommendRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/handoff-summary")
+@app.post("/handoff-summary", dependencies=[Depends(require_internal_token)])
 async def generate_handoff_summary(req: HandoffSummaryRequest):
     """Generate a structured handoff summary for human agents."""
     try:

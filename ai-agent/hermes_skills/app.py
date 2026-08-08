@@ -13,13 +13,21 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from .models import SkillRequest, SkillResult
-from .po_generator import generate_po
-from .supplier_email import send_supplier_email
-from .woocommerce_sync import sync_inventory
+try:
+    from .internal_auth import require_internal_token
+    from .models import SkillRequest, SkillResult
+    from .po_generator import generate_po
+    from .supplier_email import send_supplier_email
+    from .woocommerce_sync import sync_inventory
+except ImportError:  # script context (uvicorn app:app from this directory)
+    from internal_auth import require_internal_token
+    from models import SkillRequest, SkillResult
+    from po_generator import generate_po
+    from supplier_email import send_supplier_email
+    from woocommerce_sync import sync_inventory
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,7 +89,7 @@ async def metrics():
     return "\n".join(lines)
 
 
-@app.post("/skills/process", response_model=list[SkillResult])
+@app.post("/skills/process", response_model=list[SkillResult], dependencies=[Depends(require_internal_token)])
 async def process_event(request: SkillRequest):
     """
     Process a platform event through all registered skills for its event_type.
@@ -129,7 +137,7 @@ async def process_event(request: SkillRequest):
     return results
 
 
-@app.post("/skills/po-approved")
+@app.post("/skills/po-approved", dependencies=[Depends(require_internal_token)])
 async def po_approved(body: dict[str, Any]):
     """
     Called by the platform when a merchant approves a PO via WhatsApp.
