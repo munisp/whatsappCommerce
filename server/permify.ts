@@ -7,7 +7,7 @@
  *   - Relationship writes (grant/revoke)
  *   - Schema management
  *
- * Falls back to allow-all when PERMIFY_URL is not configured (dev mode).
+ * Failure policy: fail CLOSED in production, fail open (with warning) in dev.
  */
 import { ENV } from "./_core/env";
 
@@ -26,10 +26,21 @@ export interface PermifyCheckInput {
 
 /**
  * Check if a subject has a permission on an entity.
- * Returns true (allowed) when Permify is unreachable in dev mode.
+ *
+ * Failure policy:
+ *   - production (NODE_ENV=production): FAIL CLOSED — an unconfigured or
+ *     unreachable Permify, or any check error, denies the permission.
+ *   - development: fail open with a warning so local dev doesn't require a
+ *     running Permify instance.
  */
 export async function permifyCheck(input: PermifyCheckInput): Promise<boolean> {
-  if (!process.env.PERMIFY_URL) return true; // dev fallback
+  if (!process.env.PERMIFY_URL) {
+    if (ENV.isProduction) {
+      console.warn("[Permify] PERMIFY_URL is not set in production — denying check (fail closed)");
+      return false;
+    }
+    return true; // dev fallback
+  }
   try {
     const resp = await fetch(
       `${BASE()}/v1/tenants/${TENANT()}/permissions/check`,
@@ -48,8 +59,13 @@ export async function permifyCheck(input: PermifyCheckInput): Promise<boolean> {
     if (!resp.ok) return false;
     const data = await resp.json() as { can?: string };
     return data.can === "CHECK_RESULT_ALLOWED";
-  } catch {
-    return true; // fail-open in dev; fail-closed in prod via env guard above
+  } catch (err: any) {
+    if (ENV.isProduction) {
+      console.warn("[Permify] check errored in production — denying (fail closed):", err?.message);
+      return false;
+    }
+    console.warn("[Permify] check errored — allowing (dev fail-open):", err?.message);
+    return true;
   }
 }
 

@@ -1,3 +1,23 @@
+const isProduction = process.env.NODE_ENV === "production";
+
+const KNOWN_INSECURE_DEFAULT_PREFIX = "change-me-in-production";
+
+/**
+ * Fail-closed secret guard: in production the process must refuse to start
+ * when a signing/encryption secret is unset or still equals a known insecure
+ * default. Called at module load so misconfiguration fails fast at startup.
+ */
+function assertProductionSecret(name: string, value: string): void {
+  if (!isProduction) return;
+  if (!value || value.startsWith(KNOWN_INSECURE_DEFAULT_PREFIX)) {
+    throw new Error(
+      `[ENV] FATAL: ${name} is unset or uses the known insecure default ` +
+        `"${KNOWN_INSECURE_DEFAULT_PREFIX}*". Set a strong, unique secret ` +
+        `before starting in production (NODE_ENV=production).`
+    );
+  }
+}
+
 export const ENV = {
   // Database
   postgresUrl: process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? "",
@@ -53,7 +73,7 @@ export const ENV = {
   llmModel: process.env.LLM_MODEL ?? "llama3.2",
   // App
   appUrl: process.env.APP_URL ?? "http://localhost:3000",
-  isProduction: process.env.NODE_ENV === "production",
+  isProduction,
   // ML Services
   kycServiceUrl: process.env.KYC_SERVICE_URL ?? "http://localhost:8001",
   mlflowUrl: process.env.MLFLOW_URL ?? "http://localhost:5000",
@@ -67,3 +87,9 @@ export const ENV = {
   paystackWebhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET ?? "",
   flwWebhookSecret: process.env.FLW_WEBHOOK_SECRET ?? "",
 };
+
+// ─── Fail-closed startup checks (production only) ────────────────────────────
+// jwtSecret/cookieSecret both derive from JWT_SECRET; refuse to boot with an
+// unset or known-default secret in production.
+assertProductionSecret("JWT_SECRET", ENV.jwtSecret);
+assertProductionSecret("JWT_SECRET (cookieSecret)", ENV.cookieSecret);
