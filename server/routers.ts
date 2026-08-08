@@ -16,6 +16,8 @@ import { menuRouter } from "./routers/menu";
 import { templateRouter } from "./routers/template";
 import { templateVersionsRouter } from "./routers/templateVersions";
 import { broadcastRouter } from "./routers/broadcast";
+import { waTemplatesRouter } from "./routers/waTemplates";
+import { ctwaRouter } from "./routers/ctwa";
 import { inventoryRouter } from "./routers/inventory";
 import { broadcastAbRouter } from "./routers/broadcastAb";
 import { onboardingRouter } from "./routers/onboarding";
@@ -103,6 +105,8 @@ export const appRouter = router({
   template: templateRouter,
   templateVersions: templateVersionsRouter,
   broadcast: broadcastRouter,
+  waTemplates: waTemplatesRouter,
+  ctwa: ctwaRouter,
   inventory: inventoryRouter,
   broadcastAb: broadcastAbRouter,
   onboarding: onboardingRouter,

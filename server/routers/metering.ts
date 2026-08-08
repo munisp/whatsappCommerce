@@ -10,6 +10,7 @@ import { getDb } from "../db";
 import {
   currentPeriod, DEFAULT_PLAN, getPlan, getUsage, setPlan,
 } from "../services/metering";
+import { getWaQuality, refreshWaQuality } from "../services/waQuality";
 
 const tenantInput = z.object({
   tenantId: z.string().min(1).max(36).optional(),
@@ -56,5 +57,24 @@ export const meteringRouter = router({
       const plan = { tier: input.tier, limits: input.limits };
       await setPlan(db, input.tenantId, plan);
       return { ok: true, tenantId: input.tenantId, plan };
+    }),
+
+  /**
+   * Cached WhatsApp messaging-quality snapshot (settings.waQuality):
+   * rating HIGH/MEDIUM/LOW + messaging tier + last check time. Pass
+   * refresh=true to re-pull from Meta before reading.
+   */
+  getWaQuality: adminProcedure
+    .input(z.object({
+      tenantId: z.string().min(1).max(36),
+      refresh: z.boolean().optional().default(false),
+    }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) return { tenantId: input.tenantId, quality: null };
+      const quality = input.refresh
+        ? await refreshWaQuality(db, input.tenantId)
+        : await getWaQuality(db, input.tenantId);
+      return { tenantId: input.tenantId, quality };
     }),
 });

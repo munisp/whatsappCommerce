@@ -903,6 +903,26 @@ async function startServer() {
           // Metering/quota failures must never block message processing.
           console.error("[whatsapp-webhook] metering/quota check failed — processing anyway:", e?.message);
         }
+        // ── WA messaging ops: contact auto-provisioning + 24h session window ──
+        // Upsert the customer from Meta's contacts[] payload (profile name
+        // fills only an empty name) and stamp the inbound window. Text
+        // messages are then checked against CTWA campaign keywords for
+        // attribution + mapped action. Never blocks message processing.
+        try {
+          const { provisionInboundContact } = await import("../services/waContacts");
+          await provisionInboundContact(db, tenantId, waPhoneNumber, contactName);
+          const { recordInbound } = await import("../services/sessionWindow");
+          await recordInbound(tenantId, waPhoneNumber, new Date());
+          if (msg.type === "text") {
+            const { handleCtwaInbound } = await import("../services/ctwa");
+            const claimed = await handleCtwaInbound({
+              db, tenantId, phone: waPhoneNumber, text: msg.text?.body ?? "", contactName: contactName || undefined,
+            });
+            if (claimed) continue;
+          }
+        } catch (e: any) {
+          console.error("[whatsapp-webhook] messaging-ops entry error:", e?.message);
+        }
         // ── Emoji-reaction tracking ─────────────────────────────────────────
         // WhatsApp reaction payloads carry a `reaction` field; reply with the
         // sender's latest order/shipment status + tracking link.
@@ -1902,6 +1922,106 @@ async function startServer() {
     }
   });
 
+
+  // ── Scheduled: 24h-window expiry check ────────────────────────────────────
+  // Orders pending payment >20h whose buyer session window closes <4h (or is
+  // already closed) get a payment nudge (free-form text while the window is
+  // open, the tenant broadcast template when closed); the tenant adminPhone
+  // is flagged once per order (Redis-deduped).
+  app.post("/api/scheduled/window-expiry-check", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runWindowExpiryCheck } = await import("../services/sessionWindow");
+      const result = await runWindowExpiryCheck(db);
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[window-expiry-check]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Scheduled: WhatsApp messaging-quality refresh (daily) ─────────────────
+  // Pulls quality_rating + messaging tier for every tenant with a WhatsApp
+  // phone number into settings.waQuality (drives the broadcast throttle).
+  app.post("/api/scheduled/wa-quality-refresh", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { refreshWaQuality } = await import("../services/waQuality");
+      const rows = await db
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(sql`${tenants.whatsappPhoneNumberId} IS NOT NULL`);
+      let refreshed = 0;
+      for (const row of rows) {
+        try {
+          await refreshWaQuality(db, row.id);
+          refreshed++;
+        } catch (e: any) {
+          console.error(`[wa-quality-refresh] tenant ${row.id} failed:`, e?.message);
+        }
+      }
+      return res.json({ ok: true, refreshed, total: rows.length });
+    } catch (err: any) {
+      console.error("[wa-quality-refresh]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── CTWA QR codes (token-guarded public) ─────────────────────────────────
+  // GET /api/ctwa/:tenantId/:campaignId.png?token=… — PNG QR of the
+  // campaign's wa.me deep link for print/marketing. Token = stateless HMAC
+  // capability (same pattern as buyer tracking tokens); images are cached
+  // in-process.
+  const ctwaQrCache = new Map<string, Buffer>();
+  app.get("/api/ctwa/:tenantId/:campaignId.png", async (req, res) => {
+    try {
+      const { verifyCtwaQrToken, parseCtwaCampaigns, tenantWaPhone, buildCtwaLink, DEFAULT_CTWA_CAMPAIGNS } =
+        await import("../services/ctwa");
+      const tenantId = req.params.tenantId;
+      const campaignId = req.params.campaignId;
+      if (!verifyCtwaQrToken(tenantId, campaignId, req.query.token)) {
+        return res.status(403).json({ error: "invalid-token" });
+      }
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const [tenant] = await db
+        .select({ settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1);
+      if (!tenant) return res.status(404).json({ error: "tenant-not-found" });
+
+      let keyword: string | null = null;
+      if (campaignId.startsWith("default:")) {
+        const kw = campaignId.slice("default:".length);
+        if (DEFAULT_CTWA_CAMPAIGNS.some((c) => c.keyword === kw)) keyword = kw;
+      } else {
+        keyword = parseCtwaCampaigns(tenant.settings).find((c) => c.id === campaignId)?.keyword ?? null;
+      }
+      const phone = tenantWaPhone(tenant.settings);
+      if (!keyword || !phone) return res.status(404).json({ error: "campaign-or-phone-not-found" });
+
+      const cacheKey = `${tenantId}:${campaignId}`;
+      let png = ctwaQrCache.get(cacheKey);
+      if (!png) {
+        const QRCode = (await import("qrcode")).default;
+        png = await QRCode.toBuffer(buildCtwaLink(phone, keyword), { type: "png", width: 512, margin: 2 });
+        if (ctwaQrCache.size > 500) ctwaQrCache.clear();
+        ctwaQrCache.set(cacheKey, png);
+      }
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return res.type("png").send(png);
+    } catch (err: any) {
+      console.error("[ctwa-qr]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
 
   // ── Medusa order fulfillment webhook (/api/webhooks/medusa) ──────────────
   // Receives order.fulfillment_created, order.completed, order.canceled events

@@ -34,6 +34,8 @@ type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 export const METRIC_MESSAGES_IN = "messages_in";
 export const METRIC_MESSAGES_OUT = "messages_out";
 export const METRIC_ORDERS_CREATED = "orders_created";
+/** New WhatsApp customers auto-provisioned at the webhook. */
+export const METRIC_CUSTOMERS_CREATED = "customers_created";
 /** Combined message counter the monthly messagesPerMonth quota gates on. */
 export const METRIC_MESSAGES = "messages";
 
