@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
+import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -404,6 +405,7 @@ export default function TenantOnboarding() {
 
   if (completed) {
     return (
+      <DashboardLayout>
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted/30 p-4">
         <Card className="max-w-md w-full text-center p-8">
           <CheckCircle2 className="w-16 h-16 mx-auto text-green-500 mb-4" />
@@ -430,10 +432,12 @@ export default function TenantOnboarding() {
           </Button>
         </Card>
       </div>
+      </DashboardLayout>
     );
   }
 
   return (
+    <DashboardLayout>
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
         {/* Header */}
@@ -634,7 +638,7 @@ export default function TenantOnboarding() {
                   <div className="space-y-1.5">
                     <Label>Webhook URL (auto-generated)</Label>
                     <div className="flex gap-2">
-                      <Input readOnly value={`https://your-domain.com/api/webhooks/whatsapp/${form.businessName.toLowerCase().replace(/\s+/g, "-") || "tenant"}`} className="font-mono text-xs bg-muted" />
+                      <Input readOnly value={`${window.location.origin}/api/webhooks/whatsapp/${form.businessName.toLowerCase().replace(/\s+/g, "-") || "tenant"}`} className="font-mono text-xs bg-muted" />
                       <Button variant="outline" size="sm" onClick={() => toast.success("Copied!")}>Copy</Button>
                     </div>
                   </div>
@@ -824,5 +828,6 @@ export default function TenantOnboarding() {
         </Card>
       </div>
     </div>
+    </DashboardLayout>
   );
 }
