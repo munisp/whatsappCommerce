@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
@@ -8,32 +9,89 @@ import {
   odooSyncedProducts,
   odooSyncedOrders,
   odooSyncedInvoices,
+  products,
 } from "../../drizzle/schema";
+import {
+  getOdooIntegrationConfig,
+  odooAuthenticate,
+  odooExecuteKw,
+  sendWhatsAppTextMessage,
+  syncTenantIntegrationPointer,
+  type OdooIntegrationConfig,
+} from "../services/integrationSync";
 
 const DEMO_TENANT = "demo-tenant-001";
 function getTenantId(ctx: { user: { tenantId?: string | null } }) {
   return ctx.user.tenantId ?? DEMO_TENANT;
 }
 
-// ── Simulated Odoo data (real impl: XML-RPC or JSON-RPC to Odoo) ──────────────
-const DEMO_PRODUCTS = [
-  { id: 1, name: "Premium Wireless Headphones", internalRef: "WH-001", price: 89.99, currency: "USD", category: "Electronics", stockQty: 142, active: true },
-  { id: 2, name: "Organic Cotton T-Shirt", internalRef: "TS-042", price: 24.99, currency: "USD", category: "Apparel", stockQty: 380, active: true },
-  { id: 3, name: "Stainless Steel Water Bottle", internalRef: "WB-015", price: 34.50, currency: "USD", category: "Accessories", stockQty: 67, active: true },
-  { id: 4, name: "Bluetooth Speaker Pro", internalRef: "SP-007", price: 129.00, currency: "USD", category: "Electronics", stockQty: 28, active: true },
-  { id: 5, name: "Leather Wallet", internalRef: "LW-033", price: 45.00, currency: "USD", category: "Accessories", stockQty: 95, active: true },
-];
-const DEMO_ORDERS = [
-  { id: 101, name: "S00101", partnerName: "Amara Nwosu", partnerPhone: "+2348012345678", state: "sale", amountTotal: 269.97, currency: "USD", dateOrder: new Date("2026-07-10") },
-  { id: 102, name: "S00102", partnerName: "Carlos Mendez", partnerPhone: "+5491123456789", state: "done", amountTotal: 89.99, currency: "USD", dateOrder: new Date("2026-07-11") },
-  { id: 103, name: "S00103", partnerName: "Priya Sharma", partnerPhone: "+919876543210", state: "draft", amountTotal: 154.50, currency: "USD", dateOrder: new Date("2026-07-12") },
-  { id: 104, name: "S00104", partnerName: "David Osei", partnerPhone: "+233244123456", state: "sale", amountTotal: 324.00, currency: "USD", dateOrder: new Date("2026-07-13") },
-];
-const DEMO_INVOICES = [
-  { id: 201, name: "INV/2026/00201", partnerName: "Amara Nwosu", partnerPhone: "+2348012345678", state: "posted", amountTotal: 269.97, amountResidual: 0, currency: "USD", invoiceDate: new Date("2026-07-10"), dueDate: new Date("2026-08-10") },
-  { id: 202, name: "INV/2026/00202", partnerName: "Carlos Mendez", partnerPhone: "+5491123456789", state: "posted", amountTotal: 89.99, amountResidual: 89.99, currency: "USD", invoiceDate: new Date("2026-07-11"), dueDate: new Date("2026-08-11") },
-  { id: 203, name: "INV/2026/00203", partnerName: "Priya Sharma", partnerPhone: "+919876543210", state: "draft", amountTotal: 154.50, amountResidual: 154.50, currency: "USD", invoiceDate: new Date("2026-07-12"), dueDate: new Date("2026-08-12") },
-];
+/**
+ * Cross-tenant credential hijack guard: a requested tenantId must match the
+ * caller's own tenant unless the caller is a platform admin.
+ */
+function assertTenantAccess(ctx: { user: { role: string; tenantId?: string | null } }, requestedTenant: string) {
+  if (ctx.user.role === "admin") return;
+  if (requestedTenant !== getTenantId(ctx)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Cannot manage Odoo integration for another tenant",
+    });
+  }
+}
+
+// ── Real Odoo JSON-RPC helpers (router-local wrappers) ────────────────────────
+
+/** Authenticate then run a single search_read. Throws honest errors. */
+async function odooSearchRead(
+  cfg: OdooIntegrationConfig,
+  model: string,
+  domain: unknown[],
+  fields: string[],
+  limit: number,
+  order?: string,
+): Promise<any[]> {
+  const uid = await odooAuthenticate(cfg);
+  const kwargs: Record<string, unknown> = { fields, limit };
+  if (order) kwargs.order = order;
+  const result = await odooExecuteKw(cfg, uid, model, "search_read", [domain], kwargs);
+  return Array.isArray(result) ? result : [];
+}
+
+/** Map a raw Odoo many2one value ([id, name] | false) to a display string. */
+function m2oName(v: any): string {
+  return Array.isArray(v) && v.length > 1 ? String(v[1]) : "";
+}
+function m2oId(v: any): number | null {
+  return Array.isArray(v) && typeof v[0] === "number" ? v[0] : null;
+}
+/** Odoo returns false for empty date/char fields. */
+function odooDate(v: any): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Fetch partner phone/mobile numbers for a set of res.partner ids. */
+async function fetchPartnerPhones(
+  cfg: OdooIntegrationConfig,
+  partnerIds: number[],
+): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (partnerIds.length === 0) return map;
+  const uid = await odooAuthenticate(cfg);
+  const rows = await odooExecuteKw(
+    cfg,
+    uid,
+    "res.partner",
+    "search_read",
+    [[["id", "in", partnerIds]]],
+    { fields: ["phone", "mobile"], limit: partnerIds.length },
+  );
+  for (const r of Array.isArray(rows) ? rows : []) {
+    map.set(r.id, r.phone || r.mobile || "");
+  }
+  return map;
+}
 
 export const odooRouter = router({
   getConfig: protectedProcedure.query(async ({ ctx }) => {
@@ -60,12 +118,17 @@ export const odooRouter = router({
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
       const existing = await db.select({ id: odooIntegrations.id }).from(odooIntegrations).where(eq(odooIntegrations.tenantId, tenantId)).limit(1);
+      let id: string;
       if (existing[0]) {
         await db.update(odooIntegrations).set({ ...input, status: "disconnected" }).where(eq(odooIntegrations.tenantId, tenantId));
-        return { id: existing[0].id };
+        id = existing[0].id;
+      } else {
+        id = nanoid();
+        await db.insert(odooIntegrations).values({ id, tenantId, ...input, status: "disconnected" });
       }
-      const id = nanoid();
-      await db.insert(odooIntegrations).values({ id, tenantId, ...input, status: "disconnected" });
+      // Keep the tenant_integrations pointer row in step so the real sync
+      // paths (cron heartbeats, integrationSync) see this tenant.
+      await syncTenantIntegrationPointer(tenantId, "odoo_erp", input.baseUrl, "pending");
       return { id };
     }),
 
@@ -85,6 +148,7 @@ export const odooRouter = router({
       if (!db) throw new Error("DB unavailable");
       const { tenantId: requestedTenant, ...config } = input;
       const tenantId = requestedTenant ?? getTenantId(ctx);
+      assertTenantAccess(ctx, tenantId);
       const existing = await db
         .select({ id: odooIntegrations.id })
         .from(odooIntegrations)
@@ -95,96 +159,448 @@ export const odooRouter = router({
           .update(odooIntegrations)
           .set({ ...config, status: "disconnected" })
           .where(eq(odooIntegrations.tenantId, tenantId));
+        await syncTenantIntegrationPointer(tenantId, "odoo_erp", config.baseUrl, "pending");
         return { id: existing[0].id, success: true };
       }
       const id = nanoid();
       await db.insert(odooIntegrations).values({ id, tenantId, ...config, status: "disconnected" });
+      await syncTenantIntegrationPointer(tenantId, "odoo_erp", config.baseUrl, "pending");
       return { id, success: true };
     }),
 
+  /**
+   * Real connection test: performs an Odoo common/authenticate JSON-RPC call
+   * with the provided database / username / API key.  Returns the real error
+   * when the server is unreachable or rejects the credentials.
+   */
   testConnection: protectedProcedure
     .input(z.object({ baseUrl: z.string(), database: z.string(), username: z.string(), apiKey: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
-      const ok = input.baseUrl.startsWith("http") && input.apiKey.length > 4 && input.database.length > 0;
-      await db.update(odooIntegrations).set({ status: ok ? "connected" : "error" }).where(eq(odooIntegrations.tenantId, tenantId));
-      return { success: ok, status: ok ? "connected" : "error" };
+      const baseUrl = input.baseUrl.replace(/\/+$/, "");
+      let status: "connected" | "error" = "error";
+      let error: string | null = null;
+      try {
+        await odooAuthenticate({
+          baseUrl,
+          database: input.database,
+          username: input.username,
+          apiKey: input.apiKey,
+        });
+        status = "connected";
+      } catch (err: any) {
+        error = err?.message ?? String(err);
+      }
+      await db.update(odooIntegrations).set({ status }).where(eq(odooIntegrations.tenantId, tenantId));
+      await syncTenantIntegrationPointer(
+        tenantId,
+        "odoo_erp",
+        baseUrl,
+        status === "connected" ? "active" : "error",
+        error,
+      );
+      return { success: status === "connected", status, error };
     }),
 
+  /**
+   * Real pull from Odoo: products (+ stock), sale orders and customer invoices
+   * via JSON-RPC search_read.  Upserts into the odoo_synced_* cache tables and
+   * propagates product stock into the platform products table (matched by
+   * metadata->>'odooId'), mirroring the cron heartbeat behaviour.
+   */
   syncAll: protectedProcedure
     .input(z.object({ tenantId: z.string().optional() }).optional())
     .mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new Error("DB unavailable");
     const tenantId = input?.tenantId ?? getTenantId(ctx);
-    const cfg = await db.select().from(odooIntegrations).where(eq(odooIntegrations.tenantId, tenantId)).limit(1);
-    if (!cfg[0]) throw new Error("Odoo not configured");
+    assertTenantAccess(ctx, tenantId);
+    const cfgRow = await db.select().from(odooIntegrations).where(eq(odooIntegrations.tenantId, tenantId)).limit(1);
+    if (!cfgRow[0]) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "NOT_CONFIGURED: Odoo is not configured for this tenant",
+      });
+    }
+    const cfg = await getOdooIntegrationConfig(tenantId);
+    if (!cfg) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "NOT_CONFIGURED: Odoo integration is missing baseUrl/database/username/apiKey",
+      });
+    }
 
     let productsSynced = 0, ordersSynced = 0, invoicesSynced = 0;
+    const errors: string[] = [];
 
-    if (cfg[0].syncProducts) {
-      for (const p of DEMO_PRODUCTS) {
-        await db.insert(odooSyncedProducts).values({ id: nanoid(), tenantId, odooId: p.id, name: p.name, internalRef: p.internalRef, price: String(p.price), currency: p.currency, category: p.category, stockQty: String(p.stockQty), active: p.active, syncedAt: new Date() })
-          .onConflictDoUpdate({ target: [odooSyncedProducts.tenantId, odooSyncedProducts.odooId], set: { name: p.name, price: String(p.price), stockQty: String(p.stockQty), syncedAt: new Date() } });
-        productsSynced++;
-      }
-    }
-    if (cfg[0].syncOrders) {
-      for (const o of DEMO_ORDERS) {
-        await db.insert(odooSyncedOrders).values({ id: nanoid(), tenantId, odooId: o.id, name: o.name, partnerName: o.partnerName, partnerPhone: o.partnerPhone, state: o.state, amountTotal: String(o.amountTotal), currency: o.currency, dateOrder: o.dateOrder, syncedAt: new Date() })
-          .onConflictDoUpdate({ target: [odooSyncedOrders.tenantId, odooSyncedOrders.odooId], set: { state: o.state, amountTotal: String(o.amountTotal), syncedAt: new Date() } });
-        ordersSynced++;
-      }
-    }
-    if (cfg[0].syncInvoices) {
-      for (const inv of DEMO_INVOICES) {
-        await db.insert(odooSyncedInvoices).values({ id: nanoid(), tenantId, odooId: inv.id, name: inv.name, partnerName: inv.partnerName, partnerPhone: inv.partnerPhone, state: inv.state, amountTotal: String(inv.amountTotal), amountResidual: String(inv.amountResidual), currency: inv.currency, invoiceDate: inv.invoiceDate, dueDate: inv.dueDate, syncedAt: new Date() })
-          .onConflictDoUpdate({ target: [odooSyncedInvoices.tenantId, odooSyncedInvoices.odooId], set: { state: inv.state, amountResidual: String(inv.amountResidual), syncedAt: new Date() } });
-        invoicesSynced++;
+    // ── Products + on-hand stock ──────────────────────────────────────────
+    if (cfgRow[0].syncProducts) {
+      try {
+        const rows = await odooSearchRead(
+          cfg,
+          "product.product",
+          [["sale_ok", "=", true]],
+          ["name", "default_code", "list_price", "categ_id", "qty_available", "active", "currency_id"],
+          500,
+          "name asc",
+        );
+        for (const p of rows) {
+          const currency = m2oName(p.currency_id) || "USD";
+          const values = {
+            tenantId,
+            odooId: p.id as number,
+            name: String(p.name ?? ""),
+            internalRef: p.default_code || null,
+            price: String(Number(p.list_price ?? 0).toFixed(2)),
+            currency,
+            category: m2oName(p.categ_id) || null,
+            stockQty: String(Number(p.qty_available ?? 0)),
+            active: p.active !== false,
+            rawData: p,
+            syncedAt: new Date(),
+          };
+          await db.insert(odooSyncedProducts).values({ id: nanoid(), ...values })
+            .onConflictDoUpdate({
+              target: [odooSyncedProducts.tenantId, odooSyncedProducts.odooId],
+              set: {
+                name: values.name,
+                internalRef: values.internalRef,
+                price: values.price,
+                currency: values.currency,
+                category: values.category,
+                stockQty: values.stockQty,
+                active: values.active,
+                rawData: p,
+                syncedAt: new Date(),
+              },
+            });
+          // Propagate stock into the platform products table (same mapping the
+          // /api/scheduled/odoo-inventory-sync heartbeat uses).
+          await db.update(products)
+            .set({ stockQuantity: Math.max(0, Math.round(Number(p.qty_available ?? 0))), updatedAt: new Date() })
+            .where(and(
+              eq(products.tenantId, tenantId),
+              sql`${products.metadata}->>'odooId' = ${String(p.id)}`,
+            ));
+          productsSynced++;
+        }
+      } catch (err: any) {
+        errors.push(`products: ${err?.message ?? String(err)}`);
       }
     }
 
-    await db.update(odooIntegrations).set({ lastSyncAt: new Date(), status: "connected" }).where(eq(odooIntegrations.tenantId, tenantId));
-    return { productsSynced, ordersSynced, invoicesSynced };
+    // ── Sale orders ───────────────────────────────────────────────────────
+    if (cfgRow[0].syncOrders) {
+      try {
+        const rows = await odooSearchRead(
+          cfg,
+          "sale.order",
+          [],
+          ["name", "partner_id", "state", "amount_total", "currency_id", "date_order"],
+          200,
+          "date_order desc",
+        );
+        const partnerIds = Array.from(new Set(rows.map((o) => m2oId(o.partner_id)).filter((x): x is number => x !== null)));
+        const phones = await fetchPartnerPhones(cfg, partnerIds);
+        for (const o of rows) {
+          const pid = m2oId(o.partner_id);
+          const values = {
+            tenantId,
+            odooId: o.id as number,
+            name: String(o.name ?? ""),
+            partnerName: m2oName(o.partner_id) || null,
+            partnerPhone: (pid !== null ? phones.get(pid) : "") || null,
+            state: o.state ?? null,
+            amountTotal: String(Number(o.amount_total ?? 0).toFixed(2)),
+            currency: m2oName(o.currency_id) || "USD",
+            dateOrder: odooDate(o.date_order),
+            rawData: o,
+            syncedAt: new Date(),
+          };
+          await db.insert(odooSyncedOrders).values({ id: nanoid(), ...values })
+            .onConflictDoUpdate({
+              target: [odooSyncedOrders.tenantId, odooSyncedOrders.odooId],
+              set: {
+                name: values.name,
+                partnerName: values.partnerName,
+                partnerPhone: values.partnerPhone,
+                state: values.state,
+                amountTotal: values.amountTotal,
+                currency: values.currency,
+                dateOrder: values.dateOrder,
+                rawData: o,
+                syncedAt: new Date(),
+              },
+            });
+          ordersSynced++;
+        }
+      } catch (err: any) {
+        errors.push(`orders: ${err?.message ?? String(err)}`);
+      }
+    }
+
+    // ── Customer invoices ─────────────────────────────────────────────────
+    if (cfgRow[0].syncInvoices) {
+      try {
+        const rows = await odooSearchRead(
+          cfg,
+          "account.move",
+          [["move_type", "=", "out_invoice"]],
+          ["name", "partner_id", "state", "amount_total", "amount_residual", "currency_id", "invoice_date", "invoice_date_due"],
+          200,
+          "invoice_date desc",
+        );
+        const partnerIds = Array.from(new Set(rows.map((v) => m2oId(v.partner_id)).filter((x): x is number => x !== null)));
+        const phones = await fetchPartnerPhones(cfg, partnerIds);
+        for (const inv of rows) {
+          const pid = m2oId(inv.partner_id);
+          const values = {
+            tenantId,
+            odooId: inv.id as number,
+            name: String(inv.name ?? ""),
+            partnerName: m2oName(inv.partner_id) || null,
+            partnerPhone: (pid !== null ? phones.get(pid) : "") || null,
+            state: inv.state ?? null,
+            amountTotal: String(Number(inv.amount_total ?? 0).toFixed(2)),
+            amountResidual: String(Number(inv.amount_residual ?? 0).toFixed(2)),
+            currency: m2oName(inv.currency_id) || "USD",
+            invoiceDate: odooDate(inv.invoice_date),
+            dueDate: odooDate(inv.invoice_date_due),
+            rawData: inv,
+            syncedAt: new Date(),
+          };
+          await db.insert(odooSyncedInvoices).values({ id: nanoid(), ...values })
+            .onConflictDoUpdate({
+              target: [odooSyncedInvoices.tenantId, odooSyncedInvoices.odooId],
+              set: {
+                name: values.name,
+                partnerName: values.partnerName,
+                partnerPhone: values.partnerPhone,
+                state: values.state,
+                amountTotal: values.amountTotal,
+                amountResidual: values.amountResidual,
+                currency: values.currency,
+                invoiceDate: values.invoiceDate,
+                dueDate: values.dueDate,
+                rawData: inv,
+                syncedAt: new Date(),
+              },
+            });
+          invoicesSynced++;
+        }
+      } catch (err: any) {
+        errors.push(`invoices: ${err?.message ?? String(err)}`);
+      }
+    }
+
+    const allFailed =
+      errors.length > 0 &&
+      productsSynced + ordersSynced + invoicesSynced === 0 &&
+      (cfgRow[0].syncProducts || cfgRow[0].syncOrders || cfgRow[0].syncInvoices);
+
+    await db.update(odooIntegrations)
+      .set({ lastSyncAt: new Date(), status: allFailed ? "error" : "connected" })
+      .where(eq(odooIntegrations.tenantId, tenantId));
+    await syncTenantIntegrationPointer(
+      tenantId,
+      "odoo_erp",
+      cfg.baseUrl,
+      allFailed ? "error" : "active",
+      allFailed ? errors.join(" | ") : null,
+    );
+
+    return { productsSynced, ordersSynced, invoicesSynced, errors };
   }),
 
+  /**
+   * Live product list from Odoo (product.product search_read).
+   * Returns an honest empty array (+ configured:false) when not configured.
+   */
   listProducts: protectedProcedure
     .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
-      if (!db) return { products: [] };
-      return { products: await db.select().from(odooSyncedProducts).where(eq(odooSyncedProducts.tenantId, getTenantId(ctx))).orderBy(desc(odooSyncedProducts.syncedAt)).limit(input.limit).offset(input.offset) };
+      const tenantId = getTenantId(ctx);
+      const cfg = await getOdooIntegrationConfig(tenantId);
+      if (!cfg) return { products: [] as any[], configured: false };
+      try {
+        const rows = await odooSearchRead(
+          cfg,
+          "product.product",
+          [["sale_ok", "=", true]],
+          ["name", "default_code", "list_price", "categ_id", "qty_available", "active", "currency_id"],
+          input.limit + input.offset,
+          "name asc",
+        );
+        const products = rows.slice(input.offset).map((p) => ({
+          id: String(p.id),
+          odooId: p.id as number,
+          name: String(p.name ?? ""),
+          internalRef: p.default_code || null,
+          price: Number(p.list_price ?? 0).toFixed(2),
+          currency: m2oName(p.currency_id) || "USD",
+          category: m2oName(p.categ_id) || null,
+          stockQty: String(Number(p.qty_available ?? 0)),
+          active: p.active !== false,
+        }));
+        return { products, configured: true };
+      } catch (err: any) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Odoo product fetch failed: ${err?.message ?? String(err)}`,
+        });
+      }
     }),
 
+  /** Live sale order list from Odoo. */
   listOrders: protectedProcedure
     .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
-      if (!db) return { orders: [] };
-      return { orders: await db.select().from(odooSyncedOrders).where(eq(odooSyncedOrders.tenantId, getTenantId(ctx))).orderBy(desc(odooSyncedOrders.syncedAt)).limit(input.limit).offset(input.offset) };
+      const tenantId = getTenantId(ctx);
+      const cfg = await getOdooIntegrationConfig(tenantId);
+      if (!cfg) return { orders: [] as any[], configured: false };
+      try {
+        const rows = await odooSearchRead(
+          cfg,
+          "sale.order",
+          [],
+          ["name", "partner_id", "state", "amount_total", "currency_id", "date_order"],
+          input.limit + input.offset,
+          "date_order desc",
+        );
+        const orders = rows.slice(input.offset).map((o) => ({
+          id: String(o.id),
+          odooId: o.id as number,
+          name: String(o.name ?? ""),
+          partnerName: m2oName(o.partner_id) || null,
+          state: o.state ?? null,
+          amountTotal: Number(o.amount_total ?? 0).toFixed(2),
+          currency: m2oName(o.currency_id) || "USD",
+          dateOrder: odooDate(o.date_order),
+        }));
+        return { orders, configured: true };
+      } catch (err: any) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Odoo order fetch failed: ${err?.message ?? String(err)}`,
+        });
+      }
     }),
 
+  /** Live customer invoice list from Odoo. */
   listInvoices: protectedProcedure
     .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }))
     .query(async ({ ctx, input }) => {
-      const db = await getDb();
-      if (!db) return { invoices: [] };
-      return { invoices: await db.select().from(odooSyncedInvoices).where(eq(odooSyncedInvoices.tenantId, getTenantId(ctx))).orderBy(desc(odooSyncedInvoices.syncedAt)).limit(input.limit).offset(input.offset) };
+      const tenantId = getTenantId(ctx);
+      const cfg = await getOdooIntegrationConfig(tenantId);
+      if (!cfg) return { invoices: [] as any[], configured: false };
+      try {
+        const rows = await odooSearchRead(
+          cfg,
+          "account.move",
+          [["move_type", "=", "out_invoice"]],
+          ["name", "partner_id", "state", "amount_total", "amount_residual", "currency_id", "invoice_date", "invoice_date_due"],
+          input.limit + input.offset,
+          "invoice_date desc",
+        );
+        const invoices = rows.slice(input.offset).map((inv) => ({
+          id: String(inv.id),
+          odooId: inv.id as number,
+          name: String(inv.name ?? ""),
+          partnerName: m2oName(inv.partner_id) || null,
+          state: inv.state ?? null,
+          amountTotal: Number(inv.amount_total ?? 0).toFixed(2),
+          amountResidual: Number(inv.amount_residual ?? 0).toFixed(2),
+          currency: m2oName(inv.currency_id) || "USD",
+          invoiceDate: odooDate(inv.invoice_date),
+          dueDate: odooDate(inv.invoice_date_due),
+        }));
+        return { invoices, configured: true };
+      } catch (err: any) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Odoo invoice fetch failed: ${err?.message ?? String(err)}`,
+        });
+      }
     }),
 
+  /**
+   * Send a real WhatsApp text message (Meta Cloud API) about a synced Odoo
+   * order or invoice.  The local whatsappSent flag is only set after the
+   * Cloud API accepts the message; when WhatsApp credentials are missing an
+   * honest NOT_CONFIGURED error is thrown — nothing is faked.
+   */
   sendWhatsApp: protectedProcedure
     .input(z.object({ type: z.enum(["order", "invoice"]), recordId: z.string(), message: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
-      if (input.type === "order") {
-        await db.update(odooSyncedOrders).set({ whatsappSent: true }).where(eq(odooSyncedOrders.id, input.recordId));
-      } else {
-        await db.update(odooSyncedInvoices).set({ whatsappSent: true }).where(eq(odooSyncedInvoices.id, input.recordId));
+      const table = input.type === "order" ? odooSyncedOrders : odooSyncedInvoices;
+
+      // Resolve the record (accepts the local row id or the Odoo numeric id).
+      const byId = await db.select().from(table)
+        .where(and(eq(table.id, input.recordId), eq(table.tenantId, tenantId)))
+        .limit(1);
+      let record = byId[0];
+      if (!record && /^\d+$/.test(input.recordId)) {
+        const byOdooId = await db.select().from(table)
+          .where(and(eq(table.odooId, Number(input.recordId)), eq(table.tenantId, tenantId)))
+          .limit(1);
+        record = byOdooId[0];
       }
-      return { success: true, sentAt: new Date() };
+
+      let phone = record?.partnerPhone ?? null;
+
+      // Fall back to a live Odoo lookup of the partner's phone when the local
+      // cache has no number (recordId may be an Odoo id from a live list).
+      if (!phone) {
+        const cfg = await getOdooIntegrationConfig(tenantId);
+        if (!cfg) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "NOT_CONFIGURED: Odoo is not configured for this tenant",
+          });
+        }
+        const odooId = record?.odooId ?? (/^\d+$/.test(input.recordId) ? Number(input.recordId) : null);
+        if (odooId === null) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Odoo record not found" });
+        }
+        try {
+          const model = input.type === "order" ? "sale.order" : "account.move";
+          const rows = await odooSearchRead(cfg, model, [["id", "=", odooId]], ["partner_id"], 1);
+          const pid = m2oId(rows[0]?.partner_id);
+          if (pid !== null) {
+            const phones = await fetchPartnerPhones(cfg, [pid]);
+            phone = phones.get(pid) ?? null;
+          }
+        } catch (err: any) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Failed to resolve recipient from Odoo: ${err?.message ?? String(err)}`,
+          });
+        }
+      }
+
+      if (!phone) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No phone number on the Odoo partner for this record",
+        });
+      }
+
+      const result = await sendWhatsAppTextMessage(phone, input.message);
+      if (!result.sent) {
+        throw new TRPCError({
+          code: result.notConfigured ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR",
+          message: result.error,
+        });
+      }
+
+      if (record) {
+        await db.update(table).set({ whatsappSent: true }).where(eq(table.id, record.id));
+      }
+      return { success: true, sentAt: new Date(), wamid: result.wamid };
     }),
 });

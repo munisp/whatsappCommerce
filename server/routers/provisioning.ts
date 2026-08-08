@@ -1,16 +1,39 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   tenantIntegrations, provisioningJobs, unifiedOnboardingSessions,
-  tenants,
+  tenants, odooIntegrations, twentyIntegrations,
 } from "../../drizzle/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import {
+  getOdooIntegrationConfig,
+  getTwentyIntegrationConfig,
+  odooAuthenticate,
+  syncTenantIntegrationPointer,
+} from "../services/integrationSync";
 
 function getTenantId(ctx: { user: { tenantId?: string | null } }): string {
   return ctx.user?.tenantId ?? "default";
+}
+
+/**
+ * Provisioning writes credentials, so it is restricted to platform admins and
+ * members of the tenant being provisioned (the procedures always operate on
+ * the caller's own tenant; this blocks the anonymous "default" fallback for
+ * non-admins).
+ */
+function assertProvisionAccess(ctx: { user: { role: string; tenantId?: string | null } }) {
+  if (ctx.user.role === "admin") return;
+  if (!ctx.user.tenantId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only tenant members or admins can provision integrations",
+    });
+  }
 }
 
 // ── Integration health check helpers ─────────────────────────────────────────
@@ -32,27 +55,6 @@ async function checkTwentyHealth(baseUrl: string, apiKey: string): Promise<{ ok:
   try {
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/health`, {
       headers: { "Authorization": `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(5000),
-    });
-    return { ok: res.ok, latencyMs: Date.now() - start };
-  } catch (e) {
-    return { ok: false, latencyMs: Date.now() - start, error: String(e) };
-  }
-}
-
-async function checkOdooHealth(baseUrl: string, database: string, apiKey: string): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
-  const start = Date.now();
-  try {
-    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/web/dataset/call_kw`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0", method: "call", id: 1,
-        params: {
-          model: "res.partner", method: "check_access_rights",
-          args: ["read"], kwargs: { context: {} },
-        },
-      }),
       signal: AbortSignal.timeout(5000),
     });
     return { ok: res.ok, latencyMs: Date.now() - start };
@@ -163,6 +165,7 @@ export const provisioningRouter = router({
       publishableKey: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
+      assertProvisionAccess(ctx);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
@@ -215,6 +218,7 @@ export const provisioningRouter = router({
       apiKey: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
+      assertProvisionAccess(ctx);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
@@ -232,23 +236,28 @@ export const provisioningRouter = router({
         return { success: false, error: health.error ?? "Cannot reach Twenty CRM instance" };
       }
 
-      const existing = await db.select({ id: tenantIntegrations.id }).from(tenantIntegrations)
-        .where(and(eq(tenantIntegrations.tenantId, tenantId), eq(tenantIntegrations.integrationType, "twenty_crm"))).limit(1);
+      // twenty_integrations is the SINGLE SOURCE OF TRUTH for Twenty
+      // credentials — the same table the admin UI writes via twenty.configure,
+      // and the table integrationSync resolves outbound sync credentials from.
+      const existing = await db.select({ id: twentyIntegrations.id }).from(twentyIntegrations)
+        .where(eq(twentyIntegrations.tenantId, tenantId)).limit(1);
 
       if (existing[0]) {
-        await db.update(tenantIntegrations).set({
+        await db.update(twentyIntegrations).set({
           baseUrl: input.baseUrl, apiKey: input.apiKey,
-          status: "active", lastHealthCheck: new Date(), lastHealthStatus: "ok",
-          enabledAt: new Date(), updatedAt: new Date(),
-        }).where(and(eq(tenantIntegrations.tenantId, tenantId), eq(tenantIntegrations.integrationType, "twenty_crm")));
+          status: "connected",
+        }).where(eq(twentyIntegrations.tenantId, tenantId));
       } else {
-        await db.insert(tenantIntegrations).values({
-          id: randomUUID(), tenantId, integrationType: "twenty_crm",
-          displayName: "Twenty CRM", baseUrl: input.baseUrl, apiKey: input.apiKey,
-          status: "active", lastHealthCheck: new Date(), lastHealthStatus: "ok",
-          enabledAt: new Date(),
+        await db.insert(twentyIntegrations).values({
+          id: randomUUID(), tenantId,
+          baseUrl: input.baseUrl, apiKey: input.apiKey,
+          status: "connected",
         });
       }
+
+      // Lightweight pointer row (no secrets) for the health dashboard and
+      // cron enumeration.
+      await syncTenantIntegrationPointer(tenantId, "twenty_crm", input.baseUrl, "active");
 
       await db.update(provisioningJobs).set({ status: "completed", stepIndex: 1, stepName: "done", completedAt: new Date() }).where(eq(provisioningJobs.id, jobId));
       return { success: true, latencyMs: health.latencyMs };
@@ -262,6 +271,7 @@ export const provisioningRouter = router({
       apiKey: z.string().min(1),
     }))
     .mutation(async ({ ctx, input }) => {
+      assertProvisionAccess(ctx);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
@@ -273,31 +283,51 @@ export const provisioningRouter = router({
         inputPayload: { baseUrl: input.baseUrl, database: input.database }, startedAt: new Date(),
       });
 
-      const health = await checkOdooHealth(input.baseUrl, input.database, input.apiKey);
+      // Real health check: authenticate against Odoo via JSON-RPC
+      // (common/authenticate) so bad credentials are rejected here instead of
+      // failing later during sync.
+      const started = Date.now();
+      let health: { ok: boolean; latencyMs: number; error?: string };
+      try {
+        await odooAuthenticate({
+          baseUrl: input.baseUrl.replace(/\/+$/, ""),
+          database: input.database,
+          username: input.username,
+          apiKey: input.apiKey,
+        });
+        health = { ok: true, latencyMs: Date.now() - started };
+      } catch (e: any) {
+        health = { ok: false, latencyMs: Date.now() - started, error: e?.message ?? String(e) };
+      }
       if (!health.ok) {
         await db.update(provisioningJobs).set({ status: "failed", errorMessage: health.error ?? "Odoo health check failed", completedAt: new Date() }).where(eq(provisioningJobs.id, jobId));
         return { success: false, error: health.error ?? "Cannot reach Odoo instance" };
       }
 
-      const existing = await db.select({ id: tenantIntegrations.id }).from(tenantIntegrations)
-        .where(and(eq(tenantIntegrations.tenantId, tenantId), eq(tenantIntegrations.integrationType, "odoo_erp"))).limit(1);
+      // odoo_integrations is the SINGLE SOURCE OF TRUTH for Odoo credentials —
+      // the same table the admin UI writes via odoo.configure, and the table
+      // integrationSync / odooMedusaBridge resolve credentials from.
+      const existing = await db.select({ id: odooIntegrations.id }).from(odooIntegrations)
+        .where(eq(odooIntegrations.tenantId, tenantId)).limit(1);
 
       if (existing[0]) {
-        await db.update(tenantIntegrations).set({
-          baseUrl: input.baseUrl, apiKey: input.apiKey,
-          config: { database: input.database, username: input.username },
-          status: "active", lastHealthCheck: new Date(), lastHealthStatus: "ok",
-          enabledAt: new Date(), updatedAt: new Date(),
-        }).where(and(eq(tenantIntegrations.tenantId, tenantId), eq(tenantIntegrations.integrationType, "odoo_erp")));
+        await db.update(odooIntegrations).set({
+          baseUrl: input.baseUrl, database: input.database,
+          username: input.username, apiKey: input.apiKey,
+          status: "connected",
+        }).where(eq(odooIntegrations.tenantId, tenantId));
       } else {
-        await db.insert(tenantIntegrations).values({
-          id: randomUUID(), tenantId, integrationType: "odoo_erp",
-          displayName: "Odoo ERP", baseUrl: input.baseUrl, apiKey: input.apiKey,
-          config: { database: input.database, username: input.username },
-          status: "active", lastHealthCheck: new Date(), lastHealthStatus: "ok",
-          enabledAt: new Date(),
+        await db.insert(odooIntegrations).values({
+          id: randomUUID(), tenantId,
+          baseUrl: input.baseUrl, database: input.database,
+          username: input.username, apiKey: input.apiKey,
+          status: "connected",
         });
       }
+
+      // Lightweight pointer row (no secrets) for the health dashboard and
+      // cron enumeration.
+      await syncTenantIntegrationPointer(tenantId, "odoo_erp", input.baseUrl, "active");
 
       await db.update(provisioningJobs).set({ status: "completed", stepIndex: 1, stepName: "done", completedAt: new Date() }).where(eq(provisioningJobs.id, jobId));
       return { success: true, latencyMs: health.latencyMs };
@@ -309,6 +339,7 @@ export const provisioningRouter = router({
       config: z.record(z.string(), z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
+      assertProvisionAccess(ctx);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
@@ -342,6 +373,7 @@ export const provisioningRouter = router({
       config: z.record(z.string(), z.string()),
     }))
     .mutation(async ({ ctx, input }) => {
+      assertProvisionAccess(ctx);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
@@ -387,14 +419,31 @@ export const provisioningRouter = router({
         .where(and(eq(tenantIntegrations.id, input.integrationId), eq(tenantIntegrations.tenantId, tenantId))).limit(1);
       if (!integ) throw new Error("Integration not found");
 
+      // Credentials are resolved from the authoritative tables: pointer rows
+      // in tenant_integrations carry no secrets for odoo_erp / twenty_crm.
       let health: { ok: boolean; latencyMs: number; error?: string } = { ok: false, latencyMs: 0, error: "No health check for this type" };
       if (integ.integrationType === "medusa" && integ.baseUrl && integ.apiKey) {
         health = await checkMedusaHealth(integ.baseUrl, integ.apiKey);
-      } else if (integ.integrationType === "twenty_crm" && integ.baseUrl && integ.apiKey) {
-        health = await checkTwentyHealth(integ.baseUrl, integ.apiKey);
-      } else if (integ.integrationType === "odoo_erp" && integ.baseUrl && integ.apiKey) {
-        const cfg = (integ.config ?? {}) as Record<string, string>;
-        health = await checkOdooHealth(integ.baseUrl, cfg.database ?? "", integ.apiKey);
+      } else if (integ.integrationType === "twenty_crm") {
+        const cfg = await getTwentyIntegrationConfig(tenantId);
+        if (cfg) {
+          health = await checkTwentyHealth(cfg.baseUrl, cfg.apiKey);
+        } else {
+          health = { ok: false, latencyMs: 0, error: "NOT_CONFIGURED: Twenty CRM credentials missing (twenty_integrations)" };
+        }
+      } else if (integ.integrationType === "odoo_erp") {
+        const cfg = await getOdooIntegrationConfig(tenantId);
+        if (cfg) {
+          const started = Date.now();
+          try {
+            await odooAuthenticate(cfg);
+            health = { ok: true, latencyMs: Date.now() - started };
+          } catch (e: any) {
+            health = { ok: false, latencyMs: Date.now() - started, error: e?.message ?? String(e) };
+          }
+        } else {
+          health = { ok: false, latencyMs: 0, error: "NOT_CONFIGURED: Odoo credentials missing (odoo_integrations)" };
+        }
       }
 
       await db.update(tenantIntegrations).set({
