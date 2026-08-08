@@ -1,0 +1,112 @@
+# ledger-bridge (Rust) — rust/ledger-bridge. Canonical TigerBeetle bridge.
+# Referenced by k8s/configmap.yaml (LEDGER_BRIDGE_URL=:8095).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ledger-bridge
+  namespace: whatsapp-commerce
+  labels:
+    app: ledger-bridge
+    app.kubernetes.io/name: ledger-bridge
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ledger-bridge
+  template:
+    metadata:
+      labels:
+        app: ledger-bridge
+        app.kubernetes.io/name: ledger-bridge
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ledger-bridge
+          image: whatsapp-commerce/ledger-bridge:v1.0.0
+          ports:
+            - containerPort: 8095
+          env:
+            - name: PORT
+              value: "8095"
+            - name: TIGERBEETLE_ADDRESS
+              value: tigerbeetle:3000
+            - name: TIGERBEETLE_CLUSTER_ID
+              value: "0"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://wc_user:$(POSTGRES_PASSWORD)@postgres:5432/whatsapp_commerce?sslmode=disable
+            - name: RUST_LOG
+              value: info
+            # Explicit platform escrow account (required on the TigerBeetle
+            # path; no hardcoded fallback — see docker-compose comments).
+            - name: PLATFORM_ESCROW_ACCOUNT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: PLATFORM_ESCROW_ACCOUNT_ID
+                  optional: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # Probe path verified: GET /health — rust/ledger-bridge/src/main.rs
+          # route table (~L747); returns tigerbeetle.healthy + postgres.healthy.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ledger-bridge
+  namespace: whatsapp-commerce
+  labels:
+    app: ledger-bridge
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  selector:
+    app: ledger-bridge
+  ports:
+    - port: 8095
+      targetPort: 8095
+  type: ClusterIP

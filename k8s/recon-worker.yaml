@@ -1,0 +1,110 @@
+# recon-worker (Rust) — rust/recon-worker. Periodic financial reconciliation
+# between payment_intents (Postgres) and the TigerBeetle ledger via
+# ledger-bridge; actively voids orphaned pending transfers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recon-worker
+  namespace: whatsapp-commerce
+  labels:
+    app: recon-worker
+    app.kubernetes.io/name: recon-worker
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: recon-worker
+  template:
+    metadata:
+      labels:
+        app: recon-worker
+        app.kubernetes.io/name: recon-worker
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: recon-worker
+          image: whatsapp-commerce/recon-worker:v1.0.0
+          ports:
+            - containerPort: 8096
+          env:
+            # Default in code is 8096 (rust/recon-worker/src/main.rs Config::from_env).
+            - name: PORT
+              value: "8096"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://wc_user:$(POSTGRES_PASSWORD)@postgres:5432/whatsapp_commerce?sslmode=disable
+            - name: PLATFORM_API_URL
+              value: http://platform:3000
+            - name: RUST_LOG
+              value: info
+          envFrom:
+            # Provides LEDGER_BRIDGE_URL and RECON_INTERVAL_SECS.
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: platform-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # Probe path verified: GET /health — rust/recon-worker/src/main.rs:307
+          # (route table: /health, /recon/trigger, /recon/last).
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: recon-worker
+  namespace: whatsapp-commerce
+  labels:
+    app: recon-worker
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  selector:
+    app: recon-worker
+  ports:
+    - port: 8096
+      targetPort: 8096
+  type: ClusterIP

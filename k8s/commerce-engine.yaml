@@ -1,0 +1,104 @@
+# commerce-engine (Go) — services/commerce-engine. Referenced by
+# k8s/configmap.yaml (COMMERCE_ENGINE_URL=:8083) and the gateway env.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: commerce-engine
+  namespace: whatsapp-commerce
+  labels:
+    app: commerce-engine
+    app.kubernetes.io/name: commerce-engine
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: commerce-engine
+  template:
+    metadata:
+      labels:
+        app: commerce-engine
+        app.kubernetes.io/name: commerce-engine
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: commerce-engine
+          image: whatsapp-commerce/commerce-engine:v1.0.0
+          ports:
+            - containerPort: 8083
+          env:
+            - name: PORT
+              value: "8083"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://wc_user:$(POSTGRES_PASSWORD)@postgres:5432/whatsapp_commerce?sslmode=disable
+            - name: TEMPORAL_ADDRESS
+              value: temporal:7233
+          envFrom:
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: platform-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # Probe path verified: GET /health — services/commerce-engine/cmd/main.go:33.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8083
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: commerce-engine
+  namespace: whatsapp-commerce
+  labels:
+    app: commerce-engine
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  selector:
+    app: commerce-engine
+  ports:
+    - port: 8083
+      targetPort: 8083
+  type: ClusterIP

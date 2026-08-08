@@ -1,0 +1,86 @@
+# temporal-worker — services/temporal-workflows/worker.ts running on the
+# platform image (npx tsx services/temporal-workflows/worker.ts).
+#
+# HONEST GAP (documented in docs/ZERO_TRUST.md): worker.ts exposes NO HTTP
+# health endpoint — it is a pure Temporal gRPC poller. There is no real probe
+# target, so no httpGet probe is defined; liveness relies on process
+# supervision (the container exits on fatal error and is restarted).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-worker
+  namespace: whatsapp-commerce
+  labels:
+    app: temporal-worker
+    app.kubernetes.io/name: temporal-worker
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: temporal-worker
+  template:
+    metadata:
+      labels:
+        app: temporal-worker
+        app.kubernetes.io/name: temporal-worker
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: temporal-worker
+          image: whatsapp-commerce/platform:v1.0.0
+          command: ["npx", "tsx", "services/temporal-workflows/worker.ts"]
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: temporal:7233
+            - name: TEMPORAL_NAMESPACE
+              value: default
+            - name: TEMPORAL_TASK_QUEUE
+              value: whatsapp-commerce
+            - name: PLATFORM_API_URL
+              value: http://platform:3000
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://wc_user:$(POSTGRES_PASSWORD)@postgres:5432/whatsapp_commerce?sslmode=disable
+            # npx/tsx cache + HOME must be writable (read-only rootfs).
+            - name: HOME
+              value: /tmp
+          envFrom:
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: platform-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,112 @@
+# Platform API server ("server" in the zero-trust model) — Node.js/tRPC app
+# built from the repo root (see tests/e2e/platform.Dockerfile). Serves the
+# tRPC API, webhooks, and the /api/health/* deep-health routes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform
+  namespace: whatsapp-commerce
+  labels:
+    app: platform
+    app.kubernetes.io/name: platform
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: platform
+  template:
+    metadata:
+      labels:
+        app: platform
+        app.kubernetes.io/name: platform
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: platform
+          image: whatsapp-commerce/platform:v1.0.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: NODE_ENV
+              value: production
+            - name: HOME
+              value: /tmp
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://wc_user:$(POSTGRES_PASSWORD)@postgres:5432/whatsapp_commerce?sslmode=disable
+          envFrom:
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: platform-secrets
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # Probe paths verified against server/_core/index.ts:
+          #   GET /api/health           (integration test: tests/integration/full_suite.test.ts)
+          #   GET /api/health/postgres  (server/_core/index.ts:2069)
+          #   GET /api/health/redis     (server/_core/index.ts:2082)
+          # Readiness gates on Postgres so the pod only receives traffic once
+          # its primary dependency is reachable; liveness stays shallow.
+          readinessProbe:
+            httpGet:
+              path: /api/health/postgres
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform
+  namespace: whatsapp-commerce
+  labels:
+    app: platform
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  selector:
+    app: platform
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP
