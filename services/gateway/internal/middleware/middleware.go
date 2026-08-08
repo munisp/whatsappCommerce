@@ -3,6 +3,7 @@ package middleware
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -78,12 +79,61 @@ func SecurityHeaders() gin.HandlerFunc {
 	}
 }
 
-// TenantResolver extracts tenant context from JWT claims or X-Tenant-ID header.
+// TenantResolver records the client-supplied X-Tenant-ID header WITHOUT
+// trusting it. The authoritative tenant comes from the authenticated JWT's
+// tenant_id claim; enforceTenantHeader (invoked by the auth middlewares)
+// rejects requests whose header conflicts with the token claim. This prevents
+// cross-tenant spoofing via a forged header.
 func TenantResolver(cfg *config.Config) gin.HandlerFunc {
+	_ = cfg // retained for signature compatibility
 	return func(c *gin.Context) {
-		tenantID := c.GetHeader("X-Tenant-ID")
-		if tenantID != "" {
-			c.Set("tenant_id", tenantID)
+		if h := c.GetHeader("X-Tenant-ID"); h != "" {
+			c.Set("tenant_header", h)
+		}
+		c.Next()
+	}
+}
+
+// enforceTenantHeader rejects a request when the client-supplied X-Tenant-ID
+// header conflicts with the tenant_id claim from the authenticated token.
+// Returns false (after aborting) when the request must not proceed.
+func enforceTenantHeader(c *gin.Context) bool {
+	header := c.GetString("tenant_header")
+	claim := c.GetString("tenant_id")
+	if header != "" && claim != "" && header != claim {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error":   "tenant_mismatch",
+			"message": "X-Tenant-ID header conflicts with the tenant claim in the token",
+		})
+		return false
+	}
+	return true
+}
+
+// InternalTokenAuth protects service-to-service endpoints (/internal/*) with a
+// shared secret passed in the X-Internal-Token header. Fails closed in
+// production when INTERNAL_API_KEY is not configured.
+func InternalTokenAuth(cfg *config.Config, logger *zap.Logger) gin.HandlerFunc {
+	if cfg.InternalAPIKey == "" {
+		if cfg.Env == "production" {
+			logger.Error("INTERNAL_API_KEY is not set — /internal/* endpoints will reject all requests (fail closed)")
+		} else {
+			logger.Warn("INTERNAL_API_KEY is not set — /internal/* endpoints are unauthenticated (dev mode)")
+		}
+	}
+	return func(c *gin.Context) {
+		if cfg.InternalAPIKey == "" {
+			if cfg.Env == "production" {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "internal authentication not configured"})
+				return
+			}
+			c.Next()
+			return
+		}
+		token := c.GetHeader("X-Internal-Token")
+		if subtle.ConstantTimeCompare([]byte(token), []byte(cfg.InternalAPIKey)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid internal token"})
+			return
 		}
 		c.Next()
 	}
@@ -120,6 +170,9 @@ func JWTAuth(cfg *config.Config) gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("tenant_id", claims.TenantID)
 		c.Set("role", claims.Role)
+		if !enforceTenantHeader(c) {
+			return
+		}
 		c.Next()
 	}
 }
@@ -147,4 +200,3 @@ func VerifyHMACSHA256(secret, payload, signature string) bool {
 	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
-

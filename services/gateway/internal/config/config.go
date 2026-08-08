@@ -23,6 +23,7 @@ type Config struct {
 Env            string
 Port           string
 JWTSecret      string
+InternalAPIKey string
 AllowedOrigins []string
 Services       ServiceEndpoints
 Redis          RedisConfig
@@ -36,10 +37,12 @@ Dapr           DaprConfig
 }
 
 type KeycloakConfig struct {
+Enabled       bool
 URL           string
 Realm         string
 ClientID      string
 ClientSecret  string
+Audience      string
 JWKSEndpoint  string
 IntrospectURL string
 }
@@ -85,14 +88,18 @@ DB       int
 }
 
 func Load() *Config {
+// Keycloak is considered enabled only when KEYCLOAK_URL is explicitly set —
+// the default URL must not silently enable (or disable) JWKS auth.
+keycloakEnabled := os.Getenv("KEYCLOAK_URL") != ""
 keycloakURL := getEnv("KEYCLOAK_URL", "http://keycloak:8080")
 keycloakRealm := getEnv("KEYCLOAK_REALM", "wacommerce")
 platformURL := getEnv("PLATFORM_API_URL", "http://localhost:3000")
 
 return &Config{
-Env:       getEnv("ENV", "development"),
-Port:      getEnv("PORT", "8080"),
-JWTSecret: getEnv("JWT_SECRET", "change-me-in-production"),
+Env:            getEnv("ENV", "development"),
+Port:           getEnv("PORT", "8080"),
+JWTSecret:      getEnv("JWT_SECRET", "change-me-in-production"),
+InternalAPIKey: os.Getenv("INTERNAL_API_KEY"),
 AllowedOrigins: []string{
 getEnv("ALLOWED_ORIGIN", "http://localhost:3000"),
 getEnv("ALLOWED_ORIGIN_2", ""),
@@ -116,9 +123,11 @@ Password: getEnv("REDIS_PASSWORD", ""),
 DB:       0,
 },
 Keycloak: KeycloakConfig{
+Enabled:       keycloakEnabled,
 URL:           keycloakURL,
 Realm:         keycloakRealm,
 ClientID:      getEnv("KEYCLOAK_CLIENT_ID", "wacommerce-app"),
+Audience:      os.Getenv("KEYCLOAK_AUDIENCE"),
 ClientSecret:  getEnv("KEYCLOAK_CLIENT_SECRET", ""),
 JWKSEndpoint:  keycloakURL + "/realms/" + keycloakRealm + "/protocol/openid-connect/certs",
 IntrospectURL: keycloakURL + "/realms/" + keycloakRealm + "/protocol/openid-connect/token/introspect",
