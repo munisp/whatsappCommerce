@@ -29,6 +29,25 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
+/**
+ * Multi-tenant isolation guard: non-admin callers may only touch resources
+ * belonging to their OWN tenant (ctx.user.tenantId). Platform admins bypass.
+ * Throws FORBIDDEN otherwise. Use in every procedure that takes a tenantId
+ * (or resolves one from a fetched row) before reading/writing tenant data.
+ */
+export function assertTenantAccess(
+  user: { role: string; tenantId?: string | null },
+  tenantId: string,
+): void {
+  if (user.role === "admin") return;
+  if (!user.tenantId || user.tenantId !== tenantId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You can only access your own tenant's data",
+    });
+  }
+}
+
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;

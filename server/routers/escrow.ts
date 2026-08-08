@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import {
@@ -43,14 +43,6 @@ type DbOrTx = Pick<Db, "select" | "insert" | "update" | "delete" | "execute">;
 
 // ─── Authorization helpers ───────────────────────────────────────────────────
 type SessionUser = { id: number; role: string; email: string | null; phone: string | null; tenantId: string | null };
-
-/** Merchants may only touch their own tenant's wallet; admins may touch any. */
-function assertTenantAccess(user: SessionUser, tenantId: string) {
-  if (user.role === "admin") return;
-  if (!user.tenantId || user.tenantId !== tenantId) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's wallet" });
-  }
-}
 
 /** Verify the caller is the buyer of the escrow's order (or an admin). */
 async function assertBuyerOrAdmin(db: DbOrTx, user: SessionUser, escrow: EscrowTransaction) {
@@ -570,13 +562,17 @@ export const escrowRouter = router({
       escrowId: z.string(),
       shipmentId: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const cfg = await getEscrowConfig(db);
       const [escrow] = await db.select().from(escrowTransactions)
         .where(eq(escrowTransactions.id, input.escrowId));
       if (!escrow) throw new Error("Escrow transaction not found");
+      // Only the merchant that owns this escrow (their tenant) or an admin may
+      // mark delivery confirmed — previously any authenticated user could
+      // transition ANY tenant's escrow.
+      assertTenantAccess(ctx.user, escrow.tenantId);
       if (!["escrow_held"].includes(escrow.state)) throw new Error(`Cannot confirm delivery in state: ${escrow.state}`);
 
       const deadline = new Date(Date.now() + cfg.buyerConfirmWindowHours * 3600 * 1000);
@@ -732,16 +728,20 @@ export const escrowRouter = router({
   // Get escrow by order
   getByOrder: protectedProcedure
     .input(z.object({ orderId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
       const [escrow] = await db.select().from(escrowTransactions)
         .where(eq(escrowTransactions.orderId, input.orderId))
         .orderBy(desc(escrowTransactions.createdAt));
-      return escrow ?? null;
+      if (!escrow) return null;
+      // Tenant isolation: merchants may only read their own tenant's escrows.
+      assertTenantAccess(ctx.user, escrow.tenantId);
+      return escrow;
     }),
 
-  // List all escrow transactions (admin)
+  // List escrow transactions. Admins may list any tenant (or all); non-admin
+  // callers are always restricted to their OWN tenant.
   listAll: protectedProcedure
     .input(z.object({
       tenantId: z.string().optional(),
@@ -749,11 +749,24 @@ export const escrowRouter = router({
       limit: z.number().default(50),
       offset: z.number().default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { items: [], total: 0 };
+      // Tenant isolation: a non-admin can never list another tenant's escrows
+      // (previously the tenantId filter was optional for any authenticated
+      // caller — a cross-tenant read leak).
+      let tenantId = input.tenantId;
+      if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No tenant associated with this account" });
+        }
+        if (tenantId && tenantId !== ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only list your own tenant's escrows" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
       const conditions = [];
-      if (input.tenantId) conditions.push(eq(escrowTransactions.tenantId, input.tenantId));
+      if (tenantId) conditions.push(eq(escrowTransactions.tenantId, tenantId));
       if (input.state) conditions.push(eq(escrowTransactions.state, input.state as any));
       const items = await db.select().from(escrowTransactions)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -766,8 +779,8 @@ export const escrowRouter = router({
       return { items, total: count };
     }),
 
-  // Platform-level stats
-  getStats: protectedProcedure.query(async () => {
+  // Platform-level stats (aggregates across ALL tenants — admin only)
+  getStats: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) return null;
     const cfg = await getEscrowConfig(db);
@@ -804,13 +817,15 @@ export const escrowRouter = router({
   /** Get ordered timeline of all events for a single escrow transaction */
   getTimeline: protectedProcedure
     .input(z.object({ escrowId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
 
       const [escrow] = await db.select().from(escrowTransactions)
         .where(eq(escrowTransactions.id, input.escrowId));
       if (!escrow) return [];
+      // Tenant isolation: timeline leaks order/dispute/shipment detail.
+      assertTenantAccess(ctx.user, escrow.tenantId);
 
       const [shipment] = await db.select().from(logisticsShipments)
         .where(eq(logisticsShipments.escrowTxId, input.escrowId));
@@ -961,10 +976,15 @@ export const escrowDisputeRouter = router({
       reason: z.enum(["not_received", "wrong_item", "damaged", "partial_delivery", "other"]),
       description: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const cfg = await getEscrowConfig(db);
+
+      // Tenant isolation: a caller can only raise a dispute on their OWN
+      // tenant's escrow — previously any authenticated user could freeze ANY
+      // tenant's escrow by guessing escrowTxId/orderId/tenantId.
+      assertTenantAccess(ctx.user, input.tenantId);
 
       // Validate the escrow matches the claimed order/tenant (read-only check
       // for input sanity; the transition below is still atomic).
@@ -1026,11 +1046,23 @@ export const escrowDisputeRouter = router({
       status: z.string().optional(),
       limit: z.number().default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      // Tenant isolation: non-admins are always restricted to their own tenant
+      // (previously omitting tenantId returned ALL tenants' disputes).
+      let tenantId = input.tenantId;
+      if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No tenant associated with this account" });
+        }
+        if (tenantId && tenantId !== ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only list your own tenant's disputes" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
       const conditions = [];
-      if (input.tenantId) conditions.push(eq(escrowDisputes.tenantId, input.tenantId));
+      if (tenantId) conditions.push(eq(escrowDisputes.tenantId, tenantId));
       if (input.status) conditions.push(eq(escrowDisputes.status, input.status as any));
       return db.select().from(escrowDisputes)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -1040,9 +1072,14 @@ export const escrowDisputeRouter = router({
 
   getByOrder: protectedProcedure
     .input(z.object({ orderId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      // Tenant isolation: resolve the order's tenant and enforce ownership
+      // (previously any authenticated user could read disputes for ANY order).
+      const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId));
+      if (!order) return [];
+      assertTenantAccess(ctx.user, order.tenantId);
       return db.select().from(escrowDisputes)
         .where(eq(escrowDisputes.orderId, input.orderId))
         .orderBy(desc(escrowDisputes.createdAt));
@@ -1144,6 +1181,8 @@ export const escrowDisputeRouter = router({
       if (!db) throw new Error("DB unavailable");
       const [dispute] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
       if (!dispute) throw new Error("Dispute not found");
+      // Tenant isolation: only the dispute's own tenant (or an admin) may escalate.
+      assertTenantAccess(ctx.user, dispute.tenantId);
       if ((dispute.status as string) === "escalated") throw new Error("Dispute is already escalated");
       await db.update(escrowDisputes).set({
         status: "escalated" as any,
@@ -1170,8 +1209,8 @@ export const escrowDisputeRouter = router({
     }),
 
 
-  // Escalation SLA statistics for the admin dashboard
-  escalationSlaStats: protectedProcedure.query(async () => {
+  // Escalation SLA statistics for the admin dashboard (cross-tenant aggregate — admin only)
+  escalationSlaStats: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) return { escalatedCount: 0, avgHoursToEscalation: null as number | null, openEscalatedCount: 0 };
     const disputes = await db.select().from(escrowDisputes);
@@ -1309,7 +1348,8 @@ export const walletRouter = router({
       return { success: true, reference: ref, amount: input.amount, status: "pending" as const, duplicate: false };
     }),
 
-  getStats: protectedProcedure.query(async () => {
+  // Platform-wide wallet stats (aggregates across ALL tenants — admin only)
+  getStats: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) return null;
     const [stats] = await db.select({
@@ -1537,16 +1577,28 @@ export const timelineAttachmentRouter = router({
       filename: z.string().optional(),
       mimeType: z.string().optional(),
       note: z.string().optional(),
-      uploadedBy: z.string(),
+      // Accepted for backwards compatibility but IGNORED — the uploader
+      // identity is always derived from the authenticated session.
+      uploadedBy: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // Tenant isolation: attachments may only be added to the caller's own
+      // tenant's escrows.
+      const [escrow] = await db.select().from(escrowTransactions)
+        .where(eq(escrowTransactions.id, input.escrowId));
+      if (!escrow) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found" });
+      assertTenantAccess(ctx.user, escrow.tenantId);
+      const uploadedBy = ctx.user.name ?? ctx.user.email ?? String(ctx.user.id);
       let fileUrl: string | undefined;
       let fileKey: string | undefined;
       if (input.attachmentType === "document" && input.fileBase64 && input.filename) {
         const buffer = Buffer.from(input.fileBase64, "base64");
-        const key = `escrow-attachments/${input.escrowId}/${input.eventId}/${Date.now()}-${input.filename}`;
+        // Strip any path components from the client-supplied filename so the
+        // storage key can never escape its escrow-scoped prefix.
+        const safeFilename = input.filename.replace(/[/\\]/g, "_").replace(/^\.+/, "_").slice(0, 255);
+        const key = `escrow-attachments/${input.escrowId}/${input.eventId}/${Date.now()}-${safeFilename}`;
         const result = await storagePut(key, buffer, input.mimeType ?? "application/octet-stream");
         fileUrl = result.url;
         fileKey = result.key;
@@ -1556,7 +1608,7 @@ export const timelineAttachmentRouter = router({
         id, escrowId: input.escrowId, eventId: input.eventId,
         attachmentType: input.attachmentType,
         fileUrl, fileKey, filename: input.filename, mimeType: input.mimeType,
-        note: input.note, uploadedBy: input.uploadedBy, createdAt: new Date(),
+        note: input.note, uploadedBy, createdAt: new Date(),
       });
       const [created] = await db.select().from(escrowTimelineAttachments)
         .where(eq(escrowTimelineAttachments.id, id));
@@ -1568,9 +1620,15 @@ export const timelineAttachmentRouter = router({
       escrowId: z.string(),
       eventId: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      // Tenant isolation: attachments may only be read for the caller's own
+      // tenant's escrows.
+      const [escrow] = await db.select().from(escrowTransactions)
+        .where(eq(escrowTransactions.id, input.escrowId));
+      if (!escrow) return [];
+      assertTenantAccess(ctx.user, escrow.tenantId);
       const conditions: any[] = [eq(escrowTimelineAttachments.escrowId, input.escrowId)];
       if (input.eventId) conditions.push(eq(escrowTimelineAttachments.eventId, input.eventId));
       return db.select().from(escrowTimelineAttachments)

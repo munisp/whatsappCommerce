@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders, orderItems, refunds, inventorySnapshots, paymentIntents, customers } from "../../drizzle/schema";
 import { sendOrderNotificationWithLog, type OrderNotifType } from "./whatsappNotifications";
@@ -27,9 +27,11 @@ export const orderCrudRouter = router({
         unitPrice: z.number().min(0),
       })),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // Tenant isolation: orders may only be created for the caller's own tenant.
+      assertTenantAccess(ctx.user, input.tenantId);
 
       const total = input.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
       const orderId = crypto.randomUUID();
@@ -128,6 +130,8 @@ export const orderCrudRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      // Tenant isolation: only the owning tenant (or an admin) may mutate the order.
+      assertTenantAccess(ctx.user, order.tenantId);
       await db.update(orders).set({
         status: input.status,
         notes: input.notes,
@@ -157,12 +161,14 @@ export const orderCrudRouter = router({
   /** Cancel an order and release reserved inventory */
   cancel: protectedProcedure
     .input(z.object({ orderId: z.string(), reason: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
       const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      // Tenant isolation.
+      assertTenantAccess(ctx.user, order.tenantId);
       if (["delivered", "cancelled", "refunded"].includes(order.status)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `Cannot cancel order in status: ${order.status}` });
       }
@@ -194,12 +200,15 @@ export const orderCrudRouter = router({
       amount: z.number().min(0.01),
       reason: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
       const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      // Tenant isolation: refunds are money movement — only the owning tenant
+      // (or an admin) may initiate one.
+      assertTenantAccess(ctx.user, order.tenantId);
       if (order.paymentStatus !== "completed") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Can only refund paid orders" });
       }
@@ -229,11 +238,13 @@ export const orderCrudRouter = router({
   /** Get order details with items */
   get: protectedProcedure
     .input(z.object({ orderId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      // Tenant isolation: order detail leaks customer + payment data.
+      assertTenantAccess(ctx.user, order.tenantId);
       const items = await db.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
       const refundList = await db.select().from(refunds).where(eq(refunds.orderId, input.orderId));
       return { ...order, orderItems: items, refunds: refundList };
@@ -242,9 +253,10 @@ export const orderCrudRouter = router({
   /** List refunds for a tenant */
   listRefunds: protectedProcedure
     .input(z.object({ tenantId: z.string(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
       return db.select().from(refunds)
         .where(eq(refunds.tenantId, input.tenantId))
         .orderBy(sql`${refunds.createdAt} DESC`)
@@ -257,9 +269,14 @@ export const orderCrudRouter = router({
       refundId: z.string(),
       action: z.enum(["approved", "rejected"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // Tenant isolation: approving/rejecting a refund is money movement —
+      // resolve the refund's tenant and enforce ownership.
+      const [refund] = await db.select().from(refunds).where(eq(refunds.id, input.refundId)).limit(1);
+      if (!refund) throw new TRPCError({ code: "NOT_FOUND", message: "Refund not found" });
+      assertTenantAccess(ctx.user, refund.tenantId);
       await db.update(refunds).set({
         status: input.action,
         processedAt: input.action === "approved" ? new Date() : null,

@@ -10,7 +10,7 @@
  * 6. Dapr pub/sub — cross-service event notification
  */
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
@@ -176,7 +176,9 @@ export const paymentRouter = router({
       limit: z.number().default(50),
       offset: z.number().default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      // Tenant isolation: merchants may only list their own tenant's intents.
+      assertTenantAccess(ctx.user, input.tenantId);
       return db.getPaymentIntents(input.tenantId, input.status, input.limit, input.offset);
     }),
 
@@ -192,7 +194,11 @@ export const paymentRouter = router({
       customerId: z.string().optional(),
       metadata: z.record(z.string(), z.unknown()).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // Tenant isolation: a payment can only be initiated for the caller's own
+      // tenant — previously any authenticated user could initiate payments
+      // against ANY tenantId.
+      assertTenantAccess(ctx.user, input.tenantId);
       const paymentIntentId = randomUUID();
       const idempotencyKey = `payment:${input.tenantId}:${input.orderId}`;
 
@@ -564,7 +570,8 @@ export const paymentRouter = router({
   /** Reconcile TigerBeetle balance vs DB payment_intents sum */
   reconcileLedger: protectedProcedure
     .input(z.object({ tenantId: z.string(), accountId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const database = await getDb();
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -594,7 +601,8 @@ export const paymentRouter = router({
   /** Get payment stats for a tenant */
   stats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const database = await getDb();
       if (!database) return { total: 0, completed: 0, pending: 0, failed: 0, totalAmount: 0 };
       const rows = await database
