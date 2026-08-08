@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -44,13 +45,15 @@ import (
 
 type Config struct {
 	Port                   string
+	Env                    string  // "production" enables fail-closed behavior
 	KafkaBrokers           string
 	KafkaGroupID           string
 	KafkaInboundTopic      string  // platform → hermes
 	KafkaOutboundTopic     string  // hermes → platform
 	HermesAgentURL         string  // Hermes Agent HTTP API base URL
 	HermesAPIKey           string  // Hermes API key for authentication
-	HermesWebhookSecret    string  // HMAC secret for Hermes callbacks
+	HermesWebhookSecret    string  // HMAC secret for Hermes callbacks (no default — required)
+	InternalAPIKey         string  // shared secret for /hermes/approval and /hermes/ingest
 	PlatformAPIURL         string  // Platform tRPC/REST API base URL
 	PlatformAPIKey         string  // Platform internal API key
 	WAPhoneNumberID        string  // WhatsApp Business phone number ID
@@ -60,16 +63,20 @@ type Config struct {
 	CircuitBreakerThreshold int   // consecutive failures before opening circuit
 }
 
+func (c Config) IsProduction() bool { return c.Env == "production" }
+
 func configFromEnv() Config {
 	return Config{
 		Port:                    getEnv("PORT", "8095"),
+		Env:                     getEnv("ENV", getEnv("NODE_ENV", "development")),
 		KafkaBrokers:            getEnv("KAFKA_BROKERS", "localhost:9092"),
 		KafkaGroupID:            getEnv("KAFKA_GROUP_ID", "hermes-bridge-v1"),
 		KafkaInboundTopic:       getEnv("KAFKA_HERMES_INBOUND_TOPIC", "hermes.events.inbound"),
 		KafkaOutboundTopic:      getEnv("KAFKA_HERMES_OUTBOUND_TOPIC", "hermes.events.outbound"),
 		HermesAgentURL:          getEnv("HERMES_AGENT_URL", "http://localhost:8090"),
 		HermesAPIKey:            getEnv("HERMES_API_KEY", ""),
-		HermesWebhookSecret:     getEnv("HERMES_WEBHOOK_SECRET", "dev-hermes-secret"),
+		HermesWebhookSecret:     os.Getenv("HERMES_WEBHOOK_SECRET"), // no default — fail closed
+		InternalAPIKey:          os.Getenv("INTERNAL_API_KEY"),
 		PlatformAPIURL:          getEnv("PLATFORM_API_URL", "http://localhost:3000"),
 		PlatformAPIKey:          getEnv("PLATFORM_API_KEY", ""),
 		WAPhoneNumberID:         getEnv("WA_PHONE_NUMBER_ID", ""),
@@ -546,14 +553,51 @@ func NewServer(cfg Config, processor *EventProcessor, logger *slog.Logger) *Serv
 }
 
 // validateHermesSignature verifies the HMAC-SHA256 signature on Hermes callbacks.
+// The secret has no default: when HERMES_WEBHOOK_SECRET is unset the callback
+// is always rejected (fail closed).
 func (s *Server) validateHermesSignature(body []byte, signature string) bool {
 	if s.cfg.HermesWebhookSecret == "" {
-		return true // dev mode: skip validation
+		s.logger.Error("HERMES_WEBHOOK_SECRET is not configured — rejecting callback (fail closed)")
+		return false
+	}
+	if signature == "" {
+		return false
 	}
 	mac := hmac.New(sha256.New, []byte(s.cfg.HermesWebhookSecret))
 	mac.Write(body)
 	expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(signature))
+}
+
+// requireInternalToken is middleware for service-to-service endpoints
+// (/hermes/approval, /hermes/ingest). It requires the X-Internal-Token header
+// to match INTERNAL_API_KEY. When the key is unset it fails closed in
+// production and warns (fail open) in development.
+func (s *Server) requireInternalToken(next http.Handler) http.Handler {
+	if s.cfg.InternalAPIKey == "" {
+		if s.cfg.IsProduction() {
+			s.logger.Error("INTERNAL_API_KEY is not set — internal endpoints will reject all requests (fail closed)")
+		} else {
+			s.logger.Warn("INTERNAL_API_KEY is not set — /hermes/approval and /hermes/ingest are unauthenticated (dev mode)")
+		}
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.cfg.InternalAPIKey == "" {
+			if s.cfg.IsProduction() {
+				http.Error(w, "internal authentication not configured", http.StatusServiceUnavailable)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		token := r.Header.Get("X-Internal-Token")
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.cfg.InternalAPIKey)) != 1 {
+			s.logger.Warn("invalid internal token", "path", r.URL.Path, "remote_addr", r.RemoteAddr)
+			http.Error(w, "invalid internal token", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -653,8 +697,9 @@ func (s *Server) routes() http.Handler {
 
 	r.Get("/health", s.handleHealth)
 	r.Post("/hermes/callback", s.handleHermesCallback)
-	r.Post("/hermes/approval", s.handleMerchantApproval)
-	r.Post("/hermes/ingest", s.handleIngestEvent)
+	// Service-to-service endpoints require the X-Internal-Token shared secret.
+	r.With(s.requireInternalToken).Post("/hermes/approval", s.handleMerchantApproval)
+	r.With(s.requireInternalToken).Post("/hermes/ingest", s.handleIngestEvent)
 
 	return r
 }
