@@ -107,6 +107,26 @@ async fn connect_pg(url: &str) -> Option<Pool> {
     }
 }
 
+/// Classification of a /ledger/void response for repair decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VoidClassification {
+    /// 2xx — the orphaned pending transfer was voided; repair confirmed.
+    Voided,
+    /// 400/409 — the transfer is already final (committed or voided);
+    /// nothing left to repair.
+    AlreadyFinal,
+    /// 5xx or unreachable — transient bridge failure; retry next cycle.
+    Retry,
+}
+
+fn classify_void_status(status: Option<u16>) -> VoidClassification {
+    match status {
+        Some(s) if (200..300).contains(&s) => VoidClassification::Voided,
+        Some(400) | Some(409) => VoidClassification::AlreadyFinal,
+        _ => VoidClassification::Retry,
+    }
+}
+
 /// ACTIVE REPAIR: void an orphaned pending transfer via the ledger bridge.
 /// Returns Ok(true) when the void was confirmed, Ok(false) when the transfer
 /// was already settled (nothing to repair), Err on bridge failure.
@@ -115,19 +135,20 @@ async fn void_orphan(state: &AppState, pending_id: &str) -> Result<bool, String>
         .post(format!("{}/ledger/void", state.config.ledger_bridge_url))
         .json(&serde_json::json!({ "pending_id": pending_id }))
         .send()
-        .await
-        .map_err(|e| format!("void request failed: {}", e))?;
-    let status = resp.status();
-    if status.is_success() {
-        return Ok(true);
+        .await;
+    let (status, body) = match resp {
+        Ok(r) => (Some(r.status().as_u16()), r.text().await.unwrap_or_default()),
+        Err(e) => (None, e.to_string()),
+    };
+    match classify_void_status(status) {
+        VoidClassification::Voided => Ok(true),
+        VoidClassification::AlreadyFinal => Ok(false),
+        VoidClassification::Retry => Err(format!(
+            "void returned {}: {}",
+            status.map(|s| s.to_string()).unwrap_or_else(|| "unreachable".into()),
+            body
+        )),
     }
-    let body = resp.text().await.unwrap_or_default();
-    // A 400/409 means the transfer is no longer pending (already committed or
-    // voided) — nothing left to repair.
-    if status.as_u16() == 400 || status.as_u16() == 409 {
-        return Ok(false);
-    }
-    Err(format!("void returned {}: {}", status, body))
 }
 
 async fn run_recon(state: &AppState) -> ReconResult {
@@ -479,4 +500,26 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(async { signal::ctrl_c().await.expect("ctrl_c") })
         .await?;
     Ok(())
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Void-response classification contract:
+    ///   200       → voided (repair confirmed)
+    ///   400/409   → already-final (nothing to repair)
+    ///   5xx/None  → retry (transient bridge failure / unreachable)
+    #[test]
+    fn void_classification_contract() {
+        assert_eq!(classify_void_status(Some(200)), VoidClassification::Voided);
+        assert_eq!(classify_void_status(Some(201)), VoidClassification::Voided);
+        assert_eq!(classify_void_status(Some(400)), VoidClassification::AlreadyFinal);
+        assert_eq!(classify_void_status(Some(409)), VoidClassification::AlreadyFinal);
+        assert_eq!(classify_void_status(Some(500)), VoidClassification::Retry);
+        assert_eq!(classify_void_status(Some(502)), VoidClassification::Retry);
+        assert_eq!(classify_void_status(Some(503)), VoidClassification::Retry);
+        assert_eq!(classify_void_status(None), VoidClassification::Retry, "unreachable bridge must retry");
+    }
 }

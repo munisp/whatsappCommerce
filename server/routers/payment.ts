@@ -448,11 +448,55 @@ export const paymentRouter = router({
 
       const newStatus = input.providerStatus === "success" ? "completed" : "failed";
 
-      // Ledger 2-phase settlement:
+      // ── ATOMIC CLAIM-FIRST (webhook-storm TOCTOU fix) ─────────────────────
+      // The guarded status transition CLAIMS the intent BEFORE any ledger
+      // side-effect. Previously the ledger commit ran first and the guarded
+      // UPDATE second, so a storm of duplicate webhooks could ALL pass the
+      // pre-check, ALL commit the ledger, and only then lose the race — a
+      // double-commit. Now exactly one concurrent caller wins the claim; the
+      // rest see rowCount=0 and skip as already-completed.
+      const claim = await database.update(paymentIntents)
+        .set({
+          status: newStatus,
+          metadata: {
+            ...((intent.metadata as Record<string, unknown> | null) ?? {}),
+            providerResponse: input.providerData ?? {},
+          },
+          failureReason: newStatus === "failed" ? `Provider reported: ${input.providerStatus}` : null,
+          completedAt: newStatus === "completed" ? new Date() : null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(paymentIntents.id, intent.id),
+          sql`${paymentIntents.status} IN ('pending', 'initiated')`,
+        ))
+        .returning({ id: paymentIntents.id });
+      if (claim.length === 0) {
+        // Lost the claim race — a concurrent confirm already transitioned it.
+        const [current] = await database.select({ status: paymentIntents.status })
+          .from(paymentIntents).where(eq(paymentIntents.id, intent.id)).limit(1);
+        return { ok: true, skipped: true, status: current?.status ?? "completed" };
+      }
+
+      // Roll back the claim if a subsequent step fails irrecoverably — the
+      // intent returns to 'pending' so a later webhook/retry can re-attempt.
+      const rollbackClaim = async (reason: string) => {
+        await database.update(paymentIntents)
+          .set({ status: "pending", failureReason: reason, completedAt: null, updatedAt: new Date() })
+          .where(and(
+            eq(paymentIntents.id, intent.id),
+            sql`${paymentIntents.status} IN ('completed', 'failed')`,
+          ))
+          .catch((rollbackErr: unknown) => {
+            console.error(`[payment.confirm] CLAIM ROLLBACK FAILED for intent ${intent.id} — needs reconciliation:`, rollbackErr);
+          });
+      };
+
+      // Ledger 2-phase settlement (only the claim holder reaches this):
       //  - success → COMMIT the reserved transfer (POST /ledger/commit)
       //  - failure → VOID the reservation (POST /ledger/void)
-      // A commit failure means the payment is NOT confirmed — it is surfaced
-      // as an error, never silently swallowed.
+      // A commit failure means the payment is NOT confirmed: the claim is
+      // rolled back and the error is surfaced, never silently swallowed.
       if (newStatus === "completed") {
         if (intent.ledgerPendingId) {
           try {
@@ -460,10 +504,7 @@ export const paymentRouter = router({
           } catch (commitErr: any) {
             const reason = `ledger_commit_failed: ${commitErr?.message ?? "unknown"}`;
             console.error(`[payment.confirm] Ledger commit failed for pending_id=${intent.ledgerPendingId}:`, commitErr?.message);
-            await database.update(paymentIntents)
-              .set({ failureReason: reason, updatedAt: new Date() })
-              .where(eq(paymentIntents.id, intent.id))
-              .catch(() => {});
+            await rollbackClaim(reason);
             throw new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
               message: `Ledger commit failed — payment NOT confirmed: ${commitErr?.message ?? "unknown"}`,
@@ -484,10 +525,7 @@ export const paymentRouter = router({
           } catch (settleErr: any) {
             const reason = `ledger_failed: ${settleErr?.message ?? "settlement transfer failed"}`;
             console.error("[payment.confirm] Ledger settlement failed — payment NOT confirmed:", settleErr?.message);
-            await database.update(paymentIntents)
-              .set({ failureReason: reason, updatedAt: new Date() })
-              .where(eq(paymentIntents.id, intent.id))
-              .catch(() => {});
+            await rollbackClaim(reason);
             throw new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
               message: `Ledger settlement failed — payment NOT confirmed: ${settleErr?.message ?? "unknown"}`,
@@ -499,6 +537,9 @@ export const paymentRouter = router({
           try {
             await ledgerRequest("/ledger/void", "POST", { pending_id: intent.ledgerPendingId });
           } catch (voidErr: any) {
+            // Void failure does NOT roll back the claim — the provider reported
+            // failure, so 'failed' is the correct final state; the orphaned
+            // reservation is repaired by the recon worker.
             console.error(`[payment.confirm] Ledger void failed for pending_id=${intent.ledgerPendingId} — needs reconciliation:`, voidErr?.message);
           }
         } else {
@@ -517,30 +558,6 @@ export const paymentRouter = router({
             });
           } catch { /* best effort reversal */ }
         }
-      }
-
-      // Guarded transition — a concurrent confirm must not double-commit.
-      const transitioned = await database.update(paymentIntents)
-        .set({
-          status: newStatus,
-          metadata: {
-            ...((intent.metadata as Record<string, unknown> | null) ?? {}),
-            providerResponse: input.providerData ?? {},
-          },
-          failureReason: newStatus === "failed" ? `Provider reported: ${input.providerStatus}` : null,
-          completedAt: newStatus === "completed" ? new Date() : null,
-          updatedAt: new Date(),
-        })
-        .where(and(
-          eq(paymentIntents.id, intent.id),
-          sql`${paymentIntents.status} NOT IN ('completed', 'failed')`,
-        ))
-        .returning({ id: paymentIntents.id });
-      if (transitioned.length === 0) {
-        // Lost a race with a concurrent confirm — report the row's actual state.
-        const [current] = await database.select({ status: paymentIntents.status })
-          .from(paymentIntents).where(eq(paymentIntents.id, intent.id)).limit(1);
-        return { ok: true, skipped: true, status: current?.status ?? "completed" };
       }
 
       const eventTopic = newStatus === "completed" ? "payment.completed" : "payment.failed";
