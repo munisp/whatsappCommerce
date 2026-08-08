@@ -7,6 +7,7 @@ import { getDb } from "../db";
 import { products } from "../../drizzle/schema";
 import { syncLocalChange } from "../services/integrations/outbox";
 import { triggerRestockNotification } from "../services/waitlist";
+import { notifyMetaCatalogProductChanged } from "../services/metaCatalog";
 
 /** Enqueue an outbox event for a product change; never fails the mutation. */
 async function enqueueProductSync(tenantId: string, productId: string, action: string, data: Record<string, unknown>) {
@@ -62,6 +63,7 @@ export const productRouter = router({
         description: input.description ?? null,
         stockQuantity: input.stockQuantity,
       });
+      notifyMetaCatalogProductChanged(input.tenantId, id, "created");
       return { id, ...input };
     }),
 
@@ -97,6 +99,9 @@ export const productRouter = router({
         }
       }
       await enqueueProductSync(tenantId, id, "updated", { ...data });
+      // Meta catalog: archive behaves as a catalog delete; any other update
+      // (price/name/stock → availability) upserts the item.
+      notifyMetaCatalogProductChanged(tenantId, id, data.status === "archived" ? "deleted" : "updated");
       return { success: true };
     }),
 
