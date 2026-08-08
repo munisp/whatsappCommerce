@@ -1,0 +1,53 @@
+# ServiceMonitors for the whatsapp-commerce namespace.
+#
+# HONEST INVENTORY of /metrics endpoints (grep-verified at e7d6337 — see
+# docs/ZERO_TRUST.md §Observability):
+#   * apisix        — Prometheus text via prometheus plugin,
+#                     :9091 /apisix/prometheus/metrics
+#                     (services/middleware/apisix_conf/config.yaml plugin_attr)
+#   * hermes-router — Prometheus text, :8096 /metrics
+#                     (rust/hermes-router/src/main.rs handle_metrics)
+#   * event-processor — :8091 /metrics but JSON, NOT Prometheus text
+#                     (rust/event-processor/src/main.rs metrics_handler) → not scrapeable
+#   * hermes-skills — :8097 /metrics (ai-agent/hermes_skills/app.py) → not deployed in k8s
+#   * api-gateway, commerce-engine, platform, ml-inference, ledger-bridge,
+#     recon-worker, ai-agent — NO /metrics endpoint exists in code → no
+#     ServiceMonitor (instrumentation gap, documented — not invented).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: apisix
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    # Must match the Prometheus serviceMonitorSelector.
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: apisix
+      prometheus.io/scrape: "true"
+  endpoints:
+    - port: metrics           # Service port 9091 (k8s/apisix.yaml)
+      path: /apisix/prometheus/metrics
+      interval: 15s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hermes-router
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: hermes-router
+      prometheus.io/scrape: "true"
+  endpoints:
+    - port: http              # Service port 8096 (k8s/hermes-router.yaml)
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

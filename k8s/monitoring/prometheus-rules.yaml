@@ -1,0 +1,128 @@
+# Prometheus alert rules for the whatsapp-commerce platform.
+#
+# Metric provenance (all scrapeable today via k8s/monitoring/servicemonitors.yaml
+# + kube-state-metrics):
+#   hermes_router_events_dlq_total    — rust/hermes-router/src/main.rs handle_metrics
+#   hermes_router_events_failed_total — rust/hermes-router/src/main.rs handle_metrics
+#   apisix_http_status                — APISIX prometheus plugin
+#   apisix_http_latency_bucket        — APISIX prometheus plugin
+#   kube_pod_container_status_*       — kube-state-metrics (cluster add-on)
+#
+# HONEST GAPS (no alert rule shipped, because no exporter exists — do NOT
+# invent metrics):
+#   * webhook_failures_total / webhook DLQ depth — the webhook DLQ is the
+#     Postgres table wa_webhook_events (status: received/processed/failed/
+#     retried/dead; server/routers/webhookDlq.ts, server/_core/index.ts).
+#     No Prometheus exporter exists. ACTION: export
+#     whatsapp_commerce_webhook_dlq_dead_total from the platform or a postgres
+#     exporter query, then alert on > 0.
+#   * ledger_pending_transfers_old — recon-worker (rust/recon-worker) detects
+#     and voids orphaned pending transfers but exposes only a JSON /health
+#     (last_repairs_*, last_discrepancies), not Prometheus metrics. ACTION:
+#     export recon_orphan_pending_transfers_total / recon_discrepancies_total.
+#   * event-processor error_total — JSON endpoint only
+#     (rust/event-processor/src/main.rs), not scrapeable by Prometheus.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: whatsapp-commerce-alerts
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    release: prometheus
+spec:
+  groups:
+    - name: platform.messaging
+      interval: 30s
+      rules:
+        # Adapted from the insurance platform's sar_dead_letter_queue rule:
+        # hermes-router's route table includes "fraud.alert" events; any event
+        # (fraud cases included) that exhausts 3 retries lands in the DLQ and
+        # increments this counter (write_to_dlq → total_dlq).
+        - alert: FraudCaseEventDLQGrowing
+          expr: increase(hermes_router_events_dlq_total{namespace="whatsapp-commerce"}[15m]) > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Events dead-lettered by hermes-router (incl. fraud.alert)"
+            description: "{{ $value }} event(s) were written to the hermes-router DLQ (disk: /tmp/hermes-dlq, topic hermes.events.dlq) in the last 15m. Inspect the DLQ and the circuit breaker states via GET /health on hermes-router."
+            runbook: docs/RUNBOOK_ROLLBACK.md#alert-response
+        # Adapted consumer_errors_total: delivery failure rate on the
+        # platform's Kafka-facing router.
+        - alert: EventDeliveryFailureRateHigh
+          expr: rate(hermes_router_events_failed_total{namespace="whatsapp-commerce"}[5m]) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Elevated event delivery failure rate (hermes-router)"
+            description: "hermes-router is failing {{ $value }} deliveries/s (after retries) over 5m. Check downstream hermes-agent/hermes-skills reachability and circuit breakers."
+    - name: platform.edge
+      interval: 30s
+      rules:
+        - alert: EdgeHTTP5xxRateHigh
+          expr: |
+            sum(rate(apisix_http_status{namespace="whatsapp-commerce",code=~"5.."}[5m]))
+              /
+            sum(rate(apisix_http_status{namespace="whatsapp-commerce"}[5m])) > 0.05
+          for: 10m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "HTTP 5xx rate above 5% at the APISIX edge"
+            description: "{{ $value | humanizePercentage }} of edge requests are 5xx over 10m. Check api-gateway and platform pods, then drill into per-route codes on the platform overview dashboard."
+        - alert: EdgeP95LatencyHigh
+          expr: histogram_quantile(0.95, sum(rate(apisix_http_latency_bucket{namespace="whatsapp-commerce",type="request"}[5m])) by (le)) > 2
+          for: 15m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Edge p95 request latency above 2s"
+            description: "APISIX p95 latency is {{ $value }}s over 15m."
+        - alert: ScrapeTargetDown
+          expr: up{namespace="whatsapp-commerce"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: sre
+          annotations:
+            summary: "Prometheus target down: {{ $labels.job }}/{{ $labels.instance }}"
+            description: "A metrics endpoint in whatsapp-commerce has been unreachable for 5m."
+    - name: platform.workloads
+      interval: 30s
+      rules:
+        - alert: PodRestartingFrequently
+          expr: increase(kube_pod_container_status_restarts_total{namespace="whatsapp-commerce"}[1h]) > 3
+          for: 5m
+          labels:
+            severity: warning
+            team: sre
+          annotations:
+            summary: "Container {{ $labels.container }} in pod {{ $labels.pod }} restarting frequently"
+            description: "{{ $value }} restarts in the last hour. Check logs and the liveness probe target (probe paths are code-verified in the manifests)."
+        - alert: PodCrashLoopBackOff
+          expr: kube_pod_container_status_waiting_reason{namespace="whatsapp-commerce",reason="CrashLoopBackOff"} == 1
+          for: 5m
+          labels:
+            severity: critical
+            team: sre
+          annotations:
+            summary: "Pod {{ $labels.pod }} in CrashLoopBackOff"
+            description: "Container {{ $labels.container }} is crash-looping. Verify image tag, secrets (platform-secrets keys), and dependency readiness."
+        - alert: DeploymentUnavailable
+          expr: |
+            kube_deployment_status_replicas_available{namespace="whatsapp-commerce"}
+              <
+            kube_deployment_spec_replicas{namespace="whatsapp-commerce"}
+          for: 15m
+          labels:
+            severity: warning
+            team: sre
+          annotations:
+            summary: "Deployment {{ $labels.deployment }} has unavailable replicas"
+            description: "Available < desired for 15m. Check pod events and readiness probes."

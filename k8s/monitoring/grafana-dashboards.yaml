@@ -1,0 +1,168 @@
+# Grafana dashboard (platform overview) as a ConfigMap, picked up by the
+# Grafana sidecar (grafana_dashboard=1 label).
+#
+# Panel data-source honesty:
+#   * Request rate, p95 latency, DLQ/delivery panels → REAL metrics
+#     (apisix_http_status, apisix_http_latency_bucket, hermes_router_*).
+#   * "Escrow settlement rate", "Wallet withdrawal failures", "ML predict
+#     latency" → PENDING INSTRUMENTATION. No service exports these metrics
+#     today (grep-verified at e7d6337: escrow/wallet logic is DB-backed in
+#     server/escrow*.ts + server/routers; ml-inference measures duration_ms
+#     internally but has no /metrics). The panels ship with the intended
+#     queries so they light up once the exporters land; descriptions say so.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-platform-overview
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    grafana_dashboard: "1"
+data:
+  platform-overview.json: |
+    {
+      "title": "WhatsApp Commerce — Platform Overview",
+      "uid": "wc-platform-overview",
+      "tags": ["whatsapp-commerce", "platform"],
+      "timezone": "utc",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "annotations": {"list": []},
+      "templating": {"list": []},
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Edge request rate (req/s)",
+          "description": "Total request rate at the APISIX edge (apisix_http_status).",
+          "gridPos": {"h": 6, "w": 6, "x": 0, "y": 0},
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(apisix_http_status{namespace=\"whatsapp-commerce\"}[5m]))",
+              "legendFormat": "req/s"
+            }
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps", "thresholds": {"steps": [{"color": "green", "value": null}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Scrape targets up",
+          "description": "Prometheus targets healthy in this namespace.",
+          "gridPos": {"h": 6, "w": 6, "x": 6, "y": 0},
+          "targets": [
+            {"refId": "A", "expr": "sum(up{namespace=\"whatsapp-commerce\"})", "legendFormat": "up"},
+            {"refId": "B", "expr": "count(up{namespace=\"whatsapp-commerce\"})", "legendFormat": "total"}
+          ],
+          "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "red", "value": null}, {"color": "green", "value": 2}]}}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Request rate by status code",
+          "description": "Per-code request rate at the edge. Watch 5xx growth against the EdgeHTTP5xxRateHigh alert.",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (code) (rate(apisix_http_status{namespace=\"whatsapp-commerce\"}[5m]))",
+              "legendFormat": "{{code}}"
+            }
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 15, "stacking": {"mode": "normal"}}}, "overrides": []},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "p95 request latency (edge)",
+          "description": "histogram_quantile over apisix_http_latency_bucket (type=request). Alert threshold: 2s over 15m.",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum(rate(apisix_http_latency_bucket{namespace=\"whatsapp-commerce\",type=\"request\"}[5m])) by (le))",
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.50, sum(rate(apisix_http_latency_bucket{namespace=\"whatsapp-commerce\",type=\"request\"}[5m])) by (le))",
+              "legendFormat": "p50"
+            }
+          ],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Hermes router — routed / failed / DLQ",
+          "description": "Real counters from rust/hermes-router /metrics. DLQ > 0 fires FraudCaseEventDLQGrowing (fraud.alert events are routed by this service).",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+          "targets": [
+            {"refId": "A", "expr": "rate(hermes_router_events_routed_total{namespace=\"whatsapp-commerce\"}[5m])", "legendFormat": "routed/s"},
+            {"refId": "B", "expr": "rate(hermes_router_events_failed_total{namespace=\"whatsapp-commerce\"}[5m])", "legendFormat": "failed/s"},
+            {"refId": "C", "expr": "hermes_router_events_dlq_total{namespace=\"whatsapp-commerce\"}", "legendFormat": "dlq total"}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Pod restarts",
+          "description": "increase of container restarts per pod (kube-state-metrics).",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"whatsapp-commerce\"}[15m]))",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "bars", "fillOpacity": 40}}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}}
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Escrow settlement rate (PENDING INSTRUMENTATION)",
+          "description": "NO exporter exists today: escrow settlement is DB-backed (server/escrow*.ts, escrow_release wallet tx). Intended query shown; panel populates once the platform exports whatsapp_commerce_escrow_settlements_total.",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 22},
+          "targets": [
+            {"refId": "A", "expr": "rate(whatsapp_commerce_escrow_settlements_total{namespace=\"whatsapp-commerce\"}[5m])", "legendFormat": "settlements/s"}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Wallet withdrawal failures (PENDING INSTRUMENTATION)",
+          "description": "NO exporter exists today: wallet.requestWithdrawal is enforced in the tRPC layer (atomic conditional debit, INSUFFICIENT_FUNDS). Panel populates once whatsapp_commerce_wallet_withdrawal_failures_total is exported.",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 22},
+          "targets": [
+            {"refId": "A", "expr": "rate(whatsapp_commerce_wallet_withdrawal_failures_total{namespace=\"whatsapp-commerce\"}[5m])", "legendFormat": "failures/s"}
+          ],
+          "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "ML predict latency (PENDING INSTRUMENTATION)",
+          "description": "ml-inference (services/ml-stack/inference/server.py) measures duration_ms per /predict but exposes NO /metrics. Panel populates once ml_inference_predict_duration_seconds is exported.",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 22},
+          "targets": [
+            {"refId": "A", "expr": "histogram_quantile(0.95, sum(rate(ml_inference_predict_duration_seconds_bucket{namespace=\"whatsapp-commerce\"}[5m])) by (le))", "legendFormat": "p95"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+          "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}}
+        }
+      ]
+    }
