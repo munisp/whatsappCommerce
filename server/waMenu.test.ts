@@ -9,13 +9,17 @@ import {
   defaultMenuConfig,
   isMenuKeyword,
   loadMenuConfig,
+  menuEntryReplyId,
+  parseMenuEntryReplyId,
   renderMenu,
   renderUssdMenu,
+  renderWhatsAppInteractive,
   renderWhatsAppMenu,
   resolveMenuSelection,
   ussdWrap,
   type WaMenuConfig,
 } from "./services/waMenu";
+import { DEFAULT_WA_MENU, renderWaMenu } from "../shared/waMenu";
 
 describe("loadMenuConfig", () => {
   it("returns the default template when settings.waMenu is absent", () => {
@@ -108,7 +112,7 @@ describe("buildMenuEntries + renderMenu ordering", () => {
 describe("channel formatters", () => {
   it("WhatsApp formatter appends a reply hint", () => {
     const text = renderWhatsAppMenu(defaultMenuConfig(), { businessName: "Shop" });
-    expect(text).toContain("1. Shop / place an order");
+    expect(text).toContain("1. Shop products");
     expect(text).toMatch(/Reply with a number/);
   });
 
@@ -126,7 +130,8 @@ describe("resolveMenuSelection", () => {
     const config = defaultMenuConfig();
     expect(resolveMenuSelection(config, "1")?.id).toBe("shop");
     expect(resolveMenuSelection(config, "2")?.id).toBe("track");
-    expect(resolveMenuSelection(config, " 3 ")?.id).toBe("support");
+    // Default menu keeps support/booking disabled → entry 3 is handoff.
+    expect(resolveMenuSelection(config, " 3 ")?.id).toBe("handoff");
   });
 
   it("returns null for out-of-range or non-numeric input", () => {
@@ -151,9 +156,101 @@ describe("resolveMenuSelection", () => {
   });
 });
 
+describe("renderer unification (shared/waMenu.ts is the source of truth)", () => {
+  it("defaultMenuConfig is a deep copy of shared DEFAULT_WA_MENU", () => {
+    expect(defaultMenuConfig()).toEqual(DEFAULT_WA_MENU);
+    expect(defaultMenuConfig()).not.toBe(DEFAULT_WA_MENU);
+    expect(defaultMenuConfig().useCases).not.toBe(DEFAULT_WA_MENU.useCases);
+  });
+
+  it("runtime renderMenu matches shared renderWaMenu for the same config", () => {
+    const config = loadMenuConfig({
+      settings: {
+        waMenu: {
+          greeting: "Karibu to {businessName}!",
+          useCases: [
+            { id: "track", label: "Order status", enabled: true, order: 1 },
+            { id: "shop", label: "Buy something", enabled: true, order: 2 },
+            { id: "support", label: "Help", enabled: false, order: 3 },
+          ],
+          customItems: [{ key: "hours", label: "Opening hours", response: "9-5" }],
+          fallback: "nlp",
+        },
+      },
+    });
+    expect(renderMenu(config, { businessName: "Ada Stores" })).toBe(
+      renderWaMenu(config, { businessName: "Ada Stores" }),
+    );
+    // …including the live open-order count annotation.
+    expect(renderMenu(config, { businessName: "Ada Stores", openOrdersCount: 2 })).toBe(
+      renderWaMenu(config, { businessName: "Ada Stores", openOrderCount: 2 }),
+    );
+    expect(renderMenu(config, { businessName: "Ada Stores", openOrdersCount: 2 })).toContain(
+      "1. Order status (2 open)",
+    );
+  });
+});
+
+describe("renderWhatsAppInteractive", () => {
+  const configWith = (useCases: WaMenuConfig["useCases"], customItems: WaMenuConfig["customItems"] = []): WaMenuConfig => ({
+    greeting: "Welcome to {businessName}!",
+    useCases,
+    customItems,
+    fallback: "nlp",
+  });
+
+  it("≤3 entries → reply buttons with menu_<n> ids", () => {
+    const out = renderWhatsAppInteractive(defaultMenuConfig(), { businessName: "Ada Stores" });
+    expect(out?.action.type).toBe("button");
+    if (out?.action.type !== "button") return;
+    expect(out.action.buttons.map((b) => b.id)).toEqual(["menu_1", "menu_2", "menu_3"]);
+    expect(out.action.buttons[0].title).toBe("Shop products");
+    expect(out.bodyText).toBe("Welcome to Ada Stores! How can we help you today?");
+  });
+
+  it("4–10 entries → a single-section list", () => {
+    const config = configWith(
+      [
+        { id: "shop", label: "Shop", enabled: true, order: 1 },
+        { id: "track", label: "Track", enabled: true, order: 2 },
+        { id: "support", label: "Support", enabled: true, order: 3 },
+        { id: "booking", label: "Book", enabled: true, order: 4 },
+        { id: "handoff", label: "Human", enabled: true, order: 5 },
+      ],
+      [{ key: "hours", label: "Hours", response: "9-5" }],
+    );
+    const out = renderWhatsAppInteractive(config, {});
+    expect(out?.action.type).toBe("list");
+    if (out?.action.type !== "list") return;
+    expect(out.action.sections).toHaveLength(1);
+    expect(out.action.sections[0].rows).toHaveLength(6);
+    expect(out.action.sections[0].rows[5]).toMatchObject({ id: "menu_6", title: "Hours" });
+  });
+
+  it(">10 entries → null (caller falls back to the numbered text menu)", () => {
+    const config = configWith(
+      [{ id: "shop", label: "Shop", enabled: true, order: 1 }],
+      Array.from({ length: 10 }, (_, i) => ({ key: `c${i}`, label: `Custom ${i}`, response: "x" })),
+    );
+    expect(buildMenuEntries(config)).toHaveLength(11);
+    expect(renderWhatsAppInteractive(config, {})).toBeNull();
+  });
+
+  it("menu entry reply ids round-trip to the same selection as numeric replies", () => {
+    const config = defaultMenuConfig();
+    for (const entry of buildMenuEntries(config)) {
+      const id = menuEntryReplyId(entry);
+      expect(parseMenuEntryReplyId(id)).toBe(entry.n);
+      expect(resolveMenuSelection(config, String(parseMenuEntryReplyId(id)))?.id).toBe(entry.id);
+    }
+    expect(parseMenuEntryReplyId("order_pay:abc")).toBeNull();
+    expect(parseMenuEntryReplyId("menu_99")).toBe(99);
+  });
+});
+
 describe("isMenuKeyword", () => {
   it("matches greeting/menu keywords case-insensitively", () => {
-    for (const kw of ["menu", "MENU", " hi ", "Hello", "start", "restart", "help"]) {
+    for (const kw of ["menu", "MENU", " hi ", "Hello", "start", "restart", "help", "catalog"]) {
       expect(isMenuKeyword(kw)).toBe(true);
     }
     expect(isMenuKeyword("I want to buy bread")).toBe(false);

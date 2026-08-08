@@ -212,6 +212,231 @@ export interface SendTemplateResult {
   wamid: string | null;
 }
 
+// ── Interactive messages (buttons / lists) ──────────────────────────────────
+
+/** Cloud API hard limits for interactive payloads. */
+export const WA_BUTTONS_MAX = 3;
+export const WA_BUTTON_TITLE_LIMIT = 20;
+export const WA_LIST_ROWS_MAX = 10; // per section
+export const WA_LIST_ROW_TITLE_LIMIT = 24;
+export const WA_LIST_BUTTON_LABEL_LIMIT = 20;
+export const WA_HEADER_TEXT_LIMIT = 60;
+export const WA_FOOTER_TEXT_LIMIT = 60;
+export const WA_INTERACTIVE_BODY_LIMIT = 1024;
+
+export interface WaInteractiveButton {
+  id: string;
+  title: string;
+}
+
+export interface WaInteractiveListRow {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface WaInteractiveListSection {
+  title?: string;
+  rows: WaInteractiveListRow[];
+}
+
+export type WaInteractiveAction =
+  | { type: "button"; buttons: WaInteractiveButton[] }
+  | { type: "list"; buttonLabel?: string; sections: WaInteractiveListSection[] };
+
+export interface SendInteractiveInput {
+  headerText?: string;
+  bodyText: string;
+  footerText?: string;
+  action: WaInteractiveAction;
+}
+
+function truncate(text: string, limit: number): string {
+  return text.length > limit ? text.slice(0, limit - 1).trimEnd() + "…" : text;
+}
+
+/**
+ * Build the Cloud API `interactive` object for a button or list message,
+ * enforcing the platform caps: ≤3 reply buttons, ≤10 rows per list section.
+ * Over-long titles are truncated; exceeding a COUNT cap throws (caller bug).
+ */
+export function buildInteractivePayload(input: SendInteractiveInput): Record<string, unknown> {
+  if (!input.bodyText?.trim()) throw new Error("interactive message requires bodyText");
+  const interactive: Record<string, unknown> = {
+    type: input.action.type,
+    body: { text: truncate(input.bodyText, WA_INTERACTIVE_BODY_LIMIT) },
+  };
+  if (input.headerText?.trim()) {
+    interactive.header = { type: "text", text: truncate(input.headerText.trim(), WA_HEADER_TEXT_LIMIT) };
+  }
+  if (input.footerText?.trim()) {
+    interactive.footer = { text: truncate(input.footerText.trim(), WA_FOOTER_TEXT_LIMIT) };
+  }
+  if (input.action.type === "button") {
+    const buttons = input.action.buttons ?? [];
+    if (buttons.length === 0) throw new Error("button interactive message requires at least 1 button");
+    if (buttons.length > WA_BUTTONS_MAX) {
+      throw new Error(`button interactive message supports at most ${WA_BUTTONS_MAX} buttons (got ${buttons.length})`);
+    }
+    interactive.action = {
+      buttons: buttons.map((b) => {
+        if (!b.id?.trim()) throw new Error("interactive button requires a non-empty id");
+        return { type: "reply", reply: { id: b.id, title: truncate(b.title.trim() || b.id, WA_BUTTON_TITLE_LIMIT) } };
+      }),
+    };
+  } else {
+    const sections = input.action.sections ?? [];
+    if (sections.length === 0) throw new Error("list interactive message requires at least 1 section");
+    interactive.action = {
+      button: truncate(input.action.buttonLabel?.trim() || "Choose", WA_LIST_BUTTON_LABEL_LIMIT),
+      sections: sections.map((s) => {
+        const rows = s.rows ?? [];
+        if (rows.length === 0) throw new Error("list section requires at least 1 row");
+        if (rows.length > WA_LIST_ROWS_MAX) {
+          throw new Error(`list section supports at most ${WA_LIST_ROWS_MAX} rows (got ${rows.length})`);
+        }
+        return {
+          ...(s.title?.trim() ? { title: truncate(s.title.trim(), WA_LIST_ROW_TITLE_LIMIT) } : {}),
+          rows: rows.map((r) => {
+            if (!r.id?.trim()) throw new Error("list row requires a non-empty id");
+            return {
+              id: r.id,
+              title: truncate(r.title.trim() || r.id, WA_LIST_ROW_TITLE_LIMIT),
+              ...(r.description?.trim() ? { description: truncate(r.description.trim(), 72) } : {}),
+            };
+          }),
+        };
+      }),
+    };
+  }
+  return interactive;
+}
+
+// ── Media messages (image / document) ───────────────────────────────────────
+
+export interface SendMediaInput {
+  type: "image" | "document";
+  /** Public URL of the media — XOR with mediaId. */
+  link?: string;
+  /** Previously uploaded Cloud API media id — XOR with link. */
+  mediaId?: string;
+  caption?: string;
+  /** Documents only: the filename shown to the recipient. */
+  filename?: string;
+}
+
+/** Build the Cloud API media object ({ link | id, caption?, filename? }). */
+export function buildMediaPayload(input: SendMediaInput): Record<string, unknown> {
+  if (input.type !== "image" && input.type !== "document") {
+    throw new Error(`unsupported media type: ${(input as SendMediaInput).type}`);
+  }
+  const hasLink = !!input.link?.trim();
+  const hasId = !!input.mediaId?.trim();
+  if (hasLink === hasId) throw new Error("media message requires exactly one of link or mediaId");
+  const media: Record<string, unknown> = hasLink ? { link: input.link!.trim() } : { id: input.mediaId!.trim() };
+  if (input.caption?.trim()) media.caption = truncate(input.caption.trim(), WA_INTERACTIVE_BODY_LIMIT);
+  if (input.type === "document" && input.filename?.trim()) media.filename = input.filename.trim();
+  return media;
+}
+
+interface SendOpts {
+  notifType?: string;
+  orderId?: string | null;
+  userId?: number | null;
+  skipLog?: boolean;
+}
+
+/**
+ * Shared single-payload delivery for interactive + media senders: same
+ * credential resolution, notification logging and error behaviour as
+ * sendWhatsAppText (simulation when unconfigured, throw on non-OK Graph API).
+ */
+async function deliverWaPayload(
+  tenantId: string,
+  toPhone: string,
+  payload: Record<string, unknown>,
+  logCtx: { notifType: string; simulationNote: string },
+  opts?: SendOpts,
+): Promise<SendTemplateResult> {
+  const to = normalizeWaPhone(toPhone);
+  const creds = await resolveTenantWaCredentials(tenantId);
+  const logBase = { tenantId, phone: to, notifType: logCtx.notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog };
+  if (!creds) {
+    console.info(`[waSender] SIMULATION ${logCtx.simulationNote} (${tenantId}) → *${to.slice(-4)}`);
+    await logSend(logBase, { status: "simulated" });
+    return { sent: false, simulated: true, wamid: null };
+  }
+
+  const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      ...payload,
+    }),
+    signal: AbortSignal.timeout(12000),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    console.error(`[waSender] ${logCtx.notifType} API error ${res.status}: ${errBody}`);
+    await logSend(logBase, { status: "failed", failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}` });
+    throw new Error(`WhatsApp ${logCtx.notifType} send failed (${res.status}): ${errBody.slice(0, 200)}`);
+  }
+
+  const data = (await res.json().catch(() => ({}))) as any;
+  const wamid: string | null = data?.messages?.[0]?.id ?? null;
+  await logSend(logBase, { status: "sent", wamid });
+  return { sent: true, simulated: false, wamid };
+}
+
+/**
+ * Send an interactive WhatsApp message — reply buttons (≤3) or an option
+ * list (≤10 rows per section). Same credentials/logging/error behaviour as
+ * sendWhatsAppText.
+ */
+export async function sendWhatsAppInteractive(
+  tenantId: string,
+  toPhone: string,
+  input: SendInteractiveInput,
+  opts?: SendOpts,
+): Promise<SendTemplateResult> {
+  const interactive = buildInteractivePayload(input);
+  return deliverWaPayload(
+    tenantId,
+    toPhone,
+    { type: "interactive", interactive },
+    { notifType: opts?.notifType ?? "interactive_message", simulationNote: `interactive:${input.action.type}` },
+    opts,
+  );
+}
+
+/**
+ * Send a WhatsApp media message (image or document) by public link or by a
+ * previously uploaded media id — closes the outbound media gap.
+ */
+export async function sendWhatsAppMedia(
+  tenantId: string,
+  toPhone: string,
+  input: SendMediaInput,
+  opts?: SendOpts,
+): Promise<SendTemplateResult> {
+  const media = buildMediaPayload(input);
+  return deliverWaPayload(
+    tenantId,
+    toPhone,
+    { type: input.type, [input.type]: media },
+    { notifType: opts?.notifType ?? "media_message", simulationNote: `media:${input.type}` },
+    opts,
+  );
+}
+
 /**
  * Send a WhatsApp *template* message (required outside the 24h customer
  * service window) using the same per-tenant credential resolution as

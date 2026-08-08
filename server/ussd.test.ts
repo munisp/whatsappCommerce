@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const sendWhatsAppTextMock = vi.fn(async () => ({ sent: true, simulated: false, wamids: [], chunks: 1 }));
 vi.mock("./services/waSender", () => ({
   sendWhatsAppText: (...args: any[]) => sendWhatsAppTextMock(...args),
+  sendWhatsAppMedia: vi.fn(async () => ({ sent: true, simulated: false, wamid: null })),
 }));
 
 vi.mock("./redis", () => ({ getRedis: vi.fn(async () => null) }));
@@ -41,7 +42,20 @@ import { __clearMemorySessions } from "./services/chatSession";
 const TENANT = {
   id: "tenant-ussd",
   name: "Ada Stores",
-  settings: { adminPhone: "2349000000000", ussd: { serviceCode: "*384*77#" } },
+  settings: {
+    adminPhone: "2349000000000",
+    ussd: { serviceCode: "*384*77#" },
+    // All five use cases enabled (support/booking are off in the shared default).
+    waMenu: {
+      useCases: [
+        { id: "shop", label: "Shop / place an order", enabled: true, order: 1 },
+        { id: "track", label: "Track my order", enabled: true, order: 2 },
+        { id: "support", label: "Customer support", enabled: true, order: 3 },
+        { id: "booking", label: "Book an appointment", enabled: true, order: 4 },
+        { id: "handoff", label: "Talk to a human agent", enabled: true, order: 5 },
+      ],
+    },
+  },
 };
 const PHONE = "+2348012345678";
 const BASE = { sessionId: "sess-1", serviceCode: "*384*77#", phoneNumber: PHONE };
@@ -67,7 +81,7 @@ describe("handleUssdRequest", () => {
     selectQueue = [[]]; // no tenant match → tenantId "default"
     const reply = await handleUssdRequest({ sessionId: "s2", serviceCode: "*000#", phoneNumber: PHONE, text: "" });
     expect(reply).toMatch(/^CON /);
-    expect(reply).toContain("1. Shop / place an order");
+    expect(reply).toContain("1. Shop products");
   });
 
   it("drives a multi-step support session: CON prompts then END on completion", async () => {

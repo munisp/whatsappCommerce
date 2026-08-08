@@ -46,13 +46,15 @@ export interface LocalePack {
 
 export const LOCALE_PACKS: Record<Locale, LocalePack> = {
   en: {
-    greeting: "Hello! Welcome to {businessName}. How can we help you today?",
+    // Match keys for localizeMenuConfig — must mirror shared/waMenu.ts
+    // DEFAULT_WA_MENU exactly (the single source of truth for menu chrome).
+    greeting: "Welcome to {businessName}! How can we help you today?",
     menuLabels: {
-      shop: "Shop / place an order",
+      shop: "Shop products",
       track: "Track my order",
-      support: "Customer support",
+      support: "Get support",
       booking: "Book an appointment",
-      handoff: "Talk to a human agent",
+      handoff: "Talk to a human",
     },
     consentPrompt:
       "Before we continue: we'd like to send you order updates and offers on WhatsApp. " +

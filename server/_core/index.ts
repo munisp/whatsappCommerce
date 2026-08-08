@@ -35,7 +35,7 @@ import { daprSaveState, daprGetState } from "../dapr";
 import { redisSet, redisGet } from "../redis";
 import { runSlaScan } from "../routers/sla";
 import { confirmProviderPayment } from "../services/paymentConfirm";
-import { sendWhatsAppText } from "../services/waSender";
+import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText } from "../services/waSender";
 import { handleInboundReceiptImage } from "../services/receiptVerification";
 import {
   handleIntegrationWebhook,
@@ -829,6 +829,35 @@ async function startServer() {
           }
           continue;
         }
+        // ── Interactive replies (button_reply / list_reply) ───────────────
+        // Menu buttons/lists carry `menu_<n>` ids and resolve through the
+        // SAME resolveMenuSelection logic as numeric text replies; order
+        // action cards carry `order_<action>:<orderId>` ids.
+        if (msg.type === "interactive") {
+          try {
+            const reply = msg.interactive?.button_reply ?? msg.interactive?.list_reply ?? null;
+            const { handleInteractiveInbound } = await import("../services/useCases");
+            const outcome = await handleInteractiveInbound({
+              db,
+              tenant: tenant ?? null,
+              tenantId,
+              phone: waPhoneNumber,
+              replyId: reply?.id ?? undefined,
+              replyTitle: reply?.title ?? undefined,
+              customerName: contactName || undefined,
+            });
+            if (outcome.interactive) {
+              await sendWhatsAppInteractive(tenantId, waPhoneNumber, outcome.interactive)
+                .catch((e: any) => console.error("[whatsapp-webhook] interactive reply send error:", e?.message));
+            } else if (outcome.reply) {
+              await sendWhatsAppText(tenantId, waPhoneNumber, outcome.reply)
+                .catch((e: any) => console.error("[whatsapp-webhook] interactive reply send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] interactive reply error:", e?.message);
+          }
+          continue;
+        }
         if (msg.type === "text") {
           const textBody: string = msg.text?.body ?? "";
           // ── Capture customer reply in whatsapp_customer_replies ────────────
@@ -974,7 +1003,19 @@ async function startServer() {
             });
             if (menuOutcome.handled) {
               handledByMenu = true;
-              if (menuOutcome.reply) {
+              // Prefer the interactive (button/list) rendering on WhatsApp;
+              // fall back to the plain-text menu when the send fails.
+              if (menuOutcome.interactive) {
+                const interactiveRes = await sendWhatsAppInteractive(tenantId, waPhoneNumber, menuOutcome.interactive)
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] interactive menu send error:", e?.message);
+                    return null;
+                  });
+                if (!interactiveRes && menuOutcome.reply) {
+                  await sendWhatsAppText(tenantId, waPhoneNumber, menuOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
+                }
+              } else if (menuOutcome.reply) {
                 await sendWhatsAppText(tenantId, waPhoneNumber, menuOutcome.reply)
                   .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
               }
@@ -998,6 +1039,28 @@ async function startServer() {
               if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
                 await sendWhatsAppText(tenantId, waPhoneNumber, nlpResult.reply)
                   .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
+                // Rich follow-ups annotated by the NLP engine:
+                // order action card after a confirm_order payment summary,
+                // and a product image card on single-product queries.
+                const orderCard = (nlpResult as any)?.orderCard as { orderId?: string; orderNumber?: string } | undefined;
+                if (orderCard?.orderId && orderCard?.orderNumber) {
+                  const { buildOrderActionCard } = await import("../services/useCases");
+                  await sendWhatsAppInteractive(
+                    tenantId,
+                    waPhoneNumber,
+                    buildOrderActionCard({ orderId: orderCard.orderId, orderNumber: orderCard.orderNumber }),
+                    { notifType: "order_action_card", orderId: orderCard.orderId },
+                  ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
+                }
+                const productImage = (nlpResult as any)?.productImage as { link?: string; caption?: string } | undefined;
+                if (productImage?.link) {
+                  await sendWhatsAppMedia(
+                    tenantId,
+                    waPhoneNumber,
+                    { type: "image", link: productImage.link, caption: productImage.caption },
+                    { notifType: "product_image" },
+                  ).catch((e: any) => console.error("[whatsapp-webhook] product image send error:", e?.message));
+                }
               }
             } catch (e: any) {
               console.error("[whatsapp-webhook] NLP error:", e?.message);

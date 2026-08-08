@@ -23,20 +23,30 @@ import {
   conversations,
   customers,
   logisticsShipments,
+  orderItems,
   orders,
+  paymentTransactions,
   serviceCatalog,
   tenants,
   type Order,
 } from "../../drizzle/schema";
-import { sendWhatsAppText } from "./waSender";
+import {
+  sendWhatsAppMedia,
+  sendWhatsAppText,
+  type SendInteractiveInput,
+} from "./waSender";
 import { trackingUrlFor } from "./trackingToken";
 import {
+  buildMenuEntries,
   isMenuKeyword,
   loadMenuConfig,
+  parseMenuEntryReplyId,
   renderUssdMenu,
+  renderWhatsAppInteractive,
   renderWhatsAppMenu,
   resolveMenuSelection,
   ussdWrap,
+  type MenuDynamicCtx,
   type MenuEntry,
   type UseCaseId,
   type WaMenuConfig,
@@ -423,6 +433,12 @@ export interface InboundOutcome {
   handled: boolean;
   /** Reply text to deliver to the caller (waSender on WhatsApp, CON/END on USSD). */
   reply?: string | null;
+  /**
+   * Interactive (button/list) rendering of the reply, when available. The
+   * WhatsApp webhook prefers this over `reply`; `reply` remains the plain
+   * text fallback (and is what USSD/tests see).
+   */
+  interactive?: SendInteractiveInput;
 }
 
 interface DispatchDeps {
@@ -457,16 +473,62 @@ async function applyOutcome(
   return false;
 }
 
-async function renderMenuForCaller(deps: DispatchDeps): Promise<string> {
+/** Dynamic menu context for one caller (open-order count annotation). */
+async function menuCtxForCaller(deps: DispatchDeps): Promise<MenuDynamicCtx> {
   const openOrders = await countOpenOrders(deps.db, deps.tenantId, deps.phone).catch(() => null);
-  // Localize the default menu chrome; tenant-customized text is preserved.
-  const config = deps.locale ? localizeMenuConfig(deps.config, deps.locale) : deps.config;
-  return renderWhatsAppMenu(config, { businessName: deps.businessName, openOrdersCount: openOrders });
+  return {
+    businessName: deps.businessName,
+    // Only annotate when there is something to report — "(0 open)" is noise.
+    openOrdersCount: openOrders != null && openOrders > 0 ? openOrders : undefined,
+  };
 }
 
-async function showMenu(deps: DispatchDeps): Promise<InboundOutcome> {
+/** Menu config with localization applied; tenant-customized text is preserved. */
+function localizedMenuConfig(deps: DispatchDeps): WaMenuConfig {
+  return deps.locale ? localizeMenuConfig(deps.config, deps.locale) : deps.config;
+}
+
+async function renderMenuForCaller(deps: DispatchDeps): Promise<string> {
+  return renderWhatsAppMenu(localizedMenuConfig(deps), await menuCtxForCaller(deps));
+}
+
+/** Tenant-configured PDF menu/catalog (settings.menuDocUrl), if any. */
+function menuDocUrlFromSettings(settings: Record<string, unknown> | null | undefined): string | null {
+  const cand = (settings as any)?.menuDocUrl;
+  return typeof cand === "string" && /^https?:\/\/\S+$/.test(cand) ? cand : null;
+}
+
+/**
+ * Auto-push the tenant's PDF menu/catalog as a WhatsApp document alongside
+ * the (interactive) menu. Best-effort: failures are logged, never thrown.
+ */
+async function pushMenuDoc(deps: DispatchDeps): Promise<void> {
+  const url = menuDocUrlFromSettings(deps.tenantSettings);
+  if (!url) return;
+  await sendWhatsAppMedia(
+    deps.tenantId,
+    deps.phone,
+    {
+      type: "document",
+      link: url,
+      caption: `${deps.businessName ?? "Our"} menu/catalog`,
+      filename: "menu.pdf",
+    },
+    { notifType: "menu_doc" },
+  ).catch((e: any) => console.warn("[useCases] menuDocUrl push failed:", e?.message));
+}
+
+async function showMenu(deps: DispatchDeps, opts: { sendMenuDoc?: boolean } = {}): Promise<InboundOutcome> {
+  const ctx = await menuCtxForCaller(deps);
+  const config = localizedMenuConfig(deps);
   await saveSession({ ...newSession(deps.tenantId, deps.phone), awaitingMenuSelection: true });
-  return { handled: true, reply: await renderMenuForCaller(deps) };
+  if (opts.sendMenuDoc) await pushMenuDoc(deps);
+  return {
+    handled: true,
+    reply: renderWhatsAppMenu(config, ctx),
+    // WhatsApp prefers the interactive rendering; USSD never calls showMenu.
+    interactive: renderWhatsAppInteractive(config, ctx) ?? undefined,
+  };
 }
 
 /** Run a use-case handler and persist the resulting session state. */
@@ -555,9 +617,10 @@ export async function handleConversationalInbound(opts: {
     return { handled: true, reply: `${tr(locale, "consentGranted")}\n\n${menu}` };
   }
 
-  // ── 2. Menu keyword always re-opens the menu ─────────────────────────────
+  // ── 2. Menu keyword always re-opens the menu (and pushes the PDF menu
+  //        when the tenant has settings.menuDocUrl configured) ──────────────
   if (isMenuKeyword(text)) {
-    return showMenu(deps);
+    return showMenu(deps, { sendMenuDoc: true });
   }
 
   // ── 3. Active use-case flow (slot filling, support intake, …) ────────────
@@ -592,6 +655,197 @@ export async function handleConversationalInbound(opts: {
     return showMenu(deps);
   }
   return { handled: false }; // "nlp" — existing LLM pipeline
+}
+
+// ── Order action cards (Track / Pay / Cancel) ───────────────────────────────
+
+export type OrderCardAction = "track" | "pay" | "cancel";
+
+/** Interactive reply id for an order action button: `order_<action>:<orderId>`. */
+export function orderActionReplyId(action: OrderCardAction, orderId: string): string {
+  return `order_${action}:${orderId}`;
+}
+
+/** Parse an interactive reply id back into an order action (or null). */
+export function parseOrderActionReplyId(id: string): { action: OrderCardAction; orderId: string } | null {
+  const m = /^order_(track|pay|cancel):(\S+)$/.exec(id.trim());
+  return m ? { action: m[1] as OrderCardAction, orderId: m[2] } : null;
+}
+
+/**
+ * The interactive button card sent right after a confirm_order payment
+ * summary: [Track Order] [Pay Now] [Cancel Order].
+ */
+export function buildOrderActionCard(opts: { orderId: string; orderNumber: string }): SendInteractiveInput {
+  return {
+    bodyText: `Order ${opts.orderNumber} — manage it here:`,
+    footerText: "Or just reply with what you need.",
+    action: {
+      type: "button",
+      buttons: [
+        { id: orderActionReplyId("track", opts.orderId), title: "Track Order" },
+        { id: orderActionReplyId("pay", opts.orderId), title: "Pay Now" },
+        { id: orderActionReplyId("cancel", opts.orderId), title: "Cancel Order" },
+      ],
+    },
+  };
+}
+
+/**
+ * Load an order ONLY when it belongs to this WhatsApp phone — the same
+ * ownership rule as the track use case (orders.customerId matches the
+ * customer row id or the raw phone). Returns null for unknown OR foreign
+ * orders so ownership probes learn nothing.
+ */
+async function findOwnedOrder(db: Db, tenantId: string, phone: string, orderId: string): Promise<Order | null> {
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+    .limit(1)
+    .catch(() => [] as Order[]);
+  if (!order) return null;
+  const customer = await findCustomerByPhone(db, tenantId, phone);
+  const candidates = customer ? [customer.id, phone] : [phone];
+  return candidates.includes(order.customerId) ? order : null;
+}
+
+/**
+ * Execute an order action-card button for the caller. Ownership is enforced
+ * for every action; cancel additionally requires a still-pending order.
+ */
+export async function handleOrderAction(opts: {
+  db: Db;
+  tenantId: string;
+  phone: string;
+  action: OrderCardAction;
+  orderId: string;
+}): Promise<string> {
+  const { db, tenantId, phone, action, orderId } = opts;
+  const order = await findOwnedOrder(db, tenantId, phone, orderId);
+  if (!order) {
+    return "Sorry, I couldn't find that order for this number.";
+  }
+
+  if (action === "track") {
+    const [shipment] = await db
+      .select()
+      .from(logisticsShipments)
+      .where(eq(logisticsShipments.orderId, order.id))
+      .orderBy(desc(logisticsShipments.createdAt))
+      .limit(1)
+      .catch(() => [] as any[]);
+    const statusLine = shipment
+      ? `Order ${order.orderNumber} is ${order.status} — shipment ${shipment.status}.`
+      : `Order ${order.orderNumber} is currently ${order.status}.`;
+    return `${statusLine}\nTrack it here: ${trackingUrlFor(order.id)}`;
+  }
+
+  if (action === "pay") {
+    if (order.paymentStatus === "completed") {
+      return `Order ${order.orderNumber} is already paid. ✅`;
+    }
+    const [tx] = await db
+      .select()
+      .from(paymentTransactions)
+      .where(and(eq(paymentTransactions.orderId, order.id), eq(paymentTransactions.tenantId, tenantId)))
+      .orderBy(desc(paymentTransactions.createdAt))
+      .limit(1)
+      .catch(() => [] as any[]);
+    if (!tx?.paymentUrl) {
+      return `I couldn't find a payment link for order ${order.orderNumber}. Please type "menu" and reach support — we'll sort it out.`;
+    }
+    return `💳 Complete payment for order ${order.orderNumber} (${order.totalAmount} ${order.currency}):\n${tx.paymentUrl}`;
+  }
+
+  // cancel — buyer-side mirror of orderCrud.cancel: pending orders only,
+  // reserved stock released back (claim-first, idempotent).
+  if (order.status !== "pending") {
+    return `Order ${order.orderNumber} is ${order.status} and can no longer be cancelled here. Type "menu" → support if you need help.`;
+  }
+  const items = await db
+    .select()
+    .from(orderItems)
+    .where(eq(orderItems.orderId, order.id))
+    .catch(() => [] as any[]);
+  for (const item of items) {
+    await db.execute(sql`
+      UPDATE inventory_snapshots
+      SET "reservedQty" = GREATEST(0, CAST("reservedQty" AS NUMERIC) - ${item.quantity}),
+          "availableQty" = CAST("availableQty" AS NUMERIC) + ${item.quantity}
+      WHERE "productId" = ${item.productId}
+    `).catch((e: any) => console.warn("[useCases] cancel stock release failed:", e?.message));
+  }
+  await db.update(orders).set({
+    status: "cancelled",
+    notes: "Cancelled by buyer via WhatsApp",
+    updatedAt: new Date(),
+  }).where(eq(orders.id, order.id));
+  const { releaseReservations } = await import("./inventory");
+  await releaseReservations(db, order.id)
+    .catch((e: any) => console.warn("[useCases] reservation release error:", e?.message));
+  return `✅ Order ${order.orderNumber} has been cancelled. Any reserved items are back in stock.`;
+}
+
+// ── Interactive replies (button_reply / list_reply) ─────────────────────────
+
+/**
+ * Drive one inbound WhatsApp *interactive* reply through the SAME dispatch
+ * logic as text: order-card buttons route to handleOrderAction; menu
+ * button/list replies (`menu_<n>` ids, or a title match) resolve through
+ * resolveMenuSelection exactly like a numeric text reply.
+ */
+export async function handleInteractiveInbound(opts: {
+  db: Db;
+  tenant: { id: string; name?: string | null; settings?: unknown } | null;
+  tenantId: string;
+  phone: string;
+  replyId?: string;
+  replyTitle?: string;
+  customerName?: string;
+}): Promise<InboundOutcome> {
+  const { db, tenantId, phone } = opts;
+  const id = (opts.replyId ?? "").trim();
+
+  // 1. Order action card buttons.
+  const orderAction = id ? parseOrderActionReplyId(id) : null;
+  if (orderAction) {
+    const reply = await handleOrderAction({ db, tenantId, phone, ...orderAction });
+    await clearSession(tenantId, phone);
+    return { handled: true, reply };
+  }
+
+  // 2. Menu button/list replies → numeric selection through the text path.
+  const config = loadMenuConfig(opts.tenant);
+  let n = id ? parseMenuEntryReplyId(id) : null;
+  if (n == null && opts.replyTitle?.trim()) {
+    const title = opts.replyTitle.trim().toLowerCase();
+    const entry = buildMenuEntries(config).find((e) => e.label.trim().toLowerCase() === title);
+    if (entry) n = entry.n;
+  }
+  if (n != null) {
+    return handleConversationalInbound({
+      db,
+      tenant: opts.tenant,
+      tenantId,
+      phone,
+      text: String(n),
+      customerName: opts.customerName,
+    });
+  }
+
+  // 3. Unknown interactive reply → treat the title as free text (NLP fallback).
+  if (opts.replyTitle?.trim()) {
+    return handleConversationalInbound({
+      db,
+      tenant: opts.tenant,
+      tenantId,
+      phone,
+      text: opts.replyTitle,
+      customerName: opts.customerName,
+    });
+  }
+  return { handled: false };
 }
 
 // ── Emoji-reaction tracking ──────────────────────────────────────────────────
@@ -656,9 +910,7 @@ export async function handleUssdRequest(opts: {
   const session = await getSession(tenantId, phone);
 
   const menuReply = async (end = false): Promise<string> => {
-    const openOrders = await countOpenOrders(db, tenantId, phone).catch(() => null);
-    const config = deps.locale ? localizeMenuConfig(deps.config, deps.locale) : deps.config;
-    return renderUssdMenu(config, { businessName: deps.businessName, openOrdersCount: openOrders }, { end });
+    return renderUssdMenu(localizedMenuConfig(deps), await menuCtxForCaller(deps), { end });
   };
 
   // Initial dial (empty buffer) or explicit "menu" → show the menu, expect input.

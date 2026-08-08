@@ -9,8 +9,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 const sendWhatsAppTextMock = vi.fn(async () => ({ sent: true, simulated: false, wamids: [], chunks: 1 }));
+const sendWhatsAppMediaMock = vi.fn(async () => ({ sent: true, simulated: false, wamid: "wamid.media" }));
 vi.mock("./services/waSender", () => ({
   sendWhatsAppText: (...args: any[]) => sendWhatsAppTextMock(...args),
+  sendWhatsAppMedia: (...args: any[]) => sendWhatsAppMediaMock(...args),
 }));
 
 vi.mock("./redis", () => ({ getRedis: vi.fn(async () => null) }));
@@ -75,6 +77,23 @@ function call(db: any, text: string, tenant: any = { id: T, name: "Ada Stores", 
   return handleConversationalInbound({ db, tenant, tenantId: T, phone: P, text, customerName: "Amara" });
 }
 
+/** Tenant with ALL five use cases enabled (support/booking are off in the shared default). */
+const FULL_MENU_TENANT = {
+  id: T,
+  name: "Ada Stores",
+  settings: {
+    waMenu: {
+      useCases: [
+        { id: "shop", label: "Shop / place an order", enabled: true, order: 1 },
+        { id: "track", label: "Track my order", enabled: true, order: 2 },
+        { id: "support", label: "Customer support", enabled: true, order: 3 },
+        { id: "booking", label: "Book an appointment", enabled: true, order: 4 },
+        { id: "handoff", label: "Talk to a human agent", enabled: true, order: 5 },
+      ],
+    },
+  },
+};
+
 beforeEach(() => {
   __clearMemorySessions();
   sendWhatsAppTextMock.mockClear();
@@ -100,7 +119,7 @@ describe("consent gate (first-ever inbound)", () => {
     const out = await call(db, "YES");
     expect(out.handled).toBe(true);
     expect(out.reply).toMatch(/opted in/i);
-    expect(out.reply).toContain("1. Shop / place an order");
+    expect(out.reply).toContain("1. Shop products");
     const consentInsert = inserted.find((i) => i.values?.channel === "whatsapp");
     expect(consentInsert?.values).toMatchObject({ tenantId: T, phone: P, granted: true });
   });
@@ -134,7 +153,7 @@ describe("menu dispatch", () => {
     const out = await call(db, "menu");
     expect(out.handled).toBe(true);
     expect(out.reply).toContain("Welcome to Ada Stores");
-    expect(out.reply).toContain("5. Talk to a human agent");
+    expect(out.reply).toContain("3. Talk to a human");
     expect((await getSession(T, P))?.awaitingMenuSelection).toBe(true);
   });
 
@@ -149,7 +168,7 @@ describe("menu dispatch", () => {
     const tenant = { id: T, name: "Ada Stores", settings: { waMenu: { fallback: "menu" } } };
     const out = await call(db, "asdfgh", tenant);
     expect(out.handled).toBe(true);
-    expect(out.reply).toContain("1. Shop / place an order");
+    expect(out.reply).toContain("1. Shop products");
   });
 
   it("returns a custom item response for its number", async () => {
@@ -240,7 +259,7 @@ describe("support use case", () => {
   it("asks for the issue first when the flow starts", async () => {
     const { db } = makeDb([CONSENTED]);
     await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
-    const out = await call(db, "3");
+    const out = await call(db, "3", FULL_MENU_TENANT);
     expect(out.reply).toMatch(/describe your issue/i);
     const s = await getSession(T, P);
     expect(s?.activeUseCase).toBe("support");
@@ -255,7 +274,7 @@ describe("booking use case (slot filling)", () => {
     // Step 1: select "booking" from the menu → list services
     const { db: db1 } = makeDb([CONSENTED, [SERVICE]]);
     await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
-    const out1 = await call(db1, "4");
+    const out1 = await call(db1, "4", FULL_MENU_TENANT);
     expect(out1.reply).toContain("1. Braids — 5000 NGN");
     expect((await getSession(T, P))?.step).toBe("choose_service");
 
@@ -290,7 +309,7 @@ describe("booking use case (slot filling)", () => {
   it("ends gracefully when the tenant has no bookable services", async () => {
     const { db } = makeDb([CONSENTED, []]); // consent + empty service catalog
     await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
-    const out = await call(db, "4");
+    const out = await call(db, "4", FULL_MENU_TENANT);
     expect(out.reply).toMatch(/bookable services/i);
     expect(await getSession(T, P)).toBeNull();
   });
@@ -302,7 +321,11 @@ describe("handoff use case", () => {
     const CONV = { id: "conv-1", tenantId: T, customerId: "cust-1", status: "open", metadata: { foo: 1 } };
     const { db, updates } = makeDb([CONSENTED, [CUSTOMER], [CONV]]);
     await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
-    const out = await call(db, "5", tenant);
+    const fullMenuWithAdmin = {
+      ...FULL_MENU_TENANT,
+      settings: { ...FULL_MENU_TENANT.settings, adminPhone: "2349000000000" },
+    };
+    const out = await call(db, "5", fullMenuWithAdmin);
     expect(out.reply).toMatch(/human agent/i);
     expect(updates[0]).toMatchObject({ aiHandled: false, status: "pending" });
     expect(updates[0].metadata).toMatchObject({ foo: 1, handoffRequested: true });
