@@ -3,6 +3,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { tenantRouter } from "./routers/tenant";
+import { tenantConfigRouter } from "./routers/tenantConfig";
 import { productRouter } from "./routers/product";
 import { conversationRouter } from "./routers/conversation";
 import { orderRouter } from "./routers/order";
@@ -85,6 +86,7 @@ export const appRouter = router({
     }),
   }),
   tenant: tenantRouter,
+  tenantConfig: tenantConfigRouter,
   product: productRouter,
   conversation: conversationRouter,
   order: orderRouter,
