@@ -14,6 +14,8 @@
  *   --duration <sec>     Run for N seconds (default 10); ignored if --requests set
  *   --requests <n>       Stop after N total requests
  *   --header "K: V"      Extra request header (repeatable)
+ *   --random-tenant      Send a random X-Tenant-Id per request (defeats the
+ *                        per-tenant rate limiter for pure endpoint benchmarks)
  *   --method <m>         HTTP method (default GET)
  *
  * Output: total requests, RPS, latency p50/p95/p99/max, per-status counts.
@@ -22,7 +24,7 @@ import http from "node:http";
 import https from "node:https";
 
 function parseArgs(argv) {
-  const args = { url: null, concurrency: 10, duration: 10, requests: 0, headers: [], method: "GET" };
+  const args = { url: null, concurrency: 10, duration: 10, requests: 0, headers: [], method: "GET", randomTenant: false };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--url") args.url = argv[++i];
@@ -30,6 +32,7 @@ function parseArgs(argv) {
     else if (a === "--duration") args.duration = parseFloat(argv[++i]);
     else if (a === "--requests") args.requests = parseInt(argv[++i], 10);
     else if (a === "--method") args.method = argv[++i];
+    else if (a === "--random-tenant") args.randomTenant = true;
     else if (a === "--header") args.headers.push(argv[++i]);
     else if (a === "--help") { console.log("see header comment"); process.exit(0); }
     else { console.error(`unknown arg: ${a}`); process.exit(2); }
@@ -68,6 +71,9 @@ async function main() {
   function oneRequest() {
     return new Promise((resolve) => {
       const t0 = process.hrtime.bigint();
+      const headers = args.randomTenant
+        ? { ...extraHeaders, "X-Tenant-Id": `t-${Math.random().toString(36).slice(2, 10)}` }
+        : extraHeaders;
       const req = (isTls ? https : http).request(
         {
           agent,
@@ -75,7 +81,7 @@ async function main() {
           hostname: target.hostname,
           port: target.port || (isTls ? 443 : 80),
           path: target.pathname + target.search,
-          headers: extraHeaders,
+          headers,
         },
         (res) => {
           res.resume(); // drain
