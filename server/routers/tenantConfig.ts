@@ -30,8 +30,15 @@ import {
 } from "../../shared/waMenu";
 import { updateTenantSettings } from "../services/onboarding";
 import { previewWaMenuForTenant } from "../services/waMenuPreview";
+import { parseFaqSettings } from "../services/faq";
 
 const tenantInput = z.object({ tenantId: z.string() });
+
+/** settings.faq entries: [{ q, a }] — the chat FAQ knowledge base. */
+const faqEntrySchema = z.object({
+  q: z.string().trim().min(1).max(500),
+  a: z.string().trim().min(1).max(2000),
+});
 
 async function loadSettings(tenantId: string): Promise<TenantSettings> {
   const db = await getDb();
@@ -339,6 +346,33 @@ export const tenantConfigRouter = router({
         s.waMenu = parseWaMenuConfig(menu);
       });
       return settings.waMenu;
+    }),
+
+  // ─── FAQ knowledge base (settings.faq) ─────────────────────────────────────
+
+  getFaq: protectedProcedure.input(tenantInput).query(async ({ ctx, input }) => {
+    assertTenantAccess(ctx.user, input.tenantId);
+    const settings = await loadSettings(input.tenantId);
+    return parseFaqSettings(settings as Record<string, unknown>);
+  }),
+
+  /** Full replace of the FAQ list (max 100 entries, duplicate questions rejected). */
+  setFaq: protectedProcedure
+    .input(tenantInput.extend({ faq: z.array(faqEntrySchema).max(100) }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const seen = new Set<string>();
+      for (const e of input.faq) {
+        const key = e.q.toLowerCase();
+        if (seen.has(key)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `duplicate FAQ question: "${e.q}"` });
+        }
+        seen.add(key);
+      }
+      await updateTenantSettings(input.tenantId, (s) => {
+        (s as Record<string, unknown>).faq = input.faq;
+      });
+      return input.faq;
     }),
 
   // ─── Menu preview (live config + live data) ────────────────────────────────
