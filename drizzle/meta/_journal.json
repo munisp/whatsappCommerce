@@ -267,6 +267,13 @@
       "when": 1786600001000,
       "tag": "0039_usage_counters",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786600002000,
+      "tag": "0040_wa_reliability",
+      "breakpoints": true
     }
   ]
 }

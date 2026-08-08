@@ -22,9 +22,19 @@
  *     to retry; callers that must not block should .catch() and log.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNotNull, lte, lt, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { tenants, whatsappNotificationLog } from "../../drizzle/schema";
+
+/** Metering imports waSender (alert sends) — lazy import avoids the cycle. */
+async function meterFailedSend(db: WaDb, tenantId: string): Promise<void> {
+  try {
+    const { recordUsage } = await import("./metering");
+    await recordUsage(db, tenantId, METRIC_WA_MESSAGES_FAILED).catch(() => null);
+  } catch {
+    /* metering must never block sending */
+  }
+}
 
 /** WhatsApp Cloud API text body limit is 4096; chunk earlier for safety. */
 export const WA_TEXT_LIMIT = 4000;
@@ -98,6 +108,31 @@ export function normalizeWaPhone(phone: string): string {
   return phone.replace(/[^\d]/g, "");
 }
 
+// ── Send retry classification ───────────────────────────────────────────────
+
+export type WaFailureClass = "retriable" | "permanent";
+
+/** Exponential backoff between retry attempts: 1m, 5m, 15m, 1h. */
+export const WA_RETRY_BACKOFF_MS = [60_000, 300_000, 900_000, 3_600_000] as const;
+/** After this many failed attempts a send is dead-lettered (status "dead"). */
+export const WA_RETRY_MAX_ATTEMPTS = 4;
+
+/**
+ * Classify a failed send: 5xx / 429 / network-level errors are transient and
+ * retriable; other 4xx (template rejected, recipient invalid, etc.) are
+ * permanent and must never be retried.
+ */
+export function classifyWaSendError(httpStatus?: number | null, err?: unknown): WaFailureClass {
+  if (httpStatus == null) return "retriable"; // network/timeout/abort
+  if (httpStatus === 429 || httpStatus >= 500) return "retriable";
+  return "permanent";
+}
+
+/** Next retry delay (ms) after `attempts` failed attempts (1-based). */
+export function retryBackoffMs(attempts: number): number {
+  return WA_RETRY_BACKOFF_MS[Math.min(Math.max(attempts - 1, 0), WA_RETRY_BACKOFF_MS.length - 1)];
+}
+
 interface LogSendOpts {
   tenantId: string;
   phone: string;
@@ -108,13 +143,26 @@ interface LogSendOpts {
   /** Set by callers that manage their own log rows (e.g. order notifications)
    *  so a send is not double-logged. */
   skipLog?: boolean;
+  /** Outbound Graph payload snapshot (inner payload: type/text/interactive/…)
+   *  persisted so a failed send can be retried verbatim. */
+  payload?: Record<string, unknown> | null;
 }
 
-async function logSend(opts: LogSendOpts, outcome: { status: "sent" | "failed" | "simulated"; wamid?: string | null; failReason?: string }): Promise<void> {
+async function logSend(opts: LogSendOpts, outcome: {
+  status: "sent" | "failed" | "simulated";
+  wamid?: string | null;
+  failReason?: string;
+  /** Full error payload text (Graph response body or network error). */
+  errorText?: string | null;
+  /** Failure classification — retriable failures get a nextRetryAt. */
+  failureClass?: WaFailureClass;
+}): Promise<void> {
   if (opts.skipLog) return;
   try {
     const db = await getDb();
     if (!db) return;
+    const now = new Date();
+    const retriable = outcome.status === "failed" && (outcome.failureClass ?? "permanent") === "retriable";
     await db.insert(whatsappNotificationLog).values({
       id: crypto.randomUUID(),
       userId: opts.userId ?? null,
@@ -125,9 +173,14 @@ async function logSend(opts: LogSendOpts, outcome: { status: "sent" | "failed" |
       templateName: opts.templateName ?? null,
       status: outcome.status,
       wamid: outcome.wamid ?? null,
-      sentAt: outcome.status === "sent" ? new Date() : null,
-      failedAt: outcome.status === "failed" ? new Date() : null,
+      sentAt: outcome.status === "sent" ? now : null,
+      failedAt: outcome.status === "failed" ? now : null,
       failReason: outcome.failReason ?? null,
+      errorText: outcome.errorText ?? null,
+      payload: opts.payload ?? null,
+      attempts: outcome.status === "failed" ? 1 : 0,
+      nextRetryAt: retriable ? new Date(now.getTime() + retryBackoffMs(1)) : null,
+      statusTimestamps: outcome.status === "sent" ? { sent: now.toISOString() } : null,
     });
   } catch (e: any) {
     console.warn("[waSender] notification log insert failed:", e?.message);
@@ -168,39 +221,51 @@ export async function sendWhatsAppText(
   const wamids: string[] = [];
   for (const chunk of chunks) {
     const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-        type: "text",
-        text: { preview_url: true, body: chunk },
-      }),
-      signal: AbortSignal.timeout(12000),
-    });
+    const chunkPayload: Record<string, unknown> = { type: "text", text: { preview_url: true, body: chunk } };
+    const logBase = { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog, payload: chunkPayload };
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          ...chunkPayload,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+    } catch (netErr: any) {
+      console.error(`[waSender] network error:`, netErr?.message);
+      await logSend(logBase, {
+        status: "failed",
+        failReason: `network: ${String(netErr?.message ?? netErr).slice(0, 500)}`,
+        errorText: String(netErr?.message ?? netErr).slice(0, 1000),
+        failureClass: "retriable",
+      });
+      throw new Error(`WhatsApp send failed (network): ${netErr?.message ?? netErr}`);
+    }
 
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       console.error(`[waSender] API error ${res.status}: ${errBody}`);
-      await logSend(
-        { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog },
-        { status: "failed", failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}` },
-      );
+      await logSend(logBase, {
+        status: "failed",
+        failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}`,
+        errorText: errBody.slice(0, 1000),
+        failureClass: classifyWaSendError(res.status),
+      });
       throw new Error(`WhatsApp send failed (${res.status}): ${errBody.slice(0, 200)}`);
     }
 
     const data = (await res.json().catch(() => ({}))) as any;
     const wamid: string | null = data?.messages?.[0]?.id ?? null;
     if (wamid) wamids.push(wamid);
-    await logSend(
-      { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog },
-      { status: "sent", wamid },
-    );
+    await logSend(logBase, { status: "sent", wamid });
   }
 
   return { sent: true, simulated: false, wamids, chunks: chunks.length };
@@ -368,31 +433,49 @@ async function deliverWaPayload(
   }
 
   const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      ...payload,
-    }),
-    signal: AbortSignal.timeout(12000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        ...payload,
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+  } catch (netErr: any) {
+    // Network/timeout — transient, always retriable.
+    console.error(`[waSender] ${logCtx.notifType} network error:`, netErr?.message);
+    await logSend({ ...logBase, payload }, {
+      status: "failed",
+      failReason: `network: ${String(netErr?.message ?? netErr).slice(0, 500)}`,
+      errorText: String(netErr?.message ?? netErr).slice(0, 1000),
+      failureClass: "retriable",
+    });
+    throw new Error(`WhatsApp ${logCtx.notifType} send failed (network): ${netErr?.message ?? netErr}`);
+  }
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     console.error(`[waSender] ${logCtx.notifType} API error ${res.status}: ${errBody}`);
-    await logSend(logBase, { status: "failed", failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}` });
+    await logSend({ ...logBase, payload }, {
+      status: "failed",
+      failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}`,
+      errorText: errBody.slice(0, 1000),
+      failureClass: classifyWaSendError(res.status),
+    });
     throw new Error(`WhatsApp ${logCtx.notifType} send failed (${res.status}): ${errBody.slice(0, 200)}`);
   }
 
   const data = (await res.json().catch(() => ({}))) as any;
   const wamid: string | null = data?.messages?.[0]?.id ?? null;
-  await logSend(logBase, { status: "sent", wamid });
+  await logSend({ ...logBase, payload }, { status: "sent", wamid });
   return { sent: true, simulated: false, wamid };
 }
 
@@ -478,41 +561,377 @@ export async function sendWhatsAppTemplate(
   }
 
   const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${creds.accessToken}`,
-      "Content-Type": "application/json",
+  const templatePayload: Record<string, unknown> = {
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      ...(components && components.length > 0 ? { components } : {}),
     },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "template",
-      template: {
-        name: templateName,
-        language: { code: languageCode },
-        ...(components && components.length > 0 ? { components } : {}),
+  };
+  const logBase = { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, templateName, skipLog: opts?.skipLog, payload: templatePayload };
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
       },
-    }),
-    signal: AbortSignal.timeout(12000),
-  });
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        ...templatePayload,
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+  } catch (netErr: any) {
+    console.error(`[waSender] template network error:`, netErr?.message);
+    await logSend(logBase, {
+      status: "failed",
+      failReason: `network: ${String(netErr?.message ?? netErr).slice(0, 500)}`,
+      errorText: String(netErr?.message ?? netErr).slice(0, 1000),
+      failureClass: "retriable",
+    });
+    throw new Error(`WhatsApp template send failed (network): ${netErr?.message ?? netErr}`);
+  }
 
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     console.error(`[waSender] template API error ${res.status}: ${errBody}`);
-    await logSend(
-      { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, templateName, skipLog: opts?.skipLog },
-      { status: "failed", failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}` },
-    );
+    await logSend(logBase, {
+      status: "failed",
+      failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}`,
+      errorText: errBody.slice(0, 1000),
+      failureClass: classifyWaSendError(res.status),
+    });
     throw new Error(`WhatsApp template send failed (${res.status}): ${errBody.slice(0, 200)}`);
   }
 
   const data = (await res.json().catch(() => ({}))) as any;
   const wamid: string | null = data?.messages?.[0]?.id ?? null;
-  await logSend(
-    { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, templateName, skipLog: opts?.skipLog },
-    { status: "sent", wamid },
-  );
+  await logSend(logBase, { status: "sent", wamid });
   return { sent: true, simulated: false, wamid };
+}
+
+// ── Delivery/read status pipeline ───────────────────────────────────────────
+
+/** Metering metric for failed outbound sends (delivery receipts + retries). */
+export const METRIC_WA_MESSAGES_FAILED = "wa.messages.failed";
+
+export interface WaStatusEntry {
+  /** wamid of the original outbound send. */
+  id?: string;
+  status?: string;
+  /** Unix epoch seconds, as string. */
+  timestamp?: string;
+  recipient_id?: string;
+  errors?: Array<{ code?: unknown; title?: string; message?: string }>;
+}
+
+type WaDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/**
+ * Apply a Meta `statuses[]` webhook entry to whatsapp_notification_log,
+ * keyed by the wamid returned on send. Unknown wamids (messages not sent by
+ * this platform) are ignored quietly — returns false. Failed deliveries keep
+ * the full error payload in errorText and are metered.
+ */
+export async function applyWaDeliveryStatus(db: WaDb, tenantId: string, st: WaStatusEntry): Promise<boolean> {
+  const wamid = st?.id ?? "";
+  const status = st?.status ?? "";
+  if (!wamid || !["sent", "delivered", "read", "failed"].includes(status)) return false;
+  const tsUnix = parseInt(st.timestamp ?? "0", 10);
+  const ts = tsUnix ? new Date(tsUnix * 1000) : new Date();
+  const iso = ts.toISOString();
+  const errPayload = status === "failed" && st.errors?.length ? JSON.stringify(st.errors).slice(0, 2000) : null;
+  const errSummary = status === "failed"
+    ? (st.errors?.[0]?.title ?? st.errors?.[0]?.message ?? String(st.errors?.[0]?.code ?? "Unknown error"))
+    : null;
+  const updated = await db
+    .update(whatsappNotificationLog)
+    .set({
+      status: status as "sent" | "delivered" | "read" | "failed",
+      sentAt: status === "sent" ? ts : undefined,
+      deliveredAt: status === "delivered" ? ts : undefined,
+      readAt: status === "read" ? ts : undefined,
+      failedAt: status === "failed" ? ts : undefined,
+      failReason: status === "failed" ? errSummary : undefined,
+      errorText: status === "failed" ? errPayload : undefined,
+      // Merge the per-status timestamp into the jsonb map without a read.
+      statusTimestamps: sql`COALESCE(${whatsappNotificationLog.statusTimestamps}, '{}'::jsonb) || ${JSON.stringify({ [status]: iso })}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(whatsappNotificationLog.wamid, wamid))
+    .returning({ id: whatsappNotificationLog.id })
+    .catch((e: any) => {
+      console.warn("[waSender] notif log status update failed:", e?.message);
+      return [] as Array<{ id: string }>;
+    });
+  if (!updated.length) return false; // unknown wamid — ignore quietly
+  if (status === "failed") {
+    await meterFailedSend(db, tenantId);
+  }
+  return true;
+}
+
+// ── Read receipts ───────────────────────────────────────────────────────────
+
+/**
+ * Mark an inbound message as read (blue ticks) using the tenant's Cloud API
+ * credentials. Fire-and-forget by contract: NEVER throws, NEVER blocks
+ * inbound processing — returns false on any failure.
+ */
+export async function markMessageRead(tenantId: string, wamid: string): Promise<boolean> {
+  try {
+    if (!wamid) return false;
+    const creds = await resolveTenantWaCredentials(tenantId);
+    if (!creds) {
+      console.info(`[waSender] SIMULATION read receipt (${tenantId}) ${wamid}`);
+      return false;
+    }
+    const res = await fetch(`https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: wamid,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.warn(`[waSender] read receipt failed ${res.status}: ${errBody.slice(0, 200)}`);
+      return false;
+    }
+    return true;
+  } catch (e: any) {
+    console.warn("[waSender] read receipt error:", e?.message);
+    return false;
+  }
+}
+
+// ── Location request sender ─────────────────────────────────────────────────
+
+/**
+ * Ask the buyer to share their location via the Cloud API interactive
+ * `location_request_message` type (action name "send_location"). Same
+ * credentials / logging / retry-classified failure path as the other senders.
+ */
+export async function sendWhatsAppLocationRequest(
+  tenantId: string,
+  toPhone: string,
+  bodyText: string,
+  opts?: SendOpts,
+): Promise<SendTemplateResult> {
+  const interactive: Record<string, unknown> = {
+    type: "location_request_message",
+    body: { text: truncate(bodyText?.trim() || "Please share your delivery location", WA_INTERACTIVE_BODY_LIMIT) },
+    action: { name: "send_location" },
+  };
+  return deliverWaPayload(
+    tenantId,
+    toPhone,
+    { type: "interactive", interactive },
+    { notifType: opts?.notifType ?? "location_request", simulationNote: "interactive:location_request" },
+    opts,
+  );
+}
+
+// ── Send retry + dead-letter ────────────────────────────────────────────────
+
+export interface WaRetryRunResult {
+  /** Rows due for a retry in this run. */
+  due: number;
+  /** Re-delivery attempted (still failing). */
+  retried: number;
+  /** Re-delivery succeeded (status → sent). */
+  resent: number;
+  /** Exhausted attempts → status "dead", admin alerted. */
+  dead: number;
+  /** Not retried: consent-blocked or missing payload (retry cleared). */
+  skipped: number;
+}
+
+/**
+ * Alert the tenant admin (settings.adminPhone) that a send dead-lettered.
+ * Never throws — alerting must not fail the retry run.
+ */
+async function sendDeadLetterAlert(row: { tenantId: string; phone: string; notifType: string }, errorSummary: string): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    const [t] = await db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, row.tenantId))
+      .limit(1)
+      .catch(() => [null as any]);
+    const adminPhone = ((t?.settings as Record<string, unknown> | null)?.adminPhone as string | undefined) ?? "";
+    if (!adminPhone.trim()) return;
+    await sendWhatsAppText(
+      row.tenantId,
+      adminPhone,
+      `⚠️ WhatsApp message dead-lettered after ${WA_RETRY_MAX_ATTEMPTS} attempts.\n` +
+        `Recipient: ${row.phone}\nType: ${row.notifType}\nError: ${errorSummary.slice(0, 300)}`,
+      { notifType: "wa_dead_letter_alert" },
+    ).catch((e: any) => console.warn("[waSender] dead-letter admin alert send failed:", e?.message));
+  } catch (e: any) {
+    console.warn("[waSender] dead-letter admin alert error:", e?.message);
+  }
+}
+
+/**
+ * Retry due failed sends: rows in whatsapp_notification_log with
+ * status='failed', a scheduled nextRetryAt ≤ now and attempts < 4. Backoff
+ * follows WA_RETRY_BACKOFF_MS (1m, 5m, 15m, 1h). Consent-blocked recipients
+ * and rows without a stored payload are never retried. Exhausted or
+ * permanently-failing sends are dead-lettered and the tenant admin alerted.
+ */
+export async function runWaSendRetries(opts?: { now?: Date; limit?: number }): Promise<WaRetryRunResult> {
+  const result: WaRetryRunResult = { due: 0, retried: 0, resent: 0, dead: 0, skipped: 0 };
+  const now = opts?.now ?? new Date();
+  const db = await getDb();
+  if (!db) {
+    console.warn("[waSender] retry run: DB unavailable");
+    return result;
+  }
+  const rows = await db
+    .select()
+    .from(whatsappNotificationLog)
+    .where(and(
+      eq(whatsappNotificationLog.status, "failed"),
+      isNotNull(whatsappNotificationLog.nextRetryAt),
+      lte(whatsappNotificationLog.nextRetryAt, now),
+      lt(whatsappNotificationLog.attempts, WA_RETRY_MAX_ATTEMPTS),
+    ))
+    .limit(opts?.limit ?? 25)
+    .catch((e: any) => {
+      console.error("[waSender] retry query failed:", e?.message);
+      return [] as any[];
+    });
+  result.due = rows.length;
+
+  for (const row of rows) {
+    const clearRetry = async () => {
+      await db.update(whatsappNotificationLog)
+        .set({ nextRetryAt: null, updatedAt: new Date() })
+        .where(eq(whatsappNotificationLog.id, row.id))
+        .catch((e: any) => console.warn("[waSender] retry clear failed:", e?.message));
+    };
+
+    // Never retry consent-blocked recipients — clear the schedule quietly.
+    let consent = true;
+    try {
+      const { hasConsent } = await import("./consent");
+      consent = await hasConsent(row.tenantId, row.phone);
+    } catch {
+      consent = true; // consent lookup failure must not stall retries
+    }
+    if (!consent) {
+      await clearRetry();
+      result.skipped++;
+      continue;
+    }
+
+    const payload = row.payload as Record<string, unknown> | null;
+    if (!payload || typeof payload.type !== "string") {
+      // Nothing to replay (e.g. pre-retry-era log rows) — stop scheduling.
+      await clearRetry();
+      result.skipped++;
+      continue;
+    }
+
+    const attempt = (row.attempts ?? 0) + 1;
+    const creds = await resolveTenantWaCredentials(row.tenantId);
+    if (!creds) {
+      // Credentials withdrawn — treat like a transient failure, push back.
+      await db.update(whatsappNotificationLog)
+        .set({ attempts: attempt, nextRetryAt: new Date(now.getTime() + retryBackoffMs(attempt)), updatedAt: new Date() })
+        .where(eq(whatsappNotificationLog.id, row.id))
+        .catch(() => {});
+      result.retried++;
+      continue;
+    }
+
+    let httpStatus: number | null = null;
+    let errText = "";
+    let newWamid: string | null = null;
+    try {
+      const res = await fetch(`https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: row.phone,
+          ...payload,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      httpStatus = res.status;
+      if (res.ok) {
+        const data = (await res.json().catch(() => ({}))) as any;
+        newWamid = data?.messages?.[0]?.id ?? null;
+      } else {
+        errText = await res.text().catch(() => "");
+      }
+    } catch (netErr: any) {
+      httpStatus = null;
+      errText = String(netErr?.message ?? netErr);
+    }
+
+    if (newWamid !== null || httpStatus !== null && httpStatus >= 200 && httpStatus < 300) {
+      await db.update(whatsappNotificationLog)
+        .set({
+          status: "sent",
+          wamid: newWamid ?? row.wamid,
+          sentAt: new Date(),
+          attempts: attempt,
+          nextRetryAt: null,
+          failReason: null,
+          errorText: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(whatsappNotificationLog.id, row.id))
+        .catch((e: any) => console.warn("[waSender] retry success update failed:", e?.message));
+      result.resent++;
+      continue;
+    }
+
+    const failureClass = classifyWaSendError(httpStatus);
+    const failReason = `retry ${attempt}: ${httpStatus != null ? `Graph API ${httpStatus}` : "network"}: ${errText.slice(0, 300)}`;
+    const isDead = failureClass === "permanent" || attempt >= WA_RETRY_MAX_ATTEMPTS;
+    await db.update(whatsappNotificationLog)
+      .set({
+        status: isDead ? "dead" : "failed",
+        attempts: attempt,
+        nextRetryAt: isDead ? null : new Date(now.getTime() + retryBackoffMs(attempt)),
+        failedAt: new Date(),
+        failReason,
+        errorText: errText.slice(0, 1000) || null,
+        updatedAt: new Date(),
+      })
+      .where(eq(whatsappNotificationLog.id, row.id))
+      .catch((e: any) => console.warn("[waSender] retry failure update failed:", e?.message));
+    await meterFailedSend(db, row.tenantId);
+    if (isDead) {
+      result.dead++;
+      await sendDeadLetterAlert(
+        { tenantId: row.tenantId, phone: row.phone, notifType: row.notifType },
+        errText || failReason,
+      );
+    } else {
+      result.retried++;
+    }
+  }
+  return result;
 }
