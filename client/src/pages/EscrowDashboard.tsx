@@ -120,10 +120,10 @@ export default function EscrowDashboard() {
     onError: (e) => toast.error(e.message),
   });
 
-  const buyerConfirm = trpc.escrow.buyerConfirm.useMutation({
-    onSuccess: () => { toast.success("Escrow released to merchant"); utils.escrow.listAll.invalidate(); utils.escrow.getStats.invalidate(); },
-    onError: (e) => toast.error(e.message),
-  });
+  // NOTE: there is intentionally NO release/self-confirm mutation here.
+  // Escrow release requires the order's BUYER to confirm receipt (enforced
+  // server-side) — a merchant/admin must never be able to self-release funds
+  // from this dashboard. Admins use Bulk Release (adminProcedure) instead.
 
   const initiateRefund = trpc.escrow.initiateRefund.useMutation({
     onSuccess: () => { toast.success("Refund initiated"); utils.escrow.listAll.invalidate(); utils.escrow.getStats.invalidate(); },
@@ -397,11 +397,13 @@ export default function EscrowDashboard() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex gap-1">
+                            {/* Read-only release status — only the buyer can confirm receipt
+                                (or an admin via Bulk Release). No self-release button. */}
                             {["delivery_confirmed", "escrow_held"].includes(tx.state) && (
-                              <Button size="sm" variant="outline" className="text-xs h-7"
-                                onClick={() => buyerConfirm.mutate({ escrowId: tx.id, autoConfirmed: true })}>
-                                Release
-                              </Button>
+                              <span className="inline-flex items-center px-2 h-7 rounded-md bg-muted text-xs text-muted-foreground"
+                                title="Funds are released when the buyer confirms receipt, or automatically after the confirmation window">
+                                {tx.state === "delivery_confirmed" ? "Awaiting buyer confirmation" : "Awaiting delivery"}
+                              </span>
                             )}
                             {!["settled", "refunded", "expired"].includes(tx.state) && (
                               <Button size="sm" variant="outline" className="text-xs h-7 text-red-600 border-red-200 hover:bg-red-50"

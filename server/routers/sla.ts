@@ -2,9 +2,10 @@ import { z } from "zod";
 import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { escrowSlaConfig, escrowTransactions, escrowDisputes } from "../../drizzle/schema";
-import { eq, isNull, and, lt, gte, inArray } from "drizzle-orm";
+import { eq, isNull, and, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { emitNotification } from "./notifications";
+import { settleEscrowAtomic } from "./escrow";
 
 // ─── SLA status helpers ───────────────────────────────────────────────────────
 export type SlaStatus = "ok" | "warning" | "overdue" | "no_deadline";
@@ -60,9 +61,14 @@ export async function getEffectiveSlaConfig(db: NonNullable<Awaited<ReturnType<t
 }
 
 // ─── Heartbeat: scan escrows for SLA breaches ─────────────────────────────────
+// Invoked by the cron endpoint (caller auth is enforced at the HTTP layer).
+// Auto-settlement goes through the SAME atomic helper as manual release:
+// a guarded state transition + merchant wallet credit + wallet ledger entry in
+// one DB transaction. Escrows with an open dispute are NEVER auto-settled and
+// disputes are never auto-resolved.
 export async function runSlaScan() {
   const db = await getDb();
-  if (!db) return { scanned: 0, warned: 0, overdue: 0 };
+  if (!db) return { scanned: 0, warned: 0, overdue: 0, settled: 0, skippedDisputed: 0 };
 
   // Get all active escrows (held state)
   const activeEscrows = await db
@@ -72,9 +78,13 @@ export async function runSlaScan() {
 
   let warned = 0;
   let overdue = 0;
+  let settled = 0;
+  let skippedDisputed = 0;
 
   for (const escrow of activeEscrows) {
-    const slaDeadline = (escrow as any).slaDeadline as Date | null;
+    // The escrow's SLA clock is the buyer-confirmation deadline (the column
+    // previously read, `slaDeadline`, does not exist on escrow_transactions).
+    const slaDeadline = escrow.buyerConfirmDeadline as Date | null;
     if (!slaDeadline) continue;
 
     const config = await getEffectiveSlaConfig(db, escrow.tenantId);
@@ -90,20 +100,10 @@ export async function runSlaScan() {
         metadata: { escrowId: escrow.id, slaDeadline: slaDeadline.toISOString() },
       });
     } else if (status === "overdue" && config.autoReleaseEnabled) {
-      overdue++;
-      // Mark as auto-released — escrow_transactions uses `state` (escrow_state
-      // enum), not `status`; resolution notes live on escrow_disputes.
-      await db
-        .update(escrowTransactions)
-        .set({
-          state: "settled",
-          settledAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(escrowTransactions.id, escrow.id));
-      // If a dispute row exists for this escrow, record the resolution notes there
+      // NEVER auto-settle an escrow with an open dispute — and never
+      // auto-resolve disputes. Skip it for human review.
       const [openDispute] = await db
-        .select()
+        .select({ id: escrowDisputes.id })
         .from(escrowDisputes)
         .where(and(
           eq(escrowDisputes.escrowTxId, escrow.id),
@@ -111,18 +111,22 @@ export async function runSlaScan() {
         ))
         .limit(1);
       if (openDispute) {
-        await db
-          .update(escrowDisputes)
-          .set({
-            status: "resolved_merchant",
-            resolution: "full_release_to_merchant",
-            resolverNotes: "Auto-released by SLA heartbeat",
-            resolvedBy: "sla-heartbeat",
-            resolvedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(escrowDisputes.id, openDispute.id));
+        skippedDisputed++;
+        continue;
       }
+
+      overdue++;
+      // Atomic guarded release: state transition + merchant wallet credit +
+      // wallet ledger entry in a single transaction (PSP mode). In PSSP mode
+      // this issues the bank release instruction instead.
+      const result = await settleEscrowAtomic(db, escrow.id, {
+        autoConfirmed: true,
+        allowedFromStates: ["escrow_held", "delivery_confirmed"],
+        descriptionPrefix: "Auto-release (SLA deadline)",
+      });
+      if (!result.transitioned) continue; // state changed concurrently — skip
+
+      settled++;
       await emitNotification({
         tenantId: escrow.tenantId,
         type: "escrow_settled",
@@ -133,7 +137,7 @@ export async function runSlaScan() {
     }
   }
 
-  return { scanned: activeEscrows.length, warned, overdue };
+  return { scanned: activeEscrows.length, warned, overdue, settled, skippedDisputed };
 }
 
 // ─── tRPC router ─────────────────────────────────────────────────────────────
@@ -193,7 +197,7 @@ export const slaRouter = router({
     const overdue: typeof activeEscrows = [];
 
     for (const escrow of activeEscrows) {
-      const slaDeadline = (escrow as any).slaDeadline as Date | null;
+      const slaDeadline = escrow.buyerConfirmDeadline as Date | null;
       const config = await getEffectiveSlaConfig(db, escrow.tenantId);
       const status = computeSlaStatus(slaDeadline, config.warningHours ?? 24);
       if (status === "overdue") overdue.push(escrow);
@@ -211,14 +215,14 @@ export const slaRouter = router({
         orderId: e.orderId,
         tenantId: e.tenantId,
         amount: e.amount,
-        slaDeadline: (e as any).slaDeadline,
+        slaDeadline: e.buyerConfirmDeadline,
       })),
       overdueItems: overdue.slice(0, 10).map(e => ({
         id: e.id,
         orderId: e.orderId,
         tenantId: e.tenantId,
         amount: e.amount,
-        slaDeadline: (e as any).slaDeadline,
+        slaDeadline: e.buyerConfirmDeadline,
       })),
     };
   }),
@@ -239,7 +243,7 @@ export const slaRouter = router({
       if (!escrows.length) throw new TRPCError({ code: "NOT_FOUND" });
       const escrow = escrows[0];
       const config = await getEffectiveSlaConfig(db, tenantId);
-      const slaDeadline = (escrow as any).slaDeadline as Date | null;
+      const slaDeadline = escrow.buyerConfirmDeadline as Date | null;
       return {
         escrowId: escrow.id,
         slaDeadline,
