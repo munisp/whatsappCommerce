@@ -3,6 +3,7 @@ package config
 import (
 "os"
 "strconv"
+"strings"
 )
 
 type ServiceEndpoints struct {
@@ -96,7 +97,7 @@ keycloakRealm := getEnv("KEYCLOAK_REALM", "wacommerce")
 platformURL := getEnv("PLATFORM_API_URL", "http://localhost:3000")
 
 return &Config{
-Env:            getEnv("ENV", "development"),
+Env:            getEnv("ENV", ""),
 Port:           getEnv("PORT", "8080"),
 JWTSecret:      getEnv("JWT_SECRET", "change-me-in-production"),
 InternalAPIKey: os.Getenv("INTERNAL_API_KEY"),
@@ -177,4 +178,25 @@ return i
 }
 }
 return fallback
+}
+
+// IsProductionLike reports whether the gateway must fail closed.
+// Safe-by-default: the environment is treated as production UNLESS it is
+// explicitly development/test. The environment name is read from ENV,
+// falling back to APP_ENV and NODE_ENV when ENV is unset — an unset or
+// unexpected value therefore yields production semantics.
+func (c *Config) IsProductionLike() bool {
+env := c.Env
+if env == "" {
+env = os.Getenv("APP_ENV")
+}
+if env == "" {
+env = os.Getenv("NODE_ENV")
+}
+switch strings.ToLower(strings.TrimSpace(env)) {
+case "development", "dev", "test":
+return false
+default:
+return true
+}
 }

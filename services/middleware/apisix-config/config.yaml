@@ -4,7 +4,7 @@ apisix:
   enable_admin: true
   admin_key:
     - name: admin
-      key: ${APISIX_ADMIN_KEY:-edd1c9f034335f136f87ad84b625c8f1}
+      key: ${APISIX_ADMIN_KEY}
       role: admin
 
 deployment:

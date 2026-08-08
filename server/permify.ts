@@ -27,11 +27,12 @@ export interface PermifyCheckInput {
 /**
  * Check if a subject has a permission on an entity.
  *
- * Failure policy:
- *   - production (NODE_ENV=production): FAIL CLOSED — an unconfigured or
+ * Failure policy (uses the shared safe-by-default isProd from _core/env —
+ * production-like means anything except explicit NODE_ENV=development/test):
+ *   - production-like: FAIL CLOSED — an unconfigured or
  *     unreachable Permify, or any check error, denies the permission.
- *   - development: fail open with a warning so local dev doesn't require a
- *     running Permify instance.
+ *   - development/test: fail open with a warning so local dev doesn't require
+ *     a running Permify instance.
  */
 export async function permifyCheck(input: PermifyCheckInput): Promise<boolean> {
   if (!process.env.PERMIFY_URL) {

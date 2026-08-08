@@ -1,19 +1,36 @@
-const isProduction = process.env.NODE_ENV === "production";
+/**
+ * Production detection — safe-by-default.
+ *
+ * The environment is treated as PRODUCTION unless NODE_ENV is explicitly
+ * "development" or "test". An unset or unexpected NODE_ENV (a common
+ * misconfiguration on live deploys) therefore fails closed into production
+ * semantics instead of silently enabling insecure development behavior.
+ */
+export const isProd = !["development", "test"].includes(process.env.NODE_ENV ?? "");
+
+/**
+ * True only when NODE_ENV is explicitly "development". Use this for dev-only
+ * conveniences (Vite dev server, demo data). Use isProd for fail-closed
+ * security checks. Note NODE_ENV=test is neither isProd nor isDev.
+ */
+export const isDev = process.env.NODE_ENV === "development";
 
 const KNOWN_INSECURE_DEFAULT_PREFIX = "change-me-in-production";
 
 /**
- * Fail-closed secret guard: in production the process must refuse to start
- * when a signing/encryption secret is unset or still equals a known insecure
- * default. Called at module load so misconfiguration fails fast at startup.
+ * Fail-closed secret guard: in any production-like environment (see isProd —
+ * i.e. anything that is not explicitly development/test) the process must
+ * refuse to start when a signing/encryption secret is unset or still equals a
+ * known insecure default. Called at module load so misconfiguration fails
+ * fast at startup.
  */
 function assertProductionSecret(name: string, value: string): void {
-  if (!isProduction) return;
+  if (!isProd) return;
   if (!value || value.startsWith(KNOWN_INSECURE_DEFAULT_PREFIX)) {
     throw new Error(
       `[ENV] FATAL: ${name} is unset or uses the known insecure default ` +
         `"${KNOWN_INSECURE_DEFAULT_PREFIX}*". Set a strong, unique secret ` +
-        `before starting in production (NODE_ENV=production).`
+        `before starting (NODE_ENV=${process.env.NODE_ENV ?? "unset"} is treated as production).`
     );
   }
 }
@@ -73,7 +90,9 @@ export const ENV = {
   llmModel: process.env.LLM_MODEL ?? "llama3.2",
   // App
   appUrl: process.env.APP_URL ?? "http://localhost:3000",
-  isProduction,
+  isProduction: isProd,
+  isProd,
+  isDev,
   // ML Services
   kycServiceUrl: process.env.KYC_SERVICE_URL ?? "http://localhost:8001",
   mlflowUrl: process.env.MLFLOW_URL ?? "http://localhost:5000",
@@ -88,8 +107,8 @@ export const ENV = {
   flwWebhookSecret: process.env.FLW_WEBHOOK_SECRET ?? "",
 };
 
-// ─── Fail-closed startup checks (production only) ────────────────────────────
+// ─── Fail-closed startup checks (production-like envs — see isProd) ─────────
 // jwtSecret/cookieSecret both derive from JWT_SECRET; refuse to boot with an
-// unset or known-default secret in production.
+// unset or known-default secret unless NODE_ENV is explicitly development/test.
 assertProductionSecret("JWT_SECRET", ENV.jwtSecret);
 assertProductionSecret("JWT_SECRET (cookieSecret)", ENV.cookieSecret);

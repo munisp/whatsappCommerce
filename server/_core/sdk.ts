@@ -73,9 +73,13 @@ async function verifyKeycloakBearerToken(
   const jwks = getKeycloakJWKS();
   if (!jwks) return null;
   try {
+    // When KEYCLOAK_AUDIENCE is set, require the token's `aud` claim to match
+    // (mirrors the gateway's Keycloak audience check). Unset = aud not enforced.
+    const audience = process.env.KEYCLOAK_AUDIENCE;
     const { payload } = await jwtVerify(token, jwks, {
       algorithms: ["RS256"],
       issuer: `${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}`,
+      ...(isNonEmptyString(audience) ? { audience } : {}),
     });
     if (!isNonEmptyString(payload.sub)) return null;
     return payload as unknown as KeycloakTokenClaims;

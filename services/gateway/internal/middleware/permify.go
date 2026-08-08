@@ -77,21 +77,39 @@ type permifyTuple struct {
 // ─── PermifyClient ────────────────────────────────────────────────────────────
 
 type PermifyClient struct {
-	baseURL  string
-	tenantID string
-	apiKey   string
-	http     *http.Client
-	logger   *zap.Logger
+	baseURL    string
+	tenantID   string
+	apiKey     string
+	http       *http.Client
+	logger     *zap.Logger
+	failClosed bool
 }
 
-func NewPermifyClient(baseURL, tenantID, apiKey string, logger *zap.Logger) *PermifyClient {
+// NewPermifyClient builds a client. failClosed should be
+// cfg.IsProductionLike(): in production-like environments an unconfigured,
+// unreachable or erroring Permify DENIES the check; in explicit dev/test it
+// fails open with a loud log so local dev doesn't require a running Permify.
+// This mirrors the TS server/permify.ts semantics.
+func NewPermifyClient(baseURL, tenantID, apiKey string, failClosed bool, logger *zap.Logger) *PermifyClient {
 	return &PermifyClient{
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		tenantID: tenantID,
-		apiKey:   apiKey,
-		http:     &http.Client{Timeout: 3 * time.Second},
-		logger:   logger,
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		tenantID:   tenantID,
+		apiKey:     apiKey,
+		http:       &http.Client{Timeout: 3 * time.Second},
+		logger:     logger,
+		failClosed: failClosed,
 	}
+}
+
+// denyOrAllow applies the failure policy: deny (fail closed) in
+// production-like environments, allow with a loud log only in dev/test.
+func (c *PermifyClient) denyOrAllow(reason string, fields ...zap.Field) (bool, error) {
+	if c.failClosed {
+		c.logger.Error("permify.check."+reason+" — DENYING (fail closed)", fields...)
+		return false, nil
+	}
+	c.logger.Warn("permify.check."+reason+" — allowing (dev fail-open)", fields...)
+	return true, nil
 }
 
 func (c *PermifyClient) headers() http.Header {
@@ -104,10 +122,13 @@ func (c *PermifyClient) headers() http.Header {
 }
 
 // Check returns true if the subject has the given permission on the entity.
-// Fails open (returns true) when Permify is unreachable to avoid blocking requests.
+// Failure policy (mirrors TS server/permify.ts): fail CLOSED (deny) in
+// production-like environments when Permify is unconfigured, unreachable,
+// returns 5xx, or its response cannot be parsed; fail open with a loud log
+// only in explicit dev/test.
 func (c *PermifyClient) Check(entityType, entityID, permission, subjectType, subjectID string) (bool, error) {
 	if c.baseURL == "" {
-		return true, nil // Permify not configured — fail open
+		return c.denyOrAllow("unconfigured")
 	}
 	body := permifyCheckRequest{
 		Metadata:   permifyCheckMeta{Depth: 20},
@@ -121,18 +142,16 @@ func (c *PermifyClient) Check(entityType, entityID, permission, subjectType, sub
 	req.Header = c.headers()
 	resp, err := c.http.Do(req)
 	if err != nil {
-		c.logger.Warn("permify.check.unreachable", zap.Error(err))
-		return true, nil // fail open
+		return c.denyOrAllow("unreachable", zap.Error(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 500 {
-		c.logger.Warn("permify.check.server_error", zap.Int("status", resp.StatusCode))
-		return true, nil // fail open on server error
+		return c.denyOrAllow("server_error", zap.Int("status", resp.StatusCode))
 	}
 	data, _ := io.ReadAll(resp.Body)
 	var result permifyCheckResponse
 	if err := json.Unmarshal(data, &result); err != nil {
-		return true, nil
+		return c.denyOrAllow("parse_error", zap.Error(err))
 	}
 	return result.Can == "RESULT_ALLOWED", nil
 }
@@ -187,7 +206,7 @@ func PermifyAuthz(cfg *config.Config, logger *zap.Logger) gin.HandlerFunc {
 	permifyURL := cfg.Permify.URL
 	tenantID := cfg.Permify.TenantID
 	apiKey := cfg.Permify.APIKey
-	client := NewPermifyClient(permifyURL, tenantID, apiKey, logger)
+	client := NewPermifyClient(permifyURL, tenantID, apiKey, cfg.IsProductionLike(), logger)
 	return func(c *gin.Context) {
 		c.Set("permify", client)
 		c.Next()

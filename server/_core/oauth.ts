@@ -70,13 +70,15 @@ export function registerOAuthRoutes(app: Express) {
 
     // The users table has no password-hash column — this platform has no
     // local-password credential concept (auth is Keycloak OIDC or phone OTP).
-    // Never issue sessions for arbitrary credentials in production; the
-    // password-less path below is a development-only convenience.
-    if (process.env.NODE_ENV === "production") {
+    // The passwordless path below exists ONLY for local development and must
+    // be explicitly enabled with ENABLE_LOCAL_AUTH=true. This is deliberately
+    // independent of NODE_ENV so a misconfigured deploy (e.g. NODE_ENV unset)
+    // can never silently enable the "any password creates an account" path.
+    if (process.env.ENABLE_LOCAL_AUTH !== "true") {
       res.status(501).json({ error: "Local password login is not supported. Use SSO or phone OTP login." });
       return;
     }
-    console.warn(`[Auth] DEV-ONLY local login bypass for ${email} — no password verification is performed (NODE_ENV=${process.env.NODE_ENV ?? "unset"})`);
+    console.warn(`[Auth] DEV-ONLY local login bypass for ${email} — no password verification is performed (ENABLE_LOCAL_AUTH=true)`);
 
     try {
       await db.upsertUser({ openId: `local:${email}`, email, name: email.split("@")[0], loginMethod: "local", lastSignedIn: new Date() });
