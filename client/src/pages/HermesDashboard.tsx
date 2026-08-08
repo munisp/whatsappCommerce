@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 // useRef kept for future canvas-based sparklines if needed
+import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -174,7 +175,7 @@ export default function HermesDashboard() {
   ];
 
   return (
-    <>
+    <DashboardLayout>
       {/* Onboarding Tour Modal */}
       <Dialog open={tourOpen} onOpenChange={setTourOpen}>
         <DialogContent className="max-w-md">
@@ -296,8 +297,8 @@ export default function HermesDashboard() {
                     );
                   })}
                   <p className="text-xs text-muted-foreground pt-2 border-t">
-                    Data collected by the <code className="bg-muted px-1 rounded">hermes-health-snapshot</code> heartbeat job (5-min interval).
-                    After deploying, run: <code className="bg-muted px-1 rounded text-[10px]">manus-heartbeat create --name hermes-health-snapshot --cron "0 */5 * * * *" --path /api/scheduled/hermes-health-snapshot</code>
+                    Data collected by the <code className="bg-muted px-1 rounded">hermes-health-snapshot</code> cron job (5-min interval).
+                    After deploying, add a crontab entry such as: <code className="bg-muted px-1 rounded text-[10px]">*/5 * * * * curl -fsS -X POST {window.location.origin}/api/scheduled/hermes-health-snapshot</code>
                   </p>
                 </>
               )}
@@ -484,6 +485,6 @@ export default function HermesDashboard() {
         </TabsContent>
       </Tabs>
     </div>
-    </>
+    </DashboardLayout>
   );
 }
