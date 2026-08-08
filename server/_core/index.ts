@@ -17,6 +17,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { isProd, isDev } from "./env";
 import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
 import { getDb } from "../db";
@@ -57,8 +58,11 @@ function timingSafeEqualStr(a: string, b: string): boolean {
   return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
 
+// Production-like detection is centralized in ./env (isProd): anything that is
+// not explicitly NODE_ENV=development/test is treated as production, so an
+// unset NODE_ENV fails closed.
 function isProductionLike(): boolean {
-  return process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
+  return isProd;
 }
 
 /**
@@ -359,7 +363,7 @@ async function startServer() {
         ws.send(JSON.stringify({ type: "connected", tenantId, timestamp: Date.now() }));
         // Simulate periodic events in dev mode for demo purposes
         let simInterval: ReturnType<typeof setInterval> | null = null;
-        if (process.env.NODE_ENV === "development") {
+        if (isDev) {
           const eventTypes = ["message_received", "bot_active", "escalated", "resolved", "conversation_opened"] as const;
           simInterval = setInterval(() => {
             if (ws.readyState !== WebSocket.OPEN) return;
@@ -434,8 +438,17 @@ async function startServer() {
         res.status(429).json({ error: "Too many requests", retryAfter: 60 });
         return;
       }
-    } catch {
-      // Redis unavailable — fail open (do not block requests)
+    } catch (err: any) {
+      if (isProd) {
+        // Fail closed in production-like envs: a rate limiter that cannot
+        // count must not silently allow unlimited traffic. Deny with 503.
+        console.error("[rate-limit] Redis error — denying request (fail closed):", err?.message ?? err);
+        res.setHeader("Retry-After", "30");
+        res.status(503).json({ error: "rate-limiter-unavailable", retryAfter: 30 });
+        return;
+      }
+      // Dev/test only: Redis unavailable — fail open (do not block requests).
+      console.warn("[rate-limit] Redis unavailable — allowing request (dev fail-open):", err?.message ?? err);
     }
     next();
   });
@@ -1528,7 +1541,7 @@ async function startServer() {
         (req.headers["x-api-key"] as string) ??
         "";
       if (!configuredSecret) {
-        if (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") {
+        if (isProductionLike()) {
           console.error("[internal-events] INTERNAL_API_KEY is not configured — refusing request (fail closed)");
           return res.status(503).json({ error: "internal-api-not-configured" });
         }
@@ -2803,8 +2816,8 @@ function drawBbox(img,id){
     }
   });
 
-  // development mode uses Vite, production mode uses static files
-  if (process.env.NODE_ENV === "development") {
+  // explicit development mode uses Vite, everything else serves static files
+  if (isDev) {
     await setupVite(app, server);
   } else {
     serveStatic(app);
