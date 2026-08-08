@@ -219,3 +219,29 @@ export async function seedUser(opts: {
 export function uniqueId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+// ─── Reachability / configuration gates (for conditional live tests) ─────────
+
+/**
+ * True when `base` answers a GET to `path` with any non-network-error status.
+ * Used to gate live service-to-service assertions: when a service is absent
+ * from the stack (e.g. `--no-ml`, or a local partial stack) the caller skips
+ * instead of failing.
+ */
+export async function reachable(base: string, path = "/health", timeoutMs = 5_000): Promise<boolean> {
+  try {
+    const res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.status < 599;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when the given env var holds a non-empty value — i.e. the service was
+ * configured for this run (scripts/run-e2e.sh only exports ML_URL when the
+ * ml-inference profile is started, PLATFORM_URL/DATABASE_URL always, …).
+ */
+export function serviceConfigured(envVar: string): boolean {
+  return !!process.env[envVar]?.trim();
+}
