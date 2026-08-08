@@ -16,28 +16,31 @@ type CheckItem = {
   required: boolean;
 };
 
-const CHECKLIST: CheckItem[] = [
+function buildChecklist(origin: string): CheckItem[] {
+  const cron = (schedule: string, path: string) =>
+    `(crontab -l 2>/dev/null; echo "${schedule} curl -fsS -X POST ${origin}${path}") | crontab -`;
+  return [
   // Deployment
-  { id: "publish", category: "Deployment", title: "Publish the site", description: "Click the Publish button in the Manus Management UI header to deploy to production.", required: true },
-  { id: "domain", category: "Deployment", title: "Configure custom domain (optional)", description: "Go to Settings → Domains to set a custom domain for your production URL.", required: false },
+  { id: "publish", category: "Deployment", title: "Deploy to production", description: "Deploy the app to your hosting platform (e.g. docker-compose up -d, or your provider's deploy pipeline) and verify it is reachable.", required: true },
+  { id: "domain", category: "Deployment", title: "Configure custom domain (optional)", description: "Point your custom domain at your hosting provider and update ALLOWED_ORIGINS to match.", required: false },
 
-  // Heartbeat / Cron
-  { id: "heartbeat", category: "Scheduled Jobs", title: "Activate inventory sync cron", description: "Run this command in the sandbox terminal after publishing to start the 5-minute Odoo stock sync.", command: "manus-heartbeat create --name inventory-sync --cron \"0 */5 * * * *\" --path /api/scheduled/inventory-sync", required: true },
-  { id: "heartbeat-invoice", category: "Scheduled Jobs", title: "Activate monthly invoice generation", description: "Run this command to auto-generate invoices on the 1st of each month at midnight UTC.", command: "manus-heartbeat create --name monthly-invoices --cron \"0 0 1 * *\" --path /api/scheduled/generate-invoices", required: false },
-  { id: "heartbeat-ab-metrics", category: "Scheduled Jobs", title: "Activate A/B test metrics cron (ML Ops)", description: "Computes per-variant conversion rates and z-test p-values for running model A/B tests every 30 minutes.", command: "manus-heartbeat create --name ab-test-metrics --cron \"0 */30 * * * *\" --path /api/scheduled/ab-test-metrics", required: false },
-  { id: "heartbeat-drift-alert", category: "Scheduled Jobs", title: "Activate drift alert cron (ML Ops)", description: "Reads drift_log.json every 6 hours and sends owner push notification when any feature PSI exceeds 0.2.", command: "manus-heartbeat create --name drift-alert --cron \"0 0 */6 * * *\" --path /api/scheduled/drift-alert", required: false },
-  { id: "heartbeat-nightly-finetune", category: "Scheduled Jobs", title: "Activate nightly model fine-tune cron (ML Ops)", description: "Triggers the NLP fine-tune pipeline daily at 2 AM UTC to retrain on new conversation data.", command: "manus-heartbeat create --name nightly-finetune --cron \"0 0 2 * * *\" --path /api/scheduled/nightly-finetune", required: false },
-  { id: "heartbeat-delivery-summary", category: "Scheduled Jobs", title: "Activate daily WhatsApp delivery summary cron", description: "Aggregates previous-day delivery rates per tenant every morning at 7 AM UTC and sends owner notification if any tenant drops below 80% delivery rate.", command: "manus-heartbeat create --name delivery-summary --cron \"0 0 7 * * *\" --path /api/scheduled/delivery-summary", required: false },
+  // Cron jobs
+  { id: "heartbeat", category: "Scheduled Jobs", title: "Activate inventory sync cron", description: "Add this crontab entry on your server after deploying to start the 5-minute Odoo stock sync.", command: cron("*/5 * * * *", "/api/scheduled/inventory-sync"), required: true },
+  { id: "heartbeat-invoice", category: "Scheduled Jobs", title: "Activate monthly invoice generation", description: "Add this crontab entry to auto-generate invoices on the 1st of each month at midnight UTC.", command: cron("0 0 1 * *", "/api/scheduled/generate-invoices"), required: false },
+  { id: "heartbeat-ab-metrics", category: "Scheduled Jobs", title: "Activate A/B test metrics cron (ML Ops)", description: "Computes per-variant conversion rates and z-test p-values for running model A/B tests every 30 minutes.", command: cron("*/30 * * * *", "/api/scheduled/ab-test-metrics"), required: false },
+  { id: "heartbeat-drift-alert", category: "Scheduled Jobs", title: "Activate drift alert cron (ML Ops)", description: "Reads drift_log.json every 6 hours and sends owner push notification when any feature PSI exceeds 0.2.", command: cron("0 */6 * * *", "/api/scheduled/drift-alert"), required: false },
+  { id: "heartbeat-nightly-finetune", category: "Scheduled Jobs", title: "Activate nightly model fine-tune cron (ML Ops)", description: "Triggers the NLP fine-tune pipeline daily at 2 AM UTC to retrain on new conversation data.", command: cron("0 2 * * *", "/api/scheduled/nightly-finetune"), required: false },
+  { id: "heartbeat-delivery-summary", category: "Scheduled Jobs", title: "Activate daily WhatsApp delivery summary cron", description: "Aggregates previous-day delivery rates per tenant every morning at 7 AM UTC and sends owner notification if any tenant drops below 80% delivery rate.", command: cron("0 7 * * *", "/api/scheduled/delivery-summary"), required: false },
 
   // Payment Gateways
   { id: "paystack-keys", category: "Payment Gateways", title: "Configure Paystack API keys", description: "Each tenant must add their Paystack public/secret keys via the Merchant Portal → Settings → Payment Gateways.", required: true },
-  { id: "paystack-webhook", category: "Payment Gateways", title: "Register Paystack webhook", description: "In your Paystack dashboard, set the webhook URL to: https://your-domain.com/api/webhooks/paystack", command: "POST https://your-domain.com/api/webhooks/paystack", required: true },
-  { id: "flutterwave-webhook", category: "Payment Gateways", title: "Register Flutterwave webhook", description: "In your Flutterwave dashboard, set the webhook URL to: https://your-domain.com/api/webhooks/flutterwave", required: false },
+  { id: "paystack-webhook", category: "Payment Gateways", title: "Register Paystack webhook", description: `In your Paystack dashboard, set the webhook URL to: ${origin}/api/webhooks/paystack`, command: `curl -fsS -X POST ${origin}/api/webhooks/paystack`, required: true },
+  { id: "flutterwave-webhook", category: "Payment Gateways", title: "Register Flutterwave webhook", description: `In your Flutterwave dashboard, set the webhook URL to: ${origin}/api/webhooks/flutterwave`, required: false },
   { id: "mojaloop-config", category: "Payment Gateways", title: "Configure Mojaloop FSPIOP endpoint", description: "Set MOJALOOP_HUB_URL in Secrets (Settings → Secrets) to your Mojaloop hub base URL.", required: false },
 
   // WhatsApp / Meta
   { id: "meta-token", category: "WhatsApp / Meta", title: "Set Meta WhatsApp token", description: "Add WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID to Secrets for each tenant's WhatsApp Business Account.", required: true },
-  { id: "meta-webhook", category: "WhatsApp / Meta", title: "Register Meta webhook", description: "In Meta Developer Console, set the webhook URL to: https://your-domain.com/api/webhooks/whatsapp and verify with WHATSAPP_VERIFY_TOKEN.", required: true },
+  { id: "meta-webhook", category: "WhatsApp / Meta", title: "Register Meta webhook", description: `In Meta Developer Console, set the webhook URL to: ${origin}/api/webhooks/whatsapp and verify with WHATSAPP_VERIFY_TOKEN.`, required: true },
   { id: "template-approval", category: "WhatsApp / Meta", title: "Submit message templates to Meta", description: "Go to Template Library and click 'Submit to Meta' for each template you want to use in campaigns.", required: true },
 
   // KYC / Verification
@@ -59,13 +62,16 @@ const CHECKLIST: CheckItem[] = [
   { id: "hermes-hmac", category: "Hermes Agent", title: "Set PLATFORM_HMAC_SECRET", description: "Generate a 32-char random string and add it as PLATFORM_HMAC_SECRET to Settings → Secrets. Used to validate webhook calls between platform and Hermes bridge.", command: "openssl rand -hex 16", required: false },
   { id: "hermes-bridge-deploy", category: "Hermes Agent", title: "Deploy Hermes bridge + router + skills", description: "Copy .env.hermes.example to .env.hermes, fill in credentials, then start the three Hermes microservices (Go bridge, Rust router, Python skills).", command: "cp .env.hermes.example .env.hermes && docker-compose --env-file .env.hermes up -d hermes-bridge hermes-router hermes-skills", required: false },
   { id: "hermes-smtp", category: "Hermes Agent", title: "Set SMTP secrets for supplier emails", description: "Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD to Settings → Secrets so hermes-skills can send PO emails to suppliers.", required: false },
-];
-
-const CATEGORIES = Array.from(new Set(CHECKLIST.map(c => c.category)));
+  ];
+}
 
 export default function DeployChecklist() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const CHECKLIST = buildChecklist(origin);
+  const CATEGORIES = Array.from(new Set(CHECKLIST.map(c => c.category)));
 
   const toggle = (id: string) => setChecked(prev => {
     const next = new Set(prev);
