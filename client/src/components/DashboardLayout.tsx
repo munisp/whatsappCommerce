@@ -32,7 +32,7 @@ import {
   BrainCircuit, Warehouse, Smartphone, Link2, Eye, ArrowLeftRight,
   Database, GitBranch, AlertTriangle, Activity, Lock, Network,
   UserPlus, Rocket, KeyRound, Building2, ScrollText, Workflow, Leaf,
-  Calendar, Paperclip, BarChart2, Cpu, ListTree, Plug, SlidersHorizontal,
+  Calendar, Paperclip, BarChart2, Cpu, ListTree, Plug, SlidersHorizontal, Map, HeartPulse,
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -166,6 +166,16 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
       { icon: SlidersHorizontal, label: "Tenant Settings", path: "/tenant-settings" },
+    ],
+  },
+  {
+    id: "ops",
+    label: "Ops",
+    icon: HeartPulse,
+    items: [
+      { icon: Map,             label: "Live Map",        path: "/logistics-map" },
+      { icon: HeartPulse,      label: "System Health",   path: "/system-health" },
+      { icon: ScrollText,      label: "Audit Logs",      path: "/audit-logs" },
     ],
   },
   {
