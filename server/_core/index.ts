@@ -21,7 +21,6 @@ import { isProd, isDev } from "./env";
 import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
 import { getDb } from "../db";
-import { splitEscrowAmounts } from "../../shared/escrowAmounts";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -35,7 +34,9 @@ import { publishConversationEvent } from "../kafka";
 import { daprSaveState, daprGetState } from "../dapr";
 import { redisSet, redisGet } from "../redis";
 import { runSlaScan } from "../routers/sla";
-import { creditWalletTopUp } from "../routers/escrow";
+import { confirmProviderPayment } from "../services/paymentConfirm";
+import { sendWhatsAppText } from "../services/waSender";
+import { handleInboundReceiptImage } from "../services/receiptVerification";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -101,233 +102,6 @@ function toRawBody(body: unknown): Buffer {
   return Buffer.from(JSON.stringify(body ?? {}), "utf8");
 }
 
-// ── Shared provider payment confirmation (Paystack/Flutterwave webhooks) ────
-// Fixes the split-brain where payment.initiate wrote paymentIntents rows
-// (PAY-… references stored in providerPaymentId) while the webhooks only
-// updated paymentTransactions (WC-… references from paymentGateway.initiate),
-// so payment.initiate payments could never be confirmed. This resolver looks
-// the reference up in BOTH tables, verifies the provider-reported
-// amount/currency against the stored record BEFORE mutating, and drives order
-// confirmation + escrow hold creation from either path. Idempotent: replaying
-// the same webhook never double-confirms, double-credits, or double-creates
-// the escrow hold.
-async function confirmProviderPayment(
-  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
-  opts: {
-    provider: string;
-    reference: string;
-    amountMajor: number | null; // provider-reported amount in MAJOR currency units
-    currency: string | null;
-    rawPayload: unknown;
-  },
-): Promise<{ ok: boolean; action: string; detail?: string }> {
-  const { reference } = opts;
-  if (!reference) return { ok: false, action: "no-reference" };
-  const now = new Date();
-
-  // ── Resolve the reference in either table ─────────────────────────────────
-  let kind: "transaction" | "intent";
-  let rowId: string;
-  let tenantId: string;
-  let orderId: string | null;
-  let customerId: string | null;
-  let expectedAmount: number;
-  let expectedCurrency: string;
-  let currentStatus: string;
-  // Metadata of the matched paymentIntents row (intent path only) — drives the
-  // wallet top-up credit below when metadata.type === "wallet_topup".
-  let intentMetadata: Record<string, unknown> | null = null;
-
-  const [tx] = await db.select().from(paymentTransactions)
-    .where(eq(paymentTransactions.providerRef, reference)).limit(1);
-  if (tx) {
-    kind = "transaction";
-    rowId = tx.id;
-    tenantId = tx.tenantId;
-    orderId = tx.orderId ?? null;
-    customerId = tx.customerId ?? null;
-    expectedAmount = parseFloat(tx.amount);
-    expectedCurrency = (tx.currency ?? "").toUpperCase();
-    currentStatus = tx.status;
-  } else {
-    const [intent] = await db.select().from(paymentIntents)
-      .where(eq(paymentIntents.providerPaymentId, reference)).limit(1);
-    if (!intent) {
-      console.warn(`[payment-confirm] ${opts.provider} ref=${reference} matched no paymentTransactions or paymentIntents row`);
-      return { ok: false, action: "not-found", detail: reference };
-    }
-    kind = "intent";
-    rowId = intent.id;
-    tenantId = intent.tenantId;
-    orderId = intent.orderId ?? null;
-    customerId = intent.customerId ?? null;
-    expectedAmount = parseFloat(intent.amount);
-    expectedCurrency = (intent.currency ?? "").toUpperCase();
-    currentStatus = intent.status;
-    intentMetadata = (intent.metadata as Record<string, unknown> | null) ?? null;
-  }
-
-  // ── Wallet top-up credit (completed wallet_topup payment intents) ─────────
-  // creditWalletTopUp is idempotent: the credit is claimed atomically via a
-  // conditional UPDATE stamping metadata.creditedAt, so webhook replays and
-  // reconciliation runs can never double-credit.
-  const maybeCreditWalletTopUp = async () => {
-    if (kind !== "intent" || intentMetadata?.type !== "wallet_topup") return;
-    try {
-      const result = await creditWalletTopUp(db, rowId);
-      if (!result.credited) {
-        console.warn(`[payment-confirm] wallet top-up credit skipped for intent ${rowId}: ${result.reason ?? "unknown"}`);
-      }
-    } catch (err: any) {
-      // Never fail the webhook on a wallet-credit error — the reconciliation
-      // sweep retries completed-but-uncredited top-ups.
-      console.error(`[payment-confirm] wallet top-up credit failed for intent ${rowId}:`, err?.message);
-    }
-  };
-
-  // ── Amount/currency verification (BEFORE any state mutation) ─────────────
-  const amountMismatch =
-    opts.amountMajor == null ||
-    !Number.isFinite(opts.amountMajor) ||
-    Math.abs(opts.amountMajor - expectedAmount) > 0.01;
-  const currencyMismatch =
-    !opts.currency || !expectedCurrency || opts.currency.toUpperCase() !== expectedCurrency;
-  if (amountMismatch || currencyMismatch) {
-    const reason = `webhook ${amountMismatch ? "amount" : "currency"} mismatch: provider=${opts.amountMajor ?? "?"} ${opts.currency ?? "?"}, expected=${expectedAmount} ${expectedCurrency}`;
-    console.error(`[payment-confirm] REJECTED ${opts.provider} ref=${reference}: ${reason}`);
-    if (currentStatus !== "completed") {
-      const failedAt = now;
-      if (kind === "transaction") {
-        await db.update(paymentTransactions)
-          .set({ status: "failed", failureReason: reason, callbackData: opts.rawPayload as any, updatedAt: failedAt })
-          .where(and(eq(paymentTransactions.id, rowId), sql`${paymentTransactions.status} <> 'completed'`));
-      } else {
-        await db.update(paymentIntents)
-          .set({ status: "failed", failureReason: reason, updatedAt: failedAt })
-          .where(and(eq(paymentIntents.id, rowId), sql`${paymentIntents.status} <> 'completed'`));
-      }
-    }
-    return { ok: false, action: "amount-currency-mismatch", detail: reason };
-  }
-
-  // ── Idempotent guarded transition to completed ────────────────────────────
-  if (currentStatus === "completed") {
-    // Webhook replay of an already-completed intent — still ensure the wallet
-    // top-up credit landed (idempotent no-op when it already did).
-    await maybeCreditWalletTopUp();
-    return { ok: true, action: "already-completed" };
-  }
-  let transitioned = false;
-  if (kind === "transaction") {
-    const updated = await db.update(paymentTransactions)
-      .set({ status: "completed", paidAt: now, callbackData: opts.rawPayload as any, updatedAt: now })
-      .where(and(eq(paymentTransactions.id, rowId), sql`${paymentTransactions.status} <> 'completed'`))
-      .returning({ id: paymentTransactions.id });
-    transitioned = updated.length > 0;
-  } else {
-    const updated = await db.update(paymentIntents)
-      .set({
-        status: "completed",
-        completedAt: now,
-        metadata: sql`COALESCE(${paymentIntents.metadata}, '{}'::jsonb) || ${JSON.stringify({ providerWebhook: opts.rawPayload })}::jsonb`,
-        updatedAt: now,
-      })
-      .where(and(eq(paymentIntents.id, rowId), sql`${paymentIntents.status} <> 'completed'`))
-      .returning({ id: paymentIntents.id });
-    transitioned = updated.length > 0;
-  }
-  if (!transitioned) {
-    // Lost a race with a concurrent webhook delivery — already handled.
-    await maybeCreditWalletTopUp();
-    return { ok: true, action: "already-completed" };
-  }
-
-  // ── Drive order confirmation + escrow hold creation (either path) ─────────
-  if (orderId) {
-    await db.update(orders)
-      .set({ paymentStatus: "completed", status: "confirmed", updatedAt: now })
-      .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} <> 'completed'`));
-
-    const [existingEscrow] = await db.select({ id: escrowTransactions.id })
-      .from(escrowTransactions)
-      .where(eq(escrowTransactions.orderId, orderId))
-      .limit(1);
-    if (!existingEscrow) {
-      const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
-      const confirmWindowHours = cfg?.buyerConfirmWindowHours ?? 24;
-      const custodyMode = (cfg?.custodyMode ?? "pssp") as "pssp" | "psp";
-      // Integer minor-units split (shared/escrowAmounts) — same invariant as
-      // escrow.createHold: platformFee + netMerchantAmount == amount always.
-      const split = splitEscrowAmounts(expectedAmount, cfg?.platformFeeRate ?? "0.03125");
-      const escrowId = randomUUID();
-      const inserted = await db.insert(escrowTransactions).values({
-        id: escrowId,
-        orderId,
-        tenantId,
-        customerId,
-        amount: split.gross,
-        platformFee: split.fee,
-        netMerchantAmount: split.net,
-        currency: expectedCurrency || "NGN",
-        custodyMode,
-        state: "escrow_held",
-        buyerConfirmDeadline: new Date(Date.now() + confirmWindowHours * 3600 * 1000),
-        idempotencyKey: `escrow-hold:${orderId}`,
-        createdAt: now,
-        updatedAt: now,
-      }).onConflictDoNothing().returning({ id: escrowTransactions.id });
-
-      if (inserted.length > 0 && custodyMode === "psp") {
-        // PSP mode: credit the merchant's escrow wallet (mirrors escrow.createHold)
-        let [wallet] = await db.select().from(merchantWallets)
-          .where(eq(merchantWallets.tenantId, tenantId));
-        if (!wallet) {
-          const walletId = randomUUID();
-          await db.insert(merchantWallets).values({
-            id: walletId, tenantId, currency: expectedCurrency || "NGN",
-            availableBalance: "0", escrowBalance: "0", totalEarned: "0", totalWithdrawn: "0",
-            custodyMode: "psp", isActive: true, createdAt: now, updatedAt: now,
-          }).onConflictDoNothing();
-          [wallet] = await db.select().from(merchantWallets)
-            .where(eq(merchantWallets.tenantId, tenantId));
-        }
-        if (wallet) {
-          const before = parseFloat(wallet.escrowBalance);
-          const after = before + split.grossMinor / 100;
-          const walletTxId = randomUUID();
-          await db.insert(walletTransactions).values({
-            id: walletTxId,
-            walletId: wallet.id,
-            tenantId,
-            type: "escrow_credit",
-            amount: split.gross,
-            balanceBefore: before.toFixed(2),
-            balanceAfter: after.toFixed(2),
-            currency: wallet.currency,
-            orderId,
-            escrowTxId: escrowId,
-            description: `Escrow hold for order ${orderId} (${opts.provider} webhook confirmation)`,
-            reference,
-            createdAt: now,
-          });
-          await db.update(merchantWallets).set({
-            escrowBalance: sql`${merchantWallets.escrowBalance} + ${split.gross}`,
-            updatedAt: now,
-          }).where(eq(merchantWallets.id, wallet.id));
-          await db.update(escrowTransactions)
-            .set({ buyerWalletTxId: walletTxId, updatedAt: now })
-            .where(eq(escrowTransactions.id, escrowId));
-        }
-      }
-    }
-  }
-
-  // Credit the merchant wallet for wallet_topup payment intents (idempotent).
-  await maybeCreditWalletTopUp();
-
-  console.log(`[payment-confirm] ${opts.provider} ref=${reference} confirmed via ${kind} row ${rowId}`);
-  return { ok: true, action: "confirmed" };
-}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -860,6 +634,10 @@ async function startServer() {
         }).where(and(eq(escrowTransactions.id, shipment.escrowTxId), eq(escrowTransactions.state, "escrow_held")));
         await db.update(orders).set({ status: "delivered", updatedAt: now }).where(eq(orders.id, shipment.orderId));
       }
+      // Push a WhatsApp status update to the buyer (non-blocking).
+      const { notifyBuyerShipmentStatus } = await import("../routers/logistics");
+      notifyBuyerShipmentStatus(db, shipment, newStatus)
+        .catch((e: any) => console.warn("[shipbubble-webhook] buyer status push failed:", e?.message));
       return res.status(200).json({ received: true });
     } catch (err: any) {
       console.error("[shipbubble-webhook]", err);
@@ -979,7 +757,7 @@ async function startServer() {
         const contactName: string = contacts.find((c: any) => c.wa_id === waPhoneNumber)?.profile?.name ?? "";
         // Determine tenant from phone number ID (look up in tenants table)
         const [tenant] = await db.select().from(tenants)
-          .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
         const tenantId: string = (tenant as any)?.id ?? "default";
         if (msg.type === "text") {
@@ -1109,15 +887,25 @@ async function startServer() {
           daprSaveState("wacommerce-statestore", `conv:${waPhoneNumber}:last_msg`, {
             text: textBody, ts: Date.now(), waPhoneNumber, tenantId
           }).catch(() => {});
-          // Route text messages through the NLP engine
-          const { appRouter: ar } = await import("../routers");
-          const caller = ar.createCaller({ user: null } as any);
-          await caller.nlp.processMessage({
-            tenantId,
-            waPhoneNumber,
-            message: textBody,
-            customerName: contactName || undefined,
-          }).catch((e: any) => console.error("[whatsapp-webhook] NLP error:", e?.message));
+          // Route text messages through the NLP engine, then DELIVER the reply
+          // back to the buyer over WhatsApp (previously the reply was computed
+          // and silently discarded).
+          try {
+            const { appRouter: ar } = await import("../routers");
+            const caller = ar.createCaller({ user: null } as any);
+            const nlpResult = await caller.nlp.processMessage({
+              tenantId,
+              waPhoneNumber,
+              message: textBody,
+              customerName: contactName || undefined,
+            });
+            if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
+              await sendWhatsAppText(tenantId, waPhoneNumber, nlpResult.reply)
+                .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] NLP error:", e?.message);
+          }
         } else if (msg.type === "image" || msg.type === "document" || msg.type === "video" || msg.type === "audio") {
           // ── Capture media reply in whatsapp_customer_replies ──────────────
           try {
@@ -1177,6 +965,14 @@ async function startServer() {
               uploadedAt: new Date(),
             }).catch((e: any) => console.error("[whatsapp-webhook] media insert error:", e?.message));
           }
+          // ── Receipt-screenshot payment verification ─────────────────────
+          // If this sender has a recent order awaiting payment, scan the
+          // image, match the amount, and confirm via the shared payment path.
+          // Fully async — must NEVER delay the webhook 200 ack.
+          if (msg.type === "image" && mediaId) {
+            handleInboundReceiptImage({ tenantId, waPhoneNumber, mediaId })
+              .catch((e: any) => console.error("[whatsapp-webhook] receipt verify error:", e?.message));
+          }
         }
       }
       // ── Delivery status receipts ───────────────────────────────────────────
@@ -1190,7 +986,7 @@ async function startServer() {
         const errorMessage: string = st.errors?.[0]?.title ?? "";
         if (!waMessageId || !["sent","delivered","read","failed"].includes(statusVal)) continue;
         const [stTenant] = await db.select({ id: tenants.id }).from(tenants)
-          .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
         const stTenantId: string = (stTenant as any)?.id ?? "default";
         await db.insert(waMessageDeliveryReceipts).values({
@@ -1881,16 +1677,22 @@ async function startServer() {
           for (const msg of messages) {
             if (msg.type === "text") {
               const [tenant] = await db.select().from(tenants)
-                .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+                .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
                 .limit(1).catch(() => [null as any]);
               const tenantId: string = (tenant as any)?.id ?? "default";
               const { appRouter: ar } = await import("../routers");
               const caller = ar.createCaller({ user: null } as any);
-              await caller.nlp.processMessage({
+              const nlpResult = await caller.nlp.processMessage({
                 tenantId,
                 waPhoneNumber: msg.from ?? "",
                 message: msg.text?.body ?? "",
               });
+              // Deliver the retried reply; a send failure must NOT mark the
+              // webhook event as failed (the NLP processing itself succeeded).
+              if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
+                await sendWhatsAppText(tenantId, msg.from ?? "", nlpResult.reply)
+                  .catch((e: any) => console.error("[wa-webhook-retry] reply send error:", e?.message));
+              }
             }
           }
           // Mark as retried/processed

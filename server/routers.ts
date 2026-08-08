@@ -36,6 +36,7 @@ import { quickReplyTemplatesRouter } from "./routers/quickReplyTemplates";
 import { revenueRouter } from "./routers/revenue";
 import { escrowRouter, escrowDisputeRouter, walletRouter, timelineAttachmentRouter } from "./routers/escrow";
 import { logisticsRouter } from "./routers/logistics";
+import { trackingRouter } from "./routers/tracking";
 import { notificationsRouter } from "./routers/notifications";
 import { slaRouter } from "./routers/sla";
 import { evidencePortalRouter } from "./routers/evidencePortal";
@@ -122,6 +123,7 @@ export const appRouter = router({
   escrowDispute: escrowDisputeRouter,
   wallet: walletRouter,
   logistics: logisticsRouter,
+  tracking: trackingRouter,
   notifications: notificationsRouter,
   timelineAttachment: timelineAttachmentRouter,
   sla: slaRouter,

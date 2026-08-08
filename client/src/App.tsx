@@ -28,6 +28,7 @@ import InventorySync from "./pages/InventorySync";
 import TenantOnboarding from "./pages/TenantOnboarding";
 import AgentArchitecture from "./pages/AgentArchitecture";
 import NLPSimulator from "./pages/NLPSimulator";
+import TrackOrder from "./pages/TrackOrder";
 import Invoices from "./pages/Invoices";
 import PortalMagicLogin from "@/pages/portal/PortalMagicLogin";
 import PortalDashboard from "./pages/portal/PortalDashboard";
@@ -66,6 +67,7 @@ function Router() {
       <Route path="/conversations" component={Conversations} />
       <Route path="/orders" component={Orders} />
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
+      <Route path="/track/:token" component={TrackOrder} />
       <Route path="/payments" component={Payments} />
       <Route path="/agent" component={AgentConsole} />
       <Route path="/health" component={ServiceHealth} />
