@@ -29,6 +29,9 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+	// Require X-Internal-Token on every route except /health. Fails closed
+	// outside development when PAYMENT_ORCHESTRATOR_INTERNAL_TOKEN is unset.
+	r.Use(handler.AuthMiddleware(cfg, logger))
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "payment-orchestrator"})
@@ -57,4 +60,3 @@ func main() {
 	defer cancel()
 	_ = srv.Shutdown(ctx)
 }
-
