@@ -90,6 +90,11 @@ async function checkTigerBeetle(): Promise<ComponentCheck> {
   }
 }
 
+/** HTTP status for /health/ready: 503 on any failure in production, 200 in dev/test. */
+export function readinessHttpStatus(report: ReadinessReport, production: boolean): number {
+  return !report.ok && production ? 503 : 200;
+}
+
 /** Run all component probes in parallel. */
 export async function checkReadiness(): Promise<ReadinessReport> {
   const [db, redis, keycloak, tigerbeetle] = await Promise.all([

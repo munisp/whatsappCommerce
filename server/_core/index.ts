@@ -49,7 +49,7 @@ import {
   METRIC_MESSAGES, METRIC_MESSAGES_IN, METRIC_MESSAGES_OUT,
 } from "../services/metering";
 import { matchSettlements } from "../services/reconMatch";
-import { checkReadiness } from "../services/healthReady";
+import { checkReadiness, readinessHttpStatus } from "../services/healthReady";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -2646,8 +2646,7 @@ function drawBbox(img,id){
   app.get("/health/ready", async (_req, res) => {
     try {
       const report = await checkReadiness();
-      const status = !report.ok && isProd ? 503 : 200;
-      return res.status(status).json({ ...report, ts: Date.now() });
+      return res.status(readinessHttpStatus(report, isProd)).json({ ...report, ts: Date.now() });
     } catch (err: any) {
       console.error("[health/ready]", err);
       return res.status(isProd ? 503 : 200).json({ ok: false, error: String(err?.message) });
