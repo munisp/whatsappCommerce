@@ -49,13 +49,18 @@ import {
   type ChatSession,
 } from "./chatSession";
 import {
-  CONSENT_DENIED_REPLY,
-  CONSENT_GRANTED_REPLY,
-  CONSENT_PROMPT,
   getConsent,
   parseConsentReply,
   recordConsent,
 } from "./consent";
+import {
+  localizeMenuConfig,
+  resolveLocale,
+  tr,
+  type Locale,
+} from "./i18n";
+import { matchFaq, parseFaqSettings } from "./faq";
+import { raiseChatDispute, buildDisputeReply } from "./chatDispute";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -224,6 +229,23 @@ const supportHandler: UseCaseHandler = async (ctx, session, input) => {
     ctx,
     `🆘 New support inquiry from ${ctx.phone}${ctx.customerName ? ` (${ctx.customerName})` : ""}:\n${issue}`,
   );
+  // Dispute-flavoured support issues (not received / wrong item / damaged / …)
+  // also become dispute records via the shared dispute service.
+  if (/dispute|complain|refund|not received|never arrived|wrong item|wrong order|damaged|broken|missing item|incomplete/i.test(issue)) {
+    const dispute = await raiseChatDispute({
+      db: ctx.db,
+      tenantId: ctx.tenantId,
+      phone: ctx.phone,
+      complaintText: issue,
+      customerName: ctx.customerName,
+    }).catch((e: any) => {
+      console.warn("[useCases] support→dispute escalation failed:", e?.message);
+      return null;
+    });
+    if (dispute && dispute.status !== "no_order") {
+      return { reply: buildDisputeReply(dispute), nextState: null };
+    }
+  }
   return {
     reply: "Thanks — we've logged your issue and notified the team. Someone will get back to you shortly.",
     nextState: null,
@@ -411,6 +433,8 @@ interface DispatchDeps {
   config: WaMenuConfig;
   tenantSettings: Record<string, unknown> | null;
   businessName?: string;
+  /** Resolved caller locale (sticky → detected → tenant default). */
+  locale?: Locale;
 }
 
 /** Persist nextState (returns true when the flow continues) or clear the session. */
@@ -435,7 +459,9 @@ async function applyOutcome(
 
 async function renderMenuForCaller(deps: DispatchDeps): Promise<string> {
   const openOrders = await countOpenOrders(deps.db, deps.tenantId, deps.phone).catch(() => null);
-  return renderWhatsAppMenu(deps.config, { businessName: deps.businessName, openOrdersCount: openOrders });
+  // Localize the default menu chrome; tenant-customized text is preserved.
+  const config = deps.locale ? localizeMenuConfig(deps.config, deps.locale) : deps.config;
+  return renderWhatsAppMenu(config, { businessName: deps.businessName, openOrdersCount: openOrders });
 }
 
 async function showMenu(deps: DispatchDeps): Promise<InboundOutcome> {
@@ -493,14 +519,18 @@ export async function handleConversationalInbound(opts: {
   customerName?: string;
 }): Promise<InboundOutcome> {
   const { db, tenantId, phone, text } = opts;
+  const tenantSettings = (opts.tenant?.settings ?? null) as Record<string, unknown> | null;
+  const locale = await resolveLocale({ tenantId, phone, text, tenantSettings })
+    .catch(() => "en" as Locale);
   const deps: DispatchDeps = {
     db,
     tenantId,
     phone,
     customerName: opts.customerName,
     config: loadMenuConfig(opts.tenant),
-    tenantSettings: (opts.tenant?.settings ?? null) as Record<string, unknown> | null,
+    tenantSettings,
     businessName: opts.tenant?.name ?? undefined,
+    locale,
   };
 
   // ── 1. NDPR consent gate (first-ever inbound from this phone) ────────────
@@ -513,16 +543,16 @@ export async function handleConversationalInbound(opts: {
       if (!session?.awaitingConsent) {
         await saveSession({ ...newSession(tenantId, phone), awaitingConsent: true });
       }
-      return { handled: true, reply: CONSENT_PROMPT };
+      return { handled: true, reply: tr(locale, "consentPrompt") };
     }
     await recordConsent(db, { tenantId, phone, granted: decision });
     if (!decision) {
       await clearSession(tenantId, phone);
-      return { handled: true, reply: CONSENT_DENIED_REPLY };
+      return { handled: true, reply: tr(locale, "consentDenied") };
     }
     const menu = await renderMenuForCaller(deps);
     await saveSession({ ...newSession(tenantId, phone), awaitingMenuSelection: true });
-    return { handled: true, reply: `${CONSENT_GRANTED_REPLY}\n\n${menu}` };
+    return { handled: true, reply: `${tr(locale, "consentGranted")}\n\n${menu}` };
   }
 
   // ── 2. Menu keyword always re-opens the menu ─────────────────────────────
@@ -544,6 +574,17 @@ export async function handleConversationalInbound(opts: {
   if (!session || session.mode === "menu") {
     const selection = resolveMenuSelection(deps.config, text);
     if (selection) return dispatchSelection(deps, session, selection);
+  }
+
+  // ── 5b. FAQ knowledge base — answer directly before the NLP/handoff
+  // fallback. A miss falls through to the existing pipeline. ────────────────
+  const faqs = parseFaqSettings(deps.tenantSettings);
+  if (faqs.length > 0) {
+    const hit = matchFaq(faqs, text);
+    if (hit) {
+      await clearSession(deps.tenantId, deps.phone);
+      return { handled: true, reply: hit.entry.a };
+    }
   }
 
   // ── 6. Unknown input → configured fallback ───────────────────────────────
@@ -597,13 +638,17 @@ export async function handleUssdRequest(opts: {
   }
   const tenantId: string = tenant?.id ?? "default";
   const phone = opts.phoneNumber;
+  const ussdTenantSettings = (tenant?.settings ?? null) as Record<string, unknown> | null;
+  const ussdLocale = await resolveLocale({ tenantId, phone, tenantSettings: ussdTenantSettings })
+    .catch(() => "en" as Locale);
   const deps: DispatchDeps = {
     db,
     tenantId,
     phone,
     config: loadMenuConfig(tenant),
-    tenantSettings: (tenant?.settings ?? null) as Record<string, unknown> | null,
+    tenantSettings: ussdTenantSettings,
     businessName: tenant?.name ?? undefined,
+    locale: ussdLocale,
   };
 
   const parts = (opts.text ?? "").split("*").filter((p) => p.trim().length > 0);
@@ -612,7 +657,8 @@ export async function handleUssdRequest(opts: {
 
   const menuReply = async (end = false): Promise<string> => {
     const openOrders = await countOpenOrders(db, tenantId, phone).catch(() => null);
-    return renderUssdMenu(deps.config, { businessName: deps.businessName, openOrdersCount: openOrders }, { end });
+    const config = deps.locale ? localizeMenuConfig(deps.config, deps.locale) : deps.config;
+    return renderUssdMenu(config, { businessName: deps.businessName, openOrdersCount: openOrders }, { end });
   };
 
   // Initial dial (empty buffer) or explicit "menu" → show the menu, expect input.

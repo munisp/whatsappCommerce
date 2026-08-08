@@ -27,11 +27,11 @@ export const CONSENT_DENIED_REPLY =
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-/** Parse a YES/NO consent reply. Returns true/false, or null when ambiguous. */
+/** Parse a YES/NO consent reply (en/fr/ha/yo/ig). Returns true/false, or null when ambiguous. */
 export function parseConsentReply(text: string): boolean | null {
   const t = text.trim().toLowerCase();
-  if (/^(yes|y|yeah|yep|ok|okay|sure|agree|accept)$/.test(t)) return true;
-  if (/^(no|n|nope|stop|decline|reject|opt[\s-]?out)$/.test(t)) return false;
+  if (/^(yes|y|yeah|yep|ok|okay|sure|agree|accept|oui|eh|bẹẹni|beeni|bẹẹ ni|ee|eef|iyo)$/.test(t)) return true;
+  if (/^(no|n|nope|stop|decline|reject|opt[\s-]?out|non|a'a|rara|mba)$/.test(t)) return false;
   return null;
 }
 

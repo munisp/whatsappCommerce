@@ -17,6 +17,7 @@ import { ledgerBridgeRequest, LedgerBridgeError, reverseCommittedTransfer } from
 import { emitNotification, NOTIFICATION_TEMPLATES } from "./notifications";
 import { notifyOwner } from "../_core/notification";
 import { writeAuditLog } from "./audit";
+import { raiseEscrowDispute } from "../services/disputes";
 
 // ─── Helper: get or seed escrow config ───────────────────────────────────────
 async function getEscrowConfig(db: Awaited<ReturnType<typeof getDb>>) {
@@ -1131,64 +1132,15 @@ export const escrowDisputeRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const cfg = await getEscrowConfig(db);
 
       // Tenant isolation: a caller can only raise a dispute on their OWN
       // tenant's escrow — previously any authenticated user could freeze ANY
       // tenant's escrow by guessing escrowTxId/orderId/tenantId.
       assertTenantAccess(ctx.user, input.tenantId);
 
-      // Validate the escrow matches the claimed order/tenant (read-only check
-      // for input sanity; the transition below is still atomic).
-      const [escrow] = await db.select().from(escrowTransactions)
-        .where(eq(escrowTransactions.id, input.escrowTxId));
-      if (!escrow) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found" });
-      if (escrow.orderId !== input.orderId || escrow.tenantId !== input.tenantId) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Escrow does not match the given order/tenant" });
-      }
-
-      // Freeze the escrow via a single guarded transition — disputes can only
-      // be raised on ACTIVE escrows. Settled / refunded / release_instructed
-      // escrows are terminal for disputes (prevents refund-after-settle).
-      const transitioned = await db.update(escrowTransactions).set({
-        state: "dispute_raised",
-        updatedAt: new Date(),
-      }).where(and(
-        eq(escrowTransactions.id, input.escrowTxId),
-        inArray(escrowTransactions.state, ["payment_received", "escrow_held", "delivery_confirmed"]),
-      )).returning();
-      if (transitioned.length !== 1) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: `Cannot raise a dispute on an escrow in state: ${escrow.state}`,
-        });
-      }
-
-      const id = crypto.randomUUID();
-      const merchantDeadline = new Date(Date.now() + cfg.disputeWindowHours * 3600 * 1000);
-      await db.insert(escrowDisputes).values({
-        id,
-        escrowTxId: input.escrowTxId,
-        orderId: input.orderId,
-        tenantId: input.tenantId,
-        raisedBy: input.raisedBy,
-        reason: input.reason,
-        description: input.description,
-        status: "open",
-        merchantResponseDeadline: merchantDeadline,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      const [created] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, id));
-      // Fire-and-forget: notify merchant of dispute
-      emitNotification({
-        id: crypto.randomUUID(), tenantId: input.tenantId, type: "dispute_opened",
-        title: "Dispute Opened on Your Order",
-        body: `A ${input.raisedBy} has raised a dispute on order ${input.orderId}. Reason: ${input.reason.replace(/_/g, " ")}. Please respond within ${cfg.disputeWindowHours}h.`,
-        metadata: { orderId: input.orderId, escrowTxId: input.escrowTxId, disputeId: id },
-        read: false, readAt: null, createdAt: new Date(),
-      }).catch(() => {});
+      // Validation + freeze + insert + merchant notification live in the
+      // shared dispute service (also used by WhatsApp chat dispute intake).
+      const created = await raiseEscrowDispute(db, input);
       return created!;
     }),
 

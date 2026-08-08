@@ -232,6 +232,24 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
 
+  // ── Scheduled: abandoned cart recovery (Heartbeat cron, every ~10 min) ────
+  // Carts idle >30min with items, no newer order, and NDPR consent get ONE
+  // localized recovery message per cart per 24h.
+  // After deploy: manus-heartbeat create --name cart-recovery --cron "0 */10 * * * *" --path /api/scheduled/cart-recovery
+  app.post("/api/scheduled/cart-recovery", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runCartRecovery, recoveryCounters } = await import("../services/cartRecovery");
+      const idleMinutes = Number(req.body?.idleMinutes) > 0 ? Number(req.body.idleMinutes) : undefined;
+      const run = await runCartRecovery({ idleMinutes });
+      return res.json({ ok: true, run, totals: recoveryCounters });
+    } catch (e: any) {
+      console.error("[cart-recovery] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "cart-recovery failed" });
+    }
+  });
+
   // ── Scheduled: inventory sync (Heartbeat cron, fires every 5 min) ──────────
   app.post("/api/scheduled/inventory-sync", async (req, res) => {
     try {
@@ -1051,6 +1069,23 @@ async function startServer() {
           if (msg.type === "image" && mediaId) {
             handleInboundReceiptImage({ tenantId, waPhoneNumber, mediaId })
               .catch((e: any) => console.error("[whatsapp-webhook] receipt verify error:", e?.message));
+          }
+          // ── Voice-note ordering ───────────────────────────────────────────
+          // Download the audio from the Graph API (per-tenant creds), run it
+          // through the pluggable transcriber, and feed the transcript into
+          // the SAME text pipeline. Fail-soft reply when voice isn't enabled.
+          // Fully async — must NEVER delay the webhook 200 ack.
+          if (msg.type === "audio" && msg.audio?.id) {
+            (async () => {
+              const { handleInboundVoiceNote } = await import("../services/transcribe");
+              await handleInboundVoiceNote({
+                tenantId,
+                waPhoneNumber,
+                mediaId: msg.audio.id,
+                mimeType: msg.audio?.mime_type ?? null,
+                customerName: contactName || undefined,
+              });
+            })().catch((e: any) => console.error("[whatsapp-webhook] voice note error:", e?.message));
           }
         }
       }

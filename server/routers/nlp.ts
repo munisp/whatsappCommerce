@@ -14,7 +14,7 @@ import { getDb } from "../db";
 import { invokeLLM } from "../_core/llm";
 import {
   nlpSessions, cartSessions, cartItems, orders, orderItems,
-  customers, products, conversations, agentEvents,
+  customers, products, conversations, agentEvents, tenants,
 } from "../../drizzle/schema";
 import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
 import { offlineMessageQueue } from "../../drizzle/schema";
@@ -34,6 +34,11 @@ import {
   InsufficientStockError,
   type StockShortage,
 } from "../services/inventory";
+import { matchFaq, parseFaqSettings } from "../services/faq";
+import { buildReorder, buildReorderReply } from "../services/reorder";
+import { raiseChatDispute, buildDisputeReply } from "../services/chatDispute";
+import { touchCartMarker } from "../services/cartRecovery";
+import { localeFromSessionLanguage, tr } from "../services/i18n";
 
 // ── Checkout message builders ────────────────────────────────────────────────
 type CartLine = { productName: string; quantity: number; unitPrice: string; currency: string };
@@ -412,11 +417,13 @@ CONVERSATION RULES:
 4. Guide checkout naturally: collect delivery address, confirm order summary, then provide payment instructions.
 5. If stock is 0, apologise and suggest alternatives.
 6. Keep responses SHORT (under 160 chars when possible) — this is WhatsApp.
+7. If the customer wants to REPEAT a previous order ("repeat my last order", "same as last time", "the usual", "reorder"), use intent "reorder" — the system rebuilds the cart from their last paid order automatically.
+8. If the customer raises a DISPUTE or complaint about an order ("I want to dispute", "my order never arrived", "you sent the wrong item", "I'm not happy with my order"), use intent "dispute" — the system logs the dispute and notifies the team automatically.
 
 RESPOND WITH JSON (no markdown):
 {
   "reply": "<message to send to customer>",
-  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|unknown",
+  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|unknown",
   "nextState": "greeting|browse|product_detail|add_to_cart|checkout_address|checkout_confirm|payment|order_confirmed|support",
   "extractedItems": [{"product": "<product name>", "quantity": <number>}] — EVERY product the customer wants to add in this message (multi-item orders are common, e.g. "2 spicy wraps and 1 malt"); empty array if none,
   "extractedProduct": "<single product name if exactly one mentioned, else null>",
@@ -615,6 +622,50 @@ export const nlpRouter = router({
         }
       }
 
+      // 3c. FAQ knowledge base — answer straight from settings.faq before any
+      // LLM call. A miss falls through to the normal pipeline.
+      {
+        const [tenantRow] = await db.select({ settings: tenants.settings })
+          .from(tenants)
+          .where(eq(tenants.id, input.tenantId))
+          .limit(1)
+          .catch(() => [] as any[]);
+        const faqs = parseFaqSettings((tenantRow?.settings ?? null) as Record<string, unknown> | null);
+        if (faqs.length > 0) {
+          const hit = matchFaq(faqs, input.message);
+          if (hit) {
+            const faqHistory = [
+              ...((session.messageHistory as Array<{ role: string; content: string }>).slice(-10)),
+              { role: "user", content: input.message },
+              { role: "assistant", content: hit.entry.a },
+            ].slice(-20);
+            await db.update(nlpSessions).set({
+              messageHistory: faqHistory,
+              lastActivityAt: new Date(),
+            }).where(eq(nlpSessions.id, session.id));
+            await db.insert(agentEvents).values({
+              id: crypto.randomUUID(),
+              tenantId: input.tenantId,
+              conversationId: session.id,
+              eventType: "nlp_message",
+              intentType: "faq",
+              confidence: hit.score.toFixed(3),
+              escalated: false,
+              model: "faq-kb",
+              createdAt: new Date(),
+            });
+            return {
+              reply: hit.entry.a,
+              intent: "faq",
+              state: session.state,
+              language: session.language,
+              sessionId: session.id,
+              confidence: hit.score,
+            };
+          }
+        }
+      }
+
       // 4. Build message history for LLM context (last 10 turns)
       const history = (session.messageHistory as Array<{ role: string; content: string }>).slice(-10);
 
@@ -740,6 +791,53 @@ export const nlpRouter = router({
           if (result.clarifications.length > 0) {
             llmResult.reply = `${llmResult.reply ?? ""}\n\n${result.clarifications.join("\n")}`.trim();
           }
+          // Refresh the abandoned-cart marker (24h TTL) on every cart update.
+          if (result.cartSession) {
+            await touchCartMarker(input.tenantId, input.waPhoneNumber).catch(() => {});
+          }
+        }
+      }
+
+      if (llmResult.intent === "reorder") {
+        // Smart reorder: rebuild the cart from the caller's most recent PAID
+        // order at CURRENT catalog prices (price changes are called out).
+        const locale = localeFromSessionLanguage(session.language);
+        const reordered = await buildReorder(db, {
+          tenantId: input.tenantId,
+          waPhoneNumber: input.waPhoneNumber,
+          session: { id: session.id, language: session.language },
+          cartSession,
+          products: tenantProducts,
+        });
+        if (reordered.cartSessionId) {
+          if (!cartSession || cartSession.id !== reordered.cartSessionId) {
+            cartSession = (await db.select().from(cartSessions)
+              .where(eq(cartSessions.id, reordered.cartSessionId)).limit(1))[0] ?? cartSession;
+          }
+          await touchCartMarker(input.tenantId, input.waPhoneNumber).catch(() => {});
+        }
+        llmResult.reply = reordered.status === "no_prior_order"
+          ? tr(locale, "reorderNoPriorOrder")
+          : buildReorderReply(reordered);
+      }
+
+      if (llmResult.intent === "dispute") {
+        // Chat dispute self-service: log the dispute (shared escrow dispute
+        // validation when the order is escrow-backed) + notify the admin.
+        const dispute = await raiseChatDispute({
+          db,
+          tenantId: input.tenantId,
+          phone: input.waPhoneNumber,
+          complaintText: input.message,
+          orderId: typeof ctx.lastOrderId === "string" ? ctx.lastOrderId : null,
+          customerName: input.customerName,
+        }).catch((e: any) => {
+          console.warn("[nlp] dispute intake failed:", e?.message);
+          return null;
+        });
+        if (dispute) {
+          llmResult.reply = buildDisputeReply(dispute);
+          llmResult.nextState = "support";
         }
       }
 
