@@ -2473,6 +2473,12 @@ function drawBbox(img,id){
     }
   });
 
+  // ── GET /health — lightweight liveness probe (no DB / external deps) ─────
+  // Intended for k8s liveness/readiness probes and load-test warm checks.
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ ok: true, uptime: process.uptime(), ts: Date.now() });
+  });
+
   // ── GET /api/health/postgres — Postgres connection health check ────────────
   app.get("/api/health/postgres", async (_req, res) => {
     try {

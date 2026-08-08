@@ -30,7 +30,12 @@ RUN mkdir -p /app/models/weights /app/data
 
 EXPOSE 8099
 
+# Number of uvicorn worker processes (CPU-bound torch inference benefits from
+# one worker per core up to the container CPU limit). Default: 1.
+ENV UVICORN_WORKERS=1
+
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD python -c "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8099/health').status==200 else 1)"
 
-CMD ["uvicorn", "inference.server:app", "--host", "0.0.0.0", "--port", "8099"]
+# Shell form so UVICORN_WORKERS expands at container start.
+CMD ["sh", "-c", "exec uvicorn inference.server:app --host 0.0.0.0 --port 8099 --workers ${UVICORN_WORKERS:-1}"]
