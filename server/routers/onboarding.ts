@@ -1,10 +1,26 @@
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { tenantOnboarding, tenants } from "../../drizzle/schema";
 import type { TenantOnboarding } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { TRPCError } from "@trpc/server";
+import {
+  createTenant,
+  getOnboardingState,
+  runTenantValidation,
+  setOnboardingStatus,
+  updateTenantSettings,
+  validationFailureReasons,
+} from "../services/onboarding";
+import {
+  brandingConfigSchema,
+  integrationCredsSchema,
+  INTEGRATION_PROVIDERS,
+  type TenantSettings,
+} from "../../shared/tenantConfig";
+import { parseWaMenuConfig, waCustomItemSchema, waUseCaseSchema } from "../../shared/waMenu";
 
 // Billing plan definitions
 export const BILLING_PLANS = {
@@ -148,5 +164,250 @@ export const onboardingRouter = router({
       const step = onboardingRow?.currentStep ?? "not_started";
       console.log(`[Onboarding] Progress email sent to tenant ${tenant.name} (${input.tenantId}), step: ${step}`);
       return { ok: true, tenantName: tenant.name, step };
+    }),
+
+  // ─── Tenant provisioning pipeline ──────────────────────────────────────────
+  // State machine: draft → configuring → validating → live | failed.
+  // Provisioning (start) is platform-admin only; the remaining procedures are
+  // tenant-scoped and guarded by assertTenantAccess.
+
+  /** Provision a new tenant end-to-end with the seeded settings skeleton. */
+  start: adminProcedure
+    .input(
+      z.object({
+        name: z.string().trim().min(1, "name must not be empty").max(255),
+        slug: z
+          .string()
+          .trim()
+          .max(100)
+          .regex(/^[a-z0-9][a-z0-9-]*$/, "slug must be lowercase alphanumeric with dashes")
+          .optional(),
+        plan: z.enum(["starter", "growth", "enterprise"]).optional(),
+        businessType: z.string().trim().max(100).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { tenantId, slug, settings } = await createTenant(input);
+      return {
+        tenantId,
+        slug,
+        onboardingStatus: "draft" as const,
+        waMenu: settings.waMenu,
+      };
+    }),
+
+  /** Current onboarding state for a tenant. */
+  getStatus: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [tenant] = await db
+        .select({
+          id: tenants.id,
+          name: tenants.name,
+          status: tenants.status,
+          whatsappPhoneNumberId: tenants.whatsappPhoneNumberId,
+          settings: tenants.settings,
+        })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const state = getOnboardingState(tenant.settings);
+      const settings = (tenant.settings ?? {}) as TenantSettings;
+      return {
+        tenantId: tenant.id,
+        tenantStatus: tenant.status,
+        ...state,
+        whatsappConfigured: Boolean(
+          tenant.whatsappPhoneNumberId && settings.whatsapp?.accessToken,
+        ),
+      };
+    }),
+
+  /**
+   * Update one onboarding step: whatsapp creds / use-case selection /
+   * integrations / branding. Moves status draft|failed → configuring.
+   */
+  updateStep: protectedProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        step: z.enum(["whatsapp", "useCases", "integrations", "branding"]),
+        data: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [tenant] = await db
+        .select({ id: tenants.id, settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const state = getOnboardingState(tenant.settings);
+      if (state.status === "live") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Tenant is live — use tenantConfig APIs to change configuration",
+        });
+      }
+
+      if (input.step === "whatsapp") {
+        const creds = z
+          .object({
+            phoneNumberId: z.string().trim().min(1).max(64),
+            accessToken: z.string().min(1, "accessToken must not be empty"),
+          })
+          .parse(input.data);
+        await db
+          .update(tenants)
+          .set({ whatsappPhoneNumberId: creds.phoneNumberId, updatedAt: new Date() })
+          .where(eq(tenants.id, input.tenantId));
+        await updateTenantSettings(input.tenantId, (s) => {
+          s.whatsapp = { ...(s.whatsapp ?? {}), accessToken: creds.accessToken };
+        });
+      } else if (input.step === "useCases") {
+        const patch = z
+          .object({
+            greeting: z.string().min(1).max(500).optional(),
+            useCases: z.array(waUseCaseSchema).optional(),
+            customItems: z.array(waCustomItemSchema).max(20).optional(),
+            fallback: z.enum(["nlp", "menu"]).optional(),
+          })
+          .parse(input.data);
+        await updateTenantSettings(input.tenantId, (s) => {
+          const merged = {
+            ...(s.waMenu ?? {}),
+            ...patch,
+          };
+          s.waMenu = parseWaMenuConfig(merged);
+        });
+      } else if (input.step === "integrations") {
+        const patch = z
+          .object({
+            provider: z.enum(INTEGRATION_PROVIDERS),
+            creds: integrationCredsSchema,
+          })
+          .parse(input.data);
+        await updateTenantSettings(input.tenantId, (s) => {
+          s.integrations = { ...(s.integrations ?? {}), [patch.provider]: patch.creds };
+        });
+      } else {
+        // branding
+        const branding = brandingConfigSchema.parse(input.data);
+        await updateTenantSettings(input.tenantId, (s) => {
+          s.branding = branding;
+        });
+      }
+
+      const completedSteps = Array.from(new Set([...state.completedSteps, input.step]));
+      const next = await setOnboardingStatus(input.tenantId, "configuring", {
+        completedSteps,
+        validationPassed: false,
+      });
+      return { ok: true, ...next };
+    }),
+
+  /**
+   * Run live validation: WhatsApp Graph GET /{phoneNumberId} with token must
+   * return 200, plus a test-connection call per enabled integration.
+   * Passed → status stays 'validating' with validationPassed=true;
+   * failed → status 'failed' with reasons.
+   */
+  validate: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [tenant] = await db
+        .select({
+          id: tenants.id,
+          whatsappPhoneNumberId: tenants.whatsappPhoneNumberId,
+          settings: tenants.settings,
+        })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+
+      await setOnboardingStatus(input.tenantId, "validating");
+      const report = await runTenantValidation(tenant);
+
+      if (report.passed) {
+        const state = await setOnboardingStatus(input.tenantId, "validating", {
+          validationPassed: true,
+          validatedAt: new Date().toISOString(),
+          reasons: [],
+        });
+        return { passed: true, checks: report.checks, ...state };
+      }
+      const state = await setOnboardingStatus(input.tenantId, "failed", {
+        reasons: validationFailureReasons(report),
+        validationPassed: false,
+      });
+      return { passed: false, checks: report.checks, ...state };
+    }),
+
+  /** Activate (go live) — only after validation has passed. */
+  activate: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [tenant] = await db
+        .select({ id: tenants.id, settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const state = getOnboardingState(tenant.settings);
+      if (state.status === "live") return { ok: true, ...state };
+      if (state.status !== "validating" || !state.validationPassed) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Cannot activate: validation has not passed (status=${state.status}). Run onboarding.validate first.`,
+        });
+      }
+      const next = await setOnboardingStatus(input.tenantId, "live");
+      await db
+        .update(tenants)
+        .set({ status: "active", updatedAt: new Date() })
+        .where(eq(tenants.id, input.tenantId));
+      return { ok: true, ...next };
+    }),
+
+  /** Re-run validation after fixing failures (only from failed/validating). */
+  retryValidation: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [tenant] = await db
+        .select({ id: tenants.id, settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const state = getOnboardingState(tenant.settings);
+      if (state.status !== "failed" && state.status !== "validating") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `retryValidation only applies from failed/validating (current=${state.status})`,
+        });
+      }
+      // Back to configuring so the operator's fixes flow through validate again.
+      const next = await setOnboardingStatus(input.tenantId, "configuring", {
+        validationPassed: false,
+        reasons: [],
+      });
+      return { ok: true, ...next };
     }),
 });
