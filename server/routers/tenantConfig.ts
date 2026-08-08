@@ -381,4 +381,74 @@ export const tenantConfigRouter = router({
     assertTenantAccess(ctx.user, input.tenantId);
     return previewWaMenuForTenant(input.tenantId);
   }),
+
+  // ─── Meta Product Catalog (settings.metaCatalog) ───────────────────────────
+
+  getMetaCatalog: protectedProcedure.input(tenantInput).query(async ({ ctx, input }) => {
+    assertTenantAccess(ctx.user, input.tenantId);
+    const settings = await loadSettings(input.tenantId);
+    const cfg = ((settings as Record<string, unknown>).metaCatalog ?? {}) as Record<string, unknown>;
+    // Never leak the access token — mask it like other stored secrets.
+    return {
+      catalogId: (cfg.catalogId as string) ?? "",
+      enabled: cfg.enabled === true,
+      hasAccessToken: typeof cfg.accessToken === "string" && cfg.accessToken.length > 0,
+      status: cfg.status ?? null,
+    };
+  }),
+
+  setMetaCatalog: protectedProcedure
+    .input(tenantInput.extend({
+      catalogId: z.string().trim().min(1).max(64),
+      accessToken: z.string().trim().min(1).max(512).optional(),
+      enabled: z.boolean().default(true),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      await updateTenantSettings(input.tenantId, (s) => {
+        const prev = ((s as Record<string, unknown>).metaCatalog ?? {}) as Record<string, unknown>;
+        (s as Record<string, unknown>).metaCatalog = {
+          ...prev,
+          catalogId: input.catalogId,
+          enabled: input.enabled,
+          // Keep the stored token when the caller doesn't rotate it.
+          ...(input.accessToken ? { accessToken: input.accessToken } : {}),
+        };
+      });
+      return { ok: true };
+    }),
+
+  /** Trigger an immediate full catalog sync (all non-archived products). */
+  syncMetaCatalogNow: protectedProcedure.input(tenantInput).mutation(async ({ ctx, input }) => {
+    assertTenantAccess(ctx.user, input.tenantId);
+    const { syncCatalog } = await import("../services/metaCatalog");
+    return syncCatalog(input.tenantId);
+  }),
+
+  /** Last sync status: { lastRunAt, lastAction, synced, failed, lastError }. */
+  metaCatalogSyncStatus: protectedProcedure.input(tenantInput).query(async ({ ctx, input }) => {
+    assertTenantAccess(ctx.user, input.tenantId);
+    const settings = await loadSettings(input.tenantId);
+    const cfg = ((settings as Record<string, unknown>).metaCatalog ?? {}) as Record<string, unknown>;
+    return cfg.status ?? null;
+  }),
+
+  // ─── Visual product search flag (settings.visualSearch) ────────────────────
+
+  getVisualSearch: protectedProcedure.input(tenantInput).query(async ({ ctx, input }) => {
+    assertTenantAccess(ctx.user, input.tenantId);
+    const settings = await loadSettings(input.tenantId);
+    const cfg = ((settings as Record<string, unknown>).visualSearch ?? {}) as { enabled?: boolean };
+    return { enabled: cfg.enabled !== false }; // default true
+  }),
+
+  setVisualSearch: protectedProcedure
+    .input(tenantInput.extend({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      await updateTenantSettings(input.tenantId, (s) => {
+        (s as Record<string, unknown>).visualSearch = { enabled: input.enabled };
+      });
+      return { enabled: input.enabled };
+    }),
 });

@@ -664,7 +664,19 @@ export const nlpRouter = router({
               } else {
                 stepCtx.awaitingAddress = true;
                 nextState = "checkout_address";
-                reply = "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city).";
+                reply = "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍";
+                // Native location request (interactive location_request_message).
+                // Fire-and-forget: a send failure never blocks checkout — the
+                // free-text address path above remains fully functional.
+                void import("../services/waLocation")
+                  .then(({ sendWhatsAppLocationRequest }) =>
+                    sendWhatsAppLocationRequest(
+                      input.tenantId,
+                      input.waPhoneNumber,
+                      "📍 Share your delivery location — or just type your full address here.",
+                    ),
+                  )
+                  .catch((e: unknown) => console.error("[nlp] location request send failed:", (e as Error)?.message));
               }
             } else {
               // Unrecognized — re-ask, keep awaiting the choice.

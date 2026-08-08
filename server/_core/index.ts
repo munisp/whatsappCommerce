@@ -1140,6 +1140,42 @@ async function startServer() {
               console.error("[whatsapp-webhook] NLP error:", e?.message);
             }
           }
+        } else if (msg.type === "location" && msg.location) {
+          // ── Native location messages ──────────────────────────────────
+          // Buyer shared a pin: if they're mid-checkout awaiting a delivery
+          // address, continue checkout exactly as the text-address path and
+          // attach the coords to the order; otherwise save it as their
+          // default delivery address.
+          try {
+            const { handleInboundLocationMessage } = await import("../services/locationInbound");
+            const outcome = await handleInboundLocationMessage({
+              tenantId,
+              waPhoneNumber,
+              customerName: contactName || undefined,
+              location: {
+                latitude: Number(msg.location.latitude),
+                longitude: Number(msg.location.longitude),
+                name: msg.location.name ?? null,
+                address: msg.location.address ?? null,
+              },
+            });
+            if (outcome.reply) {
+              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, outcome.reply)
+                .catch((e: any) => console.error("[whatsapp-webhook] location reply send error:", e?.message));
+            }
+            if (outcome.orderCard?.orderId && outcome.orderCard?.orderNumber) {
+              const { buildOrderActionCard } = await import("../services/useCases");
+              await sendWhatsAppInteractive(
+                tenantId,
+                waPhoneNumber,
+                buildOrderActionCard({ orderId: outcome.orderCard.orderId, orderNumber: outcome.orderCard.orderNumber }),
+                { notifType: "order_action_card", orderId: outcome.orderCard.orderId },
+              ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] location message error:", e?.message);
+          }
+          continue;
         } else if (msg.type === "image" || msg.type === "document" || msg.type === "video" || msg.type === "audio") {
           // ── Capture media reply in whatsapp_customer_replies ──────────────
           try {
@@ -1205,6 +1241,18 @@ async function startServer() {
           // Fully async — must NEVER delay the webhook 200 ack.
           if (msg.type === "image" && mediaId) {
             handleInboundReceiptImage({ tenantId, waPhoneNumber, mediaId })
+              .then((outcome) => {
+                // ── Visual product search ────────────────────────────────
+                // Only when the receipt pipeline did NOT claim the image
+                // (no pending unpaid order) — a receipt screenshot for an
+                // order must never be double-handled as a product search.
+                return import("../services/visualSearch").then(({ shouldRunVisualSearchAfterReceipt, handleInboundProductImage }) =>
+                  shouldRunVisualSearchAfterReceipt(outcome)
+                    ? handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
+                        .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message))
+                    : undefined,
+                );
+              })
               .catch((e: any) => console.error("[whatsapp-webhook] receipt verify error:", e?.message));
           }
           // ── Voice-note ordering ───────────────────────────────────────────

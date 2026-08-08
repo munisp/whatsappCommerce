@@ -242,9 +242,24 @@ export const logisticsRouter = router({
         }
       }
 
+      // Propagate buyer-shared delivery coordinates (collected via the
+      // WhatsApp native location flow) so the shipment is mappable.
+      let shipmentMetadata: Record<string, unknown> | undefined;
+      try {
+        const [ord] = await db.select({ metadata: orders.metadata }).from(orders)
+          .where(eq(orders.id, input.orderId)).limit(1);
+        const coords = (ord?.metadata as any)?.deliveryCoords;
+        if (coords && typeof coords.latitude === "number" && typeof coords.longitude === "number") {
+          shipmentMetadata = { deliveryCoords: coords };
+        }
+      } catch (e: any) {
+        console.warn("[logistics] delivery coords lookup failed (non-blocking):", e?.message);
+      }
+
       const id = crypto.randomUUID();
       const deliveryPin = generateDeliveryPin();
       await db.insert(logisticsShipments).values({
+        ...(shipmentMetadata ? { metadata: shipmentMetadata } : {}),
         id,
         orderId: input.orderId,
         tenantId: input.tenantId,
