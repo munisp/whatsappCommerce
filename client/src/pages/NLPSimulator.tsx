@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Send, Bot, User, Globe, RefreshCw, ShoppingCart, Wifi, WifiOff, Signal, CloudOff, CloudUpload, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -189,6 +190,7 @@ export default function NLPSimulator() {
   const starters = LANGUAGE_STARTERS[detectedLang] ?? LANGUAGE_STARTERS.english;
 
   return (
+    <DashboardLayout>
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -454,5 +456,6 @@ export default function NLPSimulator() {
       </div>
       </div>
     </div>
+    </DashboardLayout>
   );
 }
