@@ -760,6 +760,22 @@ async function startServer() {
           .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
         const tenantId: string = (tenant as any)?.id ?? "default";
+        // ── Emoji-reaction tracking ─────────────────────────────────────────
+        // WhatsApp reaction payloads carry a `reaction` field; reply with the
+        // sender's latest order/shipment status + tracking link.
+        if (msg.type === "reaction" || msg.reaction) {
+          try {
+            const { handleReactionInbound } = await import("../services/useCases");
+            const reactionReply = await handleReactionInbound({ db, tenantId, phone: waPhoneNumber });
+            if (reactionReply) {
+              await sendWhatsAppText(tenantId, waPhoneNumber, reactionReply, { notifType: "reaction_status" })
+                .catch((e: any) => console.error("[whatsapp-webhook] reaction reply send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] reaction tracking error:", e?.message);
+          }
+          continue;
+        }
         if (msg.type === "text") {
           const textBody: string = msg.text?.body ?? "";
           // ── Capture customer reply in whatsapp_customer_replies ────────────
@@ -887,24 +903,52 @@ async function startServer() {
           daprSaveState("wacommerce-statestore", `conv:${waPhoneNumber}:last_msg`, {
             text: textBody, ts: Date.now(), waPhoneNumber, tenantId
           }).catch(() => {});
+          // ── Conversational menu/session engine ──────────────────────────
+          // Consent gate → menu keywords → numeric selection / active
+          // use-case flows. Returns handled=false when the message should
+          // fall through to the NLP pipeline (fallback "nlp" or an active
+          // shop/NLP session).
+          let handledByMenu = false;
+          try {
+            const { handleConversationalInbound } = await import("../services/useCases");
+            const menuOutcome = await handleConversationalInbound({
+              db,
+              tenant: tenant ?? null,
+              tenantId,
+              phone: waPhoneNumber,
+              text: textBody,
+              customerName: contactName || undefined,
+            });
+            if (menuOutcome.handled) {
+              handledByMenu = true;
+              if (menuOutcome.reply) {
+                await sendWhatsAppText(tenantId, waPhoneNumber, menuOutcome.reply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
+              }
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] menu engine error — falling back to NLP:", e?.message);
+          }
           // Route text messages through the NLP engine, then DELIVER the reply
           // back to the buyer over WhatsApp (previously the reply was computed
           // and silently discarded).
-          try {
-            const { appRouter: ar } = await import("../routers");
-            const caller = ar.createCaller({ user: null } as any);
-            const nlpResult = await caller.nlp.processMessage({
-              tenantId,
-              waPhoneNumber,
-              message: textBody,
-              customerName: contactName || undefined,
-            });
-            if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
-              await sendWhatsAppText(tenantId, waPhoneNumber, nlpResult.reply)
-                .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
+          if (!handledByMenu) {
+            try {
+              const { appRouter: ar } = await import("../routers");
+              const caller = ar.createCaller({ user: null } as any);
+              const nlpResult = await caller.nlp.processMessage({
+                tenantId,
+                waPhoneNumber,
+                message: textBody,
+                customerName: contactName || undefined,
+              });
+              if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
+                await sendWhatsAppText(tenantId, waPhoneNumber, nlpResult.reply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] NLP error:", e?.message);
             }
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] NLP error:", e?.message);
           }
         } else if (msg.type === "image" || msg.type === "document" || msg.type === "video" || msg.type === "audio") {
           // ── Capture media reply in whatsapp_customer_replies ──────────────
@@ -1014,6 +1058,26 @@ async function startServer() {
       }
     } catch (err: any) {
       console.error("[whatsapp-webhook]", err);
+    }
+  });
+
+  // ── USSD gateway (Africa's Talking) ───────────────────────────────────────
+  // Form body: sessionId, serviceCode, phoneNumber, text (cumulative buffer
+  // joined with "*"). Drives the same menu/session engine as WhatsApp and
+  // responds with plain text prefixed "CON " (continue) or "END " (terminal).
+  app.post("/ussd", async (req, res) => {
+    res.type("text/plain");
+    try {
+      const { sessionId, serviceCode, phoneNumber, text } = (req.body ?? {}) as Record<string, string>;
+      if (!sessionId || !phoneNumber) {
+        return res.status(400).send("END Missing sessionId or phoneNumber");
+      }
+      const { handleUssdRequest } = await import("../services/useCases");
+      const reply = await handleUssdRequest({ sessionId, serviceCode, phoneNumber, text });
+      return res.status(200).send(reply);
+    } catch (e: any) {
+      console.error("[ussd]", e);
+      return res.status(200).send("END Service temporarily unavailable. Please try again later.");
     }
   });
 

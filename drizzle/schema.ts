@@ -2768,3 +2768,24 @@ export const auditLogs = pgTable("audit_logs", {
 ]);
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
+
+// ── Compliance: Messaging Consents (NDPR opt-in/opt-out per channel) ────────
+// One row per (tenant, phone, channel): whether the person has granted consent
+// to receive proactive messages (order updates, broadcasts) on that channel.
+// Written by the conversational consent prompt (server/services/consent.ts);
+// read by broadcast/notification paths via hasConsent(tenantId, phone).
+export const consents = pgTable("consents", {
+  id:         uuid("id").primaryKey().defaultRandom(),
+  tenantId:   varchar("tenant_id", { length: 36 }).notNull(),
+  phone:      varchar("phone", { length: 30 }).notNull(),
+  customerId: varchar("customer_id", { length: 36 }),
+  channel:    varchar("channel", { length: 30 }).notNull().default("whatsapp"),
+  granted:    boolean("granted").notNull().default(false),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+  updatedAt:  timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("consents_tenant_phone_channel_idx").on(t.tenantId, t.phone, t.channel),
+  index("consents_tenant_channel_granted_idx").on(t.tenantId, t.channel, t.granted),
+]);
+export type Consent = typeof consents.$inferSelect;
+export type NewConsent = typeof consents.$inferInsert;
