@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,7 +43,13 @@ export default function InventorySync() {
 
   const syncMutation = trpc.inventory.syncFromOdoo.useMutation({
     onSuccess: (data) => {
-      toast.success(`Sync complete — ${data.recordsSynced} products updated`);
+      if (data.recordsSynced > 0) {
+        toast.success(`Sync complete — ${data.recordsSynced} products updated`);
+      } else {
+        // Honest status: nothing was synced, almost certainly because no Odoo
+        // connection / mapped products exist for this tenant yet.
+        toast.warning("Sync ran but 0 products were updated — no Odoo-linked products found. Connect Odoo ERP first (Integrations → Odoo ERP).");
+      }
       refetchStock();
       refetchAlerts();
       refetchHistory();
@@ -53,6 +60,7 @@ export default function InventorySync() {
   const handleSync = () => syncMutation.mutate({ tenantId });
 
   return (
+    <DashboardLayout>
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -253,5 +261,6 @@ export default function InventorySync() {
         </CardContent>
       </Card>
     </div>
+    </DashboardLayout>
   );
 }

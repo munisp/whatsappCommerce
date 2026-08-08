@@ -1,4 +1,6 @@
 import { useState } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
+import { useActiveTenant } from "@/contexts/TenantContext";
 import { Plus, FileText, CheckCircle, Clock, AlertTriangle, DollarSign, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +21,7 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "second
 };
 
 export default function Invoices() {
-  const [tenantId] = useState("tenant-001");
+  const { activeTenantId: tenantId } = useActiveTenant();
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
     type: "subscription" as "subscription" | "profit_share" | "one_time",
@@ -29,17 +31,17 @@ export default function Invoices() {
   });
 
   const { data: invoiceList, refetch } = trpc.invoice.list.useQuery({ tenantId });
-  const { data: stats } = trpc.invoice.stats.useQuery({ tenantId });
+  const { data: stats, refetch: refetchStats } = trpc.invoice.stats.useQuery({ tenantId });
   const generateMut = trpc.invoice.generate.useMutation({
-    onSuccess: () => { toast.success("Invoice generated"); setShowCreate(false); refetch(); },
+    onSuccess: () => { toast.success("Invoice generated"); setShowCreate(false); refetch(); refetchStats(); },
     onError: (e) => toast.error(e.message),
   });
   const sendMut = trpc.invoice.send.useMutation({
-    onSuccess: () => { toast.success("Invoice marked as sent"); refetch(); },
+    onSuccess: () => { toast.success("Invoice marked as sent"); refetch(); refetchStats(); },
     onError: (e) => toast.error(e.message),
   });
   const paidMut = trpc.invoice.markPaid.useMutation({
-    onSuccess: () => { toast.success("Invoice marked as paid"); refetch(); },
+    onSuccess: () => { toast.success("Invoice marked as paid"); refetch(); refetchStats(); },
     onError: (e) => toast.error(e.message),
   });
 
@@ -63,6 +65,7 @@ export default function Invoices() {
   ];
 
   return (
+    <DashboardLayout>
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -175,6 +178,6 @@ export default function Invoices() {
         </DialogContent>
       </Dialog>
     </div>
+    </DashboardLayout>
   );
 }
-

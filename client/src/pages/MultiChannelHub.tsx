@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { useActiveTenant } from "@/contexts/TenantContext";
+import { Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MessageSquare, Smartphone, Send, Instagram, Radio } from "lucide-react";
 
-const TENANT_ID = "default";
+
 const CHANNEL_ICONS: Record<string, React.ElementType> = {
   whatsapp: MessageSquare,
   sms: Send,
@@ -27,6 +29,7 @@ const CHANNEL_COLORS: Record<string, string> = {
 
 export default function MultiChannelHub() {
   const [selectedChannel, setSelectedChannel] = useState<string | undefined>(undefined);
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
 
   const { data: messages } = trpc.channels.listMessages.useQuery({ tenantId: TENANT_ID, channel: selectedChannel as "whatsapp" | "sms" | "ussd" | "telegram" | "instagram" | "email" | undefined });
   const { data: stats } = trpc.channels.channelStats.useQuery({ tenantId: TENANT_ID });
@@ -114,7 +117,11 @@ export default function MultiChannelHub() {
           {(messages ?? []).length === 0 && (
             <div className="text-center py-12 text-gray-400">
               <Smartphone className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>No messages yet. Connect a channel to start receiving messages.</p>
+              <p>No messages yet.</p>
+              <p className="text-xs mt-2 text-gray-500">
+                Messages appear here once a channel webhook (WhatsApp, SMS, Telegram…) is configured in{" "}
+                <Link href="/integrations" className="text-blue-500 hover:underline">Integration Hub</Link>.
+              </p>
             </div>
           )}
         </div>
