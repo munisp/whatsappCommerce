@@ -1782,6 +1782,29 @@ async function startServer() {
     }
   });
 
+  // ── Inventory reservation expiry sweeper ──────────────────────────────
+  // Releases pre-payment stock holds (inventory_reservations, migration 0031)
+  // whose 15-minute TTL elapsed without payment. Claim-first + idempotent —
+  // safe to run every 60s and to race manual cancels.
+  // After deploy: manus-heartbeat create --name inventory-reservation-sweep --cron "* * * * *" --path /api/scheduled/inventory-reservation-sweep
+  app.post("/api/scheduled/inventory-reservation-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { releaseExpiredReservations } = await import("../services/inventory");
+      const result = await releaseExpiredReservations(db);
+      if (result.released > 0) {
+        console.log(`[inventory-reservation-sweep] released ${result.released} reservation(s) across ${result.orders} order(s)`);
+      }
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[inventory-reservation-sweep]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── Odoo ERP inventory sync heartbeat ─────────────────────────────────────
   // After deploy: manus-heartbeat create --name odoo-inventory-sync --cron "*/10 * * * *" --path /api/scheduled/odoo-inventory-sync
   app.post("/api/scheduled/odoo-inventory-sync", async (req, res) => {

@@ -15,6 +15,7 @@ import {
 } from "../../drizzle/schema";
 import { splitEscrowAmounts } from "../../shared/escrowAmounts";
 import { creditWalletTopUp } from "../routers/escrow";
+import { commitReservations } from "./inventory";
 
 // ── Shared provider payment confirmation (Paystack/Flutterwave webhooks) ────
 // Fixes the split-brain where payment.initiate wrote paymentIntents rows
@@ -162,6 +163,22 @@ export async function confirmProviderPayment(
     await db.update(orders)
       .set({ paymentStatus: "completed", status: "confirmed", updatedAt: now })
       .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} <> 'completed'`));
+
+    // Payment confirmed → commit the stock reservations made at order
+    // creation (reserved → committed; stock stays decremented). Runs ONLY on
+    // this claimed success path — failure / non-claim / amount-mismatch paths
+    // return above without touching reservations. Idempotent: replays find
+    // no 'reserved' rows left.
+    try {
+      const committed = await commitReservations(db, orderId);
+      if (committed > 0) {
+        console.log(`[payment-confirm] committed ${committed} stock reservation(s) for order ${orderId}`);
+      }
+    } catch (err: any) {
+      // Never fail a confirmed payment on the reservation book-keeping — the
+      // expiry sweeper skips paid orders, so rows can't leak back to stock.
+      console.error(`[payment-confirm] commitReservations failed for order ${orderId}:`, err?.message);
+    }
 
     const [existingEscrow] = await db.select({ id: escrowTransactions.id })
       .from(escrowTransactions)
