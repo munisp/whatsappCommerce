@@ -2746,18 +2746,14 @@ function drawBbox(img,id){
       }
 
       // 2. Statistical fallback — calibrated against Nigerian e-commerce fraud patterns
-      let riskScore = 0.05; // base fraud rate
-      if (totalAmount > 500_000) riskScore += 0.40;
-      else if (totalAmount > 100_000) riskScore += 0.20;
-      else if (totalAmount > 50_000) riskScore += 0.10;
-      if (numItems > 50) riskScore += 0.25;
-      else if (numItems > 20) riskScore += 0.12;
-      if (!phone || String(phone).length < 10) riskScore += 0.30;
-      if (!customerId) riskScore += 0.15;
-      if (totalAmount === 0) riskScore += 0.50;
-      const fraudProbability = Math.min(0.99, Math.max(0.01, riskScore));
-      const creditScore = Math.round(850 - fraudProbability * 550);
-      const riskLevel = fraudProbability > 0.7 ? "high" : fraudProbability > 0.4 ? "medium" : "low";
+      // Shared with the payment path (server/services/fraud.ts) so both agree.
+      const { assessFraudRisk } = await import("../services/fraud");
+      const { fraudProbability, creditScore, riskLevel } = assessFraudRisk({
+        amount: totalAmount,
+        numItems,
+        phone: phone ?? null,
+        customerId: customerId ?? null,
+      });
       res.json({ fraudProbability, creditScore, riskLevel, source: "fallback-heuristic" });
     } catch (err) {
       res.status(500).json({ error: String(err) });

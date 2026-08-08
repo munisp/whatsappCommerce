@@ -14,6 +14,7 @@ import { escrowTimelineAttachments } from "../../drizzle/schema";
 import { storagePut } from "../storage";
 import { emitNotification, NOTIFICATION_TEMPLATES } from "./notifications";
 import { notifyOwner } from "../_core/notification";
+import { writeAuditLog } from "./audit";
 
 // ─── Helper: get or seed escrow config ───────────────────────────────────────
 async function getEscrowConfig(db: Awaited<ReturnType<typeof getDb>>) {
@@ -639,6 +640,18 @@ export const escrowRouter = router({
 
       await db.update(orders).set({ status: "delivered", paymentStatus: "completed", updatedAt: new Date() })
         .where(eq(orders.id, escrow.orderId));
+
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "escrow.release",
+        entityType: "escrow_transaction",
+        entityId: input.escrowId,
+        tenantId: escrow.tenantId,
+        summary: `Escrow ${input.escrowId} released (${escrow.state} → ${result.newState}); net merchant ₦${escrow.netMerchantAmount}`,
+        before: { state: escrow.state },
+        after: { state: result.newState, netMerchantAmount: escrow.netMerchantAmount, autoConfirmed },
+      });
 
       // Fire-and-forget: notify merchant of settlement
       emitNotification({
@@ -1304,6 +1317,17 @@ export const walletRouter = router({
           },
           createdAt: new Date(),
         });
+      });
+
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "wallet.withdrawal",
+        entityType: "merchant_wallet",
+        entityId: wallet.id,
+        tenantId: input.tenantId,
+        summary: `Withdrawal of ₦${input.amount.toFixed(2)} requested (ref ${ref}, pending approval)`,
+        after: { amount: input.amount, reference: ref, status: "pending" },
       });
 
       return { success: true, reference: ref, amount: input.amount, status: "pending" as const, duplicate: false };

@@ -69,6 +69,10 @@ import { deliveryReceiptsRouter } from "./routers/deliveryReceipts";
 import { hermesRouter } from "./routers/hermes";
 import { aiRouter } from "./routers/ai";
 import { apisixRouter } from "./routers/apisix";
+import { privacyRouter } from "./routers/privacy";
+import { fraudCaseRouter } from "./routers/fraudCase";
+import { reportRouter } from "./routers/report";
+import { auditRouter } from "./routers/audit";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -153,6 +157,10 @@ export const appRouter = router({
   search: searchRouter,
   ai: aiRouter,
   apisix: apisixRouter,
+  privacy: privacyRouter,
+  fraudCase: fraudCaseRouter,
+  report: reportRouter,
+  audit: auditRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
