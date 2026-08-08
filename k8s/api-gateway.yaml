@@ -5,6 +5,8 @@ metadata:
   namespace: whatsapp-commerce
   labels:
     app: api-gateway
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
     version: v1
 spec:
   replicas: 2
@@ -15,11 +17,21 @@ spec:
     metadata:
       labels:
         app: api-gateway
+        app.kubernetes.io/name: api-gateway
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: api-gateway
-          image: whatsapp-commerce/api-gateway:latest
+          # Pinned tag — no :latest (see docs/RUNBOOK_ROLLBACK.md GitOps policy).
+          image: whatsapp-commerce/api-gateway:v1.0.0
           ports:
             - containerPort: 8080
           envFrom:
@@ -34,24 +46,45 @@ spec:
             limits:
               cpu: "500m"
               memory: "256Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # Probe paths verified against services/gateway/cmd/main.go:
+          #   GET /health (main.go:144), GET /ready (main.go:159).
+          # NOTE: previous revision probed /healthz, which the gateway does
+          # NOT serve — the readiness/liveness probes were broken.
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /ready
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health
               port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: api-gateway
   namespace: whatsapp-commerce
+  labels:
+    app: api-gateway
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
 spec:
   selector:
     app: api-gateway
@@ -85,4 +118,3 @@ spec:
         target:
           type: Utilization
           averageUtilization: 80
-

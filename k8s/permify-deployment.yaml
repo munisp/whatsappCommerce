@@ -5,6 +5,8 @@ metadata:
   namespace: whatsapp-commerce
   labels:
     app: permify
+    app.kubernetes.io/name: permify
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
     version: v1
 spec:
   replicas: 1
@@ -15,11 +17,18 @@ spec:
     metadata:
       labels:
         app: permify
+        app.kubernetes.io/name: permify
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
         version: v1
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: permify
-          image: permify/permify:latest
+          # Pinned (was :latest).
+          image: permify/permify:v1.2.4
           args: ["serve"]
           ports:
             - containerPort: 3476   # REST
@@ -46,6 +55,19 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          # Probe path verified: GET /healthz — permify serve (docker-compose
+          # healthcheck curls http://localhost:3476/healthz).
           readinessProbe:
             httpGet:
               path: /healthz
@@ -58,6 +80,9 @@ spec:
               port: 3476
             initialDelaySeconds: 30
             periodSeconds: 30
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -66,6 +91,8 @@ metadata:
   namespace: whatsapp-commerce
   labels:
     app: permify-db
+    app.kubernetes.io/name: permify-db
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
     version: v1
 spec:
   replicas: 1
@@ -76,8 +103,18 @@ spec:
     metadata:
       labels:
         app: permify-db
+        app.kubernetes.io/name: permify-db
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
         version: v1
     spec:
+      securityContext:
+        # postgres:16-alpine runs as postgres (uid/gid 70).
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -93,9 +130,16 @@ spec:
                 secretKeyRef:
                   name: platform-secrets
                   key: PERMIFY_DB_PASSWORD
+            # PGDATA subdir avoids lost+found permission issues on the volume.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
           volumeMounts:
             - name: permify-db-data
               mountPath: /var/lib/postgresql/data
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/postgresql
           resources:
             requests:
               cpu: "100m"
@@ -103,13 +147,30 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", "permify", "-d", "permify"]
             initialDelaySeconds: 10
             periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "permify", "-d", "permify"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
       volumes:
         - name: permify-db-data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: run
           emptyDir: {}
 ---
 apiVersion: v1
@@ -117,6 +178,9 @@ kind: Service
 metadata:
   name: permify
   namespace: whatsapp-commerce
+  labels:
+    app: permify
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
 spec:
   selector:
     app: permify
@@ -127,15 +191,20 @@ spec:
     - name: grpc
       port: 3478
       targetPort: 3478
+  type: ClusterIP
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: permify-db
   namespace: whatsapp-commerce
+  labels:
+    app: permify-db
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
 spec:
   selector:
     app: permify-db
   ports:
     - port: 5432
       targetPort: 5432
+  type: ClusterIP

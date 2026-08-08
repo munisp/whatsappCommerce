@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - network-policy.yaml
+  - network-policies.yaml
+  - apisix.yaml
+  - ingress.yaml
+  - api-gateway.yaml
+  - platform.yaml
+  - commerce-engine.yaml
+  - ai-agent.yaml
+  - ml-inference-deployment.yaml
+  - ledger-bridge.yaml
+  - tigerbeetle.yaml
+  - recon-worker.yaml
+  - temporal-deployment.yaml
+  - temporal-worker.yaml
+  - permify-deployment.yaml
+  - keycloak.yaml
+  - postgres.yaml
+  - redis.yaml
+  - hermes-router.yaml
+  # monitoring/ requires the Prometheus Operator CRDs (ServiceMonitor,
+  # PrometheusRule). Apply separately:
+  #   kubectl apply -f k8s/monitoring/
