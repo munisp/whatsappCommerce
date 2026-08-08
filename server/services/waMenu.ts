@@ -1,8 +1,18 @@
 /**
- * waMenu.ts — Channel-agnostic conversational menu engine.
+ * waMenu.ts — Channel-agnostic conversational menu engine (runtime).
  *
- * The menu configuration lives in tenants.settings.waMenu (shared contract
- * with the dashboard CRUD side):
+ * SINGLE SOURCE OF TRUTH: the menu contract types, DEFAULT_WA_MENU and the
+ * pure renderer live in shared/waMenu.ts (consumed by the admin preview and
+ * the dashboard menu builder). This module re-exports them and adds the
+ * runtime-only pieces:
+ *   - loadMenuConfig        lenient settings.waMenu merge/sanitize
+ *   - buildMenuEntries      numbered selectable entries (id/kind aware)
+ *   - resolveMenuSelection  numeric reply → entry
+ *   - renderWhatsAppMenu / renderUssdMenu / ussdWrap  channel formatters
+ *   - renderWhatsAppInteractive  button/list rendering for WhatsApp
+ *   - isMenuKeyword         menu re-open keywords
+ *
+ * tenants.settings.waMenu conforms to WaMenuConfig:
  *
  *   waMenu = {
  *     greeting: string,                    // may contain {businessName}
@@ -11,35 +21,27 @@
  *     customItems: Array<{ key: string, label: string, response: string }>,
  *     fallback: "nlp" | "menu"
  *   }
- *
- * Rendering: greeting + numbered list of enabled useCases sorted by `order`,
- * then customItems. A numeric reply selects an entry; unknown input falls back
- * per `fallback` ("nlp" = existing LLM pipeline, "menu" = re-show the menu).
- *
- * The core renderer is plain text; thin formatters adapt it for WhatsApp
- * (free text) and USSD (CON/END prefixes) so both channels share one engine.
  */
+import {
+  DEFAULT_WA_MENU,
+  WA_USE_CASE_IDS,
+  renderWaMenu,
+  type WaMenuConfig,
+  type WaMenuCustomItem,
+  type WaMenuUseCase,
+  type WaUseCaseId,
+} from "../../shared/waMenu";
+import type { SendInteractiveInput } from "./waSender";
 
-export type UseCaseId = "shop" | "track" | "support" | "booking" | "handoff";
+// ── Re-exported shared contract (single source of truth) ────────────────────
+export type { WaMenuConfig, WaMenuCustomItem, WaMenuUseCase };
+export type UseCaseId = WaUseCaseId;
+export { DEFAULT_WA_MENU, renderWaMenu };
+export const USE_CASE_IDS: readonly UseCaseId[] = WA_USE_CASE_IDS;
 
-export interface WaMenuUseCase {
-  id: UseCaseId;
-  label: string;
-  enabled: boolean;
-  order: number;
-}
-
-export interface WaMenuCustomItem {
-  key: string;
-  label: string;
-  response: string;
-}
-
-export interface WaMenuConfig {
-  greeting: string;
-  useCases: WaMenuUseCase[];
-  customItems: WaMenuCustomItem[];
-  fallback: "nlp" | "menu";
+/** Default template used when a tenant has no settings.waMenu configured. */
+export function defaultMenuConfig(): WaMenuConfig {
+  return structuredClone(DEFAULT_WA_MENU);
 }
 
 /** Dynamic values interpolated into the greeting/labels at render time. */
@@ -56,24 +58,6 @@ export interface MenuEntry {
   /** useCase id or customItem key. */
   id: string;
   label: string;
-}
-
-export const USE_CASE_IDS: readonly UseCaseId[] = ["shop", "track", "support", "booking", "handoff"];
-
-/** Default template used when a tenant has no settings.waMenu configured. */
-export function defaultMenuConfig(): WaMenuConfig {
-  return {
-    greeting: "Hello! Welcome to {businessName}. How can we help you today?",
-    useCases: [
-      { id: "shop", label: "Shop / place an order", enabled: true, order: 1 },
-      { id: "track", label: "Track my order", enabled: true, order: 2 },
-      { id: "support", label: "Customer support", enabled: true, order: 3 },
-      { id: "booking", label: "Book an appointment", enabled: true, order: 4 },
-      { id: "handoff", label: "Talk to a human agent", enabled: true, order: 5 },
-    ],
-    customItems: [],
-    fallback: "nlp",
-  };
 }
 
 function isUseCaseId(v: unknown): v is UseCaseId {
@@ -127,7 +111,7 @@ export function loadMenuConfig(
   };
 }
 
-/** Interpolate {businessName} / {openOrders} placeholders. */
+/** Interpolate legacy {businessName} / {openOrders} placeholders. */
 function interpolate(template: string, ctx: MenuDynamicCtx): string {
   return template
     .replace(/\{businessName\}/g, ctx.businessName ?? "our store")
@@ -136,7 +120,8 @@ function interpolate(template: string, ctx: MenuDynamicCtx): string {
 
 /**
  * Build the ordered, selectable menu entries: enabled useCases sorted by
- * `order`, followed by customItems, numbered sequentially from 1.
+ * `order`, followed by customItems, numbered sequentially from 1. The
+ * numbering matches shared renderWaMenu exactly.
  */
 export function buildMenuEntries(config: WaMenuConfig): MenuEntry[] {
   const enabled = config.useCases
@@ -155,18 +140,93 @@ export function buildMenuEntries(config: WaMenuConfig): MenuEntry[] {
   return entries;
 }
 
-/** Core renderer: greeting + numbered list. Channel-agnostic plain text. */
+/**
+ * Core renderer: greeting + numbered list. Delegates to the SHARED pure
+ * renderer (shared/waMenu.ts renderWaMenu) so the runtime menu, the admin
+ * preview and the dashboard draft preview can never drift apart.
+ *
+ * Legacy {businessName}/{openOrders} placeholders in greeting/labels are
+ * interpolated first; when a config still uses the {openOrders} placeholder
+ * the shared renderer's " (N open)" track annotation is suppressed so the
+ * count is never rendered twice.
+ */
 export function renderMenu(config: WaMenuConfig, ctx: MenuDynamicCtx = {}): string {
-  const lines: string[] = [interpolate(config.greeting, ctx), ""];
-  for (const e of buildMenuEntries(config)) {
-    lines.push(`${e.n}. ${interpolate(e.label, ctx)}`);
-  }
-  return lines.join("\n").trimEnd();
+  const businessName = ctx.businessName ?? "our store";
+  const usesOpenOrdersPlaceholder = [
+    config.greeting,
+    ...config.useCases.map((u) => u.label),
+    ...config.customItems.map((c) => c.label),
+  ].some((s) => s.includes("{openOrders}"));
+  const mapped: WaMenuConfig = {
+    ...config,
+    greeting: interpolate(config.greeting, ctx),
+    useCases: config.useCases.map((u) => ({ ...u, label: interpolate(u.label, ctx) })),
+    customItems: config.customItems.map((c) => ({ ...c, label: interpolate(c.label, ctx) })),
+  };
+  return renderWaMenu(mapped, {
+    businessName,
+    openOrderCount: usesOpenOrdersPlaceholder ? undefined : ctx.openOrdersCount ?? undefined,
+  });
 }
 
 /** WhatsApp formatter — core text plus a reply hint. */
 export function renderWhatsAppMenu(config: WaMenuConfig, ctx: MenuDynamicCtx = {}): string {
   return `${renderMenu(config, ctx)}\n\nReply with a number to choose an option.`;
+}
+
+/** Reply id used for an interactive menu entry (button/list row). */
+export function menuEntryReplyId(entry: MenuEntry): string {
+  return `menu_${entry.n}`;
+}
+
+/** Parse an interactive reply id back to its menu entry number (or null). */
+export function parseMenuEntryReplyId(id: string): number | null {
+  const m = /^menu_(\d{1,2})$/.exec(id.trim());
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/**
+ * Interactive WhatsApp rendering of the menu:
+ *   ≤3 enabled entries → reply buttons
+ *   ≤10                → a single-section list
+ *   more               → null (caller falls back to the numbered text menu)
+ *
+ * Returns a SendInteractiveInput ready for sendWhatsAppInteractive; the
+ * button/row ids are `menu_<n>` so interactive replies resolve through the
+ * SAME resolveMenuSelection path as numeric text replies.
+ */
+export function renderWhatsAppInteractive(
+  config: WaMenuConfig,
+  ctx: MenuDynamicCtx = {},
+): SendInteractiveInput | null {
+  const entries = buildMenuEntries(config);
+  if (entries.length === 0 || entries.length > 10) return null;
+  const bodyText = interpolate(config.greeting, ctx);
+  const footerText = "Tap an option, or reply with its number.";
+  if (entries.length <= 3) {
+    return {
+      bodyText,
+      footerText,
+      action: {
+        type: "button",
+        buttons: entries.map((e) => ({ id: menuEntryReplyId(e), title: interpolate(e.label, ctx) })),
+      },
+    };
+  }
+  return {
+    bodyText,
+    footerText,
+    action: {
+      type: "list",
+      buttonLabel: "View options",
+      sections: [
+        {
+          title: ctx.businessName ?? "Menu",
+          rows: entries.map((e) => ({ id: menuEntryReplyId(e), title: interpolate(e.label, ctx) })),
+        },
+      ],
+    },
+  };
 }
 
 /**
@@ -198,7 +258,7 @@ export function resolveMenuSelection(config: WaMenuConfig, input: string): MenuE
 }
 
 /** Keywords that always re-open the menu. */
-const MENU_KEYWORDS = new Set(["menu", "hi", "hello", "start", "restart", "help"]);
+const MENU_KEYWORDS = new Set(["menu", "hi", "hello", "start", "restart", "help", "catalog"]);
 
 export function isMenuKeyword(text: string): boolean {
   return MENU_KEYWORDS.has(text.trim().toLowerCase());
