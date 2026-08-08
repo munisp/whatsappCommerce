@@ -9,8 +9,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 const sendWhatsAppTextMock = vi.fn(async () => ({ sent: true, simulated: false, wamids: [], chunks: 1 }));
+const sendWhatsAppMediaMock = vi.fn(async () => ({ sent: true, simulated: false, wamid: "wamid.media" }));
 vi.mock("./services/waSender", () => ({
   sendWhatsAppText: (...args: any[]) => sendWhatsAppTextMock(...args),
+  sendWhatsAppMedia: (...args: any[]) => sendWhatsAppMediaMock(...args),
 }));
 
 vi.mock("./redis", () => ({ getRedis: vi.fn(async () => null) }));

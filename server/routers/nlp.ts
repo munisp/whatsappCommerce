@@ -491,6 +491,7 @@ export const nlpRouter = router({
         currency: products.currency,
         stockQuantity: products.stockQuantity,
         description: products.description,
+        imageUrl: products.imageUrl,
       }).from(products)
         .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")))
         .limit(30);
@@ -517,6 +518,10 @@ export const nlpRouter = router({
           let stepIntent = "checkout_fulfillment";
           let nextState = "checkout_confirm";
           const activeCartId: string = cartSession.id;
+          // Rich follow-up annotation: set when this turn creates an order —
+          // the webhook delivers an interactive order action card after the
+          // payment summary.
+          let stepOrderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
 
           const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
             const order = await createChatOrder(db, {
@@ -540,6 +545,7 @@ export const nlpRouter = router({
             stepCtx.lastOrderNumber = order.orderNumber;
             nextState = "payment";
             stepIntent = "confirm_order";
+            stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
             return buildOrderSummary({
               fulfillment,
               orderNumber: order.orderNumber!,
@@ -618,6 +624,7 @@ export const nlpRouter = router({
             language: session.language,
             sessionId: session.id,
             confidence: 1,
+            orderCard: stepOrderCard,
           };
         }
       }
@@ -762,6 +769,8 @@ export const nlpRouter = router({
 
       // 6. Act on intent
       const ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+      // Rich follow-up annotations for the webhook delivery layer.
+      let orderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
 
       if (llmResult.intent === "add_to_cart") {
         // Multi-item support: the LLM returns extractedItems[] for messages like
@@ -878,6 +887,7 @@ export const nlpRouter = router({
             } else if (order.created) {
               ctx.lastOrderId = order.orderId;
               ctx.lastOrderNumber = order.orderNumber;
+              orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
               llmResult.reply = buildOrderSummary({
                 fulfillment,
                 orderNumber: order.orderNumber!,
@@ -898,6 +908,27 @@ export const nlpRouter = router({
 
       if (llmResult.extractedAddress) {
         ctx.deliveryAddress = llmResult.extractedAddress;
+      }
+
+      // 6b. Product image card — on a single-product query (search/browse or
+      // a product_detail turn), annotate the best-match catalog image so the
+      // webhook can deliver it as an image card.
+      let productImage: { link: string; caption: string } | undefined;
+      const productQuery = llmResult.extractedProduct?.trim();
+      if (
+        productQuery &&
+        (llmResult.intent === "search" || llmResult.intent === "browse" || llmResult.nextState === "product_detail")
+      ) {
+        const q = productQuery.toLowerCase();
+        const match =
+          tenantProducts.find((p) => p.name.toLowerCase() === q) ??
+          tenantProducts.find((p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
+        if (match?.imageUrl) {
+          productImage = {
+            link: match.imageUrl,
+            caption: `${match.name} — ${fmtMoney(Number(match.price), match.currency)}`,
+          };
+        }
       }
 
       // 7. Update session
@@ -934,6 +965,8 @@ export const nlpRouter = router({
         language: session.language,
         sessionId: session.id,
         confidence: llmResult.confidence ?? 0,
+        orderCard,
+        productImage,
       };
     }),
 
