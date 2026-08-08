@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { paymentGatewayConfigs, paymentTransactions, orders } from "../../drizzle/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -143,9 +143,12 @@ export const paymentGatewayRouter = router({
   // Get gateway config for a tenant
   getConfig: protectedProcedure
     .input(z.object({ tenantId: z.string(), provider: z.string().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      // Tenant isolation: gateway configs (even with masked secrets) are
+      // tenant-private.
+      assertTenantAccess(ctx.user, input.tenantId);
       const conditions = [eq(paymentGatewayConfigs.tenantId, input.tenantId)];
       if (input.provider) conditions.push(eq(paymentGatewayConfigs.provider, input.provider));
       const rows = await db.select().from(paymentGatewayConfigs)
@@ -165,9 +168,12 @@ export const paymentGatewayRouter = router({
       customerName: z.string().default("WhatsApp Buyer"),
       customerPhone: z.string().default("+2340000000000"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Tenant isolation: payments may only be initiated for the caller's own
+      // tenant.
+      assertTenantAccess(ctx.user, input.tenantId);
 
       // Fetch order
       const [order] = await db.select().from(orders)
@@ -256,9 +262,11 @@ export const paymentGatewayRouter = router({
       transactionId: z.string(),
       providerRef: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Tenant isolation: only the owning tenant (or an admin) may verify.
+      assertTenantAccess(ctx.user, input.tenantId);
       const [tx] = await db.select().from(paymentTransactions)
         .where(and(
           eq(paymentTransactions.id, input.transactionId),
@@ -350,9 +358,10 @@ export const paymentGatewayRouter = router({
       status: z.string().optional(),
       limit: z.number().default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      assertTenantAccess(ctx.user, input.tenantId);
       const conditions = [eq(paymentTransactions.tenantId, input.tenantId)];
       if (input.status) conditions.push(eq(paymentTransactions.status, input.status));
       return db.select().from(paymentTransactions)
@@ -369,9 +378,10 @@ export const paymentGatewayRouter = router({
       rawBody: z.string(),
       signature: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      assertTenantAccess(ctx.user, input.tenantId);
       const [config] = await db.select().from(paymentGatewayConfigs)
         .where(and(
           eq(paymentGatewayConfigs.tenantId, input.tenantId),

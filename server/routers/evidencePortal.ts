@@ -207,7 +207,10 @@ export async function handleSubmitEvidence(
   let fileKey: string | null = null;
 
   if (fileBuffer && filename && mimeType) {
-    const key = `evidence/${tokenRecord.disputeId}/${crypto.randomUUID()}-${filename}`;
+    // Strip path components from the client-supplied filename (header) so the
+    // storage key always stays under its dispute-scoped prefix.
+    const safeFilename = filename.replace(/[/\\]/g, "_").replace(/^\.+/, "_").slice(0, 255);
+    const key = `evidence/${tokenRecord.disputeId}/${crypto.randomUUID()}-${safeFilename}`;
     const result = await storagePut(key, fileBuffer, mimeType);
     fileUrl = result.url;
     fileKey = result.key;

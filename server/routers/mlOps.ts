@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { paymentTransactions, modelAbTests, datasetSnapshots, agentEvents, orders } from "../../drizzle/schema";
 import { desc, gte, sql, eq } from "drizzle-orm";
@@ -9,6 +10,23 @@ import { load as yamlLoad } from "js-yaml";
 import { spawn } from "child_process";
 
 const MLRUNS_DIR = path.join(process.cwd(), "services/ml-stack/mlruns");
+
+/**
+ * Path-traversal guard: an experimentId is only ever a single safe path
+ * segment (MLflow experiment ids are numeric; we also allow alphanumerics,
+ * dash and underscore for named dirs). Anything else (".", "..", slashes,
+ * backslashes) is rejected BEFORE touching the filesystem, so a crafted
+ * experimentId can never escape MLRUNS_DIR.
+ */
+function assertSafeExperimentId(experimentId: string): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(experimentId)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid experimentId" });
+  }
+  const resolved = path.resolve(MLRUNS_DIR, experimentId);
+  if (resolved !== MLRUNS_DIR && !resolved.startsWith(MLRUNS_DIR + path.sep)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid experimentId" });
+  }
+}
 
 // ─── MLflow file reader helpers ───────────────────────────────────────────────
 
@@ -123,6 +141,7 @@ export const mlOpsRouter = router({
   getMlflowRuns: protectedProcedure
     .input(z.object({ experimentId: z.string() }))
     .query(async ({ input }) => {
+      assertSafeExperimentId(input.experimentId);
       return getRunsForExperiment(input.experimentId);
     }),
 
@@ -296,6 +315,7 @@ export const mlOpsRouter = router({
   getMetricHistory: protectedProcedure
     .input(z.object({ experimentId: z.string() }))
     .query(async ({ input }) => {
+      assertSafeExperimentId(input.experimentId);
       const runs = getRunsForExperiment(input.experimentId);
       // Collect all metric names across runs
      const allMetrics = new Set<string>();

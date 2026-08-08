@@ -67,7 +67,10 @@ function getKeycloakJWKS() {
  * enforcing the issuer and expiry. Returns null when Keycloak is not
  * configured or the token fails verification.
  */
-async function verifyKeycloakBearerToken(
+// Exported for direct unit-testing of the JWT validation policy
+// (server/jwtStructure.test.ts). Production code goes through
+// sdk.authenticateRequest.
+export async function verifyKeycloakBearerToken(
   token: string
 ): Promise<KeycloakTokenClaims | null> {
   const jwks = getKeycloakJWKS();
