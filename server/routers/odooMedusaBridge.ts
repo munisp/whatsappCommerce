@@ -22,87 +22,67 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   odooMedusaInventoryBridge,
-  tenantIntegrations,
 } from "../../drizzle/schema";
+import {
+  getMedusaIntegrationConfig,
+  getOdooIntegrationConfig,
+  odooAuthenticate,
+  odooExecuteKw,
+} from "../services/integrationSync";
 
 function getTenantId(ctx: { user: { tenantId?: string | null } }): string {
   return ctx.user?.tenantId ?? "default";
 }
 
-// ── Integration config helpers ────────────────────────────────────────────────
-async function getOdooConfig(tenantId: string) {
-  const db = await getDb();
-  if (!db) return null;
-  const [row] = await db.select({
-    baseUrl: tenantIntegrations.baseUrl,
-    apiKey: tenantIntegrations.apiKey,
-    config: tenantIntegrations.config,
-    status: tenantIntegrations.status,
-  }).from(tenantIntegrations)
-    .where(and(
-      eq(tenantIntegrations.tenantId, tenantId),
-      eq(tenantIntegrations.integrationType, "odoo_erp"),
-    ))
-    .limit(1);
-  return row ?? null;
+/**
+ * Bridge mutations write inventory mappings and push stock levels to external
+ * systems, so they are restricted to platform admins and members of the
+ * tenant (the procedures always operate on the caller's own tenant; this
+ * blocks the anonymous "default" fallback for non-admins).
+ */
+function assertBridgeAccess(ctx: { user: { role: string; tenantId?: string | null } }) {
+  if (ctx.user.role === "admin") return;
+  if (!ctx.user.tenantId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only tenant members or admins can manage the Odoo↔Medusa bridge",
+    });
+  }
 }
 
-async function getMedusaConfig(tenantId: string) {
-  const db = await getDb();
-  if (!db) return null;
-  const [row] = await db.select({
-    baseUrl: tenantIntegrations.baseUrl,
-    apiKey: tenantIntegrations.apiKey,
-    status: tenantIntegrations.status,
-  }).from(tenantIntegrations)
-    .where(and(
-      eq(tenantIntegrations.tenantId, tenantId),
-      eq(tenantIntegrations.integrationType, "medusa"),
-    ))
-    .limit(1);
-  return row ?? null;
-}
+// ── Integration config helpers ────────────────────────────────────────────────
+// Odoo credentials come from odoo_integrations (the single source of truth,
+// shared with odoo.ts / integrationSync.ts); Medusa credentials come from
+// tenant_integrations ("medusa") with the MEDUSA_* env vars as bootstrap
+// fallback.  Both resolvers live in services/integrationSync.ts.
+const getOdooConfig = getOdooIntegrationConfig;
+const getMedusaConfig = getMedusaIntegrationConfig;
 
 // ── Odoo stock fetch (JSON-RPC) ───────────────────────────────────────────────
 async function fetchOdooStockQuants(
-  baseUrl: string,
-  apiKey: string,
-  config: Record<string, unknown>,
+  cfg: { baseUrl: string; database: string; username: string; apiKey: string },
 ): Promise<Array<{ odooProductId: string; productName: string; sku: string; qty: number; reservedQty: number; warehouse: string }>> {
   try {
-    const base = baseUrl.replace(/\/$/, "");
-    const db = (config.database as string) ?? "odoo";
-    const uid = (config.uid as number) ?? 1;
-    const res = await fetch(`${base}/web/dataset/call_kw`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0", method: "call", id: 1,
-        params: {
-          model: "stock.quant",
-          method: "search_read",
-          args: [[["location_id.usage", "=", "internal"]]],
-          kwargs: {
-            fields: ["product_id", "quantity", "reserved_quantity", "location_id"],
-            limit: 500,
-            context: { lang: "en_US", uid, active_test: true },
-          },
-          kwargs_: { db, uid, password: apiKey },
-        },
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Odoo stock fetch failed (${res.status}): ${body.slice(0, 300)}`);
-    }
-    const data = await res.json() as { result?: Array<{ product_id: [number, string]; quantity: number; reserved_quantity: number; location_id: [number, string] }> };
-    return (data.result ?? []).map(q => ({
-      odooProductId: String(q.product_id[0]),
-      productName: q.product_id[1] ?? "Unknown",
+    const uid = await odooAuthenticate(cfg);
+    const rows = await odooExecuteKw(
+      cfg,
+      uid,
+      "stock.quant",
+      "search_read",
+      [[["location_id.usage", "=", "internal"]]],
+      {
+        fields: ["product_id", "quantity", "reserved_quantity", "location_id"],
+        limit: 500,
+        context: { lang: "en_US", uid, active_test: true },
+      },
+    );
+    return (Array.isArray(rows) ? rows : []).map((q: any) => ({
+      odooProductId: String(q.product_id?.[0] ?? ""),
+      productName: q.product_id?.[1] ?? "Unknown",
       sku: "",
       qty: q.quantity ?? 0,
       reservedQty: q.reserved_quantity ?? 0,
-      warehouse: q.location_id[1] ?? "default",
+      warehouse: q.location_id?.[1] ?? "default",
     }));
   } catch (err: any) {
     console.error("[OdooMedusaBridge] fetchOdooStockQuants failed:", err?.message ?? err);
@@ -184,6 +164,7 @@ export const odooMedusaBridgeRouter = router({
       syncDirection: z.enum(["odoo_to_medusa", "medusa_to_odoo", "bidirectional"]).default("odoo_to_medusa"),
     }))
     .mutation(async ({ ctx, input }) => {
+      assertBridgeAccess(ctx);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const tenantId = getTenantId(ctx);
@@ -233,6 +214,7 @@ export const odooMedusaBridgeRouter = router({
    * 3. Record results
    */
   syncOdooToMedusa: protectedProcedure.mutation(async ({ ctx }) => {
+    assertBridgeAccess(ctx);
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
     const tenantId = getTenantId(ctx);
@@ -242,8 +224,8 @@ export const odooMedusaBridgeRouter = router({
       getMedusaConfig(tenantId),
     ]);
 
-    const hasOdoo = odooConfig?.status === "active" && odooConfig.baseUrl && odooConfig.apiKey;
-    const hasMedusa = medusaConfig?.status === "active" && medusaConfig.baseUrl && medusaConfig.apiKey;
+    const hasOdoo = !!(odooConfig?.baseUrl && odooConfig?.apiKey);
+    const hasMedusa = !!(medusaConfig?.baseUrl && medusaConfig?.adminApiKey);
 
     // Get all bridge mappings for this tenant
     const mappings = await db.select().from(odooMedusaInventoryBridge)
@@ -258,11 +240,7 @@ export const odooMedusaBridgeRouter = router({
 
     if (hasOdoo) {
       // Fetch real Odoo stock
-      const quants = await fetchOdooStockQuants(
-        odooConfig!.baseUrl!,
-        odooConfig!.apiKey!,
-        (odooConfig!.config as Record<string, unknown>) ?? {},
-      );
+      const quants = await fetchOdooStockQuants(odooConfig!);
 
       for (const mapping of mappings) {
         const quant = quants.find(q => q.odooProductId === mapping.odooProductId);
@@ -285,8 +263,8 @@ export const odooMedusaBridgeRouter = router({
         // Push to Medusa if we have a mapping
         if (mapping.medusaInventoryItemId && hasMedusa) {
           const ok = await updateMedusaInventoryLevel(
-            medusaConfig!.baseUrl!,
-            medusaConfig!.apiKey!,
+            medusaConfig!.baseUrl,
+            medusaConfig!.adminApiKey!,
             mapping.medusaInventoryItemId,
             availableQty,
           );
@@ -316,10 +294,8 @@ export const odooMedusaBridgeRouter = router({
       // Odoo is unreachable or unconfigured: return a structured error status
       // and DO NOT write any inventory quantities to the database.
       const reason = !odooConfig
-        ? "Odoo integration is not configured for this tenant"
-        : odooConfig.status !== "active"
-          ? `Odoo integration status is '${odooConfig.status}' (expected 'active')`
-          : "Odoo integration is missing baseUrl or apiKey";
+        ? "NOT_CONFIGURED: Odoo integration is not configured for this tenant (odoo_integrations)"
+        : "Odoo integration is missing baseUrl or apiKey";
       console.warn(`[OdooMedusaBridge] syncOdooToMedusa aborted: ${reason}`);
       return {
         synced: 0,
