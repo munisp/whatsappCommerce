@@ -1,4 +1,6 @@
 import { z } from "zod";
+import crypto from "crypto";
+import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { getDb } from "../db";
@@ -7,7 +9,7 @@ import { randomUUID } from "crypto";
 
 export const mobileMoneyRouter = router({
   // ── Initiate MoMo Payment ────────────────────────────────────────────────
-  initiate: publicProcedure
+  initiate: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
       orderId: z.string().optional(),
@@ -32,6 +34,10 @@ export const mobileMoneyRouter = router({
     }),
 
   // ── Webhook: Provider Callback ───────────────────────────────────────────
+  // Public (providers call it), but authenticated via HMAC: the provider signs
+  // `${externalRef}:${status}` with MOBILE_MONEY_WEBHOOK_SECRET and sends the
+  // hex digest in the X-Callback-Signature header (MTN/Airtel style). Fails
+  // CLOSED in production when the secret is unset.
   handleCallback: publicProcedure
     .input(z.object({
       externalRef: z.string(),
@@ -39,10 +45,35 @@ export const mobileMoneyRouter = router({
       providerResponse: z.record(z.string(), z.unknown()).optional(),
       callbackPayload: z.record(z.string(), z.unknown()).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const secret = process.env.MOBILE_MONEY_WEBHOOK_SECRET ?? "";
+      if (!secret) {
+        if (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging") {
+          console.error("[mobileMoney] MOBILE_MONEY_WEBHOOK_SECRET is not configured — refusing callback (fail closed)");
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "webhook-secret-not-configured" });
+        }
+        console.warn("[mobileMoney] MOBILE_MONEY_WEBHOOK_SECRET unset — accepting UNSIGNED callback (non-production mode)");
+      } else {
+        const sig = ((ctx.req.headers["x-callback-signature"] as string) ?? "").replace(/^sha256=/, "");
+        const expected = crypto.createHmac("sha256", secret)
+          .update(`${input.externalRef}:${input.status}`)
+          .digest("hex");
+        const a = Buffer.from(sig, "utf8");
+        const b = Buffer.from(expected, "utf8");
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+          console.warn(`[mobileMoney] invalid callback signature for externalRef=${input.externalRef} — rejected`);
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "invalid-signature" });
+        }
+      }
+
       const [txn] = await db.select().from(mobileMoneyTransactions).where(eq(mobileMoneyTransactions.externalRef, input.externalRef));
       if (!txn) return { ok: false, error: "Transaction not found" };
+      // Idempotency / final-state guard: successful and refunded are terminal,
+      // and a duplicate delivery of the same status is a no-op.
+      if (txn.status === "successful" || txn.status === "refunded" || txn.status === input.status) {
+        return { ok: true, skipped: true, status: txn.status, orderId: txn.orderId };
+      }
       await db.update(mobileMoneyTransactions).set({
         status: input.status,
         providerResponse: input.providerResponse ?? {},

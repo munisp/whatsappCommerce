@@ -41,13 +41,34 @@ async function ledgerRequest(path: string, method = "GET", body?: unknown) {
 // ── Redis idempotency helper ──────────────────────────────────────────────────
 
 async function acquireIdempotencyLock(key: string, ttlSeconds = 300): Promise<boolean> {
+  // Fail CLOSED in production: without Redis there is no duplicate-initiation
+  // protection, and a fail-open lock means double charges. Degrade (with a loud
+  // warning) only outside production.
+  const failClosed = () => {
+    if (process.env.NODE_ENV === "production") {
+      console.error("[payment] Redis unavailable — refusing payment initiation (idempotency fail-closed)");
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Payment service temporarily unavailable (idempotency store down). Please retry shortly.",
+      });
+    }
+    console.warn("[payment] Redis UNAVAILABLE — proceeding WITHOUT idempotency protection (non-production mode)");
+    return true;
+  };
+
+  let redis: Awaited<ReturnType<typeof getRedis>>;
   try {
-    const redis = await getRedis();
-    if (!redis) return true;
+    redis = await getRedis();
+  } catch {
+    return failClosed();
+  }
+  if (!redis) return failClosed();
+  try {
     const result = await redis.set(`idempotency:${key}`, "1", "EX", ttlSeconds, "NX");
     return result === "OK";
-  } catch {
-    return true;
+  } catch (err: any) {
+    console.warn("[payment] Redis error while acquiring idempotency lock:", err?.message);
+    return failClosed();
   }
 }
 
@@ -147,7 +168,35 @@ export const paymentRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       }
 
+      let ledgerPendingId: string | null = null;
       try {
+        // Step 1.5: Reuse-or-clear any existing intent for this idempotency key.
+        // The unique constraint on idempotencyKey would otherwise permanently
+        // block retrying an order whose first attempt failed.
+        const [existing] = await database.select().from(paymentIntents)
+          .where(eq(paymentIntents.idempotencyKey, idempotencyKey)).limit(1);
+        if (existing) {
+          if (existing.status === "completed" || existing.status === "initiated") {
+            // Idempotent replay: return the existing in-flight/completed intent.
+            const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
+            await releaseIdempotencyLock(idempotencyKey);
+            return {
+              paymentIntentId: existing.id,
+              reference: existing.providerPaymentId,
+              paymentUrl: (meta.paymentUrl as string | undefined) ?? null,
+              status: existing.status,
+              sagaWorkflowId: null,
+              tbDebitOk: !!existing.ledgerPendingId,
+              idempotentReplay: true,
+            };
+          }
+          // pending/failed/cancelled/refunded — the previous attempt never
+          // reached (or failed at) the provider. Delete it so the retry can
+          // insert a fresh row under the same idempotency key.
+          await database.delete(paymentIntents)
+            .where(and(eq(paymentIntents.id, existing.id), eq(paymentIntents.idempotencyKey, idempotencyKey)));
+        }
+
         // Step 2: Create payment intent in DB (pending)
         const reference = `PAY-${Date.now()}-${paymentIntentId.slice(0, 8).toUpperCase()}`;
         await database.insert(paymentIntents).values({
@@ -169,20 +218,39 @@ export const paymentRouter = router({
           updatedAt: new Date(),
         });
 
-        // Step 3: TigerBeetle — debit customer escrow account
-        let tbDebitOk = false;
+        // Step 3: Ledger 2-phase commit — RESERVE the funds BEFORE the provider
+        // charge. A ledger failure is a PAYMENT failure (no silent success with
+        // zero ledger entries): the intent is marked failed with a ledger_failed
+        // reason and the error is surfaced to the caller.
         try {
-          await ledgerRequest("/transfer", "POST", {
+          const reserveRes = (await ledgerRequest("/transfer", "POST", {
             debit_account_id: `customer:${input.customerId ?? input.customerPhone}`,
             credit_account_id: `escrow:${input.tenantId}`,
             amount: Math.round(input.amount * 100),
             ledger: 1,
             code: 1,
-          });
-          tbDebitOk = true;
-        } catch (tbErr: any) {
-          console.warn("[payment] TigerBeetle debit failed, continuing:", tbErr.message);
+            idempotency_key: idempotencyKey,
+          })) as Record<string, unknown>;
+          ledgerPendingId =
+            (reserveRes.pending_id as string | undefined) ??
+            (reserveRes.transfer_id as string | undefined) ??
+            (reserveRes.id as string | undefined) ??
+            null;
+        } catch (ledgerErr: any) {
+          const reason = `ledger_failed: ${ledgerErr?.message ?? "reserve failed"}`;
+          console.error("[payment] Ledger reserve failed — failing payment initiation:", reason);
+          await database.update(paymentIntents)
+            .set({ status: "failed", failureReason: reason, updatedAt: new Date() })
+            .where(eq(paymentIntents.id, paymentIntentId))
+            .catch(() => {});
+          throw new Error(reason);
         }
+        if (ledgerPendingId) {
+          await database.update(paymentIntents)
+            .set({ ledgerPendingId, updatedAt: new Date() })
+            .where(eq(paymentIntents.id, paymentIntentId));
+        }
+        const tbDebitOk = true;
 
         // Step 4: Start Temporal saga
         const sagaWorkflowId = `payment-saga-${paymentIntentId}`;
@@ -276,7 +344,16 @@ export const paymentRouter = router({
           sagaWorkflowId: sagaResult.started ? sagaWorkflowId : null, tbDebitOk };
 
       } catch (err: any) {
-        // Compensation: mark payment as failed
+        // Compensation: void the ledger reservation (2-phase rollback) if one
+        // was taken, then mark the payment as failed. The failed row is KEPT
+        // for audit; a retry deletes/reuses it (see Step 1.5).
+        if (ledgerPendingId) {
+          try {
+            await ledgerRequest("/ledger/void", "POST", { pending_id: ledgerPendingId });
+          } catch (voidErr: any) {
+            console.error(`[payment] Ledger void failed for pending_id=${ledgerPendingId} — needs reconciliation:`, voidErr?.message);
+          }
+        }
         try {
           await database.update(paymentIntents)
             .set({ status: "failed", failureReason: err.message, updatedAt: new Date() })
@@ -311,30 +388,75 @@ export const paymentRouter = router({
 
       const newStatus = input.providerStatus === "success" ? "completed" : "failed";
 
-      // TigerBeetle: credit merchant on success, reverse on failure
+      // Ledger 2-phase settlement:
+      //  - success → COMMIT the reserved transfer (POST /ledger/commit)
+      //  - failure → VOID the reservation (POST /ledger/void)
+      // A commit failure means the payment is NOT confirmed — it is surfaced
+      // as an error, never silently swallowed.
       if (newStatus === "completed") {
-        try {
-          await ledgerRequest("/transfer", "POST", {
-            debit_account_id: `escrow:${intent.tenantId}`,
-            credit_account_id: `merchant:${intent.tenantId}`,
-            amount: Math.round(parseFloat(intent.amount) * 100),
-            ledger: 1, code: 2,
-          });
-        } catch (tbErr: any) { console.warn("[payment.confirm] TB credit failed:", tbErr.message); }
+        if (intent.ledgerPendingId) {
+          try {
+            await ledgerRequest("/ledger/commit", "POST", { pending_id: intent.ledgerPendingId });
+          } catch (commitErr: any) {
+            const reason = `ledger_commit_failed: ${commitErr?.message ?? "unknown"}`;
+            console.error(`[payment.confirm] Ledger commit failed for pending_id=${intent.ledgerPendingId}:`, commitErr?.message);
+            await database.update(paymentIntents)
+              .set({ failureReason: reason, updatedAt: new Date() })
+              .where(eq(paymentIntents.id, intent.id))
+              .catch(() => {});
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Ledger commit failed — payment NOT confirmed: ${commitErr?.message ?? "unknown"}`,
+            });
+          }
+        } else {
+          // Legacy intent without a reservation — settle via direct transfer.
+          try {
+            await ledgerRequest("/transfer", "POST", {
+              debit_account_id: `escrow:${intent.tenantId}`,
+              credit_account_id: `merchant:${intent.tenantId}`,
+              amount: Math.round(parseFloat(intent.amount) * 100),
+              ledger: 1, code: 2,
+              idempotency_key: `settle:${intent.id}`,
+            });
+          } catch (settleErr: any) {
+            const reason = `ledger_failed: ${settleErr?.message ?? "settlement transfer failed"}`;
+            console.error("[payment.confirm] Ledger settlement failed — payment NOT confirmed:", settleErr?.message);
+            await database.update(paymentIntents)
+              .set({ failureReason: reason, updatedAt: new Date() })
+              .where(eq(paymentIntents.id, intent.id))
+              .catch(() => {});
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Ledger settlement failed — payment NOT confirmed: ${settleErr?.message ?? "unknown"}`,
+            });
+          }
+        }
       } else {
-        const intentMeta = (intent.metadata as Record<string, unknown> | null) ?? {};
-        const customerPhone = (intentMeta.customerPhone as string | undefined) ?? intent.customerId;
-        try {
-          await ledgerRequest("/transfer", "POST", {
-            debit_account_id: `escrow:${intent.tenantId}`,
-            credit_account_id: `customer:${customerPhone}`,
-            amount: Math.round(parseFloat(intent.amount) * 100),
-            ledger: 1, code: 3,
-          });
-        } catch { /* best effort reversal */ }
+        if (intent.ledgerPendingId) {
+          try {
+            await ledgerRequest("/ledger/void", "POST", { pending_id: intent.ledgerPendingId });
+          } catch (voidErr: any) {
+            console.error(`[payment.confirm] Ledger void failed for pending_id=${intent.ledgerPendingId} — needs reconciliation:`, voidErr?.message);
+          }
+        } else {
+          // Legacy intent without a reservation — best-effort reversal.
+          const intentMeta = (intent.metadata as Record<string, unknown> | null) ?? {};
+          const customerPhone = (intentMeta.customerPhone as string | undefined) ?? intent.customerId;
+          try {
+            await ledgerRequest("/transfer", "POST", {
+              debit_account_id: `escrow:${intent.tenantId}`,
+              credit_account_id: `customer:${customerPhone}`,
+              amount: Math.round(parseFloat(intent.amount) * 100),
+              ledger: 1, code: 3,
+              idempotency_key: `reversal:${intent.id}`,
+            });
+          } catch { /* best effort reversal */ }
+        }
       }
 
-      await database.update(paymentIntents)
+      // Guarded transition — a concurrent confirm must not double-commit.
+      const transitioned = await database.update(paymentIntents)
         .set({
           status: newStatus,
           metadata: {
@@ -345,7 +467,17 @@ export const paymentRouter = router({
           completedAt: newStatus === "completed" ? new Date() : null,
           updatedAt: new Date(),
         })
-        .where(eq(paymentIntents.id, intent.id));
+        .where(and(
+          eq(paymentIntents.id, intent.id),
+          sql`${paymentIntents.status} NOT IN ('completed', 'failed')`,
+        ))
+        .returning({ id: paymentIntents.id });
+      if (transitioned.length === 0) {
+        // Lost a race with a concurrent confirm — report the row's actual state.
+        const [current] = await database.select({ status: paymentIntents.status })
+          .from(paymentIntents).where(eq(paymentIntents.id, intent.id)).limit(1);
+        return { ok: true, skipped: true, status: current?.status ?? "completed" };
+      }
 
       const eventTopic = newStatus === "completed" ? "payment.completed" : "payment.failed";
       await publishPaymentEvent(eventTopic, {
@@ -392,7 +524,7 @@ export const paymentRouter = router({
       } catch (err: any) { ledgerError = err.message; }
 
       const drift = Math.abs(dbSum - ledgerBalance);
-      if (!drift && drift > 100) {
+      if (drift > 100) {
         await daprPublish("whatsapp-pubsub", "wacommerce.alerts.ledger.drift.detected", {
           tenantId: input.tenantId, accountId: input.accountId, dbSum, ledgerBalance, drift,
           timestamp: new Date().toISOString(),
