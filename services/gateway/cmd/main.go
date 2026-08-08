@@ -160,8 +160,15 @@ r.GET("/ready", func(c *gin.Context) {
 c.JSON(http.StatusOK, gin.H{"status": "ready"})
 })
 
+// Share the internal API key with the proxy so upstream services can verify
+// that requests traversed the authenticated gateway.
+proxy.SetInternalAPIKey(cfg.InternalAPIKey)
+
+// All /internal/* endpoints require the X-Internal-Token shared secret.
+internalAuth := middleware.InternalTokenAuth(cfg, logger)
+
 // OpenAppSec WAF event ingestion (called by OpenAppSec agent sidecar)
-r.POST("/internal/waf/events", middleware.OpenAppSecEventHandler(
+r.POST("/internal/waf/events", internalAuth, middleware.OpenAppSecEventHandler(
 middleware.OpenAppSecConfig{
 Enabled:        cfg.OpenAppSec.Enabled,
 SharedSecret:   cfg.OpenAppSec.SharedSecret,
@@ -173,7 +180,7 @@ logger,
 
 // Internal event ingestion — services without a Fluvio client publish
 // order/payment domain events through the gateway's producer.
-events := r.Group("/internal/events")
+events := r.Group("/internal/events", internalAuth)
 {
 events.POST("/orders", fluvioEventHandler(eventProducer, "order"))
 events.POST("/payments", fluvioEventHandler(eventProducer, "payment"))
@@ -191,9 +198,22 @@ webhooks.POST("/flutterwave", proxy.ForwardTo(cfg.Services.PaymentOrchestrator))
 webhooks.POST("/shipbubble", proxy.ForwardTo(cfg.Services.PaymentOrchestrator))
 }
 
-// Authenticated API — Keycloak JWT + Permify ReBAC
+// Authenticated API — Keycloak JWT (JWKS/RS256) + Permify ReBAC.
+// The legacy HS256 JWTAuth is only a development fallback; in production
+// Keycloak must be configured or the gateway refuses to start.
 api := r.Group("/api/v1")
+switch {
+case cfg.Keycloak.Enabled:
+logger.Info("api auth: keycloak JWKS (RS256)",
+zap.String("issuer", cfg.Keycloak.URL+"/realms/"+cfg.Keycloak.Realm),
+zap.Bool("audience_check", cfg.Keycloak.Audience != ""))
+api.Use(middleware.KeycloakJWTAuth(cfg, logger))
+case cfg.Env != "production":
+logger.Warn("api auth: legacy HS256 JWT (DEV ONLY — set KEYCLOAK_URL for Keycloak JWKS auth)")
 api.Use(middleware.JWTAuth(cfg))
+default:
+logger.Fatal("KEYCLOAK_URL must be set in production; refusing to mount insecure legacy HS256 JWT auth")
+}
 {
 // Conversations
 api.GET("/conversations", middleware.RequirePermify("tenant", "view", ""), proxy.ForwardTo(cfg.Services.ConversationOrchestrator))
