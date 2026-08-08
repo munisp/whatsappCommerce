@@ -1,0 +1,191 @@
+# E2E test stack — minimal, ephemeral, self-contained.
+#
+#   docker compose -f tests/e2e/docker-compose.test.yml -p wc-e2e up --build
+#
+# All host ports are EPHEMERAL ("5432" without a host side ⇒ Docker picks a
+# free port); scripts/run-e2e.sh resolves them with `docker compose port` and
+# exports PLATFORM_URL / DATABASE_URL / … for the vitest suite. Nothing here
+# requires a sibling checkout, a volume, or a secret store.
+#
+# Services:
+#   postgres / redis           — platform state + idempotency locks
+#   tb-sidecar                 — in-memory TigerBeetle HTTP double
+#                                (tests/e2e/fixtures/tb-sidecar.mjs) speaking the
+#                                /api/v1 contract of rust/ledger-bridge TbClient
+#   ledger-bridge              — canonical 2-phase ledger; LEDGER_ALLOW_INMEMORY=true
+#                                keeps payment.initiate alive even if a sidecar
+#                                call fails
+#   recon-worker               — POST /recon/trigger target
+#   commerce-engine            — gateway upstream for the proxy pins
+#   api-gateway                — legacy HS256 JWT mode (KEYCLOAK_URL unset)
+#   platform                   — the Node/tRPC server under test; runs
+#                                drizzle-kit migrate on boot (fresh-DB proof)
+#   ml-inference (profile: ml) — FastAPI fraud/credit models; smoke.test.ts and
+#                                the live ML assertions need `--profile ml`
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: whatsapp_commerce
+      POSTGRES_USER: wc_user
+      POSTGRES_PASSWORD: wc_secret
+    ports:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wc_user -d whatsapp_commerce"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
+    ports:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  tb-sidecar:
+    image: node:20-alpine
+    command: ["node", "/fixtures/tb-sidecar.mjs"]
+    volumes:
+      - ./fixtures:/fixtures:ro
+    environment:
+      PORT: "3000"
+    ports:
+      - "3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  ledger-bridge:
+    build:
+      context: ../../rust/ledger-bridge
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8095"
+      TIGERBEETLE_ADDRESS: tb-sidecar:3000
+      TIGERBEETLE_CLUSTER_ID: "0"
+      # Dev escape hatch: if a TB-sidecar call fails the bridge falls back to
+      # its in-memory ledger instead of 503ing the payment flow. TEST ONLY.
+      LEDGER_ALLOW_INMEMORY: "true"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      RUST_LOG: info
+    ports:
+      - "8095"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      tb-sidecar:
+        condition: service_healthy
+
+  recon-worker:
+    build:
+      context: ../../rust/recon-worker
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8096"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      LEDGER_BRIDGE_URL: http://ledger-bridge:8095
+      PLATFORM_API_URL: http://platform:3000
+      INTERNAL_API_KEY: e2e-internal-key
+      RECON_INTERVAL_SECS: "3600" # manual /recon/trigger only in tests
+      RUST_LOG: info
+    ports:
+      - "8096"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ledger-bridge:
+        condition: service_started
+
+  commerce-engine:
+    build:
+      context: ../../services/commerce-engine
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8083"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: info
+    ports:
+      - "8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: ../../services/gateway
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8080"
+      ENV: development # legacy HS256 JWT mode — KEYCLOAK_URL intentionally unset
+      JWT_SECRET: e2e-jwt-secret
+      REDIS_ADDR: redis:6379
+      COMMERCE_ENGINE_URL: http://commerce-engine:8083
+      ML_STACK_URL: http://ml-inference:8099
+      INTERNAL_API_KEY: e2e-internal-key
+      OPENAPPSEC_ENABLED: "false"
+      LOG_LEVEL: info
+    ports:
+      - "8080"
+    depends_on:
+      redis:
+        condition: service_healthy
+      commerce-engine:
+        condition: service_started
+
+  platform:
+    build:
+      context: ../.. # repo root
+      dockerfile: tests/e2e/platform.Dockerfile
+    environment:
+      NODE_ENV: test # not "production": fail-closed guards degrade with warnings
+      PORT: "3000"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: e2e-jwt-secret
+      INTERNAL_API_KEY: e2e-internal-key
+      PAYSTACK_WEBHOOK_SECRET: e2e-paystack-webhook-secret
+      LEDGER_BRIDGE_URL: http://ledger-bridge:8095
+      ML_STACK_URL: http://ml-inference:8099
+      APP_URL: http://localhost:3000
+    ports:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ledger-bridge:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health/postgres || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s # pnpm install at image build; migrate + tsx boot at run
+
+  ml-inference:
+    profiles: ["ml"]
+    build:
+      context: ../../services/ml-stack
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8099"
+      MODEL_DIR: /app/models
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      PLATFORM_API_URL: http://platform:3000
+      LOG_LEVEL: info
+    ports:
+      - "8099"
+    depends_on:
+      postgres:
+        condition: service_healthy
