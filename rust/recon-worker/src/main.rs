@@ -471,7 +471,7 @@ async fn main() -> Result<()> {
         .route("/recon/last", get(last_recon_handler))
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{}", cfg.port);
+    let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     info!(addr = %addr, "Recon Worker listening");
 
