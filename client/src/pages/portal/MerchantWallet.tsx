@@ -24,9 +24,15 @@ const TX_TYPE_COLORS: Record<string, string> = {
   fee_deduction: "text-orange-600",
 };
 
-function formatNGN(val: string | number | null | undefined) {
+// Coerce any backend amount (string/number/null/undefined/garbage) to a finite
+// number so the page can never render NaN or crash on malformed data.
+function toNum(val: string | number | null | undefined): number {
   const n = typeof val === "string" ? parseFloat(val) : (val ?? 0);
-  return `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatNGN(val: string | number | null | undefined) {
+  return `₦${toNum(val).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function toISODate(d: Date) {
@@ -137,7 +143,7 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
         </div>
         <div className="flex items-center gap-2">
           {isPspMode && (
-            <Button onClick={() => setWithdrawOpen(true)} disabled={!wallet || parseFloat(wallet.availableBalance) <= 0}>
+            <Button onClick={() => setWithdrawOpen(true)} disabled={!wallet || toNum(wallet.availableBalance) <= 0}>
               Request Withdrawal
             </Button>
           )}
@@ -212,12 +218,12 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
             <p className="text-center text-muted-foreground py-8">No transactions yet</p>
           ) : (
             <div className="space-y-0">
-              {(txs ?? []).map((tx) => (
-                <div key={tx.id} className="flex items-center justify-between py-3 border-b last:border-0">
+              {(txs ?? []).map((tx, idx) => (
+                <div key={tx.id ?? idx} className="flex items-center justify-between py-3 border-b last:border-0">
                   <div>
-                    <p className="text-sm font-medium">{tx.description ?? tx.type.replace(/_/g, " ")}</p>
+                    <p className="text-sm font-medium">{tx.description ?? (tx.type ?? "transaction").replace(/_/g, " ")}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(tx.createdAt).toLocaleString()} · {tx.reference ?? tx.id.slice(0, 8)}
+                      {tx.createdAt ? new Date(tx.createdAt).toLocaleString() : "—"} · {tx.reference ?? tx.id?.slice(0, 8) ?? "—"}
                     </p>
                   </div>
                   <div className="text-right">
@@ -306,8 +312,8 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
             <Button variant="outline" onClick={() => setTopUpOpen(false)}>Cancel</Button>
             <Button
               className="bg-green-600 hover:bg-green-700 text-white"
-              disabled={topUp.isPending || !topUpAmount || parseFloat(topUpAmount) <= 0}
-              onClick={() => topUp.mutate({ tenantId, amount: parseFloat(topUpAmount), note: topUpNote || undefined })}
+              disabled={topUp.isPending || !topUpAmount || toNum(topUpAmount) <= 0}
+              onClick={() => topUp.mutate({ tenantId, amount: toNum(topUpAmount), note: topUpNote || undefined })}
             >
               {topUp.isPending ? "Processing…" : "Confirm Top-Up"}
             </Button>
@@ -325,7 +331,7 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
             <div className="space-y-1">
               <Label>Amount (NGN)</Label>
               <Input type="number" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)}
-                placeholder="Enter amount" max={parseFloat(wallet?.availableBalance ?? "0")} />
+                placeholder="Enter amount" max={toNum(wallet?.availableBalance)} />
               <p className="text-xs text-muted-foreground">Available: {formatNGN(wallet?.availableBalance)}</p>
             </div>
             <div className="space-y-1">
@@ -344,10 +350,10 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setWithdrawOpen(false)}>Cancel</Button>
             <Button
-              disabled={withdraw.isPending || !withdrawAmount || parseFloat(withdrawAmount) <= 0}
+              disabled={withdraw.isPending || !withdrawAmount || toNum(withdrawAmount) <= 0}
               onClick={() => withdraw.mutate({
                 tenantId,
-                amount: parseFloat(withdrawAmount),
+                amount: toNum(withdrawAmount),
                 bankAccountNumber: bankAccount || undefined,
                 bankCode: bankCode || undefined,
                 bankAccountName: bankName || undefined,
