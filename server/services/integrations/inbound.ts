@@ -23,6 +23,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { customers, integrationEvents, products, tenants } from "../../../drizzle/schema";
 import type { IntegrationConfig, IntegrationSystem } from "./clients";
 import { INTEGRATION_SYSTEMS } from "./clients";
+import { triggerRestockNotification } from "../waitlist";
 
 export const SIGNATURE_HEADER = "x-integration-signature";
 export const TENANT_HEADER = "x-tenant-id";
@@ -193,7 +194,7 @@ async function applyMedusaProduct(db: any, tenantId: string, data: Record<string
   const sku = String(variant?.sku ?? data.sku ?? `medusa-${medusaId}`);
 
   const [existing] = await db
-    .select({ id: products.id })
+    .select({ id: products.id, stockQuantity: products.stockQuantity })
     .from(products)
     .where(and(eq(products.tenantId, tenantId), sql`${products.metadata}->>'medusaId' = ${medusaId}`))
     .limit(1);
@@ -202,6 +203,8 @@ async function applyMedusaProduct(db: any, tenantId: string, data: Record<string
       .update(products)
       .set({ name: title, price: priceMajor.toFixed(2), stockQuantity: stock, updatedAt: new Date() })
       .where(and(eq(products.id, existing.id), eq(products.tenantId, tenantId)));
+    // Back-in-stock waitlist fan-out on a 0→>0 restock (never throws).
+    await triggerRestockNotification(db, tenantId, existing.id, existing.stockQuantity, stock);
     return "updated";
   }
   await db.insert(products).values({
@@ -275,22 +278,27 @@ async function applyOdooStock(db: any, tenantId: string, data: Record<string, un
   const odooId = data.product_id ?? data.id;
   const sku = (data.default_code ?? data.sku ?? null) as string | null;
 
-  let updated = false;
+  let target: { id: string; stockQuantity: number } | undefined;
   if (odooId !== undefined && odooId !== null) {
-    const res = await db
-      .update(products)
-      .set({ stockQuantity: qty, updatedAt: new Date() })
+    [target] = await db
+      .select({ id: products.id, stockQuantity: products.stockQuantity })
+      .from(products)
       .where(and(eq(products.tenantId, tenantId), sql`${products.metadata}->>'odooId' = ${String(odooId)}`))
-      .returning({ id: products.id });
-    updated = res.length > 0;
+      .limit(1);
   }
-  if (!updated && sku) {
-    const res = await db
-      .update(products)
-      .set({ stockQuantity: qty, updatedAt: new Date() })
+  if (!target && sku) {
+    [target] = await db
+      .select({ id: products.id, stockQuantity: products.stockQuantity })
+      .from(products)
       .where(and(eq(products.tenantId, tenantId), eq(products.sku, sku)))
-      .returning({ id: products.id });
-    updated = res.length > 0;
+      .limit(1);
   }
-  return updated ? "updated" : "ignored";
+  if (!target) return "ignored";
+  await db
+    .update(products)
+    .set({ stockQuantity: qty, updatedAt: new Date() })
+    .where(and(eq(products.id, target.id), eq(products.tenantId, tenantId)));
+  // Back-in-stock waitlist fan-out on a 0→>0 restock (never throws).
+  await triggerRestockNotification(db, tenantId, target.id, target.stockQuantity, qty);
+  return "updated";
 }

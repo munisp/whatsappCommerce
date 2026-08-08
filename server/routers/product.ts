@@ -1,9 +1,12 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { eq, and } from "drizzle-orm";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
+import { products } from "../../drizzle/schema";
 import { syncLocalChange } from "../services/integrations/outbox";
+import { triggerRestockNotification } from "../services/waitlist";
 
 /** Enqueue an outbox event for a product change; never fails the mutation. */
 async function enqueueProductSync(tenantId: string, productId: string, action: string, data: Record<string, unknown>) {
@@ -75,7 +78,24 @@ export const productRouter = router({
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const { id, tenantId, ...data } = input;
+      // Back-in-stock waitlist hook: capture previous stock so a 0→>0
+      // transition can fan out alerts (fire-and-forget, never blocks).
+      let prevStock: number | null = null;
+      if (data.stockQuantity !== undefined) {
+        const conn = await getDb();
+        const [prev] = conn
+          ? await conn.select({ stockQuantity: products.stockQuantity }).from(products)
+              .where(and(eq(products.id, id), eq(products.tenantId, tenantId))).limit(1)
+          : [];
+        prevStock = prev?.stockQuantity ?? null;
+      }
       await db.updateProduct(id, tenantId, data);
+      if (data.stockQuantity !== undefined) {
+        const conn = await getDb();
+        if (conn) {
+          void triggerRestockNotification(conn, tenantId, id, prevStock, data.stockQuantity);
+        }
+      }
       await enqueueProductSync(tenantId, id, "updated", { ...data });
       return { success: true };
     }),

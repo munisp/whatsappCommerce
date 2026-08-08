@@ -239,6 +239,13 @@
       "when": 1786400000000,
       "tag": "0032_integration_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786500000000,
+      "tag": "0036_waitlist_entries",
+      "breakpoints": true
     }
   ]
 }
