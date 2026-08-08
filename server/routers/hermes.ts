@@ -20,7 +20,11 @@ import { TRPCError } from "@trpc/server";
 
 const HERMES_BRIDGE_URL = process.env.HERMES_BRIDGE_URL ?? "http://localhost:8095";
 const HERMES_SKILLS_URL = process.env.HERMES_SKILLS_URL ?? "http://localhost:8097";
-const PLATFORM_API_KEY = process.env.PLATFORM_API_KEY ?? "";
+// Shared secret for service-to-service calls. hermes-bridge (/hermes/ingest,
+// /hermes/approval) and hermes-skills (/skills/*) require the
+// X-Internal-Token header to match INTERNAL_API_KEY (security-jwt hardening).
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
+const INTERNAL_HEADERS = { "X-Internal-Token": INTERNAL_API_KEY };
 
 // ─── Schema validators ────────────────────────────────────────────────────────
 
@@ -125,9 +129,9 @@ export const hermesRouter = router({
   // Health check against hermes-bridge and hermes-skills
   getStatus: protectedProcedure.query(async () => {
     const checks = await Promise.allSettled([
-      fetch(`${HERMES_BRIDGE_URL}/health`, { signal: AbortSignal.timeout(5000) })
+      fetch(`${HERMES_BRIDGE_URL}/health`, { headers: INTERNAL_HEADERS, signal: AbortSignal.timeout(5000) })
         .then((r: Response) => r.json() as Promise<Record<string, unknown>>),
-      fetch(`${HERMES_SKILLS_URL}/health`, { signal: AbortSignal.timeout(5000) })
+      fetch(`${HERMES_SKILLS_URL}/health`, { headers: INTERNAL_HEADERS, signal: AbortSignal.timeout(5000) })
         .then((r: Response) => r.json() as Promise<Record<string, unknown>>),
     ]);
 
@@ -216,7 +220,7 @@ export const hermesRouter = router({
       try {
         await fetch(`${HERMES_SKILLS_URL}/skills/po-approved`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...INTERNAL_HEADERS },
           body: JSON.stringify({
             po_id: po.poId,
             tenant_id: po.tenantId,
@@ -266,7 +270,7 @@ export const hermesRouter = router({
         .set({ status: "rejected", approvedAt: Date.now(), approvedBy: String(ctx.user.id), note: input.reason ?? null })
         .where(eq(hermesPODrafts.poId, input.poId));
 
-      return { success: true, poId: input.poId };
+      return { success: true };
     }),
 
   // Fire a test event to Hermes (admin only)
@@ -293,7 +297,7 @@ export const hermesRouter = router({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Internal-Key": PLATFORM_API_KEY,
+          ...INTERNAL_HEADERS,
         },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10000),
@@ -312,13 +316,13 @@ export const hermesRouter = router({
   layerHealth: protectedProcedure.query(async () => {
     const t0 = Date.now();
     const [bridgeResult, skillsResult] = await Promise.allSettled([
-      fetch(`${HERMES_BRIDGE_URL}/health`, { signal: AbortSignal.timeout(4000) })
+      fetch(`${HERMES_BRIDGE_URL}/health`, { headers: INTERNAL_HEADERS, signal: AbortSignal.timeout(4000) })
         .then(async (r: Response) => {
           const latencyMs = Date.now() - t0;
           const body = await r.json().catch(() => ({}));
           return { ok: r.ok, latencyMs, body };
         }),
-      fetch(`${HERMES_SKILLS_URL}/health`, { signal: AbortSignal.timeout(4000) })
+      fetch(`${HERMES_SKILLS_URL}/health`, { headers: INTERNAL_HEADERS, signal: AbortSignal.timeout(4000) })
         .then(async (r: Response) => {
           const latencyMs = Date.now() - t0;
           const body = await r.json().catch(() => ({}));

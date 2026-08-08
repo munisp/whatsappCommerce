@@ -160,13 +160,11 @@ export default function ConversationTimeline({
                       : "bg-slate-700 text-slate-100 rounded-tl-sm"
                   }`}
                 >
-                  <p>{msg.content}</p>
+                  <p>{msg.body}</p>
                   <p className={`text-[10px] mt-1 ${msg.direction === "outbound" ? "text-green-200" : "text-slate-400"}`}>
                     {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    {msg.direction === "outbound" && msg.status && (
-                      <span className="ml-1">
-                        {msg.status === "read" ? "✓✓" : msg.status === "delivered" ? "✓✓" : "✓"}
-                      </span>
+                    {msg.direction === "outbound" && (
+                      <span className="ml-1">✓</span>
                     )}
                   </p>
                 </div>
@@ -197,8 +195,8 @@ export default function ConversationTimeline({
               onClick={() =>
                 sendMessageMutation.mutate({
                   tenantId,
-                  customerPhone: conversation.customerPhone,
-                  content: messageText,
+                  toPhone: conversation.customerPhone,
+                  body: messageText,
                 })
               }
             >

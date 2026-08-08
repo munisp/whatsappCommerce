@@ -33,6 +33,7 @@ import { publishConversationEvent } from "../kafka";
 import { daprSaveState, daprGetState } from "../dapr";
 import { redisSet, redisGet } from "../redis";
 import { runSlaScan } from "../routers/sla";
+import { creditWalletTopUp } from "../routers/escrow";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -128,6 +129,9 @@ async function confirmProviderPayment(
   let expectedAmount: number;
   let expectedCurrency: string;
   let currentStatus: string;
+  // Metadata of the matched paymentIntents row (intent path only) — drives the
+  // wallet top-up credit below when metadata.type === "wallet_topup".
+  let intentMetadata: Record<string, unknown> | null = null;
 
   const [tx] = await db.select().from(paymentTransactions)
     .where(eq(paymentTransactions.providerRef, reference)).limit(1);
@@ -155,7 +159,26 @@ async function confirmProviderPayment(
     expectedAmount = parseFloat(intent.amount);
     expectedCurrency = (intent.currency ?? "").toUpperCase();
     currentStatus = intent.status;
+    intentMetadata = (intent.metadata as Record<string, unknown> | null) ?? null;
   }
+
+  // ── Wallet top-up credit (completed wallet_topup payment intents) ─────────
+  // creditWalletTopUp is idempotent: the credit is claimed atomically via a
+  // conditional UPDATE stamping metadata.creditedAt, so webhook replays and
+  // reconciliation runs can never double-credit.
+  const maybeCreditWalletTopUp = async () => {
+    if (kind !== "intent" || intentMetadata?.type !== "wallet_topup") return;
+    try {
+      const result = await creditWalletTopUp(db, rowId);
+      if (!result.credited) {
+        console.warn(`[payment-confirm] wallet top-up credit skipped for intent ${rowId}: ${result.reason ?? "unknown"}`);
+      }
+    } catch (err: any) {
+      // Never fail the webhook on a wallet-credit error — the reconciliation
+      // sweep retries completed-but-uncredited top-ups.
+      console.error(`[payment-confirm] wallet top-up credit failed for intent ${rowId}:`, err?.message);
+    }
+  };
 
   // ── Amount/currency verification (BEFORE any state mutation) ─────────────
   const amountMismatch =
@@ -184,6 +207,9 @@ async function confirmProviderPayment(
 
   // ── Idempotent guarded transition to completed ────────────────────────────
   if (currentStatus === "completed") {
+    // Webhook replay of an already-completed intent — still ensure the wallet
+    // top-up credit landed (idempotent no-op when it already did).
+    await maybeCreditWalletTopUp();
     return { ok: true, action: "already-completed" };
   }
   let transitioned = false;
@@ -207,6 +233,7 @@ async function confirmProviderPayment(
   }
   if (!transitioned) {
     // Lost a race with a concurrent webhook delivery — already handled.
+    await maybeCreditWalletTopUp();
     return { ok: true, action: "already-completed" };
   }
 
@@ -288,6 +315,9 @@ async function confirmProviderPayment(
       }
     }
   }
+
+  // Credit the merchant wallet for wallet_topup payment intents (idempotent).
+  await maybeCreditWalletTopUp();
 
   console.log(`[payment-confirm] ${opts.provider} ref=${reference} confirmed via ${kind} row ${rowId}`);
   return { ok: true, action: "confirmed" };
@@ -1019,7 +1049,8 @@ async function startServer() {
                     const hermesSkillsUrl = process.env.HERMES_SKILLS_URL ?? "http://hermes-skills:8097";
                     fetch(`${hermesSkillsUrl}/skills/po-approved`, {
                       method: "POST",
-                      headers: { "Content-Type": "application/json" },
+                      // hermes-skills /skills/* requires X-Internal-Token == INTERNAL_API_KEY
+                      headers: { "Content-Type": "application/json", "X-Internal-Token": process.env.INTERNAL_API_KEY ?? "" },
                       body: JSON.stringify({
                         po_id: matchedPO.poId,
                         tenant_id: matchedPO.tenantId,
@@ -2636,7 +2667,10 @@ function drawBbox(img,id){
       }
       // Attempt a lightweight HTTP check to the Hermes Router's own health endpoint
       const routerUrl = process.env.HERMES_ROUTER_URL ?? "http://hermes-router:8098";
-      const resp = await fetch(`${routerUrl}/health`, { signal: AbortSignal.timeout(2000) }).catch(() => null);
+      const resp = await fetch(`${routerUrl}/health`, {
+        headers: { "X-Internal-Token": process.env.INTERNAL_API_KEY ?? "" },
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => null);
       if (resp?.ok) {
         return res.status(200).json({ online: true, source: "hermes_router_http", ts: Date.now() });
       }
@@ -2735,9 +2769,10 @@ function drawBbox(img,id){
       const now = Date.now();
 
       // Probe each layer
+      const internalHeaders = { "X-Internal-Token": process.env.INTERNAL_API_KEY ?? "" };
       const [bridgeResult, skillsResult] = await Promise.allSettled([
-        fetch(`${HERMES_BRIDGE_URL}/health`, { signal: AbortSignal.timeout(4000) }).then(r => ({ ok: r.ok, latencyMs: Date.now() - now })),
-        fetch(`${HERMES_SKILLS_URL}/health`, { signal: AbortSignal.timeout(4000) }).then(r => ({ ok: r.ok, latencyMs: Date.now() - now })),
+        fetch(`${HERMES_BRIDGE_URL}/health`, { headers: internalHeaders, signal: AbortSignal.timeout(4000) }).then(r => ({ ok: r.ok, latencyMs: Date.now() - now })),
+        fetch(`${HERMES_SKILLS_URL}/health`, { headers: internalHeaders, signal: AbortSignal.timeout(4000) }).then(r => ({ ok: r.ok, latencyMs: Date.now() - now })),
       ]);
       const routerStart = Date.now();
       let routerOnline = false;

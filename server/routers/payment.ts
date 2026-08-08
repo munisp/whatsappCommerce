@@ -15,7 +15,7 @@ import * as db from "../db";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import { TRPCError } from "@trpc/server";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { paymentIntents } from "../../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { publishPaymentEvent as publishPaymentDaprEvent, daprPublish } from "../dapr";
@@ -36,6 +36,49 @@ async function ledgerRequest(path: string, method = "GET", body?: unknown) {
     throw new Error(`Ledger bridge ${method} ${path} → ${res.status}: ${text}`);
   }
   return res.json();
+}
+
+// ── Ledger account ids + minor units (rust/ledger-bridge contract) ───────────
+// The hardened ledger bridge only accepts explicit account ids (decimal u128,
+// 32-char hex, or canonical UUID) and INTEGER MINOR UNITS. Derive deterministic
+// UUID account ids from platform identifiers so the same customer/tenant always
+// maps to the same ledger account (sha256 → UUID v4-shaped string; no dep).
+
+function ledgerAccountId(kind: "customer" | "escrow" | "merchant", identifier: string): string {
+  const hex = createHash("sha256").update(`wacommerce:ledger:${kind}:${identifier}`).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** Major units (e.g. naira) → integer minor units (e.g. kobo), round half up. */
+function toMinorUnits(amountMajor: number): number {
+  return Math.round(amountMajor * 100);
+}
+
+// Accounts are provisioned via POST /accounts/provision
+// ({tenant_id?, account_type, currency?} → {tb_account_id, ...}) before their
+// first transfer. Track provisioned accounts in-process to avoid re-provisioning
+// on every payment; the bridge's ON CONFLICT upsert makes replays safe anyway.
+const provisionedLedgerAccounts = new Set<string>();
+
+async function ensureLedgerAccountProvisioned(opts: {
+  tenantId?: string;
+  accountType: "merchant" | "escrow" | "platform_fee" | "float" | "suspense";
+  currency?: string;
+}) {
+  const cacheKey = `${opts.accountType}:${opts.tenantId ?? ""}:${opts.currency ?? "NGN"}`;
+  if (provisionedLedgerAccounts.has(cacheKey)) return;
+  try {
+    await ledgerRequest("/accounts/provision", "POST", {
+      tenant_id: opts.tenantId,
+      account_type: opts.accountType,
+      currency: opts.currency ?? "NGN",
+    });
+    provisionedLedgerAccounts.add(cacheKey);
+  } catch (err: any) {
+    // Best effort: the subsequent /transfer is the authoritative gate and will
+    // surface any real ledger outage with a precise error.
+    console.warn(`[payment] ledger account provisioning failed for ${cacheKey}:`, err?.message);
+  }
 }
 
 // ── Redis idempotency helper ──────────────────────────────────────────────────
@@ -223,14 +266,25 @@ export const paymentRouter = router({
         // zero ledger entries): the intent is marked failed with a ledger_failed
         // reason and the error is surfaced to the caller.
         try {
+          // The hardened ledger bridge rejects opaque string account ids —
+          // derive deterministic UUID account ids and provision the accounts
+          // (POST /accounts/provision) before their first transfer.
+          const customerLedgerId = input.customerId ?? input.customerPhone;
+          const debitAccountId = ledgerAccountId("customer", customerLedgerId);
+          const creditAccountId = ledgerAccountId("escrow", input.tenantId);
+          await ensureLedgerAccountProvisioned({ tenantId: customerLedgerId, accountType: "float", currency: input.currency });
+          await ensureLedgerAccountProvisioned({ tenantId: input.tenantId, accountType: "escrow", currency: input.currency });
           const reserveRes = (await ledgerRequest("/transfer", "POST", {
-            debit_account_id: `customer:${input.customerId ?? input.customerPhone}`,
-            credit_account_id: `escrow:${input.tenantId}`,
-            amount: Math.round(input.amount * 100),
+            debit_account_id: debitAccountId,
+            credit_account_id: creditAccountId,
+            // Integer minor units (kobo), round half up — the /transfer contract.
+            amount: toMinorUnits(input.amount),
             ledger: 1,
             code: 1,
             idempotency_key: idempotencyKey,
           })) as Record<string, unknown>;
+          // Bridge responds 201 {pending_id, status: "reserved", ...}; keep the
+          // fallback chain for older bridge builds.
           ledgerPendingId =
             (reserveRes.pending_id as string | undefined) ??
             (reserveRes.transfer_id as string | undefined) ??
@@ -412,10 +466,12 @@ export const paymentRouter = router({
         } else {
           // Legacy intent without a reservation — settle via direct transfer.
           try {
+            await ensureLedgerAccountProvisioned({ tenantId: intent.tenantId, accountType: "escrow", currency: intent.currency ?? "NGN" });
+            await ensureLedgerAccountProvisioned({ tenantId: intent.tenantId, accountType: "merchant", currency: intent.currency ?? "NGN" });
             await ledgerRequest("/transfer", "POST", {
-              debit_account_id: `escrow:${intent.tenantId}`,
-              credit_account_id: `merchant:${intent.tenantId}`,
-              amount: Math.round(parseFloat(intent.amount) * 100),
+              debit_account_id: ledgerAccountId("escrow", intent.tenantId),
+              credit_account_id: ledgerAccountId("merchant", intent.tenantId),
+              amount: toMinorUnits(parseFloat(intent.amount)),
               ledger: 1, code: 2,
               idempotency_key: `settle:${intent.id}`,
             });
@@ -444,10 +500,12 @@ export const paymentRouter = router({
           const intentMeta = (intent.metadata as Record<string, unknown> | null) ?? {};
           const customerPhone = (intentMeta.customerPhone as string | undefined) ?? intent.customerId;
           try {
+            await ensureLedgerAccountProvisioned({ tenantId: intent.tenantId, accountType: "escrow", currency: intent.currency ?? "NGN" });
+            await ensureLedgerAccountProvisioned({ tenantId: customerPhone, accountType: "float", currency: intent.currency ?? "NGN" });
             await ledgerRequest("/transfer", "POST", {
-              debit_account_id: `escrow:${intent.tenantId}`,
-              credit_account_id: `customer:${customerPhone}`,
-              amount: Math.round(parseFloat(intent.amount) * 100),
+              debit_account_id: ledgerAccountId("escrow", intent.tenantId),
+              credit_account_id: ledgerAccountId("customer", customerPhone),
+              amount: toMinorUnits(parseFloat(intent.amount)),
               ledger: 1, code: 3,
               idempotency_key: `reversal:${intent.id}`,
             });

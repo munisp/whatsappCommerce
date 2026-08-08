@@ -144,8 +144,18 @@ function makeCtx(role: "admin" | "user" = "admin"): TrpcContext {
 
 // ─── escrow.bulkUpdateState ───────────────────────────────────────────────────
 describe("escrow.bulkUpdateState (mocked DB)", () => {
-  it("non-admin role can call bulkUpdateState and gets correct shape", async () => {
+  it("non-admin role is rejected (FORBIDDEN) — bulkUpdateState is admin-only", async () => {
+    // escrow.bulkUpdateState is an adminProcedure (RBAC hardening): non-admin
+    // callers must be rejected before any state mutation.
     const caller = appRouter.createCaller(makeCtx("user"));
+    await expect(caller.escrow.bulkUpdateState({
+      escrowIds: ["fake-id"],
+      action: "release",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("admin role can call bulkUpdateState and gets correct shape", async () => {
+    const caller = appRouter.createCaller(makeCtx("admin"));
     const result = await caller.escrow.bulkUpdateState({
       escrowIds: ["fake-id"],
       action: "release",
