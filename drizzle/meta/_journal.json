@@ -232,6 +232,13 @@
       "when": 1786203921590,
       "tag": "0035_consents",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786400000000,
+      "tag": "0032_integration_outbox",
+      "breakpoints": true
     }
   ]
 }

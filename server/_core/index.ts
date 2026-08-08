@@ -37,6 +37,12 @@ import { runSlaScan } from "../routers/sla";
 import { confirmProviderPayment } from "../services/paymentConfirm";
 import { sendWhatsAppText } from "../services/waSender";
 import { handleInboundReceiptImage } from "../services/receiptVerification";
+import {
+  handleIntegrationWebhook,
+  SIGNATURE_HEADER as INTEGRATION_SIGNATURE_HEADER,
+  TENANT_HEADER as INTEGRATION_TENANT_HEADER,
+} from "../services/integrations/inbound";
+import { processOutbox } from "../services/integrations/outbox";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -695,6 +701,35 @@ async function startServer() {
       return res.status(200).json({ received: true });
     } catch (err: any) {
       console.error("[escrow-bank-webhook]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Integration webhooks (Medusa / Twenty CRM / Odoo) ────────────────────
+  // POST /integrations/:system/webhook?t=<tenantId> (or X-Tenant-Id header).
+  // Per-tenant HMAC-SHA256 (settings.integrations.<system>.webhookSecret) over
+  // the raw body, timingSafeEqual-compared, fail-closed in production.
+  // Accepted payloads are recorded in integration_events (direction='in') and
+  // applied with a loop guard (never re-enqueued outbound).
+  app.post("/integrations/:system/webhook", express.raw({ type: "*/*" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const tenantId =
+        (typeof req.query.t === "string" && req.query.t) ||
+        (req.headers[INTEGRATION_TENANT_HEADER] as string | undefined) ||
+        null;
+      const sig = req.headers[INTEGRATION_SIGNATURE_HEADER];
+      const result = await handleIntegrationWebhook(
+        req.params.system,
+        tenantId,
+        toRawBody(req.body),
+        Array.isArray(sig) ? sig[0] : sig,
+        { db, isProduction: isProductionLike() },
+      );
+      return res.status(result.status).json(result.body);
+    } catch (err: any) {
+      console.error("[integrations-webhook]", err);
       return res.status(500).json({ error: err?.message });
     }
   });
@@ -1806,6 +1841,25 @@ async function startServer() {
   });
 
   // ── Odoo ERP inventory sync heartbeat ─────────────────────────────────────
+  // ── Integration outbox dispatcher heartbeat ───────────────────────────────
+  // Delivers pending integration_events (Medusa/Twenty/Odoo) with retry —
+  // dead after 5 attempts. Follows the wa-webhook-retry job pattern.
+  // After deploy: manus-heartbeat create --name integration-outbox-dispatch --cron "* * * * *" --path /api/scheduled/integration-outbox-dispatch
+  app.post("/api/scheduled/integration-outbox-dispatch", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db unavailable" });
+      const batch = Math.min(Math.max(parseInt(String(req.body?.batch ?? "50"), 10) || 50, 1), 500);
+      const result = await processOutbox(db, { batch });
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[integration-outbox-dispatch]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // After deploy: manus-heartbeat create --name odoo-inventory-sync --cron "*/10 * * * *" --path /api/scheduled/odoo-inventory-sync
   app.post("/api/scheduled/odoo-inventory-sync", async (req, res) => {
     try {

@@ -1,7 +1,20 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
+import { getDb } from "../db";
+import { syncLocalChange } from "../services/integrations/outbox";
+
+/** Enqueue an outbox event for a product change; never fails the mutation. */
+async function enqueueProductSync(tenantId: string, productId: string, action: string, data: Record<string, unknown>) {
+  try {
+    const conn = await getDb();
+    if (!conn) return;
+    await syncLocalChange(conn, { tenantId, entity: "product", entityId: productId, action, data });
+  } catch (e: unknown) {
+    console.error("[product] integration outbox enqueue failed:", (e as Error)?.message);
+  }
+}
 
 export const productRouter = router({
   list: protectedProcedure
@@ -34,9 +47,18 @@ export const productRouter = router({
       stockQuantity: z.number().int().min(0).default(0),
       lowStockThreshold: z.number().int().min(0).default(10),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const id = nanoid();
       await db.createProduct({ id, ...input, status: "active" });
+      await enqueueProductSync(input.tenantId, id, "created", {
+        name: input.name,
+        sku: input.sku,
+        price: Number(input.price),
+        currency: input.currency,
+        description: input.description ?? null,
+        stockQuantity: input.stockQuantity,
+      });
       return { id, ...input };
     }),
 
@@ -50,9 +72,11 @@ export const productRouter = router({
       stockQuantity: z.number().int().min(0).optional(),
       status: z.enum(["active", "inactive", "archived"]).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const { id, tenantId, ...data } = input;
       await db.updateProduct(id, tenantId, data);
+      await enqueueProductSync(tenantId, id, "updated", { ...data });
       return { success: true };
     }),
 
