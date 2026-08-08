@@ -32,7 +32,17 @@ export default function Products() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: stats } = trpc.product.stats.useQuery({ tenantId: DEMO_TENANT });
-  const { data: productList, refetch } = trpc.product.list.useQuery({ tenantId: DEMO_TENANT, search: search || undefined });
+  // Fetch unfiltered list — the server-side filter uses case-sensitive SQL `like`
+  // on name only, so searching is done client-side (case-insensitive) instead.
+  const { data: productList, refetch } = trpc.product.list.useQuery({ tenantId: DEMO_TENANT });
+  const q = search.trim().toLowerCase();
+  const filteredProducts = !q
+    ? (productList ?? [])
+    : (productList ?? []).filter((p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        (p.category ?? "").toLowerCase().includes(q)
+      );
   const createMutation = trpc.product.create.useMutation({
     onSuccess: () => { toast.success("Product created"); setOpen(false); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -264,9 +274,9 @@ export default function Products() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {!productList || productList.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No products yet. Add your first product or import via CSV.</TableCell></TableRow>
-                ) : productList.map((p) => (
+                {filteredProducts.length === 0 ? (
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</TableCell></TableRow>
+                ) : filteredProducts.map((p) => (
                   <TableRow key={p.id} className="border-border hover:bg-accent/30">
                     <TableCell className="font-mono text-xs">{p.sku}</TableCell>
                     <TableCell className="font-medium">{p.name}</TableCell>
