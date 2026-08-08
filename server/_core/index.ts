@@ -35,7 +35,7 @@ import { daprSaveState, daprGetState } from "../dapr";
 import { redisSet, redisGet } from "../redis";
 import { runSlaScan } from "../routers/sla";
 import { confirmProviderPayment } from "../services/paymentConfirm";
-import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText } from "../services/waSender";
+import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText, applyWaDeliveryStatus, markMessageRead } from "../services/waSender";
 import { handleInboundReceiptImage } from "../services/receiptVerification";
 import {
   handleIntegrationWebhook,
@@ -273,6 +273,24 @@ async function startServer() {
     } catch (e: any) {
       console.error("[cart-recovery] cron failed:", e?.message);
       return res.status(500).json({ error: e?.message ?? "cart-recovery failed" });
+    }
+  });
+
+  // ── Scheduled: WhatsApp failed-send retry + dead-letter (every ~5 min) ────
+  // Retries due retriable sends (5xx/429/network) with exponential backoff
+  // (1m, 5m, 15m, 1h); after 4 attempts → status "dead" + tenant admin alert.
+  // After deploy: manus-heartbeat create --name wa-send-retry --cron "0 */5 * * * *" --path /api/scheduled/wa-send-retry
+  app.post("/api/scheduled/wa-send-retry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runWaSendRetries } = await import("../services/waSender");
+      const limit = Number(req.body?.limit) > 0 ? Number(req.body.limit) : undefined;
+      const run = await runWaSendRetries({ limit });
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[wa-send-retry] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "wa-send-retry failed" });
     }
   });
 
@@ -860,6 +878,9 @@ async function startServer() {
             console.log(`[whatsapp-webhook] duplicate delivery ${msg.id} — skipped`);
             continue;
           }
+          // ── Read receipt (blue ticks): fire-and-forget after the message ──
+          // is accepted for processing — NEVER blocks or throws.
+          markMessageRead(tenantId, msg.id).catch(() => {});
         }
         // ── Platform ops: usage metering + monthly message quota gate ──────
         // Count every inbound message; warn the tenant admin once per period
@@ -1298,18 +1319,11 @@ async function startServer() {
           timestamp: tsUnix ? new Date(tsUnix * 1000) : new Date(),
           rawPayload: st,
         }).catch((e: any) => console.warn("[whatsapp-webhook] delivery receipt insert failed:", e?.message));
-        // Cross-reference: update whatsapp_notification_log if this wamid was sent by our platform
-        if (waMessageId && ["sent", "delivered", "read", "failed"].includes(statusVal)) {
-          db.update(whatsappNotificationLog)
-            .set({
-              status: statusVal as any,
-              deliveredAt: statusVal === "delivered" ? new Date(tsUnix * 1000) : undefined,
-              readAt: statusVal === "read" ? new Date(tsUnix * 1000) : undefined,
-              failReason: statusVal === "failed" ? (errorMessage || errorCode || "Unknown error") : undefined,
-            })
-            .where(eq(whatsappNotificationLog.wamid, waMessageId))
-            .catch((e: any) => console.warn("[whatsapp-webhook] notif log update failed:", e?.message));
-        }
+        // Cross-reference: update whatsapp_notification_log if this wamid was
+        // sent by our platform (unknown wamids are ignored quietly inside;
+        // failed deliveries keep the full error payload and are metered).
+        await applyWaDeliveryStatus(db, stTenantId, st)
+          .catch((e: any) => console.warn("[whatsapp-webhook] notif log update failed:", e?.message));
       }
     } catch (err: any) {
       console.error("[whatsapp-webhook]", err);

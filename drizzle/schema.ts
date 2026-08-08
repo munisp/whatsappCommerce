@@ -2492,6 +2492,7 @@ export const whatsappNotifStatusEnum = pgEnum("whatsapp_notif_status", [
   "read",       // recipient opened the message
   "failed",     // Cloud API or delivery error
   "simulated",  // simulation mode (no real API call)
+  "dead",       // retries exhausted — dead-lettered, admin alerted
 ]);
 
 export const whatsappNotificationLog = pgTable("whatsapp_notification_log", {
@@ -2509,6 +2510,15 @@ export const whatsappNotificationLog = pgTable("whatsapp_notification_log", {
   readAt: timestamp("readAt"),
   failedAt: timestamp("failedAt"),
   failReason: text("failReason"),
+  /** Full Graph API error payload (JSON) for failed deliveries. */
+  errorText: text("errorText"),
+  /** Per-status receipt timestamps: { sent?, delivered?, read?, failed? }. */
+  statusTimestamps: jsonb("statusTimestamps"),
+  /** Outbound payload snapshot so failed sends can be retried verbatim. */
+  payload: jsonb("payload"),
+  /** Retry bookkeeping: attempts made + next scheduled retry (null = none). */
+  attempts: integer("attempts").default(0).notNull(),
+  nextRetryAt: timestamp("nextRetryAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -2516,6 +2526,7 @@ export const whatsappNotificationLog = pgTable("whatsapp_notification_log", {
   index("wa_notif_log_order_idx").on(t.orderId),
   index("wa_notif_log_tenant_idx").on(t.tenantId),
   index("wa_notif_log_wamid_idx").on(t.wamid),
+  index("wa_notif_log_retry_idx").on(t.nextRetryAt),
   index("wa_notif_log_created_idx").on(t.createdAt),
 ]);
 export type WhatsappNotificationLog = typeof whatsappNotificationLog.$inferSelect;
