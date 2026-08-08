@@ -114,3 +114,7 @@ client/public/__manus__/version.json
 .project-config.json
 services/ledger-bridge/target/
 services/fluvio-consumer/target/
+
+# Rust build artifacts
+rust/target/
+rust/*/target/
