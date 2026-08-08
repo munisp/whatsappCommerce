@@ -568,3 +568,109 @@ describe("typing indicator state logic", () => {
     expect(shouldShowIndicator(false)).toBe(false);
   });
 });
+
+// ── Per-tenant credential routing (waSender) ─────────────────────────────────
+describe("sendOrderNotification tenant credentials", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses the tenant's WhatsApp credentials, not the global env sender", async () => {
+    vi.stubEnv("WAC_WHATSAPP_TOKEN", "env-token");
+    vi.stubEnv("WAC_WHATSAPP_PHONE_ID", "env-phone-id");
+
+    // Tenant has its own phoneNumberId + settings.whatsapp.accessToken
+    const mockDb = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValue([{
+        phoneNumberId: "tenant-phone-id-9",
+        settings: { whatsapp: { accessToken: "tenant-token-9" } },
+      }]),
+    };
+    vi.mocked(getDb).mockResolvedValue(mockDb as never);
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ messages: [{ id: "wamid.tenant" }] }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await sendOrderNotification({
+      tenantId: "tenant-9",
+      phone: "+2348012345678",
+      orderNumber: "ORD-T9",
+      customerName: "Tenant Customer",
+      totalAmount: "500.00",
+      currency: "NGN",
+      status: "confirmed",
+      notifType: "order_confirmation",
+    });
+
+    expect(result.sent).toBe(true);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toContain("tenant-phone-id-9/messages");
+    expect(url).not.toContain("env-phone-id");
+    expect(opts.headers.Authorization).toBe("Bearer tenant-token-9");
+    const body = JSON.parse(opts.body);
+    expect(body.type).toBe("template");
+    expect(body.template.name).toBe("wac_order_confirmation");
+  });
+});
+
+// ── Chat-origin order recipient resolution ───────────────────────────────────
+describe("resolveOrderNotifRecipient chat-origin orders", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses the raw WhatsApp number stored in orders.customerId (chat order)", async () => {
+    const mockDb = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockResolvedValueOnce([{
+        id: "order-chat-1",
+        orderNumber: "ORD-CHAT1",
+        customerId: "+2348091234567", // raw WA number — no customers row exists
+        tenantId: "tenant-1",
+        totalAmount: "2500.00",
+        currency: "NGN",
+        status: "confirmed",
+        metadata: null,
+      }]),
+    };
+    vi.mocked(getDb).mockResolvedValue(mockDb as never);
+
+    const result = await resolveOrderNotifRecipient("order-chat-1", "order_confirmation");
+    expect(result.phone).toBe("2348091234567");
+    expect(result.orderNumber).toBe("ORD-CHAT1");
+    // customer lookup must not even run for raw-phone customerIds
+    expect(mockDb.limit).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to a raw phone in orders.metadata when the customer has none", async () => {
+    const mockDb = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      limit: vi.fn()
+        .mockResolvedValueOnce([{
+          id: "order-meta-1",
+          orderNumber: "ORD-META1",
+          customerId: "cust-9",
+          tenantId: "tenant-1",
+          totalAmount: "100.00",
+          currency: "USD",
+          status: "shipped",
+          metadata: { waPhone: "+2348077777777", fulfillment: "delivery" },
+        }])
+        .mockResolvedValueOnce([]), // no customers row
+    };
+    vi.mocked(getDb).mockResolvedValue(mockDb as never);
+
+    const result = await resolveOrderNotifRecipient("order-meta-1", "order_shipped");
+    expect(result.phone).toBe("2348077777777");
+  });
+});
