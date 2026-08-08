@@ -93,6 +93,7 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: Globe,           label: "Multi-Channel",   path: "/multi-channel" },
       { icon: Megaphone,       label: "Broadcasts",      path: "/broadcast" },
       { icon: MessageSquare,   label: "Templates",       path: "/templates" },
+      { icon: FileCode,        label: "WA Templates",    path: "/wa-templates" },
       { icon: FileCode,        label: "Msg Templates",   path: "/operator-templates" },
       { icon: GitBranch,       label: "Version Control", path: "/template-versions" },
       { icon: Paperclip,       label: "WA Media",        path: "/whatsapp-media" },

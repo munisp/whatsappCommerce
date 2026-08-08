@@ -1,6 +1,7 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import UsagePlanWidget from "@/components/UsagePlanWidget";
+import WaQualityWidget from "@/components/WaQualityWidget";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
@@ -74,8 +75,13 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           ))}
-        {/* Usage vs plan (metering APIs are admin-only) */}
-        {user?.role === "admin" && <UsagePlanWidget />}
+        {/* Usage vs plan + WhatsApp quality (metering APIs are admin-only) */}
+        {user?.role === "admin" && (
+          <>
+            <UsagePlanWidget />
+            <WaQualityWidget />
+          </>
+        )}
 
           {/* Inventory Alert Card */}
           <Card

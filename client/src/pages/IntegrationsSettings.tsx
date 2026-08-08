@@ -6,6 +6,10 @@
  * replace-on-write), live testConnection, syncStatus badges
  * (pending/delivered/failed/dead), resync. Below: paginated outbox events
  * table with system/status/direction filters.
+ *
+ * Plus a Meta Catalog card (tenantConfig.getMetaCatalog/setMetaCatalog/
+ * syncMetaCatalogNow/metaCatalogSyncStatus) and a Visual Search toggle
+ * (getVisualSearch/setVisualSearch).
  */
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -23,8 +27,9 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import {
-  CheckCircle2, ChevronLeft, ChevronRight, Loader2, Plug, RefreshCw, XCircle,
+  Camera, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Plug, RefreshCw, ShoppingBag, XCircle,
 } from "lucide-react";
+import { useEffect } from "react";
 
 type System = "medusa" | "twenty" | "odoo";
 const SYSTEMS: System[] = ["medusa", "twenty", "odoo"];
@@ -210,6 +215,191 @@ function SystemCard({ tenantId, system }: { tenantId: string; system: System }) 
   );
 }
 
+// ─── Meta Catalog + Visual Search (tenantConfig router) ─────────────────────
+
+type MetaCatalogStatus = {
+  lastRunAt: string | null;
+  lastAction: string | null;
+  synced: number;
+  failed: number;
+  lastError: string | null;
+} | null;
+
+function MetaCatalogCard({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.tenantConfig.getMetaCatalog.useQuery({ tenantId });
+  const { data: statusData } = trpc.tenantConfig.metaCatalogSyncStatus.useQuery({ tenantId });
+  const status = (statusData ?? null) as MetaCatalogStatus;
+
+  const [catalogId, setCatalogId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [enabled, setEnabled] = useState(true);
+
+  useEffect(() => {
+    if (data) {
+      setCatalogId(data.catalogId ?? "");
+      setEnabled(data.enabled);
+    }
+  }, [data]);
+
+  const invalidate = () => {
+    utils.tenantConfig.getMetaCatalog.invalidate({ tenantId });
+    utils.tenantConfig.metaCatalogSyncStatus.invalidate({ tenantId });
+  };
+
+  const save = trpc.tenantConfig.setMetaCatalog.useMutation({
+    onSuccess: () => {
+      toast.success("Meta catalog settings saved");
+      setAccessToken("");
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const syncNow = trpc.tenantConfig.syncMetaCatalogNow.useMutation({
+    onSuccess: (r) => {
+      if (r.lastError) {
+        toast.error(`Sync finished with errors: ${r.lastError}`);
+      } else {
+        toast.success(`Catalog synced — ${r.synced} item${r.synced === 1 ? "" : "s"}`);
+      }
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const canSave = catalogId.trim().length > 0 && !save.isPending;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <div>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShoppingBag className="w-4 h-4" /> Meta Product Catalog
+          </CardTitle>
+          <CardDescription>
+            Push the product catalog to Meta for WhatsApp product messages and Commerce surfaces.
+          </CardDescription>
+        </div>
+        {data && (
+          <div className="flex items-center gap-2">
+            <Label htmlFor="meta-catalog-enabled" className="text-sm text-muted-foreground">Enabled</Label>
+            <Switch id="meta-catalog-enabled" checked={enabled} onCheckedChange={setEnabled} />
+          </div>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Catalog ID</Label>
+                <Input value={catalogId} onChange={(e) => setCatalogId(e.target.value)} placeholder="1234567890" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Access token</Label>
+                <Input
+                  type="password"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  placeholder={data?.hasAccessToken ? "•••••••• (stored — leave blank to keep)" : "System user access token"}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                disabled={!canSave}
+                onClick={() => save.mutate({
+                  tenantId,
+                  catalogId: catalogId.trim(),
+                  accessToken: accessToken.trim() || undefined,
+                  enabled,
+                })}
+              >
+                {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={syncNow.isPending || !data?.catalogId}
+                onClick={() => syncNow.mutate({ tenantId })}
+              >
+                {syncNow.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Sync now
+              </Button>
+              {!data?.catalogId && (
+                <p className="text-xs text-muted-foreground">Save a catalog ID before syncing.</p>
+              )}
+            </div>
+            <div className="rounded-lg border p-3 text-sm space-y-1">
+              <p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">Last sync</p>
+              {status?.lastRunAt ? (
+                <>
+                  <p>
+                    {new Date(status.lastRunAt).toLocaleString()}
+                    {status.lastAction && <span className="text-muted-foreground"> — {status.lastAction}</span>}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {status.synced} synced{status.failed > 0 && <span className="text-red-400">, {status.failed} failed</span>}
+                  </p>
+                  {status.lastError && <p className="text-red-400 text-xs">Error: {status.lastError}</p>}
+                </>
+              ) : (
+                <p className="text-muted-foreground">No sync has run yet.</p>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function VisualSearchCard({ tenantId }: { tenantId: string }) {
+  const { data, isLoading } = trpc.tenantConfig.getVisualSearch.useQuery({ tenantId });
+  const utils = trpc.useUtils();
+  const setFlag = trpc.tenantConfig.setVisualSearch.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Visual search ${r.enabled ? "enabled" : "disabled"}`);
+      utils.tenantConfig.getVisualSearch.invalidate({ tenantId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between gap-4 p-6">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center">
+            <Camera className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div>
+            <p className="text-sm font-medium">Visual product search</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Let customers send a photo on WhatsApp to find matching products.
+            </p>
+          </div>
+        </div>
+        {isLoading ? (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        ) : (
+          <Switch
+            checked={data?.enabled ?? true}
+            disabled={setFlag.isPending}
+            onCheckedChange={(v) => setFlag.mutate({ tenantId, enabled: v })}
+          />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function IntegrationsSettings() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
@@ -252,6 +442,8 @@ export default function IntegrationsSettings() {
           {SYSTEMS.map((s) => (
             <SystemCard key={s} tenantId={tenantId} system={s} />
           ))}
+          <MetaCatalogCard tenantId={tenantId} />
+          <VisualSearchCard tenantId={tenantId} />
         </div>
 
         <Card>
