@@ -181,6 +181,19 @@ export async function confirmProviderPayment(
       console.error(`[payment-confirm] commitReservations failed for order ${orderId}:`, err?.message);
     }
 
+    // Digital receipt to the buyer (additive, non-throwing): exact figures
+    // from the confirmed order row — business name, itemized lines, discount,
+    // delivery fee, total paid, payment ref, delivery PIN, tracking link.
+    try {
+      const { sendOrderReceipt } = await import("./receipts");
+      const receipt = await sendOrderReceipt(db, orderId, reference);
+      if (!receipt.sent) {
+        console.warn(`[payment-confirm] receipt skipped for order ${orderId}: ${receipt.reason}`);
+      }
+    } catch (err: any) {
+      console.error(`[payment-confirm] receipt send failed for order ${orderId}:`, err?.message);
+    }
+
     const [existingEscrow] = await db.select({ id: escrowTransactions.id })
       .from(escrowTransactions)
       .where(eq(escrowTransactions.orderId, orderId))
