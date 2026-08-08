@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { trpc } from "@/lib/trpc";
+import { buildSegmentFilter } from "@/lib/opsLogistics";
 import { toast } from "sonner";
 import {
   FlaskConical, Trophy, Split
@@ -18,7 +19,7 @@ import {
 import {
   Send, Users, CheckCircle2, Eye, XCircle, Clock, Radio,
   Plus, BarChart3, Megaphone, ChevronRight, Play, Ban,
-  TrendingUp, MessageSquare, Loader2
+  TrendingUp, MessageSquare, Loader2, CalendarClock, Filter
 } from "lucide-react";
 import { MessageCircle } from "lucide-react";
 import { FlaskConical as SimIcon } from "lucide-react";
@@ -116,6 +117,12 @@ export default function BroadcastCampaigns() {
   const [abSplit, setAbSplit] = useState("50");
   const [abCriteria, setAbCriteria] = useState<"read_rate" | "delivery_rate">("read_rate");
   const [abDuration, setAbDuration] = useState("24");
+  // Schedule + segment builder state (send preview dialog).
+  const [scheduleAtLocal, setScheduleAtLocal] = useState("");
+  const [segTags, setSegTags] = useState("");
+  const [segMinOrders, setSegMinOrders] = useState("");
+  const [segMinSpend, setSegMinSpend] = useState("");
+  const [segLastOrderDays, setSegLastOrderDays] = useState("");
 
   const { data: campaignsData, isLoading, refetch } = trpc.broadcast.list.useQuery({});
   const campaigns = (campaignsData?.campaigns ?? []) as Campaign[];
@@ -169,7 +176,11 @@ export default function BroadcastCampaigns() {
   const sendCampaign = trpc.broadcast.send.useMutation({
     onSuccess: (data) => {
       if (data.dryRun) return; // handled by dryRunCampaign
-      toast.success(`Campaign sent to ${data.total} recipients — ${data.delivered} delivered, ${data.read} read`);
+      if ("scheduled" in data && data.scheduled) {
+        toast.success(`Campaign scheduled for ${new Date(data.scheduledAt).toLocaleString()}`);
+      } else {
+        toast.success(`Campaign sent to ${data.total} recipients — ${data.delivered} delivered, ${data.read} read`);
+      }
       setSendingId(null);
       refetch();
     },
@@ -214,6 +225,11 @@ export default function BroadcastCampaigns() {
     const campaign = campaigns.find(c => c.id === campaignId);
     if (campaign) {
       setDryRunResult(null);
+      setScheduleAtLocal("");
+      setSegTags("");
+      setSegMinOrders("");
+      setSegMinSpend("");
+      setSegLastOrderDays("");
       setPreviewCampaignId(campaignId);
       setPreviewOpen(true);
     } else {
@@ -223,11 +239,27 @@ export default function BroadcastCampaigns() {
   };
 
   const selectedCampaign = campaigns.find(c => c.id === selectedId);
+  const buildCurrentSegment = () =>
+    buildSegmentFilter({
+      tagsText: segTags,
+      minOrders: segMinOrders,
+      minSpendNaira: segMinSpend,
+      lastOrderWithinDays: segLastOrderDays,
+    });
+
   const confirmSend = () => {
     if (!previewCampaignId) return;
+    if (scheduleAtLocal && new Date(scheduleAtLocal).getTime() <= Date.now()) {
+      toast.error("Schedule time must be in the future — or leave it empty to send now");
+      return;
+    }
     setPreviewOpen(false);
     setSendingId(previewCampaignId);
-    sendCampaign.mutate({ campaignId: previewCampaignId });
+    sendCampaign.mutate({
+      campaignId: previewCampaignId,
+      scheduleAt: scheduleAtLocal ? new Date(scheduleAtLocal).getTime() : undefined,
+      segment: buildCurrentSegment(),
+    });
     setPreviewCampaignId(null);
   };
   const previewCampaign = campaigns.find(c => c.id === previewCampaignId);
@@ -744,6 +776,67 @@ export default function BroadcastCampaigns() {
                 </p>
               </div>
             </div>
+            {/* Segment builder (optional) — persisted on the campaign at send/dry-run */}
+            <div className="rounded-lg border border-border/40 p-3 space-y-3">
+              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-primary" />
+                Audience segment (optional)
+              </p>
+              <div className="space-y-1.5">
+                <Label className="text-[11px]">Tags (comma-separated — matches contacts carrying ANY tag)</Label>
+                <Input
+                  value={segTags}
+                  onChange={(e) => { setSegTags(e.target.value); setDryRunResult(null); }}
+                  placeholder="vip, repeat-buyer"
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-1.5">
+                  <Label className="text-[11px]">Min. orders</Label>
+                  <Input
+                    type="number" min={0} value={segMinOrders}
+                    onChange={(e) => { setSegMinOrders(e.target.value); setDryRunResult(null); }}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px]">Min. spend (₦)</Label>
+                  <Input
+                    type="number" min={0} value={segMinSpend}
+                    onChange={(e) => { setSegMinSpend(e.target.value); setDryRunResult(null); }}
+                    placeholder="5000"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px]">Ordered within (days)</Label>
+                  <Input
+                    type="number" min={1} max={3650} value={segLastOrderDays}
+                    onChange={(e) => { setSegLastOrderDays(e.target.value); setDryRunResult(null); }}
+                    placeholder="30"
+                    className="h-8 text-xs"
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] flex items-center gap-1">
+                  <CalendarClock className="w-3 h-3" />
+                  Schedule for later (optional)
+                </Label>
+                <Input
+                  type="datetime-local" value={scheduleAtLocal}
+                  onChange={(e) => setScheduleAtLocal(e.target.value)}
+                  className="h-8 text-xs"
+                />
+                {scheduleAtLocal && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Will be dispatched by the scheduler at {new Date(scheduleAtLocal).toLocaleString()}.
+                  </p>
+                )}
+              </div>
+            </div>
+
             {(previewCampaign?.totalRecipients ?? 0) === 0 && !dryRunResult && (
               <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
                 <span className="text-amber-400 text-sm">⚠</span>
@@ -777,13 +870,13 @@ export default function BroadcastCampaigns() {
               variant="outline"
               className="gap-1.5"
               disabled={dryRunCampaign.isPending || !previewCampaignId}
-              onClick={() => previewCampaignId && dryRunCampaign.mutate({ campaignId: previewCampaignId, dryRun: true })}
+              onClick={() => previewCampaignId && dryRunCampaign.mutate({ campaignId: previewCampaignId, dryRun: true, segment: buildCurrentSegment() })}
             >
               {dryRunCampaign.isPending ? "Checking…" : "Dry Run"}
             </Button>
             <Button className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" onClick={confirmSend}>
-              <Send className="w-3.5 h-3.5" />
-              Confirm & Send
+              {scheduleAtLocal ? <CalendarClock className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+              {scheduleAtLocal ? "Schedule" : "Confirm & Send"}
             </Button>
           </DialogFooter>
         </DialogContent>
