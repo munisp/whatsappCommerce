@@ -3,9 +3,10 @@ import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
-import { SignJWT, jwtVerify } from "jose";
+import { SignJWT, createRemoteJWKSet, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
+import { verifySessionToken } from "./auth";
 import { ENV } from "./env";
 import type {
   ExchangeTokenRequest,
@@ -27,6 +28,61 @@ export type SessionPayload = {
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
+
+/** Session cookie issued by server/_core/oauth.ts (self-hosted Keycloak/local login). */
+const WA_SESSION_COOKIE = "wa_session";
+
+// ─── Keycloak JWKS (RS256 Bearer token verification) ─────────────────────────
+// jose is already a project dependency; no new packages are introduced.
+
+type KeycloakTokenClaims = {
+  sub: string;
+  email?: string;
+  name?: string;
+  preferred_username?: string;
+  tenant_id?: string;
+};
+
+let keycloakJWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
+
+/** Keycloak verification is enabled only when KEYCLOAK_URL is explicitly set. */
+function keycloakEnabled(): boolean {
+  return isNonEmptyString(process.env.KEYCLOAK_URL);
+}
+
+function getKeycloakJWKS() {
+  if (!keycloakEnabled()) return null;
+  if (!keycloakJWKS) {
+    keycloakJWKS = createRemoteJWKSet(
+      new URL(
+        `${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}/protocol/openid-connect/certs`
+      )
+    );
+  }
+  return keycloakJWKS;
+}
+
+/**
+ * Verify a Keycloak-issued RS256 access token against the realm JWKS,
+ * enforcing the issuer and expiry. Returns null when Keycloak is not
+ * configured or the token fails verification.
+ */
+async function verifyKeycloakBearerToken(
+  token: string
+): Promise<KeycloakTokenClaims | null> {
+  const jwks = getKeycloakJWKS();
+  if (!jwks) return null;
+  try {
+    const { payload } = await jwtVerify(token, jwks, {
+      algorithms: ["RS256"],
+      issuer: `${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}`,
+    });
+    if (!isNonEmptyString(payload.sub)) return null;
+    return payload as unknown as KeycloakTokenClaims;
+  } catch {
+    return null;
+  }
+}
 
 class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
@@ -255,19 +311,102 @@ class SDKServer {
     } as GetUserInfoWithJwtResponse;
   }
 
-  async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
-    // 1. Prefer the session cookie (regular OAuth login).
-    const cookies = this.parseCookies(req.headers.cookie);
-    let sessionToken = cookies.get(COOKIE_NAME);
+  /**
+   * Resolve a user from the local database by openId, auto-provisioning from
+   * the verified token claims when the user does not exist yet. This is the
+   * shared mapping used by every supported credential type so all of them
+   * yield the same User shape.
+   */
+  private async resolveLocalUser(
+    openId: string,
+    hints: { name?: string | null; email?: string | null; loginMethod?: string | null } = {}
+  ): Promise<AuthenticatedUser> {
+    const signedInAt = new Date();
+    let user = await db.getUserByOpenId(openId);
 
-    // 2. Fallback to the Authorization header (Preview auto-login via
-    //    sessionStorage), used when the browser blocks iframe cookies such as
-    //    Safari ITP, private browsing, or iOS/Android WebView.
-    if (!sessionToken) {
-      const authHeader = req.headers.authorization;
-      if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
-        sessionToken = authHeader.slice(7);
+    if (!user) {
+      try {
+        await db.upsertUser({
+          openId,
+          name: hints.name ?? null,
+          email: hints.email ?? null,
+          loginMethod: hints.loginMethod ?? null,
+          lastSignedIn: signedInAt,
+        });
+        user = await db.getUserByOpenId(openId);
+      } catch (error) {
+        console.error("[Auth] Failed to provision user:", error);
+        throw ForbiddenError("Failed to provision user");
       }
+    }
+
+    if (!user) {
+      throw ForbiddenError("User not found");
+    }
+
+    await db.upsertUser({ openId: user.openId, lastSignedIn: signedInAt });
+    return user;
+  }
+
+  /**
+   * Authenticate an incoming request. Supported credentials, in order:
+   *   1. `wa_session` cookie — HS256 JWT issued by server/_core/oauth.ts
+   *      (self-hosted Keycloak OIDC / local dev login), signed with JWT_SECRET.
+   *   2. `Authorization: Bearer` — a Keycloak RS256 access token (verified
+   *      against the realm JWKS when KEYCLOAK_URL is set), or a `wa_session`
+   *      JWT passed as a bearer token.
+   *   3. Legacy `app_session_id` cookie — HS256 JWT ({openId, appId, name})
+   *      signed with the cookie secret (jose), kept for backwards compat.
+   */
+  async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
+    const cookies = this.parseCookies(req.headers.cookie);
+
+    // 1. Self-hosted session cookie issued by server/_core/oauth.ts.
+    const waSession = cookies.get(WA_SESSION_COOKIE) ?? cookies.get("session");
+    if (waSession) {
+      const payload = verifySessionToken(waSession);
+      if (payload && isNonEmptyString(payload.sub)) {
+        return this.resolveLocalUser(payload.sub, {
+          name: payload.name ?? null,
+          email: payload.email ?? null,
+          loginMethod: "keycloak",
+        });
+      }
+    }
+
+    // 2. Authorization: Bearer — Keycloak RS256 access token, or a
+    //    wa_session JWT presented as a bearer token.
+    const authHeader = req.headers.authorization;
+    let bearerToken: string | undefined;
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      bearerToken = authHeader.slice(7);
+    }
+    if (bearerToken) {
+      const kcClaims = await verifyKeycloakBearerToken(bearerToken);
+      if (kcClaims) {
+        return this.resolveLocalUser(kcClaims.sub, {
+          name: kcClaims.name ?? kcClaims.preferred_username ?? null,
+          email: kcClaims.email ?? null,
+          loginMethod: "keycloak",
+        });
+      }
+      const waPayload = verifySessionToken(bearerToken);
+      if (waPayload && isNonEmptyString(waPayload.sub)) {
+        return this.resolveLocalUser(waPayload.sub, {
+          name: waPayload.name ?? null,
+          email: waPayload.email ?? null,
+          loginMethod: "keycloak",
+        });
+      }
+    }
+
+    // 3. Legacy app_session_id cookie (jose HS256 with the cookie secret).
+    //    The Bearer header is also accepted as a legacy session token
+    //    (Preview auto-login via sessionStorage) when it is not a Keycloak or
+    //    wa_session token.
+    let sessionToken = cookies.get(COOKIE_NAME);
+    if (!sessionToken) {
+      sessionToken = bearerToken;
     }
 
     const session = await this.verifySession(sessionToken);
