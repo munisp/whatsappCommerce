@@ -15,7 +15,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { products, tenants } from "../../drizzle/schema";
-import { redisGet, redisSet } from "../redis";
+import { getRedis } from "../redis";
 import { sendWhatsAppText } from "./waSender";
 
 export const LOW_STOCK_DEDUPE_TTL_SECONDS = 6 * 60 * 60; // 6h
@@ -31,10 +31,12 @@ export function resetLowStockDedupeForTests(): void {
 
 async function claimDedupeSlot(key: string): Promise<boolean> {
   try {
-    const existing = await redisGet(key);
-    if (existing) return false;
-    await redisSet(key, "1", LOW_STOCK_DEDUPE_TTL_SECONDS);
-    return true;
+    const redis = await getRedis();
+    if (redis) {
+      // Atomic claim: SET NX EX — exactly one caller wins per window.
+      const claimed = await redis.set(key, "1", "EX", LOW_STOCK_DEDUPE_TTL_SECONDS, "NX");
+      return claimed === "OK";
+    }
   } catch {
     // Redis error → fall through to in-process dedupe.
   }
