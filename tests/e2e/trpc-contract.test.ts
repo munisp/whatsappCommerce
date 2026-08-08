@@ -198,11 +198,16 @@ describe("tRPC contract — orders create → get → status", () => {
 
   beforeAll(async () => {
     // orderCrud.create has an atomic oversell guard on inventory_snapshots —
-    // seed stock for the product being ordered.
+    // seed stock for the product being ordered. The pre-payment inventory
+    // guard (0031) also requires a products row with stockQuantity.
     const sql = getSql();
     await sql`
       INSERT INTO inventory_snapshots (id, "tenantId", "productId", "stockQty", "reservedQty", "availableQty", "lastSyncedAt", "syncSource")
       VALUES (${uniqueId("inv")}, ${TENANT}, ${productId}, 100, 0, 100, NOW(), 'odoo')`;
+    await sql`
+      INSERT INTO products (id, "tenantId", sku, name, price, currency, status, "stockQuantity", "createdAt", "updatedAt")
+      VALUES (${productId}, ${TENANT}, ${uniqueId("sku")}, 'E2E Widget', 500, 'NGN', 'active', 100, NOW(), NOW())
+      ON CONFLICT (id) DO NOTHING`;
   });
 
   it("orderCrud.create → { orderId, orderNumber, total }", async () => {

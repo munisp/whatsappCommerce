@@ -9,6 +9,12 @@ import { getDb } from "../db";
 import { orders, orderItems, refunds, inventorySnapshots, paymentIntents, customers } from "../../drizzle/schema";
 import { sendOrderNotificationWithLog, type OrderNotifType } from "./whatsappNotifications";
 import { startOrderFulfillmentWorkflow } from "../temporal";
+import {
+  checkAvailability,
+  reserveStock,
+  releaseReservations,
+  InsufficientStockError,
+} from "../services/inventory";
 
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
@@ -37,52 +43,93 @@ export const orderCrudRouter = router({
       const orderId = crypto.randomUUID();
       const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
 
-      // Atomic oversell guard for each item
-      for (const item of input.items) {
-        const result = await db.execute(sql`
-          UPDATE inventory_snapshots
-          SET "reservedQty" = CAST("reservedQty" AS NUMERIC) + ${item.quantity},
-              "availableQty" = CAST("availableQty" AS NUMERIC) - ${item.quantity}
-          WHERE "productId" = ${item.productId}
-            AND CAST("availableQty" AS NUMERIC) >= ${item.quantity}
-          RETURNING id
-        `);
-        if ((result as unknown[]).length === 0) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `Insufficient stock for product: ${item.productName}`,
-          });
-        }
+      // Pre-payment inventory guard: never create an order (that a payment
+      // can later be taken against) for items that don't exist in stock.
+      const availability = await checkAvailability(
+        db,
+        input.tenantId,
+        input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
+      );
+      if (!availability.ok) {
+        const s = availability.shortages[0];
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Insufficient stock for product: ${s.name} (requested ${s.requested}, available ${s.available})`,
+        });
       }
 
-      await db.insert(orders).values({
-        id: orderId,
-        tenantId: input.tenantId,
-        customerId: input.customerId,
-        conversationId: input.conversationId,
-        orderNumber,
-        status: "pending",
-        totalAmount: total.toFixed(2),
-        currency: input.currency,
-        paymentStatus: "unpaid",
-        shippingAddress: input.shippingAddress ?? null,
-        items: input.items,
-        notes: input.notes,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // Everything that must succeed-or-roll-back together runs in ONE
+      // transaction: the legacy snapshot guard, the order rows, and the
+      // atomic stock reservation (conditional UPDATE ... stockQuantity >=
+      // qty — a concurrent checkout claiming the last unit rolls the whole
+      // order back via InsufficientStockError).
+      try {
+        await db.transaction(async (tx) => {
+          // Atomic oversell guard for each item (ERP-synced snapshot ledger)
+          for (const item of input.items) {
+            const result = await tx.execute(sql`
+              UPDATE inventory_snapshots
+              SET "reservedQty" = CAST("reservedQty" AS NUMERIC) + ${item.quantity},
+                  "availableQty" = CAST("availableQty" AS NUMERIC) - ${item.quantity}
+              WHERE "productId" = ${item.productId}
+                AND CAST("availableQty" AS NUMERIC) >= ${item.quantity}
+              RETURNING id
+            `);
+            if ((result as unknown[]).length === 0) {
+              throw new TRPCError({
+                code: "PRECONDITION_FAILED",
+                message: `Insufficient stock for product: ${item.productName}`,
+              });
+            }
+          }
 
-      // Insert normalised order items
-      for (const item of input.items) {
-        await db.insert(orderItems).values({
-          id: crypto.randomUUID(),
-          orderId,
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice.toFixed(2),
-          currency: input.currency,
+          await tx.insert(orders).values({
+            id: orderId,
+            tenantId: input.tenantId,
+            customerId: input.customerId,
+            conversationId: input.conversationId,
+            orderNumber,
+            status: "pending",
+            totalAmount: total.toFixed(2),
+            currency: input.currency,
+            paymentStatus: "unpaid",
+            shippingAddress: input.shippingAddress ?? null,
+            items: input.items,
+            notes: input.notes,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+
+          // Insert normalised order items
+          for (const item of input.items) {
+            await tx.insert(orderItems).values({
+              id: crypto.randomUUID(),
+              orderId,
+              productId: item.productId,
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice.toFixed(2),
+              currency: input.currency,
+            });
+          }
+
+          // Atomic stock reservation on the products ledger (authoritative).
+          await reserveStock(
+            tx,
+            input.tenantId,
+            orderId,
+            input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
+          );
         });
+      } catch (err) {
+        if (err instanceof InsufficientStockError) {
+          const s = err.shortages[0];
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Insufficient stock for product: ${s.name} (requested ${s.requested}, available ${s.available})`,
+          });
+        }
+        throw err;
       }
 
       // Start the Temporal order-fulfillment workflow. startWorkflow already
@@ -138,6 +185,13 @@ export const orderCrudRouter = router({
         updatedAt: new Date(),
       }).where(eq(orders.id, input.orderId));
 
+      // Cancelling releases any still-reserved stock back to the pool
+      // (claim-first, idempotent — safe even if the sweeper races us).
+      if (input.status === "cancelled") {
+        await releaseReservations(db, input.orderId)
+          .catch((e: unknown) => console.error("[orderCrud] reservation release error:", (e as Error)?.message));
+      }
+
       // Fire WhatsApp notification asynchronously (non-blocking — never fails the update)
       const notifTypeMap: Partial<Record<string, OrderNotifType>> = {
         confirmed:  "order_confirmation",
@@ -189,6 +243,11 @@ export const orderCrudRouter = router({
         notes: input.reason ? `Cancelled: ${input.reason}` : "Cancelled",
         updatedAt: new Date(),
       }).where(eq(orders.id, input.orderId));
+
+      // Release pre-payment stock reservations (0031) — claim-first and
+      // idempotent, so a concurrent expiry-sweeper run can't double-restock.
+      await releaseReservations(db, input.orderId)
+        .catch((e: unknown) => console.error("[orderCrud] reservation release error:", (e as Error)?.message));
 
       return { ok: true };
     }),

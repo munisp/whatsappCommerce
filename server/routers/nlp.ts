@@ -28,6 +28,12 @@ import {
 import { normalizeExtractedItems, addExtractedItemsToCart } from "../services/nlpCart";
 import { quoteDeliveryFee } from "../services/deliveryQuote";
 import { trackingUrlFor } from "../services/trackingToken";
+import {
+  checkAvailability,
+  reserveStock,
+  InsufficientStockError,
+  type StockShortage,
+} from "../services/inventory";
 
 // ── Checkout message builders ────────────────────────────────────────────────
 type CartLine = { productName: string; quantity: number; unitPrice: string; currency: string };
@@ -101,12 +107,42 @@ export interface ChatOrderResult {
   orderId?: string;
   orderNumber?: string;
   items?: CartLine[];
+  /** Items that could not be fully reserved (no order/payment link created). */
+  shortages?: StockShortage[];
+  /** Cart lines that ARE available — the buyer's adjusted cart. */
+  availableItems?: CartLine[];
   subtotal?: number;
   deliveryFee?: number;
   deliveryZone?: string;
   total?: number;
   currency?: string;
   paymentUrl?: string | null;
+}
+
+/** Buyer-facing reply when (part of) the cart can't be fulfilled: names the
+ * unavailable items, shows the adjusted available cart, and creates NO
+ * payment link — we never take payment for items that don't exist in stock. */
+export function buildShortageReply(
+  shortages: StockShortage[],
+  availableItems: CartLine[],
+  currency: string,
+): string {
+  const lines: string[] = [
+    "😔 *Some items are out of stock right now:*",
+    ...shortages.map((s) =>
+      s.available > 0
+        ? `• ${s.name} — you asked for ${s.requested}, only ${s.available} left`
+        : `• ${s.name} — out of stock`),
+  ];
+  if (availableItems.length > 0) {
+    lines.push("", "✅ *Still available in your cart:*", ...itemizedLines(availableItems));
+    const subtotal = availableItems.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+    lines.push(`Available subtotal: ${fmtMoney(subtotal, currency)}`);
+    lines.push("", "Adjust your quantities or remove the unavailable items, then confirm again.");
+  } else {
+    lines.push("", "None of the items in your cart are available right now — please check back soon.");
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -129,6 +165,22 @@ export async function createChatOrder(
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
   if (items.length === 0) return { created: false };
+
+  // ── Inventory guard (BEFORE any order/payment-link exists) ─────────────
+  // Never take payment for items that don't exist in stock. This read-only
+  // pre-check produces the buyer-facing shortage reply; the authoritative
+  // atomic reservation happens inside the order transaction below.
+  const reserveItems = items.map((i) => ({ productId: i.productId, qty: i.quantity }));
+  const availability = await checkAvailability(db, opts.tenantId, reserveItems);
+  if (!availability.ok) {
+    const shortIds = new Set(availability.shortages.map((s) => s.productId));
+    return {
+      created: false,
+      shortages: availability.shortages,
+      availableItems: items.filter((i) => !shortIds.has(i.productId)),
+      currency: items[0].currency,
+    };
+  }
 
   const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
   const quote = opts.fulfillment === "delivery" ? quoteDeliveryFee({ address: opts.address }) : null;
@@ -159,27 +211,48 @@ export async function createChatOrder(
 
   const orderId = crypto.randomUUID();
   const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
-  await db.insert(orders).values({
-    id: orderId,
-    tenantId: opts.tenantId,
-    customerId: opts.waPhoneNumber, // use phone as customer ref until resolved
-    orderNumber,
-    status: "pending",
-    totalAmount: total.toFixed(2),
-    currency,
-    paymentStatus: "unpaid",
-    shippingAddress: opts.address ? { raw: opts.address } : null,
-    items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
-    metadata: {
-      fulfillment: opts.fulfillment,
-      subtotal: subtotal.toFixed(2),
-      deliveryFee: deliveryFee.toFixed(2),
-      deliveryZone: quote?.zone ?? null,
-      source: "whatsapp_chat",
-    },
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  });
+  // ── Order row + atomic stock reservation in ONE transaction ────────────
+  // reserveStock runs a conditional UPDATE (stockQuantity >= qty) per item;
+  // if a concurrent checkout claimed the last unit since the pre-check, it
+  // throws InsufficientStockError and the WHOLE order rolls back — no order,
+  // no payment link, no oversell.
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(orders).values({
+        id: orderId,
+        tenantId: opts.tenantId,
+        customerId: opts.waPhoneNumber, // use phone as customer ref until resolved
+        orderNumber,
+        status: "pending",
+        totalAmount: total.toFixed(2),
+        currency,
+        paymentStatus: "unpaid",
+        shippingAddress: opts.address ? { raw: opts.address } : null,
+        items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
+        metadata: {
+          fulfillment: opts.fulfillment,
+          subtotal: subtotal.toFixed(2),
+          deliveryFee: deliveryFee.toFixed(2),
+          deliveryZone: quote?.zone ?? null,
+          source: "whatsapp_chat",
+        },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await reserveStock(tx, opts.tenantId, orderId, reserveItems);
+    });
+  } catch (err) {
+    if (err instanceof InsufficientStockError) {
+      const shortIds = new Set(err.shortages.map((s) => s.productId));
+      return {
+        created: false,
+        shortages: err.shortages,
+        availableItems: items.filter((i) => !shortIds.has(i.productId)),
+        currency,
+      };
+    }
+    throw err;
+  }
 
   // ── Fire-and-forget sync to external systems ─────────────────────────
   (async () => {
@@ -450,6 +523,10 @@ export const nlpRouter = router({
             if (order.fraudBlocked) {
               return `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
             }
+            if (order.shortages?.length) {
+              // No order, no payment link — tell the buyer what's missing.
+              return buildShortageReply(order.shortages, order.availableItems ?? [], order.currency ?? "NGN");
+            }
             if (!order.created) return "Your cart appears to be empty — what would you like to order?";
             stepCtx.fulfillment = fulfillment;
             stepCtx.lastOrderId = order.orderId;
@@ -697,6 +774,9 @@ export const nlpRouter = router({
             });
             if (order.fraudBlocked) {
               llmResult.reply = `\u26a0\ufe0f Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
+            } else if (order.shortages?.length) {
+              // Out-of-stock guard tripped — no order, no payment link.
+              llmResult.reply = buildShortageReply(order.shortages, order.availableItems ?? [], order.currency ?? "NGN");
             } else if (order.created) {
               ctx.lastOrderId = order.orderId;
               ctx.lastOrderNumber = order.orderNumber;

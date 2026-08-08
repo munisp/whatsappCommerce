@@ -570,6 +570,29 @@ export const inventorySnapshots = pgTable("inventory_snapshots", {
   uniqueIndex("inv_snap_product_idx").on(t.tenantId, t.productId),
 ]);
 
+// ─── Inventory Reservations (pre-payment stock holds) ────────────────────────
+// One row per (order, product) stock hold. The product's stockQuantity is
+// decremented atomically at reserve time (UPDATE ... WHERE stockQuantity >=
+// qty), flipped reserved→committed on payment confirmation, and released
+// (stock credited back) on cancel / payment failure / TTL expiry.
+// status: 'reserved' | 'committed' | 'released' (CHECK constraint in 0031).
+export const inventoryReservations = pgTable("inventory_reservations", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  qty: integer("qty").notNull(),
+  status: varchar("status", { length: 16 }).default("reserved").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("inventory_reservations_tenant_idx").on(t.tenantId),
+  index("inventory_reservations_order_idx").on(t.orderId),
+  index("inventory_reservations_status_expires_idx").on(t.status, t.expiresAt),
+]);
+export type InventoryReservation = typeof inventoryReservations.$inferSelect;
+export type InsertInventoryReservation = typeof inventoryReservations.$inferInsert;
+
 export const inventorySyncLog = pgTable("inventory_sync_log", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
