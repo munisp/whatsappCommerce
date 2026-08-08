@@ -25,8 +25,14 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       const connStr = process.env.POSTGRES_URL || process.env.DATABASE_URL;
+      // PG pool size is env-configurable (PG_POOL_MAX, default 10) so the
+      // platform can scale per-replica connection budgets without rebuilds.
+      const poolMax = (() => {
+        const v = parseInt(process.env.PG_POOL_MAX ?? "", 10);
+        return Number.isFinite(v) && v > 0 ? v : 10;
+      })();
       _client = postgres(connStr!, {
-        max: 10,
+        max: poolMax,
         idle_timeout: 30,
         connect_timeout: 10,
         max_lifetime: 1800,
