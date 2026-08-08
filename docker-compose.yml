@@ -248,6 +248,32 @@ services:
     restart: unless-stopped
 
   # ─── ML Inference (Python, CPU-only) ────────────────────────────────────────
+  # ─── TypeScript Platform (Express + tRPC monolith) ─────────────────────────
+  platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # Cap V8 old-space at 2GB per replica; see docs/PERF.md (heap experiment).
+      NODE_OPTIONS: "--max-old-space-size=2048"
+      DATABASE_URL: postgres://wc_user:wc_secret@postgres:5432/whatsapp_commerce?sslmode=disable
+      REDIS_URL: redis://redis:6379
+      # PG pool size per replica (see docs/PERF.md for the 100k math).
+      PG_POOL_MAX: ${PG_POOL_MAX:-10}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
   ml-inference:
     build:
       context: ./services/ml-stack
