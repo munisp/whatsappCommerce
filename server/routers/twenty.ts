@@ -9,6 +9,12 @@ import {
   twentyContacts,
   twentyDeals,
 } from "../../drizzle/schema";
+import {
+  getTwentyIntegrationConfig,
+  sendWhatsAppTextMessage,
+  syncTenantIntegrationPointer,
+  type TwentyIntegrationConfig,
+} from "../services/integrationSync";
 
 const DEMO_TENANT = "demo-tenant-001";
 
@@ -17,27 +23,70 @@ function getTenantId(ctx: { user: { tenantId?: string | null } }) {
   return ctx.user.tenantId ?? DEMO_TENANT;
 }
 
-// Simulate a Twenty CRM API call (real impl would use fetch to baseUrl)
-type TwentyContact = { id: string; name: string; email: string; phone: string; company: string; jobTitle: string; stage: string };
-type TwentyDeal = { id: string; name: string; stage: string; amount: number; currency: string; contactId: string; probability: number };
-
-async function simulateTwentyContacts(_baseUrl: string, _apiKey: string): Promise<TwentyContact[]> {
-  return [
-    { id: "tw-c-001", name: "Amara Nwosu", email: "amara@acme.io", phone: "+2348012345678", company: "Acme Ltd", jobTitle: "CEO", stage: "Customer" },
-    { id: "tw-c-002", name: "Carlos Mendez", email: "carlos@techwave.co", phone: "+5491123456789", company: "TechWave", jobTitle: "CTO", stage: "Lead" },
-    { id: "tw-c-003", name: "Priya Sharma", email: "priya@shopfast.in", phone: "+919876543210", company: "ShopFast", jobTitle: "Founder", stage: "Prospect" },
-    { id: "tw-c-004", name: "David Osei", email: "david@goldcoast.gh", phone: "+233244123456", company: "GoldCoast Retail", jobTitle: "GM", stage: "Customer" },
-    { id: "tw-c-005", name: "Fatima Al-Rashid", email: "fatima@souk.ae", phone: "+971501234567", company: "Souk Digital", jobTitle: "Director", stage: "Opportunity" },
-  ];
+/**
+ * Cross-tenant credential hijack guard: a requested tenantId must match the
+ * caller's own tenant unless the caller is a platform admin.
+ */
+function assertTenantAccess(ctx: { user: { role: string; tenantId?: string | null } }, requestedTenant: string) {
+  if (ctx.user.role === "admin") return;
+  if (requestedTenant !== getTenantId(ctx)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Cannot manage Twenty CRM integration for another tenant",
+    });
+  }
 }
 
-async function simulateTwentyDeals(_baseUrl: string, _apiKey: string): Promise<TwentyDeal[]> {
-  return [
-    { id: "tw-d-001", name: "Acme Enterprise Deal", stage: "Proposal", amount: 45000, currency: "USD", contactId: "tw-c-001", probability: 70 },
-    { id: "tw-d-002", name: "TechWave Platform License", stage: "Negotiation", amount: 28000, currency: "USD", contactId: "tw-c-002", probability: 85 },
-    { id: "tw-d-003", name: "ShopFast Commerce Suite", stage: "Qualified", amount: 12000, currency: "USD", contactId: "tw-c-003", probability: 40 },
-    { id: "tw-d-004", name: "GoldCoast Retail Expansion", stage: "Won", amount: 67000, currency: "USD", contactId: "tw-c-004", probability: 100 },
-  ];
+// ── Twenty REST API types ─────────────────────────────────────────────────────
+type TwentyPerson = {
+  id: string;
+  name?: { firstName?: string | null; lastName?: string | null } | null;
+  emails?: { primaryEmail?: string | null } | null;
+  phones?: { primaryPhoneNumber?: string | null; primaryPhoneCountryCode?: string | null } | null;
+  jobTitle?: string | null;
+  companyId?: string | null;
+};
+type TwentyOpportunity = {
+  id: string;
+  name?: string | null;
+  stage?: string | null;
+  amount?: { amountMicros?: number | null; currencyCode?: string | null } | null;
+  probability?: number | null;
+  closeDate?: string | null;
+  pointOfContactId?: string | null;
+};
+
+/** Real GET against the Twenty REST API. Throws honest errors. */
+async function twentyRestGet<T>(
+  cfg: TwentyIntegrationConfig,
+  path: string,
+): Promise<T> {
+  const resp = await fetch(`${cfg.baseUrl}${path}`, {
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: "application/json" },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Twenty API GET ${path} failed with status ${resp.status}: ${body.slice(0, 300)}`);
+  }
+  return resp.json() as Promise<T>;
+}
+
+async function fetchTwentyPeople(cfg: TwentyIntegrationConfig): Promise<TwentyPerson[]> {
+  const body = await twentyRestGet<{ data?: { people?: TwentyPerson[] } }>(cfg, "/rest/people?limit=100");
+  return body.data?.people ?? [];
+}
+
+async function fetchTwentyOpportunities(cfg: TwentyIntegrationConfig): Promise<TwentyOpportunity[]> {
+  const body = await twentyRestGet<{ data?: { opportunities?: TwentyOpportunity[] } }>(
+    cfg,
+    "/rest/opportunities?limit=100",
+  );
+  return body.data?.opportunities ?? [];
+}
+
+function personDisplayName(p: TwentyPerson): string {
+  return [p.name?.firstName, p.name?.lastName].filter(Boolean).join(" ").trim();
 }
 
 export const twentyRouter = router({
@@ -74,32 +123,55 @@ export const twentyRouter = router({
         .from(twentyIntegrations)
         .where(eq(twentyIntegrations.tenantId, tenantId))
         .limit(1);
+      let id: string;
       if (existing[0]) {
         await db
           .update(twentyIntegrations)
           .set({ ...input, status: "disconnected" })
           .where(eq(twentyIntegrations.tenantId, tenantId));
-        return { id: existing[0].id };
+        id = existing[0].id;
+      } else {
+        id = nanoid();
+        await db.insert(twentyIntegrations).values({ id, tenantId, ...input, status: "disconnected" });
       }
-      const id = nanoid();
-      await db.insert(twentyIntegrations).values({ id, tenantId, ...input, status: "disconnected" });
+      // Keep the tenant_integrations pointer row in step so the real sync
+      // paths (integrationSync outbound) resolve this tenant's credentials.
+      await syncTenantIntegrationPointer(tenantId, "twenty_crm", input.baseUrl, "pending");
       return { id };
     }),
 
+  /**
+   * Real connection test: GET /rest/people?limit=1 with the Bearer API key.
+   * Returns the real error when the workspace is unreachable or the key is
+   * rejected.
+   */
   testConnection: protectedProcedure
     .input(z.object({ baseUrl: z.string(), apiKey: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
-      // Simulate connection test — real impl: fetch(`${input.baseUrl}/metadata`, { headers: { Authorization: `Bearer ${input.apiKey}` } })
-      const ok = input.baseUrl.startsWith("http") && input.apiKey.length > 4;
-      const status = ok ? "connected" : "error";
+      const baseUrl = input.baseUrl.replace(/\/+$/, "");
+      let status: "connected" | "error" = "error";
+      let error: string | null = null;
+      try {
+        await twentyRestGet({ baseUrl, apiKey: input.apiKey, workspaceId: null }, "/rest/people?limit=1");
+        status = "connected";
+      } catch (err: any) {
+        error = err?.message ?? String(err);
+      }
       await db
         .update(twentyIntegrations)
         .set({ status })
         .where(eq(twentyIntegrations.tenantId, tenantId));
-      return { success: ok, status };
+      await syncTenantIntegrationPointer(
+        tenantId,
+        "twenty_crm",
+        baseUrl,
+        status === "connected" ? "active" : "error",
+        error,
+      );
+      return { success: status === "connected", status, error };
     }),
 
   // Validate and persist connection settings for a tenant. Used by the admin
@@ -117,6 +189,7 @@ export const twentyRouter = router({
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = input.tenantId ?? getTenantId(ctx);
+      assertTenantAccess(ctx, tenantId);
       const config = {
         baseUrl: input.apiUrl,
         apiKey: input.apiKey,
@@ -132,10 +205,12 @@ export const twentyRouter = router({
           .update(twentyIntegrations)
           .set({ ...config, status: "disconnected" })
           .where(eq(twentyIntegrations.tenantId, tenantId));
+        await syncTenantIntegrationPointer(tenantId, "twenty_crm", config.baseUrl, "pending");
         return { id: existing[0].id, success: true };
       }
       const id = nanoid();
       await db.insert(twentyIntegrations).values({ id, tenantId, ...config, status: "disconnected" });
+      await syncTenantIntegrationPointer(tenantId, "twenty_crm", config.baseUrl, "pending");
       return { id, success: true };
     }),
 
@@ -147,51 +222,29 @@ export const twentyRouter = router({
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = input?.tenantId ?? getTenantId(ctx);
-      const cfg = await db
-        .select()
-        .from(twentyIntegrations)
-        .where(eq(twentyIntegrations.tenantId, tenantId))
-        .limit(1);
-      if (!cfg[0]) {
+      assertTenantAccess(ctx, tenantId);
+      const cfg = await getTwentyIntegrationConfig(tenantId);
+      if (!cfg) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
           message: "NOT_CONFIGURED: Twenty CRM is not configured for this tenant",
         });
       }
 
-      type TwentyPerson = {
-        id: string;
-        name?: { firstName?: string | null; lastName?: string | null } | null;
-        emails?: { primaryEmail?: string | null } | null;
-        phones?: { primaryPhoneNumber?: string | null; primaryPhoneCountryCode?: string | null } | null;
-        jobTitle?: string | null;
-        companyId?: string | null;
-      };
-      const baseUrl = cfg[0].baseUrl.replace(/\/+$/, "");
       let people: TwentyPerson[];
       try {
-        const resp = await fetch(`${baseUrl}/rest/people?limit=100`, {
-          headers: { Authorization: `Bearer ${cfg[0].apiKey}`, Accept: "application/json" },
-        });
-        if (!resp.ok) {
-          throw new TRPCError({
-            code: resp.status === 401 || resp.status === 403 ? "UNAUTHORIZED" : "INTERNAL_SERVER_ERROR",
-            message: `Twenty API request failed with status ${resp.status}`,
-          });
-        }
-        const body = (await resp.json()) as { data?: { people?: TwentyPerson[] } };
-        people = body.data?.people ?? [];
+        people = await fetchTwentyPeople(cfg);
       } catch (err) {
-        if (err instanceof TRPCError) throw err;
+        const message = err instanceof Error ? err.message : String(err);
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `Failed to reach Twenty API: ${err instanceof Error ? err.message : String(err)}`,
+          code: message.includes("status 401") || message.includes("status 403") ? "UNAUTHORIZED" : "INTERNAL_SERVER_ERROR",
+          message,
         });
       }
 
       let contactsSynced = 0;
       for (const p of people) {
-        const name = [p.name?.firstName, p.name?.lastName].filter(Boolean).join(" ").trim();
+        const name = personDisplayName(p);
         const phone = p.phones?.primaryPhoneNumber ?? "";
         const email = p.emails?.primaryEmail ?? "";
         await db
@@ -226,83 +279,144 @@ export const twentyRouter = router({
         .update(twentyIntegrations)
         .set({ lastSyncAt: new Date(), status: "connected" })
         .where(eq(twentyIntegrations.tenantId, tenantId));
+      await syncTenantIntegrationPointer(tenantId, "twenty_crm", cfg.baseUrl, "active");
 
       return { contactsSynced };
     }),
 
   // ── Sync ───────────────────────────────────────────────────────────────────
+  /**
+   * Real pull from the Twenty REST API: people → twenty_contacts and
+   * opportunities → twenty_deals.  Throws honest errors; never simulates.
+   */
   syncAll: protectedProcedure.mutation(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new Error("DB unavailable");
     const tenantId = getTenantId(ctx);
-    const cfg = await db
+    const cfgRow = await db
       .select()
       .from(twentyIntegrations)
       .where(eq(twentyIntegrations.tenantId, tenantId))
       .limit(1);
-    if (!cfg[0]) throw new Error("Twenty not configured");
+    if (!cfgRow[0]) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "NOT_CONFIGURED: Twenty CRM is not configured for this tenant",
+      });
+    }
+    const cfg = await getTwentyIntegrationConfig(tenantId);
+    if (!cfg) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "NOT_CONFIGURED: Twenty CRM integration is missing baseUrl/apiKey",
+      });
+    }
 
     let contactsSynced = 0;
     let dealsSynced = 0;
+    const errors: string[] = [];
 
-    if (cfg[0].syncContacts) {
-      const contacts = await simulateTwentyContacts(cfg[0].baseUrl, cfg[0].apiKey);
-      for (const c of contacts) {
-        const id = nanoid();
-        await db
-          .insert(twentyContacts)
-          .values({
-            id,
-            tenantId,
-            twentyId: c.id,
-            name: c.name,
-            email: c.email,
-            phone: c.phone,
-            company: c.company,
-            jobTitle: c.jobTitle,
-            stage: c.stage,
-            whatsappPhone: c.phone,
-            syncedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [twentyContacts.tenantId, twentyContacts.twentyId],
-            set: { name: c.name, email: c.email, phone: c.phone, company: c.company, jobTitle: c.jobTitle, stage: c.stage, syncedAt: new Date() },
-          });
-        contactsSynced++;
+    if (cfgRow[0].syncContacts) {
+      try {
+        const people = await fetchTwentyPeople(cfg);
+        for (const p of people) {
+          const name = personDisplayName(p);
+          const phone = p.phones?.primaryPhoneNumber ?? "";
+          const email = p.emails?.primaryEmail ?? "";
+          await db
+            .insert(twentyContacts)
+            .values({
+              id: nanoid(),
+              tenantId,
+              twentyId: p.id,
+              name: name || email || phone || p.id,
+              email,
+              phone,
+              company: "",
+              jobTitle: p.jobTitle ?? "",
+              stage: "Lead",
+              whatsappPhone: phone,
+              rawData: p,
+              syncedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: [twentyContacts.tenantId, twentyContacts.twentyId],
+              set: {
+                name: name || email || phone || p.id,
+                email,
+                phone,
+                jobTitle: p.jobTitle ?? "",
+                rawData: p,
+                syncedAt: new Date(),
+              },
+            });
+          contactsSynced++;
+        }
+      } catch (err: any) {
+        errors.push(`contacts: ${err?.message ?? String(err)}`);
       }
     }
 
-    if (cfg[0].syncDeals) {
-      const deals = await simulateTwentyDeals(cfg[0].baseUrl, cfg[0].apiKey);
-      for (const d of deals) {
-        const id = nanoid();
-        await db
-          .insert(twentyDeals)
-          .values({
-            id,
+    if (cfgRow[0].syncDeals) {
+      try {
+        const opportunities = await fetchTwentyOpportunities(cfg);
+        for (const d of opportunities) {
+          const amountMicros = d.amount?.amountMicros ?? null;
+          const amount = amountMicros !== null ? (amountMicros / 1_000_000).toFixed(2) : null;
+          const closeDate = d.closeDate ? new Date(d.closeDate) : null;
+          const values = {
             tenantId,
             twentyId: d.id,
-            name: d.name,
-            stage: d.stage,
-            amount: String(d.amount),
-            currency: d.currency,
-            probability: d.probability,
+            name: d.name ?? null,
+            stage: d.stage ?? null,
+            amount,
+            currency: d.amount?.currencyCode ?? "USD",
+            probability: d.probability ?? null,
+            closeDate: closeDate && !isNaN(closeDate.getTime()) ? closeDate : null,
+            rawData: d,
             syncedAt: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: [twentyDeals.tenantId, twentyDeals.twentyId],
-            set: { name: d.name, stage: d.stage, amount: String(d.amount), probability: d.probability, syncedAt: new Date() },
-          });
-        dealsSynced++;
+          };
+          await db
+            .insert(twentyDeals)
+            .values({ id: nanoid(), ...values })
+            .onConflictDoUpdate({
+              target: [twentyDeals.tenantId, twentyDeals.twentyId],
+              set: {
+                name: values.name,
+                stage: values.stage,
+                amount: values.amount,
+                currency: values.currency,
+                probability: values.probability,
+                closeDate: values.closeDate,
+                rawData: d,
+                syncedAt: new Date(),
+              },
+            });
+          dealsSynced++;
+        }
+      } catch (err: any) {
+        errors.push(`deals: ${err?.message ?? String(err)}`);
       }
     }
+
+    const allFailed =
+      errors.length > 0 &&
+      contactsSynced + dealsSynced === 0 &&
+      (cfgRow[0].syncContacts || cfgRow[0].syncDeals);
 
     await db
       .update(twentyIntegrations)
-      .set({ lastSyncAt: new Date(), status: "connected" })
+      .set({ lastSyncAt: new Date(), status: allFailed ? "error" : "connected" })
       .where(eq(twentyIntegrations.tenantId, tenantId));
+    await syncTenantIntegrationPointer(
+      tenantId,
+      "twenty_crm",
+      cfg.baseUrl,
+      allFailed ? "error" : "active",
+      allFailed ? errors.join(" | ") : null,
+    );
 
-    return { contactsSynced, dealsSynced };
+    return { contactsSynced, dealsSynced, errors };
   }),
 
   // ── Contacts ───────────────────────────────────────────────────────────────
@@ -340,6 +454,12 @@ export const twentyRouter = router({
     }),
 
   // ── WhatsApp Send ──────────────────────────────────────────────────────────
+  /**
+   * Send a real WhatsApp text message (Meta Cloud API) to a synced Twenty
+   * contact.  lastWhatsappAt is only updated after the Cloud API accepts the
+   * message; missing WhatsApp credentials produce an honest NOT_CONFIGURED
+   * error — nothing is faked.
+   */
   sendWhatsApp: protectedProcedure
     .input(z.object({
       contactId: z.string(),
@@ -349,11 +469,56 @@ export const twentyRouter = router({
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
+
+      const [contact] = await db
+        .select()
+        .from(twentyContacts)
+        .where(and(eq(twentyContacts.id, input.contactId), eq(twentyContacts.tenantId, tenantId)))
+        .limit(1);
+      if (!contact) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Twenty contact not found" });
+      }
+
+      let phone = contact.whatsappPhone || contact.phone || null;
+
+      // Fall back to a live Twenty lookup when the local cache has no number.
+      if (!phone) {
+        const cfg = await getTwentyIntegrationConfig(tenantId);
+        if (cfg) {
+          try {
+            const body = await twentyRestGet<{ data?: { person?: TwentyPerson } }>(
+              cfg,
+              `/rest/people/${contact.twentyId}`,
+            );
+            phone = body.data?.person?.phones?.primaryPhoneNumber ?? null;
+          } catch (err: any) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Failed to resolve recipient from Twenty: ${err?.message ?? String(err)}`,
+            });
+          }
+        }
+      }
+
+      if (!phone) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No phone number on this Twenty contact",
+        });
+      }
+
+      const result = await sendWhatsAppTextMessage(phone, input.message);
+      if (!result.sent) {
+        throw new TRPCError({
+          code: result.notConfigured ? "PRECONDITION_FAILED" : "INTERNAL_SERVER_ERROR",
+          message: result.error,
+        });
+      }
+
       await db
         .update(twentyContacts)
         .set({ lastWhatsappAt: new Date() })
         .where(and(eq(twentyContacts.id, input.contactId), eq(twentyContacts.tenantId, tenantId)));
-      // Real impl: POST to WhatsApp Business API
-      return { success: true, sentAt: new Date() };
+      return { success: true, sentAt: new Date(), wamid: result.wamid };
     }),
 });
