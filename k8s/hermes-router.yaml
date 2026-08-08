@@ -1,0 +1,115 @@
+# hermes-router (Rust) — rust/hermes-router. High-throughput event router for
+# the Hermes Agent integration with circuit breaker, retry, DLQ, and the only
+# first-party Prometheus-text /metrics endpoint
+# (hermes_router_events_{routed,failed,dlq}_total — rust/hermes-router/src/main.rs
+# handle_metrics). Deployed so the DLQ alert rules in
+# k8s/monitoring/prometheus-rules.yaml have a real target.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-router
+  namespace: whatsapp-commerce
+  labels:
+    app: hermes-router
+    app.kubernetes.io/name: hermes-router
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hermes-router
+  template:
+    metadata:
+      labels:
+        app: hermes-router
+        app.kubernetes.io/name: hermes-router
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8096"
+        prometheus.io/path: /metrics
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: hermes-router
+          image: whatsapp-commerce/hermes-router:v1.0.0
+          ports:
+            - containerPort: 8096
+          env:
+            - name: PORT
+              value: "8096"
+            - name: ENV
+              value: production   # fail-closed when INTERNAL_API_KEY is unset
+            - name: DLQ_DIR
+              value: /tmp/hermes-dlq
+            - name: RUST_LOG
+              value: info
+          envFrom:
+            # Provides KAFKA_BROKERS and REDIS_URL.
+            - configMapRef:
+                name: platform-config
+            - secretRef:
+                name: platform-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            # DLQ_DIR lives under /tmp (writable emptyDir).
+            - name: tmp
+              mountPath: /tmp
+          # Probe paths verified: GET /health + GET /metrics —
+          # rust/hermes-router/src/main.rs route table.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-router
+  namespace: whatsapp-commerce
+  labels:
+    app: hermes-router
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+    # Picked up by k8s/monitoring/servicemonitors.yaml.
+    prometheus.io/scrape: "true"
+spec:
+  selector:
+    app: hermes-router
+  ports:
+    - name: http
+      port: 8096
+      targetPort: 8096
+  type: ClusterIP
