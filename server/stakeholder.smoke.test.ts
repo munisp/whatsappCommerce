@@ -382,8 +382,19 @@ describe("marketplace: multi-seller marketplace workflows", () => {
 // MOBILE MONEY WORKFLOWS
 // ═══════════════════════════════════════════════════════════════════════════════
 describe("mobileMoney: mobile money payment workflows", () => {
-  it("initiate: anonymous buyer can initiate mobile money payment", async () => {
-    const result = await caller(makeAnonCtx()).mobileMoney.initiate({
+  it("initiate: anonymous buyer is rejected (UNAUTHORIZED)", async () => {
+    // mobileMoney.initiate is a protectedProcedure — anonymous callers must be
+    // rejected before any payment is created.
+    await expect(caller(makeAnonCtx()).mobileMoney.initiate({
+      tenantId: "t1",
+      amount: "4500",
+      phoneNumber: "+2348012345678",
+      provider: "mtn_momo",
+    })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("initiate: authenticated tenant owner can initiate mobile money payment", async () => {
+    const result = await caller(makeTenantOwnerCtx()).mobileMoney.initiate({
       tenantId: "t1",
       amount: "4500",
       phoneNumber: "+2348012345678",
@@ -656,8 +667,9 @@ describe("end-to-end: buyer full purchase journey via multi-channel", () => {
     const services = await anon.serviceCommerce.listServices({ tenantId: "t1" });
     expect(Array.isArray(services)).toBe(true);
 
-    // Initiate mobile money payment
-    const payment = await anon.mobileMoney.initiate({
+    // Initiate mobile money payment (protected — requires an authenticated user)
+    const authed = caller(makeTenantOwnerCtx());
+    const payment = await authed.mobileMoney.initiate({
       tenantId: "t1",
       amount: "4500",
       phoneNumber: "+2348012345678",
