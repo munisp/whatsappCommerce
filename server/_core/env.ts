@@ -112,3 +112,32 @@ export const ENV = {
 // unset or known-default secret unless NODE_ENV is explicitly development/test.
 assertProductionSecret("JWT_SECRET", ENV.jwtSecret);
 assertProductionSecret("JWT_SECRET (cookieSecret)", ENV.cookieSecret);
+
+// ─── Environment boot gate ──────────────────────────────────────────────────
+// Hard dependencies that MUST be explicitly configured in production-like
+// environments. Evaluated at import time so a misconfigured deploy fails fast
+// at startup with the explicit list of missing variables instead of booting
+// half-configured. Aliases accepted where the codebase already supports them
+// (DATABASE_URL|POSTGRES_URL, REDIS_URL|REDIS_TLS_URL). Development/test warn
+// only — local runs must not require the full stack.
+export const REQUIRED_BY_ENV: Record<string, string> = {
+  DATABASE_URL: process.env.DATABASE_URL ?? process.env.POSTGRES_URL ?? "",
+  JWT_SECRET: process.env.JWT_SECRET ?? "",
+  KEYCLOAK_URL: process.env.KEYCLOAK_URL ?? "",
+  APP_URL: process.env.APP_URL ?? "",
+  REDIS_URL: process.env.REDIS_URL ?? process.env.REDIS_TLS_URL ?? "",
+};
+
+const missingRequiredEnv = Object.entries(REQUIRED_BY_ENV)
+  .filter(([, value]) => !value || !value.trim())
+  .map(([name]) => name);
+
+if (missingRequiredEnv.length > 0) {
+  const msg =
+    `[ENV] missing required environment variables: ${missingRequiredEnv.join(", ")} ` +
+    `(NODE_ENV=${process.env.NODE_ENV ?? "unset"} is treated as ${isProd ? "production" : "development/test"})`;
+  if (isProd) {
+    throw new Error(`[ENV] FATAL: ${msg}. Set them before starting — refusing to boot.`);
+  }
+  console.warn(`[ENV] WARNING: ${msg}. Allowed to continue outside production.`);
+}

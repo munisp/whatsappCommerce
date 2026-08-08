@@ -61,6 +61,9 @@ export const deliveryZoneSchema = z.object({
   fee: z.number().min(0),
   currency: z.string().length(3).optional(),
   estimatedDays: z.number().int().min(0).max(60).optional(),
+  // Optional base ETA (minutes) for this zone — consumed by the ETA engine
+  // (server/services/eta.ts). Defaults: 45 same-city / 180 intercity.
+  etaMinutes: z.number().int().min(1).max(10080).optional(),
 });
 
 export const commerceConfigSchema = z.object({

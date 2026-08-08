@@ -49,6 +49,19 @@ export const trackingRouter = router({
         .limit(1)
         .catch(() => []);
 
+      // ETA engine: remaining minutes for the public tracking view (PII-safe).
+      let etaMinutes: number | null = null;
+      if (shipment) {
+        try {
+          const { estimateShipmentRemainingEta } = await import("../services/eta");
+          etaMinutes = await estimateShipmentRemainingEta(db, {
+            shipmentId: shipment.id, status: shipment.status, tenantId: order.tenantId,
+          });
+        } catch {
+          etaMinutes = null;
+        }
+      }
+
       const shipmentHistory: Array<{ status: string; at: string | null }> = [];
       if (shipment) {
         const tsFields: Array<[string, Date | null]> = [
@@ -86,6 +99,7 @@ export const trackingRouter = router({
               status: shipment.status,
               carrierName: shipment.carrierName,
               trackingId: shipment.trackingId,
+              etaMinutes,
               history: shipmentHistory,
             }
           : null,

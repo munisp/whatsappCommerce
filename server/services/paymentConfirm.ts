@@ -293,6 +293,19 @@ export async function confirmProviderPayment(
     }
   }
 
+  // Usage metering (platform ops): a confirmed payment means an order was
+  // created/converted — count it against the tenant's monthly orders quota.
+  // Additive + never blocking: recordUsage swallows its own errors and a
+  // metering outage must never fail a confirmed payment.
+  if (orderId) {
+    try {
+      const { recordUsage, METRIC_ORDERS_CREATED } = await import("./metering");
+      await recordUsage(db, tenantId, METRIC_ORDERS_CREATED);
+    } catch (e: unknown) {
+      console.error("[payment-confirm] usage metering failed:", (e as Error)?.message);
+    }
+  }
+
   console.log(`[payment-confirm] ${opts.provider} ref=${reference} confirmed via ${kind} row ${rowId}`);
   return { ok: true, action: "confirmed" };
 }
