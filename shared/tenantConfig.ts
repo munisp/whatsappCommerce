@@ -94,6 +94,25 @@ export const brandingConfigSchema = z.object({
 
 export type BrandingConfig = z.infer<typeof brandingConfigSchema>;
 
+// ─── Domains ─────────────────────────────────────────────────────────────────
+// settings.domains: string[] of hosts the tenant's storefront answers on
+// (see server/_core/tenantDomain.ts resolution).
+
+export const tenantDomainSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(253)
+  .regex(
+    /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/,
+    "domain must be a valid hostname like shop.example.com",
+  );
+
+export const tenantDomainsSchema = z
+  .array(tenantDomainSchema)
+  .max(20)
+  .refine((list) => new Set(list).size === list.length, { message: "duplicate domains" });
+
 // ─── Integrations ────────────────────────────────────────────────────────────
 
 export const integrationCredsSchema = z.object({

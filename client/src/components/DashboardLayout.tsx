@@ -32,7 +32,7 @@ import {
   BrainCircuit, Warehouse, Smartphone, Link2, Eye, ArrowLeftRight,
   Database, GitBranch, AlertTriangle, Activity, Lock, Network,
   UserPlus, Rocket, KeyRound, Building2, ScrollText, Workflow, Leaf,
-  Calendar, Paperclip, BarChart2, Cpu,
+  Calendar, Paperclip, BarChart2, Cpu, ListTree, Plug, SlidersHorizontal,
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -155,6 +155,14 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: Globe,           label: "Integration Hub", path: "/integrations" },
       { icon: Users,           label: "Twenty CRM",      path: "/twenty-crm" },
       { icon: Package,         label: "Odoo ERP",        path: "/odoo-erp" },
+    ],
+  },
+  {
+    id: "configuration",
+    label: "Configuration",
+    icon: SlidersHorizontal,
+    items: [
+      { icon: Smartphone,      label: "WA Menu Builder",  path: "/wa-menu-builder" },
     ],
   },
   {
