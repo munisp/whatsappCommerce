@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import {
   escrowTransactions, escrowConfig, escrowDisputes,
   merchantWallets, walletTransactions,
-  orders, logisticsShipments, paymentIntents,
+  orders, customers, logisticsShipments, paymentIntents, paymentTransactions,
   type EscrowTransaction, type EscrowConfig,
 } from "../../drizzle/schema";
 import { escrowTimelineAttachments } from "../../drizzle/schema";
@@ -36,9 +36,41 @@ async function getEscrowConfig(db: Awaited<ReturnType<typeof getDb>>) {
   return cfg;
 }
 
+// ─── DB / transaction handle types ───────────────────────────────────────────
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+// Both the pool-level drizzle instance and a transaction handle expose these.
+type DbOrTx = Pick<Db, "select" | "insert" | "update" | "delete" | "execute">;
+
+// ─── Authorization helpers ───────────────────────────────────────────────────
+type SessionUser = { id: number; role: string; email: string | null; phone: string | null; tenantId: string | null };
+
+/** Merchants may only touch their own tenant's wallet; admins may touch any. */
+function assertTenantAccess(user: SessionUser, tenantId: string) {
+  if (user.role === "admin") return;
+  if (!user.tenantId || user.tenantId !== tenantId) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's wallet" });
+  }
+}
+
+/** Verify the caller is the buyer of the escrow's order (or an admin). */
+async function assertBuyerOrAdmin(db: DbOrTx, user: SessionUser, escrow: EscrowTransaction) {
+  if (user.role === "admin") return;
+  const [order] = await db.select().from(orders).where(eq(orders.id, escrow.orderId));
+  const [customer] = order
+    ? await db.select().from(customers).where(eq(customers.id, order.customerId))
+    : [undefined];
+  const userEmail = user.email?.trim().toLowerCase();
+  const custEmail = customer?.email?.trim().toLowerCase();
+  const emailMatch = !!userEmail && !!custEmail && userEmail === custEmail;
+  const digits = (p?: string | null) => (p ?? "").replace(/\D/g, "");
+  const phoneMatch = !!digits(user.phone) && digits(user.phone) === digits(customer?.whatsappPhone);
+  if (!emailMatch && !phoneMatch) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Only the buyer of this order (or an admin) can confirm receipt" });
+  }
+}
+
 // ─── Helper: get or create merchant wallet ────────────────────────────────────
-async function getOrCreateWallet(db: Awaited<ReturnType<typeof getDb>>, tenantId: string, custodyMode: "pssp" | "psp" = "pssp") {
-  if (!db) throw new Error("DB unavailable");
+async function getOrCreateWallet(db: DbOrTx, tenantId: string, custodyMode: "pssp" | "psp" = "pssp") {
   const [existing] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, tenantId));
   if (existing) return existing;
   const id = crypto.randomUUID();
@@ -48,32 +80,70 @@ async function getOrCreateWallet(db: Awaited<ReturnType<typeof getDb>>, tenantId
     totalEarned: "0", totalWithdrawn: "0",
     custodyMode, isActive: true,
     createdAt: new Date(), updatedAt: new Date(),
-  });
-  const [created] = await db.select().from(merchantWallets).where(eq(merchantWallets.id, id));
+  }).onConflictDoNothing();
+  const [created] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, tenantId));
   return created!;
 }
 
-// ─── Helper: record wallet transaction (double-entry) ─────────────────────────
-async function recordWalletTx(
-  db: Awaited<ReturnType<typeof getDb>>,
+// ─── Platform fee wallet (deterministic) ─────────────────────────────────────
+// Platform fees collected at settlement are credited here so fee revenue is
+// tracked as real money instead of vanishing from the ledger.
+export const PLATFORM_FEE_WALLET_ID = "platform-fee-wallet";
+const PLATFORM_FEE_TENANT_ID = "platform-fees";
+
+async function getOrCreatePlatformFeeWallet(db: DbOrTx) {
+  const [existing] = await db.select().from(merchantWallets).where(eq(merchantWallets.id, PLATFORM_FEE_WALLET_ID));
+  if (existing) return existing;
+  await db.insert(merchantWallets).values({
+    id: PLATFORM_FEE_WALLET_ID,
+    tenantId: PLATFORM_FEE_TENANT_ID,
+    currency: "NGN",
+    availableBalance: "0", escrowBalance: "0",
+    totalEarned: "0", totalWithdrawn: "0",
+    custodyMode: "psp", isActive: true,
+    createdAt: new Date(), updatedAt: new Date(),
+  }).onConflictDoNothing();
+  const [created] = await db.select().from(merchantWallets).where(eq(merchantWallets.id, PLATFORM_FEE_WALLET_ID));
+  return created!;
+}
+
+// ─── Helper: record wallet transaction (double-entry, transactional) ──────────
+type WalletTxType = "escrow_credit" | "escrow_release" | "escrow_refund" | "float_income" | "withdrawal" | "fee_deduction";
+
+/** Lock a wallet row inside an open transaction and return its balances. */
+async function lockWalletRow(tx: DbOrTx, walletId: string): Promise<{ availableBalance: number; currency: string }> {
+  const res = await tx.execute(sql`SELECT available_balance, currency FROM merchant_wallets WHERE id = ${walletId} FOR UPDATE`);
+  const row = (res as unknown as Record<string, unknown>[])[0];
+  if (!row) throw new Error("Wallet not found");
+  return { availableBalance: parseFloat(String(row.available_balance)), currency: String(row.currency ?? "NGN") };
+}
+
+/**
+ * Record a wallet ledger entry + balance update. MUST be called inside an open
+ * DB transaction — the wallet row is locked with SELECT ... FOR UPDATE so
+ * concurrent writers serialize and balances can never go wrong under load.
+ */
+async function recordWalletTxInTx(
+  tx: DbOrTx,
   walletId: string,
   tenantId: string,
-  type: "escrow_credit" | "escrow_release" | "escrow_refund" | "float_income" | "withdrawal" | "fee_deduction",
+  type: WalletTxType,
   amount: number,
-  opts: { orderId?: string; escrowTxId?: string; description?: string; reference?: string },
+  opts: { orderId?: string; escrowTxId?: string; description?: string; reference?: string; metadata?: Record<string, unknown> },
 ) {
-  if (!db) throw new Error("DB unavailable");
-  const [wallet] = await db.select().from(merchantWallets).where(eq(merchantWallets.id, walletId));
-  if (!wallet) throw new Error("Wallet not found");
-  const before = parseFloat(wallet.availableBalance);
+  const wallet = await lockWalletRow(tx, walletId);
+  const before = wallet.availableBalance;
+  // escrow_credit moves funds INTO escrowBalance; escrow_refund / fee_deduction
+  // move funds OUT of escrowBalance (back to buyer / to the platform). Only
+  // escrow_release, float_income and withdrawal touch availableBalance.
   const after = type === "escrow_release" || type === "float_income"
     ? before + amount
-    : type === "fee_deduction" || type === "withdrawal"
+    : type === "withdrawal"
     ? before - amount
-    : before; // escrow_credit goes to escrowBalance, not availableBalance
+    : before;
 
   const txId = crypto.randomUUID();
-  await db.insert(walletTransactions).values({
+  await tx.insert(walletTransactions).values({
     id: txId, walletId, tenantId, type,
     amount: amount.toFixed(2),
     balanceBefore: before.toFixed(2),
@@ -83,43 +153,262 @@ async function recordWalletTx(
     escrowTxId: opts.escrowTxId,
     description: opts.description,
     reference: opts.reference,
+    metadata: opts.metadata,
     createdAt: new Date(),
   });
 
-  // Update wallet balances
   if (type === "escrow_credit") {
-    await db.update(merchantWallets).set({
+    await tx.update(merchantWallets).set({
       escrowBalance: sql`${merchantWallets.escrowBalance} + ${amount.toFixed(2)}`,
       updatedAt: new Date(),
     }).where(eq(merchantWallets.id, walletId));
   } else if (type === "escrow_release") {
-    await db.update(merchantWallets).set({
+    await tx.update(merchantWallets).set({
       escrowBalance: sql`GREATEST(${merchantWallets.escrowBalance} - ${amount.toFixed(2)}, 0)`,
       availableBalance: sql`${merchantWallets.availableBalance} + ${amount.toFixed(2)}`,
       totalEarned: sql`${merchantWallets.totalEarned} + ${amount.toFixed(2)}`,
       updatedAt: new Date(),
     }).where(eq(merchantWallets.id, walletId));
   } else if (type === "escrow_refund") {
-    await db.update(merchantWallets).set({
+    await tx.update(merchantWallets).set({
       escrowBalance: sql`GREATEST(${merchantWallets.escrowBalance} - ${amount.toFixed(2)}, 0)`,
       updatedAt: new Date(),
     }).where(eq(merchantWallets.id, walletId));
   } else if (type === "float_income") {
-    await db.update(merchantWallets).set({
+    await tx.update(merchantWallets).set({
       availableBalance: sql`${merchantWallets.availableBalance} + ${amount.toFixed(2)}`,
       totalEarned: sql`${merchantWallets.totalEarned} + ${amount.toFixed(2)}`,
       updatedAt: new Date(),
     }).where(eq(merchantWallets.id, walletId));
-  } else if (type === "fee_deduction" || type === "withdrawal") {
-    await db.update(merchantWallets).set({
-      availableBalance: sql`GREATEST(${merchantWallets.availableBalance} - ${amount.toFixed(2)}, 0)`,
-      totalWithdrawn: type === "withdrawal"
-        ? sql`${merchantWallets.totalWithdrawn} + ${amount.toFixed(2)}`
-        : merchantWallets.totalWithdrawn,
+  } else if (type === "fee_deduction") {
+    // The fee portion moves OUT of the merchant's escrow balance (the merchant
+    // was only ever credited the net amount to availableBalance, so it must NOT
+    // be debited again) and is credited to the deterministic platform fee
+    // wallet so platform revenue is tracked as real money.
+    await tx.update(merchantWallets).set({
+      escrowBalance: sql`GREATEST(${merchantWallets.escrowBalance} - ${amount.toFixed(2)}, 0)`,
       updatedAt: new Date(),
     }).where(eq(merchantWallets.id, walletId));
+
+    const platform = await getOrCreatePlatformFeeWallet(tx);
+    const pWallet = await lockWalletRow(tx, platform.id);
+    await tx.insert(walletTransactions).values({
+      id: crypto.randomUUID(),
+      walletId: platform.id,
+      tenantId: PLATFORM_FEE_TENANT_ID,
+      // wallet_tx_type enum has no "fee_credit" value (no schema change
+      // allowed); the credit is labelled via description + metadata.
+      type: "float_income",
+      amount: amount.toFixed(2),
+      balanceBefore: pWallet.availableBalance.toFixed(2),
+      balanceAfter: (pWallet.availableBalance + amount).toFixed(2),
+      currency: pWallet.currency,
+      orderId: opts.orderId,
+      escrowTxId: opts.escrowTxId,
+      description: `Platform fee collected${opts.description ? ` — ${opts.description}` : ""}`,
+      reference: opts.reference,
+      metadata: { ...opts.metadata, source: "platform_fee" },
+      createdAt: new Date(),
+    });
+    await tx.update(merchantWallets).set({
+      availableBalance: sql`${merchantWallets.availableBalance} + ${amount.toFixed(2)}`,
+      totalEarned: sql`${merchantWallets.totalEarned} + ${amount.toFixed(2)}`,
+      updatedAt: new Date(),
+    }).where(eq(merchantWallets.id, platform.id));
   }
+  // NOTE: "withdrawal" is handled by requestWithdrawal with an atomic
+  // conditional debit — it never goes through this helper.
   return txId;
+}
+
+/**
+ * Standalone ledger write: wraps the read + insert + balance update in a single
+ * SQL transaction so concurrent calls serialize on the wallet row lock.
+ */
+async function recordWalletTx(
+  db: Db,
+  walletId: string,
+  tenantId: string,
+  type: WalletTxType,
+  amount: number,
+  opts: { orderId?: string; escrowTxId?: string; description?: string; reference?: string; metadata?: Record<string, unknown> },
+) {
+  return db.transaction(async (tx) => recordWalletTxInTx(tx, walletId, tenantId, type, amount, opts));
+}
+
+// ─── Atomic escrow release helper ─────────────────────────────────────────────
+/**
+ * Atomically transition an escrow to settled (PSP) or release_instructed (PSSP)
+ * via a single guarded UPDATE ... WHERE id AND state IN (<allowed>). The wallet
+ * is credited ONLY when exactly one row transitioned, inside the same DB
+ * transaction — concurrent double-release is impossible.
+ */
+export async function settleEscrowAtomic(
+  db: Db,
+  escrowId: string,
+  opts: { autoConfirmed: boolean; allowedFromStates: string[]; descriptionPrefix?: string },
+): Promise<{ transitioned: boolean; newState?: "settled" | "release_instructed"; escrow?: EscrowTransaction }> {
+  const cfg = await getEscrowConfig(db);
+  const now = new Date();
+  return db.transaction(async (tx) => {
+    const targetState = cfg.custodyMode === "psp" ? "settled" : "release_instructed";
+    const transitioned = await tx.update(escrowTransactions).set({
+      state: targetState,
+      buyerConfirmedAt: opts.autoConfirmed ? null : now,
+      autoConfirmed: opts.autoConfirmed,
+      ...(targetState === "settled"
+        ? { settledAt: now }
+        : {
+            releaseInstructedAt: now,
+            bankRef: `ESCROW-REL-${escrowId.slice(0, 8).toUpperCase()}-${Date.now()}`,
+          }),
+      updatedAt: now,
+    }).where(and(
+      eq(escrowTransactions.id, escrowId),
+      inArray(escrowTransactions.state, opts.allowedFromStates as ("payment_received" | "escrow_held" | "delivery_confirmed" | "release_instructed" | "settled" | "dispute_raised" | "dispute_resolved" | "refunded" | "expired")[]),
+    )).returning();
+
+    if (transitioned.length !== 1) {
+      // No row matched the state guard — someone else already transitioned it.
+      return { transitioned: false };
+    }
+    const escrow = transitioned[0];
+
+    if (cfg.custodyMode === "psp") {
+      const wallet = await getOrCreateWallet(tx, escrow.tenantId, "psp");
+      const netAmount = parseFloat(escrow.netMerchantAmount);
+      const fee = parseFloat(escrow.platformFee);
+      const releaseTxId = await recordWalletTxInTx(tx, wallet.id, escrow.tenantId, "escrow_release", netAmount, {
+        orderId: escrow.orderId, escrowTxId: escrow.id,
+        description: `${opts.descriptionPrefix ?? "Settlement"} for order ${escrow.orderId}`,
+      });
+      if (fee > 0) {
+        await recordWalletTxInTx(tx, wallet.id, escrow.tenantId, "fee_deduction", fee, {
+          orderId: escrow.orderId, escrowTxId: escrow.id,
+          description: `Platform fee for order ${escrow.orderId}`,
+        });
+      }
+      const [final] = await tx.update(escrowTransactions).set({ merchantWalletTxId: releaseTxId, updatedAt: new Date() })
+        .where(eq(escrowTransactions.id, escrow.id))
+        .returning();
+      return { transitioned: true, newState: targetState, escrow: final ?? escrow };
+    }
+    return { transitioned: true, newState: targetState, escrow };
+  });
+}
+
+// ─── Atomic escrow refund helper (full + partial) ─────────────────────────────
+/**
+ * Refund an escrow (fully or partially) with the row locked for the whole
+ * read-check-write. Partial refunds keep the escrow in its current state and
+ * accumulate metadata.refundedAmount; only a full refund flips state to
+ * "refunded". Never refunds more than the remaining (not-yet-refunded) amount
+ * and never touches settled / refunded / release_instructed escrows.
+ */
+export async function refundEscrowAtomic(
+  db: Db,
+  escrowId: string,
+  opts: { reason: string; refundAmount?: number },
+): Promise<{ success: boolean; fullRefund: boolean; refundedAmount: number; totalRefunded: number; remaining: number; escrow?: EscrowTransaction; error?: string }> {
+  const fail = (error: string, remaining = 0, totalRefunded = 0) =>
+    ({ success: false, fullRefund: false, refundedAmount: 0, totalRefunded, remaining, error });
+  const cfg = await getEscrowConfig(db);
+  return db.transaction(async (tx) => {
+    // Lock the escrow row for the whole read-check-write.
+    const locked = await tx.execute(sql`SELECT id FROM escrow_transactions WHERE id = ${escrowId} FOR UPDATE`);
+    if ((locked as unknown as unknown[]).length === 0) return fail("Escrow not found");
+    const [escrow] = await tx.select().from(escrowTransactions).where(eq(escrowTransactions.id, escrowId));
+    if (!escrow) return fail("Escrow not found");
+
+    // Defense in depth: never refund a settled / already-refunded / released escrow.
+    if (["settled", "refunded", "release_instructed", "expired"].includes(escrow.state)) {
+      return fail(`Cannot refund from state: ${escrow.state}`);
+    }
+
+    const total = parseFloat(escrow.amount);
+    const priorMeta = (escrow.metadata ?? {}) as Record<string, unknown>;
+    const alreadyRefunded = parseFloat(String(priorMeta.refundedAmount ?? "0")) || 0;
+    const remaining = Math.round((total - alreadyRefunded) * 100) / 100;
+    if (remaining <= 0) return fail("Escrow has already been fully refunded", 0, alreadyRefunded);
+
+    const refundAmt = opts.refundAmount ?? remaining;
+    if (!(refundAmt > 0)) return fail("Refund amount must be positive", remaining, alreadyRefunded);
+    if (refundAmt > remaining + 0.004) {
+      return fail(`Refund amount ${refundAmt.toFixed(2)} exceeds remaining escrow balance ${remaining.toFixed(2)}`, remaining, alreadyRefunded);
+    }
+
+    const totalRefunded = Math.round((alreadyRefunded + refundAmt) * 100) / 100;
+    const fullRefund = totalRefunded >= total - 0.004;
+    const newRemaining = fullRefund ? 0 : Math.round((total - totalRefunded) * 100) / 100;
+    const now = new Date();
+
+    // Guarded state update FIRST: full refund → "refunded"; partial refund keeps
+    // the current state and only accumulates metadata.refundedAmount. If the
+    // guard fails we return before any wallet write (nothing to roll back).
+    const transitioned = await tx.update(escrowTransactions).set({
+      state: fullRefund ? "refunded" : escrow.state,
+      refundedAt: fullRefund ? now : escrow.refundedAt,
+      metadata: { ...priorMeta, refundedAmount: totalRefunded.toFixed(2) },
+      updatedAt: now,
+    }).where(and(
+      eq(escrowTransactions.id, escrowId),
+      sql`${escrowTransactions.state} NOT IN ('settled', 'refunded', 'release_instructed', 'expired')`,
+    )).returning();
+
+    if (transitioned.length !== 1) {
+      return fail("Escrow state changed concurrently; refund aborted", remaining, alreadyRefunded);
+    }
+
+    // Wallet refund only after exactly one row transitioned.
+    if (cfg.custodyMode === "psp") {
+      const wallet = await getOrCreateWallet(tx, escrow.tenantId, "psp");
+      await recordWalletTxInTx(tx, wallet.id, escrow.tenantId, "escrow_refund", refundAmt, {
+        orderId: escrow.orderId, escrowTxId: escrow.id,
+        description: `${fullRefund ? "Refund" : "Partial refund"}: ${opts.reason}`,
+      });
+    }
+    return { success: true, fullRefund, refundedAmount: refundAmt, totalRefunded, remaining: newRemaining, escrow: transitioned[0] };
+  });
+}
+
+// ─── Wallet top-up credit (provider-confirmed) ────────────────────────────────
+/**
+ * Credit a merchant wallet for a COMPLETED wallet_topup payment intent.
+ * Idempotent: the credit is claimed atomically by stamping
+ * metadata.creditedAt in a conditional UPDATE — a second call (webhook retry,
+ * reconciliation run) is a no-op.
+ */
+export async function creditWalletTopUp(db: Db, paymentIntentId: string): Promise<{ credited: boolean; reason?: string }> {
+  return db.transaction(async (tx) => {
+    const claimed = await tx.execute(sql`
+      UPDATE payment_intents
+      SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{creditedAt}', to_jsonb(now()::text), true),
+          updated_at = now()
+      WHERE id = ${paymentIntentId}
+        AND status = 'completed'
+        AND metadata->>'type' = 'wallet_topup'
+        AND metadata->>'walletId' IS NOT NULL
+        AND metadata->>'creditedAt' IS NULL
+      RETURNING id, tenant_id, amount, metadata
+    `);
+    const intent = (claimed as unknown as Record<string, unknown>[])[0];
+    if (!intent) return { credited: false, reason: "Not a completed, uncredited wallet top-up" };
+
+    const metadata = (intent.metadata ?? {}) as Record<string, unknown>;
+    const walletId = String(metadata.walletId);
+    const tenantId = String(intent.tenant_id);
+    const amount = parseFloat(String(intent.amount));
+    if (!(amount > 0)) return { credited: false, reason: "Invalid top-up amount" };
+
+    // wallet_tx_type enum has no "topup_credit" value (no schema change
+    // allowed); the credit is labelled via description + metadata.source.
+    await recordWalletTxInTx(tx, walletId, tenantId, "float_income", amount, {
+      description: `Wallet top-up confirmed (payment intent ${String(intent.id).slice(0, 8)}…)`,
+      reference: `TOPUP-CREDIT-${String(intent.id).slice(0, 12)}`,
+      metadata: { source: "wallet_topup", paymentIntentId: String(intent.id) },
+    });
+    return { credited: true };
+  });
 }
 
 // ─── Escrow Router ────────────────────────────────────────────────────────────
@@ -132,7 +421,7 @@ export const escrowRouter = router({
   }),
 
   // Update escrow config (admin only)
-  setConfig: protectedProcedure
+  setConfig: adminProcedure
     .input(z.object({
       custodyMode: z.enum(["pssp", "psp"]).optional(),
       bankPartnerName: z.string().optional(),
@@ -158,19 +447,26 @@ export const escrowRouter = router({
       return getEscrowConfig(db);
     }),
 
-  // Create escrow hold when payment is confirmed
+  // Create escrow hold when payment is confirmed.
+  // A hold can ONLY be created against a verified completed payment for the
+  // order, and the hold amount is derived server-side from that payment — never
+  // from the client — so escrow balances can never be minted out of thin air.
   createHold: protectedProcedure
     .input(z.object({
       orderId: z.string(),
       tenantId: z.string(),
       customerId: z.string().optional(),
-      amount: z.number(),
+      // Optional sanity bound; the actual hold amount always comes from the
+      // verified payment, not from this value.
+      amount: z.number().positive().optional(),
       currency: z.string().default("NGN"),
       idempotencyKey: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // Only the tenant that owns the order (or an admin) may create a hold.
+      assertTenantAccess(ctx.user, input.tenantId);
       const cfg = await getEscrowConfig(db);
 
       // Idempotency check
@@ -180,9 +476,47 @@ export const escrowRouter = router({
         if (existing) return existing;
       }
 
+      // Require a verified completed payment for this order.
+      const [completedIntent] = await db.select().from(paymentIntents)
+        .where(and(
+          eq(paymentIntents.orderId, input.orderId),
+          eq(paymentIntents.tenantId, input.tenantId),
+          eq(paymentIntents.status, "completed"),
+        ))
+        .orderBy(desc(paymentIntents.completedAt))
+        .limit(1);
+      const [completedTx] = completedIntent ? [undefined] : await db.select().from(paymentTransactions)
+        .where(and(
+          eq(paymentTransactions.orderId, input.orderId),
+          eq(paymentTransactions.tenantId, input.tenantId),
+          inArray(paymentTransactions.status, ["completed", "success"]),
+        ))
+        .orderBy(desc(paymentTransactions.paidAt))
+        .limit(1);
+
+      const verifiedPayment = completedIntent ?? completedTx;
+      if (!verifiedPayment) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `No completed payment found for order ${input.orderId} — an escrow hold cannot be created before payment is confirmed`,
+        });
+      }
+      // Server-side amount derivation: the hold amount IS the verified payment
+      // amount. A client-supplied amount may only act as a sanity bound.
+      const holdAmount = parseFloat(verifiedPayment.amount);
+      if (!(holdAmount > 0)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Completed payment has an invalid amount" });
+      }
+      if (input.amount != null && holdAmount < input.amount - 0.004) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Requested hold ₦${input.amount.toFixed(2)} exceeds the verified payment amount ₦${holdAmount.toFixed(2)}`,
+        });
+      }
+
       const feeRate = parseFloat(cfg.platformFeeRate);
-      const fee = input.amount * feeRate;
-      const netMerchant = input.amount - fee;
+      const fee = holdAmount * feeRate;
+      const netMerchant = holdAmount - fee;
       const buyerDeadline = new Date(Date.now() + cfg.buyerConfirmWindowHours * 3600 * 1000);
 
       const id = crypto.randomUUID();
@@ -191,7 +525,7 @@ export const escrowRouter = router({
         orderId: input.orderId,
         tenantId: input.tenantId,
         customerId: input.customerId,
-        amount: input.amount.toFixed(2),
+        amount: holdAmount.toFixed(2),
         platformFee: fee.toFixed(2),
         netMerchantAmount: netMerchant.toFixed(2),
         currency: input.currency,
@@ -206,7 +540,7 @@ export const escrowRouter = router({
       // PSP mode: credit merchant escrow wallet
       if (cfg.custodyMode === "psp") {
         const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
-        const txId = await recordWalletTx(db, wallet.id, input.tenantId, "escrow_credit", input.amount, {
+        const txId = await recordWalletTx(db, wallet.id, input.tenantId, "escrow_credit", holdAmount, {
           orderId: input.orderId, escrowTxId: id,
           description: `Escrow hold for order ${input.orderId}`,
         });
@@ -223,8 +557,8 @@ export const escrowRouter = router({
       emitNotification({
         id: crypto.randomUUID(), tenantId: input.tenantId, type: "escrow_held",
         title: "Payment Held in Escrow",
-        body: `₦${input.amount.toLocaleString()} for order ${input.orderId} is now held in escrow pending delivery.`,
-        metadata: { orderId: input.orderId, amount: input.amount },
+        body: `₦${holdAmount.toLocaleString()} for order ${input.orderId} is now held in escrow pending delivery.`,
+        metadata: { orderId: input.orderId, amount: holdAmount },
         read: false, readAt: null, createdAt: new Date(),
       }).catch(() => {});
       return created!;
@@ -270,79 +604,62 @@ export const escrowRouter = router({
       return updated!;
     }),
 
-  // Buyer confirms receipt → release to merchant
+  // Buyer confirms receipt → release to merchant.
+  // Authorization: the caller must be the order's buyer (matched via the
+  // order's customer record) or an admin. The state transition is a single
+  // guarded UPDATE — the wallet is credited only when exactly one row
+  // transitioned, inside the same DB transaction (no double-release).
   buyerConfirm: protectedProcedure
     .input(z.object({ escrowId: z.string(), autoConfirmed: z.boolean().default(false) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const cfg = await getEscrowConfig(db);
       const [escrow] = await db.select().from(escrowTransactions)
         .where(eq(escrowTransactions.id, input.escrowId));
-      if (!escrow) throw new Error("Escrow not found");
-      if (!["delivery_confirmed", "escrow_held"].includes(escrow.state)) {
-        throw new Error(`Cannot confirm in state: ${escrow.state}`);
-      }
+      if (!escrow) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found" });
 
-      const netAmount = parseFloat(escrow.netMerchantAmount);
-      const fee = parseFloat(escrow.platformFee);
+      // Only the buyer of this order (or an admin) can release the funds.
+      await assertBuyerOrAdmin(db, ctx.user, escrow);
+      // Only admins/system processes may mark a confirmation as automatic —
+      // a merchant must never be able to self-release with autoConfirmed.
+      const autoConfirmed = ctx.user.role === "admin" ? input.autoConfirmed : false;
 
-      if (cfg.custodyMode === "psp") {
-        // PSP: internal wallet release
-        const wallet = await getOrCreateWallet(db, escrow.tenantId, "psp");
-        const releaseTxId = await recordWalletTx(db, wallet.id, escrow.tenantId, "escrow_release", netAmount, {
-          orderId: escrow.orderId, escrowTxId: escrow.id,
-          description: `Settlement for order ${escrow.orderId}`,
+      const result = await settleEscrowAtomic(db, input.escrowId, {
+        autoConfirmed,
+        // Buyer confirmation is only valid AFTER delivery has been confirmed —
+        // releasing straight from escrow_held bypasses the delivery checkpoint.
+        allowedFromStates: ["delivery_confirmed"],
+      });
+      if (!result.transitioned || !result.escrow) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Cannot confirm in state: ${escrow.state} (delivery must be confirmed first, and the escrow must not already be released/settled)`,
         });
-        await recordWalletTx(db, wallet.id, escrow.tenantId, "fee_deduction", fee, {
-          orderId: escrow.orderId, escrowTxId: escrow.id,
-          description: `Platform fee (${(parseFloat(cfg.platformFeeRate) * 100).toFixed(2)}%) for order ${escrow.orderId}`,
-        });
-        await db.update(escrowTransactions).set({
-          state: "settled",
-          buyerConfirmedAt: input.autoConfirmed ? null : new Date(),
-          autoConfirmed: input.autoConfirmed,
-          settledAt: new Date(),
-          merchantWalletTxId: releaseTxId,
-          updatedAt: new Date(),
-        }).where(eq(escrowTransactions.id, input.escrowId));
-      } else {
-        // PSSP: issue release instruction to bank partner
-        const bankRef = `ESCROW-REL-${input.escrowId.slice(0, 8).toUpperCase()}-${Date.now()}`;
-        await db.update(escrowTransactions).set({
-          state: "release_instructed",
-          buyerConfirmedAt: input.autoConfirmed ? null : new Date(),
-          autoConfirmed: input.autoConfirmed,
-          releaseInstructedAt: new Date(),
-          bankRef,
-          updatedAt: new Date(),
-        }).where(eq(escrowTransactions.id, input.escrowId));
       }
 
       await db.update(orders).set({ status: "delivered", paymentStatus: "completed", updatedAt: new Date() })
         .where(eq(orders.id, escrow.orderId));
 
-      const [updated] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
       // Fire-and-forget: notify merchant of settlement
       emitNotification({
         id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_settled",
-        title: cfg.custodyMode === "psp" ? "Funds Released to Your Wallet" : "Release Instruction Sent",
-        body: cfg.custodyMode === "psp"
+        title: result.newState === "settled" ? "Funds Released to Your Wallet" : "Release Instruction Sent",
+        body: result.newState === "settled"
           ? `₦${parseFloat(escrow.netMerchantAmount).toLocaleString()} from order ${escrow.orderId} released to your wallet.`
           : `Release instruction sent to bank for ₦${parseFloat(escrow.netMerchantAmount).toLocaleString()} from order ${escrow.orderId}.`,
         metadata: { orderId: escrow.orderId, escrowId: input.escrowId, netAmount: escrow.netMerchantAmount },
         read: false, readAt: null, createdAt: new Date(),
       }).catch(() => {});
-      return updated!;
+      return result.escrow;
     }),
 
-  // Bank confirms settlement (PSSP mode callback)
-  bankSettlementConfirmed: protectedProcedure
+  // Bank confirms settlement (PSSP mode callback) — admin/system only
+  bankSettlementConfirmed: adminProcedure
     .input(z.object({ escrowId: z.string(), bankRef: z.string() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      await db.update(escrowTransactions).set({
+      const transitioned = await db.update(escrowTransactions).set({
         state: "settled",
         bankSettlementConfirmedAt: new Date(),
         settledAt: new Date(),
@@ -351,56 +668,65 @@ export const escrowRouter = router({
       }).where(and(
         eq(escrowTransactions.id, input.escrowId),
         eq(escrowTransactions.state, "release_instructed"),
-      ));
-      const [updated] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
-      return updated!;
+      )).returning();
+      if (transitioned.length !== 1) {
+        const [current] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
+        throw new TRPCError({
+          code: current ? "CONFLICT" : "NOT_FOUND",
+          message: current
+            ? `Cannot confirm bank settlement in state: ${current.state}`
+            : "Escrow not found",
+        });
+      }
+      return transitioned[0];
     }),
 
-  // Initiate refund (dispute resolved in buyer's favour or manual refund)
-  initiateRefund: protectedProcedure
+  // Initiate refund (dispute resolved in buyer's favour or manual refund).
+  // Admin only. Atomic: the escrow row is locked for the whole read-check-write
+  // and the wallet refund happens in the same transaction as the state change.
+  // Partial refunds keep the escrow in its current state and accumulate
+  // metadata.refundedAmount — the escrow only flips to "refunded" when the
+  // full amount has been returned. Never refunds more than the remainder.
+  initiateRefund: adminProcedure
     .input(z.object({
       escrowId: z.string(),
       reason: z.string(),
-      refundAmount: z.number().optional(), // partial refund support
+      refundAmount: z.number().positive().optional(), // partial refund support
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const cfg = await getEscrowConfig(db);
-      const [escrow] = await db.select().from(escrowTransactions)
-        .where(eq(escrowTransactions.id, input.escrowId));
-      if (!escrow) throw new Error("Escrow not found");
-      if (["settled", "refunded"].includes(escrow.state)) throw new Error("Cannot refund a settled or already-refunded escrow");
 
-      const refundAmt = input.refundAmount ?? parseFloat(escrow.amount);
-
-      if (cfg.custodyMode === "psp") {
-        const wallet = await getOrCreateWallet(db, escrow.tenantId, "psp");
-        await recordWalletTx(db, wallet.id, escrow.tenantId, "escrow_refund", refundAmt, {
-          orderId: escrow.orderId, escrowTxId: escrow.id,
-          description: `Refund: ${input.reason}`,
+      const result = await refundEscrowAtomic(db, input.escrowId, {
+        reason: input.reason,
+        refundAmount: input.refundAmount,
+      });
+      if (!result.success || !result.escrow) {
+        const [current] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
+        throw new TRPCError({
+          code: current ? "CONFLICT" : "NOT_FOUND",
+          message: result.error ?? "Refund failed",
         });
       }
+      const escrow = result.escrow;
 
-      await db.update(escrowTransactions).set({
-        state: "refunded",
-        refundedAt: new Date(),
-        updatedAt: new Date(),
-      }).where(eq(escrowTransactions.id, input.escrowId));
+      // Only a full refund closes the order out.
+      if (result.fullRefund) {
+        await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
+          .where(eq(orders.id, escrow.orderId));
+      }
 
-      await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
-        .where(eq(orders.id, escrow.orderId));
-
-      const [updated] = await db.select().from(escrowTransactions).where(eq(escrowTransactions.id, input.escrowId));
       // Fire-and-forget: notify merchant of refund
       emitNotification({
         id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
-        title: "Escrow Refunded to Buyer",
-        body: `Order ${escrow.orderId} refunded. ₦${refundAmt.toLocaleString()} returned to buyer. Reason: ${input.reason}.`,
-        metadata: { orderId: escrow.orderId, escrowId: input.escrowId, amount: refundAmt },
+        title: result.fullRefund ? "Escrow Refunded to Buyer" : "Partial Refund Issued",
+        body: result.fullRefund
+          ? `Order ${escrow.orderId} refunded. ₦${result.refundedAmount.toLocaleString()} returned to buyer. Reason: ${input.reason}.`
+          : `Order ${escrow.orderId} partially refunded: ₦${result.refundedAmount.toLocaleString()} returned to buyer (₦${result.remaining.toLocaleString()} remains in escrow). Reason: ${input.reason}.`,
+        metadata: { orderId: escrow.orderId, escrowId: input.escrowId, amount: result.refundedAmount, totalRefunded: result.totalRefunded, remaining: result.remaining },
         read: false, readAt: null, createdAt: new Date(),
       }).catch(() => {});
-      return updated!;
+      return escrow;
     }),
 
   // Get escrow by order
@@ -550,7 +876,10 @@ export const escrowRouter = router({
     }),
 
   // ── Bulk state update (admin: batch release or refund) ────────────────────
-  bulkUpdateState: protectedProcedure
+  // Each row is transitioned via the same atomic helpers as the single-row
+  // endpoints: guarded UPDATE ... WHERE state IN (...); the wallet is credited
+  // or refunded only when exactly one row transitioned, in the same transaction.
+  bulkUpdateState: adminProcedure
     .input(z.object({
       escrowIds: z.array(z.string()).min(1).max(100),
       action: z.enum(["release", "refund"]),
@@ -559,7 +888,6 @@ export const escrowRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const cfg = await getEscrowConfig(db);
 
       const rows = await db.select().from(escrowTransactions)
         .where(inArray(escrowTransactions.id, input.escrowIds));
@@ -569,66 +897,42 @@ export const escrowRouter = router({
       for (const escrow of rows) {
         try {
           if (input.action === "release") {
-            // Valid source states for release
-            if (!["delivery_confirmed", "escrow_held"].includes(escrow.state)) {
+            const result = await settleEscrowAtomic(db, escrow.id, {
+              autoConfirmed: true,
+              // dispute_resolved is included so an admin can execute a
+              // "full_release_to_merchant" dispute resolution via bulk release.
+              allowedFromStates: ["delivery_confirmed", "escrow_held", "dispute_resolved"],
+              descriptionPrefix: "Bulk settlement",
+            });
+            if (!result.transitioned || !result.escrow) {
               results.push({ id: escrow.id, success: false, error: `Cannot release from state: ${escrow.state}` });
               continue;
-            }
-            const netAmount = parseFloat(escrow.netMerchantAmount);
-            const fee = parseFloat(escrow.platformFee);
-
-            if (cfg.custodyMode === "psp") {
-              const wallet = await getOrCreateWallet(db, escrow.tenantId, "psp");
-              await recordWalletTx(db, wallet.id, escrow.tenantId, "escrow_release", netAmount, {
-                orderId: escrow.orderId, escrowTxId: escrow.id,
-                description: `Bulk settlement for order ${escrow.orderId}`,
-              });
-              await recordWalletTx(db, wallet.id, escrow.tenantId, "fee_deduction", fee, {
-                orderId: escrow.orderId, escrowTxId: escrow.id,
-                description: `Platform fee (bulk) for order ${escrow.orderId}`,
-              });
-              await db.update(escrowTransactions).set({
-                state: "settled", settledAt: new Date(), autoConfirmed: true, updatedAt: new Date(),
-              }).where(eq(escrowTransactions.id, escrow.id));
-            } else {
-              const bankRef = `ESCROW-BULK-${escrow.id.slice(0, 8).toUpperCase()}-${Date.now()}`;
-              await db.update(escrowTransactions).set({
-                state: "release_instructed", releaseInstructedAt: new Date(), bankRef, updatedAt: new Date(),
-              }).where(eq(escrowTransactions.id, escrow.id));
             }
             await db.update(orders).set({ status: "delivered", paymentStatus: "completed", updatedAt: new Date() })
               .where(eq(orders.id, escrow.orderId));
             emitNotification({
               id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_settled",
               title: "Funds Released (Bulk Operation)",
-              body: `₦${netAmount.toLocaleString()} from order ${escrow.orderId} released via bulk operation.`,
+              body: `₦${parseFloat(escrow.netMerchantAmount).toLocaleString()} from order ${escrow.orderId} released via bulk operation.`,
               metadata: { orderId: escrow.orderId, escrowId: escrow.id },
               read: false, readAt: null, createdAt: new Date(),
             }).catch(() => {});
-            results.push({ id: escrow.id, success: true, newState: cfg.custodyMode === "psp" ? "settled" : "release_instructed" });
+            results.push({ id: escrow.id, success: true, newState: result.newState });
           } else {
-            // Refund
-            if (["settled", "refunded"].includes(escrow.state)) {
-              results.push({ id: escrow.id, success: false, error: `Cannot refund from state: ${escrow.state}` });
+            // Refund (always the full remaining amount in bulk operations)
+            const result = await refundEscrowAtomic(db, escrow.id, {
+              reason: input.reason ?? "admin bulk operation",
+            });
+            if (!result.success) {
+              results.push({ id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` });
               continue;
             }
-            const refundAmt = parseFloat(escrow.amount);
-            if (cfg.custodyMode === "psp") {
-              const wallet = await getOrCreateWallet(db, escrow.tenantId, "psp");
-              await recordWalletTx(db, wallet.id, escrow.tenantId, "escrow_refund", refundAmt, {
-                orderId: escrow.orderId, escrowTxId: escrow.id,
-                description: `Bulk refund: ${input.reason ?? "admin bulk operation"}`,
-              });
-            }
-            await db.update(escrowTransactions).set({
-              state: "refunded", refundedAt: new Date(), updatedAt: new Date(),
-            }).where(eq(escrowTransactions.id, escrow.id));
             await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
               .where(eq(orders.id, escrow.orderId));
             emitNotification({
               id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
               title: "Escrow Refunded (Bulk Operation)",
-              body: `₦${refundAmt.toLocaleString()} from order ${escrow.orderId} refunded via bulk operation.`,
+              body: `₦${result.refundedAmount.toLocaleString()} from order ${escrow.orderId} refunded via bulk operation.`,
               metadata: { orderId: escrow.orderId, escrowId: escrow.id },
               read: false, readAt: null, createdAt: new Date(),
             }).catch(() => {});
@@ -662,11 +966,31 @@ export const escrowDisputeRouter = router({
       if (!db) throw new Error("DB unavailable");
       const cfg = await getEscrowConfig(db);
 
-      // Freeze the escrow
-      await db.update(escrowTransactions).set({
+      // Validate the escrow matches the claimed order/tenant (read-only check
+      // for input sanity; the transition below is still atomic).
+      const [escrow] = await db.select().from(escrowTransactions)
+        .where(eq(escrowTransactions.id, input.escrowTxId));
+      if (!escrow) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found" });
+      if (escrow.orderId !== input.orderId || escrow.tenantId !== input.tenantId) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Escrow does not match the given order/tenant" });
+      }
+
+      // Freeze the escrow via a single guarded transition — disputes can only
+      // be raised on ACTIVE escrows. Settled / refunded / release_instructed
+      // escrows are terminal for disputes (prevents refund-after-settle).
+      const transitioned = await db.update(escrowTransactions).set({
         state: "dispute_raised",
         updatedAt: new Date(),
-      }).where(eq(escrowTransactions.id, input.escrowTxId));
+      }).where(and(
+        eq(escrowTransactions.id, input.escrowTxId),
+        inArray(escrowTransactions.state, ["payment_received", "escrow_held", "delivery_confirmed"]),
+      )).returning();
+      if (transitioned.length !== 1) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Cannot raise a dispute on an escrow in state: ${escrow.state}`,
+        });
+      }
 
       const id = crypto.randomUUID();
       const merchantDeadline = new Date(Date.now() + cfg.disputeWindowHours * 3600 * 1000);
@@ -724,36 +1048,47 @@ export const escrowDisputeRouter = router({
         .orderBy(desc(escrowDisputes.createdAt));
     }),
 
-  review: protectedProcedure
+  review: adminProcedure
     .input(z.object({
       disputeId: z.string(),
       resolution: z.enum(["full_release_to_merchant", "full_refund_to_buyer", "partial_refund", "no_action"]),
       refundAmount: z.number().optional(),
       resolverNotes: z.string().optional(),
-      resolvedBy: z.string(),
+      // Accepted for backwards compatibility but IGNORED — the resolver identity
+      // is always derived from the authenticated admin session.
+      resolvedBy: z.string().optional(),
       buyerEmail: z.string().email().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const [dispute] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
       if (!dispute) throw new Error("Dispute not found");
+      if (["resolved_merchant", "resolved_buyer"].includes(dispute.status)) {
+        throw new TRPCError({ code: "CONFLICT", message: "Dispute is already resolved" });
+      }
+
+      // Server-side resolver identity — never trust the client.
+      const resolvedBy = ctx.user.email ?? ctx.user.name ?? String(ctx.user.id);
 
       await db.update(escrowDisputes).set({
         status: "resolved_" + (input.resolution.includes("merchant") ? "merchant" : "buyer") as any,
         resolution: input.resolution,
         refundAmount: input.refundAmount?.toFixed(2),
-        resolvedBy: input.resolvedBy,
+        resolvedBy,
         resolverNotes: input.resolverNotes,
         resolvedAt: new Date(),
         updatedAt: new Date(),
       }).where(eq(escrowDisputes.id, input.disputeId));
 
-      // Update escrow state
+      // Update escrow state — guarded so only a disputed escrow transitions.
       await db.update(escrowTransactions).set({
         state: "dispute_resolved",
         updatedAt: new Date(),
-      }).where(eq(escrowTransactions.id, dispute.escrowTxId));
+      }).where(and(
+        eq(escrowTransactions.id, dispute.escrowTxId),
+        eq(escrowTransactions.state, "dispute_raised"),
+      ));
 
       const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
       // Fire-and-forget: notify merchant of dispute resolution
@@ -857,9 +1192,10 @@ export const walletRouter = router({
 
   getBalance: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
+      assertTenantAccess(ctx.user, input.tenantId);
       const [wallet] = await db.select().from(merchantWallets)
         .where(eq(merchantWallets.tenantId, input.tenantId));
       return wallet ?? null;
@@ -871,9 +1207,10 @@ export const walletRouter = router({
       type: z.string().optional(),
       limit: z.number().default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      assertTenantAccess(ctx.user, input.tenantId);
       const [wallet] = await db.select().from(merchantWallets)
         .where(eq(merchantWallets.tenantId, input.tenantId));
       if (!wallet) return [];
@@ -892,16 +1229,32 @@ export const walletRouter = router({
       bankAccountName: z.string().optional(),
       bankAccountNumber: z.string().optional(),
       bankCode: z.string().optional(),
+      // Client-supplied idempotency key — retries with the same reference
+      // return the existing withdrawal instead of double-debiting.
+      reference: z.string().max(128).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      assertTenantAccess(ctx.user, input.tenantId);
       const cfg = await getEscrowConfig(db);
-      if (cfg.custodyMode !== "psp") throw new Error("Withdrawals are only available under PSP licence mode");
+      if (cfg.custodyMode !== "psp") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Withdrawals are only available under PSP licence mode" });
       const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
-      if (parseFloat(wallet.availableBalance) < input.amount) {
-        throw new Error("Insufficient available balance");
+
+      // Idempotency: same reference → return the existing pending withdrawal.
+      const ref = input.reference ?? `WD-${Date.now()}-${input.tenantId.slice(0, 6).toUpperCase()}-${crypto.randomUUID().slice(0, 8)}`;
+      const [existing] = await db.select().from(walletTransactions)
+        .where(and(eq(walletTransactions.walletId, wallet.id), eq(walletTransactions.reference, ref)));
+      if (existing) {
+        return {
+          success: true,
+          reference: ref,
+          amount: parseFloat(existing.amount),
+          status: ((existing.metadata as Record<string, unknown> | null)?.status as string) ?? "pending",
+          duplicate: true,
+        };
       }
+
       if (input.bankAccountNumber) {
         await db.update(merchantWallets).set({
           bankAccountName: input.bankAccountName,
@@ -910,12 +1263,50 @@ export const walletRouter = router({
           updatedAt: new Date(),
         }).where(eq(merchantWallets.id, wallet.id));
       }
-      const ref = `WD-${Date.now()}-${input.tenantId.slice(0, 6).toUpperCase()}`;
-      await recordWalletTx(db, wallet.id, input.tenantId, "withdrawal", input.amount, {
-        description: `Withdrawal to ${input.bankAccountNumber ?? "bank account"}`,
-        reference: ref,
+
+      await db.transaction(async (tx) => {
+        // Atomic conditional debit — the balance check and the debit are a
+        // single UPDATE, so concurrent withdrawals can never double-spend and
+        // the balance can never go negative (no GREATEST masking).
+        const debited = await tx.execute(sql`
+          UPDATE merchant_wallets
+          SET available_balance = available_balance - ${input.amount.toFixed(2)}::numeric,
+              total_withdrawn = total_withdrawn + ${input.amount.toFixed(2)}::numeric,
+              updated_at = now()
+          WHERE id = ${wallet.id}
+            AND available_balance >= ${input.amount.toFixed(2)}::numeric
+          RETURNING available_balance
+        `);
+        const row = (debited as unknown as Record<string, unknown>[])[0];
+        if (!row) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "INSUFFICIENT_FUNDS: available balance is too low for this withdrawal" });
+        }
+        const after = parseFloat(String(row.available_balance));
+        const before = after + input.amount;
+        // The withdrawal is recorded as PENDING — it is only paid out after a
+        // separate admin approval / payout step (tracked via metadata.status).
+        await tx.insert(walletTransactions).values({
+          id: crypto.randomUUID(),
+          walletId: wallet.id,
+          tenantId: input.tenantId,
+          type: "withdrawal",
+          amount: input.amount.toFixed(2),
+          balanceBefore: before.toFixed(2),
+          balanceAfter: after.toFixed(2),
+          currency: wallet.currency,
+          description: `Withdrawal to ${input.bankAccountNumber ?? "bank account"} (pending approval)`,
+          reference: ref,
+          metadata: {
+            status: "pending",
+            bankAccountName: input.bankAccountName ?? null,
+            bankAccountNumber: input.bankAccountNumber ?? null,
+            bankCode: input.bankCode ?? null,
+          },
+          createdAt: new Date(),
+        });
       });
-      return { success: true, reference: ref, amount: input.amount };
+
+      return { success: true, reference: ref, amount: input.amount, status: "pending" as const, duplicate: false };
     }),
 
   getStats: protectedProcedure.query(async () => {
@@ -937,9 +1328,10 @@ export const walletRouter = router({
       startDate: z.string().optional(),
       endDate: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      assertTenantAccess(ctx.user, input.tenantId);
       const [wallet] = await db.select().from(merchantWallets)
         .where(eq(merchantWallets.tenantId, input.tenantId));
       if (!wallet) return { csv: "", filename: "ledger.csv", rowCount: 0 };
@@ -985,9 +1377,10 @@ export const walletRouter = router({
       amount: z.number().positive(),
       note: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
       const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
 
       // A real top-up requires a configured payment provider — never fake success.
@@ -1095,6 +1488,40 @@ export const walletRouter = router({
         paymentUrl,
         status: "pending",
       };
+    }),
+
+  /**
+   * Reconcile wallet top-ups: find completed payment intents with
+   * metadata.type = "wallet_topup" that have not been credited yet and credit
+   * them. Idempotent (creditWalletTopUp claims each intent atomically via
+   * metadata.creditedAt), so it is safe to run on a schedule. Admin/system only.
+   */
+  reconcileTopUps: adminProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(500).default(100) }).optional())
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const rows = await db.execute(sql`
+        SELECT id FROM payment_intents
+        WHERE status = 'completed'
+          AND metadata->>'type' = 'wallet_topup'
+          AND metadata->>'walletId' IS NOT NULL
+          AND metadata->>'creditedAt' IS NULL
+        ORDER BY created_at ASC
+        LIMIT ${input?.limit ?? 100}
+      `);
+      const pending = rows as unknown as { id: string }[];
+      let credited = 0;
+      const errors: { id: string; error: string }[] = [];
+      for (const row of pending) {
+        try {
+          const r = await creditWalletTopUp(db, row.id);
+          if (r.credited) credited++;
+        } catch (err) {
+          errors.push({ id: row.id, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      return { scanned: pending.length, credited, errors };
     }),
 });
 
