@@ -979,7 +979,7 @@ async function startServer() {
         const contactName: string = contacts.find((c: any) => c.wa_id === waPhoneNumber)?.profile?.name ?? "";
         // Determine tenant from phone number ID (look up in tenants table)
         const [tenant] = await db.select().from(tenants)
-          .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
         const tenantId: string = (tenant as any)?.id ?? "default";
         if (msg.type === "text") {
@@ -1190,7 +1190,7 @@ async function startServer() {
         const errorMessage: string = st.errors?.[0]?.title ?? "";
         if (!waMessageId || !["sent","delivered","read","failed"].includes(statusVal)) continue;
         const [stTenant] = await db.select({ id: tenants.id }).from(tenants)
-          .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
         const stTenantId: string = (stTenant as any)?.id ?? "default";
         await db.insert(waMessageDeliveryReceipts).values({
@@ -1881,7 +1881,7 @@ async function startServer() {
           for (const msg of messages) {
             if (msg.type === "text") {
               const [tenant] = await db.select().from(tenants)
-                .where(sql`meta_phone_number_id = ${phoneNumberId}`)
+                .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
                 .limit(1).catch(() => [null as any]);
               const tenantId: string = (tenant as any)?.id ?? "default";
               const { appRouter: ar } = await import("../routers");
