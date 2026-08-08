@@ -39,6 +39,9 @@ import { buildReorder, buildReorderReply } from "../services/reorder";
 import { raiseChatDispute, buildDisputeReply } from "../services/chatDispute";
 import { touchCartMarker } from "../services/cartRecovery";
 import { localeFromSessionLanguage, tr } from "../services/i18n";
+import { validatePromo, applyPromo } from "../services/promos";
+import { subscribeToWaitlist, unsubscribeFromWaitlist } from "../services/waitlist";
+import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
 
 // ── Checkout message builders ────────────────────────────────────────────────
 type CartLine = { productName: string; quantity: number; unitPrice: string; currency: string };
@@ -52,6 +55,23 @@ export function fmtMoney(amount: number, currency: string): string {
 
 function itemizedLines(items: CartLine[]): string[] {
   return items.map(i => `${i.quantity} × ${i.productName} — ${fmtMoney(Number(i.unitPrice), i.currency)} each`);
+}
+
+/** Extract a promo code from chat text, e.g. "use code SAVE10" or "code: SAVE10". */
+export function extractPromoCode(text: string): string | null {
+  const m = /\b(?:use\s+)?code[:\s]+([A-Za-z0-9_-]{2,32})\b/i.exec(text);
+  return m ? m[1] : null;
+}
+
+/** Buyer-facing reason a promo code was not applied. */
+function promoRejectText(reason: string): string {
+  switch (reason) {
+    case "not_found": return "that code doesn't exist";
+    case "expired": return "that code has expired";
+    case "min_total": return "your cart is below the minimum for that code";
+    case "max_uses": return "that code has been fully used";
+    default: return "that code isn't valid";
+  }
 }
 
 /** Step-1 checkout card: itemized cart + subtotal + fulfillment prompt. */
@@ -76,6 +96,10 @@ function buildOrderSummary(opts: {
   deliveryFee: number;
   deliveryZone?: string;
   address?: string | null;
+  /** Applied promo (discount line in the summary). */
+  promo?: { code: string; discount: number } | null;
+  /** Set when a code was supplied but rejected (buyer-facing reason). */
+  promoError?: string | null;
   total: number;
   currency: string;
   paymentUrl: string | null;
@@ -92,7 +116,11 @@ function buildOrderSummary(opts: {
     lines.push(`Subtotal: ${fmtMoney(opts.subtotal, opts.currency)}`);
     lines.push(`Delivery fee${opts.deliveryZone ? ` (${opts.deliveryZone})` : ""}: ${fmtMoney(opts.deliveryFee, opts.currency)}`);
   }
+  if (opts.promo && opts.promo.discount > 0) {
+    lines.push(`🏷️ Promo ${opts.promo.code}: −${fmtMoney(opts.promo.discount, opts.currency)}`);
+  }
   lines.push(`*Total: ${fmtMoney(opts.total, opts.currency)}*`);
+  if (opts.promoError) lines.push(`⚠️ Promo not applied — ${opts.promoError}.`);
   if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
   if (opts.paymentUrl) {
     lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
@@ -122,6 +150,10 @@ export interface ChatOrderResult {
   total?: number;
   currency?: string;
   paymentUrl?: string | null;
+  /** Applied promo (code + discount in MAJOR units). */
+  promo?: { code: string; discount: number } | null;
+  /** Reject reason when a promo code was supplied but not applied. */
+  promoError?: string | null;
 }
 
 /** Buyer-facing reply when (part of) the cart can't be fulfilled: names the
@@ -147,6 +179,7 @@ export function buildShortageReply(
   } else {
     lines.push("", "None of the items in your cart are available right now — please check back soon.");
   }
+  lines.push("", "🔔 Reply *NOTIFY ME* and I'll message you the moment it's back in stock.");
   return lines.join("\n");
 }
 
@@ -166,6 +199,8 @@ export async function createChatOrder(
     cartSessionId: string;
     fulfillment: "pickup" | "delivery";
     address: string | null;
+    /** Optional promo/discount code extracted from the chat text. */
+    promoCode?: string | null;
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -190,7 +225,37 @@ export async function createChatOrder(
   const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
   const quote = opts.fulfillment === "delivery" ? quoteDeliveryFee({ address: opts.address }) : null;
   const deliveryFee = quote?.fee ?? 0;
-  const total = subtotal + deliveryFee;
+
+  // ── Promo code (optional) ─────────────────────────────────────────────
+  // Validated against the cart subtotal; the discount is computed in integer
+  // minor units (shared/escrowAmounts discipline) and clamped so the total
+  // (subtotal + delivery fee − discount) can never go negative. A promo
+  // failure NEVER blocks the order — the buyer just pays full price and the
+  // summary notes the code was not applied.
+  let promo: { code: string; discount: number } | null = null;
+  let promoMeta: { code: string; type: string; value: number; discount: string } | null = null;
+  let promoError: string | null = null;
+  if (opts.promoCode) {
+    try {
+      const validation = await validatePromo(db, opts.tenantId, opts.promoCode, subtotal);
+      if (validation.ok) {
+        const discountMajor = Number(minorUnitsToString(validation.discountMinor));
+        promo = { code: validation.promo.code, discount: discountMajor };
+        promoMeta = {
+          code: validation.promo.code,
+          type: validation.promo.type,
+          value: validation.promo.value,
+          discount: validation.discount,
+        };
+      } else {
+        promoError = `${opts.promoCode} — ${promoRejectText(validation.reason)}`;
+      }
+    } catch (e: unknown) {
+      console.error("[nlp] promo validation failed (non-blocking):", (e as Error)?.message);
+    }
+  }
+  const totalMinor = Math.max(0, toMinorUnitsExact(subtotal + deliveryFee) - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0));
+  const total = Number(minorUnitsToString(totalMinor));
   const currency = items[0].currency;
 
   // ── Fraud gate: call /api/ml/predict before creating the order ──────
@@ -240,6 +305,7 @@ export async function createChatOrder(
           deliveryFee: deliveryFee.toFixed(2),
           deliveryZone: quote?.zone ?? null,
           source: "whatsapp_chat",
+          ...(promoMeta ? { promo: promoMeta } : {}),
         },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -257,6 +323,17 @@ export async function createChatOrder(
       };
     }
     throw err;
+  }
+
+  // ── Claim the promo usage only AFTER the order transaction committed ──
+  // (a rolled-back order must never consume a use). Claim-first + atomic —
+  // losing a maxUses race just logs; the buyer keeps the validated discount.
+  if (promoMeta) {
+    applyPromo(db, opts.tenantId, promoMeta.code).then((claimed) => {
+      if (!claimed) {
+        console.warn(`[nlp] promo ${promoMeta.code} usage claim lost maxUses race for order ${orderId}`);
+      }
+    }).catch((e: unknown) => console.error("[nlp] promo usage claim failed:", (e as Error)?.message));
   }
 
   // ── Fire-and-forget sync to external systems ─────────────────────────
@@ -337,6 +414,8 @@ export async function createChatOrder(
     total,
     currency,
     paymentUrl,
+    promo,
+    promoError,
   };
 }
 import { hermesConfigs } from "../../drizzle/schema";
@@ -523,6 +602,11 @@ export const nlpRouter = router({
           // payment summary.
           let stepOrderCard: { orderId: string; orderNumber: string; paymentUrl: string | null } | undefined;
 
+          // Promo code capture: "use code SAVE10" at any checkout step sticks
+          // to the session and is applied when the order is created.
+          const mentionedPromo = extractPromoCode(text);
+          if (mentionedPromo) stepCtx.promoCode = mentionedPromo;
+
           const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
             const order = await createChatOrder(db, {
               tenantId: input.tenantId,
@@ -531,12 +615,15 @@ export const nlpRouter = router({
               cartSessionId: activeCartId,
               fulfillment,
               address,
+              promoCode: typeof stepCtx.promoCode === "string" ? stepCtx.promoCode : null,
             });
             if (order.fraudBlocked) {
               return `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
             }
             if (order.shortages?.length) {
-              // No order, no payment link — tell the buyer what's missing.
+              // No order, no payment link — tell the buyer what's missing,
+              // and remember the products so "NOTIFY ME" can subscribe them.
+              stepCtx.lastShortageProductIds = order.shortages.map((s) => s.productId);
               return buildShortageReply(order.shortages, order.availableItems ?? [], order.currency ?? "NGN");
             }
             if (!order.created) return "Your cart appears to be empty — what would you like to order?";
@@ -554,6 +641,8 @@ export const nlpRouter = router({
               deliveryFee: order.deliveryFee!,
               deliveryZone: order.deliveryZone,
               address,
+              promo: order.promo ?? null,
+              promoError: order.promoError ?? null,
               total: order.total!,
               currency: order.currency!,
               paymentUrl: order.paymentUrl ?? null,
@@ -580,7 +669,9 @@ export const nlpRouter = router({
             } else {
               // Unrecognized — re-ask, keep awaiting the choice.
               stepCtx.awaitingFulfillment = true;
-              reply = "Please reply 1️⃣ for Pickup or 2️⃣ for Delivery.";
+              reply = (mentionedPromo
+                ? `Got it — code ${mentionedPromo.toUpperCase()} will be applied to your order. `
+                : "") + "Please reply 1️⃣ for Pickup or 2️⃣ for Delivery.";
             }
           } else {
             // awaitingAddress — treat the whole message as the address.
@@ -670,6 +761,42 @@ export const nlpRouter = router({
               confidence: hit.score,
             };
           }
+        }
+      }
+
+      // 3d. Back-in-stock waitlist commands — deterministic, no LLM needed.
+      {
+        const cmd = input.message.trim().toLowerCase();
+        if (cmd === "notify me" || cmd === "stop") {
+          const cmdCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          let reply: string;
+          if (cmd === "stop") {
+            const removed = await unsubscribeFromWaitlist(db, input.tenantId, input.waPhoneNumber);
+            reply = removed > 0
+              ? "✅ Done — you won't get back-in-stock alerts anymore."
+              : "You're not on any back-in-stock alerts.";
+          } else {
+            const ids = Array.isArray(cmdCtx.lastShortageProductIds)
+              ? (cmdCtx.lastShortageProductIds as unknown[]).filter((x): x is string => typeof x === "string")
+              : [];
+            if (ids.length === 0) {
+              reply = "Which product should I watch for you? Tell me the product name and I'll notify you when it's back.";
+            } else {
+              for (const productId of ids) {
+                await subscribeToWaitlist(db, input.tenantId, productId, input.waPhoneNumber);
+              }
+              reply = "🔔 Got it — I'll message you the moment it's back in stock. Reply STOP to unsubscribe.";
+            }
+          }
+          await db.update(nlpSessions).set({ context: cmdCtx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply,
+            intent: cmd === "stop" ? "waitlist_unsubscribe" : "waitlist_subscribe",
+            state: session.state,
+            language: session.language,
+            sessionId: session.id,
+            confidence: 1,
+          };
         }
       }
 
@@ -851,6 +978,9 @@ export const nlpRouter = router({
       }
 
       if (llmResult.intent === "confirm_order" && cartSession) {
+        // Promo code capture ("use code SAVE10") — sticks to the session.
+        const mentionedPromo = extractPromoCode(input.message);
+        if (mentionedPromo) ctx.promoCode = mentionedPromo;
         const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
         if (items.length > 0) {
           const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
@@ -878,11 +1008,13 @@ export const nlpRouter = router({
               cartSessionId: cartSession.id,
               fulfillment,
               address,
+              promoCode: typeof ctx.promoCode === "string" ? ctx.promoCode : null,
             });
             if (order.fraudBlocked) {
               llmResult.reply = `\u26a0\ufe0f Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
             } else if (order.shortages?.length) {
               // Out-of-stock guard tripped — no order, no payment link.
+              ctx.lastShortageProductIds = order.shortages.map((s) => s.productId);
               llmResult.reply = buildShortageReply(order.shortages, order.availableItems ?? [], order.currency ?? "NGN");
             } else if (order.created) {
               ctx.lastOrderId = order.orderId;
@@ -896,6 +1028,8 @@ export const nlpRouter = router({
                 deliveryFee: order.deliveryFee!,
                 deliveryZone: order.deliveryZone,
                 address,
+                promo: order.promo ?? null,
+                promoError: order.promoError ?? null,
                 total: order.total!,
                 currency: order.currency!,
                 paymentUrl: order.paymentUrl ?? null,

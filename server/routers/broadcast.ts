@@ -18,6 +18,7 @@ import {
   sendWhatsAppTemplate,
   sendWhatsAppText,
 } from "../services/waSender";
+import { toMinorUnitsExact } from "../../shared/escrowAmounts";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -95,13 +96,94 @@ export interface BroadcastAudienceMember {
   inWindow: boolean;
 }
 
+// ── Segmented broadcasts ─────────────────────────────────────────────────────
+/** Structured audience filter stored on campaigns (segmentFilter jsonb). */
+export interface SegmentFilter {
+  /** Customer must carry at least ONE of these tags. */
+  tags?: string[];
+  minOrders?: number;
+  /** Minimum lifetime spend in integer minor units (kobo/cents). */
+  minSpendKobo?: number;
+  lastOrderWithinDays?: number;
+}
+
+export const segmentFilterSchema = z.object({
+  tags: z.array(z.string().min(1).max(64)).max(50).optional(),
+  minOrders: z.number().int().min(0).optional(),
+  minSpendKobo: z.number().int().min(0).optional(),
+  lastOrderWithinDays: z.number().int().min(1).max(3650).optional(),
+});
+
+interface SegmentCustomerRow {
+  id: string;
+  whatsappPhone: string;
+  name: string | null;
+  tags: unknown;
+  totalOrders: number;
+  totalSpent: string;
+  lastOrderAt: Date | null;
+}
+
+/** Pure segment matcher — exported for tests. Spend math in minor units. */
+export function matchesSegment(
+  c: SegmentCustomerRow,
+  segment: SegmentFilter,
+  now: Date = new Date(),
+): boolean {
+  if (segment.tags && segment.tags.length > 0) {
+    const owned = new Set(
+      (Array.isArray(c.tags) ? (c.tags as unknown[]) : [])
+        .filter((t): t is string => typeof t === "string")
+        .map((t) => t.toLowerCase()),
+    );
+    if (!segment.tags.some((t) => owned.has(t.toLowerCase()))) return false;
+  }
+  if (segment.minOrders != null && (c.totalOrders ?? 0) < segment.minOrders) return false;
+  if (segment.minSpendKobo != null) {
+    let spentMinor = 0;
+    try {
+      spentMinor = toMinorUnitsExact(c.totalSpent ?? "0");
+    } catch {
+      spentMinor = 0;
+    }
+    if (spentMinor < segment.minSpendKobo) return false;
+  }
+  if (segment.lastOrderWithinDays != null) {
+    if (!c.lastOrderAt) return false;
+    const cutoff = now.getTime() - segment.lastOrderWithinDays * 24 * 60 * 60 * 1000;
+    if (new Date(c.lastOrderAt).getTime() < cutoff) return false;
+  }
+  return true;
+}
+
+/** Normalize an unknown segmentFilter jsonb value into a SegmentFilter. */
+export function normalizeSegmentFilter(raw: unknown): SegmentFilter | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const parsed = segmentFilterSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+  const s = parsed.data;
+  if (!s.tags?.length && s.minOrders == null && s.minSpendKobo == null && s.lastOrderWithinDays == null) {
+    return undefined;
+  }
+  return s;
+}
+
 /**
  * Real broadcast audience: the tenant's customers that have GRANTED whatsapp
- * consent. Non-consented customers are always excluded.
+ * consent AND match the campaign's segment filter (when any). Non-consented
+ * customers are always excluded.
  */
-export async function buildBroadcastAudience(db: Db, tenantId: string): Promise<BroadcastAudienceMember[]> {
+export async function buildBroadcastAudience(db: Db, tenantId: string, segment?: SegmentFilter): Promise<BroadcastAudienceMember[]> {
   const custs = await db
-    .select({ id: customers.id, whatsappPhone: customers.whatsappPhone, name: customers.name })
+    .select({
+      id: customers.id,
+      whatsappPhone: customers.whatsappPhone,
+      name: customers.name,
+      tags: customers.tags,
+      totalOrders: customers.totalOrders,
+      totalSpent: customers.totalSpent,
+      lastOrderAt: customers.lastOrderAt,
+    })
     .from(customers)
     .where(eq(customers.tenantId, tenantId));
   const consented = await getConsentedPhones(db, tenantId);
@@ -109,6 +191,7 @@ export async function buildBroadcastAudience(db: Db, tenantId: string): Promise<
   const lastInbound = await getLastInboundMap(db, tenantId);
   const now = Date.now();
   return custs
+    .filter((c) => !segment || matchesSegment(c, segment))
     .filter((c) => consented.has(normalizeWaPhone(c.whatsappPhone)))
     .map((c) => {
       const last = lastInbound.get(normalizeWaPhone(c.whatsappPhone));
@@ -160,6 +243,183 @@ export async function checkBroadcastRateLimit(tenantId: string, ratePerMin: numb
       message: `Broadcast rate limit exceeded (${ratePerMin}/min for this tenant) — try again in the next minute`,
     });
   }
+}
+
+export interface CampaignSendResult {
+  total: number;
+  sent: number;
+  delivered: number;
+  read: number;
+  failed: number;
+  simulated: number;
+}
+
+type CampaignRow = typeof broadcastCampaigns.$inferSelect;
+
+/**
+ * The real campaign send loop: per-recipient rows + chunked sends with
+ * in-window free-form text vs approved-template routing. Shared by
+ * broadcast.send (immediate) and the scheduled-broadcast cron dispatcher.
+ */
+export async function executeCampaignSend(
+  db: Db,
+  campaign: CampaignRow,
+  bcfg: BroadcastSettings,
+  audience: BroadcastAudienceMember[],
+): Promise<CampaignSendResult> {
+  // Campaign-level variable mapping merged into per-recipient variables.
+  const campaignVarMap = (campaign.varMapping ?? {}) as Record<string, string>;
+
+  // Campaign template body drives the in-window free-form text.
+  let templateBody: string | null = null;
+  let templateName = bcfg.templateName;
+  let languageCode = bcfg.languageCode;
+  if (campaign.templateId) {
+    const [tpl] = await db
+      .select()
+      .from(whatsappTemplates)
+      .where(eq(whatsappTemplates.id, campaign.templateId))
+      .limit(1);
+    if (tpl) {
+      templateBody = tpl.bodyText ?? null;
+      if (tpl.name) templateName = tpl.name;
+      if (tpl.language) languageCode = tpl.language;
+    }
+  }
+
+  await db
+    .update(broadcastCampaigns)
+    .set({
+      status: "sending",
+      totalRecipients: audience.length,
+      startedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(broadcastCampaigns.id, campaign.id));
+
+  let sent = 0;
+  let failed = 0;
+  let simulatedCount = 0;
+  const CHUNK_SIZE = 25;
+  for (let i = 0; i < audience.length; i += CHUNK_SIZE) {
+    const chunk = audience.slice(i, i + CHUNK_SIZE);
+    await Promise.all(
+      chunk.map(async (member) => {
+        const recipientId = nanoid();
+        const variables = {
+          customer_name: member.name ?? "Customer",
+          ...campaignVarMap,
+        };
+        await db
+          .insert(broadcastRecipients)
+          .values({
+            id: recipientId,
+            campaignId: campaign.id,
+            phone: member.phone,
+            name: member.name ?? null,
+            variables,
+            status: "pending",
+            createdAt: new Date(),
+          })
+          .onConflictDoNothing();
+        try {
+          let wamid: string | null = null;
+          let simulated = false;
+          if (member.inWindow && templateBody) {
+            const res = await sendWhatsAppText(
+              campaign.tenantId,
+              member.phone,
+              substituteVars(templateBody, variables),
+              { notifType: "broadcast" },
+            );
+            wamid = res.wamids[0] ?? null;
+            simulated = res.simulated;
+          } else {
+            // Outside the 24h window (or no text body) — approved template required.
+            const components = [
+              {
+                type: "body",
+                parameters: [
+                  { type: "text", text: member.name ?? "Customer" },
+                  ...Object.values(campaignVarMap).map((v) => ({ type: "text", text: String(v) })),
+                ],
+              },
+            ];
+            const res = await sendWhatsAppTemplate(
+              campaign.tenantId,
+              member.phone,
+              templateName,
+              languageCode,
+              components,
+              { notifType: "broadcast" },
+            );
+            wamid = res.wamid;
+            simulated = res.simulated;
+          }
+          if (simulated) {
+            // No WhatsApp credentials configured — not a real delivery.
+            simulatedCount++;
+            await db
+              .update(broadcastRecipients)
+              .set({
+                status: "failed",
+                failedAt: new Date(),
+                failureReason: "WhatsApp credentials not configured for tenant — send simulated",
+              })
+              .where(eq(broadcastRecipients.id, recipientId));
+            return;
+          }
+          sent++;
+          await db
+            .update(broadcastRecipients)
+            .set({ status: "sent", sentAt: new Date(), messageId: wamid })
+            .where(eq(broadcastRecipients.id, recipientId));
+        } catch (err: any) {
+          failed++;
+          await db
+            .update(broadcastRecipients)
+            .set({
+              status: "failed",
+              failedAt: new Date(),
+              failureReason: String(err?.message ?? err).slice(0, 500),
+            })
+            .where(eq(broadcastRecipients.id, recipientId));
+        }
+      }),
+    );
+  }
+
+  await db
+    .update(broadcastCampaigns)
+    .set({
+      status: "completed",
+      totalRecipients: audience.length,
+      sentCount: sent,
+      deliveredCount: 0,
+      readCount: 0,
+      failedCount: failed,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(broadcastCampaigns.id, campaign.id));
+
+  return { total: audience.length, sent, delivered: 0, read: 0, failed, simulated: simulatedCount };
+}
+
+/**
+ * Full dispatch of one campaign (audience build + send). Used by the
+ * /api/scheduled/broadcast-dispatch cron endpoint for due campaigns.
+ */
+export async function dispatchCampaign(db: Db, campaign: CampaignRow): Promise<CampaignSendResult> {
+  const [tenant] = await db
+    .select({ settings: tenants.settings })
+    .from(tenants)
+    .where(eq(tenants.id, campaign.tenantId))
+    .limit(1);
+  const bcfg = parseBroadcastSettings(tenant?.settings);
+  const segment = normalizeSegmentFilter(campaign.segmentFilter);
+  const audience = await buildBroadcastAudience(db, campaign.tenantId, segment);
+  return executeCampaignSend(db, campaign, bcfg, audience);
 }
 
 export const broadcastRouter = router({
@@ -250,26 +510,61 @@ export const broadcastRouter = router({
    * gets the tenant-configured approved template.
    *
    * dryRun=true returns the audience count + sample without sending anything.
+   * scheduleAt (epoch ms, future) parks the campaign as status='scheduled'
+   * for the /api/scheduled/broadcast-dispatch cron instead of sending now.
+   * segment overrides the campaign's segmentFilter audience filter.
    */
   send: protectedProcedure
     .input(z.object({
       campaignId: z.string(),
       dryRun: z.boolean().optional().default(false),
+      scheduleAt: z.number().optional(),
+      segment: segmentFilterSchema.optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
 
-      const [campaign] = await db
+      const [campaignRow] = await db
         .select()
         .from(broadcastCampaigns)
         .where(eq(broadcastCampaigns.id, input.campaignId))
         .limit(1);
 
-      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+      if (!campaignRow) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+      const campaign = campaignRow;
 
       // Tenant isolation: only the owning tenant (or an admin) may send.
       assertTenantAccess(ctx.user, campaign.tenantId);
+
+      // Segment override: persist on the campaign so the scheduled dispatch
+      // and later dry-runs see the same audience definition.
+      if (input.segment) {
+        await db
+          .update(broadcastCampaigns)
+          .set({ segmentFilter: input.segment, updatedAt: new Date() })
+          .where(eq(broadcastCampaigns.id, input.campaignId));
+        campaign.segmentFilter = input.segment;
+      }
+
+      // Schedule for later: the cron dispatcher picks it up when due.
+      if (!input.dryRun && input.scheduleAt && input.scheduleAt > Date.now()) {
+        const when = new Date(input.scheduleAt);
+        await db
+          .update(broadcastCampaigns)
+          .set({ status: "scheduled", scheduledAt: when, updatedAt: new Date() })
+          .where(eq(broadcastCampaigns.id, input.campaignId));
+        return {
+          dryRun: false as const,
+          scheduled: true as const,
+          scheduledAt: when.toISOString(),
+          total: 0,
+          sent: 0,
+          delivered: 0,
+          read: 0,
+          failed: 0,
+        };
+      }
 
       const [tenant] = await db
         .select({ settings: tenants.settings })
@@ -278,7 +573,8 @@ export const broadcastRouter = router({
         .limit(1);
       const bcfg = parseBroadcastSettings(tenant?.settings);
 
-      const audience = await buildBroadcastAudience(db, campaign.tenantId);
+      const segment = normalizeSegmentFilter(campaign.segmentFilter);
+      const audience = await buildBroadcastAudience(db, campaign.tenantId, segment);
       const inWindowCount = audience.filter((a) => a.inWindow).length;
 
       if (input.dryRun) {
@@ -288,6 +584,7 @@ export const broadcastRouter = router({
           audienceCount: audience.length,
           inWindowCount,
           outOfWindowCount: audience.length - inWindowCount,
+          segment: segment ?? null,
           sample: audience.slice(0, 5).map((a) => ({
             phone: a.phone,
             name: a.name,
@@ -303,144 +600,10 @@ export const broadcastRouter = router({
       // Per-tenant throughput guard (settings.broadcast.ratePerMin, default 30/min).
       await checkBroadcastRateLimit(campaign.tenantId, bcfg.ratePerMin);
 
-      // Campaign-level variable mapping merged into per-recipient variables.
-      const campaignVarMap = (campaign.varMapping ?? {}) as Record<string, string>;
-
-      // Campaign template body drives the in-window free-form text.
-      let templateBody: string | null = null;
-      let templateName = bcfg.templateName;
-      let languageCode = bcfg.languageCode;
-      if (campaign.templateId) {
-        const [tpl] = await db
-          .select()
-          .from(whatsappTemplates)
-          .where(eq(whatsappTemplates.id, campaign.templateId))
-          .limit(1);
-        if (tpl) {
-          templateBody = tpl.bodyText ?? null;
-          if (tpl.name) templateName = tpl.name;
-          if (tpl.language) languageCode = tpl.language;
-        }
-      }
-
-      await db
-        .update(broadcastCampaigns)
-        .set({
-          status: "sending",
-          totalRecipients: audience.length,
-          startedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(broadcastCampaigns.id, input.campaignId));
-
-      let sent = 0;
-      let failed = 0;
-      let simulatedCount = 0;
-      const CHUNK_SIZE = 25;
-      for (let i = 0; i < audience.length; i += CHUNK_SIZE) {
-        const chunk = audience.slice(i, i + CHUNK_SIZE);
-        await Promise.all(
-          chunk.map(async (member) => {
-            const recipientId = nanoid();
-            const variables = {
-              customer_name: member.name ?? "Customer",
-              ...campaignVarMap,
-            };
-            await db
-              .insert(broadcastRecipients)
-              .values({
-                id: recipientId,
-                campaignId: input.campaignId,
-                phone: member.phone,
-                name: member.name ?? null,
-                variables,
-                status: "pending",
-                createdAt: new Date(),
-              })
-              .onConflictDoNothing();
-            try {
-              let wamid: string | null = null;
-              let simulated = false;
-              if (member.inWindow && templateBody) {
-                const res = await sendWhatsAppText(
-                  campaign.tenantId,
-                  member.phone,
-                  substituteVars(templateBody, variables),
-                  { notifType: "broadcast" },
-                );
-                wamid = res.wamids[0] ?? null;
-                simulated = res.simulated;
-              } else {
-                // Outside the 24h window (or no text body) — approved template required.
-                const components = [
-                  {
-                    type: "body",
-                    parameters: [
-                      { type: "text", text: member.name ?? "Customer" },
-                      ...Object.values(campaignVarMap).map((v) => ({ type: "text", text: String(v) })),
-                    ],
-                  },
-                ];
-                const res = await sendWhatsAppTemplate(
-                  campaign.tenantId,
-                  member.phone,
-                  templateName,
-                  languageCode,
-                  components,
-                  { notifType: "broadcast" },
-                );
-                wamid = res.wamid;
-                simulated = res.simulated;
-              }
-              if (simulated) {
-                // No WhatsApp credentials configured — not a real delivery.
-                simulatedCount++;
-                await db
-                  .update(broadcastRecipients)
-                  .set({
-                    status: "failed",
-                    failedAt: new Date(),
-                    failureReason: "WhatsApp credentials not configured for tenant — send simulated",
-                  })
-                  .where(eq(broadcastRecipients.id, recipientId));
-                return;
-              }
-              sent++;
-              await db
-                .update(broadcastRecipients)
-                .set({ status: "sent", sentAt: new Date(), messageId: wamid })
-                .where(eq(broadcastRecipients.id, recipientId));
-            } catch (err: any) {
-              failed++;
-              await db
-                .update(broadcastRecipients)
-                .set({
-                  status: "failed",
-                  failedAt: new Date(),
-                  failureReason: String(err?.message ?? err).slice(0, 500),
-                })
-                .where(eq(broadcastRecipients.id, recipientId));
-            }
-          }),
-        );
-      }
-
-      await db
-        .update(broadcastCampaigns)
-        .set({
-          status: "completed",
-          totalRecipients: audience.length,
-          sentCount: sent,
-          deliveredCount: 0,
-          readCount: 0,
-          failedCount: failed,
-          completedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(broadcastCampaigns.id, input.campaignId));
-
-      return { dryRun: false as const, total: audience.length, sent, delivered: 0, read: 0, failed, simulated: simulatedCount };
+      const result = await executeCampaignSend(db, campaign, bcfg, audience);
+      return { dryRun: false as const, ...result };
     }),
+
 
   // Cancel a campaign
   cancel: protectedProcedure

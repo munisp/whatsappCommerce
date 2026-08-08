@@ -1718,6 +1718,54 @@ async function startServer() {
     }
   });
 
+  // ── Scheduled Broadcast Dispatch ──────────────────────────────────────────
+  // Picks up campaigns scheduled via broadcast.send(scheduleAt) — status
+  // 'scheduled' with scheduledAt <= now — and runs the REAL consent-gated,
+  // segment-filtered send flow (routers/broadcast.dispatchCampaign). Claims
+  // each campaign first (conditional UPDATE scheduled→sending) so overlapping
+  // cron ticks can't double-dispatch.
+  app.post("/api/scheduled/broadcast-dispatch", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { dispatchCampaign } = await import("../routers/broadcast");
+      const now = new Date();
+      const due = await db.select().from(broadcastCampaigns).where(
+        and(
+          eq(broadcastCampaigns.status, "scheduled"),
+          sql`"scheduledAt" IS NOT NULL AND "scheduledAt" <= ${now.toISOString()}`,
+        )
+      );
+      let dispatched = 0;
+      const results: Array<{ campaignId: string; total: number; sent: number; failed: number }> = [];
+      for (const campaign of due) {
+        // Claim-first: exactly one concurrent dispatcher transitions
+        // scheduled → sending; the loser skips this campaign.
+        const claimed = await db.update(broadcastCampaigns)
+          .set({ status: "sending", startedAt: now, updatedAt: now })
+          .where(and(eq(broadcastCampaigns.id, campaign.id), eq(broadcastCampaigns.status, "scheduled")))
+          .returning({ id: broadcastCampaigns.id });
+        if (claimed.length === 0) continue;
+        try {
+          const r = await dispatchCampaign(db, campaign);
+          results.push({ campaignId: campaign.id, total: r.total, sent: r.sent, failed: r.failed });
+          dispatched++;
+        } catch (err: any) {
+          console.error(`[broadcast-dispatch] campaign ${campaign.id} failed:`, err?.message);
+          await db.update(broadcastCampaigns)
+            .set({ status: "failed", updatedAt: new Date() })
+            .where(eq(broadcastCampaigns.id, campaign.id));
+        }
+      }
+      return res.json({ ok: true, dispatched, results });
+    } catch (err: any) {
+      console.error("[broadcast-dispatch]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
 
   // ── Medusa order fulfillment webhook (/api/webhooks/medusa) ──────────────
   // Receives order.fulfillment_created, order.completed, order.canceled events

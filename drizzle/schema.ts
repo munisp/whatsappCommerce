@@ -593,6 +593,24 @@ export const inventoryReservations = pgTable("inventory_reservations", {
 export type InventoryReservation = typeof inventoryReservations.$inferSelect;
 export type InsertInventoryReservation = typeof inventoryReservations.$inferInsert;
 
+// ─── Back-in-stock waitlist (migration 0036) ────────────────────────────────
+// Buyers hit an out-of-stock product and opt in ("NOTIFY ME"); when stock
+// goes 0→>0 every unnotified entry gets one WhatsApp alert (notifiedAt set).
+export const waitlistEntries = pgTable("waitlist_entries", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  notifiedAt: timestamp("notifiedAt"),
+}, (t) => [
+  index("waitlist_entries_tenant_idx").on(t.tenantId),
+  index("waitlist_entries_product_idx").on(t.productId),
+  uniqueIndex("waitlist_entries_tenant_product_phone_idx").on(t.tenantId, t.productId, t.phone),
+]);
+export type WaitlistEntry = typeof waitlistEntries.$inferSelect;
+export type InsertWaitlistEntry = typeof waitlistEntries.$inferInsert;
+
 export const inventorySyncLog = pgTable("inventory_sync_log", {
   id: varchar("id", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),

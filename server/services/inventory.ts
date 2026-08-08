@@ -22,6 +22,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { getDb } from "../db";
 import { inventoryReservations, orders, products } from "../../drizzle/schema";
+import { scheduleLowStockCheck } from "./lowStock";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 /** Any handle exposing the drizzle mutation/query surface (db or tx). */
@@ -146,6 +147,11 @@ export async function reserveStock(
       throw new InsufficientStockError(shortages);
     }
 
+    // Low-stock admin alert (post-transaction, fire-and-forget): the check
+    // re-reads COMMITTED state after this tx settles, so a rollback can never
+    // produce a phantom alert, and errors are logged — never thrown.
+    scheduleLowStockCheck(tenantId, item.productId);
+
     await tx.insert(inventoryReservations).values({
       id: randomUUID(),
       tenantId,
@@ -177,7 +183,12 @@ export async function commitReservations(
         eq(inventoryReservations.status, "reserved"),
       ),
     )
-    .returning({ id: inventoryReservations.id });
+    .returning({ id: inventoryReservations.id, tenantId: inventoryReservations.tenantId, productId: inventoryReservations.productId });
+  // Low-stock admin alerts for the products whose stock just became final
+  // (post-transaction, fire-and-forget — errors logged, never thrown).
+  for (const row of committed) {
+    scheduleLowStockCheck(row.tenantId, row.productId);
+  }
   return committed.length;
 }
 
