@@ -55,6 +55,10 @@ import EvidencePortal from "./pages/EvidencePortal";
 import MerchantAnalytics from "./pages/portal/MerchantAnalytics";
 import PortalBroadcasts from "./pages/portal/PortalBroadcasts";
 import AuditLog from "./pages/AuditLog";
+import WaMenuBuilder from "./pages/WaMenuBuilder";
+import TenantOnboardingWizard from "./pages/TenantOnboardingWizard";
+import IntegrationsSettings from "./pages/IntegrationsSettings";
+import TenantSettings from "./pages/TenantSettings";
 
 function Router() {
   return (
@@ -111,6 +115,10 @@ function Router() {
           <Route path="/portal/analytics" component={MerchantAnalytics} />
           <Route path="/portal/broadcasts" component={PortalBroadcasts} />
           <Route path="/audit-log" component={AuditLog} />
+          <Route path="/wa-menu-builder" component={WaMenuBuilder} />
+          <Route path="/onboarding-wizard" component={TenantOnboardingWizard} />
+          <Route path="/integration-settings" component={IntegrationsSettings} />
+          <Route path="/tenant-settings" component={TenantSettings} />
           <Route path="/whatsapp-media" component={WhatsAppMediaPortal} />
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />

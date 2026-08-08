@@ -118,6 +118,80 @@ export function parseWaMenuConfig(input: unknown): WaMenuConfig {
   return waMenuConfigSchema.parse(input) as WaMenuConfig;
 }
 
+// ─── Pure renderer (shared by server preview + admin draft preview) ─────────
+
+export interface WaMenuLiveData {
+  businessName: string;
+  /** in-stock product count (drives "Shop (N items)") */
+  shopItemCount?: number;
+  /** up to 5 in-stock product names shown under the shop entry */
+  topProducts?: string[];
+  /** count of open (not delivered/cancelled) orders */
+  openOrderCount?: number;
+}
+
+/**
+ * Pure renderer — no I/O. Must stay in sync with the runtime menu renderer:
+ * greeting + numbered list of enabled useCases (sorted by order) + numbered
+ * customItems.
+ */
+export function renderWaMenu(menu: WaMenuConfig, data: WaMenuLiveData): string {
+  const lines: string[] = [];
+  lines.push(menu.greeting.replaceAll("{businessName}", data.businessName));
+  lines.push("");
+
+  let n = 0;
+  const enabled = [...menu.useCases].filter((u) => u.enabled).sort((a, b) => a.order - b.order);
+  for (const uc of enabled) {
+    n += 1;
+    let label = uc.label;
+    if (uc.id === "shop" && typeof data.shopItemCount === "number") {
+      label = `${label} (${data.shopItemCount} items)`;
+    }
+    if (uc.id === "track" && typeof data.openOrderCount === "number") {
+      label = `${label} (${data.openOrderCount} open)`;
+    }
+    lines.push(`${n}. ${label}`);
+    if (uc.id === "shop" && data.topProducts && data.topProducts.length > 0) {
+      for (const name of data.topProducts.slice(0, 5)) {
+        lines.push(`   • ${name}`);
+      }
+    }
+  }
+  for (const item of menu.customItems) {
+    n += 1;
+    lines.push(`${n}. ${item.label}`);
+  }
+  return lines.join("\n");
+}
+
+// ─── Draft editing helpers (pure; used by the admin menu builder) ───────────
+
+/** Use cases sorted by order (stable for ties). */
+export function sortUseCasesByOrder(useCases: WaMenuUseCase[]): WaMenuUseCase[] {
+  return [...useCases].sort((a, b) => a.order - b.order);
+}
+
+/** Rewrite order values to 1..N following the current sort. */
+export function renumberUseCases(useCases: WaMenuUseCase[]): WaMenuUseCase[] {
+  return sortUseCasesByOrder(useCases).map((u, i) => ({ ...u, order: i + 1 }));
+}
+
+/** Move a use case one slot up/down in display order; renumbers 1..N. */
+export function moveUseCase(
+  useCases: WaMenuUseCase[],
+  id: WaUseCaseId,
+  direction: "up" | "down",
+): WaMenuUseCase[] {
+  const sorted = sortUseCasesByOrder(useCases);
+  const idx = sorted.findIndex((u) => u.id === id);
+  if (idx < 0) return sorted;
+  const target = direction === "up" ? idx - 1 : idx + 1;
+  if (target < 0 || target >= sorted.length) return sorted;
+  [sorted[idx], sorted[target]] = [sorted[target], sorted[idx]];
+  return sorted.map((u, i) => ({ ...u, order: i + 1 }));
+}
+
 /** Structural check without throwing. */
 export function isWaMenuConfig(input: unknown): input is WaMenuConfig {
   return waMenuConfigSchema.safeParse(input).success;

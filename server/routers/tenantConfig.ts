@@ -17,9 +17,11 @@ import {
   crmCustomFieldSchema,
   inventoryConfigSchema,
   pipelineStageSchema,
+  tenantDomainsSchema,
   buildDefaultTenantSettings,
   type TenantSettings,
 } from "../../shared/tenantConfig";
+import { normalizeHost } from "../_core/tenantDomain";
 import {
   parseWaMenuConfig,
   waCustomItemSchema,
@@ -180,6 +182,27 @@ export const tenantConfigRouter = router({
         s.branding = input.config;
       });
       return settings.branding;
+    }),
+
+  // ─── Domains (settings.domains — see server/_core/tenantDomain.ts) ────────
+
+  getDomains: protectedProcedure.input(tenantInput).query(async ({ ctx, input }) => {
+    assertTenantAccess(ctx.user, input.tenantId);
+    const settings = await loadSettings(input.tenantId);
+    const raw = (settings as Record<string, unknown>).domains;
+    return Array.isArray(raw) ? raw.filter((d): d is string => typeof d === "string") : [];
+  }),
+
+  /** Replace the full custom-domain list (normalized hosts, deduped). */
+  setDomains: protectedProcedure
+    .input(tenantInput.extend({ domains: tenantDomainsSchema }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const normalized = Array.from(new Set(input.domains.map((d) => normalizeHost(d)).filter(Boolean)));
+      await updateTenantSettings(input.tenantId, (s) => {
+        (s as Record<string, unknown>).domains = normalized;
+      });
+      return normalized;
     }),
 
   // ─── WhatsApp menu ─────────────────────────────────────────────────────────

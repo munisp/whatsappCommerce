@@ -168,6 +168,7 @@ export default function BroadcastCampaigns() {
 
   const sendCampaign = trpc.broadcast.send.useMutation({
     onSuccess: (data) => {
+      if (data.dryRun) return; // handled by dryRunCampaign
       toast.success(`Campaign sent to ${data.total} recipients — ${data.delivered} delivered, ${data.read} read`);
       setSendingId(null);
       refetch();
@@ -176,6 +177,20 @@ export default function BroadcastCampaigns() {
       toast.error(e.message);
       setSendingId(null);
     },
+  });
+
+  // Dry run: audience count + 24h-window split + sample, without sending.
+  const [dryRunResult, setDryRunResult] = useState<{
+    audienceCount: number;
+    inWindowCount: number;
+    outOfWindowCount: number;
+    sample: { phone: string; name: string | null; inWindow: boolean }[];
+  } | null>(null);
+  const dryRunCampaign = trpc.broadcast.send.useMutation({
+    onSuccess: (data) => {
+      if (data.dryRun) setDryRunResult(data);
+    },
+    onError: (e) => toast.error(e.message),
   });
 
   const cancelCampaign = trpc.broadcast.cancel.useMutation({
@@ -198,6 +213,7 @@ export default function BroadcastCampaigns() {
   const handleSend = (campaignId: string) => {
     const campaign = campaigns.find(c => c.id === campaignId);
     if (campaign) {
+      setDryRunResult(null);
       setPreviewCampaignId(campaignId);
       setPreviewOpen(true);
     } else {
@@ -728,15 +744,43 @@ export default function BroadcastCampaigns() {
                 </p>
               </div>
             </div>
-            {(previewCampaign?.totalRecipients ?? 0) === 0 && (
+            {(previewCampaign?.totalRecipients ?? 0) === 0 && !dryRunResult && (
               <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
                 <span className="text-amber-400 text-sm">⚠</span>
                 <p className="text-xs text-amber-300">No recipients loaded yet. The campaign will build the recipient list on send.</p>
               </div>
             )}
+            {dryRunResult && (
+              <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3 space-y-2">
+                <p className="text-xs font-semibold text-sky-300">
+                  Dry run — {dryRunResult.audienceCount} consented recipients
+                  ({dryRunResult.inWindowCount} inside the 24h window, {dryRunResult.outOfWindowCount} need the template)
+                </p>
+                {dryRunResult.sample.length > 0 && (
+                  <ul className="text-[11px] text-muted-foreground space-y-0.5">
+                    {dryRunResult.sample.map((s) => (
+                      <li key={s.phone} className="flex justify-between gap-2">
+                        <span className="truncate">{s.name ?? "—"} · {s.phone}</span>
+                        <span className={s.inWindow ? "text-emerald-400" : "text-amber-400"}>
+                          {s.inWindow ? "24h window" : "template"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPreviewOpen(false)}>Cancel</Button>
+            <Button
+              variant="outline"
+              className="gap-1.5"
+              disabled={dryRunCampaign.isPending || !previewCampaignId}
+              onClick={() => previewCampaignId && dryRunCampaign.mutate({ campaignId: previewCampaignId, dryRun: true })}
+            >
+              {dryRunCampaign.isPending ? "Checking…" : "Dry Run"}
+            </Button>
             <Button className="bg-emerald-600 hover:bg-emerald-700 gap-1.5" onClick={confirmSend}>
               <Send className="w-3.5 h-3.5" />
               Confirm & Send

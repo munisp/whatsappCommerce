@@ -19,48 +19,12 @@ import type { WaMenuConfig } from "../../shared/waMenu";
 import { isWaMenuConfig } from "../../shared/waMenu";
 import type { TenantSettings } from "../../shared/tenantConfig";
 
-export interface WaMenuLiveData {
-  businessName: string;
-  /** in-stock product count (drives "Shop (N items)") */
-  shopItemCount?: number;
-  /** up to 5 in-stock product names shown under the shop entry */
-  topProducts?: string[];
-  /** count of open (not delivered/cancelled) orders */
-  openOrderCount?: number;
-}
+// The pure renderer + live-data shape live in shared/waMenu.ts so the admin
+// menu builder can render draft previews with the exact same rules.
+export { renderWaMenu, type WaMenuLiveData } from "../../shared/waMenu";
+import { renderWaMenu, type WaMenuLiveData } from "../../shared/waMenu";
 
 const OPEN_ORDER_STATUSES = ["pending", "confirmed", "processing", "shipped"] as const;
-
-/** Pure renderer — no I/O. Must stay in sync with the runtime renderer. */
-export function renderWaMenu(menu: WaMenuConfig, data: WaMenuLiveData): string {
-  const lines: string[] = [];
-  lines.push(menu.greeting.replaceAll("{businessName}", data.businessName));
-  lines.push("");
-
-  let n = 0;
-  const enabled = [...menu.useCases].filter((u) => u.enabled).sort((a, b) => a.order - b.order);
-  for (const uc of enabled) {
-    n += 1;
-    let label = uc.label;
-    if (uc.id === "shop" && typeof data.shopItemCount === "number") {
-      label = `${label} (${data.shopItemCount} items)`;
-    }
-    if (uc.id === "track" && typeof data.openOrderCount === "number") {
-      label = `${label} (${data.openOrderCount} open)`;
-    }
-    lines.push(`${n}. ${label}`);
-    if (uc.id === "shop" && data.topProducts && data.topProducts.length > 0) {
-      for (const name of data.topProducts.slice(0, 5)) {
-        lines.push(`   • ${name}`);
-      }
-    }
-  }
-  for (const item of menu.customItems) {
-    n += 1;
-    lines.push(`${n}. ${item.label}`);
-  }
-  return lines.join("\n");
-}
 
 /** Gather live preview data (product + order counts) for a tenant. */
 export async function gatherWaMenuLiveData(tenantId: string): Promise<WaMenuLiveData> {

@@ -32,7 +32,7 @@ import {
   BrainCircuit, Warehouse, Smartphone, Link2, Eye, ArrowLeftRight,
   Database, GitBranch, AlertTriangle, Activity, Lock, Network,
   UserPlus, Rocket, KeyRound, Building2, ScrollText, Workflow, Leaf,
-  Calendar, Paperclip, BarChart2, Cpu,
+  Calendar, Paperclip, BarChart2, Cpu, ListTree, Plug, SlidersHorizontal,
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -155,6 +155,17 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: Globe,           label: "Integration Hub", path: "/integrations" },
       { icon: Users,           label: "Twenty CRM",      path: "/twenty-crm" },
       { icon: Package,         label: "Odoo ERP",        path: "/odoo-erp" },
+    ],
+  },
+  {
+    id: "configuration",
+    label: "Configuration",
+    icon: SlidersHorizontal,
+    items: [
+      { icon: Smartphone,      label: "WA Menu Builder",  path: "/wa-menu-builder" },
+      { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
+      { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
+      { icon: SlidersHorizontal, label: "Tenant Settings", path: "/tenant-settings" },
     ],
   },
   {
@@ -344,6 +355,9 @@ function DashboardLayoutContent({
   const isMobile = useIsMobile();
   const { activeTenantId, setActiveTenantId } = useActiveTenant();
   const { data: tenantList } = trpc.tenant.list.useQuery({ limit: 20 });
+  // Tenant branding (public theme resolved from the request host): applied to
+  // the shell header — name, logo and primary color.
+  const { data: tenantTheme } = trpc.tenant.tenantTheme.useQuery();
   const activeTenant = tenantList?.find((t: { id: string }) => t.id === activeTenantId);
 
   // Role-filtered nav: Administration group is only visible to admins
@@ -457,10 +471,21 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-2 px-2 py-1">
               {!isCollapsed && (
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-                    <ShoppingBag className="h-4 w-4 text-primary-foreground" />
-                  </div>
-                  <span className="font-bold text-sm truncate">WhatsApp Commerce</span>
+                  {tenantTheme?.logoUrl ? (
+                    <img
+                      src={tenantTheme.logoUrl}
+                      alt={tenantTheme.name}
+                      className="w-7 h-7 rounded-lg object-contain shrink-0 bg-white/10"
+                    />
+                  ) : (
+                    <div
+                      className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0"
+                      style={tenantTheme?.primaryColor ? { backgroundColor: tenantTheme.primaryColor } : undefined}
+                    >
+                      <ShoppingBag className="h-4 w-4 text-primary-foreground" />
+                    </div>
+                  )}
+                  <span className="font-bold text-sm truncate">{tenantTheme?.name ?? "WhatsApp Commerce"}</span>
                 </div>
               )}
               <button
