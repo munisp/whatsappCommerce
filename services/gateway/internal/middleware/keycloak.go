@@ -120,8 +120,48 @@ type KeycloakClaims struct {
 	PreferredUsername string   `json:"preferred_username"`
 	Email             string   `json:"email"`
 	RealmRoles        []string `json:"realm_roles,omitempty"`
-	TenantID          string   `json:"tenant_id,omitempty"`
+	RealmAccess       *struct {
+		Roles []string `json:"roles"`
+	} `json:"realm_access,omitempty"`
+	TenantID string `json:"tenant_id,omitempty"`
 	jwt.RegisteredClaims
+}
+
+// roles returns the effective realm roles, merging the non-standard
+// "realm_roles" claim with Keycloak's standard "realm_access.roles".
+func (k *KeycloakClaims) roles() []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, r := range k.RealmRoles {
+		if _, ok := seen[r]; !ok {
+			seen[r] = struct{}{}
+			out = append(out, r)
+		}
+	}
+	if k.RealmAccess != nil {
+		for _, r := range k.RealmAccess.Roles {
+			if _, ok := seen[r]; !ok {
+				seen[r] = struct{}{}
+				out = append(out, r)
+			}
+		}
+	}
+	return out
+}
+
+// primaryRole picks the highest-privilege role for legacy RequireRole checks.
+func primaryRole(roles []string) string {
+	for _, preferred := range []string{"admin", "platform_engineer"} {
+		for _, r := range roles {
+			if r == preferred {
+				return r
+			}
+		}
+	}
+	if len(roles) > 0 {
+		return roles[0]
+	}
+	return ""
 }
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -151,9 +191,14 @@ func KeycloakJWTAuth(cfg *config.Config, logger *zap.Logger) gin.HandlerFunc {
 		pubKey, err := globalJWKSCache.getKey(kid)
 		if err != nil {
 			// Fallback: introspect with Keycloak
-			if !introspectToken(cfg, tokenStr) {
+			claims, ok := introspectToken(cfg, tokenStr)
+			if !ok {
 				logger.Warn("keycloak.auth.failed", zap.String("kid", kid), zap.Error(err))
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
+				return
+			}
+			setKeycloakContext(c, claims)
+			if !enforceTenantHeader(c) {
 				return
 			}
 			c.Next()
@@ -161,30 +206,53 @@ func KeycloakJWTAuth(cfg *config.Config, logger *zap.Logger) gin.HandlerFunc {
 		}
 
 		claims := &KeycloakClaims{}
+		parseOpts := []jwt.ParserOption{
+			jwt.WithValidMethods([]string{"RS256"}),
+			jwt.WithIssuer(cfg.Keycloak.URL + "/realms/" + cfg.Keycloak.Realm),
+			jwt.WithExpirationRequired(),
+		}
+		if cfg.Keycloak.Audience != "" {
+			parseOpts = append(parseOpts, jwt.WithAudience(cfg.Keycloak.Audience))
+		}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
 				return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 			}
 			return pubKey, nil
-		})
+		}, parseOpts...)
 		if err != nil || !token.Valid {
+			logger.Warn("keycloak.token.rejected", zap.Error(err))
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
 			return
 		}
 
-		c.Set("user_id", claims.Sub)
-		c.Set("username", claims.PreferredUsername)
-		c.Set("email", claims.Email)
-		c.Set("tenant_id", claims.TenantID)
-		c.Set("realm_roles", claims.RealmRoles)
+		setKeycloakContext(c, claims)
+		if !enforceTenantHeader(c) {
+			return
+		}
 		c.Next()
 	}
 }
 
-// introspectToken calls Keycloak's token introspection endpoint.
-func introspectToken(cfg *config.Config, tokenStr string) bool {
+// setKeycloakContext injects the validated Keycloak claims into the gin context.
+func setKeycloakContext(c *gin.Context, claims *KeycloakClaims) {
+	roles := claims.roles()
+	c.Set("user_id", claims.Sub)
+	c.Set("username", claims.PreferredUsername)
+	c.Set("email", claims.Email)
+	c.Set("tenant_id", claims.TenantID)
+	c.Set("realm_roles", roles)
+	if r := primaryRole(roles); r != "" {
+		c.Set("role", r)
+	}
+}
+
+// introspectToken calls Keycloak's token introspection endpoint. On success it
+// returns claims parsed from the (now verified-active) token for context
+// propagation.
+func introspectToken(cfg *config.Config, tokenStr string) (*KeycloakClaims, bool) {
 	if cfg.Keycloak.ClientID == "" || cfg.Keycloak.ClientSecret == "" {
-		return false
+		return nil, false
 	}
 	form := url.Values{
 		"token":         {tokenStr},
@@ -193,14 +261,19 @@ func introspectToken(cfg *config.Config, tokenStr string) bool {
 	}
 	resp, err := http.PostForm(cfg.Keycloak.IntrospectURL, form)
 	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
+		return nil, false
 	}
 	defer resp.Body.Close()
 	var result struct {
 		Active bool `json:"active"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || !result.Active {
+		return nil, false
 	}
-	return result.Active
+	// Token is confirmed active by Keycloak; extract claims for context.
+	claims := &KeycloakClaims{}
+	if _, _, err := new(jwt.Parser).ParseUnverified(tokenStr, claims); err != nil {
+		return &KeycloakClaims{}, true
+	}
+	return claims, true
 }

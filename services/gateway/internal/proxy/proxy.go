@@ -19,6 +19,14 @@ var httpClient = &http.Client{
 	},
 }
 
+// internalAPIKey, when set via SetInternalAPIKey, is forwarded to upstream
+// services as X-Internal-Token so they can authenticate gateway-originated
+// requests (defense-in-depth behind the gateway's own auth middleware).
+var internalAPIKey string
+
+// SetInternalAPIKey configures the shared secret forwarded to internal services.
+func SetInternalAPIKey(key string) { internalAPIKey = key }
+
 // ForwardTo returns a gin handler that reverse-proxies the request to the given upstream base URL.
 // The full incoming path and query string are preserved.
 func ForwardTo(baseURL string) gin.HandlerFunc {
@@ -63,8 +71,10 @@ func forward(c *gin.Context, targetURL string) {
 		return
 	}
 
-	// Forward relevant headers
-	for _, h := range []string{"Content-Type", "Authorization", "X-Request-ID", "X-Tenant-ID", "X-Idempotency-Key"} {
+	// Forward relevant headers. NOTE: the client-supplied X-Tenant-ID header is
+	// deliberately NOT forwarded — the tenant context is only ever set from the
+	// authenticated token's tenant_id claim (see TenantResolver/auth middleware).
+	for _, h := range []string{"Content-Type", "Authorization", "X-Request-ID", "X-Idempotency-Key"} {
 		if v := c.GetHeader(h); v != "" {
 			req.Header.Set(h, v)
 		}
@@ -72,6 +82,9 @@ func forward(c *gin.Context, targetURL string) {
 	// Inject resolved context headers
 	if tid := c.GetString("tenant_id"); tid != "" {
 		req.Header.Set("X-Tenant-ID", tid)
+	}
+	if internalAPIKey != "" {
+		req.Header.Set("X-Internal-Token", internalAPIKey)
 	}
 	if uid := c.GetString("user_id"); uid != "" {
 		req.Header.Set("X-User-ID", uid)

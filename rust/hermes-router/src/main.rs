@@ -17,7 +17,13 @@
 //!   hermes.events.dlq      — undeliverable events after max retries
 
 use anyhow::Result;
-use axum::{extract::State, response::Json, routing::get, Router};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::Json,
+    routing::get,
+    Router,
+};
 use chrono::Utc;
 use dashmap::DashMap;
 use reqwest::Client;
@@ -49,6 +55,8 @@ struct Config {
     hermes_api_key: String,
     hermes_skills_url: String,   // Python skill executor URL
     platform_api_url: String,
+    internal_api_key: String,    // shared secret for /ingest and downstream internal calls
+    env: String,                 // "production" enables fail-closed behavior
     max_concurrency: usize,
     max_retries: u32,
     circuit_breaker_threshold: u32,
@@ -75,6 +83,11 @@ impl Config {
                 .unwrap_or_else(|_| "http://localhost:8097".into()),
             platform_api_url: std::env::var("PLATFORM_API_URL")
                 .unwrap_or_else(|_| "http://localhost:3000".into()),
+            internal_api_key: std::env::var("INTERNAL_API_KEY")
+                .unwrap_or_default(),
+            env: std::env::var("ENV")
+                .or_else(|_| std::env::var("NODE_ENV"))
+                .unwrap_or_else(|_| "development".into()),
             max_concurrency: std::env::var("MAX_CONCURRENCY")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -338,7 +351,15 @@ async fn deliver_with_retry(
         }
 
         event.retry_count = attempt - 1;
-        match deliver_once(&state.http, &target.url, &state.config.hermes_api_key, &event).await {
+        match deliver_once(
+            &state.http,
+            &target.url,
+            &state.config.hermes_api_key,
+            &state.config.internal_api_key,
+            &event,
+        )
+        .await
+        {
             Ok(()) => {
                 cb.record_success();
                 state.total_routed.fetch_add(1, Ordering::Relaxed);
@@ -401,11 +422,17 @@ async fn deliver_once(
     http: &Client,
     url: &str,
     api_key: &str,
+    internal_token: &str,
     event: &EventEnvelope,
 ) -> Result<()> {
     let mut req = http.post(url).json(event);
     if !api_key.is_empty() {
         req = req.header("Authorization", format!("Bearer {}", api_key));
+    }
+    // Downstream internal services (e.g. hermes-skills) require the shared
+    // internal token for authentication.
+    if !internal_token.is_empty() {
+        req = req.header("X-Internal-Token", internal_token);
     }
     req = req.header("X-Event-ID", &event.id)
              .header("X-Trace-ID", event.trace_id.as_deref().unwrap_or(""))
@@ -482,14 +509,55 @@ async fn handle_metrics(State(state): State<AppState>) -> String {
     out
 }
 
-// Ingest endpoint: allows direct HTTP event injection (Kafka fallback)
+/// Constant-time string comparison (no external deps).
+fn ct_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+// Ingest endpoint: allows direct HTTP event injection (Kafka fallback).
+// Requires X-Internal-Token == INTERNAL_API_KEY. When INTERNAL_API_KEY is
+// unset: fail closed (503) in production, allow with a warning in dev.
 async fn handle_ingest(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(event): Json<EventEnvelope>,
-) -> Json<serde_json::Value> {
+) -> (StatusCode, Json<serde_json::Value>) {
+    let expected = &state.config.internal_api_key;
+    let provided = headers
+        .get("x-internal-token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if expected.is_empty() {
+        if state.config.env == "production" {
+            error!("INTERNAL_API_KEY is not set — rejecting /ingest (fail closed)");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "internal authentication not configured" })),
+            );
+        }
+        warn!("INTERNAL_API_KEY is not set — /ingest is unauthenticated (dev mode)");
+    } else if !ct_eq(provided, expected) {
+        warn!("invalid internal token on /ingest");
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "invalid internal token" })),
+        );
+    }
+
     let event_id = event.id.clone();
     tokio::spawn(route_event(state, event));
-    Json(serde_json::json!({ "status": "accepted", "event_id": event_id }))
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "status": "accepted", "event_id": event_id })),
+    )
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -554,4 +622,3 @@ async fn shutdown_signal() {
     }
     info!("shutdown signal received");
 }
-
