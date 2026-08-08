@@ -163,6 +163,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: SlidersHorizontal,
     items: [
       { icon: Smartphone,      label: "WA Menu Builder",  path: "/wa-menu-builder" },
+      { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
     ],
   },
   {
