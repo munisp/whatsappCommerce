@@ -228,7 +228,7 @@ export function detectLocale(text: string): Locale {
   const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0 };
   for (const [lang, words] of Object.entries(STOPWORDS) as Array<[Exclude<Locale, "en">, string[]]>) {
     for (const w of words) {
-      const re = new RegExp(`(^|[^a-zà-ỹạ-ṣ])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹạ-ṣ]|$)`, "i");
+      const re = new RegExp(`(^|[^a-zà-ỹ])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ]|$)`, "i");
       if (re.test(lower)) scores[lang] += w.includes(" ") ? 2 : 1.5;
     }
   }

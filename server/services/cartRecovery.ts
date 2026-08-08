@@ -151,7 +151,7 @@ export interface AbandonedCart {
  */
 export async function findIdleCartSessions(
   db: Db,
-  opts: { idleBefore: Date; limit?: number },
+  opts: { idleBefore: Date; limit?: number; now?: Date },
 ): Promise<Array<{ id: string; tenantId: string; waPhoneNumber: string; updatedAt: Date }>> {
   const rows = await db
     .select({
@@ -159,17 +159,20 @@ export async function findIdleCartSessions(
       tenantId: cartSessions.tenantId,
       waPhoneNumber: cartSessions.waPhoneNumber,
       updatedAt: cartSessions.updatedAt,
+      expiresAt: cartSessions.expiresAt,
     })
     .from(cartSessions)
     .where(lt(cartSessions.updatedAt, opts.idleBefore))
     .orderBy(desc(cartSessions.updatedAt))
     .limit(opts.limit ?? 200)
     .catch(() => [] as any[]);
-  const now = new Date();
+  const now = opts.now ?? new Date();
   return (rows ?? []).filter(
     (r: any) =>
       typeof r?.waPhoneNumber === "string" && r.waPhoneNumber.length > 0 &&
-      r.updatedAt instanceof Date && r.updatedAt < opts.idleBefore && r.updatedAt <= now,
+      r.updatedAt instanceof Date && r.updatedAt < opts.idleBefore && r.updatedAt <= now &&
+      // Expired carts (24h lifespan) are dead — never nudge for them.
+      (!(r.expiresAt instanceof Date) || r.expiresAt > now),
   );
 }
 
@@ -232,7 +235,7 @@ export async function runCartRecovery(deps: CartRecoveryDeps = {}): Promise<Reco
       return hasConsent(tenantId, phone);
     });
 
-  const idleSessions = await findIdleCartSessions(db, { idleBefore, limit: deps.limit });
+  const idleSessions = await findIdleCartSessions(db, { idleBefore, limit: deps.limit, now });
   counters.scanned = idleSessions.length;
 
   for (const cart of idleSessions) {
