@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { paymentGatewayConfigs, paymentTransactions, orders } from "../../drizzle/schema";
@@ -34,8 +35,9 @@ async function paystackVerify(secretKey: string, reference: string) {
     headers: { Authorization: `Bearer ${secretKey}` },
   });
   if (!res.ok) throw new Error(`Paystack verify error: ${res.status}`);
-  const data = await res.json() as { data: { status: string; amount: number; paid_at: string } };
-  return { status: data.data.status, amount: data.data.amount / 100, paidAt: data.data.paid_at };
+  const data = await res.json() as { data: { status: string; amount: number; currency: string; paid_at: string } };
+  // Paystack amounts are in kobo — convert to major units.
+  return { status: data.data.status, amount: data.data.amount / 100, currency: data.data.currency, paidAt: data.data.paid_at };
 }
 
 async function flutterwaveInitiate(opts: {
@@ -65,8 +67,8 @@ async function flutterwaveVerify(secretKey: string, transactionId: string) {
     headers: { Authorization: `Bearer ${secretKey}` },
   });
   if (!res.ok) throw new Error(`Flutterwave verify error: ${res.status}`);
-  const data = await res.json() as { data: { status: string; amount: number; created_at: string } };
-  return { status: data.data.status, amount: data.data.amount, paidAt: data.data.created_at };
+  const data = await res.json() as { data: { status: string; amount: number; currency: string; created_at: string } };
+  return { status: data.data.status, amount: data.data.amount, currency: data.data.currency, paidAt: data.data.created_at };
 }
 
 // Mojaloop: simplified FSPIOP transfer initiation (production requires FSPIOP-Source header + mTLS)
@@ -107,9 +109,20 @@ export const paymentGatewayRouter = router({
       callbackUrl: z.string().url().optional(),
       isActive: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Tenant scoping: non-admin callers may only write their OWN tenant's
+      // gateway keys. Previously any authenticated user could overwrite ANY
+      // tenant's secret keys.
+      if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId || ctx.user.tenantId !== input.tenantId) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only configure payment gateways for your own tenant",
+          });
+        }
+      }
       const id = randomUUID();
       await db.insert(paymentGatewayConfigs).values({
         id, tenantId: input.tenantId, provider: input.provider,
@@ -252,6 +265,10 @@ export const paymentGatewayRouter = router({
           eq(paymentTransactions.tenantId, input.tenantId),
         ));
       if (!tx) throw new Error("Transaction not found");
+      // Idempotency: a completed transaction is final — never re-verify or regress it.
+      if (tx.status === "completed") {
+        return { verified: true, status: tx.status, paidAt: tx.paidAt ?? null };
+      }
 
       const [config] = await db.select().from(paymentGatewayConfigs)
         .where(and(
@@ -261,6 +278,8 @@ export const paymentGatewayRouter = router({
 
       let verified = false;
       let paidAt: Date | null = null;
+      let verifyResult: { amount: number; currency: string } | null = null;
+      let mismatchReason: string | null = null;
 
       // Only paystack/flutterwave with a configured secret can be auto-verified
       // via real reference verification against the provider API. Manual,
@@ -272,10 +291,12 @@ export const paymentGatewayRouter = router({
         if (tx.provider === "paystack" && config?.secretKey) {
           const r = await paystackVerify(config.secretKey, input.providerRef ?? tx.providerRef ?? "");
           verified = r.status === "success";
+          verifyResult = { amount: r.amount, currency: r.currency };
           paidAt = verified ? new Date(r.paidAt) : null;
         } else if (tx.provider === "flutterwave" && config?.secretKey) {
           const r = await flutterwaveVerify(config.secretKey, tx.providerTxId ?? "");
           verified = r.status === "successful";
+          verifyResult = { amount: r.amount, currency: r.currency };
           paidAt = verified ? new Date(r.paidAt) : null;
         }
       } catch (err: any) {
@@ -283,11 +304,34 @@ export const paymentGatewayRouter = router({
         verified = false;
       }
 
+      // Amount/currency equality against the recorded order total — prevents
+      // confirming a ₦1 payment on a ₦100,000 order. Paystack amounts were
+      // already converted from kobo to major units in paystackVerify.
+      if (verified && verifyResult) {
+        const expectedAmount = parseFloat(tx.amount);
+        const expectedCurrency = (tx.currency ?? "").toUpperCase();
+        if (Math.abs(verifyResult.amount - expectedAmount) > 0.01) {
+          verified = false;
+          mismatchReason = `amount_mismatch: provider charged ${verifyResult.amount}, order total ${expectedAmount}`;
+        } else if (!verifyResult.currency || verifyResult.currency.toUpperCase() !== expectedCurrency) {
+          verified = false;
+          mismatchReason = `currency_mismatch: provider=${verifyResult.currency ?? "unknown"}, order=${expectedCurrency}`;
+        }
+        if (mismatchReason) {
+          console.error(`[PaymentGateway] REJECTED tx=${tx.id}: ${mismatchReason}`);
+        }
+      }
+
       // Unverifiable providers go to pending_review for ops/manual reconciliation
       // instead of being silently marked completed.
       const newStatus = verified ? "completed" : autoVerifiable ? "failed" : "pending_review";
       await db.update(paymentTransactions)
-        .set({ status: newStatus, paidAt: paidAt ?? undefined, updatedAt: new Date() })
+        .set({
+          status: newStatus,
+          paidAt: paidAt ?? undefined,
+          failureReason: mismatchReason ?? (newStatus === "failed" ? "provider verification failed" : undefined),
+          updatedAt: new Date(),
+        })
         .where(eq(paymentTransactions.id, input.transactionId));
 
       if (verified && tx.orderId) {
@@ -336,6 +380,8 @@ export const paymentGatewayRouter = router({
       if (!config?.webhookSecret) return { valid: false };
       const hash = crypto.createHmac("sha512", config.webhookSecret)
         .update(input.rawBody).digest("hex");
-      return { valid: hash === input.signature };
+      const a = Buffer.from(hash, "utf8");
+      const b = Buffer.from(input.signature, "utf8");
+      return { valid: a.length === b.length && crypto.timingSafeEqual(a, b) };
     }),
 });
