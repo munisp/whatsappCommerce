@@ -59,6 +59,9 @@ import WaMenuBuilder from "./pages/WaMenuBuilder";
 import TenantOnboardingWizard from "./pages/TenantOnboardingWizard";
 import IntegrationsSettings from "./pages/IntegrationsSettings";
 import TenantSettings from "./pages/TenantSettings";
+import LiveLogisticsMap from "./pages/LiveLogisticsMap";
+import HealthStatus from "./pages/HealthStatus";
+import AuditLogViewer from "./pages/AuditLogViewer";
 
 function Router() {
   return (
@@ -119,6 +122,9 @@ function Router() {
           <Route path="/onboarding-wizard" component={TenantOnboardingWizard} />
           <Route path="/integration-settings" component={IntegrationsSettings} />
           <Route path="/tenant-settings" component={TenantSettings} />
+          <Route path="/logistics-map" component={LiveLogisticsMap} />
+          <Route path="/system-health" component={HealthStatus} />
+          <Route path="/audit-logs" component={AuditLogViewer} />
           <Route path="/whatsapp-media" component={WhatsAppMediaPortal} />
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />

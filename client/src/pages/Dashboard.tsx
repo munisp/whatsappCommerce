@@ -1,4 +1,6 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
+import { useAuth } from "@/_core/hooks/useAuth";
+import UsagePlanWidget from "@/components/UsagePlanWidget";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
@@ -32,6 +34,7 @@ export default function Dashboard() {
   );
   const { data: funnelData } = trpc.onboardingProgress.getFunnelAnalytics.useQuery();
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
   const lowStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "low_stock").length ?? 0;
   const outOfStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "out_of_stock").length ?? 0;
 
@@ -71,6 +74,9 @@ export default function Dashboard() {
               </CardContent>
             </Card>
           ))}
+        {/* Usage vs plan (metering APIs are admin-only) */}
+        {user?.role === "admin" && <UsagePlanWidget />}
+
           {/* Inventory Alert Card */}
           <Card
             className={`border cursor-pointer transition-colors hover:bg-accent/30 ${outOfStockCount > 0 ? "border-red-500/40 bg-red-500/5" : lowStockCount > 0 ? "border-amber-500/40 bg-amber-500/5" : "bg-card border-border"}`}

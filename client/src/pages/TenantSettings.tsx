@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -23,7 +24,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import {
-  ArrowDown, ArrowUp, Globe, Loader2, Palette, Plus, Save, Settings2, ShoppingCart, Trash2, Users, Warehouse,
+  ArrowDown, ArrowUp, Globe, HelpCircle, Loader2, Palette, Plus, Save, Settings2, ShoppingCart, Tag, Trash2, Users, Warehouse,
 } from "lucide-react";
 import type {
   BrandingConfig, CommerceConfig, CrmCustomField, DeliveryZone, InventoryConfig,
@@ -731,6 +732,377 @@ function CrmSection({ tenantId }: { tenantId: string }) {
   );
 }
 
+
+// ─── FAQ knowledge base ──────────────────────────────────────────────────────
+
+interface FaqEntryForm { q: string; a: string }
+
+function FaqSection({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.tenantConfig.getFaq.useQuery({ tenantId });
+  const [entries, setEntries] = useState<FaqEntryForm[]>([]);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data) setEntries(data.map((e) => ({ q: e.q, a: e.a })));
+  }, [data]);
+
+  const save = trpc.tenantConfig.setFaq.useMutation({
+    onSuccess: () => {
+      toast.success("FAQ saved");
+      setDirty(false);
+      utils.tenantConfig.getFaq.invalidate({ tenantId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (isLoading) return <SectionLoading />;
+
+  const setEntry = (idx: number, patch: Partial<FaqEntryForm>) => {
+    setEntries(entries.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
+    setDirty(true);
+  };
+
+  const duplicates = new Set(
+    entries
+      .map((e) => e.q.trim().toLowerCase())
+      .filter((q, i, arr) => q !== "" && arr.indexOf(q) !== i),
+  );
+
+  const handleSave = () => {
+    const cleaned = entries
+      .map((e) => ({ q: e.q.trim(), a: e.a.trim() }))
+      .filter((e) => e.q !== "" || e.a !== "");
+    if (cleaned.some((e) => e.q === "" || e.a === "")) {
+      toast.error("Every FAQ entry needs both a question and an answer");
+      return;
+    }
+    if (duplicates.size > 0) {
+      toast.error(`Duplicate question${duplicates.size > 1 ? "s" : ""}: ${Array.from(duplicates).map((q) => `"${q}"`).join(", ")}`);
+      return;
+    }
+    save.mutate({ tenantId, faq: cleaned });
+  };
+
+  return (
+    <Card className="border-border/50 bg-card/50">
+      <CardHeader>
+        <CardTitle className="text-base">FAQ Knowledge Base</CardTitle>
+        <CardDescription>
+          Question/answer pairs the chat agent uses to answer buyers. Max 100 entries; questions
+          must be unique (case-insensitive). Saved as a full replace.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {entries.length === 0 && (
+          <div className="text-center py-8 text-muted-foreground">
+            <HelpCircle className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">No FAQ entries yet</p>
+            <p className="text-xs mt-1">Add common buyer questions (delivery time, payment, returns) so the agent can answer them.</p>
+          </div>
+        )}
+        {entries.map((e, idx) => (
+          <div key={idx} className="rounded-lg border border-border/50 p-3 space-y-2">
+            <div className="flex items-start gap-2">
+              <div className="flex-1 space-y-2">
+                <Input
+                  placeholder="Question (e.g. How long does delivery take?)"
+                  value={e.q}
+                  maxLength={500}
+                  onChange={(ev) => setEntry(idx, { q: ev.target.value })}
+                  className={duplicates.has(e.q.trim().toLowerCase()) && e.q.trim() !== "" ? "border-red-500/60" : ""}
+                />
+                <Textarea
+                  placeholder="Answer"
+                  value={e.a}
+                  maxLength={2000}
+                  rows={2}
+                  onChange={(ev) => setEntry(idx, { a: ev.target.value })}
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-red-400 hover:text-red-300"
+                onClick={() => { setEntries(entries.filter((_, i) => i !== idx)); setDirty(true); }}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        ))}
+        <div className="flex items-center justify-between">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={entries.length >= 100}
+            onClick={() => { setEntries([...entries, { q: "", a: "" }]); setDirty(true); }}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add entry ({entries.length}/100)
+          </Button>
+          <Button size="sm" className="gap-1.5" onClick={handleSave} disabled={!dirty || save.isPending}>
+            {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save FAQ
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Promo codes ─────────────────────────────────────────────────────────────
+
+interface PromoRow {
+  code: string;
+  type: "percent" | "fixed";
+  value: number;
+  minTotal?: number;
+  expiresAt?: string;
+  maxUses?: number;
+  usedCount: number;
+}
+
+interface PromoFormState {
+  code: string;
+  type: "percent" | "fixed";
+  value: string;
+  minTotal: string;
+  expiresAt: string; // datetime-local
+  maxUses: string;
+}
+
+const EMPTY_PROMO_FORM: PromoFormState = {
+  code: "", type: "percent", value: "", minTotal: "", expiresAt: "", maxUses: "",
+};
+
+function promoFormToPayload(form: PromoFormState) {
+  const num = (v: string) => (v.trim() === "" ? undefined : Number(v));
+  return {
+    code: form.code.trim(),
+    type: form.type,
+    value: Number(form.value),
+    minTotal: num(form.minTotal),
+    expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : undefined,
+    maxUses: num(form.maxUses) != null ? Math.floor(Number(form.maxUses)) : undefined,
+  };
+}
+
+function PromosSection({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.promos.list.useQuery({ tenantId });
+  const promos = (data?.promos ?? []) as PromoRow[];
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingCode, setEditingCode] = useState<string | null>(null);
+  const [form, setForm] = useState<PromoFormState>(EMPTY_PROMO_FORM);
+
+  const invalidate = () => utils.promos.list.invalidate({ tenantId });
+
+  const create = trpc.promos.create.useMutation({
+    onSuccess: () => {
+      toast.success("Promo created");
+      setDialogOpen(false);
+      setForm(EMPTY_PROMO_FORM);
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const update = trpc.promos.update.useMutation({
+    onSuccess: () => {
+      toast.success("Promo updated");
+      setDialogOpen(false);
+      setEditingCode(null);
+      setForm(EMPTY_PROMO_FORM);
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const remove = trpc.promos.delete.useMutation({
+    onSuccess: () => { toast.success("Promo deleted"); invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (isLoading) return <SectionLoading />;
+
+  const openCreate = () => {
+    setEditingCode(null);
+    setForm(EMPTY_PROMO_FORM);
+    setDialogOpen(true);
+  };
+  const openEdit = (p: PromoRow) => {
+    setEditingCode(p.code);
+    setForm({
+      code: p.code,
+      type: p.type,
+      value: String(p.value),
+      minTotal: p.minTotal != null ? String(p.minTotal) : "",
+      // datetime-local needs local time without seconds/Z
+      expiresAt: p.expiresAt ? new Date(p.expiresAt).toISOString().slice(0, 16) : "",
+      maxUses: p.maxUses != null ? String(p.maxUses) : "",
+    });
+    setDialogOpen(true);
+  };
+
+  const handleSubmit = () => {
+    if (!form.code.trim() || form.value.trim() === "" || !Number.isFinite(Number(form.value))) {
+      toast.error("Code and a numeric value are required");
+      return;
+    }
+    if (form.type === "percent" && Number(form.value) > 100) {
+      toast.error("Percent promo value must be ≤ 100");
+      return;
+    }
+    const payload = promoFormToPayload(form);
+    if (editingCode) {
+      const { code: _code, ...patch } = payload;
+      update.mutate({ tenantId, code: editingCode, patch });
+    } else {
+      create.mutate({ tenantId, promo: payload });
+    }
+  };
+
+  const pending = create.isPending || update.isPending;
+
+  return (
+    <Card className="border-border/50 bg-card/50">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base">Promo Codes</CardTitle>
+          <CardDescription>
+            Discount codes validated at checkout. Fixed values and minimum totals are in naira (₦).
+          </CardDescription>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={openCreate}>
+          <Plus className="w-3.5 h-3.5" />
+          New promo
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {promos.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Tag className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="font-medium">No promo codes yet</p>
+            <p className="text-xs mt-1">Create one to offer percent or fixed-amount discounts.</p>
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Code</TableHead>
+                <TableHead>Discount</TableHead>
+                <TableHead>Min. total</TableHead>
+                <TableHead>Expires</TableHead>
+                <TableHead>Uses</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {promos.map((p) => {
+                const expired = p.expiresAt ? new Date(p.expiresAt).getTime() < Date.now() : false;
+                const exhausted = p.maxUses != null && p.usedCount >= p.maxUses;
+                return (
+                  <TableRow key={p.code}>
+                    <TableCell className="font-mono text-sm">
+                      {p.code}
+                      {(expired || exhausted) && (
+                        <Badge variant="outline" className="ml-2 text-[10px] text-amber-400 border-amber-500/30">
+                          {expired ? "expired" : "exhausted"}
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {p.type === "percent" ? `${p.value}%` : `₦${p.value.toLocaleString()}`}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {p.minTotal != null ? `₦${p.minTotal.toLocaleString()}` : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {p.expiresAt ? new Date(p.expiresAt).toLocaleDateString() : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {p.usedCount}{p.maxUses != null ? ` / ${p.maxUses}` : ""}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>Edit</Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-400 hover:text-red-300"
+                        disabled={remove.isPending}
+                        onClick={() => remove.mutate({ tenantId, code: p.code })}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{editingCode ? `Edit promo ${editingCode}` : "New promo code"}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <Label>Code</Label>
+                <Input
+                  value={form.code}
+                  disabled={!!editingCode}
+                  placeholder="WELCOME10"
+                  onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+                />
+                <p className="text-[11px] text-muted-foreground">Alphanumeric with - or _, 2–32 chars. Unique per tenant.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Type</Label>
+                  <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v as "percent" | "fixed" })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">Percent off</SelectItem>
+                      <SelectItem value="fixed">Fixed amount off (₦)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>{form.type === "percent" ? "Percent (0–100)" : "Amount (₦)"}</Label>
+                  <Input type="number" min={0} value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label>Min. order total (₦, optional)</Label>
+                  <Input type="number" min={0} value={form.minTotal} onChange={(e) => setForm({ ...form, minTotal: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Max uses (optional)</Label>
+                  <Input type="number" min={1} value={form.maxUses} onChange={(e) => setForm({ ...form, maxUses: e.target.value })} />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Expires at (optional)</Label>
+                <Input type="datetime-local" value={form.expiresAt} onChange={(e) => setForm({ ...form, expiresAt: e.target.value })} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button onClick={handleSubmit} disabled={pending}>
+                {pending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : editingCode ? "Save changes" : "Create promo"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SectionLoading() {
   return (
     <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center">
@@ -765,12 +1137,16 @@ export default function TenantSettings() {
             <TabsTrigger value="commerce" className="gap-1.5"><ShoppingCart className="w-3.5 h-3.5" /> Commerce</TabsTrigger>
             <TabsTrigger value="inventory" className="gap-1.5"><Warehouse className="w-3.5 h-3.5" /> Inventory</TabsTrigger>
             <TabsTrigger value="crm" className="gap-1.5"><Users className="w-3.5 h-3.5" /> CRM</TabsTrigger>
+            <TabsTrigger value="faq" className="gap-1.5"><HelpCircle className="w-3.5 h-3.5" /> FAQ</TabsTrigger>
+            <TabsTrigger value="promos" className="gap-1.5"><Tag className="w-3.5 h-3.5" /> Promos</TabsTrigger>
           </TabsList>
           <TabsContent value="branding" className="mt-4"><BrandingSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="domains" className="mt-4"><DomainsSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="commerce" className="mt-4"><CommerceSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="inventory" className="mt-4"><InventorySection tenantId={tenantId} /></TabsContent>
           <TabsContent value="crm" className="mt-4"><CrmSection tenantId={tenantId} /></TabsContent>
+          <TabsContent value="faq" className="mt-4"><FaqSection tenantId={tenantId} /></TabsContent>
+          <TabsContent value="promos" className="mt-4"><PromosSection tenantId={tenantId} /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>
