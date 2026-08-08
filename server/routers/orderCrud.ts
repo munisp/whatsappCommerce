@@ -16,6 +16,8 @@ import {
   InsufficientStockError,
 } from "../services/inventory";
 import { syncLocalChange } from "../services/integrations/outbox";
+import { validatePromo, applyPromo } from "../services/promos";
+import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
 
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
@@ -33,6 +35,10 @@ export const orderCrudRouter = router({
         quantity: z.number().int().min(1),
         unitPrice: z.number().min(0),
       })),
+      // Optional promo/discount code — validated against the items subtotal;
+      // the discount flows into totalAmount (integer minor-unit math, never
+      // negative) and is recorded in orders.metadata.promo.
+      promoCode: z.string().max(32).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -40,7 +46,33 @@ export const orderCrudRouter = router({
       // Tenant isolation: orders may only be created for the caller's own tenant.
       assertTenantAccess(ctx.user, input.tenantId);
 
-      const total = input.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+      const subtotal = input.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+
+      // ── Promo code (optional): validate BEFORE any order row exists. ─────
+      // Integer minor-unit math (shared/escrowAmounts discipline): discount is
+      // clamped so the total can never go negative. The usage claim
+      // (usedCount++, atomic + maxUses-guarded) happens AFTER the order
+      // transaction commits, so a rolled-back order never consumes a use.
+      let promoMeta: { code: string; type: string; value: number; discount: string } | null = null;
+      let total = subtotal;
+      if (input.promoCode) {
+        const validation = await validatePromo(db, input.tenantId, input.promoCode, subtotal);
+        if (!validation.ok) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Promo code ${input.promoCode} is not applicable (${validation.reason})`,
+          });
+        }
+        const totalMinor = Math.max(0, toMinorUnitsExact(subtotal) - validation.discountMinor);
+        total = Number(minorUnitsToString(totalMinor));
+        promoMeta = {
+          code: validation.promo.code,
+          type: validation.promo.type,
+          value: validation.promo.value,
+          discount: validation.discount,
+        };
+      }
+
       const orderId = crypto.randomUUID();
       const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
 
@@ -96,6 +128,7 @@ export const orderCrudRouter = router({
             paymentStatus: "unpaid",
             shippingAddress: input.shippingAddress ?? null,
             items: input.items,
+            metadata: promoMeta ? { promo: promoMeta } : null,
             notes: input.notes,
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -131,6 +164,18 @@ export const orderCrudRouter = router({
           });
         }
         throw err;
+      }
+
+      // Claim the promo usage only AFTER the order transaction committed, so
+      // rolled-back orders (insufficient stock etc.) never consume a use.
+      // Claim-first + atomic: losing a maxUses race here just logs — the
+      // order was validated pre-creation and keeps its discount.
+      if (promoMeta) {
+        applyPromo(db, input.tenantId, promoMeta.code).then((claimed) => {
+          if (!claimed) {
+            console.warn(`[orderCrud] promo ${promoMeta.code} usage claim lost maxUses race for order ${orderId}`);
+          }
+        }).catch((e: unknown) => console.error("[orderCrud] promo usage claim failed:", (e as Error)?.message));
       }
 
       // Start the Temporal order-fulfillment workflow. startWorkflow already
@@ -191,7 +236,7 @@ export const orderCrudRouter = router({
         console.error("[orderCrud] integration outbox enqueue failed:", (e as Error)?.message);
       }
 
-      return { orderId, orderNumber, total };
+      return { orderId, orderNumber, total, discount: promoMeta ? Number(promoMeta.discount) : 0, promo: promoMeta };
     }),
 
   /** Update order status */

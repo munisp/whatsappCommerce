@@ -23,6 +23,8 @@ import { kycRouter } from "./routers/kyc";
 import { heartbeatRouter } from "./routers/heartbeat";
 import { nlpRouter } from "./routers/nlp";
 import { orderCrudRouter } from "./routers/orderCrud";
+import { promosRouter } from "./routers/promos";
+import { customersRouter } from "./routers/customers";
 import { invoiceRouter } from "./routers/invoice";
 import { paymentGatewayRouter } from "./routers/paymentGateway";
 import { tenantPortalRouter } from "./routers/tenantPortal";
@@ -107,6 +109,8 @@ export const appRouter = router({
   heartbeat: heartbeatRouter,
   nlp: nlpRouter,
   orderCrud: orderCrudRouter,
+  promos: promosRouter,
+  customers: customersRouter,
   invoice: invoiceRouter,
   paymentGateway: paymentGatewayRouter,
   tenantPortal: tenantPortalRouter,
