@@ -1,14 +1,166 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq, desc, and, sql } from "drizzle-orm";
-import { protectedProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
+import { assertTenantAccess, protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   broadcastCampaigns,
   broadcastRecipients,
   whatsappTemplates,
-  twentyContacts,
+  customers,
+  tenants,
 } from "../../drizzle/schema";
+import { redisIncrExStrict, RateLimitUnavailableError } from "../_core/rateLimit";
+import { ENV } from "../_core/env";
+import {
+  normalizeWaPhone,
+  sendWhatsAppTemplate,
+  sendWhatsAppText,
+} from "../services/waSender";
+
+type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/** WhatsApp customer-service window: free-form text allowed within 24h of last inbound. */
+export const WA_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Default per-tenant broadcast throughput (messages started per minute). */
+export const DEFAULT_BROADCAST_RATE_PER_MIN = 30;
+
+interface BroadcastSettings {
+  ratePerMin: number;
+  templateName: string;
+  languageCode: string;
+}
+
+/** Read settings.broadcast for a tenant (rate limit + default template). */
+export function parseBroadcastSettings(settings: unknown): BroadcastSettings {
+  const b = (((settings as Record<string, unknown> | null)?.broadcast ?? {}) as Record<string, unknown>);
+  return {
+    ratePerMin:
+      typeof b.ratePerMin === "number" && Number.isFinite(b.ratePerMin) && b.ratePerMin > 0
+        ? Math.floor(b.ratePerMin)
+        : DEFAULT_BROADCAST_RATE_PER_MIN,
+    templateName: typeof b.templateName === "string" && b.templateName ? b.templateName : "wac_broadcast",
+    languageCode: typeof b.languageCode === "string" && b.languageCode ? b.languageCode : "en_US",
+  };
+}
+
+/**
+ * Phones (digits-only) with a GRANTED whatsapp consent row for this tenant.
+ * Defensive: the consents table is owned by the compliance module — a missing
+ * table/row means NOT consented, so any query error yields an empty set.
+ */
+export async function getConsentedPhones(db: Db, tenantId: string): Promise<Set<string>> {
+  try {
+    const res: any = await db.execute(
+      sql`SELECT phone FROM consents WHERE tenant_id = ${tenantId} AND channel = 'whatsapp' AND granted = true`,
+    );
+    const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
+    return new Set(
+      rows
+        .map((r) => normalizeWaPhone(String(r?.phone ?? "")))
+        .filter((p) => p.length > 0),
+    );
+  } catch (e: any) {
+    console.warn("[broadcast] consent lookup failed (treating all as NOT consented):", e?.message);
+    return new Set();
+  }
+}
+
+/** Latest inbound WhatsApp reply per phone (digits-only) for 24h-window detection. */
+export async function getLastInboundMap(db: Db, tenantId: string): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>();
+  try {
+    const res: any = await db.execute(
+      sql`SELECT from_phone AS phone, MAX(created_at) AS last_at FROM whatsapp_customer_replies WHERE tenant_id = ${tenantId} GROUP BY from_phone`,
+    );
+    const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
+    for (const r of rows) {
+      const phone = normalizeWaPhone(String(r?.phone ?? ""));
+      const at = r?.last_at ? new Date(r.last_at) : null;
+      if (phone && at && !Number.isNaN(at.getTime())) map.set(phone, at);
+    }
+  } catch (e: any) {
+    console.warn("[broadcast] last-inbound lookup failed (defaulting to template sends):", e?.message);
+  }
+  return map;
+}
+
+export interface BroadcastAudienceMember {
+  customerId: string;
+  phone: string;
+  name: string | null;
+  /** True when the customer's last inbound message is inside the 24h window. */
+  inWindow: boolean;
+}
+
+/**
+ * Real broadcast audience: the tenant's customers that have GRANTED whatsapp
+ * consent. Non-consented customers are always excluded.
+ */
+export async function buildBroadcastAudience(db: Db, tenantId: string): Promise<BroadcastAudienceMember[]> {
+  const custs = await db
+    .select({ id: customers.id, whatsappPhone: customers.whatsappPhone, name: customers.name })
+    .from(customers)
+    .where(eq(customers.tenantId, tenantId));
+  const consented = await getConsentedPhones(db, tenantId);
+  if (consented.size === 0) return [];
+  const lastInbound = await getLastInboundMap(db, tenantId);
+  const now = Date.now();
+  return custs
+    .filter((c) => consented.has(normalizeWaPhone(c.whatsappPhone)))
+    .map((c) => {
+      const last = lastInbound.get(normalizeWaPhone(c.whatsappPhone));
+      return {
+        customerId: c.id,
+        phone: c.whatsappPhone,
+        name: c.name,
+        inWindow: Boolean(last && now - last.getTime() < WA_WINDOW_MS),
+      };
+    });
+}
+
+/** Substitute {{var}} placeholders in a template body. */
+export function substituteVars(body: string, vars: Record<string, string>): string {
+  let out = body;
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.replaceAll(`{{${k}}}`, String(v));
+  }
+  return out;
+}
+
+/**
+ * Per-tenant broadcast rate limit: at most `ratePerMin` broadcast sends
+ * started per minute (fixed window, Redis-backed). Fails closed in
+ * production when Redis is down; fails open with a warning in dev/test.
+ */
+export async function checkBroadcastRateLimit(tenantId: string, ratePerMin: number): Promise<void> {
+  const minuteWindow = Math.floor(Date.now() / 60_000);
+  const key = `broadcast:send:${tenantId}:${minuteWindow}`;
+  let count: number;
+  try {
+    count = await redisIncrExStrict(key, 60);
+  } catch (err: any) {
+    if (err instanceof RateLimitUnavailableError) {
+      if (ENV.isProd) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Broadcast rate limiter unavailable — try again shortly",
+        });
+      }
+      console.warn("[broadcast] rate limiter unavailable — allowing (dev fail-open):", err?.message);
+      return;
+    }
+    throw err;
+  }
+  if (count > ratePerMin) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `Broadcast rate limit exceeded (${ratePerMin}/min for this tenant) — try again in the next minute`,
+    });
+  }
+}
 
 export const broadcastRouter = router({
   // List all campaigns
@@ -29,25 +181,6 @@ export const broadcastRouter = router({
         .orderBy(desc(broadcastCampaigns.createdAt))
         .limit(input.limit)
         .offset(input.offset);
-
-      // Seed demo campaigns if empty
-      if (rows.length === 0) {
-        const demos = [
-          { id: nanoid(), tenantId: "demo-tenant-1", name: "July Flash Sale", segment: "all", status: "completed" as const, totalRecipients: 1240, sentCount: 1240, deliveredCount: 1198, readCount: 876, failedCount: 42 },
-          { id: nanoid(), tenantId: "demo-tenant-2", name: "Order Confirmation Blast", segment: "recent_orders", status: "completed" as const, totalRecipients: 345, sentCount: 345, deliveredCount: 340, readCount: 312, failedCount: 5 },
-          { id: nanoid(), tenantId: "demo-tenant-1", name: "Payment Reminder — Overdue", segment: "overdue_invoices", status: "sending" as const, totalRecipients: 88, sentCount: 62, deliveredCount: 58, readCount: 44, failedCount: 4 },
-          { id: nanoid(), tenantId: "demo-tenant-3", name: "Welcome New Customers", segment: "new_contacts", status: "draft" as const, totalRecipients: 0, sentCount: 0, deliveredCount: 0, readCount: 0, failedCount: 0 },
-          { id: nanoid(), tenantId: "demo-tenant-2", name: "Shipping Update Notification", segment: "shipped_orders", status: "scheduled" as const, totalRecipients: 156, sentCount: 0, deliveredCount: 0, readCount: 0, failedCount: 0 },
-        ];
-        for (const d of demos) {
-          await db.insert(broadcastCampaigns).values({
-            ...d,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          }).onConflictDoNothing();
-        }
-        return { campaigns: demos, total: demos.length };
-      }
 
       return { campaigns: rows, total: rows.length };
     }),
@@ -109,12 +242,23 @@ export const broadcastRouter = router({
       return { id };
     }),
 
-  // Simulate sending a campaign (builds recipient list from Twenty contacts)
+  /**
+   * Send a campaign for real: consent-gated audience (customers of the tenant
+   * with a granted whatsapp consent), per-tenant rate limit, chunked sends
+   * with per-recipient status rows. Recipients inside the 24h WhatsApp window
+   * get free-form text (when the campaign has a template body); everyone else
+   * gets the tenant-configured approved template.
+   *
+   * dryRun=true returns the audience count + sample without sending anything.
+   */
   send: protectedProcedure
-    .input(z.object({ campaignId: z.string() }))
-    .mutation(async ({ input }) => {
+    .input(z.object({
+      campaignId: z.string(),
+      dryRun: z.boolean().optional().default(false),
+    }))
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
-      if (!db) throw new Error("Database unavailable");
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
 
       const [campaign] = await db
         .select()
@@ -122,83 +266,180 @@ export const broadcastRouter = router({
         .where(eq(broadcastCampaigns.id, input.campaignId))
         .limit(1);
 
-      if (!campaign) throw new Error("Campaign not found");
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
 
-      // Merge campaign-level varMapping into per-recipient variables
-      const campaignVarMap = (campaign.varMapping ?? {}) as Record<string, string>;
+      // Tenant isolation: only the owning tenant (or an admin) may send.
+      assertTenantAccess(ctx.user, campaign.tenantId);
 
-      // Pull contacts from Twenty CRM as recipients
-      const contacts = await db
-        .select()
-        .from(twentyContacts)
-        .limit(200);
+      const [tenant] = await db
+        .select({ settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, campaign.tenantId))
+        .limit(1);
+      const bcfg = parseBroadcastSettings(tenant?.settings);
 
-      // Build recipient rows with variable substitution
-      const recipientRows = contacts
-        .filter(c => c.phone)
-        .map(c => ({
-          id: nanoid(),
-          campaignId: input.campaignId,
-          phone: c.phone!,
-          name: c.name ?? null,
-          variables: {
-            customer_name: c.name ?? "Customer",
-            store_name: "WhatsApp Commerce",
-            order_number: `ORD-${Math.floor(Math.random() * 90000) + 10000}`,
-            amount: `$${(Math.random() * 200 + 20).toFixed(2)}`,
-            currency: "USD",
-            ...campaignVarMap,
-          },
-          status: "pending" as const,
-          createdAt: new Date(),
-        }));
+      const audience = await buildBroadcastAudience(db, campaign.tenantId);
+      const inWindowCount = audience.filter((a) => a.inWindow).length;
 
-      // If no real contacts, generate demo recipients
-      const finalRecipients = recipientRows.length > 0 ? recipientRows : Array.from({ length: 12 }, (_, i) => ({
-        id: nanoid(),
-        campaignId: input.campaignId,
-        phone: `+1555${String(i).padStart(7, "0")}`,
-        name: ["Alice Johnson", "Bob Smith", "Carol White", "David Brown", "Emma Davis", "Frank Miller", "Grace Wilson", "Henry Moore", "Iris Taylor", "Jack Anderson", "Karen Thomas", "Leo Jackson"][i] ?? `Customer ${i + 1}`,
-          variables: {
-            customer_name: ["Alice", "Bob", "Carol", "David", "Emma", "Frank", "Grace", "Henry", "Iris", "Jack", "Karen", "Leo"][i] ?? "Customer",
-            store_name: "WhatsApp Commerce",
-            order_number: `ORD-${10000 + i}`,
-            amount: `$${(50 + i * 15).toFixed(2)}`,
-            currency: "USD",
-            ...campaignVarMap,
-          },
-        status: "pending" as const,
-        createdAt: new Date(),
-      }));
-
-      // Insert recipients
-      for (const r of finalRecipients) {
-        await db.insert(broadcastRecipients).values(r).onConflictDoNothing();
+      if (input.dryRun) {
+        return {
+          dryRun: true as const,
+          total: audience.length,
+          audienceCount: audience.length,
+          inWindowCount,
+          outOfWindowCount: audience.length - inWindowCount,
+          sample: audience.slice(0, 5).map((a) => ({
+            phone: a.phone,
+            name: a.name,
+            inWindow: a.inWindow,
+          })),
+          sent: 0,
+          delivered: 0,
+          read: 0,
+          failed: 0,
+        };
       }
 
-      // Simulate delivery: mark some as sent/delivered/read
-      const total = finalRecipients.length;
-      const sent = total;
-      const delivered = Math.floor(total * 0.96);
-      const read = Math.floor(total * 0.72);
-      const failed = total - delivered;
+      // Per-tenant throughput guard (settings.broadcast.ratePerMin, default 30/min).
+      await checkBroadcastRateLimit(campaign.tenantId, bcfg.ratePerMin);
+
+      // Campaign-level variable mapping merged into per-recipient variables.
+      const campaignVarMap = (campaign.varMapping ?? {}) as Record<string, string>;
+
+      // Campaign template body drives the in-window free-form text.
+      let templateBody: string | null = null;
+      let templateName = bcfg.templateName;
+      let languageCode = bcfg.languageCode;
+      if (campaign.templateId) {
+        const [tpl] = await db
+          .select()
+          .from(whatsappTemplates)
+          .where(eq(whatsappTemplates.id, campaign.templateId))
+          .limit(1);
+        if (tpl) {
+          templateBody = tpl.bodyText ?? null;
+          if (tpl.name) templateName = tpl.name;
+          if (tpl.language) languageCode = tpl.language;
+        }
+      }
+
+      await db
+        .update(broadcastCampaigns)
+        .set({
+          status: "sending",
+          totalRecipients: audience.length,
+          startedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(broadcastCampaigns.id, input.campaignId));
+
+      let sent = 0;
+      let failed = 0;
+      let simulatedCount = 0;
+      const CHUNK_SIZE = 25;
+      for (let i = 0; i < audience.length; i += CHUNK_SIZE) {
+        const chunk = audience.slice(i, i + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map(async (member) => {
+            const recipientId = nanoid();
+            const variables = {
+              customer_name: member.name ?? "Customer",
+              ...campaignVarMap,
+            };
+            await db
+              .insert(broadcastRecipients)
+              .values({
+                id: recipientId,
+                campaignId: input.campaignId,
+                phone: member.phone,
+                name: member.name ?? null,
+                variables,
+                status: "pending",
+                createdAt: new Date(),
+              })
+              .onConflictDoNothing();
+            try {
+              let wamid: string | null = null;
+              let simulated = false;
+              if (member.inWindow && templateBody) {
+                const res = await sendWhatsAppText(
+                  campaign.tenantId,
+                  member.phone,
+                  substituteVars(templateBody, variables),
+                  { notifType: "broadcast" },
+                );
+                wamid = res.wamids[0] ?? null;
+                simulated = res.simulated;
+              } else {
+                // Outside the 24h window (or no text body) — approved template required.
+                const components = [
+                  {
+                    type: "body",
+                    parameters: [
+                      { type: "text", text: member.name ?? "Customer" },
+                      ...Object.values(campaignVarMap).map((v) => ({ type: "text", text: String(v) })),
+                    ],
+                  },
+                ];
+                const res = await sendWhatsAppTemplate(
+                  campaign.tenantId,
+                  member.phone,
+                  templateName,
+                  languageCode,
+                  components,
+                  { notifType: "broadcast" },
+                );
+                wamid = res.wamid;
+                simulated = res.simulated;
+              }
+              if (simulated) {
+                // No WhatsApp credentials configured — not a real delivery.
+                simulatedCount++;
+                await db
+                  .update(broadcastRecipients)
+                  .set({
+                    status: "failed",
+                    failedAt: new Date(),
+                    failureReason: "WhatsApp credentials not configured for tenant — send simulated",
+                  })
+                  .where(eq(broadcastRecipients.id, recipientId));
+                return;
+              }
+              sent++;
+              await db
+                .update(broadcastRecipients)
+                .set({ status: "sent", sentAt: new Date(), messageId: wamid })
+                .where(eq(broadcastRecipients.id, recipientId));
+            } catch (err: any) {
+              failed++;
+              await db
+                .update(broadcastRecipients)
+                .set({
+                  status: "failed",
+                  failedAt: new Date(),
+                  failureReason: String(err?.message ?? err).slice(0, 500),
+                })
+                .where(eq(broadcastRecipients.id, recipientId));
+            }
+          }),
+        );
+      }
 
       await db
         .update(broadcastCampaigns)
         .set({
           status: "completed",
-          totalRecipients: total,
+          totalRecipients: audience.length,
           sentCount: sent,
-          deliveredCount: delivered,
-          readCount: read,
+          deliveredCount: 0,
+          readCount: 0,
           failedCount: failed,
-          startedAt: new Date(),
           completedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(broadcastCampaigns.id, input.campaignId));
 
-      return { total, sent, delivered, read, failed };
+      return { dryRun: false as const, total: audience.length, sent, delivered: 0, read: 0, failed, simulated: simulatedCount };
     }),
 
   // Cancel a campaign

@@ -11,8 +11,14 @@
  *   - order_cancelled:    Sent when order status changes to "cancelled"
  *
  * The recipient phone number is resolved from:
- *   1. The customer's whatsappPhone field (customers table)
- *   2. Fallback: the user's verified phone (users table, if linked)
+ *   1. Chat-origin orders: the raw WhatsApp number stored in orders.customerId
+ *      (or orders.metadata phone fields)
+ *   2. The customer's whatsappPhone field (customers table)
+ *   3. Fallback: the user's verified phone (users table, if linked)
+ *
+ * All sends route through services/waSender with PER-TENANT credentials
+ * (tenants.whatsappPhoneNumberId + settings.whatsapp.accessToken), env
+ * fallback only when the tenant has none configured.
  *
  * Notification preferences are respected:
  *   - whatsappNotifOrders: controls order_confirmation
@@ -25,6 +31,7 @@ import { customers, orders, users, whatsappNotificationLog, whatsappCustomerRepl
 import { eq, desc, and, ilike, gte, lte, or, sql, inArray } from "drizzle-orm";
 import { router, protectedProcedure } from "../_core/trpc";
 import { z } from "zod";
+import { sendWhatsAppTemplate, sendWhatsAppText, resolveTenantWaCredentials } from "../services/waSender";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -35,6 +42,7 @@ export type OrderNotifType =
   | "order_cancelled";
 
 interface OrderNotifPayload {
+  tenantId: string;
   phone: string;
   orderNumber: string;
   customerName: string;
@@ -46,11 +54,16 @@ interface OrderNotifPayload {
 
 // ── Template Builders ─────────────────────────────────────────────────────────
 
+const ORDER_TEMPLATE_MAP: Record<OrderNotifType, string> = {
+  order_confirmation: process.env.WAC_TEMPLATE_ORDER_CONFIRM || "wac_order_confirmation",
+  order_shipped:      process.env.WAC_TEMPLATE_ORDER_SHIPPED || "wac_order_shipped",
+  order_delivered:    process.env.WAC_TEMPLATE_ORDER_DELIVERED || "wac_order_delivered",
+  order_cancelled:    process.env.WAC_TEMPLATE_ORDER_CANCELLED || "wac_order_cancelled",
+};
+
 /**
- * Build a WhatsApp Cloud API message payload for an order notification.
- * Uses approved template names — these must be created in the WhatsApp Business Manager.
- *
- * Template names (create these in Meta Business Suite):
+ * Resolve the approved template name + body components for an order
+ * notification. Templates must exist in the WhatsApp Business Manager:
  *   - wac_order_confirmation  (category: UTILITY)
  *   - wac_order_shipped       (category: UTILITY)
  *   - wac_order_delivered     (category: UTILITY)
@@ -59,14 +72,11 @@ interface OrderNotifPayload {
  * Each template has body parameters: {{1}} = customer name, {{2}} = order number,
  * {{3}} = amount + currency, {{4}} = status label
  */
-function buildOrderNotifPayload(p: OrderNotifPayload): object {
-  const templateMap: Record<OrderNotifType, string> = {
-    order_confirmation: process.env.WAC_TEMPLATE_ORDER_CONFIRM || "wac_order_confirmation",
-    order_shipped:      process.env.WAC_TEMPLATE_ORDER_SHIPPED || "wac_order_shipped",
-    order_delivered:    process.env.WAC_TEMPLATE_ORDER_DELIVERED || "wac_order_delivered",
-    order_cancelled:    process.env.WAC_TEMPLATE_ORDER_CANCELLED || "wac_order_cancelled",
-  };
-
+export function orderNotifTemplate(p: OrderNotifPayload): {
+  templateName: string;
+  languageCode: string;
+  components: unknown[];
+} {
   const statusLabels: Record<OrderNotifType, string> = {
     order_confirmation: "confirmed",
     order_shipped:      "shipped",
@@ -75,83 +85,79 @@ function buildOrderNotifPayload(p: OrderNotifPayload): object {
   };
 
   return {
-    messaging_product: "whatsapp",
-    to: p.phone,
-    type: "template",
-    template: {
-      name: templateMap[p.notifType],
-      language: { code: process.env.WAC_TEMPLATE_LANG || "en_US" },
-      components: [
-        {
-          type: "body",
-          parameters: [
-            { type: "text", text: p.customerName || "Customer" },
-            { type: "text", text: p.orderNumber },
-            { type: "text", text: `${p.totalAmount} ${p.currency}` },
-            { type: "text", text: statusLabels[p.notifType] },
-          ],
-        },
-      ],
-    },
+    templateName: ORDER_TEMPLATE_MAP[p.notifType],
+    languageCode: process.env.WAC_TEMPLATE_LANG || "en_US",
+    components: [
+      {
+        type: "body",
+        parameters: [
+          { type: "text", text: p.customerName || "Customer" },
+          { type: "text", text: p.orderNumber },
+          { type: "text", text: `${p.totalAmount} ${p.currency}` },
+          { type: "text", text: statusLabels[p.notifType] },
+        ],
+      },
+    ],
   };
 }
 
 // ── Core Sender ───────────────────────────────────────────────────────────────
 
-/**
- * Send a WhatsApp order notification message.
- * Returns true on success, false if WAC credentials are not configured (simulation mode).
- * Throws TRPCError on API errors.
- */
 export interface SendOrderNotifResult {
   sent: boolean;
   simulated: boolean;
   wamid: string | null;
 }
 
+/**
+ * Send a WhatsApp order notification template via waSender using the
+ * tenant's own WhatsApp credentials (env fallback inside waSender).
+ * Returns { sent:false, simulated:true } when no credentials are configured.
+ * Never throws — notification failures must not block order updates; the
+ * caller's log row is marked failed instead.
+ */
 export async function sendOrderNotification(p: OrderNotifPayload): Promise<SendOrderNotifResult> {
-  const token = process.env.WAC_WHATSAPP_TOKEN;
-  const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
-
-  if (!token || !phoneId) {
-    // Simulation mode — log for development
-    console.info(
-      `[whatsappNotif] SIMULATION: ${p.notifType} → ${p.phone.slice(-4).padStart(p.phone.length, "*")} | Order ${p.orderNumber} | ${p.totalAmount} ${p.currency}`
-    );
-    return { sent: false, simulated: true, wamid: null };
-  }
-
-  const payload = buildOrderNotifPayload(p);
-  const url = `https://graph.facebook.com/v21.0/${phoneId}/messages`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(12000),
-
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error(`[whatsappNotif] API error ${res.status}: ${body}`);
+  const { templateName, languageCode, components } = orderNotifTemplate(p);
+  try {
+    const result = await sendWhatsAppTemplate(p.tenantId, p.phone, templateName, languageCode, components, {
+      notifType: p.notifType,
+      // The caller (sendOrderNotificationWithLog / resendNotification) owns
+      // the whatsapp_notification_log row — skip waSender's own logging.
+      skipLog: true,
+    });
+    if (result.simulated) {
+      console.info(
+        `[whatsappNotif] SIMULATION: ${p.notifType} → ${p.phone.slice(-4).padStart(p.phone.length, "*")} | Order ${p.orderNumber} | ${p.totalAmount} ${p.currency}`
+      );
+    }
+    return { sent: result.sent, simulated: result.simulated, wamid: result.wamid };
+  } catch (err: any) {
     // Don't throw — notification failures should not block order updates
+    console.error(`[whatsappNotif] send failed: ${err?.message ?? err}`);
     return { sent: false, simulated: false, wamid: null };
   }
-
-  const data = await res.json().catch(() => ({})) as any;
-  const wamid: string | null = data?.messages?.[0]?.id ?? null;
-  return { sent: true, simulated: false, wamid };
 }
 
 // ── Resolver: get recipient phone for an order ────────────────────────────────
 
+/** Extract a raw WhatsApp phone from an order's metadata blob, if present. */
+function metadataPhone(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const m = metadata as Record<string, unknown>;
+  for (const key of ["waPhone", "whatsappPhone", "customerPhone", "phone"]) {
+    const v = m[key];
+    if (typeof v === "string" && /^\+?\d{7,15}$/.test(v.trim())) return v.trim();
+  }
+  return null;
+}
+
 /**
  * Resolve the WhatsApp phone number for an order notification.
- * Priority: customer.whatsappPhone → user.phone (if verified and prefs allow)
+ * Priority (mirrors logistics.resolveBuyerPhone for chat-origin orders):
+ *   1. Chat orders: raw WhatsApp number stored directly in orders.customerId
+ *   2. customers.whatsappPhone (back-office orders store a customers row id)
+ *   3. Raw phone in orders.metadata (waPhone / whatsappPhone / customerPhone / phone)
+ *   4. user.phone (if verified and prefs allow)
  */
 export async function resolveOrderNotifRecipient(
   orderId: string,
@@ -169,20 +175,33 @@ export async function resolveOrderNotifRecipient(
 
   if (!order) return { phone: null, customerName: "", orderNumber: "", totalAmount: "0.00", currency: "USD" };
 
-  const [customer] = await db
-    .select()
-    .from(customers)
-    .where(eq(customers.id, order.customerId))
-    .limit(1);
-
-  const customerName = customer?.name || "Customer";
   const orderNumber = order.orderNumber;
   const totalAmount = order.totalAmount?.toString() || "0.00";
   const currency = order.currency || "USD";
+  const cid = order.customerId ?? "";
+
+  // Chat-origin order: customerId IS the raw WhatsApp number — no customers row exists.
+  if (/^\+?\d{7,15}$/.test(cid)) {
+    return { phone: cid.replace(/^\+/, ""), customerName: "Customer", orderNumber, totalAmount, currency };
+  }
+
+  const [customer] = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.id, cid))
+    .limit(1);
+
+  const customerName = customer?.name || "Customer";
 
   // Primary: customer's whatsappPhone
   if (customer?.whatsappPhone) {
     return { phone: customer.whatsappPhone, customerName, orderNumber, totalAmount, currency };
+  }
+
+  // Secondary: raw phone recorded in order metadata (chat-origin orders)
+  const metaPhone = metadataPhone(order.metadata);
+  if (metaPhone) {
+    return { phone: metaPhone.replace(/^\+/, ""), customerName, orderNumber, totalAmount, currency };
   }
 
   // Fallback: find a user linked to this tenant with a verified phone and matching prefs
@@ -344,6 +363,7 @@ export const whatsappNotificationsRouter = router({
       });
       try {
         const result = await sendOrderNotification({
+          tenantId: original.tenantId,
           phone: original.phone,
           orderNumber,
           customerName,
@@ -455,47 +475,37 @@ export const whatsappNotificationsRouter = router({
       return { counts };
     }),
 
-  /** Send a text reply from admin to a customer via WhatsApp. */
+  /** Send a text reply from admin to a customer via WhatsApp (per-tenant creds). */
   sendAdminReply: protectedProcedure
     .input(z.object({
       phone: z.string().min(7),
       message: z.string().min(1).max(4096),
       orderId: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
-      const token = process.env.WAC_WHATSAPP_TOKEN;
-      const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
-      if (!token || !phoneId) {
-        return { sent: false, simulated: true, wamid: null };
+    .mutation(async ({ input, ctx }) => {
+      // Resolve tenant from the order when given, else the caller's tenant.
+      let tenantId = ctx.user?.tenantId ?? "default";
+      if (input.orderId) {
+        const db = await getDb();
+        const [ord] = db
+          ? await db.select({ tenantId: orders.tenantId }).from(orders).where(eq(orders.id, input.orderId)).limit(1)
+          : [];
+        if (ord?.tenantId) tenantId = ord.tenantId;
       }
-      const payload = {
-        messaging_product: "whatsapp",
-        to: input.phone.replace(/[^0-9]/g, ""),
-        type: "text",
-        text: { body: input.message, preview_url: false },
-      };
-      const resp = await fetch(
-        `https://graph.facebook.com/v21.0/${phoneId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(12000),
-        }
-      );
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
+      try {
+        const result = await sendWhatsAppText(tenantId, input.phone, input.message, {
+          notifType: "admin_reply",
+          orderId: input.orderId ?? null,
+          userId: ctx.user?.id ?? null,
+        });
+        if (result.simulated) return { sent: false, simulated: true, wamid: null };
+        return { sent: true, simulated: false, wamid: result.wamids[0] ?? null };
+      } catch (err: any) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: (err as any)?.error?.message ?? "WhatsApp send failed",
+          message: err?.message ?? "WhatsApp send failed",
         });
       }
-      const data = await resp.json() as any;
-      const wamid: string | null = data?.messages?.[0]?.id ?? null;
-      return { sent: true, simulated: false, wamid };
     }),
 
 
@@ -587,7 +597,7 @@ Draft a helpful reply to the customer's most recent message. Reply in plain text
       ]),
       caption: z.string().max(1024).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { storagePut, generateStorageKey } = await import("../storage");
       // 1. Upload to S3
       const fileBuffer = Buffer.from(input.fileBase64, "base64");
@@ -598,12 +608,21 @@ Draft a helpful reply to the customer's most recent message. Reply in plain text
       const isImage = input.mimeType.startsWith("image/");
       const waType = isImage ? "image" : "document";
 
-      // 3. Send via WhatsApp Cloud API
-      const token = process.env.WAC_WHATSAPP_TOKEN;
-      const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
-      if (!token || !phoneId) {
+      // 3. Send via WhatsApp Cloud API with per-tenant credentials (waSender resolution)
+      let tenantId = ctx.user?.tenantId ?? "default";
+      if (input.orderId) {
+        const db = await getDb();
+        const [ord] = db
+          ? await db.select({ tenantId: orders.tenantId }).from(orders).where(eq(orders.id, input.orderId)).limit(1)
+          : [];
+        if (ord?.tenantId) tenantId = ord.tenantId;
+      }
+      const creds = await resolveTenantWaCredentials(tenantId);
+      if (!creds) {
         return { sent: false, simulated: true, wamid: null, storageUrl };
       }
+      const token = creds.accessToken;
+      const phoneId = creds.phoneNumberId;
 
       // Build absolute URL for WhatsApp (needs a public URL)
       const appUrl = process.env.VITE_FRONTEND_FORGE_API_URL?.replace("/v1", "") ?? "";
@@ -667,12 +686,7 @@ export async function sendOrderNotificationWithLog(
 
   // Create a pending log row first
   const logId = crypto.randomUUID();
-  const templateMap: Record<OrderNotifType, string> = {
-    order_confirmation: process.env.WAC_TEMPLATE_ORDER_CONFIRM || "wac_order_confirmation",
-    order_shipped:      process.env.WAC_TEMPLATE_ORDER_SHIPPED || "wac_order_shipped",
-    order_delivered:    process.env.WAC_TEMPLATE_ORDER_DELIVERED || "wac_order_delivered",
-    order_cancelled:    process.env.WAC_TEMPLATE_ORDER_CANCELLED || "wac_order_cancelled",
-  };
+  const templateMap = ORDER_TEMPLATE_MAP;
 
   if (!phone) {
     // Log a failed attempt — no recipient found
@@ -705,6 +719,7 @@ export async function sendOrderNotificationWithLog(
 
   try {
     const result = await sendOrderNotification({
+      tenantId,
       phone,
       orderNumber,
       customerName,
@@ -712,7 +727,6 @@ export async function sendOrderNotificationWithLog(
       currency,
       status: notifType.replace("order_", ""),
       notifType,
-    
     });
 
     if (result.simulated) {
