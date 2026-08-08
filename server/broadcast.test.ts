@@ -241,3 +241,73 @@ describe("broadcast.send tenant isolation", () => {
     await expect(caller.send({ campaignId: "camp-1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
+
+describe("broadcast.send messaging-quality throttle", () => {
+  it("blocks the send when Meta reports a LOW quality rating", async () => {
+    const { db } = makeDb([
+      [CAMPAIGN],
+      [{ settings: { waQuality: { rating: "LOW", checkedAt: new Date().toISOString() } } }],
+    ]);
+    vi.mocked(getDb).mockResolvedValue(db);
+
+    const caller = broadcastRouter.createCaller(ADMIN_CTX);
+    await expect(caller.send({ campaignId: "camp-1" })).rejects.toThrow(/LOW/);
+    expect(sendWhatsAppText).not.toHaveBeenCalled();
+    expect(sendWhatsAppTemplate).not.toHaveBeenCalled();
+    expect(redisIncrExStrict).not.toHaveBeenCalled();
+  });
+
+  it("halves the per-minute rate when the rating is MEDIUM", async () => {
+    const { db } = makeDb(
+      [
+        [{ ...CAMPAIGN, templateId: null }],
+        [{ settings: { broadcast: { ratePerMin: 30 }, waQuality: { rating: "MEDIUM", checkedAt: new Date().toISOString() } } }],
+        [{ id: "c1", whatsappPhone: "2348011111111", name: "A" }],
+      ],
+      [{ rows: [{ phone: "2348011111111" }] }, { rows: [] }],
+    );
+    vi.mocked(getDb).mockResolvedValue(db);
+
+    const caller = broadcastRouter.createCaller(ADMIN_CTX);
+    const res = await caller.send({ campaignId: "camp-1" });
+    expect(res.sent).toBe(1);
+    expect(redisIncrExStrict).toHaveBeenCalled();
+  });
+});
+
+describe("broadcast.create templateName override", () => {
+  it("persists a free-form template override as varMapping.__templateName", async () => {
+    const { db, inserted } = makeDb([]);
+    vi.mocked(getDb).mockResolvedValue(db);
+
+    const caller = broadcastRouter.createCaller(ADMIN_CTX);
+    const res = await caller.create({
+      tenantId: "t1",
+      name: "Promo",
+      segment: "all",
+      templateName: "approved_meta_template",
+    });
+    expect(res.id).toBeTruthy();
+    expect(inserted[0].varMapping).toEqual({ __templateName: "approved_meta_template" });
+  });
+
+  it("the override beats the tenant default at send time (internal keys never leak into params)", async () => {
+    const { db } = makeDb(
+      [
+        [{ ...CAMPAIGN, templateId: null, varMapping: { __templateName: "override_tpl", flavor: "x" } }],
+        [{ settings: { broadcast: { templateName: "wac_default", languageCode: "en_US" } } }],
+        [{ id: "c1", whatsappPhone: "2348011111111", name: "A" }],
+      ],
+      [{ rows: [{ phone: "2348011111111" }] }, { rows: [] }],
+    );
+    vi.mocked(getDb).mockResolvedValue(db);
+
+    const caller = broadcastRouter.createCaller(ADMIN_CTX);
+    await caller.send({ campaignId: "camp-1" });
+    expect(sendWhatsAppTemplate).toHaveBeenCalledWith(
+      "t1", "2348011111111", "override_tpl", "en_US",
+      [{ type: "body", parameters: [{ type: "text", text: "A" }, { type: "text", text: "x" }] }],
+      expect.objectContaining({ notifType: "broadcast" }),
+    );
+  });
+});

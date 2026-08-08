@@ -190,6 +190,27 @@ export async function checkWhatsAppCredentials(
   }
 }
 
+/** Optional WABA reachability check (template management prerequisite). */
+export async function checkWabaAccess(
+  wabaId: string,
+  accessToken: string | null | undefined,
+  fetchFn: FetchFn = fetch,
+): Promise<ValidationCheckResult> {
+  const check = "whatsapp:waba";
+  if (!accessToken) return { check, ok: false, detail: "missing accessToken for WABA check" };
+  try {
+    const res = await fetchFn(`${GRAPH_BASE}/${encodeURIComponent(wabaId)}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (res.status === 200) return { check, ok: true };
+    const body = await res.text().catch(() => "");
+    return { check, ok: false, detail: `Graph API returned ${res.status}: ${body.slice(0, 200)}` };
+  } catch (e: any) {
+    return { check, ok: false, detail: `Graph API request failed: ${e?.message ?? e}` };
+  }
+}
+
 /** Test-connection call for one enabled integration provider. */
 export async function checkIntegrationConnection(
   provider: IntegrationProvider,
@@ -253,6 +274,17 @@ export async function runTenantValidation(
       fetchFn,
     ),
   );
+
+  // Optional: when a WABA id is configured (settings.whatsapp.wabaId or the
+  // tenants.whatsappBusinessAccountId column), verify the token can read it —
+  // template management (waTemplates) depends on this.
+  const wabaId =
+    (tenant as { whatsappBusinessAccountId?: string | null }).whatsappBusinessAccountId ??
+    (settings as any)?.whatsapp?.wabaId ??
+    null;
+  if (wabaId) {
+    checks.push(await checkWabaAccess(wabaId, settings.whatsapp?.accessToken ?? null, fetchFn));
+  }
 
   const integrations = settings.integrations ?? {};
   for (const provider of INTEGRATION_PROVIDERS) {

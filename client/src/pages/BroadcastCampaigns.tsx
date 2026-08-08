@@ -110,6 +110,9 @@ export default function BroadcastCampaigns() {
   const [newName, setNewName] = useState("");
   const [newSegment, setNewSegment] = useState("all");
   const [newTemplateId, setNewTemplateId] = useState("");
+  // Out-of-window Meta template: APPROVED dropdown selection or free-form override.
+  const [metaTemplateName, setMetaTemplateName] = useState("");
+  const [metaTemplateFree, setMetaTemplateFree] = useState("");
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [abTestOpen, setAbTestOpen] = useState(false);
   const [abVariantA, setAbVariantA] = useState("");
@@ -132,6 +135,14 @@ export default function BroadcastCampaigns() {
 
   const { data: templatesData } = trpc.template.list.useQuery({});
   const templates = templatesData?.templates ?? [];
+
+  // Meta-approved templates (synced from the WABA) — the dropdown source for
+  // out-of-window sends; the free-form field below remains as an override.
+  const { data: waTemplatesData } = trpc.waTemplates.list.useQuery(
+    { tenantId: "demo-tenant-1", approvedOnly: true },
+    { retry: false },
+  );
+  const approvedMetaTemplates = waTemplatesData?.templates ?? [];
 
   const { data: detailData } = trpc.broadcast.get.useQuery(
     { id: selectedId ?? "" },
@@ -168,6 +179,8 @@ export default function BroadcastCampaigns() {
       setNewName("");
       setNewSegment("all");
       setNewTemplateId("");
+      setMetaTemplateName("");
+      setMetaTemplateFree("");
       refetch();
     },
     onError: (e) => toast.error(e.message),
@@ -726,6 +739,36 @@ export default function BroadcastCampaigns() {
                 </div>
               );
             })()}
+
+            {/* Out-of-window Meta template (APPROVED only) + free-form override */}
+            <div className="space-y-2">
+              <Label>Out-of-window Template (Meta-approved, optional)</Label>
+              <Select value={metaTemplateName} onValueChange={setMetaTemplateName}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an approved Meta template…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {approvedMetaTemplates.length === 0 && (
+                    <SelectItem value="__none" disabled>
+                      No APPROVED templates synced yet
+                    </SelectItem>
+                  )}
+                  {approvedMetaTemplates.map(t => (
+                    <SelectItem key={t.id || t.name} value={t.name}>
+                      {t.name} <span className="text-muted-foreground ml-1">({t.category})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                value={metaTemplateFree}
+                onChange={e => setMetaTemplateFree(e.target.value)}
+                placeholder="…or type a template name override"
+              />
+              <p className="text-xs text-muted-foreground">
+                Sent to recipients outside the 24h window. The free-form field overrides the dropdown and the tenant default.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -734,6 +777,7 @@ export default function BroadcastCampaigns() {
                 tenantId: "demo-tenant-1",
                 name: newName,
                 templateId: newTemplateId || undefined,
+                templateName: metaTemplateFree.trim() || (metaTemplateName && metaTemplateName !== "__none" ? metaTemplateName : undefined),
                 segment: newSegment as "all" | "new_contacts" | "recent_orders" | "overdue_invoices" | "shipped_orders" | "vip_customers" | "custom",
               })}
               disabled={createCampaign.isPending || !newName.trim()}

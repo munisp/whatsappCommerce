@@ -329,6 +329,7 @@ export const onboardingRouter = router({
         .select({
           id: tenants.id,
           whatsappPhoneNumberId: tenants.whatsappPhoneNumberId,
+          whatsappBusinessAccountId: tenants.whatsappBusinessAccountId,
           settings: tenants.settings,
         })
         .from(tenants)

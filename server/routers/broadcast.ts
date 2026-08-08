@@ -18,12 +18,17 @@ import {
   sendWhatsAppTemplate,
   sendWhatsAppText,
 } from "../services/waSender";
+import {
+  getLastInboundMap as getSessionWindowLastInboundMap,
+  WA_WINDOW_MS as SESSION_WINDOW_MS,
+} from "../services/sessionWindow";
+import { applyQualityThrottle } from "../services/waQuality";
 import { toMinorUnitsExact } from "../../shared/escrowAmounts";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 /** WhatsApp customer-service window: free-form text allowed within 24h of last inbound. */
-export const WA_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const WA_WINDOW_MS = SESSION_WINDOW_MS;
 
 /** Default per-tenant broadcast throughput (messages started per minute). */
 export const DEFAULT_BROADCAST_RATE_PER_MIN = 30;
@@ -69,23 +74,13 @@ export async function getConsentedPhones(db: Db, tenantId: string): Promise<Set<
   }
 }
 
-/** Latest inbound WhatsApp reply per phone (digits-only) for 24h-window detection. */
+/**
+ * Latest inbound WhatsApp reply per phone (digits-only) for 24h-window
+ * detection — delegated to the session-window service (same durable source:
+ * whatsapp_customer_replies).
+ */
 export async function getLastInboundMap(db: Db, tenantId: string): Promise<Map<string, Date>> {
-  const map = new Map<string, Date>();
-  try {
-    const res: any = await db.execute(
-      sql`SELECT from_phone AS phone, MAX(created_at) AS last_at FROM whatsapp_customer_replies WHERE tenant_id = ${tenantId} GROUP BY from_phone`,
-    );
-    const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
-    for (const r of rows) {
-      const phone = normalizeWaPhone(String(r?.phone ?? ""));
-      const at = r?.last_at ? new Date(r.last_at) : null;
-      if (phone && at && !Number.isNaN(at.getTime())) map.set(phone, at);
-    }
-  } catch (e: any) {
-    console.warn("[broadcast] last-inbound lookup failed (defaulting to template sends):", e?.message);
-  }
-  return map;
+  return getSessionWindowLastInboundMap(db, tenantId);
 }
 
 export interface BroadcastAudienceMember {
@@ -269,6 +264,10 @@ export async function executeCampaignSend(
 ): Promise<CampaignSendResult> {
   // Campaign-level variable mapping merged into per-recipient variables.
   const campaignVarMap = (campaign.varMapping ?? {}) as Record<string, string>;
+  // Internal directives (e.g. __templateName) never reach template params.
+  const publicVarMap = Object.fromEntries(
+    Object.entries(campaignVarMap).filter(([k]) => !k.startsWith("__")),
+  );
 
   // Campaign template body drives the in-window free-form text.
   let templateBody: string | null = null;
@@ -285,6 +284,11 @@ export async function executeCampaignSend(
       if (tpl.name) templateName = tpl.name;
       if (tpl.language) languageCode = tpl.language;
     }
+  }
+  // Free-form per-campaign template override (broadcast.create templateName,
+  // e.g. an APPROVED Meta template picked in the UI) beats the tenant default.
+  if (typeof campaignVarMap.__templateName === "string" && campaignVarMap.__templateName.trim()) {
+    templateName = campaignVarMap.__templateName.trim();
   }
 
   await db
@@ -308,7 +312,7 @@ export async function executeCampaignSend(
         const recipientId = nanoid();
         const variables = {
           customer_name: member.name ?? "Customer",
-          ...campaignVarMap,
+          ...publicVarMap,
         };
         await db
           .insert(broadcastRecipients)
@@ -341,7 +345,7 @@ export async function executeCampaignSend(
                 type: "body",
                 parameters: [
                   { type: "text", text: member.name ?? "Customer" },
-                  ...Object.values(campaignVarMap).map((v) => ({ type: "text", text: String(v) })),
+                  ...Object.values(publicVarMap).map((v) => ({ type: "text", text: String(v) })),
                 ],
               },
             ];
@@ -417,6 +421,11 @@ export async function dispatchCampaign(db: Db, campaign: CampaignRow): Promise<C
     .where(eq(tenants.id, campaign.tenantId))
     .limit(1);
   const bcfg = parseBroadcastSettings(tenant?.settings);
+  // Messaging-quality throttle: LOW rating blocks the dispatch (the cron
+  // caller marks the campaign failed), MEDIUM halves the rate.
+  const throttle = applyQualityThrottle(tenant?.settings, bcfg.ratePerMin);
+  if (throttle.blocked) throw new TRPCError({ code: "PRECONDITION_FAILED", message: throttle.reason });
+  bcfg.ratePerMin = throttle.ratePerMin;
   const segment = normalizeSegmentFilter(campaign.segmentFilter);
   const audience = await buildBroadcastAudience(db, campaign.tenantId, segment);
   return executeCampaignSend(db, campaign, bcfg, audience);
@@ -478,12 +487,20 @@ export const broadcastRouter = router({
       segmentFilter: z.record(z.string(), z.unknown()).optional(),
       scheduledAt: z.number().optional(),
       varMapping: z.record(z.string(), z.string()).optional(),
+      /**
+       * Free-form out-of-window template override (typically an APPROVED
+       * Meta template name picked in the UI). Persisted as the internal
+       * varMapping.__templateName directive consumed by executeCampaignSend.
+       */
+      templateName: z.string().trim().min(1).max(255).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
 
       const id = nanoid();
+      const varMapping = { ...(input.varMapping ?? {}) };
+      if (input.templateName) varMapping.__templateName = input.templateName;
       await db.insert(broadcastCampaigns).values({
         id,
         tenantId: input.tenantId,
@@ -491,7 +508,7 @@ export const broadcastRouter = router({
         templateId: input.templateId ?? null,
         segment: input.segment,
         segmentFilter: input.segmentFilter ?? null,
-        varMapping: input.varMapping ?? null,
+        varMapping: Object.keys(varMapping).length > 0 ? varMapping : null,
         status: "draft",
         scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
         createdBy: ctx.user?.name ?? ctx.user?.openId ?? "system",
@@ -572,6 +589,14 @@ export const broadcastRouter = router({
         .where(eq(tenants.id, campaign.tenantId))
         .limit(1);
       const bcfg = parseBroadcastSettings(tenant?.settings);
+
+      // Messaging-quality throttle (settings.waQuality): LOW blocks the send,
+      // MEDIUM halves the rate. Applies to both immediate and dryRun paths.
+      const throttle = applyQualityThrottle(tenant?.settings, bcfg.ratePerMin);
+      if (throttle.blocked && !input.dryRun) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: throttle.reason });
+      }
+      bcfg.ratePerMin = throttle.ratePerMin;
 
       const segment = normalizeSegmentFilter(campaign.segmentFilter);
       const audience = await buildBroadcastAudience(db, campaign.tenantId, segment);
