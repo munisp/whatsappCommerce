@@ -104,9 +104,14 @@ interface LogSendOpts {
   notifType: string;
   orderId?: string | null;
   userId?: number | null;
+  templateName?: string | null;
+  /** Set by callers that manage their own log rows (e.g. order notifications)
+   *  so a send is not double-logged. */
+  skipLog?: boolean;
 }
 
 async function logSend(opts: LogSendOpts, outcome: { status: "sent" | "failed" | "simulated"; wamid?: string | null; failReason?: string }): Promise<void> {
+  if (opts.skipLog) return;
   try {
     const db = await getDb();
     if (!db) return;
@@ -117,7 +122,7 @@ async function logSend(opts: LogSendOpts, outcome: { status: "sent" | "failed" |
       tenantId: opts.tenantId,
       phone: opts.phone,
       notifType: opts.notifType,
-      templateName: null,
+      templateName: opts.templateName ?? null,
       status: outcome.status,
       wamid: outcome.wamid ?? null,
       sentAt: outcome.status === "sent" ? new Date() : null,
@@ -145,7 +150,7 @@ export async function sendWhatsAppText(
   tenantId: string,
   toPhone: string,
   body: string,
-  opts?: { notifType?: string; orderId?: string | null; userId?: number | null },
+  opts?: { notifType?: string; orderId?: string | null; userId?: number | null; skipLog?: boolean },
 ): Promise<SendTextResult> {
   const notifType = opts?.notifType ?? "conversation_reply";
   const to = normalizeWaPhone(toPhone);
@@ -156,7 +161,7 @@ export async function sendWhatsAppText(
     console.info(
       `[waSender] SIMULATION (${tenantId}) → *${to.slice(-4)}: ${body.slice(0, 120)}${body.length > 120 ? "…" : ""}`,
     );
-    await logSend({ tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId }, { status: "simulated" });
+    await logSend({ tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog }, { status: "simulated" });
     return { sent: false, simulated: true, wamids: [], chunks: chunks.length };
   }
 
@@ -183,7 +188,7 @@ export async function sendWhatsAppText(
       const errBody = await res.text().catch(() => "");
       console.error(`[waSender] API error ${res.status}: ${errBody}`);
       await logSend(
-        { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId },
+        { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog },
         { status: "failed", failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}` },
       );
       throw new Error(`WhatsApp send failed (${res.status}): ${errBody.slice(0, 200)}`);
@@ -193,10 +198,96 @@ export async function sendWhatsAppText(
     const wamid: string | null = data?.messages?.[0]?.id ?? null;
     if (wamid) wamids.push(wamid);
     await logSend(
-      { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId },
+      { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog },
       { status: "sent", wamid },
     );
   }
 
   return { sent: true, simulated: false, wamids, chunks: chunks.length };
+}
+
+export interface SendTemplateResult {
+  sent: boolean;
+  simulated: boolean;
+  wamid: string | null;
+}
+
+/**
+ * Send a WhatsApp *template* message (required outside the 24h customer
+ * service window) using the same per-tenant credential resolution as
+ * sendWhatsAppText: tenants.whatsappPhoneNumberId +
+ * settings.whatsapp.accessToken, falling back to env credentials.
+ *
+ * @param tenantId     tenant whose WA credentials should be used (env fallback)
+ * @param toPhone      recipient in E.164 or digits-only format
+ * @param templateName approved template name (e.g. "wac_order_confirmation")
+ * @param languageCode BCP-47 template language (e.g. "en_US")
+ * @param components   Cloud API template components (body/header params)
+ * @param opts         logging metadata: notifType, orderId, userId, skipLog
+ *
+ * @throws Error when the Graph API returns a non-OK status (after logging).
+ *         When no credentials are configured the send is simulated: logged
+ *         with status "simulated" and no exception is thrown.
+ */
+export async function sendWhatsAppTemplate(
+  tenantId: string,
+  toPhone: string,
+  templateName: string,
+  languageCode: string,
+  components?: unknown[],
+  opts?: { notifType?: string; orderId?: string | null; userId?: number | null; skipLog?: boolean },
+): Promise<SendTemplateResult> {
+  const notifType = opts?.notifType ?? "template_message";
+  const to = normalizeWaPhone(toPhone);
+
+  const creds = await resolveTenantWaCredentials(tenantId);
+  if (!creds) {
+    console.info(
+      `[waSender] SIMULATION template (${tenantId}) ${templateName} → *${to.slice(-4)}`,
+    );
+    await logSend(
+      { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, templateName, skipLog: opts?.skipLog },
+      { status: "simulated" },
+    );
+    return { sent: false, simulated: true, wamid: null };
+  }
+
+  const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        ...(components && components.length > 0 ? { components } : {}),
+      },
+    }),
+    signal: AbortSignal.timeout(12000),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    console.error(`[waSender] template API error ${res.status}: ${errBody}`);
+    await logSend(
+      { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, templateName, skipLog: opts?.skipLog },
+      { status: "failed", failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}` },
+    );
+    throw new Error(`WhatsApp template send failed (${res.status}): ${errBody.slice(0, 200)}`);
+  }
+
+  const data = (await res.json().catch(() => ({}))) as any;
+  const wamid: string | null = data?.messages?.[0]?.id ?? null;
+  await logSend(
+    { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, templateName, skipLog: opts?.skipLog },
+    { status: "sent", wamid },
+  );
+  return { sent: true, simulated: false, wamid };
 }

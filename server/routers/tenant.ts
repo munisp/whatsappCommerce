@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import * as db from "../db";
+import { DEFAULT_TENANT_ID, getTenantByIdForTheme } from "../_core/tenantDomain";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
@@ -10,6 +11,31 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
 });
 
 export const tenantRouter = router({
+  /**
+   * Public branding for the tenant resolved from the request Host header
+   * (multi-domain storefronts). Returns settings.branding values with
+   * safe defaults when the tenant or branding config is absent.
+   */
+  tenantTheme: publicProcedure.query(async ({ ctx }) => {
+    const tenantId = ctx.resolvedTenantId ?? DEFAULT_TENANT_ID;
+    const t = await getTenantByIdForTheme(tenantId).catch(() => null);
+    const settings = ((t?.settings ?? {}) as Record<string, unknown>);
+    const branding = ((settings.branding ?? {}) as Record<string, unknown>);
+    return {
+      tenantId,
+      name:
+        (typeof branding.name === "string" && branding.name) ||
+        t?.name ||
+        "WhatsApp Commerce",
+      logoUrl: typeof branding.logoUrl === "string" && branding.logoUrl ? branding.logoUrl : null,
+      primaryColor:
+        typeof branding.primaryColor === "string" && branding.primaryColor
+          ? branding.primaryColor
+          : "#25D366",
+      currency: t?.defaultCurrency ?? "USD",
+    };
+  }),
+
   list: adminProcedure
     .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }).optional())
     .query(async ({ input }) => {

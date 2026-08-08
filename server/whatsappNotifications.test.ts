@@ -21,6 +21,7 @@ describe("sendOrderNotification", () => {
 
   it("returns false in simulation mode (no WAC credentials)", async () => {
     const result = await sendOrderNotification({
+      tenantId: "tenant-1",
       phone: "+2348012345678",
       orderNumber: "ORD-ABC123",
       customerName: "Amara Okafor",
@@ -44,6 +45,7 @@ describe("sendOrderNotification", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const result = await sendOrderNotification({
+      tenantId: "tenant-1",
       phone: "+2348012345678",
       orderNumber: "ORD-ABC123",
       customerName: "Amara Okafor",
@@ -60,7 +62,7 @@ describe("sendOrderNotification", () => {
     expect(url).toContain("graph.facebook.com");
     expect(url).toContain("12345678/messages");
     const body = JSON.parse(opts.body);
-    expect(body.to).toBe("+2348012345678");
+    expect(body.to).toBe("2348012345678"); // waSender normalizes to digits-only
     expect(body.template.name).toBe("wac_order_confirmation");
   });
 
@@ -75,6 +77,7 @@ describe("sendOrderNotification", () => {
     }));
 
     const result = await sendOrderNotification({
+      tenantId: "tenant-1",
       phone: "+2348012345678",
       orderNumber: "ORD-ABC123",
       customerName: "Test",
