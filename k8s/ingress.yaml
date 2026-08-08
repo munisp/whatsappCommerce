@@ -1,0 +1,38 @@
+# Ingress — the ONLY external entrypoint into the platform.
+#
+# Path chain (verified):
+#   ingress-nginx → apisix:9080 (edge data plane)
+#     → api-gateway:8080 (route "/api/*" per services/middleware/apisix_conf/apisix.yaml)
+#       → platform / commerce-engine / ml-inference / ledger-bridge / ...
+#
+# Every Service in this namespace is type ClusterIP — nothing else is exposed.
+# The NetworkPolicies (k8s/network-policies.yaml) additionally restrict ingress
+# from outside the namespace to apisix:9080 and api-gateway:8080 only.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: platform-edge
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 4m
+    nginx.ingress.kubernetes.io/limit-rps: "50"
+    # Webhooks (Meta/WhatsApp, Paystack) must reach the API unbuffered.
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+spec:
+  ingressClassName: nginx
+  rules:
+    # Replace with the production hostname (see DEPLOYMENT.md:
+    # api.whatsapp-commerce.com).
+    - host: api.whatsapp-commerce.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apisix
+                port:
+                  number: 9080

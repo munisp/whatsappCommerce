@@ -1,0 +1,984 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# ZERO-TRUST NETWORK POLICIES — whatsapp-commerce
+# ═════════════════════════════════════════════════════════════════════════════
+# Model (see docs/ZERO_TRUST.md for evidence and the full flow matrix):
+#   * k8s/network-policy.yaml applies default-deny ingress+egress to ALL pods.
+#   * This file adds explicit, least-privilege allows. A connection is only
+#     possible when the SOURCE pod has an egress allow AND the DESTINATION pod
+#     has an ingress allow (NetworkPolicies are additive).
+#   * Only ingress-nginx → apisix:9080 (and → api-gateway:8080, the platform
+#     gateway) may enter the namespace from outside.
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── 1. DNS egress for every pod (kube-dns / CoreDNS) ─────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# ── 2. External entry: ingress-nginx → apisix (edge data plane) ──────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-apisix
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: apisix
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 9080
+          protocol: TCP
+---
+# ── 3. External entry: ingress-nginx → api-gateway (gateway←ingress) ─────────
+# The shipped Ingress (k8s/ingress.yaml) targets apisix only; this allow also
+# permits direct gateway ingress for clusters that terminate webhooks at the
+# gateway. Both paths are edge-only — no other Service is reachable from
+# outside the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-api-gateway
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app: apisix
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+# ── 4. apisix egress → api-gateway (the only configured upstream, per
+#       services/middleware/apisix_conf/apisix.yaml: /api/* → api-gateway:8080) ──
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apisix-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: apisix
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+# ── 5. api-gateway egress → downstream services ──────────────────────────────
+# Mission-required: gateway→commerce-engine/ml-stack/ledger-bridge.
+# Additional allows are the gateway's declared dependencies (docker-compose
+# api-gateway env: REDIS_URL, KEYCLOAK_URL, PERMIFY_URL, APISIX_ADMIN_URL,
+# TEMPORAL_ADDRESS, AI_AGENT_URL; platform API proxied via APISIX upstream).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-gateway-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: api-gateway
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: commerce-engine
+      ports:
+        - port: 8083
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ml-inference
+      ports:
+        - port: 8099
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ledger-bridge
+      ports:
+        - port: 8095
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ai-agent
+      ports:
+        - port: 8090
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 3000
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: keycloak
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: permify
+      ports:
+        - port: 3476
+          protocol: TCP
+        - port: 3478
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: temporal
+      ports:
+        - port: 7233
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: apisix
+      ports:
+        - port: 9180   # APISIX admin API (route registration)
+          protocol: TCP
+---
+# ── 6. platform (server) egress → postgres/redis/keycloak/temporal/permify ──
+# Plus its other code-verified dependencies: Kafka (configmap KAFKA_BROKERS in
+# the kafka namespace), ml-inference + ledger-bridge (infra health fans out to
+# :8099/:8095 — server/routers/infra.ts), and 443 for the Meta WhatsApp Graph
+# API / payment providers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: platform
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: keycloak
+      ports:
+        - port: 8080
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: temporal
+      ports:
+        - port: 7233
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: permify
+      ports:
+        - port: 3476
+          protocol: TCP
+        - port: 3478
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ml-inference
+      ports:
+        - port: 8099
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ledger-bridge
+      ports:
+        - port: 8095
+          protocol: TCP
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kafka
+      ports:
+        - port: 9092
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443   # Meta Graph API, payment providers (HTTPS only)
+          protocol: TCP
+---
+# ── 7. commerce-engine egress ────────────────────────────────────────────────
+# Deps (docker-compose commerce-engine env + internal/temporal/client.go):
+# postgres, redis, temporal, platform (/api/health/temporal).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: commerce-engine-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: commerce-engine
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: temporal
+      ports:
+        - port: 7233
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+# ── 8. ledger-bridge egress → tigerbeetle + postgres ─────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ledger-bridge-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: ledger-bridge
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: tigerbeetle
+      ports:
+        - port: 3000
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# ── 9. recon-worker egress → postgres + ledger-bridge + platform ─────────────
+# rust/recon-worker/src/main.rs: queries payment_intents, calls
+# ledger-bridge /health + /balance + /ledger/void, reports to
+# platform /api/internal/events.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: recon-worker-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: recon-worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: ledger-bridge
+      ports:
+        - port: 8095
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+# ── 10. ml-inference egress → postgres + platform ────────────────────────────
+# services/ml-stack/inference/server.py: persists lakehouse runs to Postgres,
+# calls platform /api/trpc/products.list for /recommend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ml-inference-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: ml-inference
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+# ── 11. ai-agent egress → redis + commerce-engine + LLM APIs (443) ───────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-agent-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-agent
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: commerce-engine
+      ports:
+        - port: 8083
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443   # OpenAI / Anthropic APIs (HTTPS only)
+          protocol: TCP
+---
+# ── 12. temporal-worker egress → temporal + postgres + redis + platform ──────
+# services/temporal-workflows/worker.ts env contract.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: temporal-worker-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: temporal-worker
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: temporal
+      ports:
+        - port: 7233
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+# ── 13. hermes-router egress → kafka + redis + Hermes cloud API (443) ────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hermes-router-egress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: hermes-router
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kafka
+      ports:
+        - port: 9092
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443   # Hermes Agent cloud API (HTTPS only)
+          protocol: TCP
+---
+# ── 14. temporal → temporal-db ───────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: temporal-egress-to-temporal-db
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: temporal
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: temporal-db
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# ── 15. keycloak → keycloak-db ───────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-egress-to-keycloak-db
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: keycloak-db
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# ── 16. permify → permify-db ─────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: permify-egress-to-permify-db
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: permify
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: permify-db
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# ── 17. Ingress side of the service mesh (destination allows) ────────────────
+# postgres: only its code-verified clients may connect.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform
+        - podSelector:
+            matchLabels:
+              app: commerce-engine
+        - podSelector:
+            matchLabels:
+              app: ledger-bridge
+        - podSelector:
+            matchLabels:
+              app: recon-worker
+        - podSelector:
+            matchLabels:
+              app: ml-inference
+        - podSelector:
+            matchLabels:
+              app: temporal-worker
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# redis: only its code-verified clients may connect.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: commerce-engine
+        - podSelector:
+            matchLabels:
+              app: ai-agent
+        - podSelector:
+            matchLabels:
+              app: temporal-worker
+        - podSelector:
+            matchLabels:
+              app: hermes-router
+      ports:
+        - port: 6379
+          protocol: TCP
+---
+# tigerbeetle: ONLY ledger-bridge may connect. No egress at all (default-deny
+# + no egress policy for tigerbeetle, DNS included — it does not resolve DNS).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tigerbeetle-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: tigerbeetle
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: ledger-bridge
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+# temporal-db: only temporal.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: temporal-db-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: temporal-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: temporal
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# keycloak-db: only keycloak.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-db-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: keycloak
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# permify-db: only permify.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: permify-db-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: permify-db
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: permify
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# temporal: only its code-verified clients (platform, api-gateway,
+# commerce-engine, temporal-worker).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: temporal-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: temporal
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: commerce-engine
+        - podSelector:
+            matchLabels:
+              app: temporal-worker
+      ports:
+        - port: 7233
+          protocol: TCP
+---
+# keycloak: only platform + api-gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: keycloak
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+# permify: only platform + api-gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: permify-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: permify
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: platform
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 3476
+          protocol: TCP
+        - port: 3478
+          protocol: TCP
+---
+# ── 18. Internal service-to-service ingress allows ───────────────────────────
+# commerce-engine ← api-gateway + ai-agent.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: commerce-engine-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: commerce-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: ai-agent
+      ports:
+        - port: 8083
+          protocol: TCP
+---
+# ml-inference ← api-gateway + platform.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ml-inference-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: ml-inference
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 8099
+          protocol: TCP
+---
+# ledger-bridge ← api-gateway + recon-worker + platform.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ledger-bridge-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: ledger-bridge
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: recon-worker
+        - podSelector:
+            matchLabels:
+              app: platform
+      ports:
+        - port: 8095
+          protocol: TCP
+---
+# ai-agent ← api-gateway.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ai-agent-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: ai-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+      ports:
+        - port: 8090
+          protocol: TCP
+---
+# platform ← api-gateway + commerce-engine + recon-worker + ml-inference +
+# temporal-worker.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-ingress
+  namespace: whatsapp-commerce
+spec:
+  podSelector:
+    matchLabels:
+      app: platform
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-gateway
+        - podSelector:
+            matchLabels:
+              app: commerce-engine
+        - podSelector:
+            matchLabels:
+              app: recon-worker
+        - podSelector:
+            matchLabels:
+              app: ml-inference
+        - podSelector:
+            matchLabels:
+              app: temporal-worker
+      ports:
+        - port: 3000
+          protocol: TCP
+---
+# ── 19. Prometheus scrape path (monitoring namespace) ────────────────────────
+# Only the two real Prometheus-text exporters: apisix :9091 and
+# hermes-router :8096 (see k8s/monitoring/servicemonitors.yaml; every other
+# service either has no /metrics or serves JSON, documented in
+# docs/ZERO_TRUST.md).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: whatsapp-commerce
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9091   # apisix prometheus export
+          protocol: TCP
+        - port: 8096   # hermes-router /metrics
+          protocol: TCP
