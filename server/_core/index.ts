@@ -21,6 +21,7 @@ import { isProd, isDev } from "./env";
 import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
 import { getDb } from "../db";
+import { splitEscrowAmounts } from "../../shared/escrowAmounts";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
@@ -253,19 +254,20 @@ async function confirmProviderPayment(
       .limit(1);
     if (!existingEscrow) {
       const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
-      const feeRate = parseFloat(cfg?.platformFeeRate ?? "0.03125");
       const confirmWindowHours = cfg?.buyerConfirmWindowHours ?? 24;
       const custodyMode = (cfg?.custodyMode ?? "pssp") as "pssp" | "psp";
-      const fee = expectedAmount * feeRate;
+      // Integer minor-units split (shared/escrowAmounts) — same invariant as
+      // escrow.createHold: platformFee + netMerchantAmount == amount always.
+      const split = splitEscrowAmounts(expectedAmount, cfg?.platformFeeRate ?? "0.03125");
       const escrowId = randomUUID();
       const inserted = await db.insert(escrowTransactions).values({
         id: escrowId,
         orderId,
         tenantId,
         customerId,
-        amount: expectedAmount.toFixed(2),
-        platformFee: fee.toFixed(2),
-        netMerchantAmount: (expectedAmount - fee).toFixed(2),
+        amount: split.gross,
+        platformFee: split.fee,
+        netMerchantAmount: split.net,
         currency: expectedCurrency || "NGN",
         custodyMode,
         state: "escrow_held",
@@ -291,14 +293,14 @@ async function confirmProviderPayment(
         }
         if (wallet) {
           const before = parseFloat(wallet.escrowBalance);
-          const after = before + expectedAmount;
+          const after = before + split.grossMinor / 100;
           const walletTxId = randomUUID();
           await db.insert(walletTransactions).values({
             id: walletTxId,
             walletId: wallet.id,
             tenantId,
             type: "escrow_credit",
-            amount: expectedAmount.toFixed(2),
+            amount: split.gross,
             balanceBefore: before.toFixed(2),
             balanceAfter: after.toFixed(2),
             currency: wallet.currency,
@@ -309,7 +311,7 @@ async function confirmProviderPayment(
             createdAt: now,
           });
           await db.update(merchantWallets).set({
-            escrowBalance: sql`${merchantWallets.escrowBalance} + ${expectedAmount.toFixed(2)}`,
+            escrowBalance: sql`${merchantWallets.escrowBalance} + ${split.gross}`,
             updatedAt: now,
           }).where(eq(merchantWallets.id, wallet.id));
           await db.update(escrowTransactions)
@@ -426,29 +428,23 @@ async function startServer() {
   // ── Redis-backed per-tenant rate limiting ─────────────────────────────────
   // 200 req/min per tenant (identified by X-Tenant-Id header or JWT sub)
   app.use("/api/trpc", async (req: any, res: any, next: any) => {
-    try {
-      const { redisIncrEx } = await import("../redis");
-      const tenantKey = req.headers["x-tenant-id"] as string
-        ?? (req.user as any)?.tenantId
-        ?? req.ip
-        ?? "anon";
-      const windowKey = `rl:trpc:${tenantKey}:${Math.floor(Date.now() / 60000)}`;
-      const count = await redisIncrEx(windowKey, 60);
-      if (count > 200) {
-        res.status(429).json({ error: "Too many requests", retryAfter: 60 });
+    const { checkRateLimit } = await import("./rateLimit");
+    const tenantKey = req.headers["x-tenant-id"] as string
+      ?? (req.user as any)?.tenantId
+      ?? req.ip
+      ?? "anon";
+    const windowKey = `rl:trpc:${tenantKey}:${Math.floor(Date.now() / 60000)}`;
+    // checkRateLimit treats an unreachable Redis as a FAILURE (never count=0):
+    // production fails CLOSED (503), dev/test fails OPEN with a warning.
+    const decision = await checkRateLimit(windowKey, 200, 60, isProd);
+    if (!decision.allowed) {
+      res.setHeader("Retry-After", String(decision.retryAfter));
+      if (decision.error) {
+        res.status(503).json({ error: "rate-limiter-unavailable", retryAfter: decision.retryAfter });
         return;
       }
-    } catch (err: any) {
-      if (isProd) {
-        // Fail closed in production-like envs: a rate limiter that cannot
-        // count must not silently allow unlimited traffic. Deny with 503.
-        console.error("[rate-limit] Redis error — denying request (fail closed):", err?.message ?? err);
-        res.setHeader("Retry-After", "30");
-        res.status(503).json({ error: "rate-limiter-unavailable", retryAfter: 30 });
-        return;
-      }
-      // Dev/test only: Redis unavailable — fail open (do not block requests).
-      console.warn("[rate-limit] Redis unavailable — allowing request (dev fail-open):", err?.message ?? err);
+      res.status(429).json({ error: "Too many requests", retryAfter: decision.retryAfter });
+      return;
     }
     next();
   });

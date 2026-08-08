@@ -12,6 +12,8 @@ import {
 } from "../../drizzle/schema";
 import { escrowTimelineAttachments } from "../../drizzle/schema";
 import { storagePut } from "../storage";
+import { splitEscrowAmounts } from "../../shared/escrowAmounts";
+import { ledgerBridgeRequest, LedgerBridgeError, reverseCommittedTransfer } from "../services/ledgerBridge";
 import { emitNotification, NOTIFICATION_TEMPLATES } from "./notifications";
 import { notifyOwner } from "../_core/notification";
 
@@ -250,7 +252,12 @@ export async function settleEscrowAtomic(
 ): Promise<{ transitioned: boolean; newState?: "settled" | "release_instructed"; escrow?: EscrowTransaction }> {
   const cfg = await getEscrowConfig(db);
   const now = new Date();
-  return db.transaction(async (tx) => {
+  // Ledger pending-transfer ids committed (captured) inside the transaction.
+  // If the PG transaction rolls back AFTER a capture, the ledger commit
+  // survives — these ids must be reversed by compensateEscrowSettlementFailure.
+  const capturedPendingIds: string[] = [];
+  try {
+  return await db.transaction(async (tx) => {
     const targetState = cfg.custodyMode === "psp" ? "settled" : "release_instructed";
     const transitioned = await tx.update(escrowTransactions).set({
       state: targetState,
@@ -275,6 +282,34 @@ export async function settleEscrowAtomic(
     const escrow = transitioned[0];
 
     if (cfg.custodyMode === "psp") {
+      // ── Ledger capture (BEFORE wallet credit) ────────────────────────────
+      // Commit the escrow-hold reservation made at payment time so the
+      // settlement is reflected in the double-entry ledger. A 400 means the
+      // reservation was already committed (e.g. by payment.confirm) — capture
+      // is then a no-op, NOT an error. A 5xx/unreachable bridge throws here:
+      // the PG transaction rolls back (escrow stays in its pre-settlement
+      // state) and nothing was captured, so no compensation is needed. If a
+      // LATER step (wallet credit) throws, the capture survives the PG
+      // rollback — the caller compensates via compensateEscrowSettlementFailure.
+      const [originIntent] = await tx.select({ ledgerPendingId: paymentIntents.ledgerPendingId })
+        .from(paymentIntents)
+        .where(and(
+          eq(paymentIntents.orderId, escrow.orderId),
+          eq(paymentIntents.tenantId, escrow.tenantId),
+          eq(paymentIntents.status, "completed"),
+        ))
+        .orderBy(desc(paymentIntents.completedAt))
+        .limit(1);
+      if (originIntent?.ledgerPendingId) {
+        try {
+          await ledgerBridgeRequest("/ledger/commit", "POST", { pending_id: originIntent.ledgerPendingId });
+        } catch (err: any) {
+          if (!(err instanceof LedgerBridgeError && err.status === 400)) throw err;
+          // Already committed elsewhere — capture already effective.
+        }
+        capturedPendingIds.push(originIntent.ledgerPendingId);
+      }
+
       const wallet = await getOrCreateWallet(tx, escrow.tenantId, "psp");
       const netAmount = parseFloat(escrow.netMerchantAmount);
       const fee = parseFloat(escrow.platformFee);
@@ -295,6 +330,87 @@ export async function settleEscrowAtomic(
     }
     return { transitioned: true, newState: targetState, escrow };
   });
+  } catch (err) {
+    // The PG transaction rolled back — but any ledger capture committed
+    // BEFORE the failure survives the rollback. Surface the captured ids so
+    // the caller can compensate (reverse) them.
+    if (capturedPendingIds.length > 0) {
+      throw new EscrowSettlementError(escrowId, capturedPendingIds, err);
+    }
+    throw err;
+  }
+}
+
+/** Thrown when escrow settlement fails AFTER a ledger capture — the PG
+ * transaction rolled back but the ledger commit survived and must be reversed. */
+export class EscrowSettlementError extends Error {
+  escrowId: string;
+  capturedPendingIds: string[];
+  originalError: unknown;
+  constructor(escrowId: string, capturedPendingIds: string[], cause: unknown) {
+    super(`escrow settlement failed after ledger capture: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "EscrowSettlementError";
+    this.escrowId = escrowId;
+    this.capturedPendingIds = capturedPendingIds;
+    this.originalError = cause;
+  }
+}
+
+// ─── Saga compensation: reverse orphaned ledger captures ─────────────────────
+/**
+ * Compensate a failed escrow settlement: the wallet credit threw AFTER the
+ * ledger capture, the PG transaction rolled back (escrow not settled), but
+ * the committed ledger transfer survives. For each captured pending transfer:
+ *   1. POST /ledger/reverse (idempotent — the bridge dedupes on
+ *      reverse:{pending_id}, so retries and duplicate compensations are safe);
+ *   2. mark the escrow not-settled (guarded — never unsettles a genuinely
+ *      settled/released row) and stamp the failure in metadata;
+ *   3. flag any UNCONFIRMED reversal (bridge unreachable/5xx) in metadata for
+ *      the recon worker to pick up.
+ * Wired into escrow.buyerConfirm and the bulk release path.
+ */
+export async function compensateEscrowSettlementFailure(
+  db: Db,
+  opts: { escrowId: string; pendingIds: string[]; reason: string },
+): Promise<{ reversedPendingIds: string[]; unconfirmedPendingIds: string[]; escrowFlagged: boolean }> {
+  const reversedPendingIds: string[] = [];
+  const unconfirmedPendingIds: string[] = [];
+
+  for (const pendingId of opts.pendingIds) {
+    try {
+      await reverseCommittedTransfer(pendingId, `escrow-settlement-failure:${opts.escrowId}`);
+      reversedPendingIds.push(pendingId);
+    } catch (err: any) {
+      // 5xx / unreachable — the reversal could not be confirmed. Flag for recon.
+      unconfirmedPendingIds.push(pendingId);
+      console.error(`[escrow-compensation] UNCONFIRMED reversal for pending_id=${pendingId} (escrow ${opts.escrowId}) — recon required:`, err?.message ?? err);
+    }
+  }
+
+  // Mark the escrow not-settled + stamp the compensation outcome. The guard
+  // (state NOT IN settled/release_instructed) preserves the PG rollback: if
+  // the row somehow IS settled, we do NOT unsettle it — we escalate instead.
+  const now = new Date();
+  const settlementFailure = {
+    reason: opts.reason,
+    at: now.toISOString(),
+    reversedPendingIds,
+    unconfirmedReversalPendingIds: unconfirmedPendingIds,
+    reconRequired: unconfirmedPendingIds.length > 0,
+  };
+  const flagged = await db.update(escrowTransactions).set({
+    metadata: sql`COALESCE(${escrowTransactions.metadata}, '{}'::jsonb) || ${JSON.stringify({ settlementFailure })}::jsonb`,
+    updatedAt: now,
+  }).where(and(
+    eq(escrowTransactions.id, opts.escrowId),
+    sql`${escrowTransactions.state} NOT IN ('settled', 'release_instructed')`,
+  )).returning({ id: escrowTransactions.id });
+
+  if (flagged.length === 0) {
+    console.error(`[escrow-compensation] CRITICAL: escrow ${opts.escrowId} is settled/release_instructed despite a settlement failure — manual recon required. reversed=[${reversedPendingIds}] unconfirmed=[${unconfirmedPendingIds}]`);
+  }
+
+  return { reversedPendingIds, unconfirmedPendingIds, escrowFlagged: flagged.length > 0 };
 }
 
 // ─── Atomic escrow refund helper (full + partial) ─────────────────────────────
@@ -514,9 +630,11 @@ export const escrowRouter = router({
         });
       }
 
-      const feeRate = parseFloat(cfg.platformFeeRate);
-      const fee = holdAmount * feeRate;
-      const netMerchant = holdAmount - fee;
+      // Integer minor-units split (shared/escrowAmounts): guarantees
+      // platformFee + netMerchantAmount == amount for every hold — the old
+      // float split (fee = amount * rate, net = amount - fee, each toFixed(2))
+      // violated that invariant for ~2% of amounts.
+      const split = splitEscrowAmounts(holdAmount, cfg.platformFeeRate);
       const buyerDeadline = new Date(Date.now() + cfg.buyerConfirmWindowHours * 3600 * 1000);
 
       const id = crypto.randomUUID();
@@ -525,9 +643,9 @@ export const escrowRouter = router({
         orderId: input.orderId,
         tenantId: input.tenantId,
         customerId: input.customerId,
-        amount: holdAmount.toFixed(2),
-        platformFee: fee.toFixed(2),
-        netMerchantAmount: netMerchant.toFixed(2),
+        amount: split.gross,
+        platformFee: split.fee,
+        netMerchantAmount: split.net,
         currency: input.currency,
         custodyMode: cfg.custodyMode,
         state: "escrow_held",
@@ -629,6 +747,18 @@ export const escrowRouter = router({
         // Buyer confirmation is only valid AFTER delivery has been confirmed —
         // releasing straight from escrow_held bypasses the delivery checkpoint.
         allowedFromStates: ["delivery_confirmed"],
+      }).catch(async (settleErr) => {
+        // Saga compensation: if the wallet credit threw AFTER the ledger
+        // capture, reverse the orphaned commit (idempotent), keep the escrow
+        // not-settled (PG rollback) and flag unconfirmed reversals for recon.
+        if (settleErr instanceof EscrowSettlementError) {
+          await compensateEscrowSettlementFailure(db, {
+            escrowId: input.escrowId,
+            pendingIds: settleErr.capturedPendingIds,
+            reason: settleErr.message,
+          }).catch((compErr) => console.error("[escrow.buyerConfirm] compensation failed:", compErr));
+        }
+        throw settleErr;
       });
       if (!result.transitioned || !result.escrow) {
         throw new TRPCError({
@@ -939,6 +1069,15 @@ export const escrowRouter = router({
             results.push({ id: escrow.id, success: true, newState: "refunded" });
           }
         } catch (err) {
+          // Bulk release: same saga compensation as buyerConfirm — reverse any
+          // ledger capture orphaned by the rolled-back PG transaction.
+          if (input.action === "release" && err instanceof EscrowSettlementError) {
+            await compensateEscrowSettlementFailure(db, {
+              escrowId: escrow.id,
+              pendingIds: err.capturedPendingIds,
+              reason: err.message,
+            }).catch((compErr) => console.error("[escrow.bulkUpdateState] compensation failed:", compErr));
+          }
           results.push({ id: escrow.id, success: false, error: err instanceof Error ? err.message : String(err) });
         }
       }
