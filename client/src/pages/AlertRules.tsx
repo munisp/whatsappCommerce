@@ -411,11 +411,6 @@ export default function AlertRules() {
                                 <BellOff className="w-3 h-3" /> Silent
                               </span>
                             )}
-                            {rule.heartbeatTaskUid && (
-                              <span className="text-blue-400 font-mono truncate max-w-[140px]">
-                                UID: {rule.heartbeatTaskUid}
-                              </span>
-                            )}
                           </div>
                           {rule.lastTriggeredAt && (
                             <p className="text-xs text-amber-400 mt-0.5">

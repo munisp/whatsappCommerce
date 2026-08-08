@@ -45,12 +45,20 @@ export default function OdooMedusaBridge() {
     setSyncing(true);
     try {
       const res = await syncMutation.mutateAsync();
-      const r = res as { synced?: number; errors?: string[]; skipped?: number };
+      const r = res as { synced?: number; failed?: number; errors?: string[]; skipped?: number; status?: string; error?: string | null };
       const synced = r.synced ?? 0;
-      const failed = r.errors?.length ?? 0;
+      const failed = r.failed ?? r.errors?.length ?? 0;
       const total = synced + failed + (r.skipped ?? 0);
       setLastSyncResult({ synced, failed, total, ts: new Date() });
-      toast.success(`Sync complete: ${synced} updated, ${r.skipped ?? 0} skipped`);
+      if (r.status && r.status !== "ok") {
+        // Backend reported a structured non-OK status (e.g. odoo_unavailable) —
+        // surface it honestly instead of a misleading "Sync complete" success toast.
+        toast.error(r.error ?? `Sync did not run (status: ${r.status}). Check Settings → Secrets.`);
+      } else if (synced === 0 && failed === 0) {
+        toast.warning("Sync ran but nothing was updated — no product mappings are configured yet.");
+      } else {
+        toast.success(`Sync complete: ${synced} updated, ${r.skipped ?? 0} skipped`);
+      }
       if ((r.errors?.length ?? 0) > 0) {
         toast.warning(`${r.errors!.length} errors during sync`);
       }

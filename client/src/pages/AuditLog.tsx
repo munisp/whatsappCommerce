@@ -56,14 +56,13 @@ export default function AuditLog() {
   const handleExportCsv = () => {
     const rows = filteredEvents;
     if (rows.length === 0) return;
-    const headers = ["Time", "Tenant", "Event Type", "Intent", "Confidence", "Model", "Escalated", "Conversation ID"];
+    const headers = ["Time", "Tenant", "Event Type", "Intent", "Confidence", "Escalated", "Conversation ID"];
     const csvRows = rows.map(e => [
       new Date(e.createdAt).toISOString(),
       e.tenantId ?? "",
       e.eventType ?? "",
       e.intentType ?? "",
       e.confidence != null ? (parseFloat(e.confidence) * 100).toFixed(1) + "%" : "",
-      e.model ?? "",
       e.escalated ? "Yes" : "No",
       e.conversationId ?? "",
     ]);
@@ -184,7 +183,6 @@ export default function AuditLog() {
                       <th className="text-left px-4 py-3">Event Type</th>
                       <th className="text-left px-4 py-3">Intent</th>
                       <th className="text-left px-4 py-3">Confidence</th>
-                      <th className="text-left px-4 py-3">Model</th>
                       <th className="text-left px-4 py-3">Escalated</th>
                       <th className="text-left px-4 py-3">Conversation</th>
                     </tr>
@@ -222,7 +220,6 @@ export default function AuditLog() {
                               </div>
                             ) : <span className="text-muted-foreground">—</span>}
                           </td>
-                          <td className="px-4 py-3 text-xs text-muted-foreground">{event.model ?? "—"}</td>
                           <td className="px-4 py-3">
                             {event.escalated ? (
                               <Badge variant="outline" className="text-xs bg-red-500/20 text-red-400 border-red-500/30">Yes</Badge>

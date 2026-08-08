@@ -474,9 +474,9 @@ export default function CredentialWizard() {
           <CardContent className="p-4 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-amber-300 text-sm font-medium">Production Credentials Required</p>
+              <p className="text-amber-300 text-sm font-medium">Credentials Not Configured</p>
               <p className="text-amber-300/60 text-xs mt-1">
-                The platform runs in demo mode until live credentials are configured. WhatsApp messages, Odoo syncs, and payment processing require valid API keys from each provider.
+                These integrations are not configured yet — enter credentials below to enable them. WhatsApp messages, Odoo syncs, and payment processing stay disabled until valid API keys from each provider are saved here.
               </p>
             </div>
           </CardContent>
