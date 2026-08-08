@@ -43,6 +43,13 @@ import {
   TENANT_HEADER as INTEGRATION_TENANT_HEADER,
 } from "../services/integrations/inbound";
 import { processOutbox } from "../services/integrations/outbox";
+import { claimWebhookEvent, sweepProcessedWebhookEvents } from "../services/webhookDedupe";
+import {
+  recordUsage, getPlan, evaluateQuota, notifyQuotaWarning,
+  METRIC_MESSAGES, METRIC_MESSAGES_IN, METRIC_MESSAGES_OUT,
+} from "../services/metering";
+import { matchSettlements } from "../services/reconMatch";
+import { checkReadiness } from "../services/healthReady";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -55,6 +62,25 @@ export function broadcastConversationEvent(tenantId: string, event: object) {
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) ws.send(msg);
   });
+}
+
+/**
+ * Platform ops: outbound sends at the webhook-dispatch layer are usage-metered
+ * (messages_out + the combined `messages` quota counter) without touching
+ * waSender. Metering never blocks or fails the send (recordUsage swallows its
+ * own errors).
+ */
+async function sendWhatsAppTextMetered(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  tenantId: string,
+  phone: string,
+  text: string,
+  opts?: Parameters<typeof sendWhatsAppText>[3],
+) {
+  const result = await sendWhatsAppText(tenantId, phone, text, opts);
+  await recordUsage(db, tenantId, METRIC_MESSAGES_OUT);
+  await recordUsage(db, tenantId, METRIC_MESSAGES);
+  return result;
 }
 
 // ── Webhook security helpers ─────────────────────────────────────────────────
@@ -805,6 +831,7 @@ async function startServer() {
       const messages: any[] = value?.messages ?? [];
       const contacts: any[] = value?.contacts ?? [];
       const phoneNumberId: string = value?.metadata?.phone_number_id ?? "";
+      let duplicatesSkipped = 0;
       for (const msg of messages) {
         const waPhoneNumber: string = msg.from ?? "";
         const contactName: string = contacts.find((c: any) => c.wa_id === waPhoneNumber)?.profile?.name ?? "";
@@ -813,6 +840,48 @@ async function startServer() {
           .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
         const tenantId: string = (tenant as any)?.id ?? "default";
+        // ── Platform ops: webhook idempotency (insert-first claim) ──────────
+        // Meta retries deliveries until a 200; the wamid is the ledger PK, so
+        // a retry collides (ON CONFLICT DO NOTHING) and is skipped — a
+        // message is never reprocessed. Production fails closed when the
+        // ledger is unavailable (dev/test use an in-memory fallback).
+        if (msg.id) {
+          let claim: "claimed" | "duplicate";
+          try {
+            claim = await claimWebhookEvent(db, { id: msg.id, tenantId, type: msg.type ?? "unknown" });
+          } catch (dedupeErr: any) {
+            // Fail closed (production policy): the ack was already sent, but a
+            // blind dedupe ledger must NOT reprocess — skip the message.
+            console.error(`[whatsapp-webhook] dedupe ledger unavailable for ${msg.id} — failing closed, message NOT processed:`, dedupeErr?.message);
+            continue;
+          }
+          if (claim === "duplicate") {
+            duplicatesSkipped++;
+            console.log(`[whatsapp-webhook] duplicate delivery ${msg.id} — skipped`);
+            continue;
+          }
+        }
+        // ── Platform ops: usage metering + monthly message quota gate ──────
+        // Count every inbound message; warn the tenant admin once per period
+        // at 80% and 100%; past the hard stop (limit + 10% grace) the buyer
+        // gets a polite "merchant busy" reply and the message is not processed.
+        try {
+          await recordUsage(db, tenantId, METRIC_MESSAGES_IN);
+          const totalUsage = await recordUsage(db, tenantId, METRIC_MESSAGES);
+          const plan = await getPlan(db, tenantId);
+          const quota = evaluateQuota(totalUsage, plan.limits.messagesPerMonth);
+          if (quota.warnLevel) await notifyQuotaWarning(db, tenantId, quota);
+          if (!quota.allowed) {
+            console.warn(`[whatsapp-webhook] tenant ${tenantId} over hard message quota (${quota.usage}/${quota.limit}) — busy reply sent`);
+            await sendWhatsAppText(tenantId, waPhoneNumber,
+              "Thanks for your message! We're experiencing unusually high volume right now — please try again a little later. 🙏",
+              { notifType: "quota_busy" }).catch((e: any) => console.warn("[whatsapp-webhook] busy reply send failed:", e?.message));
+            continue;
+          }
+        } catch (e: any) {
+          // Metering/quota failures must never block message processing.
+          console.error("[whatsapp-webhook] metering/quota check failed — processing anyway:", e?.message);
+        }
         // ── Emoji-reaction tracking ─────────────────────────────────────────
         // WhatsApp reaction payloads carry a `reaction` field; reply with the
         // sender's latest order/shipment status + tracking link.
@@ -821,7 +890,7 @@ async function startServer() {
             const { handleReactionInbound } = await import("../services/useCases");
             const reactionReply = await handleReactionInbound({ db, tenantId, phone: waPhoneNumber });
             if (reactionReply) {
-              await sendWhatsAppText(tenantId, waPhoneNumber, reactionReply, { notifType: "reaction_status" })
+              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, reactionReply, { notifType: "reaction_status" })
                 .catch((e: any) => console.error("[whatsapp-webhook] reaction reply send error:", e?.message));
             }
           } catch (e: any) {
@@ -1011,12 +1080,17 @@ async function startServer() {
                     console.error("[whatsapp-webhook] interactive menu send error:", e?.message);
                     return null;
                   });
+                if (interactiveRes) {
+                  // Platform ops metering: outbound interactive menu send.
+                  await recordUsage(db, tenantId, METRIC_MESSAGES_OUT);
+                  await recordUsage(db, tenantId, METRIC_MESSAGES);
+                }
                 if (!interactiveRes && menuOutcome.reply) {
-                  await sendWhatsAppText(tenantId, waPhoneNumber, menuOutcome.reply)
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, menuOutcome.reply)
                     .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
                 }
               } else if (menuOutcome.reply) {
-                await sendWhatsAppText(tenantId, waPhoneNumber, menuOutcome.reply)
+                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, menuOutcome.reply)
                   .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
               }
             }
@@ -1037,7 +1111,7 @@ async function startServer() {
                 customerName: contactName || undefined,
               });
               if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
-                await sendWhatsAppText(tenantId, waPhoneNumber, nlpResult.reply)
+                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, nlpResult.reply)
                   .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
                 // Rich follow-ups annotated by the NLP engine:
                 // order action card after a confirm_order payment summary,
@@ -2562,6 +2636,71 @@ function drawBbox(img,id){
   // Intended for k8s liveness/readiness probes and load-test warm checks.
   app.get("/health", (_req, res) => {
     res.status(200).json({ ok: true, uptime: process.uptime(), ts: Date.now() });
+  });
+
+  // ── GET /health/ready — DEEP readiness probe (platform ops) ───────────────
+  // Live checks against DB (SELECT 1), Redis (PING), Keycloak (JWKS ≤2s) and
+  // TigerBeetle (ledger-bridge probe). Per-component ok/fail; 503 when any
+  // component fails in production (dev/test stays 200 with the detail so
+  // local runs without the full stack remain usable). /health is untouched.
+  app.get("/health/ready", async (_req, res) => {
+    try {
+      const report = await checkReadiness();
+      const status = !report.ok && isProd ? 503 : 200;
+      return res.status(status).json({ ...report, ts: Date.now() });
+    } catch (err: any) {
+      console.error("[health/ready]", err);
+      return res.status(isProd ? 503 : 200).json({ ok: false, error: String(err?.message) });
+    }
+  });
+
+  // ── Scheduled: webhook dedupe ledger sweep (platform ops, cron-only) ──────
+  // Retention for the webhook idempotency ledger — deletes claim rows older
+  // than 7 days. Meta never retries deliveries older than that.
+  app.post("/api/cron/webhook-dedupe-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const deleted = await sweepProcessedWebhookEvents(db);
+      console.log(`[webhook-dedupe-sweep] deleted ${deleted} ledger rows older than 7 days`);
+      return res.status(200).json({ ok: true, deleted });
+    } catch (err: any) {
+      console.error("[webhook-dedupe-sweep]", err);
+      return res.status(500).json({ error: String(err?.message) });
+    }
+  });
+
+  // ── Internal: settlement recon feed (recon-worker / bank feeds) ───────────
+  // HMAC-SHA256 over the raw body (X-Recon-Signature: sha256=<hex>), secret
+  // RECON_WEBHOOK_SECRET — fail-closed when unset, same policy as the other
+  // inbound webhooks. Settlements are auto-matched against unsettled
+  // receiptReview-flagged receipts and confirmed via the shared
+  // paymentConfirm path (see services/reconMatch.ts).
+  app.post("/api/internal/recon-settlements", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const rawBody = toRawBody(req.body);
+      const secret = requireWebhookSecret("RECON_WEBHOOK_SECRET", process.env.RECON_WEBHOOK_SECRET, res);
+      if (secret === null) return;
+      if (secret) {
+        const sig = ((req.headers["x-recon-signature"] as string) ?? "").replace(/^sha256=/, "");
+        if (!verifyHmacSignature(rawBody, secret, sig, "sha256")) {
+          console.warn("[recon-settlements] invalid HMAC signature — rejected");
+          return res.status(401).json({ error: "invalid-signature" });
+        }
+      }
+      const body = JSON.parse(rawBody.toString());
+      const settlements = Array.isArray(body?.settlements) ? body.settlements : [];
+      const summary = await matchSettlements(db, settlements);
+      console.log(`[recon-settlements] processed ${settlements.length}: confirmed=${summary.confirmed} unmatched=${summary.unmatched}`);
+      return res.status(200).json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[recon-settlements]", err);
+      return res.status(500).json({ error: String(err?.message) });
+    }
   });
 
   // ── GET /api/health/postgres — Postgres connection health check ────────────

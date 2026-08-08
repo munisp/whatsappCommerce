@@ -88,7 +88,18 @@ export async function notifyBuyerShipmentStatus(
   if (!builder) return;
   const phone = await resolveBuyerPhone(db, shipment.orderId);
   if (!phone) return;
-  const message = builder(shipment, trackingUrlFor(shipment.orderId));
+  let message = builder(shipment, trackingUrlFor(shipment.orderId));
+  // ETA engine: append "⏱ ETA ~X min" while the shipment is still in flight
+  // (terminal statuses yield 0 → no line). Best-effort; never blocks the push.
+  try {
+    const { estimateShipmentRemainingEta, formatEtaLine } = await import("../services/eta");
+    const etaLine = formatEtaLine(await estimateShipmentRemainingEta(db, {
+      shipmentId: shipment.id, status, tenantId: shipment.tenantId,
+    }));
+    if (etaLine) message += `\n${etaLine}`;
+  } catch (e: any) {
+    console.warn("[logistics] ETA injection failed:", e?.message);
+  }
   await sendWhatsAppText(shipment.tenantId, phone, message, {
     notifType: `shipment_${status}`,
     orderId: shipment.orderId,

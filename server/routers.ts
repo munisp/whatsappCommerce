@@ -40,6 +40,7 @@ import { revenueRouter } from "./routers/revenue";
 import { escrowRouter, escrowDisputeRouter, walletRouter, timelineAttachmentRouter } from "./routers/escrow";
 import { logisticsRouter } from "./routers/logistics";
 import { trackingRouter } from "./routers/tracking";
+import { meteringRouter } from "./routers/metering";
 import { notificationsRouter } from "./routers/notifications";
 import { slaRouter } from "./routers/sla";
 import { evidencePortalRouter } from "./routers/evidencePortal";
@@ -130,6 +131,7 @@ export const appRouter = router({
   escrowDispute: escrowDisputeRouter,
   wallet: walletRouter,
   logistics: logisticsRouter,
+  metering: meteringRouter,
   tracking: trackingRouter,
   notifications: notificationsRouter,
   timelineAttachment: timelineAttachmentRouter,

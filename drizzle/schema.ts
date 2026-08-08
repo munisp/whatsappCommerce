@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   numeric,
   bigint,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { uuid } from "drizzle-orm/pg-core";
 
@@ -2854,3 +2855,36 @@ export const integrationEvents = pgTable("integration_events", {
 ]);
 export type IntegrationEvent = typeof integrationEvents.$inferSelect;
 export type NewIntegrationEvent = typeof integrationEvents.$inferInsert;
+
+// ── Platform ops: webhook idempotency ledger ────────────────────────────────
+// Insert-first claim at the WhatsApp webhook entry: the Meta wamid/event id is
+// the primary key, so concurrent/retry deliveries collide on the PK and are
+// skipped (ON CONFLICT DO NOTHING). Rows are swept after 7 days by the
+// /api/cron/webhook-dedupe-sweep cron. NOTE: id is varchar(64), not the usual
+// 36 — Meta wamids ("wamid.HBg…") routinely exceed 36 chars.
+export const processedWebhookEvents = pgTable("processed_webhook_events", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  type: varchar("type", { length: 64 }).notNull(),
+  processedAt: timestamp("processedAt").defaultNow().notNull(),
+}, (t) => [
+  index("processed_webhook_events_processed_at_idx").on(t.processedAt),
+  index("processed_webhook_events_tenant_idx").on(t.tenantId),
+]);
+export type ProcessedWebhookEvent = typeof processedWebhookEvents.$inferSelect;
+export type NewProcessedWebhookEvent = typeof processedWebhookEvents.$inferInsert;
+
+// ── Platform ops: usage metering counters ────────────────────────────────────
+// Monthly per-tenant usage counters (period = "yyyymm"). Upsert-incremented by
+// services/metering.ts; plan limits live in tenants.settings.plan.
+export const usageCounters = pgTable("usage_counters", {
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  metric: varchar("metric", { length: 64 }).notNull(),
+  period: varchar("period", { length: 6 }).notNull(),
+  count: integer("count").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.tenantId, t.metric, t.period] }),
+]);
+export type UsageCounter = typeof usageCounters.$inferSelect;
+export type NewUsageCounter = typeof usageCounters.$inferInsert;

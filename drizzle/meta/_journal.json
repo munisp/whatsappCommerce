@@ -253,6 +253,20 @@
       "when": 1786500001000,
       "tag": "0037_broadcast_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786600000000,
+      "tag": "0038_processed_webhook_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786600001000,
+      "tag": "0039_usage_counters",
+      "breakpoints": true
     }
   ]
 }
