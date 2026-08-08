@@ -22,9 +22,10 @@ import {
   getCart,
 } from "../services/medusaAdapter";
 import { getDb } from "../db";
-import { whatsappMenus, whatsappMenuItems, tenants } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
-import { fetchMedusaCatalog } from "../services/integrationSync";
+import { whatsappMenus, whatsappMenuItems, tenantIntegrations } from "../../drizzle/schema";
+import { and, eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { fetchMedusaCatalog, getMedusaIntegrationConfig } from "../services/integrationSync";
 import { randomUUID } from "crypto";
 
 function getMedusaTenantId(ctx: { user?: { tenantId?: string | null } | null }): string {
@@ -211,22 +212,134 @@ export const medusaRouter = router({
       return { imported: inserted.length };
     }),
 
-  /** Configure Medusa connection for a tenant (admin only) */
+  /**
+   * Configure the Medusa connection for a tenant (admin only).
+   *
+   * Persists credentials to tenant_integrations (integrationType "medusa") —
+   * the authoritative store consumed by every per-tenant sync path
+   * (integrationSync.syncOrderToMedusa / fetchMedusaCatalog, the
+   * odooMedusaBridge inventory push and the cron heartbeats).
+   *
+   * NOTE: server/services/medusaAdapter.ts reads process.env at module load
+   * and is NOT tenant-aware.  The MEDUSA_API_URL / MEDUSA_ADMIN_API_KEY env
+   * vars therefore remain a global bootstrap for the env-based adapter paths
+   * above; the DB row written here always takes precedence inside the
+   * per-tenant resolver (getMedusaIntegrationConfig).  Runtime mutation of
+   * process.env has been removed — env config must be set at deploy time.
+   */
   configure: adminProcedure
     .input(z.object({
       tenantId: z.string(),
       baseUrl: z.string().url(),
       apiKey: z.string().min(1),
+      publishableKey: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      await db.update(tenants)
-        .set({ updatedAt: new Date() })
-        .where(eq(tenants.id, input.tenantId));
-      // Store credentials in environment or encrypted config
-      process.env.MEDUSA_API_URL = input.baseUrl;
-      process.env.MEDUSA_API_KEY = input.apiKey;
-      return { ok: true, message: "Medusa configuration saved" };
+      const baseUrl = input.baseUrl.replace(/\/+$/, "");
+      const existing = await db
+        .select({ id: tenantIntegrations.id })
+        .from(tenantIntegrations)
+        .where(and(
+          eq(tenantIntegrations.tenantId, input.tenantId),
+          eq(tenantIntegrations.integrationType, "medusa"),
+        ))
+        .limit(1);
+      if (existing[0]) {
+        await db.update(tenantIntegrations)
+          .set({
+            baseUrl,
+            apiKey: input.apiKey,
+            apiSecret: input.publishableKey ?? null,
+            status: "active",
+            enabledAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantIntegrations.id, existing[0].id));
+        return { ok: true, id: existing[0].id, message: "Medusa configuration saved" };
+      }
+      const id = randomUUID();
+      await db.insert(tenantIntegrations).values({
+        id,
+        tenantId: input.tenantId,
+        integrationType: "medusa",
+        displayName: "Medusa Commerce",
+        baseUrl,
+        apiKey: input.apiKey,
+        apiSecret: input.publishableKey ?? null,
+        status: "active",
+        enabledAt: new Date(),
+      });
+      return { ok: true, id, message: "Medusa configuration saved" };
+    }),
+
+  /**
+   * Real connection test: GET {baseUrl}/admin/products?limit=1 with the
+   * x-medusa-access-token header.  Returns the real error when the instance
+   * is unreachable or the admin API key is rejected.
+   */
+  testConnection: protectedProcedure
+    .input(z.object({
+      tenantId: z.string().optional(),
+      baseUrl: z.string().url(),
+      apiKey: z.string().min(1),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const tenantId = input.tenantId ?? getMedusaTenantId(ctx);
+      // Cross-tenant guard: only admins may test another tenant's connection.
+      if (ctx.user.role !== "admin" && input.tenantId && input.tenantId !== getMedusaTenantId(ctx)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Cannot manage Medusa integration for another tenant",
+        });
+      }
+      const baseUrl = input.baseUrl.replace(/\/+$/, "");
+      let status: "connected" | "error" = "error";
+      let error: string | null = null;
+      try {
+        const res = await fetch(`${baseUrl}/admin/products?limit=1`, {
+          headers: { "x-medusa-access-token": input.apiKey, Accept: "application/json" },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) {
+          status = "connected";
+        } else {
+          const body = await res.text().catch(() => "");
+          error = `Medusa admin API returned status ${res.status}: ${body.slice(0, 300)}`;
+        }
+      } catch (err: any) {
+        error = err?.message ?? String(err);
+      }
+      // Reflect the outcome on the tenant_integrations row when one exists.
+      const [existing] = await db
+        .select({ id: tenantIntegrations.id })
+        .from(tenantIntegrations)
+        .where(and(
+          eq(tenantIntegrations.tenantId, tenantId),
+          eq(tenantIntegrations.integrationType, "medusa"),
+        ))
+        .limit(1);
+      if (existing) {
+        await db.update(tenantIntegrations)
+          .set({
+            status: status === "connected" ? "active" : "error",
+            lastHealthCheck: new Date(),
+            lastHealthStatus: status === "connected" ? "ok" : "error",
+            lastError: error,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantIntegrations.id, existing.id));
+      }
+      return { success: status === "connected", status, error };
+    }),
+
+  /** Effective Medusa configuration for the caller's tenant (DB or env bootstrap). */
+  getTenantConfig: protectedProcedure.query(async ({ ctx }) => {
+    const cfg = await getMedusaIntegrationConfig(getMedusaTenantId(ctx));
+    if (!cfg) return { configured: false, baseUrl: null, source: null };
+    return { configured: true, baseUrl: cfg.baseUrl, source: cfg.source };
     }),
 });
