@@ -14,6 +14,7 @@ import {
   escrowConfig, escrowTransactions, merchantWallets, walletTransactions,
 } from "../../drizzle/schema";
 import { splitEscrowAmounts } from "../../shared/escrowAmounts";
+import { syncLocalChange } from "./integrations/outbox";
 import { creditWalletTopUp } from "../routers/escrow";
 import { commitReservations } from "./inventory";
 
@@ -256,6 +257,28 @@ export async function confirmProviderPayment(
 
   // Credit the merchant wallet for wallet_topup payment intents (idempotent).
   await maybeCreditWalletTopUp();
+
+  // Transactional outbox: enqueue Medusa/Odoo sync for the confirmed order.
+  // Enqueue failures are logged but never fail the payment confirmation.
+  if (orderId) {
+    try {
+      await syncLocalChange(db, {
+        tenantId,
+        entity: "order",
+        entityId: orderId,
+        action: "confirmed",
+        data: {
+          customerId,
+          currency: expectedCurrency || "NGN",
+          totalAmount: expectedAmount,
+          paymentProvider: opts.provider,
+          paymentReference: reference,
+        },
+      });
+    } catch (e: unknown) {
+      console.error("[payment-confirm] integration outbox enqueue failed:", (e as Error)?.message);
+    }
+  }
 
   console.log(`[payment-confirm] ${opts.provider} ref=${reference} confirmed via ${kind} row ${rowId}`);
   return { ok: true, action: "confirmed" };

@@ -75,6 +75,7 @@ import { privacyRouter } from "./routers/privacy";
 import { fraudCaseRouter } from "./routers/fraudCase";
 import { reportRouter } from "./routers/report";
 import { auditRouter } from "./routers/audit";
+import { integrationsRouter } from "./routers/integrations";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -165,6 +166,7 @@ export const appRouter = router({
   fraudCase: fraudCaseRouter,
   report: reportRouter,
   audit: auditRouter,
+  integrations: integrationsRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";

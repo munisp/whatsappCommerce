@@ -2812,3 +2812,27 @@ export const consents = pgTable("consents", {
 ]);
 export type Consent = typeof consents.$inferSelect;
 export type NewConsent = typeof consents.$inferInsert;
+// ── Integrations: transactional outbox for Medusa / Twenty CRM / Odoo sync ──
+// Every local mutation that must reach an external system is first recorded
+// here (direction='out', status='pending') and delivered asynchronously by the
+// outbox dispatcher (server/services/integrations/outbox.ts) — never
+// fire-and-forget. Inbound webhook payloads are recorded with direction='in'.
+export const integrationEvents = pgTable("integration_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  system: text("system").notNull(), // 'medusa' | 'twenty' | 'odoo'
+  direction: text("direction").notNull(), // 'out' | 'in'
+  entity: text("entity").notNull(), // 'order' | 'customer' | 'product' | ...
+  entityId: text("entityId"),
+  payload: jsonb("payload"), // { action, origin: 'platform'|'external', data: {...} }
+  status: text("status").default("pending").notNull(), // 'pending' | 'delivered' | 'failed' | 'dead'
+  attempts: integer("attempts").default(0).notNull(),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  processedAt: timestamp("processedAt"),
+}, (t) => [
+  index("integration_events_status_attempts_idx").on(t.status, t.attempts),
+  index("integration_events_tenant_idx").on(t.tenantId),
+]);
+export type IntegrationEvent = typeof integrationEvents.$inferSelect;
+export type NewIntegrationEvent = typeof integrationEvents.$inferInsert;

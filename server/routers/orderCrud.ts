@@ -15,6 +15,7 @@ import {
   releaseReservations,
   InsufficientStockError,
 } from "../services/inventory";
+import { syncLocalChange } from "../services/integrations/outbox";
 
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
@@ -161,6 +162,34 @@ export const orderCrudRouter = router({
       };
       publishOrderEvent(orderId, input.tenantId, "created", { orderNumber, total, currency: input.currency }).catch(() => {});
       daprPublish("wacommerce-pubsub", "wacommerce.orders.created", orderEvent).catch(() => {});
+
+      // Transactional outbox: enqueue Medusa/Odoo order sync + CRM customer
+      // upsert. Rows are written BEFORE returning; delivery is async via the
+      // outbox dispatcher, so a sync failure can never lose the event.
+      try {
+        await syncLocalChange(db, {
+          tenantId: input.tenantId,
+          entity: "order",
+          entityId: orderId,
+          action: "created",
+          data: {
+            orderNumber,
+            customerId: input.customerId,
+            currency: input.currency,
+            totalAmount: total,
+            items: input.items,
+          },
+        });
+        await syncLocalChange(db, {
+          tenantId: input.tenantId,
+          entity: "customer",
+          entityId: input.customerId,
+          action: "updated",
+          data: { customerId: input.customerId, whatsappPhone: customer?.whatsappPhone ?? null },
+        });
+      } catch (e: unknown) {
+        console.error("[orderCrud] integration outbox enqueue failed:", (e as Error)?.message);
+      }
 
       return { orderId, orderNumber, total };
     }),
