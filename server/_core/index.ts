@@ -23,7 +23,7 @@ import { getDb } from "../db";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
-import { paymentTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
+import { paymentTransactions, paymentIntents, walletTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { broadcastCampaigns, broadcastRecipients, twentyContacts } from "../../drizzle/schema";
 import { hermesPODrafts, hermesHealthLog, fluvioEventLog } from "../../drizzle/schema";
 import { eq, and, gte, lte, lt } from "drizzle-orm";
@@ -45,6 +45,252 @@ export function broadcastConversationEvent(tenantId: string, event: object) {
   clients.forEach(ws => {
     if (ws.readyState === WebSocket.OPEN) ws.send(msg);
   });
+}
+
+// ── Webhook security helpers ─────────────────────────────────────────────────
+
+/** Length-guarded constant-time string comparison (timingSafeEqual throws on length mismatch). */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ba = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+
+function isProductionLike(): boolean {
+  return process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
+}
+
+/**
+ * Resolve a webhook signing secret, failing CLOSED.
+ * - Secret set → returned, caller MUST verify the signature.
+ * - Secret unset in production/staging → 503 sent, returns null (caller returns).
+ * - Secret unset outside production → loud warning, returns "" (signature check skipped for local dev).
+ */
+function requireWebhookSecret(
+  secretName: string,
+  secret: string | null | undefined,
+  res: express.Response,
+): string | null {
+  if (secret) return secret;
+  if (isProductionLike()) {
+    console.error(`[webhook-security] ${secretName} is not configured — refusing request (fail closed)`);
+    res.status(503).json({ error: "webhook-secret-not-configured", secret: secretName });
+    return null;
+  }
+  console.warn(`[webhook-security] ${secretName} unset — skipping signature verification (non-production mode)`);
+  return "";
+}
+
+/** Constant-time HMAC verification of a raw request body. */
+function verifyHmacSignature(rawBody: Buffer, secret: string, signature: string, algo: "sha256" | "sha512"): boolean {
+  if (!signature) return false;
+  const expected = crypto.createHmac(algo, secret).update(rawBody).digest("hex");
+  return timingSafeEqualStr(signature, expected);
+}
+
+/** Coerce an express body that may be a Buffer (express.raw) or parsed object into a Buffer. */
+function toRawBody(body: unknown): Buffer {
+  if (Buffer.isBuffer(body)) return body;
+  if (typeof body === "string") return Buffer.from(body, "utf8");
+  return Buffer.from(JSON.stringify(body ?? {}), "utf8");
+}
+
+// ── Shared provider payment confirmation (Paystack/Flutterwave webhooks) ────
+// Fixes the split-brain where payment.initiate wrote paymentIntents rows
+// (PAY-… references stored in providerPaymentId) while the webhooks only
+// updated paymentTransactions (WC-… references from paymentGateway.initiate),
+// so payment.initiate payments could never be confirmed. This resolver looks
+// the reference up in BOTH tables, verifies the provider-reported
+// amount/currency against the stored record BEFORE mutating, and drives order
+// confirmation + escrow hold creation from either path. Idempotent: replaying
+// the same webhook never double-confirms, double-credits, or double-creates
+// the escrow hold.
+async function confirmProviderPayment(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  opts: {
+    provider: string;
+    reference: string;
+    amountMajor: number | null; // provider-reported amount in MAJOR currency units
+    currency: string | null;
+    rawPayload: unknown;
+  },
+): Promise<{ ok: boolean; action: string; detail?: string }> {
+  const { reference } = opts;
+  if (!reference) return { ok: false, action: "no-reference" };
+  const now = new Date();
+
+  // ── Resolve the reference in either table ─────────────────────────────────
+  let kind: "transaction" | "intent";
+  let rowId: string;
+  let tenantId: string;
+  let orderId: string | null;
+  let customerId: string | null;
+  let expectedAmount: number;
+  let expectedCurrency: string;
+  let currentStatus: string;
+
+  const [tx] = await db.select().from(paymentTransactions)
+    .where(eq(paymentTransactions.providerRef, reference)).limit(1);
+  if (tx) {
+    kind = "transaction";
+    rowId = tx.id;
+    tenantId = tx.tenantId;
+    orderId = tx.orderId ?? null;
+    customerId = tx.customerId ?? null;
+    expectedAmount = parseFloat(tx.amount);
+    expectedCurrency = (tx.currency ?? "").toUpperCase();
+    currentStatus = tx.status;
+  } else {
+    const [intent] = await db.select().from(paymentIntents)
+      .where(eq(paymentIntents.providerPaymentId, reference)).limit(1);
+    if (!intent) {
+      console.warn(`[payment-confirm] ${opts.provider} ref=${reference} matched no paymentTransactions or paymentIntents row`);
+      return { ok: false, action: "not-found", detail: reference };
+    }
+    kind = "intent";
+    rowId = intent.id;
+    tenantId = intent.tenantId;
+    orderId = intent.orderId ?? null;
+    customerId = intent.customerId ?? null;
+    expectedAmount = parseFloat(intent.amount);
+    expectedCurrency = (intent.currency ?? "").toUpperCase();
+    currentStatus = intent.status;
+  }
+
+  // ── Amount/currency verification (BEFORE any state mutation) ─────────────
+  const amountMismatch =
+    opts.amountMajor == null ||
+    !Number.isFinite(opts.amountMajor) ||
+    Math.abs(opts.amountMajor - expectedAmount) > 0.01;
+  const currencyMismatch =
+    !opts.currency || !expectedCurrency || opts.currency.toUpperCase() !== expectedCurrency;
+  if (amountMismatch || currencyMismatch) {
+    const reason = `webhook ${amountMismatch ? "amount" : "currency"} mismatch: provider=${opts.amountMajor ?? "?"} ${opts.currency ?? "?"}, expected=${expectedAmount} ${expectedCurrency}`;
+    console.error(`[payment-confirm] REJECTED ${opts.provider} ref=${reference}: ${reason}`);
+    if (currentStatus !== "completed") {
+      const failedAt = now;
+      if (kind === "transaction") {
+        await db.update(paymentTransactions)
+          .set({ status: "failed", failureReason: reason, callbackData: opts.rawPayload as any, updatedAt: failedAt })
+          .where(and(eq(paymentTransactions.id, rowId), sql`${paymentTransactions.status} <> 'completed'`));
+      } else {
+        await db.update(paymentIntents)
+          .set({ status: "failed", failureReason: reason, updatedAt: failedAt })
+          .where(and(eq(paymentIntents.id, rowId), sql`${paymentIntents.status} <> 'completed'`));
+      }
+    }
+    return { ok: false, action: "amount-currency-mismatch", detail: reason };
+  }
+
+  // ── Idempotent guarded transition to completed ────────────────────────────
+  if (currentStatus === "completed") {
+    return { ok: true, action: "already-completed" };
+  }
+  let transitioned = false;
+  if (kind === "transaction") {
+    const updated = await db.update(paymentTransactions)
+      .set({ status: "completed", paidAt: now, callbackData: opts.rawPayload as any, updatedAt: now })
+      .where(and(eq(paymentTransactions.id, rowId), sql`${paymentTransactions.status} <> 'completed'`))
+      .returning({ id: paymentTransactions.id });
+    transitioned = updated.length > 0;
+  } else {
+    const updated = await db.update(paymentIntents)
+      .set({
+        status: "completed",
+        completedAt: now,
+        metadata: sql`COALESCE(${paymentIntents.metadata}, '{}'::jsonb) || ${JSON.stringify({ providerWebhook: opts.rawPayload })}::jsonb`,
+        updatedAt: now,
+      })
+      .where(and(eq(paymentIntents.id, rowId), sql`${paymentIntents.status} <> 'completed'`))
+      .returning({ id: paymentIntents.id });
+    transitioned = updated.length > 0;
+  }
+  if (!transitioned) {
+    // Lost a race with a concurrent webhook delivery — already handled.
+    return { ok: true, action: "already-completed" };
+  }
+
+  // ── Drive order confirmation + escrow hold creation (either path) ─────────
+  if (orderId) {
+    await db.update(orders)
+      .set({ paymentStatus: "completed", status: "confirmed", updatedAt: now })
+      .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} <> 'completed'`));
+
+    const [existingEscrow] = await db.select({ id: escrowTransactions.id })
+      .from(escrowTransactions)
+      .where(eq(escrowTransactions.orderId, orderId))
+      .limit(1);
+    if (!existingEscrow) {
+      const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
+      const feeRate = parseFloat(cfg?.platformFeeRate ?? "0.03125");
+      const confirmWindowHours = cfg?.buyerConfirmWindowHours ?? 24;
+      const custodyMode = (cfg?.custodyMode ?? "pssp") as "pssp" | "psp";
+      const fee = expectedAmount * feeRate;
+      const escrowId = randomUUID();
+      const inserted = await db.insert(escrowTransactions).values({
+        id: escrowId,
+        orderId,
+        tenantId,
+        customerId,
+        amount: expectedAmount.toFixed(2),
+        platformFee: fee.toFixed(2),
+        netMerchantAmount: (expectedAmount - fee).toFixed(2),
+        currency: expectedCurrency || "NGN",
+        custodyMode,
+        state: "escrow_held",
+        buyerConfirmDeadline: new Date(Date.now() + confirmWindowHours * 3600 * 1000),
+        idempotencyKey: `escrow-hold:${orderId}`,
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoNothing().returning({ id: escrowTransactions.id });
+
+      if (inserted.length > 0 && custodyMode === "psp") {
+        // PSP mode: credit the merchant's escrow wallet (mirrors escrow.createHold)
+        let [wallet] = await db.select().from(merchantWallets)
+          .where(eq(merchantWallets.tenantId, tenantId));
+        if (!wallet) {
+          const walletId = randomUUID();
+          await db.insert(merchantWallets).values({
+            id: walletId, tenantId, currency: expectedCurrency || "NGN",
+            availableBalance: "0", escrowBalance: "0", totalEarned: "0", totalWithdrawn: "0",
+            custodyMode: "psp", isActive: true, createdAt: now, updatedAt: now,
+          }).onConflictDoNothing();
+          [wallet] = await db.select().from(merchantWallets)
+            .where(eq(merchantWallets.tenantId, tenantId));
+        }
+        if (wallet) {
+          const before = parseFloat(wallet.escrowBalance);
+          const after = before + expectedAmount;
+          const walletTxId = randomUUID();
+          await db.insert(walletTransactions).values({
+            id: walletTxId,
+            walletId: wallet.id,
+            tenantId,
+            type: "escrow_credit",
+            amount: expectedAmount.toFixed(2),
+            balanceBefore: before.toFixed(2),
+            balanceAfter: after.toFixed(2),
+            currency: wallet.currency,
+            orderId,
+            escrowTxId: escrowId,
+            description: `Escrow hold for order ${orderId} (${opts.provider} webhook confirmation)`,
+            reference,
+            createdAt: now,
+          });
+          await db.update(merchantWallets).set({
+            escrowBalance: sql`${merchantWallets.escrowBalance} + ${expectedAmount.toFixed(2)}`,
+            updatedAt: now,
+          }).where(eq(merchantWallets.id, wallet.id));
+          await db.update(escrowTransactions)
+            .set({ buyerWalletTxId: walletTxId, updatedAt: now })
+            .where(eq(escrowTransactions.id, escrowId));
+        }
+      }
+    }
+  }
+
+  console.log(`[payment-confirm] ${opts.provider} ref=${reference} confirmed via ${kind} row ${rowId}`);
+  return { ok: true, action: "confirmed" };
 }
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -440,24 +686,40 @@ async function startServer() {
   app.post("/api/webhooks/paystack", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const db = await getDb();
-      const secret = process.env.PAYSTACK_WEBHOOK_SECRET ?? "";
-      const sig = req.headers["x-paystack-signature"] as string ?? "";
-      const body = req.body as Buffer;
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const body = toRawBody(req.body);
+      // Fail CLOSED when the secret is unset (503 in production/staging).
+      const secret = requireWebhookSecret("PAYSTACK_WEBHOOK_SECRET", process.env.PAYSTACK_WEBHOOK_SECRET, res);
+      if (secret === null) return;
       if (secret) {
-        const expected = crypto.createHmac("sha512", secret).update(body).digest("hex");
-        if (sig !== expected) return res.status(401).json({ error: "invalid-signature" });
+        const sig = (req.headers["x-paystack-signature"] as string) ?? "";
+        if (!verifyHmacSignature(body, secret, sig, "sha512")) {
+          console.warn("[paystack-webhook] invalid signature — rejected");
+          return res.status(401).json({ error: "invalid-signature" });
+        }
       }
       const payload = JSON.parse(body.toString());
-      if (payload.event === "charge.success" && db) {
-        const ref = payload.data?.reference as string;
+      if (payload.event === "charge.success") {
+        const ref = payload.data?.reference as string | undefined;
+        const amountKobo = Number(payload.data?.amount);
+        const currency = (payload.data?.currency as string | undefined) ?? null;
         if (ref) {
-          await db.update(paymentTransactions)
-            .set({ status: "completed", providerRef: ref, updatedAt: new Date() })
-            .where(eq(paymentTransactions.providerRef, ref));
+          const result = await confirmProviderPayment(db, {
+            provider: "paystack",
+            reference: ref,
+            amountMajor: Number.isFinite(amountKobo) ? amountKobo / 100 : null, // Paystack amounts are in kobo
+            currency,
+            rawPayload: payload.data,
+          });
+          if (!result.ok) {
+            console.warn(`[paystack-webhook] ref=${ref} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
+          }
+          return res.status(200).json({ received: true, ...result });
         }
       }
       return res.status(200).json({ received: true });
     } catch (err: any) {
+      console.error("[paystack-webhook]", err);
       return res.status(500).json({ error: err?.message });
     }
   });
@@ -466,21 +728,41 @@ async function startServer() {
   app.post("/api/webhooks/flutterwave", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const db = await getDb();
-      const secret = process.env.FLW_WEBHOOK_SECRET ?? "";
-      const sig = req.headers["verif-hash"] as string ?? "";
-      if (secret && sig !== secret) return res.status(401).json({ error: "invalid-signature" });
-      const body = req.body as Buffer;
-      const payload = JSON.parse(body.toString());
-      if (payload.event === "charge.completed" && payload.data?.status === "successful" && db) {
-        const txRef = payload.data?.tx_ref as string;
-        if (txRef) {
-          await db.update(paymentTransactions)
-            .set({ status: "completed", providerRef: txRef, updatedAt: new Date() })
-            .where(eq(paymentTransactions.providerRef, txRef));
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const body = toRawBody(req.body);
+      // Fail CLOSED when the secret is unset (503 in production/staging).
+      const secret = requireWebhookSecret("FLW_WEBHOOK_SECRET", process.env.FLW_WEBHOOK_SECRET, res);
+      if (secret === null) return;
+      if (secret) {
+        // Flutterwave sends the configured secret hash verbatim in verif-hash.
+        const sig = (req.headers["verif-hash"] as string) ?? "";
+        if (!timingSafeEqualStr(sig, secret)) {
+          console.warn("[flutterwave-webhook] invalid verif-hash — rejected");
+          return res.status(401).json({ error: "invalid-signature" });
         }
       }
-    return res.status(200).json({ received: true });
+      const payload = JSON.parse(body.toString());
+      if (payload.event === "charge.completed" && payload.data?.status === "successful") {
+        const txRef = payload.data?.tx_ref as string | undefined;
+        const amount = Number(payload.data?.amount); // major currency units
+        const currency = (payload.data?.currency as string | undefined) ?? null;
+        if (txRef) {
+          const result = await confirmProviderPayment(db, {
+            provider: "flutterwave",
+            reference: txRef,
+            amountMajor: Number.isFinite(amount) ? amount : null,
+            currency,
+            rawPayload: payload.data,
+          });
+          if (!result.ok) {
+            console.warn(`[flutterwave-webhook] tx_ref=${txRef} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
+          }
+          return res.status(200).json({ received: true, ...result });
+        }
+      }
+      return res.status(200).json({ received: true });
     } catch (err: any) {
+      console.error("[flutterwave-webhook]", err);
       return res.status(500).json({ error: err?.message });
     }
   });
@@ -491,12 +773,19 @@ async function startServer() {
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
       const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
-      const secret = cfg?.shipbubbleWebhookSecret ?? process.env.SHIPBUBBLE_WEBHOOK_SECRET ?? "";
-      const body = req.body as Buffer;
+      const body = toRawBody(req.body);
+      const secret = requireWebhookSecret(
+        "SHIPBUBBLE_WEBHOOK_SECRET",
+        cfg?.shipbubbleWebhookSecret ?? process.env.SHIPBUBBLE_WEBHOOK_SECRET,
+        res,
+      );
+      if (secret === null) return;
       if (secret) {
-        const sig = req.headers["x-shipbubble-signature"] as string ?? "";
-        const expected = crypto.createHmac("sha512", secret).update(body).digest("hex");
-        if (sig !== expected) return res.status(401).json({ error: "Invalid signature" });
+        const sig = (req.headers["x-shipbubble-signature"] as string) ?? "";
+        if (!verifyHmacSignature(body, secret, sig, "sha512")) {
+          console.warn("[shipbubble-webhook] invalid signature — rejected");
+          return res.status(401).json({ error: "Invalid signature" });
+        }
       }
       const payload = JSON.parse(body.toString());
       const trackingId = payload.tracking_number ?? payload.data?.tracking_number;
@@ -540,19 +829,55 @@ async function startServer() {
   });
 
   // ── Bank escrow settlement callback (PSSP mode) ───────────────────────────
-  app.post("/api/webhooks/escrow-bank", express.json(), async (req, res) => {
+  // Authenticated via HMAC-SHA256 over the raw body (ESCROW_BANK_WEBHOOK_SECRET,
+  // fail closed when unset) and the bankRef MUST match the reference generated
+  // at release-instruction time and stored on the escrow row.
+  app.post("/api/webhooks/escrow-bank", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
-      const { escrowId, bankRef, status } = req.body ?? {};
+      const body = toRawBody(req.body);
+      const secret = requireWebhookSecret("ESCROW_BANK_WEBHOOK_SECRET", process.env.ESCROW_BANK_WEBHOOK_SECRET, res);
+      if (secret === null) return;
+      if (secret) {
+        const sig =
+          (req.headers["x-escrow-bank-signature"] as string) ??
+          (req.headers["x-signature"] as string) ??
+          "";
+        if (!verifyHmacSignature(body, secret, sig.replace(/^sha256=/, ""), "sha256")) {
+          console.warn("[escrow-bank-webhook] invalid signature — rejected");
+          return res.status(401).json({ error: "invalid-signature" });
+        }
+      }
+      const { escrowId, bankRef, status } = JSON.parse(body.toString()) ?? {};
       if (!escrowId || !bankRef) return res.status(400).json({ error: "Missing escrowId or bankRef" });
+
+      const [escrow] = await db.select().from(escrowTransactions)
+        .where(eq(escrowTransactions.id, escrowId)).limit(1);
+      if (!escrow) return res.status(404).json({ error: "escrow-not-found" });
+
+      // The presented bankRef must equal the reference we generated when the
+      // release was instructed — otherwise anyone can settle any escrow.
+      if (!escrow.bankRef || !timingSafeEqualStr(String(bankRef), escrow.bankRef)) {
+        console.warn(`[escrow-bank-webhook] bankRef mismatch for escrow ${escrowId} — rejected`);
+        return res.status(401).json({ error: "bankref-mismatch" });
+      }
+
       if (status === "settled") {
-        await db.update(escrowTransactions).set({
-          state: "settled", bankRef, bankSettlementConfirmedAt: new Date(), settledAt: new Date(), updatedAt: new Date(),
-        }).where(and(eq(escrowTransactions.id, escrowId), eq(escrowTransactions.state, "release_instructed")));
+        if (escrow.state === "settled") {
+          return res.status(200).json({ received: true, action: "already-settled" });
+        }
+        const transitioned = await db.update(escrowTransactions).set({
+          state: "settled", bankSettlementConfirmedAt: new Date(), settledAt: new Date(), updatedAt: new Date(),
+        }).where(and(eq(escrowTransactions.id, escrowId), eq(escrowTransactions.state, "release_instructed")))
+          .returning({ id: escrowTransactions.id });
+        if (transitioned.length === 0) {
+          return res.status(409).json({ error: "invalid-state", state: escrow.state });
+        }
       }
       return res.status(200).json({ received: true });
     } catch (err: any) {
+      console.error("[escrow-bank-webhook]", err);
       return res.status(500).json({ error: err?.message });
     }
   });
@@ -575,13 +900,13 @@ async function startServer() {
     try {
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
-      // ── HMAC-SHA256 signature verification ────────────────────────────────
-      const rawBody = req.body as Buffer;
-      const appSecret = process.env.WHATSAPP_APP_SECRET ?? "";
+      // ── HMAC-SHA256 signature verification (fail closed when unset) ───────
+      const rawBody = toRawBody(req.body);
+      const appSecret = requireWebhookSecret("WHATSAPP_APP_SECRET", process.env.WHATSAPP_APP_SECRET, res);
+      if (appSecret === null) return;
       if (appSecret) {
-        const sig = (req.headers["x-hub-signature-256"] as string ?? "").replace("sha256=", "");
-        const expected = crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
-        if (sig !== expected) {
+        const sig = ((req.headers["x-hub-signature-256"] as string) ?? "").replace(/^sha256=/, "");
+        if (!verifyHmacSignature(rawBody, appSecret, sig, "sha256")) {
           console.warn("[whatsapp-webhook] Invalid HMAC signature — request rejected");
           return res.status(401).json({ error: "invalid-signature" });
         }
@@ -859,6 +1184,8 @@ async function startServer() {
   // ── Escrow auto-confirm heartbeat ─────────────────────────────────────────
   app.post("/api/scheduled/escrow-auto-confirm", async (req, res) => {
     try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
       const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
@@ -870,26 +1197,58 @@ async function startServer() {
       ));
       let confirmed = 0;
       for (const escrow of expired) {
-        const feeRate = parseFloat(cfg.platformFeeRate);
-        const netAmount = parseFloat(escrow.amount) * (1 - feeRate);
         if (cfg.custodyMode === "psp") {
+          // Single guarded state transition FIRST — only the run that actually
+          // flips delivery_confirmed → settled may credit the wallet. This
+          // makes the credit idempotent across concurrent/duplicate runs.
+          const transitioned = await db.update(escrowTransactions).set({
+            state: "settled", autoConfirmed: true, settledAt: now, updatedAt: now,
+          }).where(and(eq(escrowTransactions.id, escrow.id), eq(escrowTransactions.state, "delivery_confirmed")))
+            .returning({ id: escrowTransactions.id });
+          if (transitioned.length === 0) continue;
+
+          // Use the STORED net merchant amount — never recompute the fee here.
+          const netAmount = parseFloat(escrow.netMerchantAmount);
           const [wallet] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, escrow.tenantId));
           if (wallet) {
+            const before = parseFloat(wallet.availableBalance);
+            const after = before + netAmount;
+            const walletTxId = randomUUID();
+            // Ledger row first (immutable audit trail), then the balance update.
+            await db.insert(walletTransactions).values({
+              id: walletTxId,
+              walletId: wallet.id,
+              tenantId: escrow.tenantId,
+              type: "escrow_release",
+              amount: netAmount.toFixed(2),
+              balanceBefore: before.toFixed(2),
+              balanceAfter: after.toFixed(2),
+              currency: wallet.currency,
+              orderId: escrow.orderId,
+              escrowTxId: escrow.id,
+              description: `Escrow auto-confirmed (buyer window expired) for order ${escrow.orderId}`,
+              reference: `AUTOCONFIRM-${escrow.id.slice(0, 8).toUpperCase()}`,
+              createdAt: now,
+            });
             await db.update(merchantWallets).set({
               escrowBalance: sql`GREATEST(escrow_balance - ${netAmount.toFixed(2)}, 0)`,
               availableBalance: sql`available_balance + ${netAmount.toFixed(2)}`,
               totalEarned: sql`total_earned + ${netAmount.toFixed(2)}`,
               updatedAt: now,
             }).where(eq(merchantWallets.id, wallet.id));
+            await db.update(escrowTransactions)
+              .set({ merchantWalletTxId: walletTxId, updatedAt: now })
+              .where(eq(escrowTransactions.id, escrow.id));
+          } else {
+            console.error(`[escrow-auto-confirm] escrow ${escrow.id} settled but tenant ${escrow.tenantId} has NO merchant wallet — credit skipped, needs reconciliation`);
           }
-          await db.update(escrowTransactions).set({
-            state: "settled", autoConfirmed: true, settledAt: now, updatedAt: now,
-          }).where(eq(escrowTransactions.id, escrow.id));
         } else {
           const bankRef = `ESCROW-AUTO-${escrow.id.slice(0, 8).toUpperCase()}-${Date.now()}`;
-          await db.update(escrowTransactions).set({
+          const transitioned = await db.update(escrowTransactions).set({
             state: "release_instructed", autoConfirmed: true, releaseInstructedAt: now, bankRef, updatedAt: now,
-          }).where(eq(escrowTransactions.id, escrow.id));
+          }).where(and(eq(escrowTransactions.id, escrow.id), eq(escrowTransactions.state, "delivery_confirmed")))
+            .returning({ id: escrowTransactions.id });
+          if (transitioned.length === 0) continue;
         }
         await db.update(orders).set({ paymentStatus: "completed", updatedAt: now }).where(eq(orders.id, escrow.orderId));
         confirmed++;
@@ -904,6 +1263,8 @@ async function startServer() {
   // ── PSP float income heartbeat ────────────────────────────────────────────
   app.post("/api/scheduled/float-income", async (req, res) => {
     try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
       const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
@@ -1247,6 +1608,8 @@ async function startServer() {
   // ── SLA Heartbeat ─────────────────────────────────────────────────────────
   app.post("/api/scheduled/sla-scan", async (req, res) => {
     try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
       const result = await runSlaScan();
       return res.json({ ok: true, ...result });
     } catch (err: any) {
@@ -1327,25 +1690,26 @@ async function startServer() {
   // Receives order.fulfillment_created, order.completed, order.canceled events
   // from Medusa v2 and updates the platform order status accordingly.
   // Register in Medusa Admin → Settings → Webhooks → POST /api/webhooks/medusa
-  app.post("/api/webhooks/medusa", express.json(), async (req, res) => {
+  // NOTE: express.raw (not express.json) so the HMAC is computed over the exact
+  // raw bytes Medusa signed — re-serialized JSON never matches a real signature.
+  app.post("/api/webhooks/medusa", express.raw({ type: "application/json" }), async (req, res) => {
     try {
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "DB unavailable" });
 
-      // Optional HMAC verification using MEDUSA_WEBHOOK_SECRET
-      const webhookSecret = process.env.MEDUSA_WEBHOOK_SECRET;
+      // Required HMAC verification using MEDUSA_WEBHOOK_SECRET (fail closed when unset)
+      const rawBody = toRawBody(req.body);
+      const webhookSecret = requireWebhookSecret("MEDUSA_WEBHOOK_SECRET", process.env.MEDUSA_WEBHOOK_SECRET, res);
+      if (webhookSecret === null) return;
       if (webhookSecret) {
-        const sig = req.headers["x-medusa-signature"] as string ?? "";
-        const expected = crypto.createHmac("sha256", webhookSecret)
-          .update(JSON.stringify(req.body))
-          .digest("hex");
-        if (sig !== expected) {
+        const sig = ((req.headers["x-medusa-signature"] as string) ?? "").replace(/^sha256=/, "");
+        if (!verifyHmacSignature(rawBody, webhookSecret, sig, "sha256")) {
           console.warn("[medusa-webhook] Invalid HMAC signature — rejected");
           return res.status(401).json({ error: "invalid-signature" });
         }
       }
 
-      const { event, data } = req.body as { event?: string; data?: Record<string, unknown> };
+      const { event, data } = JSON.parse(rawBody.toString()) as { event?: string; data?: Record<string, unknown> };
       if (!event || !data) return res.status(400).json({ error: "missing event or data" });
 
       console.log(`[medusa-webhook] Received event: ${event}`, { orderId: data?.id });
