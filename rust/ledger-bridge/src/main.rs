@@ -988,9 +988,23 @@ async fn do_reserve(
     // Dev-only local fallback
     match state.reserve_local(local_account_key, amount_minor, currency, reference, pending_id) {
         Ok(r) => {
-            if let Some(key) = idempotency_key {
-                state.idem_index.insert(key, pending_id);
-            }
+            // Persist the transfer record (not just the idem index). Without
+            // this, find_by_idempotency_key resolves the key to an id whose
+            // record was never saved, falls through to None, and a replay of
+            // the same idempotency key reserves AGAIN (double-reservation).
+            state.save_record(&TransferRecord {
+                id: pending_id,
+                debit_account_id: debit_account,
+                credit_account_id: credit_account,
+                amount_minor,
+                ledger,
+                code,
+                status: TransferStatus::Pending,
+                idempotency_key: idempotency_key.clone(),
+                reversal_of: None,
+                created_at: Utc::now().to_rfc3339(),
+                settled_at: None,
+            }).await;
             match serde_json::to_value(r) {
                 Ok(mut v) => {
                     v["source"] = serde_json::Value::String("in_memory_dev".into());
@@ -1412,4 +1426,98 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(async { signal::ctrl_c().await.expect("ctrl_c") })
         .await?;
     Ok(())
+}
+
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Dev-only in-memory AppState: TigerBeetle pointed at an unreachable
+    /// address (health() == false), no PostgreSQL, in-memory fallback enabled.
+    fn dev_state() -> AppState {
+        AppState {
+            pending: Arc::new(DashMap::new()),
+            balances: Arc::new(DashMap::new()),
+            records: Arc::new(DashMap::new()),
+            idem_index: Arc::new(DashMap::new()),
+            pg: None,
+            tb: Arc::new(TigerBeetleClient::new("127.0.0.1:1".into(), 0)),
+            allow_inmemory: true,
+            pending_timeout_secs: 300,
+            platform_escrow_account: None,
+        }
+    }
+
+    /// Regression: the dev in-memory fallback previously never saved the
+    /// TransferRecord, so a /transfer replay with the same idempotency key
+    /// reserved AGAIN (double-reservation). The replay must return the same
+    /// pending_id with replayed=true and exactly ONE reservation.
+    #[tokio::test]
+    async fn dev_inmemory_transfer_replay_is_idempotent() {
+        let state = dev_state();
+        // Pre-fund the debit account (accounts start at zero by design).
+        let debit = "11111111-1111-1111-1111-111111111111";
+        let credit = "22222222-2222-2222-2222-222222222222";
+        state.balances.insert(debit.to_string(), (0u64, 1_000_000u64));
+
+        let key = Some("payment:tenant-1:order-1".to_string());
+
+        let (status1, body1) = do_reserve(
+            &state, 1, 2, 50_000, 1, 1, "NGN", "payment:tenant-1:order-1",
+            key.clone(), debit,
+        ).await;
+        assert_eq!(status1, StatusCode::CREATED, "first reserve must succeed: {:?}", body1);
+        let pending_id_1 = body1["pending_id"].as_str().unwrap().to_string();
+        assert_eq!(body1["source"].as_str(), Some("in_memory_dev"));
+
+        // Replay: same idempotency key.
+        let (status2, body2) = do_reserve(
+            &state, 1, 2, 50_000, 1, 1, "NGN", "payment:tenant-1:order-1",
+            key.clone(), debit,
+        ).await;
+        assert_eq!(status2, StatusCode::OK, "replay returns the original reservation: {:?}", body2);
+        assert_eq!(body2["pending_id"].as_str().unwrap(), pending_id_1, "replay must return the SAME pending_id");
+        assert_eq!(body2["replayed"].as_bool(), Some(true));
+
+        // Exactly ONE reservation exists and only 50_000 minor units are held.
+        assert_eq!(state.pending.len(), 1, "replay must not create a second pending transfer");
+        let bal = state.balances.get(debit).unwrap();
+        assert_eq!(bal.0, 50_000, "reserved must reflect exactly one reservation, got {}", bal.0);
+        assert_eq!(bal.1, 950_000, "available must reflect exactly one reservation");
+
+        // The saved record is what makes the replay work.
+        let pid = Uuid::parse_str(&pending_id_1).unwrap();
+        let rec = state.find_record(&pid).await.expect("transfer record must be saved");
+        assert_eq!(rec.idempotency_key, key);
+        assert!(matches!(rec.status, TransferStatus::Pending));
+        let _ = credit;
+    }
+
+    /// A different idempotency key MUST create a distinct reservation.
+    #[tokio::test]
+    async fn dev_inmemory_distinct_keys_reserve_separately() {
+        let state = dev_state();
+        let debit = "33333333-3333-3333-3333-333333333333";
+        state.balances.insert(debit.to_string(), (0u64, 1_000_000u64));
+
+        let (s1, b1) = do_reserve(&state, 1, 2, 10_000, 1, 1, "NGN", "k1", Some("k1".into()), debit).await;
+        let (s2, b2) = do_reserve(&state, 1, 2, 10_000, 1, 1, "NGN", "k2", Some("k2".into()), debit).await;
+        assert_eq!(s1, StatusCode::CREATED);
+        assert_eq!(s2, StatusCode::CREATED);
+        assert_ne!(b1["pending_id"], b2["pending_id"]);
+        assert_eq!(state.pending.len(), 2);
+    }
+
+    /// deterministic_id must be uuid5(NAMESPACE_URL, key) — the TB dedup contract.
+    #[test]
+    fn deterministic_id_is_uuid5_url_namespace() {
+        let a = deterministic_id("payment:tenant:order");
+        let b = deterministic_id("payment:tenant:order");
+        let c = deterministic_id("payment:tenant:other");
+        assert_eq!(a, b, "same key → same id (dedup)");
+        assert_ne!(a, c, "different key → different id");
+        assert_eq!(a.get_version(), Some(uuid::Version::Sha1), "must be v5 (SHA-1 name-based)");
+    }
 }
