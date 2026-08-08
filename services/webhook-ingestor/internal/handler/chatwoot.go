@@ -75,9 +75,15 @@ func (h *Handler) HandleChatwoot(c *gin.Context) {
 		return
 	}
 
-	// Verify HMAC-SHA256 signature
+	// Verify HMAC-SHA256 signature — a missing signature header is rejected;
+	// unsigned webhooks are never accepted.
 	sig := c.GetHeader("X-Chatwoot-Signature")
-	if sig != "" && !verifyHMAC(tenant.WebhookSecret, rawBody, sig) {
+	if sig == "" {
+		h.logger.Warn("missing chatwoot signature", zap.String("tenant", tenantSlug))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing signature"})
+		return
+	}
+	if tenant.WebhookSecret == "" || !verifyHMAC(tenant.WebhookSecret, rawBody, sig) {
 		h.logger.Warn("invalid chatwoot signature", zap.String("tenant", tenantSlug))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
 		return
@@ -142,9 +148,32 @@ func (h *Handler) HandleChatwoot(c *gin.Context) {
 }
 
 // HandleMojaloopCallback handles async payment callbacks from Mojaloop.
+// Authentication: the FSPIOP-Signature header must always be present; when
+// MOJALOOP_CALLBACK_SECRET is configured it must also be a valid HMAC-SHA256
+// of the raw body. In production an unset secret fails closed.
 func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 	tenantSlug := c.Param("tenant_slug")
 	rawBody, _ := io.ReadAll(c.Request.Body)
+
+	sig := c.GetHeader("FSPIOP-Signature")
+	if sig == "" {
+		h.logger.Warn("missing FSPIOP-Signature header", zap.String("tenant", tenantSlug))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing FSPIOP-Signature header"})
+		return
+	}
+	if h.cfg.MojaloopCallbackSecret != "" {
+		if !verifyWebhookSignature(h.cfg.MojaloopCallbackSecret, rawBody, sig) {
+			h.logger.Warn("invalid mojaloop callback signature", zap.String("tenant", tenantSlug))
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
+			return
+		}
+	} else if h.cfg.IsProduction() {
+		h.logger.Error("MOJALOOP_CALLBACK_SECRET unset in production — rejecting callback (fail closed)")
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhook signature verification not configured"})
+		return
+	} else {
+		h.logger.Warn("MOJALOOP_CALLBACK_SECRET unset — presence check only (dev mode)")
+	}
 
 	tenant, err := h.db.GetTenantBySlug(c.Request.Context(), tenantSlug)
 	if err != nil {
@@ -176,9 +205,15 @@ func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 }
 
 // HandleTwentyWebhook handles CRM change events from Twenty.
+// Requires a valid X-Twenty-Signature HMAC when TWENTY_WEBHOOK_SECRET is set;
+// fails closed in production when the secret is unset.
 func (h *Handler) HandleTwentyWebhook(c *gin.Context) {
 	tenantSlug := c.Param("tenant_slug")
 	rawBody, _ := io.ReadAll(c.Request.Body)
+
+	if !h.requireWebhookSignature(c, "twenty", h.cfg.TwentyWebhookSecret, c.GetHeader("X-Twenty-Signature"), rawBody) {
+		return
+	}
 
 	tenant, err := h.db.GetTenantBySlug(c.Request.Context(), tenantSlug)
 	if err != nil {
@@ -204,9 +239,15 @@ func (h *Handler) HandleTwentyWebhook(c *gin.Context) {
 }
 
 // HandleOdooWebhook handles ERP/inventory events from Odoo.
+// Requires a valid X-Odoo-Signature HMAC when ODOO_WEBHOOK_SECRET is set;
+// fails closed in production when the secret is unset.
 func (h *Handler) HandleOdooWebhook(c *gin.Context) {
 	tenantSlug := c.Param("tenant_slug")
 	rawBody, _ := io.ReadAll(c.Request.Body)
+
+	if !h.requireWebhookSignature(c, "odoo", h.cfg.OdooWebhookSecret, c.GetHeader("X-Odoo-Signature"), rawBody) {
+		return
+	}
 
 	tenant, err := h.db.GetTenantBySlug(c.Request.Context(), tenantSlug)
 	if err != nil {
@@ -238,3 +279,40 @@ func verifyHMAC(secret string, payload []byte, signature string) bool {
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
+// verifyWebhookSignature accepts both "sha256=<hex>" and raw-hex HMAC-SHA256
+// signatures and compares them in constant time.
+func verifyWebhookSignature(secret string, payload []byte, signature string) bool {
+	if signature == "" {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	sum := hex.EncodeToString(mac.Sum(nil))
+	if hmac.Equal([]byte("sha256="+sum), []byte(signature)) {
+		return true
+	}
+	return hmac.Equal([]byte(sum), []byte(signature))
+}
+
+// requireWebhookSignature enforces the shared-secret HMAC policy for a webhook
+// source. Returns true when the request may proceed; otherwise it writes the
+// error response and returns false.
+//   - secret set: a valid signature is mandatory.
+//   - secret unset: fail closed (503) in production; allow with a warning in dev.
+func (h *Handler) requireWebhookSignature(c *gin.Context, source, secret, sig string, body []byte) bool {
+	if secret == "" {
+		if h.cfg.IsProduction() {
+			h.logger.Error("webhook secret unset in production — rejecting (fail closed)", zap.String("source", source))
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "webhook signature verification not configured"})
+			return false
+		}
+		h.logger.Warn("webhook secret unset — skipping signature verification (dev mode)", zap.String("source", source))
+		return true
+	}
+	if !verifyWebhookSignature(secret, body, sig) {
+		h.logger.Warn("invalid webhook signature", zap.String("source", source))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid signature"})
+		return false
+	}
+	return true
+}
