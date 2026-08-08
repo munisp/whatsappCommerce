@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 import {
   LayoutDashboard, Package, ShoppingCart, FileText,
-  Settings, CreditCard, MessageSquare, LogOut, Building2,
+  Settings, CreditCard, MessageSquare, LogOut, Building2, ArrowLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -154,6 +154,16 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
             </Link>
           ))}
         </nav>
+        {user.role === "admin" && (
+          <div className="px-3 pb-2">
+            <Link href="/dashboard">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors">
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Admin Console
+              </div>
+            </Link>
+          </div>
+        )}
         <div className="p-3 border-t border-slate-700">
           <Button
             variant="ghost"
