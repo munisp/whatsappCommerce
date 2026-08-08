@@ -28,6 +28,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { notifStatusGlyph, receiptTimestamp } from "@/lib/waOps";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
@@ -341,7 +343,7 @@ function NotificationPreferencesCard() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 // ── Notification History Card ─────────────────────────────────────────────────
-type NotifStatus = "pending" | "sent" | "delivered" | "read" | "failed" | "simulated";
+type NotifStatus = "pending" | "sent" | "delivered" | "read" | "failed" | "simulated" | "dead";
 
 const STATUS_CONFIG: Record<NotifStatus, { label: string; icon: React.ElementType; className: string }> = {
   pending:   { label: "Pending",   icon: Clock,        className: "text-yellow-600 bg-yellow-50 border-yellow-200" },
@@ -350,6 +352,7 @@ const STATUS_CONFIG: Record<NotifStatus, { label: string; icon: React.ElementTyp
   read:      { label: "Read",      icon: Eye,          className: "text-purple-600 bg-purple-50 border-purple-200" },
   failed:    { label: "Failed",    icon: XCircle,      className: "text-red-600 bg-red-50 border-red-200" },
   simulated: { label: "Simulated", icon: Package,      className: "text-gray-600 bg-gray-50 border-gray-200" },
+  dead:      { label: "Dead",      icon: XCircle,      className: "text-red-800 bg-red-100 border-red-300" },
 };
 
 const NOTIF_TYPE_LABELS: Record<string, string> = {
@@ -428,6 +431,7 @@ function NotificationHistoryCard() {
               <SelectItem value="read">Read</SelectItem>
               <SelectItem value="failed">Failed</SelectItem>
               <SelectItem value="simulated">Simulated</SelectItem>
+              <SelectItem value="dead">Dead</SelectItem>
             </SelectContent>
           </Select>
           <Input
@@ -472,6 +476,15 @@ function NotificationHistoryCard() {
               const typeLabel = NOTIF_TYPE_LABELS[log.notifType] ?? log.notifType;
               const sentAt = log.sentAt ? new Date(log.sentAt).toLocaleString() : null;
               const createdAt = new Date(log.createdAt).toLocaleString();
+              const glyph = notifStatusGlyph(log.status);
+              const errorText = log.errorText || log.failReason;
+              const glyphTooltip: string[] = [];
+              const deliveredAt = receiptTimestamp(log.statusTimestamps, "delivered");
+              const readAt = receiptTimestamp(log.statusTimestamps, "read");
+              if (deliveredAt) glyphTooltip.push(`Delivered ${new Date(deliveredAt).toLocaleString()}`);
+              if (readAt) glyphTooltip.push(`Read ${new Date(readAt).toLocaleString()}`);
+              if (status === "failed" && errorText) glyphTooltip.push(errorText);
+              if (status === "dead") glyphTooltip.push(`Retries exhausted after ${log.attempts ?? 0} attempt${(log.attempts ?? 0) === 1 ? "" : "s"}`);
 
               return (
                 <div
@@ -484,12 +497,28 @@ function NotificationHistoryCard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium truncate">{typeLabel}</p>
-                      <Badge
-                        variant="outline"
-                        className={`text-xs shrink-0 ${cfg.className}`}
-                      >
-                        {cfg.label}
-                      </Badge>
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        {glyphTooltip.length > 0 ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className={`font-mono text-sm cursor-help ${glyph.className}`}>{glyph.glyph}</span>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              {glyphTooltip.map((l, i) => (
+                                <p key={i} className="text-xs whitespace-pre-wrap break-words">{l}</p>
+                              ))}
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <span className={`font-mono text-sm ${glyph.className}`}>{glyph.glyph}</span>
+                        )}
+                        <Badge
+                          variant="outline"
+                          className={`text-xs shrink-0 ${cfg.className}`}
+                        >
+                          {cfg.label}
+                        </Badge>
+                      </span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 font-mono">
                       {log.phone?.replace(/(\+\d{3})\d+(\d{4})/, "$1****$2")}

@@ -2,7 +2,8 @@
  * TenantSettings — tenant-facing configuration hub over the tenantConfig
  * router: branding, custom domains, commerce (currency / pickup / delivery
  * zones / fee overrides), inventory source, and CRM (custom fields +
- * pipeline stages). Each section loads its own config and saves through the
+ * pipeline stages), and click-to-WhatsApp entry links + QR campaigns (ctwa
+ * router). Each section loads its own config and saves through the
  * matching set* mutation; backend zod errors surface via toasts.
  */
 import { useEffect, useState } from "react";
@@ -24,7 +25,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import {
-  ArrowDown, ArrowUp, Globe, HelpCircle, Loader2, Palette, Plus, Save, Settings2, ShoppingCart, Tag, Trash2, Users, Warehouse,
+  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Users, Warehouse,
 } from "lucide-react";
 import type {
   BrandingConfig, CommerceConfig, CrmCustomField, DeliveryZone, InventoryConfig,
@@ -1103,6 +1104,210 @@ function PromosSection({ tenantId }: { tenantId: string }) {
   );
 }
 
+// ─── Links & QR (click-to-WhatsApp) ─────────────────────────────────────────
+
+function CopyButton({ value, label }: { value: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-7 gap-1.5 text-xs"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          toast.error("Copy failed — clipboard unavailable");
+        }
+      }}
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+      {copied ? "Copied" : (label ?? "Copy")}
+    </Button>
+  );
+}
+
+type CtwaAction = "menu" | "track" | "support" | "promo" | "none";
+const CTWA_ACTIONS: CtwaAction[] = ["none", "menu", "track", "support", "promo"];
+
+function CtwaSection({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.ctwa.getLinks.useQuery({ tenantId });
+  const [keyword, setKeyword] = useState("");
+  const [label, setLabel] = useState("");
+  const [action, setAction] = useState<CtwaAction>("none");
+
+  const invalidate = () => utils.ctwa.getLinks.invalidate({ tenantId });
+  const create = trpc.ctwa.createCampaign.useMutation({
+    onSuccess: () => {
+      toast.success("Campaign created");
+      setKeyword(""); setLabel(""); setAction("none");
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const del = trpc.ctwa.deleteCampaign.useMutation({
+    onSuccess: () => { toast.success("Campaign deleted"); invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (isLoading) return <SectionLoading />;
+
+  const entries = data?.entries ?? [];
+  const canned = entries.filter((e) => !e.configured);
+  const campaigns = entries.filter((e) => e.configured);
+  const canCreate = keyword.trim().length > 0 && label.trim().length > 0 && !create.isPending;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Link2 className="w-4 h-4" /> Click-to-WhatsApp links
+          </CardTitle>
+          <CardDescription>
+            Deep links into the tenant WhatsApp line
+            {data?.phone ? (
+              <> (<span className="font-mono">{data.phone}</span>)</>
+            ) : (
+              <> — <span className="text-amber-400">no WhatsApp phone configured, links unavailable</span></>
+            )}
+            . Share them on ads, receipts or packaging.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {canned.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              All standard entry points are configured as campaigns below.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {canned.map((e) => (
+                <div key={e.id} className="flex items-center gap-3 rounded-lg border p-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">{e.label}</p>
+                    <p className="text-xs text-muted-foreground font-mono truncate">
+                      {e.link ?? `keyword: ${e.keyword}`}
+                    </p>
+                  </div>
+                  {e.link ? <CopyButton value={e.link} label="Copy link" /> : (
+                    <Badge variant="outline" className="text-zinc-400">no phone</Badge>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <QrCode className="w-4 h-4" /> Campaigns
+          </CardTitle>
+          <CardDescription>
+            Keyword campaigns with their own wa.me link and printable QR code.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {campaigns.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <QrCode className="w-8 h-8 text-muted-foreground" />
+              <p className="text-sm font-medium">No campaigns yet</p>
+              <p className="text-xs text-muted-foreground">Create one below to get a tracked link + QR code.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Keyword</TableHead>
+                  <TableHead>Label</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Link</TableHead>
+                  <TableHead>QR</TableHead>
+                  <TableHead className="w-[60px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {campaigns.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="font-mono text-sm">{c.keyword}</TableCell>
+                    <TableCell className="text-sm">{c.label}</TableCell>
+                    <TableCell><Badge variant="outline" className="capitalize">{c.action}</Badge></TableCell>
+                    <TableCell>
+                      {c.link ? <CopyButton value={c.link} label="Copy link" /> : <span className="text-xs text-muted-foreground">no phone</span>}
+                    </TableCell>
+                    <TableCell>
+                      {c.link ? (
+                        <a href={c.qrUrl} target="_blank" rel="noreferrer">
+                          <img
+                            src={c.qrUrl}
+                            alt={`QR code for ${c.keyword}`}
+                            className="h-12 w-12 rounded border bg-white p-0.5"
+                          />
+                        </a>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-red-400"
+                        disabled={del.isPending}
+                        onClick={() => del.mutate({ tenantId, campaignId: c.id })}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+
+          <div className="rounded-lg border p-4 space-y-3">
+            <p className="text-sm font-medium">New campaign</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label>Keyword</Label>
+                <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="summer-sale" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Label</Label>
+                <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Summer sale QR" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Inbound action</Label>
+                <Select value={action} onValueChange={(v) => setAction(v as CtwaAction)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {CTWA_ACTIONS.map((a) => (
+                      <SelectItem key={a} value={a} className="capitalize">{a}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={!canCreate}
+              onClick={() => create.mutate({ tenantId, keyword: keyword.trim(), label: label.trim(), action })}
+            >
+              {create.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Create campaign
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function SectionLoading() {
   return (
     <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center">
@@ -1139,6 +1344,7 @@ export default function TenantSettings() {
             <TabsTrigger value="crm" className="gap-1.5"><Users className="w-3.5 h-3.5" /> CRM</TabsTrigger>
             <TabsTrigger value="faq" className="gap-1.5"><HelpCircle className="w-3.5 h-3.5" /> FAQ</TabsTrigger>
             <TabsTrigger value="promos" className="gap-1.5"><Tag className="w-3.5 h-3.5" /> Promos</TabsTrigger>
+            <TabsTrigger value="ctwa" className="gap-1.5"><QrCode className="w-3.5 h-3.5" /> Links &amp; QR</TabsTrigger>
           </TabsList>
           <TabsContent value="branding" className="mt-4"><BrandingSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="domains" className="mt-4"><DomainsSection tenantId={tenantId} /></TabsContent>
@@ -1147,6 +1353,7 @@ export default function TenantSettings() {
           <TabsContent value="crm" className="mt-4"><CrmSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="faq" className="mt-4"><FaqSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="promos" className="mt-4"><PromosSection tenantId={tenantId} /></TabsContent>
+          <TabsContent value="ctwa" className="mt-4"><CtwaSection tenantId={tenantId} /></TabsContent>
         </Tabs>
       </div>
     </DashboardLayout>

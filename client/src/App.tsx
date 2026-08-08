@@ -62,6 +62,7 @@ import TenantSettings from "./pages/TenantSettings";
 import LiveLogisticsMap from "./pages/LiveLogisticsMap";
 import HealthStatus from "./pages/HealthStatus";
 import AuditLogViewer from "./pages/AuditLogViewer";
+import WaTemplates from "./pages/WaTemplates";
 
 function Router() {
   return (
@@ -153,6 +154,7 @@ function Router() {
           <Route path="/admin" component={AdminPortal} />
           <Route path="/integration-health" component={IntegrationHealth} />
           <Route path="/unified-onboarding" component={UnifiedOnboarding} />
+          <Route path="/wa-templates" component={WaTemplates} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
