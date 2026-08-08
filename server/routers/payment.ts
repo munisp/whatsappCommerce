@@ -20,6 +20,9 @@ import { paymentIntents } from "../../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { publishPaymentEvent as publishPaymentDaprEvent, daprPublish } from "../dapr";
 import { getRedis } from "../redis";
+import { assessFraudRisk } from "../services/fraud";
+import { createFraudCase } from "./fraudCase";
+import { writeAuditLog } from "./audit";
 
 // ── TigerBeetle ledger helper ─────────────────────────────────────────────────
 
@@ -246,6 +249,20 @@ export const paymentRouter = router({
             .where(and(eq(paymentIntents.id, existing.id), eq(paymentIntents.idempotencyKey, idempotencyKey)));
         }
 
+        // Step 1.9: Fraud screening — score with the shared heuristic (the
+        // same fallback used by /api/ml/predict, so both paths agree).
+        // High-risk payments are NOT silently processed: the intent is
+        // flagged and a fraud case is queued for AML filing.
+        const fraudRisk = assessFraudRisk({
+          amount: input.amount,
+          numItems: typeof input.metadata?.numItems === "number" ? (input.metadata.numItems as number) : 0,
+          phone: input.customerPhone,
+          customerId: input.customerId ?? null,
+        });
+        const fraudMeta = fraudRisk.riskLevel === "high"
+          ? { fraudScore: fraudRisk.fraudProbability, riskLevel: fraudRisk.riskLevel, fraudFlagged: true }
+          : { fraudScore: fraudRisk.fraudProbability, riskLevel: fraudRisk.riskLevel };
+
         // Step 2: Create payment intent in DB (pending)
         const reference = `PAY-${Date.now()}-${paymentIntentId.slice(0, 8).toUpperCase()}`;
         await database.insert(paymentIntents).values({
@@ -262,10 +279,35 @@ export const paymentRouter = router({
           // for guest/WhatsApp checkouts that have no customer record yet.
           customerId: input.customerId ?? input.customerPhone,
           // customerPhone has no dedicated column — persisted in jsonb metadata.
-          metadata: { ...(input.metadata ?? {}), customerPhone: input.customerPhone },
+          metadata: { ...(input.metadata ?? {}), ...fraudMeta, customerPhone: input.customerPhone },
           createdAt: new Date(),
           updatedAt: new Date(),
         });
+
+        // High-risk → queue an AML fraud case (filed asynchronously by
+        // fraudCase.processQueue) and leave an audit trail entry.
+        if (fraudRisk.riskLevel === "high") {
+          const fraudCaseId = await createFraudCase({
+            tenantId: input.tenantId,
+            paymentIntentId,
+            orderId: input.orderId,
+            customerId: input.customerId ?? input.customerPhone,
+            fraudScore: fraudRisk.fraudProbability.toFixed(4),
+            riskLevel: fraudRisk.riskLevel,
+            status: "pending",
+            payload: { amount: input.amount, currency: input.currency, provider: input.provider },
+          });
+          await writeAuditLog({
+            actorId: null,
+            actorRole: "system",
+            action: "payment.fraudFlag",
+            entityType: "payment_intent",
+            entityId: paymentIntentId,
+            tenantId: input.tenantId,
+            summary: `High-risk payment flagged (score=${fraudRisk.fraudProbability.toFixed(2)}) — fraud case ${fraudCaseId ?? "n/a"} queued`,
+            after: { fraudCaseId, riskLevel: fraudRisk.riskLevel, fraudScore: fraudRisk.fraudProbability },
+          });
+        }
 
         // Step 3: Ledger 2-phase commit — RESERVE the funds BEFORE the provider
         // charge. A ledger failure is a PAYMENT failure (no silent success with
@@ -382,6 +424,7 @@ export const paymentRouter = router({
             status: "initiated",
             metadata: {
               ...(input.metadata ?? {}),
+              ...fraudMeta,
               customerPhone: input.customerPhone,
               paymentUrl,
               providerResponse,
@@ -559,6 +602,22 @@ export const paymentRouter = router({
           } catch { /* best effort reversal */ }
         }
       }
+
+      // Compliance audit trail — recorded AFTER the claim-first transition
+      // and successful ledger settlement, so only truly-confirmed payments
+      // are audited as confirmed. (The legacy post-settlement guarded
+      // transition was subsumed by the atomic claim-first block above.)
+      await writeAuditLog({
+        actorId: null,
+        actorRole: "system",
+        action: "payment.confirm",
+        entityType: "payment_intent",
+        entityId: intent.id,
+        tenantId: intent.tenantId,
+        summary: `Payment ${input.reference} confirmed as ${newStatus} (provider: ${input.providerStatus})`,
+        before: { status: intent.status },
+        after: { status: newStatus, amount: intent.amount, currency: intent.currency },
+      });
 
       const eventTopic = newStatus === "completed" ? "payment.completed" : "payment.failed";
       await publishPaymentEvent(eventTopic, {

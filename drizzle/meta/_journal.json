@@ -204,6 +204,13 @@
       "when": 1784311200000,
       "tag": "0028_schema_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786183492636,
+      "tag": "0029_compliance_privacy_fraud_audit",
+      "breakpoints": true
     }
   ]
 }

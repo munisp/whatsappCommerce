@@ -123,7 +123,7 @@ function userCtx(): TrpcContext {
   return {
     user: {
       id: 7, openId: "buyer-1", email: "buyer@example.com", name: "Buyer",
-      loginMethod: "manus", role: "user",
+      loginMethod: "manus", role: "user", tenantId: "tenant-1",
       createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date(),
     } as TrpcContext["user"],
     req: { protocol: "https", headers: {} } as TrpcContext["req"],

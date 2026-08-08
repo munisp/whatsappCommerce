@@ -2688,3 +2688,77 @@ export const lakehousePipelineRuns = pgTable("lakehouse_pipeline_runs", {
   index("lakehouse_runs_started_idx").on(t.startedAt),
 ]);
 export type LakehousePipelineRun = typeof lakehousePipelineRuns.$inferSelect;
+
+// ── Compliance: Erasure Requests (NDPR/GDPR data-subject rights) ────────────
+export const erasureRequestStatusEnum = pgEnum("erasure_request_status", [
+  "pending", "completed", "rejected",
+]);
+export const erasureRequests = pgTable("erasure_requests", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  userId:      integer("user_id").notNull().references(() => users.id),
+  status:      erasureRequestStatusEnum("status").notNull().default("pending"),
+  reason:      text("reason"),
+  // Set when the request is blocked (e.g. open escrows / pending withdrawals).
+  blockedReason: text("blocked_reason"),
+  requestedAt: timestamp("requested_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+  processedBy: integer("processed_by"),
+}, (t) => [
+  index("erasure_requests_user_idx").on(t.userId),
+  index("erasure_requests_status_idx").on(t.status),
+]);
+export type ErasureRequest = typeof erasureRequests.$inferSelect;
+export type NewErasureRequest = typeof erasureRequests.$inferInsert;
+
+// ── Compliance: Fraud Cases (AML/SAR-style filing queue, NFIU-adapted) ──────
+export const fraudCaseStatusEnum = pgEnum("fraud_case_status", [
+  "pending",     // queued for filing
+  "filed",       // successfully filed via notification/webhook path
+  "failed",      // last filing attempt failed (retryable)
+  "dead_letter", // exhausted max attempts — DLQ
+]);
+export const fraudCases = pgTable("fraud_cases", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  tenantId:        varchar("tenant_id", { length: 36 }).notNull(),
+  paymentIntentId: varchar("payment_intent_id", { length: 64 }),
+  orderId:         varchar("order_id", { length: 36 }),
+  customerId:      varchar("customer_id", { length: 64 }),
+  fraudScore:      numeric("fraud_score", { precision: 5, scale: 4 }).notNull(),
+  riskLevel:       varchar("risk_level", { length: 16 }).notNull(),
+  status:          fraudCaseStatusEnum("status").notNull().default("pending"),
+  attempts:        integer("attempts").notNull().default(0),
+  lastError:       text("last_error"),
+  lastAttemptAt:   timestamp("last_attempt_at"),
+  filedAt:         timestamp("filed_at"),
+  payload:         jsonb("payload"),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("fraud_cases_tenant_idx").on(t.tenantId),
+  index("fraud_cases_status_idx").on(t.status),
+  index("fraud_cases_payment_intent_idx").on(t.paymentIntentId),
+]);
+export type FraudCase = typeof fraudCases.$inferSelect;
+export type NewFraudCase = typeof fraudCases.$inferInsert;
+
+// ── Compliance: Audit Logs (money-movement + admin forensic trail) ──────────
+export const auditLogs = pgTable("audit_logs", {
+  id:         uuid("id").primaryKey().defaultRandom(),
+  actorId:    varchar("actor_id", { length: 64 }),
+  actorRole:  varchar("actor_role", { length: 32 }),
+  action:     varchar("action", { length: 100 }).notNull(),
+  entityType: varchar("entity_type", { length: 64 }).notNull(),
+  entityId:   varchar("entity_id", { length: 128 }),
+  tenantId:   varchar("tenant_id", { length: 36 }),
+  summary:    text("summary"),
+  before:     jsonb("before"),
+  after:      jsonb("after"),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("audit_logs_actor_idx").on(t.actorId),
+  index("audit_logs_action_idx").on(t.action),
+  index("audit_logs_entity_idx").on(t.entityType, t.entityId),
+  index("audit_logs_created_idx").on(t.createdAt),
+]);
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type NewAuditLog = typeof auditLogs.$inferInsert;
