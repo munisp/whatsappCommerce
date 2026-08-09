@@ -1,0 +1,77 @@
+{
+  "id": "J02",
+  "title": "interactive menu",
+  "feature": "waMenu interactive rendering",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348018360518",
+      "profileName": "Sim User 0518",
+      "inboundId": "wamid.sim.in.text.00007",
+      "at": 1786280902988,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00007",
+      "at": 1786280902994
+    },
+    {
+      "dir": "out",
+      "phone": "2348018360518",
+      "wamid": "wamid.sim.000007",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280903023,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348018360518",
+      "profileName": "Sim User 0518",
+      "inboundId": "wamid.sim.in.btn.00008",
+      "at": 1786280903537,
+      "kind": "button_reply",
+      "text": "Shop products",
+      "payloadId": "menu_1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00008",
+      "at": 1786280903545
+    },
+    {
+      "dir": "out",
+      "phone": "2348018360518",
+      "wamid": "wamid.sim.000008",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280903582,
+      "kind": "text",
+      "body": "Sure — what would you like? We have Jollof Rice and more."
+    }
+  ]
+}

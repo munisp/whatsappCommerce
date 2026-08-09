@@ -1,0 +1,248 @@
+{
+  "id": "J09",
+  "title": "order action card",
+  "feature": "track/pay/cancel buttons",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017512789",
+      "profileName": "Sim User 2789",
+      "inboundId": "wamid.sim.in.text.00042",
+      "at": 1786280925288,
+      "kind": "text",
+      "text": "i want these [9aff8b2f]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00042",
+      "at": 1786280925293
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000055",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280925327,
+      "kind": "text",
+      "body": "✅ 1 × Grilled Chicken\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017512789",
+      "profileName": "Sim User 2789",
+      "inboundId": "wamid.sim.in.text.00043",
+      "at": 1786280925834,
+      "kind": "text",
+      "text": "confirm please [9aff8b2f]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00043",
+      "at": 1786280925840
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000056",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280925862,
+      "kind": "text",
+      "body": "🛒 *Your order*\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦3,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017512789",
+      "profileName": "Sim User 2789",
+      "inboundId": "wamid.sim.in.text.00044",
+      "at": 1786280926386,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00044",
+      "at": 1786280926391
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000057",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280926432,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MSLTJJYM*\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦3,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/f999c88e-cbf8-4564-8ea5-7116cd2268bc\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/37c7f709-c919-48d8-992b-ea8d912dc2c0.DhIyZ64FzE-7yxiV-493RiAR"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000058",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280926438,
+      "kind": "interactive",
+      "body": "Order ORD-MSLTJJYM — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:37c7f709-c919-48d8-992b-ea8d912dc2c0",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:37c7f709-c919-48d8-992b-ea8d912dc2c0",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:37c7f709-c919-48d8-992b-ea8d912dc2c0",
+          "title": "Cancel Order"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348017512789",
+      "profileName": "Sim User 2789",
+      "inboundId": "wamid.sim.in.btn.00045",
+      "at": 1786280926937,
+      "kind": "button_reply",
+      "text": "Track Order",
+      "payloadId": "order_track:37c7f709-c919-48d8-992b-ea8d912dc2c0"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00045",
+      "at": 1786280926941
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000059",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280926950,
+      "kind": "text",
+      "body": "Order ORD-MSLTJJYM is currently pending.\nTrack it here: http://localhost:4173/track/37c7f709-c919-48d8-992b-ea8d912dc2c0.DhIyZ64FzE-7yxiV-493RiAR"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017512789",
+      "profileName": "Sim User 2789",
+      "inboundId": "wamid.sim.in.btn.00046",
+      "at": 1786280927485,
+      "kind": "button_reply",
+      "text": "Pay Now",
+      "payloadId": "order_pay:37c7f709-c919-48d8-992b-ea8d912dc2c0"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00046",
+      "at": 1786280927498
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000060",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280927507,
+      "kind": "text",
+      "body": "💳 Complete payment for order ORD-MSLTJJYM (3000.00 NGN):\nhttps://checkout.paystack.com/sim/f999c88e-cbf8-4564-8ea5-7116cd2268bc"
+    },
+    {
+      "dir": "in",
+      "phone": "2348011125806",
+      "profileName": "Sim User 5806",
+      "inboundId": "wamid.sim.in.btn.00047",
+      "at": 1786280928033,
+      "kind": "button_reply",
+      "text": "Cancel Order",
+      "payloadId": "order_cancel:37c7f709-c919-48d8-992b-ea8d912dc2c0"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00047",
+      "at": 1786280928037
+    },
+    {
+      "dir": "out",
+      "phone": "2348011125806",
+      "wamid": "wamid.sim.000061",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280928046,
+      "kind": "text",
+      "body": "Sorry, I couldn't find that order for this number."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017512789",
+      "profileName": "Sim User 2789",
+      "inboundId": "wamid.sim.in.btn.00048",
+      "at": 1786280928585,
+      "kind": "button_reply",
+      "text": "Cancel Order",
+      "payloadId": "order_cancel:37c7f709-c919-48d8-992b-ea8d912dc2c0"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00048",
+      "at": 1786280928589
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000062",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280928602,
+      "kind": "text",
+      "body": "✅ Order ORD-MSLTJJYM has been cancelled. Any reserved items are back in stock."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017512789",
+      "profileName": "Sim User 2789",
+      "inboundId": "wamid.sim.in.btn.00049",
+      "at": 1786280929136,
+      "kind": "button_reply",
+      "text": "Pay Now",
+      "payloadId": "order_pay:37c7f709-c919-48d8-992b-ea8d912dc2c0"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00049",
+      "at": 1786280929140
+    },
+    {
+      "dir": "out",
+      "phone": "2348017512789",
+      "wamid": "wamid.sim.000063",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280929147,
+      "kind": "text",
+      "body": "Order ORD-MSLTJJYM was cancelled — no payment is due. Type \"menu\" to start a new order."
+    }
+  ]
+}

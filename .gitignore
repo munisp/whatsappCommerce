@@ -118,3 +118,8 @@ services/fluvio-consumer/target/
 # Rust build artifacts
 rust/target/
 rust/*/target/
+
+# simulation gallery: commit the prebuilt self-contained HTML
+!simulation/render/dist
+!simulation/render/dist/
+!simulation/render/dist/index.html
