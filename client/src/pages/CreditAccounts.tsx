@@ -1,13 +1,16 @@
 /**
  * CreditAccounts — trade-credit workspace (route /credit-accounts).
  *
- * "As buyer": my credit lines with suppliers — limit gauge, outstanding, next
- * due date, ledger (kind badges), Repay (RepaymentDialog) and
- * Request-increase CTAs.
+ * "As buyer": my credit facilities with suppliers (tradeCredit.myAccounts) —
+ * limit gauge, outstanding, next due date derived from the ledger, ledger
+ * table with kind badges, Repay (RepaymentDialog → creditRepay link) and
+ * Request-increase (tradeCredit.requestLimitIncrease) CTAs.
  *
- * "As supplier": credit I extend to buyers — score with reasons tooltip,
- * editable limit/terms (validated form), freeze/unfreeze with confirmation,
- * and aging-bucket summary cards across my book.
+ * "As supplier": facilities I extend to buyers (tradeCredit.listAccounts with
+ * aging) — score with reasons tooltip, editable limit/terms
+ * (tradeCredit.updateAccount), freeze/unfreeze (setAccountStatus) with
+ * confirmation, aging-bucket summary cards across the book, and a
+ * deterministic limit suggestion (suggestLimit) inside the terms dialog.
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -31,11 +34,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useActiveTenant } from "@/contexts/TenantContext";
 import {
   useB2bUtils, useCreditAccounts, useCreditLedger, useFreezeAccount,
-  useRequestLimitIncrease, useSuggestLimit, useUnfreezeAccount, useUpsertAccount,
+  useRequestLimitIncrease, useSuggestLimit, useTenantNames, useUnfreezeAccount, useUpsertAccount,
 } from "@/lib/b2b";
 import {
-  dueCountdown, formatDate, formatNaira, ledgerKindMeta, validateLimitForm,
-  type AgingBuckets, type CreditAccount,
+  dueCountdown, formatDate, formatNaira, ledgerKindMeta, nextDueFromLedger, validateLimitForm,
+  type AgingBuckets, type CreditAccount, type LedgerEntry,
 } from "@/lib/b2bLogic";
 import {
   HandCoins, Info, Loader2, Pencil, Snowflake, Sun, TrendingUp, Wallet,
@@ -43,18 +46,10 @@ import {
 import { toast } from "sonner";
 import { Link } from "wouter";
 
-// ─── Buyer view ─────────────────────────────────────────────────────────────
+// ─── Shared bits ────────────────────────────────────────────────────────────
 
-function BuyerLedger({ tenantId, accountId }: { tenantId: string; accountId: string }) {
-  const { data: ledger, isLoading } = useCreditLedger(tenantId, accountId);
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center text-sm">
-        <Loader2 className="w-4 h-4 animate-spin" /> Loading ledger…
-      </div>
-    );
-  }
-  if ((ledger ?? []).length === 0) {
+function LedgerTable({ ledger }: { ledger: LedgerEntry[] }) {
+  if (ledger.length === 0) {
     return <p className="text-sm text-muted-foreground py-6 text-center">No ledger entries yet.</p>;
   }
   return (
@@ -68,7 +63,7 @@ function BuyerLedger({ tenantId, accountId }: { tenantId: string; accountId: str
         </TableRow>
       </TableHeader>
       <TableBody>
-        {(ledger ?? []).map((e) => {
+        {ledger.map((e) => {
           const meta = ledgerKindMeta(e.kind);
           return (
             <TableRow key={e.id}>
@@ -77,7 +72,7 @@ function BuyerLedger({ tenantId, accountId }: { tenantId: string; accountId: str
                 <Badge variant="outline" className={`font-normal ${meta.className}`}>{meta.label}</Badge>
               </TableCell>
               <TableCell className="text-xs">
-                {e.poNumber ? <span className="font-mono">{e.poNumber}</span> : (e.note ?? "—")}
+                {e.poId ? <span className="font-mono">PO {e.poId.slice(0, 8)}</span> : (e.note ?? e.ref ?? "—")}
               </TableCell>
               <TableCell className={`text-right font-medium ${e.amount < 0 ? "text-emerald-400" : ""}`}>
                 {formatNaira(e.amount)}
@@ -89,6 +84,19 @@ function BuyerLedger({ tenantId, accountId }: { tenantId: string; accountId: str
     </Table>
   );
 }
+
+function AccountStatusBadge({ status }: { status: CreditAccount["status"] }) {
+  return (
+    <Badge
+      variant="outline"
+      className={`font-normal ${status === "active" ? "border-emerald-500/40 text-emerald-400" : status === "frozen" ? "border-amber-500/40 text-amber-400" : "border-border text-muted-foreground"}`}
+    >
+      {status}
+    </Badge>
+  );
+}
+
+// ─── Buyer view ─────────────────────────────────────────────────────────────
 
 function RequestIncreaseDialog({
   tenantId,
@@ -102,14 +110,14 @@ function RequestIncreaseDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = useB2bUtils();
-  const { data: suggestion } = useSuggestLimit(tenantId, account.id, { enabled: open });
   const [requested, setRequested] = useState("");
   const [reason, setReason] = useState("");
 
   const requestIncrease = useRequestLimitIncrease({
     onSuccess: () => {
       toast.success("Limit increase requested — the supplier will review it");
-      utils?.tradeCredit?.listAccounts?.invalidate();
+      utils?.tradeCredit?.myAccounts?.invalidate();
+      utils?.tradeCredit?.myLedger?.invalidate();
       onOpenChange(false);
       setRequested("");
       setReason("");
@@ -127,7 +135,6 @@ function RequestIncreaseDialog({
           <DialogTitle>Request limit increase</DialogTitle>
           <DialogDescription>
             Current limit with {account.counterpartyName}: {formatNaira(account.limit)}.
-            {suggestion ? ` Suggested based on your history: ${formatNaira(suggestion.suggested)}.` : ""}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -158,11 +165,91 @@ function RequestIncreaseDialog({
   );
 }
 
+/** One buyer-side facility card; fetches its own ledger for next-due + table. */
+function BuyerAccountCard({
+  tenantId,
+  account,
+  name,
+  onRepay,
+  onRequestIncrease,
+}: {
+  tenantId: string;
+  account: CreditAccount;
+  name: string;
+  onRepay: () => void;
+  onRequestIncrease: () => void;
+}) {
+  const { data: ledger, isLoading: ledgerLoading } = useCreditLedger(tenantId, account.id, "buyer");
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+
+  const nextDue = useMemo(() => nextDueFromLedger(ledger ?? []), [ledger]);
+  const due = dueCountdown(nextDue);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="text-base">{name}</CardTitle>
+            <CardDescription>Net {account.termsDays}d terms</CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <AccountStatusBadge status={account.status} />
+            <Button size="sm" variant="outline" className="gap-1" onClick={onRequestIncrease}>
+              <TrendingUp className="w-3.5 h-3.5" /> Request increase
+            </Button>
+            <Button
+              size="sm" className="gap-1"
+              disabled={account.status !== "active" || account.outstanding <= 0}
+              onClick={onRepay}
+            >
+              <HandCoins className="w-3.5 h-3.5" /> Repay
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <div className="md:col-span-2">
+            <LimitGauge used={account.outstanding} limit={account.limit} />
+          </div>
+          <div className="text-sm">
+            <p className="text-xs text-muted-foreground">Next due</p>
+            <p className="font-medium">{ledgerLoading ? "…" : formatDate(nextDue)}</p>
+            {nextDue && (
+              <p className={`text-xs ${due.tone === "danger" ? "text-red-400" : due.tone === "warn" ? "text-amber-400" : "text-muted-foreground"}`}>
+                {due.label}
+              </p>
+            )}
+          </div>
+        </div>
+        <Button variant="ghost" size="sm" className="text-xs text-muted-foreground px-0" onClick={() => setLedgerOpen((v) => !v)}>
+          {ledgerOpen ? "Hide ledger ▲" : "Show ledger ▼"}
+        </Button>
+        {ledgerOpen && (
+          ledgerLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-6 justify-center text-sm">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading ledger…
+            </div>
+          ) : (
+            <LedgerTable ledger={ledger ?? []} />
+          )
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function BuyerView({ tenantId }: { tenantId: string }) {
   const { data: accounts, isLoading, error, refetch } = useCreditAccounts({ tenantId, side: "buyer" });
+  const tenantNames = useTenantNames();
   const [repayAccount, setRepayAccount] = useState<CreditAccount | null>(null);
   const [increaseAccount, setIncreaseAccount] = useState<CreditAccount | null>(null);
-  const [ledgerAccountId, setLedgerAccountId] = useState<string | null>(null);
+
+  const named = useMemo(
+    () => (accounts ?? []).map((a) => ({ ...a, counterpartyName: tenantNames.get(a.supplierTenantId) ?? a.supplierTenantId })),
+    [accounts, tenantNames],
+  );
 
   if (isLoading) {
     return (
@@ -182,7 +269,7 @@ function BuyerView({ tenantId }: { tenantId: string }) {
       </Card>
     );
   }
-  if ((accounts ?? []).length === 0) {
+  if (named.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center gap-4 py-14 text-center">
@@ -205,60 +292,16 @@ function BuyerView({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="space-y-4">
-      {(accounts ?? []).map((a) => {
-        const due = dueCountdown(a.nextDueDate);
-        const expanded = ledgerAccountId === a.id;
-        return (
-          <Card key={a.id}>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <CardTitle className="text-base">{a.counterpartyName}</CardTitle>
-                  <CardDescription>Net {a.termsDays}d terms</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className={`font-normal ${a.status === "active" ? "border-emerald-500/40 text-emerald-400" : "border-red-500/40 text-red-400"}`}
-                  >
-                    {a.status}
-                  </Badge>
-                  <Button size="sm" variant="outline" className="gap-1" onClick={() => setIncreaseAccount(a)}>
-                    <TrendingUp className="w-3.5 h-3.5" /> Request increase
-                  </Button>
-                  <Button
-                    size="sm" className="gap-1"
-                    disabled={a.status !== "active" || a.outstanding <= 0}
-                    onClick={() => setRepayAccount(a)}
-                  >
-                    <HandCoins className="w-3.5 h-3.5" /> Repay
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                <div className="md:col-span-2">
-                  <LimitGauge used={a.outstanding} limit={a.limit} />
-                </div>
-                <div className="text-sm">
-                  <p className="text-xs text-muted-foreground">Next due</p>
-                  <p className="font-medium">{formatDate(a.nextDueDate)}</p>
-                  {a.nextDueDate && (
-                    <p className={`text-xs ${due.tone === "danger" ? "text-red-400" : due.tone === "warn" ? "text-amber-400" : "text-muted-foreground"}`}>
-                      {due.label}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <Button variant="ghost" size="sm" className="text-xs text-muted-foreground px-0" onClick={() => setLedgerAccountId(expanded ? null : a.id)}>
-                {expanded ? "Hide ledger ▲" : "Show ledger ▼"}
-              </Button>
-              {expanded && <BuyerLedger tenantId={tenantId} accountId={a.id} />}
-            </CardContent>
-          </Card>
-        );
-      })}
+      {named.map((a) => (
+        <BuyerAccountCard
+          key={a.id}
+          tenantId={tenantId}
+          account={a}
+          name={a.counterpartyName}
+          onRepay={() => setRepayAccount(a)}
+          onRequestIncrease={() => setIncreaseAccount(a)}
+        />
+      ))}
 
       {repayAccount && (
         <RepaymentDialog
@@ -287,22 +330,24 @@ function BuyerView({ tenantId }: { tenantId: string }) {
 function EditAccountDialog({
   tenantId,
   account,
+  name,
   open,
   onOpenChange,
 }: {
   tenantId: string;
   account: CreditAccount;
+  name: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = useB2bUtils();
-  const { data: suggestion } = useSuggestLimit(tenantId, account.id, { enabled: open });
+  const { data: suggestion } = useSuggestLimit(tenantId, account.buyerTenantId, { enabled: open });
   const [form, setForm] = useState({ limit: String(account.limit), termsDays: String(account.termsDays) });
   const errors = validateLimitForm(form);
 
   const save = useUpsertAccount({
     onSuccess: () => {
-      toast.success(`Updated credit terms for ${account.counterpartyName}`);
+      toast.success(`Updated credit terms for ${name}`);
       utils?.tradeCredit?.listAccounts?.invalidate();
       onOpenChange(false);
     },
@@ -313,10 +358,10 @@ function EditAccountDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Credit terms — {account.counterpartyName}</DialogTitle>
+          <DialogTitle>Credit terms — {name}</DialogTitle>
           <DialogDescription>
             {suggestion
-              ? `Suggested limit ${formatNaira(suggestion.suggested)} based on repayment history.`
+              ? `Suggested limit ${formatNaira(suggestion.suggested)} (score ${suggestion.score}) based on repayment history.`
               : "Adjust the credit limit and payment terms for this buyer."}
           </DialogDescription>
         </DialogHeader>
@@ -334,7 +379,7 @@ function EditAccountDialog({
           <div className="space-y-1.5">
             <Label htmlFor="ea-terms">Terms (days)</Label>
             <Input
-              id="ea-terms" type="number" min={0} max={90}
+              id="ea-terms" type="number" min={1} max={90}
               value={form.termsDays}
               className={errors.termsDays ? "border-destructive" : ""}
               onChange={(e) => setForm((f) => ({ ...f, termsDays: e.target.value }))}
@@ -365,6 +410,7 @@ function EditAccountDialog({
 function SupplierView({ tenantId }: { tenantId: string }) {
   const utils = useB2bUtils();
   const { data: accounts, isLoading, error, refetch } = useCreditAccounts({ tenantId, side: "supplier" });
+  const tenantNames = useTenantNames();
   const [editAccount, setEditAccount] = useState<CreditAccount | null>(null);
   const [freezeTarget, setFreezeTarget] = useState<CreditAccount | null>(null);
 
@@ -385,18 +431,24 @@ function SupplierView({ tenantId }: { tenantId: string }) {
     onError: (e) => toast.error(e.message),
   });
 
-  // Aggregate aging across the whole book when per-account buckets are present.
+  const named = useMemo(
+    () => (accounts ?? []).map((a) => ({ ...a, counterpartyName: tenantNames.get(a.buyerTenantId) ?? a.buyerTenantId })),
+    [accounts, tenantNames],
+  );
+
+  // Aggregate aging across the whole book.
   const bookAging = useMemo<AgingBuckets>(() => {
-    const total: AgingBuckets = { current: 0, d1_7: 0, d8_30: 0, over30: 0 };
-    for (const a of accounts ?? []) {
+    const total: AgingBuckets = { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0 };
+    for (const a of named) {
       if (!a.aging) continue;
       total.current += a.aging.current;
-      total.d1_7 += a.aging.d1_7;
-      total.d8_30 += a.aging.d8_30;
-      total.over30 += a.aging.over30;
+      total.days1to30 += a.aging.days1to30;
+      total.days31to60 += a.aging.days31to60;
+      total.days61to90 += a.aging.days61to90;
+      total.days90plus += a.aging.days90plus;
     }
     return total;
-  }, [accounts]);
+  }, [named]);
 
   if (isLoading) {
     return (
@@ -416,7 +468,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
       </Card>
     );
   }
-  if ((accounts ?? []).length === 0) {
+  if (named.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center gap-4 py-14 text-center">
@@ -426,7 +478,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
           <div>
             <p className="font-medium">No buyers on credit yet</p>
             <p className="text-sm text-muted-foreground mt-1 max-w-md">
-              When buyers request credit, approve them here by setting a limit and terms.
+              When buyers order on credit, their facilities appear here — set limits and terms per buyer.
             </p>
           </div>
         </CardContent>
@@ -451,7 +503,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {(accounts ?? []).map((a) => (
+            {named.map((a) => (
               <TableRow key={a.id}>
                 <TableCell className="font-medium">{a.counterpartyName}</TableCell>
                 <TableCell>
@@ -479,14 +531,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
                   <LimitGauge used={a.outstanding} limit={a.limit} compact />
                 </TableCell>
                 <TableCell className="text-right">{formatNaira(a.outstanding)}</TableCell>
-                <TableCell>
-                  <Badge
-                    variant="outline"
-                    className={`font-normal ${a.status === "active" ? "border-emerald-500/40 text-emerald-400" : "border-red-500/40 text-red-400"}`}
-                  >
-                    {a.status}
-                  </Badge>
-                </TableCell>
+                <TableCell><AccountStatusBadge status={a.status} /></TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1.5">
                     <Button size="sm" variant="outline" className="h-8 gap-1" onClick={() => setEditAccount(a)}>
@@ -494,6 +539,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
                     </Button>
                     <Button
                       size="sm" variant="ghost" className="h-8 gap-1"
+                      disabled={a.status === "closed"}
                       onClick={() => setFreezeTarget(a)}
                     >
                       {a.status === "frozen" ? <Sun className="w-3.5 h-3.5" /> : <Snowflake className="w-3.5 h-3.5" />}
@@ -511,6 +557,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
         <EditAccountDialog
           tenantId={tenantId}
           account={editAccount}
+          name={editAccount.counterpartyName}
           open={!!editAccount}
           onOpenChange={(o) => !o && setEditAccount(null)}
         />

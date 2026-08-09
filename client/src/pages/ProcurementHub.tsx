@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useActiveTenant } from "@/contexts/TenantContext";
-import { useB2bUtils, useCancelPo, useCreditAccounts, usePos, useRequestCreditAccount, useSuppliers } from "@/lib/b2b";
+import { useB2bUtils, useCancelPo, useCreditAccounts, usePos, useRequestCreditAccount, useSuppliers, useTenantNames } from "@/lib/b2b";
 import {
   dueCountdown, formatDate, formatNaira, type PoStatus, type PurchaseOrder, type SupplierSummary,
 } from "@/lib/b2bLogic";
@@ -61,6 +61,7 @@ export default function ProcurementHub() {
   );
   const { data: accounts } = useCreditAccounts({ tenantId, side: "buyer" });
   const { data: suppliers, isLoading: suppliersLoading } = useSuppliers(tenantId);
+  const tenantNames = useTenantNames();
 
   const [poSupplier, setPoSupplier] = useState<SupplierSummary | null>(null);
   const [poOpen, setPoOpen] = useState(false);
@@ -181,7 +182,7 @@ export default function ProcurementHub() {
                       return (
                         <TableRow key={po.id}>
                           <TableCell className="font-mono text-xs">{po.poNumber}</TableCell>
-                          <TableCell className="font-medium">{po.supplierName ?? po.supplierTenantId}</TableCell>
+                          <TableCell className="font-medium">{po.supplierName ?? tenantNames.get(po.supplierTenantId) ?? po.supplierTenantId}</TableCell>
                           <TableCell className="text-right">{formatNaira(po.subtotal)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-1.5">
@@ -287,8 +288,9 @@ export default function ProcurementHub() {
         <RepaymentDialog
           tenantId={tenantId}
           accountId={repayAccount.id}
-          counterpartyName={repayTarget.supplierName ?? repayTarget.supplierTenantId}
+          counterpartyName={repayTarget.supplierName ?? tenantNames.get(repayTarget.supplierTenantId) ?? repayTarget.supplierTenantId}
           outstanding={repayAccount.outstanding}
+          poId={repayTarget.id}
           open={!!repayTarget}
           onOpenChange={(o) => !o && setRepayTarget(null)}
         />

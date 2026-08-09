@@ -18,6 +18,7 @@ export function RepaymentDialog({
   accountId,
   counterpartyName,
   outstanding,
+  poId,
   open,
   onOpenChange,
 }: {
@@ -25,6 +26,8 @@ export function RepaymentDialog({
   accountId: string;
   counterpartyName: string;
   outstanding: number;
+  /** When repaying against a specific credit-invoiced PO. */
+  poId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -44,8 +47,8 @@ export function RepaymentDialog({
       toast.success("Repayment link created — opening checkout");
       window.open(url, "_blank", "noopener");
       onOpenChange(false);
-      utils?.tradeCredit?.listAccounts?.invalidate();
-      utils?.tradeCredit?.listLedger?.invalidate();
+      utils?.tradeCredit?.myAccounts?.invalidate();
+      utils?.tradeCredit?.myLedger?.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });

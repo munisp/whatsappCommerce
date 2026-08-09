@@ -1,13 +1,14 @@
 /**
  * CreditSummaryWidget — dashboard card: total outstanding across the tenant's
- * buyer-side credit accounts, next due date and utilization %. Links to the
- * Credit Accounts page.
+ * buyer-side credit accounts, next due date (rolled up from per-account
+ * ledgers) and utilization %. Links to the Credit Accounts page.
  */
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useActiveTenant } from "@/contexts/TenantContext";
-import { useCreditAccounts } from "@/lib/b2b";
-import { dueCountdown, formatDate, formatNaira, summarizeCreditAccounts } from "@/lib/b2bLogic";
+import { useBuyerLedgers, useCreditAccounts } from "@/lib/b2b";
+import { dueCountdown, formatDate, formatNaira, nextDueFromLedger, summarizeCreditAccounts } from "@/lib/b2bLogic";
 import { Wallet } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -16,8 +17,18 @@ export function CreditSummaryWidget() {
   const { data: accounts, isLoading, error } = useCreditAccounts({ tenantId, side: "buyer" });
   const [, setLocation] = useLocation();
 
+  const accountIds = useMemo(() => (accounts ?? []).slice(0, 20).map((a) => a.id), [accounts]);
+  const ledgers = useBuyerLedgers(tenantId, accountIds);
+
   const summary = summarizeCreditAccounts(accounts ?? []);
-  const due = dueCountdown(summary.nextDueDate);
+  const nextDue = useMemo(() => {
+    const dates = ledgers
+      .map((l) => nextDueFromLedger(l.data ?? []))
+      .filter((d): d is string => !!d)
+      .sort();
+    return dates[0] ?? null;
+  }, [ledgers]);
+  const due = dueCountdown(nextDue);
 
   return (
     <Card className="bg-card border-border">
@@ -46,8 +57,8 @@ export function CreditSummaryWidget() {
             </div>
             <div className="p-3 rounded-lg bg-accent/30 border border-border">
               <p className="text-xs text-muted-foreground">Next due</p>
-              <p className="text-lg font-bold mt-1 text-foreground">{formatDate(summary.nextDueDate)}</p>
-              {summary.nextDueDate && (
+              <p className="text-lg font-bold mt-1 text-foreground">{formatDate(nextDue)}</p>
+              {nextDue && (
                 <p className={`text-[11px] ${due.tone === "danger" ? "text-red-400" : due.tone === "warn" ? "text-amber-400" : "text-muted-foreground"}`}>
                   {due.label}
                 </p>

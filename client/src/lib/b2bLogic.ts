@@ -85,18 +85,24 @@ export interface PurchaseOrder {
 
 export type CreditAccountStatus = "active" | "frozen" | "closed";
 
+/**
+ * Aging buckets — mirrors the backend bucketForDraw boundaries
+ * (server/services/tradeCredit/accounts.ts). Amounts in ₦ (normalized from
+ * the backend's *_cents columns by the b2b.ts bridge).
+ */
 export interface AgingBuckets {
   current: number;
-  d1_7: number;
-  d8_30: number;
-  over30: number;
+  days1to30: number;
+  days31to60: number;
+  days61to90: number;
+  days90plus: number;
 }
 
 export interface CreditAccount {
   id: string;
   buyerTenantId: string;
   supplierTenantId: string;
-  /** Display name of the counterparty (supplier for buyer view, buyer for supplier view). */
+  /** Display name of the counterparty (resolved from the tenant directory when known). */
   counterpartyName: string;
   limit: number;
   outstanding: number;
@@ -108,16 +114,18 @@ export interface CreditAccount {
   aging?: AgingBuckets;
 }
 
-export type LedgerKind = "invoice" | "payment" | "adjustment" | "fee";
+export type LedgerKind = "invoice_draw" | "repayment" | "fee" | "adjustment";
 
 export interface LedgerEntry {
   id: string;
   kind: LedgerKind;
-  /** Signed amount in ₦: invoices/fees positive (debit), payments negative (credit). */
+  /** Signed amount in ₦: draws/fees positive (debit), repayments negative (credit). */
   amount: number;
-  poNumber?: string | null;
+  poId?: string | null;
+  ref?: string | null;
   note?: string | null;
   dueDate?: string | null;
+  status?: string;
   createdAt: string;
 }
 
@@ -137,9 +145,9 @@ export function formatNaira(val: number | string | null | undefined, opts: { dec
 }
 
 /** Short date, e.g. "12 Mar 2026". Falls back to "—" for missing/invalid. */
-export function formatDate(iso: string | null | undefined): string {
+export function formatDate(iso: string | Date | null | undefined): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = iso instanceof Date ? iso : new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
@@ -176,10 +184,10 @@ export function poStatusMeta(status: string): StatusMeta {
 // ─── Ledger kind badges ─────────────────────────────────────────────────────
 
 export const LEDGER_KIND_META: Record<LedgerKind, StatusMeta> = {
-  invoice:    { label: "Invoice",    className: "border-sky-500/40 text-sky-400" },
-  payment:    { label: "Payment",    className: "border-emerald-500/40 text-emerald-400" },
-  adjustment: { label: "Adjustment", className: "border-amber-500/40 text-amber-400" },
-  fee:        { label: "Fee",        className: "border-red-500/40 text-red-400" },
+  invoice_draw: { label: "Invoice draw", className: "border-sky-500/40 text-sky-400" },
+  repayment:    { label: "Repayment",    className: "border-emerald-500/40 text-emerald-400" },
+  adjustment:   { label: "Adjustment",   className: "border-amber-500/40 text-amber-400" },
+  fee:          { label: "Fee",          className: "border-red-500/40 text-red-400" },
 };
 
 export function ledgerKindMeta(kind: string): StatusMeta {
@@ -293,8 +301,28 @@ export function computeAging(entries: Array<Pick<LedgerEntry, "amount" | "dueDat
   return buckets;
 }
 
-// ─── Limit gauge math ───────────────────────────────────────────────────────
+/**
+ * Earliest unsettled due date across a ledger (overdue entries first, then
+ * upcoming). Repayments/adjustments never carry meaningful due dates.
+ */
+export function nextDueFromLedger(
+  entries: Array<Pick<LedgerEntry, "dueDate" | "status" | "kind">>,
+): string | null {
+  const candidates = entries
+    .filter(
+      (e) =>
+        e.dueDate &&
+        e.kind !== "repayment" &&
+        e.kind !== "adjustment" &&
+        e.status !== "settled" &&
+        e.status !== "void",
+    )
+    .map((e) => e.dueDate!)
+    .sort();
+  return candidates[0] ?? null;
+}
 
+// ─── Limit gauge math ───────────────────────────────────────────────────────
 export interface LimitGaugeResult {
   /** 0..100, clamped. */
   pct: number;
@@ -386,8 +414,8 @@ export function validateLimitForm(values: LimitFormValues): LimitFormErrors {
     errors.limit = "Limit looks unreasonably high (max ₦100,000,000)";
   }
   const terms = Number(values.termsDays);
-  if (values.termsDays.trim() === "" || !Number.isInteger(terms) || terms < 0) {
-    errors.termsDays = "Terms must be a whole number of days (0 = due on receipt)";
+  if (values.termsDays.trim() === "" || !Number.isInteger(terms) || terms < 1) {
+    errors.termsDays = "Terms must be a whole number of days (min 1)";
   } else if (terms > 90) {
     errors.termsDays = "Terms longer than 90 days are not supported";
   }
@@ -439,6 +467,10 @@ export function summarizeCreditAccounts(accounts: Array<Pick<CreditAccount, "out
 }
 
 /** Count supplier-side POs awaiting a decision (dashboard widget). */
+export function countPendingApprovals(pos: Array<Pick<PurchaseOrder, "status">>): number {
+  return pos.filter((p) => p.status === "pending_approval").length;
+}
+ing a decision (dashboard widget). */
 export function countPendingApprovals(pos: Array<Pick<PurchaseOrder, "status">>): number {
   return pos.filter((p) => p.status === "pending_approval").length;
 }

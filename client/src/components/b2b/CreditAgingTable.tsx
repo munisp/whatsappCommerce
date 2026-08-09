@@ -1,17 +1,18 @@
 /**
- * CreditAgingTable — aging-bucket summary cards (current / 1–7d / 8–30d / >30d)
- * for supplier-side credit accounts. Bucketing logic lives in b2bLogic
- * (unit-tested); this is the presentational summary.
+ * CreditAgingTable — aging-bucket summary cards matching the backend's
+ * bucketForDraw buckets (current / 1–30d / 31–60d / 61–90d / >90d) for
+ * supplier-side credit accounts. Purely presentational.
  */
 import { Card, CardContent } from "@/components/ui/card";
 import { AGING_BUCKET_LABELS, formatNaira, type AgingBucketKey, type AgingBuckets } from "@/lib/b2bLogic";
 
-const BUCKET_ORDER: AgingBucketKey[] = ["current", "d1_7", "d8_30", "over30"];
+const BUCKET_ORDER: AgingBucketKey[] = ["current", "days1to30", "days31to60", "days61to90", "days90plus"];
 const BUCKET_TONE: Record<AgingBucketKey, string> = {
   current: "text-foreground",
-  d1_7: "text-amber-400",
-  d8_30: "text-orange-400",
-  over30: "text-red-400",
+  days1to30: "text-amber-400",
+  days31to60: "text-orange-400",
+  days61to90: "text-orange-400",
+  days90plus: "text-red-400",
 };
 
 export function CreditAgingCards({ buckets }: { buckets: AgingBuckets }) {
