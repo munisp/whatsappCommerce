@@ -14,6 +14,7 @@ import {
   formatNaira,
   ledgerKindMeta,
   limitGauge,
+  nextDueFromLedger,
   poPaymentModes,
   poStatusMeta,
   poSubtotal,
@@ -62,8 +63,8 @@ describe("poStatusMeta", () => {
 
 describe("ledgerKindMeta", () => {
   it("maps kinds and falls back for unknown", () => {
-    expect(ledgerKindMeta("invoice").label).toBe("Invoice");
-    expect(ledgerKindMeta("payment").className).toContain("emerald");
+    expect(ledgerKindMeta("invoice_draw").label).toBe("Invoice draw");
+    expect(ledgerKindMeta("repayment").className).toContain("emerald");
     expect(ledgerKindMeta("mystery").label).toBe("mystery");
   });
 });
@@ -112,29 +113,50 @@ describe("poPaymentModes", () => {
 });
 
 describe("aging buckets", () => {
-  it("buckets by days past due at the boundaries", () => {
+  it("buckets by days past due at the backend bucketForDraw boundaries", () => {
     expect(agingBucketFor(-5)).toBe("current");
     expect(agingBucketFor(0)).toBe("current");
-    expect(agingBucketFor(1)).toBe("d1_7");
-    expect(agingBucketFor(7)).toBe("d1_7");
-    expect(agingBucketFor(8)).toBe("d8_30");
-    expect(agingBucketFor(30)).toBe("d8_30");
-    expect(agingBucketFor(31)).toBe("over30");
+    expect(agingBucketFor(1)).toBe("days1to30");
+    expect(agingBucketFor(30)).toBe("days1to30");
+    expect(agingBucketFor(31)).toBe("days31to60");
+    expect(agingBucketFor(60)).toBe("days31to60");
+    expect(agingBucketFor(61)).toBe("days61to90");
+    expect(agingBucketFor(90)).toBe("days61to90");
+    expect(agingBucketFor(91)).toBe("days90plus");
   });
 
   it("computeAging splits debits across buckets", () => {
     const now = new Date("2026-03-15T12:00:00Z");
     const buckets = computeAging(
       [
-        { kind: "invoice", amount: 1000, dueDate: "2026-03-20T00:00:00Z" }, // not yet due → current
-        { kind: "invoice", amount: 500, dueDate: "2026-03-10T00:00:00Z" },  // 5d past → d1_7
-        { kind: "invoice", amount: 250, dueDate: "2026-02-25T00:00:00Z" },  // 18d past → d8_30
-        { kind: "invoice", amount: 100, dueDate: "2026-01-01T00:00:00Z" },  // 73d past → over30
-        { kind: "invoice", amount: 300, dueDate: null },                    // no due date → current
+        { kind: "invoice_draw", amount: 1000, dueDate: "2026-03-20T00:00:00Z" }, // not yet due → current
+        { kind: "invoice_draw", amount: 500, dueDate: "2026-03-10T00:00:00Z" },  // 5d past → days1to30
+        { kind: "invoice_draw", amount: 250, dueDate: "2026-02-01T00:00:00Z" },  // 42d past → days31to60
+        { kind: "invoice_draw", amount: 100, dueDate: "2025-11-01T00:00:00Z" },  // 134d past → days90plus
+        { kind: "invoice_draw", amount: 300, dueDate: null },                    // no due date → current
       ],
       now,
     );
-    expect(buckets).toEqual({ current: 1300, d1_7: 500, d8_30: 250, over30: 100 });
+    expect(buckets).toEqual({ current: 1300, days1to30: 500, days31to60: 250, days61to90: 0, days90plus: 100 });
+  });
+});
+
+describe("nextDueFromLedger", () => {
+  it("returns the earliest unsettled debit due date", () => {
+    expect(
+      nextDueFromLedger([
+        { kind: "invoice_draw", dueDate: "2026-05-01", status: "posted" },
+        { kind: "invoice_draw", dueDate: "2026-04-01", status: "posted" },
+        { kind: "invoice_draw", dueDate: "2026-03-01", status: "settled" }, // settled — ignored
+        { kind: "repayment", dueDate: "2026-02-01", status: "posted" },     // repayments don't age
+        { kind: "adjustment", dueDate: null, status: "posted" },
+      ]),
+    ).toBe("2026-04-01");
+  });
+
+  it("returns null when nothing is due", () => {
+    expect(nextDueFromLedger([])).toBeNull();
+    expect(nextDueFromLedger([{ kind: "invoice_draw", dueDate: null, status: "posted" }])).toBeNull();
   });
 });
 
@@ -183,7 +205,7 @@ describe("dueCountdown", () => {
 describe("validateLimitForm", () => {
   it("accepts sane limits and terms", () => {
     expect(validateLimitForm({ limit: "500000", termsDays: "30" })).toEqual({});
-    expect(validateLimitForm({ limit: "0", termsDays: "0" })).toEqual({});
+    expect(validateLimitForm({ limit: "0", termsDays: "1" })).toEqual({});
   });
 
   it("rejects bad limits", () => {
@@ -194,6 +216,7 @@ describe("validateLimitForm", () => {
   });
 
   it("rejects bad terms", () => {
+    expect(validateLimitForm({ limit: "100", termsDays: "0" }).termsDays).toBeTruthy();
     expect(validateLimitForm({ limit: "100", termsDays: "1.5" }).termsDays).toBeTruthy();
     expect(validateLimitForm({ limit: "100", termsDays: "-1" }).termsDays).toBeTruthy();
     expect(validateLimitForm({ limit: "100", termsDays: "91" }).termsDays).toBeTruthy();
