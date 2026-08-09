@@ -235,7 +235,12 @@ export async function runWindowExpiryCheck(db: Db, now: Date = new Date()): Prom
         .where(and(eq(customers.tenantId, order.tenantId), eq(customers.id, order.customerId)))
         .limit(1)
         .catch(() => []);
-      const phone = customer?.whatsappPhone;
+      // Chat orders store the raw WhatsApp phone in orders.customerId (not a
+      // customers.id) — resolve it directly, mirroring reorder/logistics, or
+      // the nudge would silently skip every chat-placed order.
+      const rawCustomerId = (order.customerId ?? "").trim();
+      const phone = customer?.whatsappPhone
+        ?? (/^\+?\d{7,15}$/.test(rawCustomerId) ? rawCustomerId : null);
       if (!phone) continue;
       const win = await getWindow(db, order.tenantId, phone, now);
       const closingSoon = win.open && win.closesAt != null && win.closesAt.getTime() - now.getTime() < WINDOW_NUDGE_CLOSING_MS;

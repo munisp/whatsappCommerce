@@ -14,7 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["server/**/*.test.ts", "server/**/*.spec.ts"],
+    include: ["server/**/*.test.ts", "server/**/*.spec.ts", "simulation/**/*.test.ts"],
     exclude: [
       // Requires a local PostgreSQL instance (localhost:5432) — skipped in sandbox/CI
       "server/postgres.connection.test.ts",
