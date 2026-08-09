@@ -356,6 +356,13 @@ export async function approvePurchaseOrder(
     console.warn("[procurement] payment link creation failed:", e?.message);
     return null;
   });
+  await notifyBuyer(
+    db,
+    po,
+    paymentUrl
+      ? `✅ ${po.poNumber} approved! Complete payment (${formatNaira(Number(po.subtotalCents))}):\n${paymentUrl}`
+      : `✅ ${po.poNumber} approved! The supplier will share payment details with you here shortly.`,
+  );
   return { ok: true, status: "approved", paymentUrl };
 }
 
