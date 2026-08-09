@@ -28,6 +28,7 @@ import {
   countOpenOrders,
 } from "./services/useCases";
 import { getSession, saveSession, newSession, __clearMemorySessions } from "./services/chatSession";
+import { nlpSessions } from "../drizzle/schema";
 
 // ── Chainable DB mock ────────────────────────────────────────────────────────
 function makeDb(selectResults: any[][] = []) {
@@ -35,9 +36,14 @@ function makeDb(selectResults: any[][] = []) {
   const updates: Array<any> = [];
   const db: any = {
     select: () => {
-      const result = selectResults.length > 0 ? selectResults.shift()! : [];
+      // Shift canned rows lazily in from(): the nlpSessions checkout-step
+      // probe (prod fix) must not consume a queued result.
+      let result: any[] = [];
       const chain: any = {};
-      chain.from = () => chain;
+      chain.from = (table: any) => {
+        if (table !== nlpSessions && selectResults.length > 0) result = selectResults.shift()!;
+        return chain;
+      };
       chain.where = () => chain;
       chain.orderBy = () => chain;
       chain.limit = () => Promise.resolve(result);

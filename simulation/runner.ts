@@ -25,7 +25,7 @@ export interface JourneyResult {
   error?: string;
 }
 
-async function loadJourneys(): Promise<Journey[]> {
+export async function loadJourneys(): Promise<Journey[]> {
   const mods = await Promise.all([
     import("./journeys/j01-consent"),
     import("./journeys/j02-menu"),
@@ -112,7 +112,7 @@ async function main(): Promise<void> {
   process.exit(results.every((r) => r.pass) ? 0 : 1);
 }
 
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/").split("/").pop()!);
+const isMain = !!process.argv[1] && /runner\.ts$/.test(process.argv[1].replace(/\\/g, "/"));
 if (isMain) {
   main().catch((e) => {
     console.error("runner crashed:", e);

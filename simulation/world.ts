@@ -20,7 +20,6 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import http from "http";
-import { fileURLToPath } from "url";
 import { SignJWT } from "jose";
 import { and, eq, desc } from "drizzle-orm";
 
@@ -172,7 +171,7 @@ export async function bootWorld(): Promise<World> {
     const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
     const pg = new PGlite();
     await pg.waitReady;
-    const migDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
+    const migDir = path.resolve(process.cwd(), "drizzle"); // cwd = repo root under tsx/vitest
     const migFiles = fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort();
     for (const f of migFiles) {
       const sqlText = fs.readFileSync(path.join(migDir, f), "utf8");
