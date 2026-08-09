@@ -1,0 +1,116 @@
+{
+  "id": "J24",
+  "title": "delivery status pipeline",
+  "feature": "status callbacks + retry/dead-letter cron",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348016552903",
+      "profileName": "Sim User 2903",
+      "inboundId": "wamid.sim.in.text.00097",
+      "at": 1786280965310,
+      "kind": "text",
+      "text": "status pipeline hello"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00097",
+      "at": 1786280965314
+    },
+    {
+      "dir": "out",
+      "phone": "2348016552903",
+      "wamid": "wamid.sim.000157",
+      "statuses": [
+        "sent",
+        "delivered",
+        "read"
+      ],
+      "at": 1786280965334,
+      "kind": "text",
+      "body": "Hello from the status pipeline!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348011942664",
+      "profileName": "Sim User 2664",
+      "inboundId": "wamid.sim.in.text.00098",
+      "at": 1786280966471,
+      "kind": "text",
+      "text": "retry me please"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00098",
+      "at": 1786280966479
+    },
+    {
+      "dir": "out",
+      "phone": "2348011942664",
+      "at": 1786280966521,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "This reply fails once, then succeeds."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011942664",
+      "wamid": "wamid.sim.000158",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280967468,
+      "kind": "text",
+      "body": "This reply fails once, then succeeds."
+    },
+    {
+      "dir": "in",
+      "phone": "2348011759145",
+      "profileName": "Sim User 9145",
+      "inboundId": "wamid.sim.in.text.00099",
+      "at": 1786280967899,
+      "kind": "text",
+      "text": "permanent failure please"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00099",
+      "at": 1786280967903
+    },
+    {
+      "dir": "out",
+      "phone": "2348011759145",
+      "at": 1786280967927,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "This one will die."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011759145",
+      "at": 1786280968454,
+      "failed": true,
+      "failStatus": 400,
+      "kind": "text",
+      "body": "This one will die."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000159",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280968460,
+      "kind": "text",
+      "body": "⚠️ WhatsApp message dead-lettered after 4 attempts.\nRecipient: 2348011759145\nType: conversation_reply\nError: {\"error\":{\"message\":\"simulated Graph failure 400\",\"type\":\"SimError\",\"code\":131000}}"
+    }
+  ]
+}

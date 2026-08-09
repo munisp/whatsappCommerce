@@ -1,0 +1,115 @@
+{
+  "id": "J04",
+  "title": "menu-driven shop",
+  "feature": "numeric menu selection → shop flow",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348011002649",
+      "profileName": "Sim User 2649",
+      "inboundId": "wamid.sim.in.text.00012",
+      "at": 1786280906345,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00012",
+      "at": 1786280906351
+    },
+    {
+      "dir": "out",
+      "phone": "2348011002649",
+      "wamid": "wamid.sim.000013",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280906371,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348011002649",
+      "profileName": "Sim User 2649",
+      "inboundId": "wamid.sim.in.text.00013",
+      "at": 1786280906895,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00013",
+      "at": 1786280906900
+    },
+    {
+      "dir": "out",
+      "phone": "2348011002649",
+      "wamid": "wamid.sim.000014",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280906931,
+      "kind": "text",
+      "body": "Great — tell me what you want, e.g. '2 Jollof Rice'."
+    },
+    {
+      "dir": "in",
+      "phone": "2348011002649",
+      "profileName": "Sim User 2649",
+      "inboundId": "wamid.sim.in.text.00014",
+      "at": 1786280907443,
+      "kind": "text",
+      "text": "show me ankara"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00014",
+      "at": 1786280907450
+    },
+    {
+      "dir": "out",
+      "phone": "2348011002649",
+      "wamid": "wamid.sim.000015",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280907476,
+      "kind": "text",
+      "body": "Here is our Ankara Fabric!"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011002649",
+      "wamid": "wamid.sim.000016",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280907483,
+      "kind": "image",
+      "mediaKind": "image",
+      "caption": "Ankara Fabric — ₦5,000.00",
+      "mediaId": "https://cdn.sim.local/ankara.jpg"
+    }
+  ]
+}

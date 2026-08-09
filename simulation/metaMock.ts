@@ -253,7 +253,16 @@ async function bodyToText(input: any, init?: RequestInit): Promise<string | null
   }
 }
 
-function handleGraph(path: string, url: URL, method: string, bodyText: string | null): Response {
+// ── Send listener (transcript capture) ───────────────────────────────────────
+
+/** Notified for every POST /{phoneNumberId}/messages attempt (success or failure). */
+export type WaSendListener = (call: RecordedCall, wamid: string | undefined, failStatus: number | undefined) => void;
+let waSendListener: WaSendListener | null = null;
+export function onWaSend(listener: WaSendListener | null): void {
+  waSendListener = listener;
+}
+
+function handleGraph(path: string, url: URL, method: string, bodyText: string | null, call?: RecordedCall): Response {
   const body = parseJsonSafe(bodyText);
 
   // Media binary download (mock CDN).
@@ -312,19 +321,26 @@ function handleGraph(path: string, url: URL, method: string, bodyText: string | 
     const forcedStatus = meta.failAllSendsStatus ?? failRule?.status ?? null;
     if (forcedStatus != null) {
       if (failRule) failRule.left -= 1;
+      if (call) waSendListener?.(call, undefined, forcedStatus);
       return jsonResponse(
         { error: { message: `simulated Graph failure ${forcedStatus}`, type: "SimError", code: forcedStatus === 429 ? 4 : 131000 } },
         forcedStatus,
       );
     }
     if (body?.status === "read") {
+      if (call) waSendListener?.(call, undefined, undefined);
       return jsonResponse({ success: true });
     }
     const to = body?.to ?? "unknown";
+    const wamid = nextWamid();
+    if (call) {
+      (call as RecordedCall & { wamid?: string }).wamid = wamid;
+      waSendListener?.(call, wamid, undefined);
+    }
     return jsonResponse({
       messaging_product: "whatsapp",
       contacts: [{ input: to, wa_id: to }],
-      messages: [{ id: nextWamid() }],
+      messages: [{ id: wamid }],
     });
   }
 
@@ -449,8 +465,8 @@ export function installFetchMock(): void {
 
     if (GRAPH_RE.test(url)) {
       const path = GRAPH_RE.exec(url)![1].split("?")[0];
-      record(url, method, bodyText, headers);
-      return handleGraph(path, u, method, bodyText);
+      const call = record(url, method, bodyText, headers);
+      return handleGraph(path, u, method, bodyText, call);
     }
     if (LLM_RE.test(url)) {
       record(url, method, bodyText, headers);

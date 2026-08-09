@@ -1,0 +1,89 @@
+{
+  "id": "J28",
+  "title": "USSD session",
+  "feature": "/ussd CON/END engine",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "(dial)",
+      "at": 1786280975441
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
+      "at": 1786280975442
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "menu",
+      "at": 1786280975749
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
+      "at": 1786280975750
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "1",
+      "at": 1786280976061
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "END What would you like? We have Jollof Rice and more.",
+      "at": 1786280976062
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132-2",
+      "text": "2",
+      "at": 1786280976368
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132-2",
+      "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
+      "at": 1786280976369
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "1*xyz-nonsense",
+      "at": 1786280976677
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348017687683",
+      "sessionId": "ussd-1786280975132",
+      "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
+      "at": 1786280976678
+    }
+  ]
+}

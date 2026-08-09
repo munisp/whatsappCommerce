@@ -1,0 +1,153 @@
+{
+  "id": "J05",
+  "title": "delivery + native location",
+  "feature": "location_request → coords + fee",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017227877",
+      "profileName": "Sim User 7877",
+      "inboundId": "wamid.sim.in.text.00015",
+      "at": 1786280908309,
+      "kind": "text",
+      "text": "one jollof rice please"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00015",
+      "at": 1786280908314
+    },
+    {
+      "dir": "out",
+      "phone": "2348017227877",
+      "wamid": "wamid.sim.000017",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280908359,
+      "kind": "text",
+      "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017227877",
+      "profileName": "Sim User 7877",
+      "inboundId": "wamid.sim.in.text.00016",
+      "at": 1786280908856,
+      "kind": "text",
+      "text": "confirm it"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00016",
+      "at": 1786280908863
+    },
+    {
+      "dir": "out",
+      "phone": "2348017227877",
+      "wamid": "wamid.sim.000018",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280908887,
+      "kind": "text",
+      "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017227877",
+      "profileName": "Sim User 7877",
+      "inboundId": "wamid.sim.in.text.00017",
+      "at": 1786280909403,
+      "kind": "text",
+      "text": "2"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00017",
+      "at": 1786280909408
+    },
+    {
+      "dir": "out",
+      "phone": "2348017227877",
+      "wamid": "wamid.sim.000019",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280909430,
+      "kind": "location_request",
+      "body": "📍 Share your delivery location — or just type your full address here."
+    },
+    {
+      "dir": "out",
+      "phone": "2348017227877",
+      "wamid": "wamid.sim.000020",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280909432,
+      "kind": "text",
+      "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017227877",
+      "profileName": "Sim User 7877",
+      "inboundId": "wamid.sim.in.loc.00018",
+      "at": 1786280909950,
+      "kind": "location",
+      "lat": 6.4281,
+      "lng": 3.4219,
+      "locationName": "Home",
+      "address": "12 Adeola Odeku Street, Victoria Island, Lagos"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.loc.00018",
+      "at": 1786280909956
+    },
+    {
+      "dir": "out",
+      "phone": "2348017227877",
+      "wamid": "wamid.sim.000021",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280910018,
+      "kind": "text",
+      "body": "🧾 *Delivery Order ORD-MSLTJ7A9*\n1 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: Home, 12 Adeola Odeku Street, Victoria Island, Lagos\nSubtotal: ₦2,500.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,000.00*\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/eb9f76d0-0f01-4be2-bbd7-1fc3959e9fca\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/5a2707d3-716c-48c4-9271-a7610abcd57a.Rhqon7B-ldUl2tWGjGzOVPEv"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017227877",
+      "wamid": "wamid.sim.000022",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786280910025,
+      "kind": "interactive",
+      "body": "Order ORD-MSLTJ7A9 — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:5a2707d3-716c-48c4-9271-a7610abcd57a",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:5a2707d3-716c-48c4-9271-a7610abcd57a",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:5a2707d3-716c-48c4-9271-a7610abcd57a",
+          "title": "Cancel Order"
+        }
+      ]
+    }
+  ]
+}

@@ -8,6 +8,7 @@
  * (simulation/simulation.test.ts) calls runAll() so CI runs the same suite.
  */
 import { bootWorld, type World } from "./world";
+import { recorder } from "./transcript";
 
 export interface Journey {
   id: string;
@@ -72,16 +73,23 @@ export async function runAll(only?: string[]): Promise<JourneyResult[]> {
   for (const j of selected) {
     const start = Date.now();
     await world.resetJourneyState();
+    recorder.begin(j.id, j.name, j.feature);
     try {
       await j.run(world);
       await world.settle(300);
+      recorder.end(true);
       results.push({ id: j.id, name: j.name, feature: j.feature, pass: true, durationMs: Date.now() - start });
     } catch (e: any) {
+      recorder.end(false);
       results.push({
         id: j.id, name: j.name, feature: j.feature, pass: false, durationMs: Date.now() - start,
         error: String(e?.stack ?? e?.message ?? e),
       });
     }
+  }
+  if (process.env.SIM_TRANSCRIPTS !== "off") {
+    const dir = recorder.writeAll();
+    if (!process.env.VITEST) console.log(`\ntranscripts → ${dir}`);
   }
   return results;
 }

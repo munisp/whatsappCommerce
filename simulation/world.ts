@@ -23,8 +23,9 @@ import http from "http";
 import { SignJWT } from "jose";
 import { and, eq, desc } from "drizzle-orm";
 
-import { installFetchMock, meta, llm as llmMock, openai as openaiMock, outbound } from "./metaMock";
+import { installFetchMock, meta, llm as llmMock, openai as openaiMock, outbound, onWaSend } from "./metaMock";
 import * as payloads from "./payloads";
+import { recorder } from "./transcript";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -165,6 +166,7 @@ export async function bootWorld(): Promise<World> {
 
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
+    onWaSend((call, wamid, failStatus) => recorder.recordOutbound(call, wamid, failStatus));
 
     // 3. Embedded Postgres (PGlite) + socket server + migrations.
     const { PGlite } = await import("@electric-sql/pglite");
@@ -237,6 +239,7 @@ export async function bootWorld(): Promise<World> {
         headers: { "Content-Type": "application/json", "x-hub-signature-256": sign(raw) },
         body: raw,
       });
+      recorder.recordWebhook(payload);
       return res.status;
     };
 
@@ -307,7 +310,9 @@ export async function bootWorld(): Promise<World> {
           body: new URLSearchParams({ sessionId, serviceCode: USSD_SERVICE_CODE, phoneNumber: phone, text }).toString(),
         });
         await settle(300);
-        return res.text();
+        const responseText = await res.text();
+        recorder.ussd(sessionId, phone, text, responseText);
+        return responseText;
       },
       settle,
       waitFor,
