@@ -82,6 +82,7 @@ import { fraudCaseRouter } from "./routers/fraudCase";
 import { reportRouter } from "./routers/report";
 import { auditRouter } from "./routers/audit";
 import { integrationsRouter } from "./routers/integrations";
+import { creditRepayRouter } from "./routers/creditRepay";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -179,6 +180,7 @@ export const appRouter = router({
   audit: auditRouter,
   integrations: integrationsRouter,
   tradeCredit: tradeCreditRouter,
+  creditRepay: creditRepayRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";

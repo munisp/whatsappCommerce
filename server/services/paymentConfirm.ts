@@ -102,6 +102,29 @@ export async function confirmProviderPayment(
     }
   };
 
+  // ── Credit repayment hook (w8 B2B) ────────────────────────────────────────
+  // A confirmed repayment-link payment (intent metadata.kind ===
+  // 'credit_repayment') pays down the buyer's trade-credit account. Mirrors
+  // the wallet top-up pattern: runs on the claim-first success path AND on
+  // replay/race paths, but runCreditRepaymentHook claims the
+  // processed_webhook_events dedupe ledger before applying, so a replayed
+  // webhook can never double-apply. Failures are logged, never thrown — the
+  // payment itself is already confirmed.
+  const maybeApplyCreditRepayment = async () => {
+    if (kind !== "intent" || intentMetadata?.kind !== "credit_repayment") return;
+    try {
+      const { runCreditRepaymentHook } = await import("./creditRepayLink");
+      await runCreditRepaymentHook(db, {
+        tenantId,
+        reference,
+        amountMajor: expectedAmount,
+        metadata: intentMetadata,
+      });
+    } catch (err: any) {
+      console.error(`[payment-confirm] credit repayment hook failed for ref=${reference}:`, err?.message);
+    }
+  };
+
   // ── Amount/currency verification (BEFORE any state mutation) ─────────────
   const amountMismatch =
     opts.amountMajor == null ||
@@ -132,6 +155,7 @@ export async function confirmProviderPayment(
     // Webhook replay of an already-completed intent — still ensure the wallet
     // top-up credit landed (idempotent no-op when it already did).
     await maybeCreditWalletTopUp();
+    await maybeApplyCreditRepayment();
     return { ok: true, action: "already-completed" };
   }
   let transitioned = false;
@@ -156,6 +180,7 @@ export async function confirmProviderPayment(
   if (!transitioned) {
     // Lost a race with a concurrent webhook delivery — already handled.
     await maybeCreditWalletTopUp();
+    await maybeApplyCreditRepayment();
     return { ok: true, action: "already-completed" };
   }
 
@@ -270,6 +295,8 @@ export async function confirmProviderPayment(
 
   // Credit the merchant wallet for wallet_topup payment intents (idempotent).
   await maybeCreditWalletTopUp();
+  // Apply the trade-credit repayment for credit_repayment intents (dedupe-guarded).
+  await maybeApplyCreditRepayment();
 
   // Transactional outbox: enqueue Medusa/Odoo sync for the confirmed order.
   // Enqueue failures are logged but never fail the payment confirmation.

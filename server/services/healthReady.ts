@@ -25,6 +25,13 @@ export interface ComponentCheck {
   error?: string;
 }
 
+export interface OdooB2bOutboxCheck extends ComponentCheck {
+  /** Pending outbound b2b events (odoo system, b2b entity kinds). */
+  pending?: number;
+  /** Age in seconds of the OLDEST pending b2b event (null when none). */
+  lagSeconds?: number | null;
+}
+
 export interface ReadinessReport {
   ok: boolean;
   components: {
@@ -32,6 +39,7 @@ export interface ReadinessReport {
     redis: ComponentCheck;
     keycloak: ComponentCheck;
     tigerbeetle: ComponentCheck;
+    odooB2bOutbox: OdooB2bOutboxCheck;
   };
 }
 
@@ -90,6 +98,39 @@ async function checkTigerBeetle(): Promise<ComponentCheck> {
   }
 }
 
+/**
+ * Odoo B2B outbox lag (w8): pending count + age of the oldest undelivered
+ * outbound event for the b2b entity kinds (purchase_order, supplier,
+ * credit_repayment) on the odoo system. A growing lag means the supplier-ERP
+ * sync pipeline is backed up or DLQ-ing.
+ */
+async function checkOdooB2bOutbox(): Promise<OdooB2bOutboxCheck> {
+  const t0 = Date.now();
+  try {
+    const db = await getDb();
+    if (!db) return { ok: false, latencyMs: Date.now() - t0, error: "db_unavailable" };
+    const res: any = await db.execute(sql`
+      SELECT count(*)::int AS pending,
+             EXTRACT(EPOCH FROM (now() - min("createdAt")))::float AS lag_seconds
+      FROM integration_events
+      WHERE direction = 'out'
+        AND status = 'pending'
+        AND system = 'odoo'
+        AND entity IN ('purchase_order', 'supplier', 'credit_repayment')
+    `);
+    const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
+    const row = rows[0] ?? {};
+    return {
+      ok: true,
+      latencyMs: Date.now() - t0,
+      pending: Number(row.pending ?? 0),
+      lagSeconds: row.lag_seconds == null ? null : Number(row.lag_seconds),
+    };
+  } catch (err: any) {
+    return { ok: false, latencyMs: Date.now() - t0, error: String(err?.message ?? err) };
+  }
+}
+
 /** HTTP status for /health/ready: 503 on any failure in production, 200 in dev/test. */
 export function readinessHttpStatus(report: ReadinessReport, production: boolean): number {
   return !report.ok && production ? 503 : 200;
@@ -97,9 +138,9 @@ export function readinessHttpStatus(report: ReadinessReport, production: boolean
 
 /** Run all component probes in parallel. */
 export async function checkReadiness(): Promise<ReadinessReport> {
-  const [db, redis, keycloak, tigerbeetle] = await Promise.all([
-    checkDb(), checkRedis(), checkKeycloak(), checkTigerBeetle(),
+  const [db, redis, keycloak, tigerbeetle, odooB2bOutbox] = await Promise.all([
+    checkDb(), checkRedis(), checkKeycloak(), checkTigerBeetle(), checkOdooB2bOutbox(),
   ]);
-  const components = { db, redis, keycloak, tigerbeetle };
+  const components = { db, redis, keycloak, tigerbeetle, odooB2bOutbox };
   return { ok: Object.values(components).every(c => c.ok), components };
 }

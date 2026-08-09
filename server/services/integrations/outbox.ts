@@ -221,6 +221,21 @@ export async function deliverOutboxEvent(db: any, event: IntegrationEvent): Prom
       });
       return;
     }
+    // ── B2B purchase-cycle events (w8) ───────────────────────────────────────
+    // Lazy import: odooB2B imports enqueueIntegrationEvent from this module —
+    // the dynamic import keeps the cycle out of module-init evaluation.
+    case "odoo:purchase_order":
+    case "odoo:credit_repayment": {
+      const { deliverOdooB2B } = await import("./odooB2B");
+      await deliverOdooB2B(db, client as OdooClient, event);
+      return;
+    }
+    case "twenty:purchase_order":
+    case "twenty:supplier": {
+      const { deliverTwentyB2B } = await import("./odooB2B");
+      await deliverTwentyB2B(db, client as TwentyClient, event);
+      return;
+    }
     default:
       // Unsupported combination: mark as delivered (nothing to do) rather than
       // retrying forever.
