@@ -16653,9 +16653,21 @@
           "primaryKey": false,
           "notNull": false
         },
+        "terms_days": {
+          "name": "terms_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "due_date": {
           "name": "due_date",
           "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "buyer_phone": {
+          "name": "buyer_phone",
+          "type": "varchar(30)",
           "primaryKey": false,
           "notNull": false
         },

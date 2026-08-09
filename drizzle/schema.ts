@@ -2984,7 +2984,15 @@ export const purchaseOrders = pgTable("purchase_orders", {
   subtotalCents:    bigint("subtotal_cents", { mode: "number" }).notNull().default(0),
   paymentMode:      varchar("payment_mode", { length: 20 }).notNull().default("credit"),
   creditAccountId:  uuid("credit_account_id"),
+  /** Agreed net terms (days) at submit/approve time — null for paynow POs. */
+  termsDays:        integer("terms_days"),
   dueDate:          timestamp("due_date"),
+  /**
+   * WhatsApp phone of the buyer-side contact who placed the PO (E.164) —
+   * approval/rejection/payment notifications route here. Nullable so router-
+   * created POs without a chat contact remain valid.
+   */
+  buyerPhone:       varchar("buyer_phone", { length: 30 }),
   notes:            text("notes"),
   createdAt:        timestamp("created_at").notNull().defaultNow(),
   updatedAt:        timestamp("updated_at").notNull().defaultNow(),
