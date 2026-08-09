@@ -2949,3 +2949,62 @@ export const creditLedger = pgTable("credit_ledger", {
 ]);
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type NewCreditLedgerEntry = typeof creditLedger.$inferInsert;
+// ── Wave 8: B2B procurement — supplier profiles + purchase orders ───────────
+// supplier_profiles: one row per supplier TENANT (pk = tenants.id semantics).
+// Drives the procurement directory (MOQ, lead time, offered credit terms,
+// auto-approve threshold) and the WhatsApp buyer/supplier PO flows.
+// NOTE: cents columns are bigint minor units (kobo); S3 reads these tables
+// via raw SQL — keep the column names/types EXACTLY as written.
+export const supplierProfiles = pgTable("supplier_profiles", {
+  tenantId:             varchar("tenant_id", { length: 36 }).primaryKey(),
+  moqCents:             bigint("moq_cents", { mode: "number" }).notNull().default(0),
+  leadTimeDays:         integer("lead_time_days").notNull().default(3),
+  /** e.g. [7, 14, 30] — net terms (days) the supplier offers on credit POs. */
+  termsOffered:         jsonb("terms_offered").$type<number[]>(),
+  defaultTermsDays:     integer("default_terms_days").notNull().default(14),
+  autoApproveBelowCents: bigint("auto_approve_below_cents", { mode: "number" }),
+  /** Product category labels the supplier sells (directory filter). */
+  categories:           jsonb("categories").$type<string[]>(),
+  status:               varchar("status", { length: 20 }).notNull().default("active"),
+  createdAt:            timestamp("created_at").notNull().defaultNow(),
+  updatedAt:            timestamp("updated_at").notNull().defaultNow(),
+});
+export type SupplierProfile = typeof supplierProfiles.$inferSelect;
+export type NewSupplierProfile = typeof supplierProfiles.$inferInsert;
+
+// purchase_orders: B2B restock orders from a buyer tenant to a supplier tenant.
+// Status machine: draft → submitted → approved|rejected → fulfilled → invoiced
+// → paid (credit path jumps approved → invoiced on successful drawOnCredit).
+export const purchaseOrders = pgTable("purchase_orders", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  poNumber:         varchar("po_number", { length: 32 }).notNull().unique(),
+  buyerTenantId:    varchar("buyer_tenant_id", { length: 36 }).notNull(),
+  supplierTenantId: varchar("supplier_tenant_id", { length: 36 }).notNull(),
+  status:           varchar("status", { length: 20 }).notNull().default("draft"),
+  subtotalCents:    bigint("subtotal_cents", { mode: "number" }).notNull().default(0),
+  paymentMode:      varchar("payment_mode", { length: 20 }).notNull().default("credit"),
+  creditAccountId:  uuid("credit_account_id"),
+  dueDate:          timestamp("due_date"),
+  notes:            text("notes"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("purchase_orders_buyer_status_idx").on(t.buyerTenantId, t.status),
+  index("purchase_orders_supplier_status_idx").on(t.supplierTenantId, t.status),
+]);
+export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
+export type NewPurchaseOrder = typeof purchaseOrders.$inferInsert;
+
+export const poItems = pgTable("po_items", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  poId:           uuid("po_id").notNull().references(() => purchaseOrders.id),
+  productRef:     varchar("product_ref", { length: 128 }),
+  name:           varchar("name", { length: 255 }).notNull(),
+  qty:            integer("qty").notNull(),
+  unitPriceCents: bigint("unit_price_cents", { mode: "number" }).notNull(),
+  lineTotalCents: bigint("line_total_cents", { mode: "number" }).notNull(),
+}, (t) => [
+  index("po_items_po_idx").on(t.poId),
+]);
+export type PoItem = typeof poItems.$inferSelect;
+export type NewPoItem = typeof poItems.$inferInsert;

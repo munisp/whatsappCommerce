@@ -288,6 +288,20 @@
       "when": 1786600004000,
       "tag": "0042_credit_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1786600003000,
+      "tag": "0043_supplier_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1786600004000,
+      "tag": "0044_purchase_orders",
+      "breakpoints": true
     }
   ]
 }
