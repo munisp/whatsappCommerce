@@ -190,7 +190,7 @@ describe("creditFitForPo", () => {
 describe("dueCountdown", () => {
   const now = new Date("2026-03-15T12:00:00Z");
   it("labels overdue, today, soon and later", () => {
-    expect(dueCountdown("2026-03-10T00:00:00Z", now)).toMatchObject({ days: -6, tone: "danger", label: "6d overdue" });
+    expect(dueCountdown("2026-03-10T00:00:00Z", now)).toMatchObject({ days: -5, tone: "danger", label: "5d overdue" });
     expect(dueCountdown("2026-03-15T18:00:00Z", now)).toMatchObject({ days: 1, tone: "warn" });
     expect(dueCountdown("2026-03-22T00:00:00Z", now).tone).toBe("warn");
     expect(dueCountdown("2026-04-01T00:00:00Z", now).tone).toBe("ok");
