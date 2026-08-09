@@ -276,6 +276,17 @@ export interface TwentyCompanyInput {
   domainName?: string | null;
 }
 
+/** B2B (w8): PO mirrored as an Opportunity/Deal in the supplier's pipeline. */
+export interface TwentyOpportunityInput {
+  name: string;
+  companyId?: string | null;
+  /** Twenty money fields are micros (1e-6 units): cents × 10_000. */
+  amountMicros?: number;
+  currencyCode?: string;
+  /** Pipeline stage (e.g. NEW/MEETING/PROPOSAL/CUSTOMER). */
+  stage?: string;
+}
+
 export class TwentyClient {
   protected readonly config: IntegrationConfig;
   constructor(config: IntegrationConfig) {
@@ -367,6 +378,43 @@ export class TwentyClient {
     );
     return { id: res.data?.id ?? "" };
   }
+
+  /** Upsert an opportunity/deal, matched by exact name (e.g. "PO PO-00042"). */
+  async upsertOpportunity(o: TwentyOpportunityInput, opts?: RequestOptions): Promise<{ id: string }> {
+    const filter = encodeURIComponent(`name[eq]:${o.name}`);
+    const found = await requestJson<{ data?: Array<{ id: string }> }>(
+      "twenty",
+      `${this.config.url}/rest/opportunities?filter=${filter}&limit=1`,
+      { headers: this.headers() },
+      opts,
+    );
+    const existing = found.data?.[0];
+    const body = {
+      name: o.name,
+      companyId: o.companyId ?? undefined,
+      amount:
+        o.amountMicros !== undefined
+          ? { amountMicros: o.amountMicros, currencyCode: o.currencyCode ?? "USD" }
+          : undefined,
+      stage: o.stage ?? undefined,
+    };
+    if (existing) {
+      await requestJson(
+        "twenty",
+        `${this.config.url}/rest/opportunities/${encodeURIComponent(existing.id)}`,
+        { method: "PATCH", headers: this.headers(), body: JSON.stringify(body) },
+        opts,
+      );
+      return { id: existing.id };
+    }
+    const res = await requestJson<{ data?: { id: string } }>(
+      "twenty",
+      `${this.config.url}/rest/opportunities`,
+      { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
+      opts,
+    );
+    return { id: res.data?.id ?? "" };
+  }
 }
 
 // ── Odoo ERP (JSON-RPC 2.0 over /jsonrpc — the version-stable endpoint) ─────
@@ -382,6 +430,41 @@ export interface OdooSaleOrderInput {
   partnerId: number;
   origin?: string;
   lines: Array<{ productId?: number | null; name: string; quantity: number; unitPrice: number }>;
+}
+
+/** B2B (w8): draft purchase.order pushed into the SUPPLIER's Odoo on po.submitted. */
+export interface OdooPurchaseOrderInput {
+  partnerId: number;
+  /** Platform PO number — becomes purchase.order.origin so inbound
+   *  stock.picking webhooks (which carry `origin`) map back to our PO. */
+  origin: string;
+  lines: Array<{ productRef?: string | null; name: string; quantity: number; unitPrice: number }>;
+}
+
+/** B2B (w8): account.move vendor bill (move_type='in_invoice') for a PO. */
+export interface OdooVendorBillInput {
+  partnerId: number;
+  /** Platform PO number → account.move.ref (payment matching key). */
+  ref: string;
+  /** ISO date 'YYYY-MM-DD' → invoice_date_due (credit terms). */
+  dueDate?: string | null;
+  lines: Array<{ name: string; quantity: number; unitPrice: number }>;
+}
+
+/** B2B (w8): customer invoice (move_type='out_invoice') — buyer-side mirror. */
+export interface OdooCustomerInvoiceInput {
+  partnerId: number;
+  ref: string;
+  dueDate?: string | null;
+  lines: Array<{ name: string; quantity: number; unitPrice: number }>;
+}
+
+/** B2B (w8): account.payment matched to a vendor bill on repayment.posted. */
+export interface OdooBillPaymentInput {
+  /** Vendor bill ref (platform PO number). */
+  ref: string;
+  /** Payment amount in MAJOR currency units. */
+  amount: number;
 }
 
 export class OdooClient {
@@ -579,6 +662,142 @@ export class OdooClient {
     return rows
       .filter((r) => typeof r.default_code === "string" && r.default_code)
       .map((r) => ({ sku: r.default_code as string, quantity: r.qty_available }));
+  }
+
+  // ── B2B purchase-cycle methods (w8) ────────────────────────────────────────
+
+  /** Find a purchase.order by its origin (our PO number). Null when absent. */
+  async findPurchaseOrderByOrigin(origin: string, opts?: RequestOptions): Promise<{ id: number } | null> {
+    const ids = await this.executeKw<number[]>(
+      "purchase.order",
+      "search",
+      [[["origin", "=", origin]]],
+      { limit: 1 },
+      opts,
+    );
+    return ids.length > 0 ? { id: ids[0] } : null;
+  }
+
+  /** Create a DRAFT purchase.order with one order_line per PO item. */
+  async createPurchaseOrder(o: OdooPurchaseOrderInput, opts?: RequestOptions): Promise<{ id: number }> {
+    const id = await this.executeKw<number>(
+      "purchase.order",
+      "create",
+      [
+        {
+          partner_id: o.partnerId,
+          origin: o.origin,
+          order_line: o.lines.map((l) => [
+            0,
+            0,
+            {
+              product_id: false,
+              name: l.productRef ? `[${l.productRef}] ${l.name}` : l.name,
+              product_qty: l.quantity,
+              price_unit: l.unitPrice,
+            },
+          ]),
+        },
+      ],
+      {},
+      opts,
+    );
+    return { id };
+  }
+
+  /** Confirm a draft purchase.order (button_confirm). Idempotent in Odoo. */
+  async confirmPurchaseOrder(id: number, opts?: RequestOptions): Promise<{ confirmed: boolean }> {
+    await this.executeKw("purchase.order", "button_confirm", [[id]], {}, opts);
+    return { confirmed: true };
+  }
+
+  /** Create (post later by accountant) a vendor bill for the PO. */
+  async createVendorBill(b: OdooVendorBillInput, opts?: RequestOptions): Promise<{ id: number }> {
+    const id = await this.executeKw<number>(
+      "account.move",
+      "create",
+      [
+        {
+          move_type: "in_invoice",
+          partner_id: b.partnerId,
+          ref: b.ref,
+          invoice_date_due: b.dueDate ?? false,
+          invoice_line_ids: b.lines.map((l) => [
+            0,
+            0,
+            { name: l.name, quantity: l.quantity, price_unit: l.unitPrice },
+          ]),
+        },
+      ],
+      {},
+      opts,
+    );
+    return { id };
+  }
+
+  /** Find a vendor bill by ref (platform PO number). Null when absent. */
+  async findVendorBillByRef(ref: string, opts?: RequestOptions): Promise<{ id: number } | null> {
+    const ids = await this.executeKw<number[]>(
+      "account.move",
+      "search",
+      [[["move_type", "=", "in_invoice"], ["ref", "=", ref]]],
+      { limit: 1 },
+      opts,
+    );
+    return ids.length > 0 ? { id: ids[0] } : null;
+  }
+
+  /**
+   * Register an account.payment matched to the vendor bill identified by
+   * `ref`. Throws a RETRIABLE IntegrationError when the bill has not synced
+   * yet — the outbox dispatcher will retry once po.invoiced has delivered.
+   */
+  async registerBillPayment(p: OdooBillPaymentInput, opts?: RequestOptions): Promise<{ id: number }> {
+    const bill = await this.findVendorBillByRef(p.ref, opts);
+    if (!bill) {
+      throw new IntegrationError("odoo", `vendor bill with ref '${p.ref}' not found yet`, { retriable: true });
+    }
+    const id = await this.executeKw<number>(
+      "account.payment",
+      "create",
+      [
+        {
+          payment_type: "outbound",
+          partner_type: "supplier",
+          amount: p.amount,
+          ref: p.ref,
+          reconciled_invoice_ids: [[6, 0, [bill.id]]],
+        },
+      ],
+      {},
+      opts,
+    );
+    await this.executeKw("account.payment", "action_post", [[id]], {}, opts);
+    return { id };
+  }
+
+  /** Buyer-side mirror: customer invoice (out_invoice) in the BUYER's Odoo. */
+  async createCustomerInvoice(i: OdooCustomerInvoiceInput, opts?: RequestOptions): Promise<{ id: number }> {
+    const id = await this.executeKw<number>(
+      "account.move",
+      "create",
+      [
+        {
+          move_type: "out_invoice",
+          partner_id: i.partnerId,
+          ref: i.ref,
+          invoice_date_due: i.dueDate ?? false,
+          invoice_line_ids: i.lines.map((l) => [
+            0,
+            0,
+            { name: l.name, quantity: l.quantity, price_unit: l.unitPrice },
+          ]),
+        },
+      ],
+      {},
+      opts,
+    );
+    return { id };
   }
 }
 

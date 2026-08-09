@@ -178,6 +178,11 @@ export async function applyInboundEvent(db: any, input: InboundApplyInput): Prom
     case "odoo:stock":
     case "odoo:product":
       return applyOdooStock(db, input.tenantId, input.data);
+    case "odoo:picking": {
+      // B2B (w8): stock.picking done → flip the PO to 'fulfilled' exactly-once.
+      const { applyOdooPickingDone } = await import("./odooB2B");
+      return applyOdooPickingDone(db, input.tenantId, input.action, input.data);
+    }
     default:
       return "ignored";
   }
