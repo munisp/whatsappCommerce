@@ -63,6 +63,7 @@ import { whatsappMediaRouter } from "./routers/whatsappMedia";
 import { b2bRouter } from "./routers/b2b";
 import { channelsRouter } from "./routers/channels";
 import { marketplaceRouter } from "./routers/marketplace";
+import { tradeCreditRouter } from "./routers/tradeCredit";
 import { mobileMoneyRouter } from "./routers/mobileMoney";
 import { serviceCommerceRouter } from "./routers/serviceCommerce";
 import { analyticsBIRouter } from "./routers/analyticsBI";
@@ -177,6 +178,7 @@ export const appRouter = router({
   report: reportRouter,
   audit: auditRouter,
   integrations: integrationsRouter,
+  tradeCredit: tradeCreditRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
