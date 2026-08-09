@@ -218,10 +218,10 @@ describe("onboarding.start (provisioning)", () => {
     expect(settings.integrations).toEqual({});
     expect(settings.onboarding.status).toBe("draft");
 
-    // waMenu contract: all 5 use cases, shop/track/handoff enabled
+    // waMenu contract: all 6 use cases, shop/track/handoff enabled
     expect(settings.waMenu).toEqual(DEFAULT_WA_MENU);
     expect(settings.waMenu.useCases.map((u: any) => u.id).sort()).toEqual(
-      ["booking", "handoff", "shop", "support", "track"],
+      ["booking", "handoff", "procurement", "shop", "support", "track"],
     );
     const enabled = settings.waMenu.useCases.filter((u: any) => u.enabled).map((u: any) => u.id);
     expect(enabled.sort()).toEqual(["handoff", "shop", "track"]);
