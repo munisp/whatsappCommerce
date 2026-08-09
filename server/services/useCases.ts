@@ -23,6 +23,7 @@ import {
   conversations,
   customers,
   logisticsShipments,
+  nlpSessions,
   orderItems,
   orders,
   paymentTransactions,
@@ -634,7 +635,24 @@ export async function handleConversationalInbound(opts: {
   }
 
   // ── 5. Numeric menu selection (stateful or stateless menu) ───────────────
-  if (!session || session.mode === "menu") {
+  // …but never while the NLP checkout is awaiting a structured answer
+  // (fulfillment choice / delivery address): a bare "1"/"2" there belongs to
+  // the checkout step, not to the menu — intercepting it would re-ask the
+  // checkout question forever.
+  const nlpAwaitingCheckoutStep = await (async () => {
+    try {
+      const [nlpSession] = await db
+        .select({ context: nlpSessions.context })
+        .from(nlpSessions)
+        .where(and(eq(nlpSessions.tenantId, tenantId), eq(nlpSessions.waPhoneNumber, phone)))
+        .limit(1);
+      const ctx = (nlpSession?.context ?? null) as Record<string, unknown> | null;
+      return ctx?.awaitingFulfillment === true || ctx?.awaitingAddress === true;
+    } catch {
+      return false;
+    }
+  })();
+  if (!nlpAwaitingCheckoutStep && (!session || session.mode === "menu")) {
     const selection = resolveMenuSelection(deps.config, text);
     if (selection) return dispatchSelection(deps, session, selection);
   }
