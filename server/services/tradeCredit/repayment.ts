@@ -13,10 +13,13 @@
  * and the FIFO settlement of fully-covered invoice_draw rows happen in the
  * SAME transaction as the claim.
  *
- * Settlement rule (documented, deterministic): total repayments to date are
- * compared against posted draws oldest-first (created_at); every draw whose
- * cumulative amount is fully covered by cumulative repayments is marked
- * 'settled'. A partially-covered draw stays 'posted'.
+ * Settlement rule (documented, deterministic): strict FIFO. Total repayments
+ * to date form a pool; draws (posted AND already-settled) are walked
+ * oldest-first, each consuming its full amount from the pool. A posted draw
+ * whose amount is fully covered is marked 'settled'. A partially-covered
+ * draw stays 'posted' and blocks later draws (no queue-jumping). Void draws
+ * consume nothing. Settled draws consume their historical share so repaid
+ * money is never double-counted.
  */
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { creditAccounts, creditLedger } from "../../../drizzle/schema";
@@ -91,18 +94,15 @@ export async function applyRepaymentTx(
       .orderBy(asc(creditLedger.createdAt));
 
     let repaidPool = 0;
+    for (const row of rows) {
+      if (row.kind === "repayment") repaidPool += row.amountCents;
+    }
     const settleIds: string[] = [];
     for (const row of rows) {
-      if (row.kind === "repayment") {
-        repaidPool += row.amountCents;
-        continue;
-      }
-      // invoice_draw
-      if (row.status !== "posted") continue;
-      if (repaidPool >= row.amountCents) {
-        repaidPool -= row.amountCents;
-        settleIds.push(row.id);
-      }
+      if (row.kind !== "invoice_draw" || row.status === "void") continue;
+      if (repaidPool < row.amountCents) break; // strict FIFO: no queue-jumping
+      repaidPool -= row.amountCents; // settled draws consume their historical share
+      if (row.status === "posted") settleIds.push(row.id);
     }
     if (settleIds.length > 0) {
       await tx

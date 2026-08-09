@@ -222,25 +222,26 @@ export async function runDunningCheckTx(
         }
       }
 
-      // Reminder milestones (each claimed atomically → idempotent).
+      // Reminder: at most one per draw per sweep — the HIGHEST applicable
+      // milestone. Each marker is claimed atomically ⇒ idempotent across
+      // sweeps (a draw first seen at offset -2 claims r-3; the next sweep at
+      // offset -1 finds it claimed and stays quiet until offset 0).
       const milestones: Array<[number, string]> = [
-        [-3, MARKERS.remindMinus3],
-        [0, MARKERS.remind0],
+        [FREEZE_AFTER_DAYS, MARKERS.remindPlus7],
         [3, MARKERS.remindPlus3],
-        [7, MARKERS.remindPlus7],
+        [0, MARKERS.remind0],
+        [-3, MARKERS.remindMinus3],
       ];
-      for (const [threshold, marker] of milestones) {
-        if (offsetDays < threshold) continue;
-        if (await claimMarker(db, draw.id, marker)) {
-          const sent = await sendReminder(db, {
-            buyerTenantId: account.buyerTenantId,
-            amountCents: draw.amountCents,
-            dueDate,
-            offsetDays,
-            frozen: justFroze || account.status === "frozen",
-          });
-          if (sent) result.reminded += 1;
-        }
+      const milestone = milestones.find(([threshold]) => offsetDays >= threshold);
+      if (milestone && (await claimMarker(db, draw.id, milestone[1]))) {
+        const sent = await sendReminder(db, {
+          buyerTenantId: account.buyerTenantId,
+          amountCents: draw.amountCents,
+          dueDate,
+          offsetDays,
+          frozen: justFroze || account.status === "frozen",
+        });
+        if (sent) result.reminded += 1;
       }
     } catch (err: any) {
       console.error(`[tradeCredit/dunning] row ${draw.id} failed:`, err?.message);
