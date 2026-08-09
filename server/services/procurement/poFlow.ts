@@ -671,7 +671,7 @@ export async function handleProcurementChat(
       };
     }
     const lines = catalog.items.map(
-      (it, i) => `${i + 1}. ${it.name} — ${formatNaira(it.priceCents)}${it.minQty > 1 ? ` (min ${it.minQty})` : ""}`,
+      (it, i) => `${i + 1}. ${it.name} — ${formatNaira(it.unitPriceCents)}${it.minQty > 1 ? ` (min ${it.minQty})` : ""}`,
     );
     const moqLine = catalog.moqCents > 0 ? `\nMinimum order: ${formatNaira(catalog.moqCents)}.` : "";
     return {
