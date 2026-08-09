@@ -760,6 +760,11 @@ export async function handleOrderAction(opts: {
   }
 
   if (action === "pay") {
+    // Never resurrect a checkout for a cancelled order — the buyer must not
+    // be able to pay for something that will never ship.
+    if (order.status === "cancelled") {
+      return `Order ${order.orderNumber} was cancelled — no payment is due. Type "menu" to start a new order.`;
+    }
     if (order.paymentStatus === "completed") {
       return `Order ${order.orderNumber} is already paid. ✅`;
     }

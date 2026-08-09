@@ -118,9 +118,9 @@ export function messageEnvelope(opts: {
   messages: InboundMessage[];
   contacts?: InboundContact[];
 }): Record<string, unknown> {
-  const contacts =
-    opts.contacts ??
-    [...new Map(opts.messages.map((m) => [m.from, { profile: { name: `Sim User ${m.from.slice(-4)}` }, wa_id: m.from }])).values()];
+  const contacts = (opts.contacts ??
+    [...new Map(opts.messages.map((m) => [m.from, { waId: m.from, profileName: `Sim User ${m.from.slice(-4)}` } as InboundContact])).values()]
+  ).map((c) => ({ profile: { name: c.profileName ?? `Sim User ${c.waId.slice(-4)}` }, wa_id: c.waId }));
   return {
     object: "whatsapp_business_account",
     entry: [

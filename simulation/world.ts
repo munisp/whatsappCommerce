@@ -42,12 +42,12 @@ export const JWT_SECRET_VALUE = "sim-jwt-secret-0123456789abcdef";
 export const WA_ACCESS_TOKEN = "sim-wa-access-token";
 
 export const PRODUCTS = {
-  jollof: { id: "p-jollof", sku: "SIM-JOLLOF", name: "Jollof Rice", price: "2500.00", stock: 10 },
-  chicken: { id: "p-chicken", sku: "SIM-CHICKEN", name: "Grilled Chicken", price: "3000.00", stock: 5 },
+  jollof: { id: "p-jollof", sku: "SIM-JOLLOF", name: "Jollof Rice", price: "2500.00", stock: 50 },
+  chicken: { id: "p-chicken", sku: "SIM-CHICKEN", name: "Grilled Chicken", price: "3000.00", stock: 50 },
   lastUnit: { id: "p-lastunit", sku: "SIM-LAST", name: "Last Unit Special", price: "1000.00", stock: 1 },
   soldOut: { id: "p-soldout", sku: "SIM-OOS", name: "Sold Out Sneakers", price: "15000.00", stock: 0 },
   ankara: {
-    id: "p-ankara", sku: "SIM-ANKARA", name: "Ankara Fabric", price: "5000.00", stock: 8,
+    id: "p-ankara", sku: "SIM-ANKARA", name: "Ankara Fabric", price: "5000.00", stock: 50,
     imageUrl: "https://cdn.sim.local/ankara.jpg",
   },
   restock: { id: "p-restock", sku: "SIM-RESTOCK", name: "Restock Widget", price: "750.00", stock: 0 },
@@ -141,6 +141,10 @@ async function startAuthMock(port: number): Promise<http.Server> {
 export async function bootWorld(): Promise<World> {
   if (booted) return booted;
   booted = (async () => {
+    // 0. Pin UTC BEFORE anything touches dates: PGlite's session clock is UTC
+    // while this box may run another TZ — mixing them corrupts comparisons on
+    // `timestamp` (no-tz) columns (NOW() vs client-serialized Date params).
+    process.env.TZ = "UTC";
     // 1. Env FIRST — server modules read process.env at import time.
     setEnv("NODE_ENV", process.env.NODE_ENV === "production" ? "test" : (process.env.NODE_ENV || "test"));
     const port = await freePort(4173);
@@ -310,6 +314,13 @@ export async function bootWorld(): Promise<World> {
       waitFor,
 
       async resetJourneyState() {
+        // Restore seed stock so journeys never starve each other.
+        try {
+          const { products } = await import("../drizzle/schema");
+          for (const p of Object.values(PRODUCTS)) {
+            await world.db.update(products).set({ stockQuantity: p.stock }).where(eq(products.id, p.id));
+          }
+        } catch { /* world not seeded yet */ }
         outbound.reset();
         llmMock.reset();
         openaiMock.reset();

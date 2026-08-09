@@ -57,8 +57,9 @@ export const journey: Journey = {
     );
 
     // ── Pay on a cancelled order is refused ──────────────────────────────
+    const beforePayCancelled = world.outbound.toPhone(phone).length;
     await world.buttonReply(phone, `order_pay:${order.orderId}`, "Pay Now");
-    const payCancelled = bodyText(world.outbound.lastOfType("text", phone));
+    const payCancelled = world.outbound.toPhone(phone).slice(beforePayCancelled).map((c) => bodyText(c)).join("\n");
     assert(!payCancelled.includes("checkout.paystack.com"), "no payment link resent for a cancelled order");
   },
 };

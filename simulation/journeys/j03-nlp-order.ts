@@ -71,8 +71,9 @@ export const journey: Journey = {
     assertIncludes(tx?.paymentUrl, "https://checkout.paystack.com/sim/", "tx paymentUrl is the mocked paystack link");
     assert(Number(tx.amount) === 8000, "tx amount 8000");
 
-    // 6. Stock reserved (10 - 2 = 8 available jollof).
+    // 6. Stock reserved (seed - 2 available jollof).
+    const { PRODUCTS } = await import("../world");
     const [jollof] = await world.db.select().from(schema.products).where(eq(schema.products.id, "p-jollof")).limit(1);
-    assert(jollof.stockQuantity === 8, `jollof stock reserved to 8 (got ${jollof.stockQuantity})`);
+    assert(jollof.stockQuantity === PRODUCTS.jollof.stock - 2, `jollof stock reserved to ${PRODUCTS.jollof.stock - 2} (got ${jollof.stockQuantity})`);
   },
 };
