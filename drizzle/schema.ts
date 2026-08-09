@@ -2899,3 +2899,53 @@ export const usageCounters = pgTable("usage_counters", {
 ]);
 export type UsageCounter = typeof usageCounters.$inferSelect;
 export type NewUsageCounter = typeof usageCounters.$inferInsert;
+
+// ── Wave 8: Trade credit engine (B2B procurement on credit) ─────────────────
+// A credit_account is the (supplier tenant, buyer tenant) credit facility:
+// the supplier extends a limit with terms_days net payment terms; draws
+// (invoice_draw ledger rows) raise outstanding_cents, repayments lower it.
+// MONEY-PATH INVARIANT: outstanding_cents only ever moves via claim-first
+// conditional UPDATEs in server/services/tradeCredit (never read-then-write),
+// so concurrent draws can never exceed limit_cents and repayments can never
+// push outstanding below zero.
+export const creditAccounts = pgTable("credit_accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  supplierTenantId: varchar("supplier_tenant_id", { length: 36 }).notNull(),
+  buyerTenantId: varchar("buyer_tenant_id", { length: 36 }).notNull(),
+  limitCents: bigint("limit_cents", { mode: "number" }).notNull().default(0),
+  outstandingCents: bigint("outstanding_cents", { mode: "number" }).notNull().default(0),
+  termsDays: integer("terms_days").notNull().default(30),
+  status: varchar("status", { length: 20 }).notNull().default("active"), // 'active' | 'frozen' | 'closed'
+  score: integer("score"),
+  scoreReasons: jsonb("score_reasons"), // string[] human-readable scoring rationale
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("credit_accounts_pair_uniq").on(t.supplierTenantId, t.buyerTenantId),
+  index("credit_accounts_buyer_idx").on(t.buyerTenantId),
+]);
+export type CreditAccount = typeof creditAccounts.$inferSelect;
+export type NewCreditAccount = typeof creditAccounts.$inferInsert;
+
+// Append-only credit ledger. amount_cents is always non-negative; direction
+// is encoded by kind: 'invoice_draw' + 'fee' raise exposure, 'repayment'
+// lowers it, 'adjustment' is a zero-amount note (e.g. limit-increase
+// requests). Dunning state is tracked via [dun:...] markers in `note` —
+// see server/services/tradeCredit/dunning.ts.
+export const creditLedger = pgTable("credit_ledger", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  creditAccountId: uuid("credit_account_id").notNull().references(() => creditAccounts.id),
+  kind: varchar("kind", { length: 20 }).notNull(), // 'invoice_draw' | 'repayment' | 'fee' | 'adjustment'
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  poId: varchar("po_id", { length: 36 }),
+  dueDate: timestamp("due_date"),
+  status: varchar("status", { length: 20 }).notNull().default("posted"), // 'posted' | 'settled' | 'void'
+  ref: varchar("ref", { length: 128 }),
+  note: text("note"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("credit_ledger_account_idx").on(t.creditAccountId),
+  index("credit_ledger_due_idx").on(t.dueDate),
+]);
+export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
+export type NewCreditLedgerEntry = typeof creditLedger.$inferInsert;
