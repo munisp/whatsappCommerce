@@ -72,6 +72,11 @@ import {
 } from "./i18n";
 import { matchFaq, parseFaqSettings } from "./faq";
 import { raiseChatDispute, buildDisputeReply } from "./chatDispute";
+import {
+  handlePoAction,
+  handleProcurementChat,
+  parsePoActionReplyId,
+} from "./procurement/poFlow";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -419,12 +424,27 @@ const handoffHandler: UseCaseHandler = async (ctx) => {
   };
 };
 
-export const useCaseRegistry: Record<UseCaseId, UseCaseHandler> = {
+/**
+ * procurement → B2B restock flow: browse suppliers, build a wholesale PO,
+ * pick credit/pay-now, submit → supplier gets an Approve/Reject action card.
+ * Also handles the supplier-side follow-ups (reject-reason prompt) and the
+ * buyer-side credit-failure fallback. Full state machine: services/procurement/poFlow.ts.
+ * NOTE: the "procurement" id joins WaUseCaseId via S4's shared/waMenu.ts
+ * edit this wave; until that merges the registry is extended structurally.
+ */
+const procurementHandler: UseCaseHandler = (ctx, session, input) =>
+  handleProcurementChat(ctx, session, input);
+
+export type ExtendedUseCaseId = UseCaseId | "procurement";
+
+export const useCaseRegistry: Record<UseCaseId, UseCaseHandler> &
+  Record<"procurement", UseCaseHandler> = {
   shop: shopHandler,
   track: trackHandler,
   support: supportHandler,
   booking: bookingHandler,
   handoff: handoffHandler,
+  procurement: procurementHandler,
 };
 
 // ── Dispatcher plumbing ──────────────────────────────────────────────────────
@@ -829,6 +849,26 @@ export async function handleInteractiveInbound(opts: {
 }): Promise<InboundOutcome> {
   const { db, tenantId, phone } = opts;
   const id = (opts.replyId ?? "").trim();
+
+  // 0. Supplier PO action cards (Approve/Reject) — arrive on the supplier
+  //    tenant's channel; ownership (po.supplierTenantId === tenantId) is
+  //    enforced inside handlePoAction.
+  const poAction = id ? parsePoActionReplyId(id) : null;
+  if (poAction) {
+    const result = await handlePoAction({ db, tenantId, phone, ...poAction });
+    if (result.reasonPrompt) {
+      await saveSession({
+        ...newSession(tenantId, phone),
+        mode: "usecase",
+        activeUseCase: "procurement" as UseCaseId,
+        step: "po_reject_reason",
+        data: { poId: result.reasonPrompt.poId },
+      });
+    } else {
+      await clearSession(tenantId, phone);
+    }
+    return { handled: true, reply: result.reply };
+  }
 
   // 1. Order action card buttons.
   const orderAction = id ? parseOrderActionReplyId(id) : null;

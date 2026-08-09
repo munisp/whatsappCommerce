@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348013086569",
-      "profileName": "Sim User 6569",
+      "phone": "2348013564602",
+      "profileName": "Sim User 4602",
       "inboundId": "wamid.sim.in.text.00084",
-      "at": 1786315351358,
+      "at": 1786317428917,
       "kind": "text",
       "text": "restock widget please"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00084",
-      "at": 1786315351361
+      "at": 1786317428921
     },
     {
       "dir": "out",
-      "phone": "2348013086569",
+      "phone": "2348013564602",
       "wamid": "wamid.sim.000107",
       "statuses": [
         "sent"
       ],
-      "at": 1786315351379,
+      "at": 1786317428949,
       "kind": "text",
       "body": "✅ 1 × Restock Widget\nAdded!"
     },
     {
       "dir": "in",
-      "phone": "2348013086569",
-      "profileName": "Sim User 6569",
+      "phone": "2348013564602",
+      "profileName": "Sim User 4602",
       "inboundId": "wamid.sim.in.text.00085",
-      "at": 1786315351903,
+      "at": 1786317429462,
       "kind": "text",
       "text": "confirm widget order"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00085",
-      "at": 1786315351907
+      "at": 1786317429466
     },
     {
       "dir": "out",
-      "phone": "2348013086569",
+      "phone": "2348013564602",
       "wamid": "wamid.sim.000108",
       "statuses": [
         "sent"
       ],
-      "at": 1786315351923,
+      "at": 1786317429485,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Restock Widget — ₦750.00 each\nSubtotal: ₦750.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348013086569",
-      "profileName": "Sim User 6569",
+      "phone": "2348013564602",
+      "profileName": "Sim User 4602",
       "inboundId": "wamid.sim.in.text.00086",
-      "at": 1786315352447,
+      "at": 1786317430009,
       "kind": "text",
       "text": "1"
     },
@@ -70,25 +70,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00086",
-      "at": 1786315352451
+      "at": 1786317430013
     },
     {
       "dir": "out",
-      "phone": "2348013086569",
+      "phone": "2348013564602",
       "wamid": "wamid.sim.000109",
       "statuses": [
         "sent"
       ],
-      "at": 1786315352464,
+      "at": 1786317430030,
       "kind": "text",
       "body": "😔 *Some items are out of stock right now:*\n• Restock Widget — out of stock\n\nNone of the items in your cart are available right now — please check back soon.\n\n🔔 Reply *NOTIFY ME* and I'll message you the moment it's back in stock."
     },
     {
       "dir": "in",
-      "phone": "2348013086569",
-      "profileName": "Sim User 6569",
+      "phone": "2348013564602",
+      "profileName": "Sim User 4602",
       "inboundId": "wamid.sim.in.text.00087",
-      "at": 1786315352991,
+      "at": 1786317430554,
       "kind": "text",
       "text": "NOTIFY ME"
     },
@@ -96,27 +96,27 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00087",
-      "at": 1786315352999
+      "at": 1786317430557
     },
     {
       "dir": "out",
-      "phone": "2348013086569",
+      "phone": "2348013564602",
       "wamid": "wamid.sim.000110",
       "statuses": [
         "sent"
       ],
-      "at": 1786315353013,
+      "at": 1786317430579,
       "kind": "text",
       "body": "🔔 Got it — I'll message you the moment it's back in stock. Reply STOP to unsubscribe."
     },
     {
       "dir": "out",
-      "phone": "2348013086569",
+      "phone": "2348013564602",
       "wamid": "wamid.sim.000111",
       "statuses": [
         "sent"
       ],
-      "at": 1786315353542,
+      "at": 1786317431108,
       "kind": "text",
       "body": "🎉 Good news — *Restock Widget* is back in stock! Order now before it sells out again. Reply STOP to stop these alerts."
     }

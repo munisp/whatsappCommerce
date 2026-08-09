@@ -125,6 +125,23 @@ export async function confirmProviderPayment(
     }
   };
 
+  // ── PO payment hook (w8 B2B procurement) ─────────────────────────────────
+  // A confirmed paynow purchase-order payment (intent metadata.type ===
+  // 'po_payment', created by procurement/poFlow.createPoPaymentLink) moves the
+  // PO approved → paid and notifies both sides. handlePoPaymentConfirmed is
+  // idempotent ('already_paid' on replay). Failures are logged, never thrown.
+  const maybeSettlePoPayment = async () => {
+    if (kind !== "intent" || intentMetadata?.type !== "po_payment") return;
+    const poId = intentMetadata?.poId;
+    if (typeof poId !== "string" || !poId) return;
+    try {
+      const { handlePoPaymentConfirmed } = await import("./procurement/poFlow");
+      await handlePoPaymentConfirmed(db, { poId, reference });
+    } catch (err: any) {
+      console.error(`[payment-confirm] PO payment hook failed for ref=${reference}:`, err?.message);
+    }
+  };
+
   // ── Amount/currency verification (BEFORE any state mutation) ─────────────
   const amountMismatch =
     opts.amountMajor == null ||
@@ -156,6 +173,7 @@ export async function confirmProviderPayment(
     // top-up credit landed (idempotent no-op when it already did).
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
+    await maybeSettlePoPayment();
     return { ok: true, action: "already-completed" };
   }
   let transitioned = false;
@@ -181,6 +199,7 @@ export async function confirmProviderPayment(
     // Lost a race with a concurrent webhook delivery — already handled.
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
+    await maybeSettlePoPayment();
     return { ok: true, action: "already-completed" };
   }
 
@@ -297,6 +316,8 @@ export async function confirmProviderPayment(
   await maybeCreditWalletTopUp();
   // Apply the trade-credit repayment for credit_repayment intents (dedupe-guarded).
   await maybeApplyCreditRepayment();
+  // Settle paynow purchase orders for po_payment intents (idempotent).
+  await maybeSettlePoPayment();
 
   // Transactional outbox: enqueue Medusa/Odoo sync for the confirmed order.
   // Enqueue failures are logged but never fail the payment confirmation.
