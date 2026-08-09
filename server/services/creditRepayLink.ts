@@ -58,32 +58,20 @@ export class CreditRepayError extends Error {
   }
 }
 
-// ── S1 contract: applyRepayment (loaded via indirection) ─────────────────────
-export type ApplyRepaymentFn = (args: {
-  accountId: string;
-  amountCents: number;
-  ref: string;
-}) => Promise<{ ok: boolean; outstandingAfter: number }>;
+// ── S1 contract: applyRepayment ──────────────────────────────────────────────
+import { applyRepayment } from "./tradeCredit/index";
+
+export type ApplyRepaymentFn = typeof applyRepayment;
 
 let applyRepaymentOverride: ApplyRepaymentFn | null = null;
 
-/** Test hook: inject a fake applyRepayment (S1 not merged / unit isolation). */
+/** Test hook: inject a fake applyRepayment (unit isolation). */
 export function __setApplyRepaymentForTests(fn: ApplyRepaymentFn | null): void {
   applyRepaymentOverride = fn;
 }
 
-// NOTE: annotated `: string` on purpose — a literal specifier would make tsc
-// resolve the (not-yet-merged) S1 module now. TODO(w8): once S1 lands, switch
-// to a plain static `import { applyRepayment } from "./tradeCredit/index"`.
-const TRADE_CREDIT_MODULE: string = "./tradeCredit/index";
-
 async function loadApplyRepayment(): Promise<ApplyRepaymentFn> {
-  if (applyRepaymentOverride) return applyRepaymentOverride;
-  const mod = (await import(TRADE_CREDIT_MODULE)) as { applyRepayment?: ApplyRepaymentFn };
-  if (typeof mod?.applyRepayment !== "function") {
-    throw new Error("tradeCredit.applyRepayment is unavailable (S1 not deployed)");
-  }
-  return mod.applyRepayment;
+  return applyRepaymentOverride ?? applyRepayment;
 }
 
 // ── Raw-SQL credit account read (S2/S1 table — no schema import) ─────────────
@@ -103,7 +91,8 @@ export async function loadCreditAccount(db: any, accountId: string): Promise<Cre
   if (!r) return null;
   return {
     id: String(r.id),
-    tenantId: String(r.tenant_id ?? r.tenantId ?? ""),
+    // S1 credit_accounts: buyer_tenant_id owns the account (raw SQL, no schema import).
+    tenantId: String(r.buyer_tenant_id ?? r.buyerTenantId ?? r.tenant_id ?? r.tenantId ?? ""),
     outstandingCents: Number(r.outstanding_cents ?? r.outstandingCents ?? 0),
     currency: String(r.currency ?? "NGN").toUpperCase(),
   };

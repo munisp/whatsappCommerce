@@ -173,7 +173,7 @@ function makeDedupeDb() {
   return db;
 }
 
-const ACCOUNT = { id: "acct-1", tenant_id: "buyer-t", outstanding_cents: 100_000, currency: "NGN" };
+const ACCOUNT = { id: "acct-1", buyer_tenant_id: "buyer-t", outstanding_cents: 100_000, currency: "NGN" };
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -243,7 +243,7 @@ describe("createRepaymentLink", () => {
       createRepaymentLink(makeLinkDb([]), { buyerTenantId: "buyer-t", accountId: "nope" }),
     ).rejects.toMatchObject({ code: "credit-account-not-found" });
     await expect(
-      createRepaymentLink(makeLinkDb([{ ...ACCOUNT, tenant_id: "other-t" }]), {
+      createRepaymentLink(makeLinkDb([{ ...ACCOUNT, buyer_tenant_id: "other-t" }]), {
         buyerTenantId: "buyer-t",
         accountId: "acct-1",
       }),
@@ -305,7 +305,7 @@ describe("creditRepay.requestRepaymentLink router", () => {
   });
 
   it("maps a foreign credit account to FORBIDDEN (defense in depth after assertTenantAccess)", async () => {
-    dbHolder.db = makeLinkDb([{ ...ACCOUNT, tenant_id: "supplier-t" }]);
+    dbHolder.db = makeLinkDb([{ ...ACCOUNT, buyer_tenant_id: "supplier-t" }]);
     stubPaystack();
     const caller = appRouter.createCaller(makeCtx("user", "buyer-t"));
     await expect(
