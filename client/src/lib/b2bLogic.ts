@@ -264,20 +264,23 @@ export type AgingBucketKey = keyof AgingBuckets;
 
 export const AGING_BUCKET_LABELS: Record<AgingBucketKey, string> = {
   current: "Current",
-  d1_7: "1–7 days",
-  d8_30: "8–30 days",
-  over30: ">30 days",
+  days1to30: "1–30 days",
+  days31to60: "31–60 days",
+  days61to90: "61–90 days",
+  days90plus: ">90 days",
 };
 
 /**
- * Bucket an overdue amount by days past due:
- *   not yet due (<= 0) → current; 1–7 → d1_7; 8–30 → d8_30; >30 → over30.
+ * Bucket an overdue amount by days past due — mirrors backend bucketForDraw:
+ *   not yet due (<= 0) → current; ≤30 → days1to30; ≤60 → days31to60;
+ *   ≤90 → days61to90; beyond → days90plus.
  */
 export function agingBucketFor(daysPastDue: number): AgingBucketKey {
   if (daysPastDue <= 0) return "current";
-  if (daysPastDue <= 7) return "d1_7";
-  if (daysPastDue <= 30) return "d8_30";
-  return "over30";
+  if (daysPastDue <= 30) return "days1to30";
+  if (daysPastDue <= 60) return "days31to60";
+  if (daysPastDue <= 90) return "days61to90";
+  return "days90plus";
 }
 
 export function daysPastDue(dueDate: string, now: Date = new Date()): number {
@@ -288,9 +291,9 @@ export function daysPastDue(dueDate: string, now: Date = new Date()): number {
 
 /** Build aging buckets from ledger entries that carry a dueDate. */
 export function computeAging(entries: Array<Pick<LedgerEntry, "amount" | "dueDate" | "kind">>, now: Date = new Date()): AgingBuckets {
-  const buckets: AgingBuckets = { current: 0, d1_7: 0, d8_30: 0, over30: 0 };
+  const buckets: AgingBuckets = { current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0 };
   for (const e of entries) {
-    // Only debits (invoices/fees) age; payments reduce the current bucket.
+    // Only debits age; entries without a due date count as current exposure.
     if (!e.dueDate) {
       if (e.amount > 0) buckets.current += e.amount;
       continue;
@@ -425,7 +428,8 @@ export function validateLimitForm(values: LimitFormValues): LimitFormErrors {
 /** A PO line is submittable when it has a name, qty ≥ 1 and price ≥ 0. */
 export function validatePoLines(lines: PoLine[]): string | null {
   if (lines.length === 0) return "Add at least one line item";
-  for (const [i, l] of lines.entries()) {
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
     if (!l.name.trim()) return `Line ${i + 1}: item name is required`;
     if (!Number.isFinite(l.quantity) || l.quantity <= 0) return `Line ${i + 1}: quantity must be at least 1`;
     if (!Number.isFinite(l.unitPrice) || l.unitPrice < 0) return `Line ${i + 1}: unit price must be ≥ 0`;
@@ -467,10 +471,6 @@ export function summarizeCreditAccounts(accounts: Array<Pick<CreditAccount, "out
 }
 
 /** Count supplier-side POs awaiting a decision (dashboard widget). */
-export function countPendingApprovals(pos: Array<Pick<PurchaseOrder, "status">>): number {
-  return pos.filter((p) => p.status === "pending_approval").length;
-}
-ing a decision (dashboard widget). */
 export function countPendingApprovals(pos: Array<Pick<PurchaseOrder, "status">>): number {
   return pos.filter((p) => p.status === "pending_approval").length;
 }
