@@ -181,6 +181,7 @@ export const appRouter = router({
   integrations: integrationsRouter,
   tradeCredit: tradeCreditRouter,
   creditRepay: creditRepayRouter,
+  procurement: procurementRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
