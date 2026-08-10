@@ -364,7 +364,12 @@ describe("runCreditRepaymentHook", () => {
         return { ok: true, outstandingAfter: 0 };
       }),
     );
-    await expect(runCreditRepaymentHook(db, base)).rejects.toThrow("tradeCredit down");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Honest contract: the hook NEVER throws — it reports a typed failure.
+    const failed = await runCreditRepaymentHook(db, base);
+    expect(failed.applied).toBe(false);
+    expect(failed.reason).toMatch(/^apply-failed: tradeCredit down/);
+    errSpy.mockRestore();
     expect(db.ledger.size).toBe(0); // claim rolled back
     const retry = await runCreditRepaymentHook(db, base);
     expect(retry.applied).toBe(true);

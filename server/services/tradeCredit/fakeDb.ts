@@ -294,6 +294,9 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
           ok = r.id === id && r.outstandingCents >= Number(amt);
         } else if (sig === "id,supplier_tenant_id") {
           ok = r.id === values[0] && r.supplierTenantId === values[1];
+        } else if (sig === "id,supplier_tenant_id,status") {
+          // approveCreditAccount claim: id + supplier + status='pending'
+          ok = r.id === values[0] && r.supplierTenantId === values[1] && r.status === values[2];
         } else if (sig === "id,status") {
           // dunning freeze: id + status='active'
           ok = r.id === values[0] && r.status === values[1];

@@ -144,9 +144,12 @@ export default function SupplierDirectory() {
       utils.tradeCredit.myAccounts.invalidate();
       utils.procurement.listSuppliers.invalidate();
     },
-    // No requestAccount endpoint exists yet this wave — degrade gracefully.
-    onError: () =>
-      toast.info("Credit is opened by the supplier — ask them to set you a limit from their Credit Accounts page."),
+    // A facility (any status) already exists for this pair — say so plainly;
+    // anything else is a real failure worth surfacing.
+    onError: (e) =>
+      toast.error(e.message.includes("already exists")
+        ? "A credit facility already exists with this supplier — see your Credit Accounts page."
+        : e.message),
   });
 
   const filtered = useMemo(() => {

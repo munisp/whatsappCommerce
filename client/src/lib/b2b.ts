@@ -507,13 +507,24 @@ export function useBuyerLedgers(
 }
 
 /**
- * Buyer asks a supplier to open a credit facility. No backend endpoint exists
- * this wave — the call fails gracefully and the UI shows a friendly hint;
- * if a requestAccount procedure lands later it starts working automatically.
+ * Buyer asks a supplier to open a credit facility (tradeCredit.requestAccount):
+ * the account lands as 'pending' until the supplier approves it. ₦ in
+ * (requestedLimit, optional hint for the supplier), buyerTenantId out.
  */
-export function useRequestCreditAccount(opts?: MutationOpts<unknown>): MutationResult<{ tenantId: string; supplierTenantId: string; requestedLimit?: number; note?: string }, unknown> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (trpc as any).tradeCredit.requestAccount.useMutation(opts);
+export function useRequestCreditAccount(
+  opts?: MutationOpts<unknown>,
+): MutationResult<{ tenantId: string; supplierTenantId: string; requestedLimit?: number; note?: string }, unknown> {
+  const m = trpc.tradeCredit.requestAccount.useMutation(opts);
+  const toBackend = (v: { tenantId: string; supplierTenantId: string; requestedLimit?: number; note?: string }) => ({
+    buyerTenantId: v.tenantId,
+    supplierTenantId: v.supplierTenantId,
+    ...(v.note ? { note: v.note } : {}),
+  });
+  return {
+    ...m,
+    mutate: (v) => m.mutate(toBackend(v)),
+    mutateAsync: (v) => m.mutateAsync(toBackend(v)),
+  };
 }
 
 /** Buyer-side limit-increase request (₦ in, requestedLimitCents out). */

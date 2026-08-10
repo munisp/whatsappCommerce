@@ -292,6 +292,10 @@ export async function runCreditRepaymentHook(
       severity: "critical",
       extra: { reference: input.reference, accountId, amountMajor: input.amountMajor },
     });
-    throw err;
+    // HONEST CONTRACT: never throw — the payment is already confirmed and the
+    // caller (paymentConfirm.maybeApplyCreditRepayment) must not fail the
+    // webhook because of a post-confirm side-effect. Report the failure as a
+    // typed result instead; the claim rollback above lets a replay retry.
+    return { applied: false, reason: `apply-failed: ${String(err?.message ?? err).slice(0, 200)}` };
   }
 }

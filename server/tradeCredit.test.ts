@@ -59,6 +59,7 @@ function makeCtx(role: "admin" | "user", tenantId?: string): TrpcContext {
 const supplierA = () => appRouter.createCaller(makeCtx("user", "supplier-A"));
 const buyerA = () => appRouter.createCaller(makeCtx("user", "buyer-A"));
 const buyerB = () => appRouter.createCaller(makeCtx("user", "buyer-B"));
+const buyerReq = () => appRouter.createCaller(makeCtx("user", "buyer-req"));
 const admin = () => appRouter.createCaller(makeCtx("admin"));
 
 beforeEach(() => {
@@ -201,5 +202,96 @@ describe("tradeCredit router — buyer-side gating", () => {
   it("platform admin bypasses tenant scoping (defense-in-depth role)", async () => {
     const rows = await admin().tradeCredit.listAccounts({ supplierTenantId: "supplier-B" });
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("tradeCredit requestAccount → approve lifecycle", () => {
+  const cleanup = () => {
+    fake.store.accounts = fake.store.accounts.filter((r) => r.buyerTenantId !== "buyer-req");
+    fake.store.ledger = fake.store.ledger.filter((l) => l.id === "draw-A1" || l.id === "draw-B1");
+  };
+
+  it("buyer requestAccount lands as 'pending' with zero limit; supplier sees it in listAccounts", async () => {
+    const row = await buyerReq().tradeCredit.requestAccount({
+      buyerTenantId: "buyer-req", supplierTenantId: "supplier-A", note: "please",
+    });
+    expect(row.status).toBe("pending");
+    expect(row.limitCents).toBe(0);
+    const list = await supplierA().tradeCredit.listAccounts({ supplierTenantId: "supplier-A" });
+    expect(list.some((a) => a.id === row.id && a.status === "pending")).toBe(true);
+    cleanup();
+  });
+
+  it("requestAccount for an existing pair is CONFLICT (any status)", async () => {
+    await expect(buyerA().tradeCredit.requestAccount({
+      buyerTenantId: "buyer-A", supplierTenantId: "supplier-A",
+    })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("a pending account can NEVER draw — drawOnCredit's claim requires status='active' (draw.ts)", async () => {
+    const row = await buyerReq().tradeCredit.requestAccount({
+      buyerTenantId: "buyer-req", supplierTenantId: "supplier-A",
+    });
+    const { drawOnCreditTx } = await import("./services/tradeCredit/draw");
+    const res = await drawOnCreditTx(fake.db, {
+      supplierTenantId: "supplier-A", buyerTenantId: "buyer-req", amountCents: 1, poId: "po-pending",
+    });
+    expect(res.ok).toBe(false); // guard miss: status='pending' ≠ 'active'
+    expect(fake.store.accounts.find((a) => a.id === row.id)!.outstandingCents).toBe(0);
+    expect(fake.store.ledger.some((l) => l.poId === "po-pending")).toBe(false);
+    cleanup();
+  });
+
+  it("supplier approveAccount flips pending → active with limit/terms, then a draw succeeds", async () => {
+    const row = await buyerReq().tradeCredit.requestAccount({
+      buyerTenantId: "buyer-req", supplierTenantId: "supplier-A",
+    });
+    const approved = await supplierA().tradeCredit.approveAccount({
+      supplierTenantId: "supplier-A", accountId: row.id, limitCents: 300_000, termsDays: 60,
+    });
+    expect(approved.status).toBe("active");
+    expect(approved.limitCents).toBe(300_000);
+    expect(approved.termsDays).toBe(60);
+    const { drawOnCreditTx } = await import("./services/tradeCredit/draw");
+    const draw = await drawOnCreditTx(fake.db, {
+      supplierTenantId: "supplier-A", buyerTenantId: "buyer-req", amountCents: 40_000, poId: "po-ok",
+    });
+    expect(draw).toMatchObject({ ok: true, outstandingAfter: 40_000 });
+    cleanup();
+  });
+
+  it("approveAccount is claim-first: a second approve (or non-pending account) is NOT_FOUND", async () => {
+    const row = await buyerReq().tradeCredit.requestAccount({
+      buyerTenantId: "buyer-req", supplierTenantId: "supplier-A",
+    });
+    await supplierA().tradeCredit.approveAccount({ supplierTenantId: "supplier-A", accountId: row.id });
+    await expect(supplierA().tradeCredit.approveAccount({
+      supplierTenantId: "supplier-A", accountId: row.id,
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // Active accounts are not re-approvable either.
+    await expect(supplierA().tradeCredit.approveAccount({
+      supplierTenantId: "supplier-A", accountId: "acc-A",
+    })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    cleanup();
+  });
+
+  it("authZ: a supplier cannot create/approve pending accounts cross-tenant", async () => {
+    // requestAccount is buyer-gated: supplier-A posing as buyer-A is FORBIDDEN at the input gate.
+    await expect(supplierA().tradeCredit.requestAccount({
+      buyerTenantId: "buyer-A", supplierTenantId: "supplier-A",
+    })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    // And supplier-B cannot approve supplier-A's pending account even with the id.
+    const row = await buyerReq().tradeCredit.requestAccount({
+      buyerTenantId: "buyer-req", supplierTenantId: "supplier-A",
+    });
+    await expect(supplierA().tradeCredit.approveAccount({
+      supplierTenantId: "supplier-B", accountId: row.id,
+    })).rejects.toMatchObject({ code: "FORBIDDEN" }); // input gate
+    const supplierBCaller = appRouter.createCaller(makeCtx("user", "supplier-B"));
+    await expect(supplierBCaller.tradeCredit.approveAccount({
+      supplierTenantId: "supplier-B", accountId: row.id,
+    })).rejects.toMatchObject({ code: "NOT_FOUND" }); // claim-first scoping
+    expect(fake.store.accounts.find((a) => a.id === row.id)!.status).toBe("pending");
+    cleanup();
   });
 });
