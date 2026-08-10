@@ -316,6 +316,13 @@
       "when": 1786600006000,
       "tag": "0046_onboarding_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786600007000,
+      "tag": "0047_provider_framework",
+      "breakpoints": true
     }
   ]
 }

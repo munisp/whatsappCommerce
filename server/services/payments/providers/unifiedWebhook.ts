@@ -1,0 +1,153 @@
+/**
+ * Unified provider webhook handler (w11) — POST /api/webhooks/payments/:provider
+ *
+ * Additive route alongside the legacy /api/webhooks/paystack etc. (those stay
+ * byte-identical until P3 migrates callers). Flow:
+ *
+ *   1. Resolve the adapter from the :provider path param.
+ *   2. Resolve tenant creds from the intent/transaction metadata (tenant_id
+ *      in webhook metadata, else reference lookup in paymentIntents /
+ *      paymentTransactions). Legacy env PAYSTACK_* creds are a fallback so
+ *      the route works before any tenant config rows exist.
+ *   3. adapter.verifyWebhook(headers, rawBody, creds) — FAIL CLOSED: any
+ *      non-ok normalization → 401 + captureException(warn), NEVER confirm.
+ *   4. On ok, feed the normalized { reference, amountCents, metadata } into
+ *      the EXISTING claim-first paymentConfirm entry point
+ *      (confirmProviderPayment) exactly as the legacy webhooks do.
+ */
+import type { Request, Response } from "express";
+import { eq } from "drizzle-orm";
+import { getDb } from "../../../db";
+import { paymentIntents, paymentTransactions } from "../../../../drizzle/schema";
+import { confirmProviderPayment } from "../../paymentConfirm";
+import { captureException } from "../../observability";
+import { getProviderAdapter, getProviderForTenant } from "./registry";
+
+function toRawBodyString(body: unknown): string {
+  if (Buffer.isBuffer(body)) return body.toString("utf8");
+  if (typeof body === "string") return body;
+  return JSON.stringify(body ?? {});
+}
+
+function normalizeHeaders(headers: Request["headers"]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) {
+    if (typeof v === "string") out[k] = v;
+    else if (Array.isArray(v) && typeof v[0] === "string") out[k] = v[0];
+  }
+  return out;
+}
+
+function extractTenantId(payload: any): string | null {
+  const meta = payload?.data?.metadata ?? payload?.metadata ?? null;
+  if (meta && typeof meta === "object") {
+    const t = (meta as Record<string, unknown>).tenant_id ?? (meta as Record<string, unknown>).tenantId;
+    if (typeof t === "string" && t) return t;
+  }
+  return null;
+}
+
+function extractReference(payload: any): string | null {
+  const ref = payload?.data?.reference ?? payload?.reference;
+  return typeof ref === "string" && ref ? ref : null;
+}
+
+/** Look the reference up in the payment tables to recover the tenantId. */
+async function resolveTenantIdByReference(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  reference: string,
+): Promise<string | null> {
+  const [intent] = await db
+    .select({ tenantId: paymentIntents.tenantId })
+    .from(paymentIntents)
+    .where(eq(paymentIntents.providerPaymentId, reference))
+    .limit(1);
+  if (intent) return intent.tenantId;
+  const [tx] = await db
+    .select({ tenantId: paymentTransactions.tenantId })
+    .from(paymentTransactions)
+    .where(eq(paymentTransactions.providerRef, reference))
+    .limit(1);
+  return tx?.tenantId ?? null;
+}
+
+export async function handleUnifiedPaymentWebhook(req: Request, res: Response): Promise<void> {
+  const providerId = String(req.params.provider ?? "");
+  try {
+    const adapter = getProviderAdapter(providerId);
+    if (!adapter) {
+      return void res.status(404).json({ error: "unknown-provider", provider: providerId });
+    }
+    const db = await getDb();
+    if (!db) return void res.status(503).json({ error: "db-unavailable" });
+
+    const rawBody = toRawBodyString(req.body);
+    let payload: any = null;
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      payload = null;
+    }
+
+    // ── Resolve tenant creds from intent/metadata ─────────────────────────
+    let tenantId = payload ? extractTenantId(payload) : null;
+    const reference = payload ? extractReference(payload) : null;
+    if (!tenantId && reference) {
+      tenantId = await resolveTenantIdByReference(db, reference);
+    }
+
+    let creds: unknown = null;
+    if (tenantId) {
+      const chain = await getProviderForTenant(tenantId);
+      creds = chain.find((e) => e.provider.id === providerId)?.creds ?? null;
+    }
+    if (!creds && providerId === "paystack") {
+      // Legacy fallback: platform-level env creds (pre-tenant-config rows).
+      const secretKey = process.env.PAYSTACK_SECRET_KEY ?? "";
+      const webhookSecret = process.env.PAYSTACK_WEBHOOK_SECRET ?? "";
+      if (secretKey || webhookSecret) creds = { secretKey, webhookSecret };
+    }
+    if (!creds) {
+      captureException(new Error(`payment webhook creds unresolved for provider=${providerId}`), {
+        service: "unifiedPaymentWebhook",
+        operation: "resolveCreds",
+        tenantId: tenantId ?? undefined,
+        severity: "warn",
+        extra: { provider: providerId, reference },
+      });
+      return void res.status(401).json({ error: "provider-not-configured" });
+    }
+
+    // ── Verify + normalize (fail closed) ──────────────────────────────────
+    const norm = adapter.verifyWebhook(normalizeHeaders(req.headers), rawBody, creds);
+    if (!norm.ok) {
+      captureException(new Error(`payment webhook rejected for provider=${providerId}`), {
+        service: "unifiedPaymentWebhook",
+        operation: "verifyWebhook",
+        tenantId: tenantId ?? undefined,
+        severity: "warn",
+        extra: { provider: providerId, reference },
+      });
+      return void res.status(401).json({ error: "invalid-signature" });
+    }
+
+    // ── Feed the EXISTING claim-first confirm path ────────────────────────
+    const currency = (payload?.data?.currency as string | undefined) ?? null;
+    const result = await confirmProviderPayment(db, {
+      provider: providerId,
+      reference: norm.reference,
+      amountMajor: norm.amountCents / 100,
+      currency,
+      rawPayload: payload?.data ?? payload,
+    });
+    if (!result.ok) {
+      console.warn(
+        `[unified-payment-webhook] ${providerId} ref=${norm.reference} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`,
+      );
+    }
+    return void res.status(200).json({ received: true, ...result });
+  } catch (err: any) {
+    console.error("[unified-payment-webhook]", err);
+    return void res.status(500).json({ error: err?.message });
+  }
+}
