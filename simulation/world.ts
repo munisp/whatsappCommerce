@@ -217,6 +217,11 @@ export async function bootWorld(): Promise<World> {
     setEnv("ONBOARDING_PHONE_NUMBER_ID", ONBOARDING_PHONE_NUMBER_ID);
     setEnv("ONBOARDING_WA_TOKEN", ONBOARDING_WA_TOKEN);
     setEnv("WHATSAPP_APP_ID", "app_sim_001");
+    // W10: deterministic 32-byte master key for secrets at rest
+    // (server/services/crypto/secrets.ts). Set explicitly for realism — a
+    // dev/test fallback exists, but journeys J45/J46 prove the real envelope
+    // path against an env-provided key.
+    setEnv("SECRETS_MASTER_KEY", crypto.createHash("sha256").update("w10-sim-secrets-master-key").digest("base64"));
 
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
@@ -423,6 +428,13 @@ export async function bootWorld(): Promise<World> {
           const { pendingEditProposals } = await import("../server/services/waOnboarding");
           pendingEditProposals.clear();
         } catch { /* waOnboarding unavailable */ }
+        // Wave 10 isolation: observability ring buffer + error-webhook env
+        // never leak between journeys.
+        try {
+          const { _resetRecentErrors } = await import("../server/services/observability");
+          _resetRecentErrors();
+        } catch { /* observability unavailable */ }
+        delete process.env.ERROR_WEBHOOK_URL;
         outbound.reset();
         llmMock.reset();
         openaiMock.reset();

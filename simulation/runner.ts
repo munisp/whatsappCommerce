@@ -72,6 +72,8 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j42-validation-repair"),
     import("./journeys/j43-idempotency-resume-restart"),
     import("./journeys/j44-admin-channel"),
+    import("./journeys/j45-secrets-roundtrip"),
+    import("./journeys/j46-observability-capture"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

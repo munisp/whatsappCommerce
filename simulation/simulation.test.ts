@@ -8,12 +8,12 @@
 import { describe, expect, it } from "vitest";
 import { loadJourneys, runAll } from "./runner";
 
-describe("WhatsApp feature simulation (44 journeys)", () => {
+describe("WhatsApp feature simulation (46 journeys)", () => {
   it(
     "runs every journey against the real webhook handlers with Meta mocked",
     async () => {
       const journeys = await loadJourneys();
-      expect(journeys.length).toBe(44);
+      expect(journeys.length).toBe(46);
       const results = await runAll();
       const failed = results.filter((r) => !r.pass);
       expect(

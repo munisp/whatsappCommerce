@@ -29,6 +29,12 @@ export interface RecordedCall {
   body: any;
   /** Selected headers (authorization redacted). */
   headers: Record<string, string>;
+  /**
+   * Raw Authorization bearer token (w10: lets journeys prove the DECRYPTED
+   * tenant secret is what actually left the process). Test-only side channel
+   * — never written into transcripts.
+   */
+  authToken?: string;
   at: number;
 }
 
@@ -83,6 +89,12 @@ class MetaMockState {
    */
   validGraphIds = new Set<string>();
   graphIdErrors = new Map<string, number>();
+  /**
+   * W10: per-hostname scripted HTTP status for the catch-all branch
+   * (integration clients, ERROR_WEBHOOK_URL sink). Lets journeys inject
+   * retriable (5xx) / non-retriable (4xx) failures and webhook-sink outages.
+   */
+  hostStatus = new Map<string, number>();
   /** Activity timestamp — bumped on every intercepted call (settle polling). */
   lastActivityAt = 0;
 
@@ -94,6 +106,7 @@ class MetaMockState {
     this.catalogItems.clear();
     this.sendFailures.length = 0;
     this.failAllSendsStatus = null;
+    this.hostStatus.clear();
   }
 }
 
@@ -211,6 +224,7 @@ export const outbound = {
   },
   reset() {
     meta.outbound.length = 0;
+    meta.hostStatus.clear();
     pay.calls.length = 0;
     ledger.calls.length = 0;
     ledger.transfers.length = 0;
@@ -236,11 +250,13 @@ function record(url: string, method: string, bodyText: string | null, headers: H
   headers.forEach((v, k) => {
     hdrs[k] = k === "authorization" ? "Bearer <redacted>" : v;
   });
+  const authRaw = headers.get("authorization") ?? undefined;
   const call: RecordedCall = {
     url,
     method: method.toUpperCase(),
     body: parseJsonSafe(bodyText),
     headers: hdrs,
+    authToken: authRaw?.startsWith("Bearer ") ? authRaw.slice("Bearer ".length) : authRaw,
     at: Date.now(),
   };
   meta.outbound.push(call);
@@ -735,8 +751,14 @@ export function installFetchMock(): void {
     }
 
     // Anything else: record + fast failure (never hangs the pipeline).
+    // w10: meta.hostStatus can script a specific status per hostname
+    // (integration-client fault injection, ERROR_WEBHOOK_URL sink flaps).
     record(url, method, bodyText, headers);
-    return jsonResponse({ error: { message: `sim: no mock for ${u.hostname}` } }, 502);
+    const hostStatus = meta.hostStatus.get(u.hostname) ?? 502;
+    return jsonResponse(
+      hostStatus >= 400 ? { error: { message: `sim: no mock for ${u.hostname}` } } : { ok: true },
+      hostStatus,
+    );
   }) as typeof fetch;
 }
 
