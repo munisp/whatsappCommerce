@@ -179,6 +179,7 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
       { icon: Bot,             label: "Copilot",          path: "/onboarding-copilot" },
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
+      { icon: CreditCard,      label: "Payment Providers",  path: "/provider-settings" },
       { icon: SlidersHorizontal, label: "Tenant Settings", path: "/tenant-settings" },
     ],
   },

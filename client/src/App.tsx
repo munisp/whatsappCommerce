@@ -64,6 +64,7 @@ const AuditLog = lazy(() => import("./pages/AuditLog"));
 const WaMenuBuilder = lazy(() => import("./pages/WaMenuBuilder"));
 const TenantOnboardingWizard = lazy(() => import("./pages/TenantOnboardingWizard"));
 const IntegrationsSettings = lazy(() => import("./pages/IntegrationsSettings"));
+const ProviderSettings = lazy(() => import("./pages/ProviderSettings"));
 const TenantSettings = lazy(() => import("./pages/TenantSettings"));
 const LiveLogisticsMap = lazy(() => import("./pages/LiveLogisticsMap"));
 const HealthStatus = lazy(() => import("./pages/HealthStatus"));
@@ -169,6 +170,7 @@ function Router() {
           <Route path="/wa-menu-builder" component={WaMenuBuilder} />
           <Route path="/onboarding-wizard" component={TenantOnboardingWizard} />
           <Route path="/integration-settings" component={IntegrationsSettings} />
+          <Route path="/provider-settings" component={ProviderSettings} />
           <Route path="/tenant-settings" component={TenantSettings} />
           <Route path="/logistics-map" component={LiveLogisticsMap} />
           <Route path="/system-health" component={HealthStatus} />
