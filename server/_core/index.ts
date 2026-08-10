@@ -232,6 +232,17 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+  // ── Edge rate limiting (wave 10, additive) ────────────────────────────────
+  // Token buckets keyed by IP (+X-Tenant-Id when present): webhooks 300/min
+  // (Meta retries need headroom), auth/login 10/min, general API 600/min.
+  // Redis-backed with single-node in-memory fallback. /health* is exempt.
+  // Wired BEFORE route handlers; 429 carries Retry-After. Never blocks if the
+  // limiter itself errors (edge availability > strict counting).
+  {
+    const { createEdgeRateLimitMiddleware } = await import("../services/rateLimit");
+    app.use(createEdgeRateLimitMiddleware());
+  }
+
   // ── Redis-backed per-tenant rate limiting ─────────────────────────────────
   // 200 req/min per tenant (identified by X-Tenant-Id header or JWT sub)
   app.use("/api/trpc", async (req: any, res: any, next: any) => {
