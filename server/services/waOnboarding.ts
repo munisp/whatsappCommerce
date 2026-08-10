@@ -33,10 +33,10 @@ import {
 import { isTranscriptionConfigured, transcribeAudio } from "./transcribe";
 
 // ── w9 C1 copilot contract (structural) ─────────────────────────────────────
-// These interfaces mirror the exact API exported by
+// These interfaces mirror the API exported by
 // server/services/onboardingCopilot/index.ts (wave 9 / C1). They are declared
-// locally so this service compiles standalone; the runtime module is resolved
-// lazily (see loadCopilot) and only needs to satisfy this shape.
+// locally so tests can inject a DB/LLM-free copilot; loadCopilot assigns the
+// REAL module to OnboardingCopilotApi so any contract drift fails tsc.
 
 export type OnboardingSessionState =
   | "intake"
@@ -50,10 +50,10 @@ export type OnboardingSessionState =
 
 export interface OnboardingSession {
   id: string;
-  channel: "admin" | "whatsapp";
+  channel: "admin" | "whatsapp" | string;
   state: OnboardingSessionState | string;
-  phone?: string;
-  tenantId?: string;
+  phone?: string | null;
+  tenantId?: string | null;
 }
 
 export interface CopilotReplyAction {
@@ -90,8 +90,8 @@ export interface OnboardingCopilotApi {
 let copilotOverride: OnboardingCopilotApi | null = null;
 
 /**
- * Dependency-injection hook (tests, and a seam until the w9 C1 copilot core
- * merges). Pass null to restore lazy module resolution.
+ * Dependency-injection hook for tests (the real w9 C1 module is resolved
+ * lazily when this is null — keeps unit tests DB/LLM-free).
  */
 export function setOnboardingCopilot(api: OnboardingCopilotApi | null): void {
   copilotOverride = api;
@@ -100,14 +100,14 @@ export function setOnboardingCopilot(api: OnboardingCopilotApi | null): void {
 async function loadCopilot(): Promise<OnboardingCopilotApi> {
   if (copilotOverride) return copilotOverride;
   try {
-    // @ts-ignore — w9 C1 copilot core (server/services/onboardingCopilot)
-    // merges separately; resolved lazily so this module loads before that
-    // merge lands. The ignore is inert once the module exists.
-    const mod = (await import("./onboardingCopilot")) as unknown as OnboardingCopilotApi;
-    return mod;
+    const mod = await import("./onboardingCopilot");
+    // Compile-time compatibility check: the real w9 C1 module must satisfy the
+    // structural contract above (a drift breaks tsc, not production).
+    const api: OnboardingCopilotApi = mod;
+    return api;
   } catch (e: any) {
     throw new Error(
-      `[waOnboarding] onboarding copilot core unavailable (w9 C1 not merged?): ${e?.message ?? e}`,
+      `[waOnboarding] onboarding copilot core unavailable: ${e?.message ?? e}`,
     );
   }
 }
@@ -476,19 +476,27 @@ async function processText(
 
   const session = await copilot.findActiveSessionByPhone(phone);
 
-  // ── Pending free-text edit: this message is the editedPayload ────────────
+  // ── Pending free-text edit: this message describes the desired changes ────
+  // The real C1 decideProposal treats approve:false as REJECT and validates
+  // editedPayload as a STRUCTURED payload (zod) — it does not reinterpret
+  // free text. So the WhatsApp edit flow is: reject the stale proposal (C1's
+  // own reject reply invites a re-draft), then feed the user's free-text
+  // changes into postMessage so the agent drafts a revised proposal.
   const pendingProposal = pendingEditProposals.get(phone);
   if (pendingProposal && session) {
     pendingEditProposals.delete(phone);
-    const decision = await copilot.decideProposal({
-      sessionId: session.id,
-      proposalId: pendingProposal,
-      approve: false,
-      editedPayload: text,
-    });
-    await deliverCopilotReplies(phone, decision.replies);
-    const after = await copilot.getSession(session.id).catch(() => null);
-    await deliverTerminalFollowUp(phone, after?.state);
+    // Reject is best-effort: a stale/already-decided proposal must not eat
+    // the user's message — postMessage below still runs either way.
+    const reject = await copilot
+      .decideProposal({ sessionId: session.id, proposalId: pendingProposal, approve: false })
+      .catch((e: any) => {
+        console.warn(`[waOnboarding] edit-reject of proposal ${pendingProposal} failed:`, e?.message);
+        return null;
+      });
+    if (reject) await deliverCopilotReplies(phone, reject.replies);
+    const { replies, state } = await copilot.postMessage({ sessionId: session.id, text });
+    await deliverCopilotReplies(phone, replies);
+    await deliverTerminalFollowUp(phone, state);
     return { handled: true, outcome: "edit_applied" };
   }
   // Stale pending edit with no live session — drop it and start over.

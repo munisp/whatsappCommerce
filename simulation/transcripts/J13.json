@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017283825",
-      "profileName": "Sim User 3825",
+      "phone": "2348012900476",
+      "profileName": "Sim User 0476",
       "inboundId": "wamid.sim.in.text.00062",
-      "at": 1786331159363,
+      "at": 1786335112078,
       "kind": "text",
       "text": "add 1 jollof to my cart"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00062",
-      "at": 1786331159366
+      "at": 1786335112081
     },
     {
       "dir": "out",
-      "phone": "2348017283825",
+      "phone": "2348012900476",
       "wamid": "wamid.sim.000082",
       "statuses": [
         "sent"
       ],
-      "at": 1786331159388,
+      "at": 1786335112098,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348013109591",
-      "profileName": "Sim User 9591",
+      "phone": "2348011382466",
+      "profileName": "Sim User 2466",
       "inboundId": "wamid.sim.in.text.00063",
-      "at": 1786331159906,
+      "at": 1786335112622,
       "kind": "text",
       "text": "add 1 chicken to my cart"
     },
@@ -44,36 +44,36 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00063",
-      "at": 1786331159909
+      "at": 1786335112625
     },
     {
       "dir": "out",
-      "phone": "2348013109591",
+      "phone": "2348011382466",
       "wamid": "wamid.sim.000083",
       "statuses": [
         "sent"
       ],
-      "at": 1786331159918,
+      "at": 1786335112634,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "out",
-      "phone": "2348017283825",
+      "phone": "2348012900476",
       "wamid": "wamid.sim.000084",
       "statuses": [
         "sent"
       ],
-      "at": 1786331160529,
+      "at": 1786335113214,
       "kind": "text",
       "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
     },
     {
       "dir": "in",
-      "phone": "2348017283825",
-      "profileName": "Sim User 3825",
+      "phone": "2348012900476",
+      "profileName": "Sim User 0476",
       "inboundId": "wamid.sim.in.text.00064",
-      "at": 1786331161967,
+      "at": 1786335114648,
       "kind": "text",
       "text": "yes i want to finish my order"
     },
@@ -81,16 +81,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00064",
-      "at": 1786331161971
+      "at": 1786335114651
     },
     {
       "dir": "out",
-      "phone": "2348017283825",
+      "phone": "2348012900476",
       "wamid": "wamid.sim.000085",
       "statuses": [
         "sent"
       ],
-      "at": 1786331161986,
+      "at": 1786335114666,
       "kind": "text",
       "body": "Great! Your cart has 1 × Jollof Rice. Say 'confirm' to check out."
     }

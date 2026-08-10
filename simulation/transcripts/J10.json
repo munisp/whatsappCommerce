@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019429923",
-      "profileName": "Sim User 9923",
+      "phone": "2348018411760",
+      "profileName": "Sim User 1760",
       "inboundId": "wamid.sim.in.text.00050",
-      "at": 1786331151272,
+      "at": 1786335104065,
       "kind": "text",
       "text": "one jollof please"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00050",
-      "at": 1786331151275
+      "at": 1786335104068
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000064",
       "statuses": [
         "sent"
       ],
-      "at": 1786331151297,
+      "at": 1786335104086,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348019429923",
-      "profileName": "Sim User 9923",
+      "phone": "2348018411760",
+      "profileName": "Sim User 1760",
       "inboundId": "wamid.sim.in.text.00051",
-      "at": 1786331151815,
+      "at": 1786335104610,
       "kind": "text",
       "text": "confirm it"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00051",
-      "at": 1786331151819
+      "at": 1786335104613
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000065",
       "statuses": [
         "sent"
       ],
-      "at": 1786331151833,
+      "at": 1786335104632,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348019429923",
-      "profileName": "Sim User 9923",
+      "phone": "2348018411760",
+      "profileName": "Sim User 1760",
       "inboundId": "wamid.sim.in.text.00052",
-      "at": 1786331152360,
+      "at": 1786335105155,
       "kind": "text",
       "text": "2"
     },
@@ -70,36 +70,36 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00052",
-      "at": 1786331152363
+      "at": 1786335105158
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000066",
       "statuses": [
         "sent"
       ],
-      "at": 1786331152375,
+      "at": 1786335105170,
       "kind": "location_request",
       "body": "📍 Share your delivery location — or just type your full address here."
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000067",
       "statuses": [
         "sent"
       ],
-      "at": 1786331152376,
+      "at": 1786335105171,
       "kind": "text",
       "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
     },
     {
       "dir": "in",
-      "phone": "2348019429923",
-      "profileName": "Sim User 9923",
+      "phone": "2348018411760",
+      "profileName": "Sim User 1760",
       "inboundId": "wamid.sim.in.loc.00053",
-      "at": 1786331152906,
+      "at": 1786335105699,
       "kind": "location",
       "lat": 6.4281,
       "lng": 3.4219,
@@ -110,62 +110,62 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.loc.00053",
-      "at": 1786331152909
+      "at": 1786335105702
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000068",
       "statuses": [
         "sent"
       ],
-      "at": 1786331152932,
+      "at": 1786335105724,
       "kind": "text",
-      "body": "🧾 *Delivery Order ORD-MSMNG2ZD*\n1 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: Home, 12 Adeola Odeku Street, Victoria Island, Lagos\nSubtotal: ₦2,500.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,000.00*\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/1b2ee9f1-5237-4eeb-b8a8-c7b083e00982\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/4e3910d6-7cf6-4ec0-97cb-76899d506bce.mzl20rnqk24vcSF4ZjB8nkI2"
+      "body": "🧾 *Delivery Order ORD-MSMPSSZ5*\n1 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: Home, 12 Adeola Odeku Street, Victoria Island, Lagos\nSubtotal: ₦2,500.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,000.00*\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/ea4f6ccb-e133-476c-8331-06b9821bc5b2\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/ba2dd4f6-9e73-4b4d-a7b2-36f0477c67aa.Lfi8kYw9OtoHMVO_6AK_nVdc"
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000069",
       "statuses": [
         "sent"
       ],
-      "at": 1786331152936,
+      "at": 1786335105727,
       "kind": "interactive",
-      "body": "Order ORD-MSMNG2ZD — manage it here:",
+      "body": "Order ORD-MSMPSSZ5 — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:4e3910d6-7cf6-4ec0-97cb-76899d506bce",
+          "id": "order_track:ba2dd4f6-9e73-4b4d-a7b2-36f0477c67aa",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:4e3910d6-7cf6-4ec0-97cb-76899d506bce",
+          "id": "order_pay:ba2dd4f6-9e73-4b4d-a7b2-36f0477c67aa",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:4e3910d6-7cf6-4ec0-97cb-76899d506bce",
+          "id": "order_cancel:ba2dd4f6-9e73-4b4d-a7b2-36f0477c67aa",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000070",
       "statuses": [
         "sent"
       ],
-      "at": 1786331153458,
+      "at": 1786335106248,
       "kind": "text",
-      "body": "📦 Your order is being prepared for delivery with Sim Logistics.\n🔑 Your delivery PIN is *9122* — share it with the rider ONLY when you receive your order.\n🔎 Track your order: http://localhost:4173/track/4e3910d6-7cf6-4ec0-97cb-76899d506bce.mzl20rnqk24vcSF4ZjB8nkI2"
+      "body": "📦 Your order is being prepared for delivery with Sim Logistics.\n🔑 Your delivery PIN is *1229* — share it with the rider ONLY when you receive your order.\n🔎 Track your order: http://localhost:4173/track/ba2dd4f6-9e73-4b4d-a7b2-36f0477c67aa.Lfi8kYw9OtoHMVO_6AK_nVdc"
     },
     {
       "dir": "in",
-      "phone": "2348019429923",
-      "profileName": "Sim User 9923",
+      "phone": "2348018411760",
+      "profileName": "Sim User 1760",
       "inboundId": "wamid.sim.in.rxn.00054",
-      "at": 1786331153538,
+      "at": 1786335106327,
       "kind": "reaction",
       "emoji": "👍",
       "payloadId": "wamid.sim.in.text.00001"
@@ -174,18 +174,18 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.rxn.00054",
-      "at": 1786331153541
+      "at": 1786335106335
     },
     {
       "dir": "out",
-      "phone": "2348019429923",
+      "phone": "2348018411760",
       "wamid": "wamid.sim.000071",
       "statuses": [
         "sent"
       ],
-      "at": 1786331153547,
+      "at": 1786335106340,
       "kind": "text",
-      "body": "Thanks for the reaction! 👍\nOrder ORD-MSMNG2ZD is shipped — shipment pending.\nTrack it here: http://localhost:4173/track/4e3910d6-7cf6-4ec0-97cb-76899d506bce.mzl20rnqk24vcSF4ZjB8nkI2"
+      "body": "Thanks for the reaction! 👍\nOrder ORD-MSMPSSZ5 is shipped — shipment pending.\nTrack it here: http://localhost:4173/track/ba2dd4f6-9e73-4b4d-a7b2-36f0477c67aa.Lfi8kYw9OtoHMVO_6AK_nVdc"
     }
   ]
 }

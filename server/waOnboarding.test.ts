@@ -1,10 +1,11 @@
 /**
  * waOnboarding — unit tests (wave 9 / C3)
  *
- * The w9 C1 copilot core (server/services/onboardingCopilot) has not merged
- * yet, so the copilot is injected via the setOnboardingCopilot() DI hook
- * (structural contract) instead of vi.mock on a module that does not exist.
- * Once C1 lands these mocks can move to vi.mock("./services/onboardingCopilot").
+ * The w9 C1 copilot core (server/services/onboardingCopilot) is injected via
+ * the setOnboardingCopilot() DI hook so these tests stay DB/LLM-free; the
+ * mocks below mirror real C1 semantics (approve:false = reject, free-text
+ * edits re-drafted via postMessage, idempotent postMessage, phone
+ * supersession on startSession).
  *
  * Covers: env gating, action-id wire protocol, greeting → intake → proposal
  * card → approve → live, edit flow, >3-action list fallback, voice notes,
@@ -335,24 +336,52 @@ describe("proposal cards", () => {
     expect(prompt).toContain("reply with your changes in one message");
   });
 
-  it("next text after onb_edit becomes decideProposal editedPayload (raw free text)", async () => {
+  it("next text after onb_edit rejects the stale proposal, then postMessage re-drafts from the free text", async () => {
     stubOnboardingEnv();
     stubFetchOk();
     const session = { id: "sess-5", channel: "whatsapp" as const, state: "approving" };
-    const copilot = makeCopilot({ findActiveSessionByPhone: vi.fn(async () => session) });
+    const copilot = makeCopilot({
+      findActiveSessionByPhone: vi.fn(async () => session),
+      decideProposal: vi.fn(async () => ({
+        ok: true,
+        replies: [{ type: "text" as const, text: "Discarded the waMenu proposal. Tell me what you'd prefer and I'll draft another." }],
+      })),
+    });
     setOnboardingCopilot(copilot);
 
     await handleInbound(buttonMsg("onb_edit:prop-7"), SENDER);
     const out = await handleInbound(textMsg("Rename it to Adire Palace and switch currency to USD"), SENDER);
     expect(out.outcome).toBe("edit_applied");
+    // Real C1 semantics: approve:false (no editedPayload) = reject …
     expect(copilot.decideProposal).toHaveBeenCalledWith({
       sessionId: "sess-5",
       proposalId: "prop-7",
       approve: false,
-      editedPayload: "Rename it to Adire Palace and switch currency to USD",
     });
-    expect(copilot.postMessage).not.toHaveBeenCalled();
+    // … then the free-text changes go through postMessage for re-drafting.
+    expect(copilot.postMessage).toHaveBeenCalledWith({
+      sessionId: "sess-5",
+      text: "Rename it to Adire Palace and switch currency to USD",
+    });
     expect(pendingEditProposals.has(SENDER)).toBe(false);
+  });
+
+  it("edit text still reaches postMessage when the stale-proposal reject throws", async () => {
+    stubOnboardingEnv();
+    stubFetchOk();
+    const session = { id: "sess-5", channel: "whatsapp" as const, state: "approving" };
+    const copilot = makeCopilot({
+      findActiveSessionByPhone: vi.fn(async () => session),
+      decideProposal: vi.fn(async () => { throw new Error('Proposal "prop-7" is already approved'); }),
+    });
+    setOnboardingCopilot(copilot);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await handleInbound(buttonMsg("onb_edit:prop-7"), SENDER);
+    const out = await handleInbound(textMsg("actually make it blue"), SENDER);
+    expect(out.outcome).toBe("edit_applied"); // NOT the fail-safe "error"
+    expect(copilot.postMessage).toHaveBeenCalledWith({ sessionId: "sess-5", text: "actually make it blue" });
+    warnSpy.mockRestore();
   });
 
   it("malformed interactive id → friendly guidance, no decideProposal, no crash", async () => {
@@ -431,16 +460,71 @@ describe("restart + fail-safe", () => {
     errSpy.mockRestore();
   });
 
-  it("missing copilot core (C1 unmerged) degrades to the fail-safe, never throws", async () => {
+  it("terminal goLive proposal approval → live-state congrats with signup link + portal URL", async () => {
     stubOnboardingEnv();
     const calls = stubFetchOk();
-    // No setOnboardingCopilot → lazy import of ./onboardingCopilot fails.
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const out = await handleInbound(textMsg("hello"), SENDER);
-    expect(out.outcome).toBe("error");
-    const msg = calls.find((c) => c.body?.type === "text")!.body.text.body;
-    expect(msg).toContain("Something went wrong");
-    errSpy.mockRestore();
+    const session = { id: "sess-live", channel: "whatsapp" as const, state: "validating" };
+    // Mirrors C1: approving the goLive proposal runs advanceToLive and the
+    // session lands in state 'live'.
+    const copilot = makeCopilot({
+      findActiveSessionByPhone: vi.fn(async () => session),
+      decideProposal: vi.fn(async () => ({
+        ok: true,
+        replies: [
+          { type: "text" as const, text: "Approved the goLive proposal." },
+          { type: "text" as const, text: "All 6 validation checks passed — you are live!" },
+        ],
+      })),
+      getSession: vi.fn(async () => ({ id: "sess-live", channel: "whatsapp" as const, state: "live" })),
+    });
+    setOnboardingCopilot(copilot);
+
+    const out = await handleInbound(buttonMsg("onb_approve:prop-golive"), SENDER);
+    expect(out.outcome).toBe("approve");
+    expect(copilot.decideProposal).toHaveBeenCalledWith({
+      sessionId: "sess-live",
+      proposalId: "prop-golive",
+      approve: true,
+    });
+    const texts = calls.filter((c) => c.body?.type === "text").map((c) => c.body.text.body);
+    const congrats = texts.find((t: string) => t.includes("Congratulations"));
+    expect(congrats).toContain("https://admin.example.com/settings/whatsapp");
+    expect(congrats).toContain("https://admin.example.com");
+  });
+
+  it("literal 'go live' text (C1 postMessage command) → state live → congrats", async () => {
+    stubOnboardingEnv();
+    const calls = stubFetchOk();
+    const session = { id: "sess-gl", channel: "whatsapp" as const, state: "validating" };
+    const copilot = makeCopilot({
+      findActiveSessionByPhone: vi.fn(async () => session),
+      postMessage: vi.fn(async () => ({
+        replies: [{ type: "text" as const, text: "All checks passed — you are live!" }],
+        state: "live",
+      })),
+    });
+    setOnboardingCopilot(copilot);
+
+    const out = await handleInbound(textMsg("go live"), SENDER);
+    expect(out.outcome).toBe("message");
+    const texts = calls.filter((c) => c.body?.type === "text").map((c) => c.body.text.body);
+    expect(texts.some((t: string) => t.includes("Congratulations"))).toBe(true);
+  });
+
+  it("idempotent postMessage redelivery (Meta retry) → empty replies, no duplicate sends", async () => {
+    stubOnboardingEnv();
+    const calls = stubFetchOk();
+    const session = { id: "sess-idem", channel: "whatsapp" as const, state: "intake" };
+    // Mirrors C1's idempotent postMessage: an exact repeat returns no replies.
+    const copilot = makeCopilot({
+      findActiveSessionByPhone: vi.fn(async () => session),
+      postMessage: vi.fn(async () => ({ replies: [], state: "intake" })),
+    });
+    setOnboardingCopilot(copilot);
+
+    const out = await handleInbound(textMsg("My shop is called Adire Hub"), SENDER);
+    expect(out.outcome).toBe("message");
+    expect(calls.filter((c) => c.body?.type === "text")).toHaveLength(0);
   });
 });
 
