@@ -28,6 +28,7 @@ import {
   OdooClient,
   TwentyClient,
 } from "./clients";
+import { captureException } from "../observability";
 
 export const MAX_OUTBOX_ATTEMPTS = 5;
 
@@ -123,6 +124,13 @@ export async function syncLocalChange(
       if (id) ids.push(id);
     } catch (err: any) {
       console.error(`[outbox] enqueue failed (${system}/${change.entity}/${change.entityId}):`, err?.message);
+      captureException(err, {
+        service: "integrations/outbox",
+        operation: "enqueue",
+        tenantId: change.tenantId,
+        severity: "error",
+        extra: { system, entity: change.entity, entityId: change.entityId, action: change.action },
+      });
     }
   }
   return ids;
@@ -316,8 +324,26 @@ export async function dispatchOutbox(
           : "pending";
       await store.markFailure(event.id, attempts, message, status);
       if (status === "pending") result.retried++;
-      else if (status === "dead") result.dead++;
-      else result.failed++;
+      else if (status === "dead") {
+        result.dead++;
+        // Retry exhaustion → DLQ transition: money-relevant sync pipeline.
+        captureException(err, {
+          service: "integrations/outbox",
+          operation: "dispatch.dlq",
+          tenantId: (event as any).tenantId,
+          severity: "critical",
+          extra: { eventId: event.id, system: event.system, entity: event.entity, entityId: event.entityId, attempts },
+        });
+      } else {
+        result.failed++;
+        captureException(err, {
+          service: "integrations/outbox",
+          operation: "dispatch.failed",
+          tenantId: (event as any).tenantId,
+          severity: "error",
+          extra: { eventId: event.id, system: event.system, entity: event.entity, entityId: event.entityId, attempts },
+        });
+      }
     }
   }
   return result;

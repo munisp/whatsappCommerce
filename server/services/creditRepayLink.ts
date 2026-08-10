@@ -34,6 +34,7 @@ import { paymentIntents, processedWebhookEvents } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 import { claimWebhookEvent } from "./webhookDedupe";
 import { recordUsage } from "./metering";
+import { captureException } from "./observability";
 
 // ── Usage-metering metrics ───────────────────────────────────────────────────
 export const METRIC_CREDIT_REPAYMENT_LINKS = "credit_repayment_links";
@@ -209,6 +210,14 @@ export async function createRepaymentLink(
       .set({ status: "failed", failureReason: `paystack_init: ${String(err?.message ?? err).slice(0, 300)}`, updatedAt: new Date() })
       .where(eq(paymentIntents.id, paymentIntentId))
       .catch(() => {});
+    // Money-path: a repayment link could not be initialized.
+    captureException(err, {
+      service: "creditRepayLink",
+      operation: "paystackInit",
+      tenantId: input.buyerTenantId,
+      severity: "critical",
+      extra: { paymentIntentId, reference, amountCents },
+    });
     throw new CreditRepayError("paystack-init-failed", `Paystack initialization failed: ${err?.message ?? err}`);
   }
 
@@ -274,6 +283,15 @@ export async function runCreditRepaymentHook(
       .where(eq(processedWebhookEvents.id, claimId))
       .catch((delErr: any) => console.error("[credit-repay] claim rollback failed:", delErr?.message));
     console.error(`[credit-repay] applyRepayment failed for ref=${input.reference}:`, err?.message);
+    // Money-path: a confirmed repayment could not be applied to the ledger
+    // (claim rolled back so a replay/reconciliation can retry).
+    captureException(err, {
+      service: "creditRepayLink",
+      operation: "applyRepayment",
+      tenantId: input.tenantId,
+      severity: "critical",
+      extra: { reference: input.reference, accountId, amountMajor: input.amountMajor },
+    });
     throw err;
   }
 }

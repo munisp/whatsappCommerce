@@ -24,6 +24,7 @@ import { customers, integrationEvents, products, tenants } from "../../../drizzl
 import type { IntegrationConfig, IntegrationSystem } from "./clients";
 import { INTEGRATION_SYSTEMS } from "./clients";
 import { triggerRestockNotification } from "../waitlist";
+import { captureException } from "../observability";
 
 export const SIGNATURE_HEADER = "x-integration-signature";
 export const TENANT_HEADER = "x-tenant-id";
@@ -107,6 +108,13 @@ export async function handleIntegrationWebhook(
   if (config.webhookSecret) {
     if (!verifyIntegrationSignature(rawBody, config.webhookSecret, signature)) {
       console.warn(`[integrations-webhook] ${system} tenant=${tenantId}: invalid signature — rejected`);
+      captureException(new Error("invalid inbound webhook signature"), {
+        service: "integrations/inbound",
+        operation: "verifySignature",
+        tenantId,
+        severity: "warn",
+        extra: { system },
+      });
       return { status: 401, body: { error: "invalid-signature" } };
     }
   } else if (deps.isProduction) {
@@ -154,6 +162,13 @@ export async function handleIntegrationWebhook(
     return { status: 200, body: { ok: true, applied } };
   } catch (err: any) {
     console.error(`[integrations-webhook] ${system} tenant=${tenantId} apply failed:`, err?.message);
+    captureException(err, {
+      service: "integrations/inbound",
+      operation: "apply",
+      tenantId,
+      severity: "error",
+      extra: { system, entity, action },
+    });
     return { status: 500, body: { error: "apply-failed", detail: String(err?.message ?? err).slice(0, 300) } };
   }
 }
