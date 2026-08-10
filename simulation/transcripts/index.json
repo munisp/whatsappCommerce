@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-09T23:16:07.747Z",
+  "generatedAt": "2026-08-10T01:38:55.887Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -241,6 +241,70 @@
       "pass": true,
       "file": "J30.json",
       "messageCount": 9
+    },
+    {
+      "id": "J31",
+      "title": "procurement menu browse",
+      "feature": "waMenu procurement → supplier directory → wholesale catalog",
+      "pass": true,
+      "file": "J31.json",
+      "messageCount": 15
+    },
+    {
+      "id": "J32",
+      "title": "PO build + submit",
+      "feature": "poFlow chat → submitted PO + supplier approval card",
+      "pass": true,
+      "file": "J32.json",
+      "messageCount": 31
+    },
+    {
+      "id": "J33",
+      "title": "approve → credit draw",
+      "feature": "po_approve → drawOnCredit → invoiced + ledger",
+      "pass": true,
+      "file": "J33.json",
+      "messageCount": 35
+    },
+    {
+      "id": "J34",
+      "title": "overdraw refusal",
+      "feature": "drawOnCredit over_limit → buyer fallback, no ledger write",
+      "pass": true,
+      "file": "J34.json",
+      "messageCount": 35
+    },
+    {
+      "id": "J35",
+      "title": "pay-now PO",
+      "feature": "po_payment link → webhook settle → replay idempotent",
+      "pass": true,
+      "file": "J35.json",
+      "messageCount": 35
+    },
+    {
+      "id": "J36",
+      "title": "partial credit repayment",
+      "feature": "creditRepayLink → applyRepayment, replay dedupe",
+      "pass": true,
+      "file": "J36.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J37",
+      "title": "dunning reminders + late fee",
+      "feature": "runDunningCheck milestones, idempotent markers",
+      "pass": true,
+      "file": "J37.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J38",
+      "title": "default freeze",
+      "feature": "dunning +7d → account frozen, new draws refused",
+      "pass": true,
+      "file": "J38.json",
+      "messageCount": 1
     }
   ]
 }

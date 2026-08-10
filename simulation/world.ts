@@ -53,6 +53,35 @@ export const PRODUCTS = {
   restock: { id: "p-restock", sku: "SIM-RESTOCK", name: "Restock Widget", price: "750.00", stock: 0 },
 } as const;
 
+// ── Wave 8: B2B supplier tenant (multi-tenant world) ─────────────────────────
+// A second tenant ("Lagos Plastics Manufacturing") with its own phone number
+// id, admin phone, ACTIVE supplier_profile, wholesale products and a trade
+// credit account with the buyer tenant (TENANT_ID). Money is in CENTS (kobo)
+// throughout the w8 tables — ₦500,000 = 50_000_000.
+export const SUPPLIER_TENANT_ID = "sim-supplier";
+export const SUPPLIER_NAME = "Lagos Plastics Manufacturing";
+export const SUPPLIER_PHONE_NUMBER_ID = "pn_sim_supplier_001";
+export const SUPPLIER_WABA_ID = "waba_sim_supplier_001";
+export const SUPPLIER_ADMIN_PHONE = "2348099911111";
+export const SUPPLIER_DISPLAY_PHONE = "2347000000099";
+
+export const CREDIT_ACCOUNT_ID = "c0a51e00-0000-4000-8000-000000000001";
+/** ₦500,000 facility, net-14 terms, extended by the supplier to TENANT_ID. */
+export const CREDIT_LIMIT_CENTS = 50_000_000;
+export const CREDIT_TERMS_DAYS = 14;
+
+export const SUPPLIER_MOQ_CENTS = 100_000; // ₦1,000
+export const SUPPLIER_PRODUCTS = {
+  preforms: {
+    id: "sp-preforms", sku: "SIM-PREFORM", name: "PET Preforms 500ml",
+    price: "45.00", wholesalePrice: "40.00", minQty: 100, stock: 100_000,
+  },
+  crates: {
+    id: "sp-crates", sku: "SIM-CRATE20", name: "Plastic Crates 20L",
+    price: "2500.00", wholesalePrice: null, minQty: 1, stock: 5_000,
+  },
+} as const;
+
 export interface World {
   port: number;
   baseUrl: string;
@@ -73,6 +102,12 @@ export interface World {
   status: (wamid: string, status: "sent" | "delivered" | "read" | "failed", opts?: { errors?: any[]; recipientId?: string }) => Promise<void>;
   runCron: (path: string, body?: Record<string, unknown>) => Promise<{ status: number; json: any }>;
   ussd: (sessionId: string, phone: string, text: string) => Promise<string>;
+  /** Post an inbound envelope to a specific tenant channel (phone number id). */
+  inboundFor: (phoneNumberId: string, payload: Record<string, unknown>) => Promise<void>;
+  /** Inbound text on the SUPPLIER tenant's WhatsApp channel. */
+  supplierText: (phone: string, text: string, opts?: { profileName?: string }) => Promise<void>;
+  /** Interactive button reply on the SUPPLIER tenant's channel (PO approve/reject). */
+  supplierButtonReply: (phone: string, replyId: string, title: string) => Promise<void>;
   settle: (minMs?: number, maxMs?: number) => Promise<void>;
   waitFor: (fn: () => boolean | Promise<boolean>, timeoutMs?: number, label?: string) => Promise<void>;
 
@@ -163,6 +198,9 @@ export async function bootWorld(): Promise<World> {
     setEnv("OPENAI_BASE_URL", "http://openai.sim.local/v1");
     setEnv("KEYCLOAK_URL", `http://127.0.0.1:${authPort}`);
     setEnv("CORS_ORIGIN", "*");
+    // payment.initiate + creditRepayLink need a Paystack secret (intercepted
+    // by the fetch mock — never a real network call).
+    setEnv("PAYSTACK_SECRET_KEY", "sk_sim_test");
 
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
@@ -314,6 +352,15 @@ export async function bootWorld(): Promise<World> {
         recorder.ussd(sessionId, phone, text, responseText);
         return responseText;
       },
+      async inboundFor(_phoneNumberId, payload) {
+        await world.inbound(payload);
+      },
+      async supplierText(phone, text, opts = {}) {
+        await world.inbound(payloads.inbound.text(SUPPLIER_PHONE_NUMBER_ID, phone, text, { profileName: opts.profileName }));
+      },
+      async supplierButtonReply(phone, replyId, title) {
+        await world.inbound(payloads.inbound.buttonReply(SUPPLIER_PHONE_NUMBER_ID, phone, replyId, title));
+      },
       settle,
       waitFor,
 
@@ -325,6 +372,25 @@ export async function bootWorld(): Promise<World> {
             await world.db.update(products).set({ stockQuantity: p.stock }).where(eq(products.id, p.id));
           }
         } catch { /* world not seeded yet */ }
+        // Wave 8 isolation: wipe PO/credit money movement and restore the
+        // credit facility to its seed state so J31–J38 never leak into each
+        // other (or into J01–J30, which never touch these tables).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.poItems);
+          await world.db.delete(schema.purchaseOrders);
+          await world.db.delete(schema.creditLedger);
+          await world.db
+            .update(schema.creditAccounts)
+            .set({
+              limitCents: CREDIT_LIMIT_CENTS,
+              outstandingCents: 0,
+              termsDays: CREDIT_TERMS_DAYS,
+              status: "active",
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
+        } catch { /* w8 tables not seeded yet */ }
         outbound.reset();
         llmMock.reset();
         openaiMock.reset();
@@ -451,6 +517,80 @@ async function seedWorld(world: World): Promise<void> {
   if (!cfg) {
     await db.insert(schema.escrowConfig).values({ id: 1, custodyMode: "pssp" });
   }
+
+  // ── Wave 8: supplier tenant + B2B network ────────────────────────────────
+  await db.insert(schema.tenants).values({
+    id: SUPPLIER_TENANT_ID,
+    name: SUPPLIER_NAME,
+    slug: "sim-supplier",
+    plan: "growth",
+    status: "active",
+    whatsappPhoneNumberId: SUPPLIER_PHONE_NUMBER_ID,
+    whatsappBusinessAccountId: SUPPLIER_WABA_ID,
+    defaultCurrency: "NGN",
+    defaultLanguage: "en",
+    settings: {
+      plan: { tier: "growth", limits: { messagesPerMonth: 1_000_000, ordersPerMonth: 1_000_000 } },
+      whatsapp: { accessToken: WA_ACCESS_TOKEN, wabaId: SUPPLIER_WABA_ID, displayPhone: SUPPLIER_DISPLAY_PHONE },
+      adminPhone: SUPPLIER_ADMIN_PHONE,
+    },
+  }).onConflictDoNothing();
+
+  // ACTIVE supplier profile: MOQ ₦1,000, 5d lead time, terms 7/14/30, no
+  // auto-approve threshold (every PO goes through the approval card).
+  await db.insert(schema.supplierProfiles).values({
+    tenantId: SUPPLIER_TENANT_ID,
+    moqCents: SUPPLIER_MOQ_CENTS,
+    leadTimeDays: 5,
+    termsOffered: [7, 14, 30],
+    defaultTermsDays: CREDIT_TERMS_DAYS,
+    autoApproveBelowCents: null,
+    categories: ["plastics", "packaging"],
+    status: "active",
+  }).onConflictDoNothing();
+
+  // Wholesale products: preforms have a wholesale tier (min 100 @ ₦40),
+  // crates sell at the retail price with no minimum.
+  for (const p of Object.values(SUPPLIER_PRODUCTS)) {
+    await db.insert(schema.products).values({
+      id: p.id,
+      tenantId: SUPPLIER_TENANT_ID,
+      sku: p.sku,
+      name: p.name,
+      description: `${p.name} — simulation wholesale item`,
+      category: "plastics",
+      price: p.price,
+      currency: "NGN",
+      imageUrl: `https://cdn.sim.local/${p.id}.jpg`,
+      status: "active",
+      stockQuantity: p.stock,
+      lowStockThreshold: 3,
+    }).onConflictDoNothing();
+    if (p.wholesalePrice) {
+      await db.insert(schema.wholesalePriceTiers).values({
+        id: `wtier-${p.id}`,
+        tenantId: SUPPLIER_TENANT_ID,
+        productId: p.id,
+        buyerType: "wholesale",
+        minQuantity: p.minQty,
+        unitPrice: p.wholesalePrice,
+        currency: "NGN",
+      }).onConflictDoNothing();
+    }
+  }
+
+  // Trade credit facility: supplier → buyer (Simply Green/sim tenant),
+  // ₦500,000 limit, net-14. Draws/repayments mutate outstandingCents;
+  // resetJourneyState restores this seed between journeys.
+  await db.insert(schema.creditAccounts).values({
+    id: CREDIT_ACCOUNT_ID,
+    supplierTenantId: SUPPLIER_TENANT_ID,
+    buyerTenantId: TENANT_ID,
+    limitCents: CREDIT_LIMIT_CENTS,
+    outstandingCents: 0,
+    termsDays: CREDIT_TERMS_DAYS,
+    status: "active",
+  }).onConflictDoNothing();
 
   // Baseline Meta mock state.
   const { setQuality, setTemplates } = await import("./metaMock");

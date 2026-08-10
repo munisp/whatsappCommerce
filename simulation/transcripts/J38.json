@@ -1,0 +1,22 @@
+{
+  "id": "J38",
+  "title": "default freeze",
+  "feature": "dunning +7d → account frozen, new draws refused",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000236",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786325935265,
+      "kind": "template",
+      "templateName": "credit_due_reminder",
+      "templateLanguage": "en",
+      "body": "₦50,000 · 2026-08-02"
+    }
+  ]
+}

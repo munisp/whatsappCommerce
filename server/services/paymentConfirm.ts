@@ -204,6 +204,21 @@ export async function confirmProviderPayment(
   }
 
   // ── Drive order confirmation + escrow hold creation (either path) ─────────
+  // Wave-8 B2B intents reuse paymentIntents.orderId for NON-storefront
+  // references: po_payment intents carry the purchase-order uuid and
+  // credit_repayment intents carry the PO / credit-account uuid. Treating
+  // those as orders.id violates the escrow_transactions
+  // (order_id → orders.id) FK and 500s the webhook BEFORE the PO/repayment
+  // hooks below run — so only drive order confirmation for references that
+  // really are orders rows.
+  if (orderId) {
+    const [orderRow] = await db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(eq(orders.id, orderId))
+      .limit(1);
+    if (!orderRow) orderId = null;
+  }
   if (orderId) {
     await db.update(orders)
       .set({ paymentStatus: "completed", status: "confirmed", updatedAt: now })

@@ -1,0 +1,35 @@
+{
+  "id": "J37",
+  "title": "dunning reminders + late fee",
+  "feature": "runDunningCheck milestones, idempotent markers",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000234",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786325933706,
+      "kind": "template",
+      "templateName": "credit_due_reminder",
+      "templateLanguage": "en",
+      "body": "₦200k · 2026-08-12"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000235",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786325934323,
+      "kind": "template",
+      "templateName": "credit_due_reminder",
+      "templateLanguage": "en",
+      "body": "₦200k · 2026-08-12"
+    }
+  ]
+}

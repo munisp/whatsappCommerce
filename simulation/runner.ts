@@ -58,6 +58,14 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j28-ussd"),
     import("./journeys/j29-meta-catalog"),
     import("./journeys/j30-contact-provisioning"),
+    import("./journeys/j31-procurement-menu"),
+    import("./journeys/j32-po-submit"),
+    import("./journeys/j33-approve-credit-draw"),
+    import("./journeys/j34-overdraw-refusal"),
+    import("./journeys/j35-paynow-po"),
+    import("./journeys/j36-partial-repayment"),
+    import("./journeys/j37-dunning"),
+    import("./journeys/j38-default-freeze"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

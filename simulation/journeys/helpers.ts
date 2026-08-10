@@ -152,3 +152,140 @@ export async function adminCaller() {
 }
 
 export { ADMIN_PHONE, TENANT_ID };
+
+// ── Wave 8: B2B procurement + trade credit ──────────────────────────────────
+
+import {
+  CREDIT_ACCOUNT_ID,
+  SUPPLIER_TENANT_ID,
+} from "../world";
+
+/** Enable the "Restock / Buy supplies" menu entry; returns the previous waMenu for restore. */
+export async function enableProcurementMenu(world: World): Promise<any> {
+  const { DEFAULT_WA_MENU } = await import("../../shared/waMenu");
+  const before = (await world.tenantSettings()).waMenu ?? null;
+  await world.patchTenantSettings({
+    waMenu: {
+      ...DEFAULT_WA_MENU,
+      useCases: DEFAULT_WA_MENU.useCases.map((u) =>
+        u.id === "procurement" ? { ...u, enabled: true } : u,
+      ),
+    },
+  });
+  return before;
+}
+
+/** Restore a waMenu snapshot returned by enableProcurementMenu (full settings replace). */
+export async function restoreMenu(world: World, before: any): Promise<void> {
+  const schema = await import("../../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const current = await world.tenantSettings();
+  if (before) current.waMenu = before;
+  else delete current.waMenu;
+  await world.db
+    .update(schema.tenants)
+    .set({ settings: current, updatedAt: new Date() })
+    .where(eq(schema.tenants.id, TENANT_ID));
+}
+
+export interface ProcurementPoOutcome {
+  poId: string;
+  poNumber: string;
+  subtotalCents: number;
+  paymentMode: "credit" | "paynow";
+  termsDays: number | null;
+}
+
+/**
+ * Parse a rendered wholesale catalog into name → item number (the local
+ * catalog has no ORDER BY, so numbering must be read from the reply).
+ */
+export function catalogItemNumbers(catalogText: string): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const line of catalogText.split("\n")) {
+    const m = /^(\d+)\.\s+(.+?)\s+—\s+₦/.exec(line.trim());
+    if (m) map.set(m[2], parseInt(m[1], 10));
+  }
+  return map;
+}
+
+/**
+ * Drive the full buyer-side procurement chat against the seeded supplier:
+ *   menu → procurement entry → browse suppliers → pick supplier 1 →
+ *   add 100× preforms + 10× crates → done → payment choice → CONFIRM.
+ * Subtotal: 100×₦40 + 10×₦2,500 = ₦29,000 (2_900_000¢). Asserts the PO row
+ * exists with status 'submitted'; returns it.
+ */
+export async function buildProcurementPoViaChat(
+  world: World,
+  phone: string,
+  opts: { paymentMode: "credit" | "paynow"; termsPick?: number } = { paymentMode: "credit" },
+): Promise<ProcurementPoOutcome> {
+  await world.text(phone, "menu");
+  await world.text(phone, "4"); // procurement menu entry
+  await world.text(phone, "1"); // browse suppliers
+  await world.text(phone, "1"); // Lagos Plastics Manufacturing
+  const catalogText = bodyText(world.outbound.lastOfType("text", phone));
+  const numbers = catalogItemNumbers(catalogText);
+  const preformsNo = numbers.get("PET Preforms 500ml");
+  const cratesNo = numbers.get("Plastic Crates 20L");
+  assert(preformsNo && cratesNo, `catalog lists both seeded items (got ${catalogText.slice(0, 200)})`);
+  await world.text(phone, `add ${preformsNo} 100`); // 100 × PET Preforms @ ₦40 = ₦4,000
+  await world.text(phone, `add ${cratesNo} 10`); // 10 × Plastic Crates @ ₦2,500 = ₦25,000
+  await world.text(phone, "done");
+  if (opts.paymentMode === "credit") {
+    await world.text(phone, "1"); // pay on credit
+    await world.text(phone, String(opts.termsPick ?? 2)); // net 14 (termsOffered [7,14,30])
+  } else {
+    await world.text(phone, "2"); // pay now
+  }
+  await world.text(phone, "CONFIRM");
+
+  const schema = await import("../../drizzle/schema");
+  const { eq, desc } = await import("drizzle-orm");
+  const [po] = await world.db
+    .select()
+    .from(schema.purchaseOrders)
+    .where(eq(schema.purchaseOrders.buyerTenantId, TENANT_ID))
+    .orderBy(desc(schema.purchaseOrders.createdAt))
+    .limit(1);
+  assert(po, "procurement PO row was created");
+  assert(po.status === "submitted", `PO submitted (got ${po.status})`);
+  return {
+    poId: po.id,
+    poNumber: po.poNumber,
+    subtotalCents: Number(po.subtotalCents),
+    paymentMode: po.paymentMode,
+    termsDays: po.termsDays,
+  };
+}
+
+/** Fetch the seeded credit account row (supplier ↔ sim tenant). */
+export async function creditAccount(world: World) {
+  const schema = await import("../../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const [row] = await world.db
+    .select()
+    .from(schema.creditAccounts)
+    .where(eq(schema.creditAccounts.id, CREDIT_ACCOUNT_ID))
+    .limit(1);
+  assert(row, "seeded credit account exists");
+  return row;
+}
+
+/** Ledger rows for the seeded credit account, newest first. */
+export async function creditLedgerRows(world: World, kind?: string) {
+  const schema = await import("../../drizzle/schema");
+  const { eq, and, desc } = await import("drizzle-orm");
+  return world.db
+    .select()
+    .from(schema.creditLedger)
+    .where(
+      kind
+        ? and(eq(schema.creditLedger.creditAccountId, CREDIT_ACCOUNT_ID), eq(schema.creditLedger.kind, kind))
+        : eq(schema.creditLedger.creditAccountId, CREDIT_ACCOUNT_ID),
+    )
+    .orderBy(desc(schema.creditLedger.createdAt));
+}
+
+export { SUPPLIER_TENANT_ID, CREDIT_ACCOUNT_ID };

@@ -203,6 +203,8 @@ export const outbound = {
   reset() {
     meta.outbound.length = 0;
     pay.calls.length = 0;
+    ledger.calls.length = 0;
+    ledger.transfers.length = 0;
   },
 };
 
@@ -444,6 +446,43 @@ function handlePay(url: URL, method: string, body: any): Response {
   return jsonResponse({ error: "unmocked payment path" }, 404);
 }
 
+// ── Ledger bridge scripting ─────────────────────────────────────────────────
+// payment.initiate (used by procurement PO payment links) runs a 2-phase
+// reserve against the ledger-bridge service BEFORE creating the provider
+// link. Without this mock the bridge call 502s and initiation fails with
+// "ledger_failed". Responses follow the rust bridge contract (pending_id +
+// reserved status); every call is recorded in `ledger.calls` for assertions.
+
+let ledgerPendingCounter = 0;
+
+class LedgerMockState {
+  calls: RecordedCall[] = [];
+  transfers: Array<{ pendingId: string; body: any }> = [];
+  reset() {
+    this.calls = [];
+    this.transfers = [];
+  }
+}
+
+export const ledger = new LedgerMockState();
+
+function handleLedger(url: URL, method: string, body: any): Response {
+  const path = url.pathname;
+  if (path.includes("/accounts/provision") && method === "POST") {
+    return jsonResponse({ provisioned: true }, 201);
+  }
+  if (path.endsWith("/transfer") && method === "POST") {
+    ledgerPendingCounter += 1;
+    const pendingId = `sim-ledger-pending-${String(ledgerPendingCounter).padStart(6, "0")}`;
+    ledger.transfers.push({ pendingId, body });
+    return jsonResponse({ pending_id: pendingId, status: "reserved" }, 201);
+  }
+  if (path.includes("/ledger/commit")) return jsonResponse({ status: "committed" });
+  if (path.includes("/ledger/void")) return jsonResponse({ status: "voided" });
+  if (path.includes("/ledger/reverse")) return jsonResponse({ status: "reversed" });
+  return jsonResponse({ ok: true });
+}
+
 let realFetch: typeof fetch | null = null;
 
 /** Install the global fetch interceptor. Idempotent. */
@@ -481,6 +520,12 @@ export function installFetchMock(): void {
       const call = record(url, method, bodyText, headers);
       pay.calls.push(call);
       return handlePay(u, method, body);
+    }
+    if (u.hostname.includes("ledger-bridge")) {
+      const body = parseJsonSafe(bodyText);
+      const call = record(url, method, bodyText, headers);
+      ledger.calls.push(call);
+      return handleLedger(u, method, body);
     }
 
     // Anything else: record + fast failure (never hangs the pipeline).

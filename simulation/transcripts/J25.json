@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017595037",
-      "profileName": "Sim User 5037",
+      "phone": "2348017496241",
+      "profileName": "Sim User 6241",
       "inboundId": "wamid.sim.readreceipt.001",
-      "at": 1786317357514,
+      "at": 1786325884251,
       "kind": "text",
       "text": "blue ticks please"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.readreceipt.001",
-      "at": 1786317357518
+      "at": 1786325884254
     },
     {
       "dir": "out",
-      "phone": "2348017595037",
+      "phone": "2348017496241",
       "wamid": "wamid.sim.000160",
       "statuses": [
         "sent"
       ],
-      "at": 1786317357534,
+      "at": 1786325884276,
       "kind": "text",
       "body": "Ticked!"
     }
