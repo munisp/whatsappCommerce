@@ -70,7 +70,21 @@ export async function initiateWithFallback(
   ctx: PaymentInitiateCtx,
   opts: FallbackInitiateOptions = {},
 ): Promise<FallbackInitiateOutcome> {
-  let chain = await getProviderForTenant(tenantId);
+  let chain: TenantProviderEntry[];
+  try {
+    chain = await getProviderForTenant(tenantId);
+  } catch (err: any) {
+    // Registry read failure (DB outage / legacy fake) must not hard-fail the
+    // payment: degrade to the env-default chain and report.
+    captureException(err, {
+      service: "payments/initiateWithFallback",
+      operation: "registryRead",
+      tenantId,
+      severity: "warn",
+      extra: { reference: ctx.reference },
+    });
+    chain = [];
+  }
   if (chain.length === 0) chain = envDefaultChain();
   if (opts.preferredProvider) {
     const idx = chain.findIndex((e) => e.provider.id === opts.preferredProvider);
