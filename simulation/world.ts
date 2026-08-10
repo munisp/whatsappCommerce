@@ -65,6 +65,13 @@ export const SUPPLIER_WABA_ID = "waba_sim_supplier_001";
 export const SUPPLIER_ADMIN_PHONE = "2348099911111";
 export const SUPPLIER_DISPLAY_PHONE = "2347000000099";
 
+// ── Wave 9: platform conversational-onboarding number ────────────────────────
+// Prospective tenants message this number; server/_core/index.ts routes it to
+// waOnboarding BEFORE tenant resolution. Env is set at boot so the real branch
+// executes end-to-end.
+export const ONBOARDING_PHONE_NUMBER_ID = "pn_sim_onboarding_001";
+export const ONBOARDING_WA_TOKEN = "sim-onboarding-wa-token";
+
 export const CREDIT_ACCOUNT_ID = "c0a51e00-0000-4000-8000-000000000001";
 /** ₦500,000 facility, net-14 terms, extended by the supplier to TENANT_ID. */
 export const CREDIT_LIMIT_CENTS = 50_000_000;
@@ -108,6 +115,10 @@ export interface World {
   supplierText: (phone: string, text: string, opts?: { profileName?: string }) => Promise<void>;
   /** Interactive button reply on the SUPPLIER tenant's channel (PO approve/reject). */
   supplierButtonReply: (phone: string, replyId: string, title: string) => Promise<void>;
+  /** Inbound text on the PLATFORM onboarding number (wave 9 copilot intake). */
+  onboardingText: (phone: string, text: string, opts?: { profileName?: string; id?: string }) => Promise<void>;
+  /** Interactive button reply on the platform onboarding number (onb_approve:/onb_edit:). */
+  onboardingButtonReply: (phone: string, replyId: string, title: string) => Promise<void>;
   settle: (minMs?: number, maxMs?: number) => Promise<void>;
   waitFor: (fn: () => boolean | Promise<boolean>, timeoutMs?: number, label?: string) => Promise<void>;
 
@@ -201,6 +212,11 @@ export async function bootWorld(): Promise<World> {
     // payment.initiate + creditRepayLink need a Paystack secret (intercepted
     // by the fetch mock — never a real network call).
     setEnv("PAYSTACK_SECRET_KEY", "sk_sim_test");
+    // Wave 9: platform onboarding intake number (waOnboarding) + resumable
+    // upload app id (brand-studio profile photo push, intercepted by metaMock).
+    setEnv("ONBOARDING_PHONE_NUMBER_ID", ONBOARDING_PHONE_NUMBER_ID);
+    setEnv("ONBOARDING_WA_TOKEN", ONBOARDING_WA_TOKEN);
+    setEnv("WHATSAPP_APP_ID", "app_sim_001");
 
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
@@ -361,6 +377,12 @@ export async function bootWorld(): Promise<World> {
       async supplierButtonReply(phone, replyId, title) {
         await world.inbound(payloads.inbound.buttonReply(SUPPLIER_PHONE_NUMBER_ID, phone, replyId, title));
       },
+      async onboardingText(phone, text, opts = {}) {
+        await world.inbound(payloads.inbound.text(ONBOARDING_PHONE_NUMBER_ID, phone, text, { profileName: opts.profileName, id: opts.id }));
+      },
+      async onboardingButtonReply(phone, replyId, title) {
+        await world.inbound(payloads.inbound.buttonReply(ONBOARDING_PHONE_NUMBER_ID, phone, replyId, title));
+      },
       settle,
       waitFor,
 
@@ -391,6 +413,16 @@ export async function bootWorld(): Promise<World> {
             })
             .where(eq(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
         } catch { /* w8 tables not seeded yet */ }
+        // Wave 9 isolation: onboarding copilot sessions + the waOnboarding
+        // in-memory pending-edit map never leak between journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.onboardingSessions);
+        } catch { /* w9 tables not migrated yet */ }
+        try {
+          const { pendingEditProposals } = await import("../server/services/waOnboarding");
+          pendingEditProposals.clear();
+        } catch { /* waOnboarding unavailable */ }
         outbound.reset();
         llmMock.reset();
         openaiMock.reset();
@@ -593,8 +625,14 @@ async function seedWorld(world: World): Promise<void> {
   }).onConflictDoNothing();
 
   // Baseline Meta mock state.
-  const { setQuality, setTemplates } = await import("./metaMock");
+  const { setQuality, setTemplates, registerGraphObject } = await import("./metaMock");
   setQuality(PHONE_NUMBER_ID, "GREEN", "TIER_10K");
+  // Wave 9: onboarding validation (runTenantValidation) does live GET /{id}
+  // lookups for the tenant phone number + WABA — register both seeded tenants'
+  // ids as readable Graph objects.
+  for (const id of [PHONE_NUMBER_ID, WABA_ID, SUPPLIER_PHONE_NUMBER_ID, SUPPLIER_WABA_ID]) {
+    registerGraphObject(id);
+  }
   setTemplates(WABA_ID, [
     {
       id: "tpl-approved-1",

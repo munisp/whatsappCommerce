@@ -289,3 +289,59 @@ export async function creditLedgerRows(world: World, kind?: string) {
 }
 
 export { SUPPLIER_TENANT_ID, CREDIT_ACCOUNT_ID };
+
+// ── Wave 9: agentic onboarding copilot helpers ───────────────────────────────
+// Journeys drive the REAL copilot module (server/services/onboardingCopilot)
+// — the LLM is scripted by metaMock's copilot tool-call handler, so the full
+// intake → propose → approve → configure → validate → live pipeline executes.
+
+export interface OnboardingProposalRef {
+  id: string;
+  kind: string;
+  status: string;
+  summary: string;
+  payload: any;
+}
+
+/** Active (non-terminal) whatsapp onboarding session for a phone, or null. */
+export async function onboardingSessionByPhone(phone: string) {
+  const copilot = await import("../../server/services/onboardingCopilot");
+  return copilot.findActiveSessionByPhone(phone);
+}
+
+/** Load an onboarding session by id (any state, any channel). */
+export async function onboardingSessionById(sessionId: string) {
+  const copilot = await import("../../server/services/onboardingCopilot");
+  return copilot.getSession(sessionId);
+}
+
+/**
+ * Tap the onb_approve button of every pending proposal (optionally filtered
+ * by kind). Reloads the session between taps so config-phase side effects
+ * (tenant creation, goLive proposal) are observed by the caller afterwards.
+ */
+export async function approvePendingViaButtons(world: World, phone: string, kinds?: string[]): Promise<string[]> {
+  const session = await onboardingSessionByPhone(phone);
+  assert(session, "active onboarding session exists for approval taps");
+  const approved: string[] = [];
+  for (const p of session!.proposals as OnboardingProposalRef[]) {
+    if (p.status !== "pending") continue;
+    if (kinds && !kinds.includes(p.kind)) continue;
+    await world.onboardingButtonReply(phone, `onb_approve:${p.id}`, "Approve");
+    approved.push(p.id);
+  }
+  return approved;
+}
+
+/** Raw tenant row (settings included) for DB-state assertions. */
+export async function tenantRowById(world: World, tenantId: string) {
+  const schema = await import("../../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const [row] = await world.db.select().from(schema.tenants).where(eq(schema.tenants.id, tenantId)).limit(1);
+  return row ?? null;
+}
+
+/** All recorded Graph calls whose URL path ends with the given suffix. */
+export function graphCallsTo(world: World, suffix: string) {
+  return world.outbound.all().filter((c) => new URL(c.url).pathname.endsWith(suffix));
+}

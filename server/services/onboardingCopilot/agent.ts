@@ -336,14 +336,130 @@ async function handleApproving(session: OnboardingSession, text: string): Promis
     }
   }
 
-  const reply: CopilotReply = {
+  // Anything else in approving state is REVISION feedback (the edit path):
+  // re-draft the affected proposals instead of dead-ending.
+  return handleRevision(session, text);
+}
+
+// ─── Revision feedback (free-text edits while approving) ────────────────────
+
+/**
+ * Proposal kinds the feedback plausibly targets. Kinds with NO pending
+ * proposal (e.g. just rejected via the Edit button) are always re-drafted —
+ * that is the core edit-path contract: reject → free-text feedback → re-draft.
+ */
+function revisionTargetKinds(session: OnboardingSession, text: string): ProposalKind[] {
+  const lower = text.toLowerCase();
+  const kinds = new Set<ProposalKind>();
+  if (/purple|violet|lilac|blue|navy|green|red|orange|amber|pink|rose|teal|colou?r|logo|brand|tagline/.test(lower)) {
+    kinds.add("branding");
+  }
+  if (/greet|welcome|warm|friendl|menu/.test(lower)) kinds.add("waMenu");
+  if (/use case|feature|flow/.test(lower)) kinds.add("useCases");
+  if (/integration|medusa|odoo|twenty|crm/.test(lower)) kinds.add("integrations");
+  for (const k of PROPOSAL_ORDER) {
+    if (k === "goLive") continue;
+    if (!session.proposals.some((p) => p.kind === k && p.status === "pending")) kinds.add(k);
+  }
+  return Array.from(kinds);
+}
+
+/** Deterministic re-draft for one kind (LLM-down supplement / fallback). */
+async function redraftKind(
+  session: OnboardingSession,
+  kind: ProposalKind,
+  feedback: string,
+): Promise<CopilotReply | null> {
+  if (kind === "waMenu") {
+    const menu = buildTemplateWaMenu(session.intake.facts);
+    if (/greet|welcome|warm|friendl/.test(feedback.toLowerCase())) {
+      menu.greeting = `A very warm welcome to {businessName}! We're so glad you're here — how can we help today?`;
+    }
+    const p = addProposal(session, {
+      kind: "waMenu",
+      summary: "WhatsApp menu (revised): greeting + top use cases",
+      payload: menu,
+    });
+    return cardFor(p.id, session);
+  }
+  if (kind === "useCases") {
+    const ranked = buildRankedUseCases(session.intake.facts);
+    const p = addProposal(session, {
+      kind: "useCases",
+      summary: `Suggested use cases (revised): ${ranked.slice(0, 3).join(", ")}`,
+      payload: { ranked },
+    });
+    return cardFor(p.id, session);
+  }
+  if (kind === "branding") {
+    try {
+      const out = await executeCopilotTool("proposeBranding", { vibe: feedback }, session);
+      return out.replies?.[0] ?? null;
+    } catch {
+      return null; // brand studio unreachable — flow continues
+    }
+  }
+  if (kind === "integrations") {
+    const providers = buildIntegrationSuggestions(session.intake.facts);
+    const p = addProposal(session, {
+      kind: "integrations",
+      summary: `Suggested integrations (revised): ${providers.map((x) => x.provider).join(", ")}`,
+      payload: { providers },
+    });
+    return cardFor(p.id, session);
+  }
+  return null;
+}
+
+/**
+ * Free-text feedback while proposals await approval ("use purple colors and a
+ * warmer greeting"): re-draft the affected proposal kinds so the edit path
+ * never dead-ends. LLM tool loop first, deterministic re-draft for anything
+ * it missed. The checkpoint invariant is untouched: re-drafted proposals
+ * arrive PENDING and still require human approval.
+ */
+async function handleRevision(session: OnboardingSession, text: string): Promise<CopilotReply[]> {
+  const replies: CopilotReply[] = [];
+
+  const loop = await runToolLoop(
+    session,
+    `The user reviewed the proposals and requested these changes: ${text}\n` +
+      "Re-draft the affected proposal(s) by calling the matching propose* tool(s) " +
+      "again with updated content (e.g. proposeBranding with the requested vibe, " +
+      "proposeWaMenu with a revised greeting). Do NOT apply anything — a human " +
+      "approves first.",
+  );
+  replies.push(...loop.replies);
+
+  // Deterministic supplement: re-draft any affected kind the LLM missed.
+  const pendingKinds = new Set(
+    session.proposals.filter((p) => p.status === "pending").map((p) => p.kind),
+  );
+  for (const kind of revisionTargetKinds(session, text)) {
+    if (pendingKinds.has(kind)) continue;
+    const drafted = await redraftKind(session, kind, text);
+    if (drafted) replies.push(drafted);
+  }
+
+  if (replies.length === 0) {
+    const reply: CopilotReply = {
+      type: "text",
+      text:
+        "Please review the proposal cards above — reply \"approve all\", \"approve waMenu\", " +
+        "or \"reject …\", or use the Approve/Edit buttons.",
+    };
+    appendTranscript(session, "agent", reply.text);
+    return [reply];
+  }
+
+  await transition(session, "approving");
+  const intro: CopilotReply = {
     type: "text",
-    text:
-      "Please review the proposal cards above — reply \"approve all\", \"approve waMenu\", " +
-      "or \"reject …\", or use the Approve/Edit buttons.",
+    text: "I've reworked the proposal(s) with your changes — take another look and approve when ready.",
   };
-  appendTranscript(session, "agent", reply.text);
-  return [reply];
+  appendTranscript(session, "agent", intro.text);
+  for (const r of replies) appendTranscript(session, "agent", r.text);
+  return [intro, ...replies];
 }
 
 // ─── Configuration phase (post-approval) ─────────────────────────────────────
