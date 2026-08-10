@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017833604",
-      "profileName": "Sim User 3604",
+      "phone": "2348012030148",
+      "profileName": "Sim User 0148",
       "inboundId": "wamid.sim.in.text.00065",
-      "at": 1786368739968,
+      "at": 1786367554875,
       "kind": "text",
       "text": "What are your opening hours?"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00065",
-      "at": 1786368739972
+      "at": 1786367554880
     },
     {
       "dir": "out",
-      "phone": "2348017833604",
+      "phone": "2348012030148",
       "wamid": "wamid.sim.000086",
       "statuses": [
         "sent"
       ],
-      "at": 1786368739986,
+      "at": 1786367554893,
       "kind": "text",
       "body": "We are open 8am to 8pm every day."
     },
     {
       "dir": "in",
-      "phone": "2348017833604",
-      "profileName": "Sim User 3604",
+      "phone": "2348012030148",
+      "profileName": "Sim User 0148",
       "inboundId": "wamid.sim.in.text.00066",
-      "at": 1786368740513,
+      "at": 1786367555420,
       "kind": "text",
       "text": "Do you deliver to Abuja?"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00066",
-      "at": 1786368740517
+      "at": 1786367555425
     },
     {
       "dir": "out",
-      "phone": "2348017833604",
+      "phone": "2348012030148",
       "wamid": "wamid.sim.000087",
       "statuses": [
         "sent"
       ],
-      "at": 1786368740528,
+      "at": 1786367555438,
       "kind": "text",
       "body": "Yes — intercity delivery to Abuja takes 2 days."
     },
     {
       "dir": "in",
-      "phone": "2348017833604",
-      "profileName": "Sim User 3604",
+      "phone": "2348012030148",
+      "profileName": "Sim User 0148",
       "inboundId": "wamid.sim.in.text.00067",
-      "at": 1786368741061,
+      "at": 1786367555967,
       "kind": "text",
       "text": "tell me something unrelated entirely"
     },
@@ -70,16 +70,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00067",
-      "at": 1786368741067
+      "at": 1786367555972
     },
     {
       "dir": "out",
-      "phone": "2348017833604",
+      "phone": "2348012030148",
       "wamid": "wamid.sim.000088",
       "statuses": [
         "sent"
       ],
-      "at": 1786368741088,
+      "at": 1786367555989,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }
