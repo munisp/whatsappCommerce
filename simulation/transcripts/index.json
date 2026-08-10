@@ -1,7 +1,143 @@
 {
-  "generatedAt": "2026-08-10T11:28:05.430Z",
+  "generatedAt": "2026-08-10T12:57:14.759Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
+    {
+      "id": "J01",
+      "title": "consent opt-in",
+      "feature": "NDPR consent gate",
+      "pass": true,
+      "file": "J01.json",
+      "messageCount": 18
+    },
+    {
+      "id": "J02",
+      "title": "interactive menu",
+      "feature": "waMenu interactive rendering",
+      "pass": true,
+      "file": "J02.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J03",
+      "title": "NLP order + payment link",
+      "feature": "nlpCart → checkout → paystack link",
+      "pass": true,
+      "file": "J03.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J04",
+      "title": "menu-driven shop",
+      "feature": "numeric menu selection → shop flow",
+      "pass": true,
+      "file": "J04.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J05",
+      "title": "delivery + native location",
+      "feature": "location_request → coords + fee",
+      "pass": true,
+      "file": "J05.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J06",
+      "title": "promo code discount",
+      "feature": "promos → discounted payment link",
+      "pass": true,
+      "file": "J06.json",
+      "messageCount": 26
+    },
+    {
+      "id": "J07",
+      "title": "payment confirm + receipt",
+      "feature": "paymentConfirm → receipt push",
+      "pass": true,
+      "file": "J07.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J08",
+      "title": "receipt screenshot verify",
+      "feature": "receiptVerification ±₦100",
+      "pass": true,
+      "file": "J08.json",
+      "messageCount": 41
+    },
+    {
+      "id": "J09",
+      "title": "order action card",
+      "feature": "track/pay/cancel buttons",
+      "pass": true,
+      "file": "J09.json",
+      "messageCount": 25
+    },
+    {
+      "id": "J10",
+      "title": "shipment PIN + reaction",
+      "feature": "createShipment → PIN push → reaction status",
+      "pass": true,
+      "file": "J10.json",
+      "messageCount": 18
+    },
+    {
+      "id": "J11",
+      "title": "tracking token",
+      "feature": "HMAC tracking link + PII scrub",
+      "pass": true,
+      "file": "J11.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J12",
+      "title": "smart reorder",
+      "feature": "reorder → repriced cart",
+      "pass": true,
+      "file": "J12.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J13",
+      "title": "abandoned cart recovery",
+      "feature": "cartRecovery cron (1×/24h, consent-gated)",
+      "pass": true,
+      "file": "J13.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J14",
+      "title": "FAQ direct answer",
+      "feature": "faq KB (no LLM)",
+      "pass": true,
+      "file": "J14.json",
+      "messageCount": 9
+    },
+    {
+      "id": "J15",
+      "title": "voice note ordering",
+      "feature": "transcribe → NLP pipeline; fail-soft",
+      "pass": true,
+      "file": "J15.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J16",
+      "title": "multilingual (fr, sticky)",
+      "feature": "i18n detect + sticky locale",
+      "pass": true,
+      "file": "J16.json",
+      "messageCount": 12
+    },
+    {
+      "id": "J17",
+      "title": "visual product search",
+      "feature": "vision match → product card",
+      "pass": true,
+      "file": "J17.json",
+      "messageCount": 6
+    },
     {
       "id": "J18",
       "title": "stock guard (race + OOS)",
@@ -9,6 +145,230 @@
       "pass": true,
       "file": "J18.json",
       "messageCount": 26
+    },
+    {
+      "id": "J19",
+      "title": "restock waitlist notify",
+      "feature": "0→5 restock fan-out",
+      "pass": true,
+      "file": "J19.json",
+      "messageCount": 13
+    },
+    {
+      "id": "J20",
+      "title": "broadcast campaign",
+      "feature": "consent gate + window routing + quality block",
+      "pass": true,
+      "file": "J20.json",
+      "messageCount": 31
+    },
+    {
+      "id": "J21",
+      "title": "template sync + create",
+      "feature": "waTemplates statusSync/create/picker",
+      "pass": true,
+      "file": "J21.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J22",
+      "title": "CTWA campaign keyword",
+      "feature": "ctwa attribution + action",
+      "pass": true,
+      "file": "J22.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J23",
+      "title": "window expiry nudge",
+      "feature": "sessionWindow expiry cron (dedupe)",
+      "pass": true,
+      "file": "J23.json",
+      "messageCount": 24
+    },
+    {
+      "id": "J24",
+      "title": "delivery status pipeline",
+      "feature": "status callbacks + retry/dead-letter cron",
+      "pass": true,
+      "file": "J24.json",
+      "messageCount": 12
+    },
+    {
+      "id": "J25",
+      "title": "read receipts",
+      "feature": "markMessageRead POST",
+      "pass": true,
+      "file": "J25.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J26",
+      "title": "webhook dedupe",
+      "feature": "wamid dedupe ledger",
+      "pass": true,
+      "file": "J26.json",
+      "messageCount": 7
+    },
+    {
+      "id": "J27",
+      "title": "dispute intake",
+      "feature": "chatDispute + admin alert",
+      "pass": true,
+      "file": "J27.json",
+      "messageCount": 18
+    },
+    {
+      "id": "J28",
+      "title": "USSD session",
+      "feature": "/ussd CON/END engine",
+      "pass": true,
+      "file": "J28.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J29",
+      "title": "Meta catalog sync",
+      "feature": "/items upsert + delete",
+      "pass": true,
+      "file": "J29.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J30",
+      "title": "contact provisioning",
+      "feature": "waContacts auto-create",
+      "pass": true,
+      "file": "J30.json",
+      "messageCount": 9
+    },
+    {
+      "id": "J31",
+      "title": "procurement menu browse",
+      "feature": "waMenu procurement → supplier directory → wholesale catalog",
+      "pass": true,
+      "file": "J31.json",
+      "messageCount": 15
+    },
+    {
+      "id": "J32",
+      "title": "PO build + submit",
+      "feature": "poFlow chat → submitted PO + supplier approval card",
+      "pass": true,
+      "file": "J32.json",
+      "messageCount": 31
+    },
+    {
+      "id": "J33",
+      "title": "approve → credit draw",
+      "feature": "po_approve → drawOnCredit → invoiced + ledger",
+      "pass": true,
+      "file": "J33.json",
+      "messageCount": 35
+    },
+    {
+      "id": "J34",
+      "title": "overdraw refusal",
+      "feature": "drawOnCredit over_limit → buyer fallback, no ledger write",
+      "pass": true,
+      "file": "J34.json",
+      "messageCount": 35
+    },
+    {
+      "id": "J35",
+      "title": "pay-now PO",
+      "feature": "po_payment link → webhook settle → replay idempotent",
+      "pass": true,
+      "file": "J35.json",
+      "messageCount": 35
+    },
+    {
+      "id": "J36",
+      "title": "partial credit repayment",
+      "feature": "creditRepayLink → applyRepayment, replay dedupe",
+      "pass": true,
+      "file": "J36.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J37",
+      "title": "dunning reminders + late fee",
+      "feature": "runDunningCheck milestones, idempotent markers",
+      "pass": true,
+      "file": "J37.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J38",
+      "title": "default freeze",
+      "feature": "dunning +7d → account frozen, new draws refused",
+      "pass": true,
+      "file": "J38.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J39",
+      "title": "whatsapp full onboarding",
+      "feature": "copilot intake → proposals → approve → tenant live",
+      "pass": true,
+      "file": "J39.json",
+      "messageCount": 30
+    },
+    {
+      "id": "J40",
+      "title": "edit path re-draft",
+      "feature": "onb_edit → feedback → re-drafted proposals applied",
+      "pass": true,
+      "file": "J40.json",
+      "messageCount": 40
+    },
+    {
+      "id": "J41",
+      "title": "checkpoint enforcement",
+      "feature": "apply/goLive without approval refused, no mutation",
+      "pass": true,
+      "file": "J41.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J42",
+      "title": "validation-repair loop",
+      "feature": "failed checks → targeted repair → pass; cap → failed",
+      "pass": true,
+      "file": "J42.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J43",
+      "title": "idempotency resume restart",
+      "feature": "redelivery no-op, mid-flow resume, restart supersedes",
+      "pass": true,
+      "file": "J43.json",
+      "messageCount": 13
+    },
+    {
+      "id": "J44",
+      "title": "admin channel session",
+      "feature": "portal API: intake → approve → validate → live",
+      "pass": true,
+      "file": "J44.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J45",
+      "title": "secrets transparent round-trip",
+      "feature": "v1: envelope at rest, decrypted on the wire, legacy passthrough",
+      "pass": true,
+      "file": "J45.json",
+      "messageCount": 9
+    },
+    {
+      "id": "J46",
+      "title": "observability capture",
+      "feature": "outbox DLQ → critical capture, redaction, error webhook sink",
+      "pass": true,
+      "file": "J46.json",
+      "messageCount": 0
     }
   ]
 }

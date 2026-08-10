@@ -8,7 +8,7 @@ edges (Meta Cloud API, LLM, Whisper, Paystack/Flutterwave, Keycloak) mocked.
 
 ```bash
 npm install --legacy-peer-deps --ignore-scripts
-npm run simulate                 # all 44 journeys
+npm run simulate                 # all 46 journeys
 npx tsx simulation/runner.ts j03 j18   # subset by id
 npm test                         # vitest: unit tests + simulation wrapper
 ```
@@ -74,6 +74,25 @@ onboarding (intake → proposals → onb_approve → tenant live), the
 edit/re-draft path, checkpoint enforcement, the validation-repair loop
 (incl. the 3-round failure cap), webhook-redelivery idempotency + resume +
 restart, and the admin-channel (portal) session.
+
+Wave 10 (J45–J46) proves the hardening wave. The world sets a deterministic
+`SECRETS_MASTER_KEY` (base64 32 bytes) so the real AES-256-GCM envelope path
+runs. J45 drives secrets at rest end-to-end: `tenant.updateWhatsAppConfig`
+stores `settings.whatsapp.accessToken` as a `v1:` envelope with no plaintext;
+a real send then puts the DECRYPTED token on the wire (the fetch mock records
+the raw bearer token in a test-only side channel — recorded headers stay
+redacted); a hand-written legacy plaintext row still sends as-is
+(`decryptSecret` passthrough) and is re-encrypted on the next write; the
+integrations path (`setConfig` → `resolveIntegrationConfig`) round-trips the
+Odoo apiKey the same way. J46 drives observability: the real
+`/api/scheduled/integration-outbox-dispatch` cron fails an Odoo delivery
+non-retriably (400 → 'failed', 'error' capture) then retriably (502 × 5 →
+DLQ 'dead', 'critical' capture) — asserted via both the structured stdout
+JSON line and the `infra.systemRecentErrors` admin procedure; planted
+token-ish `extra` keys are redacted; `ERROR_WEBHOOK_URL` fire-and-forget POSTs
+reach a scripted mock endpoint sanitized, and a webhook-sink outage is
+swallowed without disturbing the outbox sweep. Fault injection uses the new
+`meta.hostStatus` per-hostname status scripting in the fetch mock.
 
 ## Prod bugs found by this suite (fixed surgically)
 

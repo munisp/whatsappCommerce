@@ -1,0 +1,8 @@
+{
+  "id": "J46",
+  "title": "observability capture",
+  "feature": "outbox DLQ → critical capture, redaction, error webhook sink",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

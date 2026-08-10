@@ -1,0 +1,132 @@
+{
+  "id": "J45",
+  "title": "secrets transparent round-trip",
+  "feature": "v1: envelope at rest, decrypted on the wire, legacy passthrough",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348013166269",
+      "profileName": "Sim User 6269",
+      "inboundId": "wamid.sim.in.text.00176",
+      "at": 1786366618722,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00176",
+      "at": 1786366618726
+    },
+    {
+      "dir": "out",
+      "phone": "2348013166269",
+      "wamid": "wamid.sim.000296",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786366618748,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348014390888",
+      "profileName": "Sim User 0888",
+      "inboundId": "wamid.sim.in.text.00177",
+      "at": 1786366619276,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00177",
+      "at": 1786366619280
+    },
+    {
+      "dir": "out",
+      "phone": "2348014390888",
+      "wamid": "wamid.sim.000297",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786366619306,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348014509418",
+      "profileName": "Sim User 9418",
+      "inboundId": "wamid.sim.in.text.00178",
+      "at": 1786366619849,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00178",
+      "at": 1786366619855
+    },
+    {
+      "dir": "out",
+      "phone": "2348014509418",
+      "wamid": "wamid.sim.000298",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786366619882,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    }
+  ]
+}
