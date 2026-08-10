@@ -29,6 +29,7 @@ import {
   type WaMenuConfig,
 } from "../../shared/waMenu";
 import { updateTenantSettings } from "../services/onboarding";
+import { encryptSecret } from "../services/crypto/secrets";
 import { previewWaMenuForTenant } from "../services/waMenuPreview";
 import { parseFaqSettings } from "../services/faq";
 
@@ -412,7 +413,8 @@ export const tenantConfigRouter = router({
           catalogId: input.catalogId,
           enabled: input.enabled,
           // Keep the stored token when the caller doesn't rotate it.
-          ...(input.accessToken ? { accessToken: input.accessToken } : {}),
+          // Encrypt at rest (v1: envelope) — metaCatalog reads decrypt.
+          ...(input.accessToken ? { accessToken: encryptSecret(input.accessToken) } : {}),
         };
       });
       return { ok: true };

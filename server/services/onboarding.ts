@@ -20,6 +20,7 @@ import {
   type IntegrationProvider,
   type TenantSettings,
 } from "../../shared/tenantConfig";
+import { decryptSecret } from "./crypto/secrets";
 
 export const ONBOARDING_STATUSES = ["draft", "configuring", "validating", "live", "failed"] as const;
 export type OnboardingStatus = (typeof ONBOARDING_STATUSES)[number];
@@ -267,10 +268,16 @@ export async function runTenantValidation(
   const settings = (tenant.settings ?? {}) as TenantSettings;
   const checks: ValidationCheckResult[] = [];
 
+  // settings.whatsapp.accessToken is stored encrypted (v1:) since w10 —
+  // decryptSecret passes legacy plaintext through unchanged.
+  const waAccessToken = settings.whatsapp?.accessToken
+    ? decryptSecret(settings.whatsapp.accessToken)
+    : null;
+
   checks.push(
     await checkWhatsAppCredentials(
       tenant.whatsappPhoneNumberId,
-      settings.whatsapp?.accessToken ?? null,
+      waAccessToken,
       fetchFn,
     ),
   );
@@ -283,14 +290,19 @@ export async function runTenantValidation(
     (settings as any)?.whatsapp?.wabaId ??
     null;
   if (wabaId) {
-    checks.push(await checkWabaAccess(wabaId, settings.whatsapp?.accessToken ?? null, fetchFn));
+    checks.push(await checkWabaAccess(wabaId, waAccessToken, fetchFn));
   }
 
   const integrations = settings.integrations ?? {};
   for (const provider of INTEGRATION_PROVIDERS) {
     const creds = integrations[provider];
     if (creds?.enabled) {
-      checks.push(await checkIntegrationConnection(provider, creds, fetchFn));
+      // apiKey is stored encrypted (v1:) since w10 — decrypt for the live probe.
+      const decrypted = {
+        ...creds,
+        ...(creds.apiKey ? { apiKey: decryptSecret(creds.apiKey) } : {}),
+      };
+      checks.push(await checkIntegrationConnection(provider, decrypted, fetchFn));
     }
   }
 

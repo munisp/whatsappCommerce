@@ -17,9 +17,19 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
-import { customers, integrationEvents, orders, products, tenants } from "../../drizzle/schema";
+import {
+  customers,
+  integrationEvents,
+  odooIntegrations,
+  orders,
+  paymentGatewayConfigs,
+  products,
+  tenantIntegrations,
+  tenants,
+  twentyIntegrations,
+} from "../../drizzle/schema";
 import {
   createIntegrationClient,
   IntegrationError,
@@ -30,6 +40,7 @@ import {
   type IntegrationSystem,
 } from "../services/integrations/clients";
 import { countEventsByStatus, enqueueIntegrationEvent } from "../services/integrations/outbox";
+import { decryptSecret, encryptSecret, isEncrypted } from "../services/crypto/secrets";
 
 const systemSchema = z.enum(["medusa", "twenty", "odoo"]);
 const entitySchema = z.enum(["order", "customer", "product"]);
@@ -51,12 +62,17 @@ interface MaskedConfig {
 }
 
 function maskConfig(cfg: IntegrationConfig | null | undefined): MaskedConfig {
+  // Secrets are stored encrypted (v1:) since w10 — decrypt before masking so
+  // the last-4 hint reflects the real secret, not ciphertext. Legacy
+  // plaintext passes through decryptSecret unchanged.
   const { url, apiKey, webhookSecret, enabled, ...extras } = (cfg ?? {}) as IntegrationConfig;
+  const plainApiKey = apiKey ? decryptSecret(apiKey) : apiKey;
+  const plainWebhookSecret = webhookSecret ? decryptSecret(webhookSecret) : webhookSecret;
   return {
     url: url ?? null,
     enabled: enabled === true,
-    apiKey: maskSecret(apiKey),
-    webhookSecret: maskSecret(webhookSecret),
+    apiKey: maskSecret(plainApiKey),
+    webhookSecret: maskSecret(plainWebhookSecret),
     extras,
   };
 }
@@ -115,8 +131,10 @@ export const integrationsRouter = router({
         ...current,
         ...(input.extras ?? {}),
         ...(input.url !== undefined ? { url: input.url } : {}),
-        ...(input.apiKey !== undefined ? { apiKey: input.apiKey } : {}),
-        ...(input.webhookSecret !== undefined ? { webhookSecret: input.webhookSecret } : {}),
+        // Secrets are encrypted at rest (v1: envelope); reads decrypt
+        // transparently via decryptSecret (legacy plaintext passthrough).
+        ...(input.apiKey !== undefined ? { apiKey: encryptSecret(input.apiKey) } : {}),
+        ...(input.webhookSecret !== undefined ? { webhookSecret: encryptSecret(input.webhookSecret) } : {}),
         ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
       };
       if (next.enabled && !next.url) {
@@ -141,7 +159,14 @@ export const integrationsRouter = router({
       if (!cfg?.url) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: `${input.system} is not configured` });
       }
-      const client = createIntegrationClient(input.system, { ...cfg, url: cfg.url.replace(/\/+$/, "") });
+      // Decrypt stored v1: secrets before constructing the live client
+      // (decryptSecret passes legacy plaintext through unchanged).
+      const client = createIntegrationClient(input.system, {
+        ...cfg,
+        ...(cfg.apiKey ? { apiKey: decryptSecret(cfg.apiKey) } : {}),
+        ...(cfg.webhookSecret ? { webhookSecret: decryptSecret(cfg.webhookSecret) } : {}),
+        url: cfg.url.replace(/\/+$/, ""),
+      });
       try {
         const detail =
           client instanceof MedusaClient || client instanceof TwentyClient
@@ -285,4 +310,133 @@ export const integrationsRouter = router({
         .offset(input.offset);
       return { events: rows, limit: input.limit, offset: input.offset };
     }),
+
+  /**
+   * Platform-admin secret sweep: re-encrypts every tenant secret still stored
+   * as legacy plaintext with the v1: AES-256-GCM envelope. Idempotent —
+   * already-encrypted values are skipped. Returns per-field counts. Run once
+   * after deploying envelope encryption (w10) to migrate existing rows.
+   */
+  adminReencryptSecrets: adminProcedure.mutation(async () => {
+    const db = await requireDb();
+    const counts = {
+      tenantWhatsappAccessTokens: 0,
+      tenantMetaCatalogAccessTokens: 0,
+      tenantIntegrationApiKeys: 0,
+      tenantIntegrationWebhookSecrets: 0,
+      twentyIntegrationApiKeys: 0,
+      odooIntegrationApiKeys: 0,
+      medusaIntegrationApiKeys: 0,
+      paymentGatewaySecretKeys: 0,
+      paymentGatewayWebhookSecrets: 0,
+    };
+    /** Re-encrypt one field value in place; returns true when it changed. */
+    const sweep = (obj: Record<string, unknown>, field: string): boolean => {
+      const v = obj[field];
+      if (typeof v !== "string" || !v || isEncrypted(v)) return false;
+      obj[field] = encryptSecret(v);
+      return true;
+    };
+
+    // ── tenants.settings (JSONB) ─────────────────────────────────────────
+    const tenantRows = await db.select({ id: tenants.id, settings: tenants.settings }).from(tenants);
+    for (const row of tenantRows) {
+      const settings = { ...((row.settings ?? {}) as Record<string, any>) };
+      let changed = false;
+      const wa = { ...((settings.whatsapp ?? {}) as Record<string, unknown>) };
+      if (sweep(wa, "accessToken")) {
+        settings.whatsapp = wa;
+        counts.tenantWhatsappAccessTokens++;
+        changed = true;
+      }
+      const metaCatalog = { ...((settings.metaCatalog ?? {}) as Record<string, unknown>) };
+      if (sweep(metaCatalog, "accessToken")) {
+        settings.metaCatalog = metaCatalog;
+        counts.tenantMetaCatalogAccessTokens++;
+        changed = true;
+      }
+      const integrations = { ...((settings.integrations ?? {}) as Record<string, any>) };
+      let integrationsChanged = false;
+      for (const system of Object.keys(integrations)) {
+        const cfg = { ...((integrations[system] ?? {}) as Record<string, unknown>) };
+        let cfgChanged = false;
+        if (sweep(cfg, "apiKey")) {
+          counts.tenantIntegrationApiKeys++;
+          cfgChanged = true;
+        }
+        if (sweep(cfg, "webhookSecret")) {
+          counts.tenantIntegrationWebhookSecrets++;
+          cfgChanged = true;
+        }
+        if (cfgChanged) {
+          integrations[system] = cfg;
+          integrationsChanged = true;
+        }
+      }
+      if (integrationsChanged) {
+        settings.integrations = integrations;
+        changed = true;
+      }
+      if (changed) {
+        await db.update(tenants).set({ settings, updatedAt: new Date() }).where(eq(tenants.id, row.id));
+      }
+    }
+
+    // ── twenty_integrations.apiKey ───────────────────────────────────────
+    for (const row of await db.select({ id: twentyIntegrations.id, apiKey: twentyIntegrations.apiKey }).from(twentyIntegrations)) {
+      if (row.apiKey && !isEncrypted(row.apiKey)) {
+        await db.update(twentyIntegrations)
+          .set({ apiKey: encryptSecret(row.apiKey), updatedAt: new Date() })
+          .where(eq(twentyIntegrations.id, row.id));
+        counts.twentyIntegrationApiKeys++;
+      }
+    }
+
+    // ── odoo_integrations.apiKey ─────────────────────────────────────────
+    for (const row of await db.select({ id: odooIntegrations.id, apiKey: odooIntegrations.apiKey }).from(odooIntegrations)) {
+      if (row.apiKey && !isEncrypted(row.apiKey)) {
+        await db.update(odooIntegrations)
+          .set({ apiKey: encryptSecret(row.apiKey), updatedAt: new Date() })
+          .where(eq(odooIntegrations.id, row.id));
+        counts.odooIntegrationApiKeys++;
+      }
+    }
+
+    // ── tenant_integrations.apiKey (Medusa admin keys) ───────────────────
+    for (const row of await db.select({ id: tenantIntegrations.id, apiKey: tenantIntegrations.apiKey }).from(tenantIntegrations)) {
+      if (row.apiKey && !isEncrypted(row.apiKey)) {
+        await db.update(tenantIntegrations)
+          .set({ apiKey: encryptSecret(row.apiKey), updatedAt: new Date() })
+          .where(eq(tenantIntegrations.id, row.id));
+        counts.medusaIntegrationApiKeys++;
+      }
+    }
+
+    // ── payment_gateway_configs.secretKey / webhookSecret ────────────────
+    for (const row of await db
+      .select({
+        id: paymentGatewayConfigs.id,
+        secretKey: paymentGatewayConfigs.secretKey,
+        webhookSecret: paymentGatewayConfigs.webhookSecret,
+      })
+      .from(paymentGatewayConfigs)) {
+      const patch: Record<string, unknown> = {};
+      if (row.secretKey && !isEncrypted(row.secretKey)) {
+        patch.secretKey = encryptSecret(row.secretKey);
+        counts.paymentGatewaySecretKeys++;
+      }
+      if (row.webhookSecret && !isEncrypted(row.webhookSecret)) {
+        patch.webhookSecret = encryptSecret(row.webhookSecret);
+        counts.paymentGatewayWebhookSecrets++;
+      }
+      if (Object.keys(patch).length > 0) {
+        patch.updatedAt = new Date();
+        await db.update(paymentGatewayConfigs).set(patch).where(eq(paymentGatewayConfigs.id, row.id));
+      }
+    }
+
+    // Never log secret values — counts only.
+    console.info("[adminReencryptSecrets] sweep complete:", JSON.stringify(counts));
+    return { ok: true as const, reencrypted: counts };
+  }),
 });

@@ -25,6 +25,7 @@
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../db";
 import { products, tenants } from "../../drizzle/schema";
+import { decryptSecret } from "./crypto/secrets";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -59,7 +60,8 @@ export async function getMetaCatalogConfig(db: Db, tenantId: string): Promise<Me
     .where(eq(tenants.id, tenantId)).limit(1);
   const cfg = ((tenant?.settings as any)?.metaCatalog ?? {}) as Partial<MetaCatalogConfig>;
   if (cfg.enabled !== true || !cfg.catalogId || !cfg.accessToken) return null;
-  return { catalogId: cfg.catalogId, accessToken: cfg.accessToken, enabled: true };
+  // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
+  return { catalogId: cfg.catalogId, accessToken: decryptSecret(cfg.accessToken), enabled: true };
 }
 
 /** Map a products row to a Meta catalog item (pure — unit-tested). */

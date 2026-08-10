@@ -6,6 +6,7 @@ import { paymentGatewayConfigs, paymentTransactions, orders } from "../../drizzl
 import { eq, and, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
+import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 
 // ─── Provider adapters ────────────────────────────────────────────────────────
 
@@ -124,16 +125,21 @@ export const paymentGatewayRouter = router({
         }
       }
       const id = randomUUID();
+      // secretKey/webhookSecret are secrets — encrypt at rest (v1: envelope);
+      // all reads decrypt transparently via decryptSecret (legacy plaintext
+      // passthrough).
+      const encSecretKey = input.secretKey ? encryptSecret(input.secretKey) : input.secretKey;
+      const encWebhookSecret = input.webhookSecret ? encryptSecret(input.webhookSecret) : input.webhookSecret;
       await db.insert(paymentGatewayConfigs).values({
         id, tenantId: input.tenantId, provider: input.provider,
-        publicKey: input.publicKey, secretKey: input.secretKey,
-        webhookSecret: input.webhookSecret, callbackUrl: input.callbackUrl,
+        publicKey: input.publicKey, secretKey: encSecretKey,
+        webhookSecret: encWebhookSecret, callbackUrl: input.callbackUrl,
         isActive: input.isActive,
       }).onConflictDoUpdate({
         target: [paymentGatewayConfigs.tenantId, paymentGatewayConfigs.provider],
         set: {
-          publicKey: input.publicKey, secretKey: input.secretKey,
-          webhookSecret: input.webhookSecret, callbackUrl: input.callbackUrl,
+          publicKey: input.publicKey, secretKey: encSecretKey,
+          webhookSecret: encWebhookSecret, callbackUrl: input.callbackUrl,
           isActive: input.isActive, updatedAt: new Date(),
         },
       });
@@ -202,16 +208,19 @@ export const paymentGatewayRouter = router({
         throw new Error(`Payment gateway '${input.provider}' is not configured for this tenant. Please configure it in Settings > Payment Gateways.`);
       } else {
         try {
+          // Stored encrypted (v1:) since w10 — decryptSecret passes legacy
+          // plaintext through unchanged.
+          const gwSecretKey = config?.secretKey ? decryptSecret(config.secretKey) : config?.secretKey;
           if (input.provider === "paystack") {
             const r = await paystackInitiate({
-              secretKey: config!.secretKey!, amount, currency,
+              secretKey: gwSecretKey!, amount, currency,
               email: input.customerEmail, orderId: input.orderId,
               callbackUrl, ref,
             });
             paymentUrl = r.paymentUrl; providerRef = r.providerRef;
           } else if (input.provider === "flutterwave") {
             const r = await flutterwaveInitiate({
-              secretKey: config!.secretKey!, amount, currency,
+              secretKey: gwSecretKey!, amount, currency,
               email: input.customerEmail, name: input.customerName,
               phone: input.customerPhone, orderId: input.orderId,
               callbackUrl, ref,
@@ -296,13 +305,15 @@ export const paymentGatewayRouter = router({
         (tx.provider === "paystack" || tx.provider === "flutterwave") && !!config?.secretKey;
 
       try {
-        if (tx.provider === "paystack" && config?.secretKey) {
-          const r = await paystackVerify(config.secretKey, input.providerRef ?? tx.providerRef ?? "");
+        // Stored encrypted (v1:) since w10 — decrypt before provider calls.
+        const gwSecretKey = config?.secretKey ? decryptSecret(config.secretKey) : null;
+        if (tx.provider === "paystack" && gwSecretKey) {
+          const r = await paystackVerify(gwSecretKey, input.providerRef ?? tx.providerRef ?? "");
           verified = r.status === "success";
           verifyResult = { amount: r.amount, currency: r.currency };
           paidAt = verified ? new Date(r.paidAt) : null;
-        } else if (tx.provider === "flutterwave" && config?.secretKey) {
-          const r = await flutterwaveVerify(config.secretKey, tx.providerTxId ?? "");
+        } else if (tx.provider === "flutterwave" && gwSecretKey) {
+          const r = await flutterwaveVerify(gwSecretKey, tx.providerTxId ?? "");
           verified = r.status === "successful";
           verifyResult = { amount: r.amount, currency: r.currency };
           paidAt = verified ? new Date(r.paidAt) : null;
@@ -388,7 +399,8 @@ export const paymentGatewayRouter = router({
           eq(paymentGatewayConfigs.provider, input.provider),
         ));
       if (!config?.webhookSecret) return { valid: false };
-      const hash = crypto.createHmac("sha512", config.webhookSecret)
+      // Stored encrypted (v1:) since w10 — decrypt before HMAC verification.
+      const hash = crypto.createHmac("sha512", decryptSecret(config.webhookSecret))
         .update(input.rawBody).digest("hex");
       const a = Buffer.from(hash, "utf8");
       const b = Buffer.from(input.signature, "utf8");

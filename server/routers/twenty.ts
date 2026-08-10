@@ -15,6 +15,7 @@ import {
   syncTenantIntegrationPointer,
   type TwentyIntegrationConfig,
 } from "../services/integrationSync";
+import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 
 const DEMO_TENANT = "demo-tenant-001";
 
@@ -101,8 +102,10 @@ export const twentyRouter = router({
       .where(eq(twentyIntegrations.tenantId, tenantId))
       .limit(1);
     if (!rows[0]) return null;
-    // Mask API key
-    return { ...rows[0], apiKey: rows[0].apiKey ? "••••••••" + rows[0].apiKey.slice(-4) : "" };
+    // Mask API key (decrypt the v1: envelope first so the last-4 hint is
+    // meaningful; decryptSecret passes legacy plaintext through unchanged).
+    const plainKey = rows[0].apiKey ? decryptSecret(rows[0].apiKey) : "";
+    return { ...rows[0], apiKey: plainKey ? "••••••••" + plainKey.slice(-4) : "" };
   }),
 
   saveConfig: protectedProcedure
@@ -124,15 +127,18 @@ export const twentyRouter = router({
         .where(eq(twentyIntegrations.tenantId, tenantId))
         .limit(1);
       let id: string;
+      // API key is a secret — encrypt at rest (v1: envelope); reads decrypt
+      // transparently via decryptSecret (legacy plaintext passthrough).
+      const stored = { ...input, apiKey: encryptSecret(input.apiKey) };
       if (existing[0]) {
         await db
           .update(twentyIntegrations)
-          .set({ ...input, status: "disconnected" })
+          .set({ ...stored, status: "disconnected" })
           .where(eq(twentyIntegrations.tenantId, tenantId));
         id = existing[0].id;
       } else {
         id = nanoid();
-        await db.insert(twentyIntegrations).values({ id, tenantId, ...input, status: "disconnected" });
+        await db.insert(twentyIntegrations).values({ id, tenantId, ...stored, status: "disconnected" });
       }
       // Keep the tenant_integrations pointer row in step so the real sync
       // paths (integrationSync outbound) resolve this tenant's credentials.
@@ -192,7 +198,8 @@ export const twentyRouter = router({
       assertTenantAccess(ctx, tenantId);
       const config = {
         baseUrl: input.apiUrl,
-        apiKey: input.apiKey,
+        // Encrypt at rest (v1: envelope) — integrationSync decrypts on read.
+        apiKey: encryptSecret(input.apiKey),
         workspaceId: input.workspaceId || null,
       };
       const existing = await db

@@ -7,6 +7,7 @@ import { eq, and, sql, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import { ENV } from "../_core/env";
+import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 
 // Keycloak integration router — stores realm/client config and tests connectivity
 // We store Keycloak config in paymentGatewayConfigs using provider = "keycloak"
@@ -39,14 +40,18 @@ export const keycloakRouter = router({
         id: randomUUID(),
         tenantId: input.tenantId,
         provider: "manual",  // store under "manual" slot with keycloak marker in secretKey
-        secretKey: `keycloak::${configJson}`,
-        webhookSecret: input.clientSecret,
+        // The keycloak:: JSON blob contains admin credentials and the
+        // clientSecret — both are secrets, encrypt at rest (v1: envelope).
+        // Reads decrypt via decryptSecret before the keycloak:: prefix check;
+        // legacy plaintext rows pass through unchanged.
+        secretKey: encryptSecret(`keycloak::${configJson}`),
+        webhookSecret: input.clientSecret ? encryptSecret(input.clientSecret) : input.clientSecret,
         isActive: true,
       }).onConflictDoUpdate({
         target: [paymentGatewayConfigs.tenantId, paymentGatewayConfigs.provider],
         set: {
-          secretKey: `keycloak::${configJson}`,
-          webhookSecret: input.clientSecret,
+          secretKey: encryptSecret(`keycloak::${configJson}`),
+          webhookSecret: input.clientSecret ? encryptSecret(input.clientSecret) : input.clientSecret,
           isActive: true,
           updatedAt: new Date(),
         },
@@ -66,7 +71,7 @@ export const keycloakRouter = router({
         .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, "manual")))
         .limit(1);
       if (!rows[0]) return null;
-      const raw = rows[0].secretKey ?? "";
+      const raw = rows[0].secretKey ? decryptSecret(rows[0].secretKey) : "";
       if (!raw.startsWith("keycloak::")) return null;
       const cfg = JSON.parse(raw.slice("keycloak::".length)) as Record<string, unknown>;
       return {
@@ -145,7 +150,7 @@ export const keycloakRouter = router({
         .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, "manual")))
         .limit(1);
       if (!rows[0]) throw new Error("Keycloak not configured for this tenant");
-      const raw = rows[0].secretKey ?? "";
+      const raw = rows[0].secretKey ? decryptSecret(rows[0].secretKey) : "";
       if (!raw.startsWith("keycloak::")) throw new Error("Keycloak config not found");
       const cfg = JSON.parse(raw.slice("keycloak::".length)) as Record<string, unknown>;
       if (!cfg.enableSso) throw new Error("SSO is disabled for this tenant");
@@ -189,7 +194,7 @@ export const keycloakRouter = router({
         )
         .limit(1);
       if (!rows[0]) throw new Error("Keycloak not configured for this tenant");
-      const raw = rows[0].secretKey ?? "";
+      const raw = rows[0].secretKey ? decryptSecret(rows[0].secretKey) : "";
       if (!raw.startsWith("keycloak::")) throw new Error("Keycloak config not found");
       const cfg = JSON.parse(raw.slice("keycloak::".length)) as Record<string, unknown>;
       if (!cfg.enableSso) throw new Error("SSO is disabled for this tenant");
@@ -197,7 +202,7 @@ export const keycloakRouter = router({
       const serverUrl = (cfg.serverUrl as string).replace(/\/$/, "");
       const realm = cfg.realm as string;
       const clientId = cfg.clientId as string;
-      const clientSecret = rows[0].webhookSecret ?? undefined;
+      const clientSecret = rows[0].webhookSecret ? decryptSecret(rows[0].webhookSecret) : undefined;
 
       // Exchange code for tokens at the Keycloak token endpoint
       const tokenEndpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/token`;

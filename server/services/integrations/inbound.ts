@@ -23,6 +23,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { customers, integrationEvents, products, tenants } from "../../../drizzle/schema";
 import type { IntegrationConfig, IntegrationSystem } from "./clients";
 import { INTEGRATION_SYSTEMS } from "./clients";
+import { decryptSecret } from "../crypto/secrets";
 import { triggerRestockNotification } from "../waitlist";
 import { captureException } from "../observability";
 
@@ -76,7 +77,15 @@ export async function loadTenantIntegrationConfig(
     .limit(1);
   if (!tenant) return null;
   const cfg = ((tenant.settings as any)?.integrations?.[system] ?? null) as IntegrationConfig | null;
-  return cfg;
+  if (!cfg) return null;
+  // webhookSecret is stored encrypted (v1:) since w10 — decrypt for HMAC
+  // verification; decryptSecret passes legacy plaintext through unchanged.
+  return {
+    ...cfg,
+    ...(typeof cfg.webhookSecret === "string" && cfg.webhookSecret
+      ? { webhookSecret: decryptSecret(cfg.webhookSecret) }
+      : {}),
+  };
 }
 
 /**

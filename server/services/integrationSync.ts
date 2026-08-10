@@ -31,6 +31,7 @@ import {
   tenantIntegrations,
 } from "../../drizzle/schema";
 import { and, eq } from "drizzle-orm";
+import { decryptSecret } from "./crypto/secrets";
 
 // ── Structured fetch with retry ───────────────────────────────────────────────
 
@@ -117,7 +118,8 @@ export async function getOdooIntegrationConfig(tenantId: string): Promise<OdooIn
     baseUrl: row.baseUrl.replace(/\/+$/, ""),
     database: row.database,
     username: row.username,
-    apiKey: row.apiKey,
+    // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
+    apiKey: decryptSecret(row.apiKey),
   };
 }
 
@@ -139,7 +141,8 @@ export async function getTwentyIntegrationConfig(tenantId: string): Promise<Twen
   if (!row?.baseUrl || !row?.apiKey) return null;
   return {
     baseUrl: row.baseUrl.replace(/\/+$/, ""),
-    apiKey: row.apiKey,
+    // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
+    apiKey: decryptSecret(row.apiKey),
     workspaceId: row.workspaceId ?? null,
   };
 }
@@ -174,7 +177,8 @@ export async function getMedusaIntegrationConfig(tenantId: string): Promise<Medu
     if (row?.baseUrl && row?.apiKey) {
       return {
         baseUrl: row.baseUrl.replace(/\/+$/, ""),
-        adminApiKey: row.apiKey,
+        // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
+        adminApiKey: decryptSecret(row.apiKey),
         publishableKey: row.apiSecret ?? null,
         source: "db",
       };
