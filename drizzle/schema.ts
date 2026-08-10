@@ -3016,3 +3016,20 @@ export const poItems = pgTable("po_items", {
 ]);
 export type PoItem = typeof poItems.$inferSelect;
 export type NewPoItem = typeof poItems.$inferInsert;
+
+// ─── w9: media assets (brand studio generated logos / kits) ─────────────────
+export const mediaAssets = pgTable("media_assets", {
+  id:       uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Asset kind, e.g. "logo", "brand_kit", "wa_profile_photo". */
+  kind:     varchar("kind", { length: 32 }).notNull(),
+  mime:     varchar("mime", { length: 64 }).notNull(),
+  /** data:<mime>;base64,<payload> — self-contained, no external storage needed. */
+  dataUri:  text("data_uri").notNull(),
+  meta:     jsonb("meta"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("media_assets_tenant_idx").on(t.tenantId),
+]);
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type NewMediaAsset = typeof mediaAssets.$inferInsert;

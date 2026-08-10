@@ -302,6 +302,13 @@
       "when": 1786600004000,
       "tag": "0044_purchase_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786600005000,
+      "tag": "0045_media_assets",
+      "breakpoints": true
     }
   ]
 }

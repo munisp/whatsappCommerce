@@ -87,12 +87,23 @@ export type DeliveryZone = z.infer<typeof deliveryZoneSchema>;
 
 // ─── Branding ────────────────────────────────────────────────────────────────
 
+const hexColor = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/, "must be a hex color like #8A5A2B");
+
 export const brandingConfigSchema = z.object({
   name: z.string().trim().min(1, "brand name must not be empty").max(120),
   logoUrl: z.string().url().nullable(),
-  primaryColor: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/, "primaryColor must be a hex color like #8A5A2B"),
+  primaryColor: hexColor,
+  // ─── w9 brand studio (additive, all optional) ───────────────────────────
+  /** Complementary accent color derived by the brand studio. */
+  secondaryColor: hexColor.optional(),
+  /** Short brand tagline (template-generated; LLM polish is upstream). */
+  tagline: z.string().max(120).optional(),
+  /** WhatsApp business-profile "About" line — Meta hard limit is 139 chars. */
+  waProfileAbout: z.string().max(139).optional(),
+  /** ISO timestamp of the last brand-studio logo generation (null = never). */
+  logoGeneratedAt: z.string().nullable().optional(),
 });
 
 export type BrandingConfig = z.infer<typeof brandingConfigSchema>;
