@@ -177,6 +177,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { icon: Smartphone,      label: "WA Menu Builder",  path: "/wa-menu-builder" },
       { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
+      { icon: Bot,             label: "Copilot",          path: "/onboarding-copilot" },
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
       { icon: SlidersHorizontal, label: "Tenant Settings", path: "/tenant-settings" },
     ],

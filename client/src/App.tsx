@@ -163,6 +163,7 @@ function Router() {
           <Route path="/procurement" component={ProcurementHub} />
           <Route path="/credit-accounts" component={CreditAccounts} />
           <Route path="/supplier-approvals" component={SupplierApprovals} />
+          <Route path="/onboarding-copilot" component={OnboardingCopilot} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -210,3 +211,4 @@ import PhoneAuthPage from "./pages/PhoneAuthPage";
 import WhatsAppProfilePage from "./pages/WhatsAppProfilePage";
 import InfraHealth from "./pages/InfraHealth";
 import AdminPortal from "./pages/AdminPortal";
+import OnboardingCopilot from "./pages/OnboardingCopilot";
