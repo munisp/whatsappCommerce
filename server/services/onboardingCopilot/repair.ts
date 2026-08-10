@@ -18,7 +18,9 @@ import {
 
 /** Map a validation failure reason ("check: detail") to a targeted question. */
 export function repairQuestionFor(reason: string): string {
-  const check = reason.split(":")[0]?.trim() ?? "";
+  // Reasons look like "whatsapp:waba: Graph API returned 403…" — the check id
+  // is everything before the FIRST ": " (check ids themselves contain colons).
+  const check = reason.split(": ")[0]?.trim() ?? "";
   if (check === "whatsapp") {
     return (
       "I couldn't reach your WhatsApp phone number with the token on file. " +

@@ -26,7 +26,7 @@ function asTrpcError(e: unknown): TRPCError {
   if (/not been approved|was rejected|cannot go live|checkpoint/i.test(msg)) {
     return new TRPCError({ code: "PRECONDITION_FAILED", message: msg });
   }
-  if (/invalid|failed contract|Unknown proposal kind/i.test(msg)) {
+  if (/invalid|failed contract|Unknown proposal kind|cannot be edited/i.test(msg)) {
     return new TRPCError({ code: "BAD_REQUEST", message: msg });
   }
   return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: msg });

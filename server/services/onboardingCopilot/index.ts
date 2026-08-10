@@ -20,11 +20,12 @@ import {
   listSessionRows,
   loadSession,
   saveSession,
+  supersedeActiveSessionsForPhone,
   type CopilotChannel,
   type CopilotReply,
   type OnboardingSession,
 } from "./session";
-import { runAgentTurn, runConfigurationPhase } from "./agent";
+import { advanceToLive, runAgentTurn, runConfigurationPhase } from "./agent";
 
 export {
   COPILOT_STATES,
@@ -76,6 +77,7 @@ function validateEditedPayload(kind: string, payload: unknown): unknown {
   if (kind === "branding") return editedBrandingSchema.parse(payload);
   if (kind === "useCases") return editedUseCasesSchema.parse(payload);
   if (kind === "integrations") return editedIntegrationsSchema.parse(payload);
+  if (kind === "goLive") throw new Error("goLive proposals cannot be edited — approve or reject them");
   throw new Error(`Unknown proposal kind "${kind}"`);
 }
 
@@ -91,6 +93,22 @@ export async function startSession(args: {
   tenantId?: string;
   phone?: string;
 }): Promise<{ sessionId: string; greeting: string }> {
+  // C3 contract ("restart" = startSession again for the same phone): supersede
+  // any prior ACTIVE whatsapp session for this phone so
+  // findActiveSessionByPhone only ever returns the fresh one.
+  if (args.channel === "whatsapp" && args.phone) {
+    const superseded = await supersedeActiveSessionsForPhone(args.phone);
+    for (const id of superseded) {
+      await writeAuditLog({
+        actorId: `copilot:${id}`,
+        actorRole: "system",
+        action: "onboarding_copilot.session_superseded",
+        entityType: "onboarding_session",
+        entityId: id,
+        summary: `session superseded by a new session for phone ${args.phone}`,
+      });
+    }
+  }
   const session = await createSessionRow({
     channel: args.channel,
     tenantId: args.tenantId ?? null,
@@ -117,6 +135,18 @@ export async function postMessage(args: {
 }): Promise<{ replies: CopilotReply[]; state: string }> {
   const session = await loadSession(args.sessionId);
   if (!session) throw new Error(`Onboarding session "${args.sessionId}" not found`);
+
+  // C3 contract — IDEMPOTENT postMessage: Meta redeliveries can invoke
+  // postMessage repeatedly with the same text (C3's webhook branch skips
+  // webhook dedupe for the platform number). An exact repeat of the most
+  // recently processed inbound text is a no-op: no transcript append, no
+  // state transition, no duplicate proposals.
+  const lastInbound = session.intake.lastInbound as { text?: string; ts?: string } | undefined;
+  if (lastInbound?.text === args.text) {
+    return { replies: [], state: session.state };
+  }
+  session.intake.lastInbound = { text: args.text, ts: new Date().toISOString() };
+
   appendTranscript(session, "user", args.text);
   const replies = await runAgentTurn(session, args.text);
   await saveSession(session);
@@ -168,8 +198,24 @@ export async function decideProposal(args: {
     after: { proposalId: proposal.id, kind: proposal.kind, status: proposal.status },
   });
 
+  // C4 contract: approving the terminal goLive proposal advances
+  // validating → live (goLive checkpoint re-verified in the service layer).
+  if (proposal.kind === "goLive") {
+    if (proposal.status === "approved") {
+      try {
+        replies.push(...(await advanceToLive(session)));
+      } catch (e: any) {
+        const text = `Couldn't go live yet: ${e?.message ?? e}`;
+        appendTranscript(session, "agent", text);
+        replies.push({ type: "text", text });
+      }
+    }
+    await saveSession(session);
+    return { ok: true, replies };
+  }
+
   // When every proposal is decided and at least one was approved/edited,
-  // run the configuration phase (apply → validate → live/repair).
+  // run the configuration phase (apply → validate → goLive proposal/repair).
   if (
     session.proposals.length > 0 &&
     session.proposals.every((p) => p.status !== "pending") &&

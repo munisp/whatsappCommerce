@@ -15,6 +15,7 @@
  * - failed:      validation failed after MAX_REPAIR_ROUNDS repair rounds
  * - abandoned:   explicitly abandoned by the operator
  */
+import { randomUUID } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "../../db";
 import { onboardingSessions } from "../../../drizzle/schema";
@@ -46,7 +47,9 @@ export interface TranscriptEntry {
   ts: string;
 }
 
-export const PROPOSAL_KINDS = ["waMenu", "branding", "useCases", "integrations"] as const;
+// 'goLive' is the terminal checkpoint proposal: emitted when validation passes;
+// approving it (or the literal "go live" command) advances validating → live.
+export const PROPOSAL_KINDS = ["waMenu", "branding", "useCases", "integrations", "goLive"] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
 export type ProposalStatus = "pending" | "approved" | "edited" | "rejected";
@@ -141,6 +144,7 @@ export async function createSessionRow(args: {
   const [row] = await db
     .insert(onboardingSessions)
     .values({
+      id: randomUUID(),
       channel: args.channel,
       tenantId: args.tenantId ?? null,
       phone: args.phone ?? null,
@@ -198,6 +202,27 @@ export async function findActiveSessionRowByPhone(phone: string): Promise<Onboar
     .filter((s) => !TERMINAL_STATES.includes(s.state))
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   return active[0] ?? null;
+}
+
+/**
+ * Supersede every non-terminal whatsapp session for a phone (C3 "restart" =
+ * startSession again for the same phone). Returns the abandoned session ids.
+ */
+export async function supersedeActiveSessionsForPhone(phone: string): Promise<string[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const rows = await db
+    .select()
+    .from(onboardingSessions)
+    .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone)));
+  const doomed = rows.filter((r) => !TERMINAL_STATES.includes(r.state as CopilotState));
+  for (const r of doomed) {
+    await db
+      .update(onboardingSessions)
+      .set({ state: "abandoned", updatedAt: new Date() })
+      .where(eq(onboardingSessions.id, r.id));
+  }
+  return doomed.map((r) => r.id);
 }
 
 export async function listSessionRows(filter?: {

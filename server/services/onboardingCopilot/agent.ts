@@ -154,7 +154,7 @@ export function extractFactsFallback(text: string, existing: IntakeFacts): Intak
       text.match(/(?:called|named|name is|business is|shop is|store is)\s+["']?([A-Za-z0-9'&][A-Za-z0-9'&. ]{1,58}?)["']?(?:[,.!]|$|\s+in\s|\s+we\s|\s+and\s)/i) ??
       text.match(/(?:i run|i own|we run|we own|i have|we have)\s+(?:a|an|the)?\s*(?:small\s+)?(?:business|shop|store|brand|company)?\s*(?:called\s+)?["']?([A-Za-z0-9'&][A-Za-z0-9'&. ]{1,58}?)["']?(?:[,.!]|$)/i);
     if (m) {
-      facts.businessName = m[1].trim();
+      facts.businessName = m[1].trim().replace(/^(?:called|named)\s+/i, "");
     } else if (text.trim().length <= 60 && !/[?]/.test(text)) {
       facts.businessName = text.trim();
     }
@@ -405,21 +405,7 @@ export async function runConfigurationPhase(session: OnboardingSession): Promise
   }
 
   if (report?.passed) {
-    try {
-      await executeCopilotTool("goLive", {}, session);
-      await transition(session, "live");
-      const r: CopilotReply = {
-        type: "text",
-        text: "🎉 All checks passed — your WhatsApp commerce assistant is LIVE! Customers can message you now.",
-      };
-      appendTranscript(session, "agent", r.text);
-      replies.push(r);
-    } catch (e: any) {
-      const r: CopilotReply = { type: "text", text: `Validation passed but go-live failed: ${e?.message ?? e}` };
-      appendTranscript(session, "agent", r.text);
-      replies.push(r);
-      await transition(session, "configuring");
-    }
+    replies.push(...(await emitGoLiveProposal(session, report)));
     return replies;
   }
 
@@ -427,6 +413,31 @@ export async function runConfigurationPhase(session: OnboardingSession): Promise
   const outcome = await runRepairRound(session, report ?? { passed: false, checks: [] });
   replies.push(...outcome.replies);
   return replies;
+}
+
+/**
+ * C4 contract: when validation passes, emit a TERMINAL 'goLive' proposal
+ * (checkpoint) instead of going live automatically. The session stays in
+ * 'validating'; approving the proposal (decideProposal) or the literal
+ * "go live" text command advances validating → live.
+ */
+export async function emitGoLiveProposal(
+  session: OnboardingSession,
+  report: ValidationReport,
+): Promise<CopilotReply[]> {
+  let proposal = session.proposals.find((p) => p.kind === "goLive" && p.status === "pending");
+  if (!proposal) {
+    proposal = addProposal(session, {
+      kind: "goLive",
+      summary: `All ${report.checks.length} validation check(s) passed — go live`,
+      payload: { checks: report.checks, validatedAt: new Date().toISOString() },
+    });
+  }
+  const text =
+    "🎉 All validation checks passed! One last step: approve go-live to switch your " +
+    "WhatsApp assistant on for customers (or reply \"go live\").";
+  appendTranscript(session, "agent", text);
+  return [{ type: "text", text }, cardFor(proposal.id, session)];
 }
 
 // ─── Configuring (repair answers / credential fixes) ─────────────────────────
@@ -479,19 +490,7 @@ async function handleConfiguring(session: OnboardingSession, text: string): Prom
       report = { passed: false, checks: [{ check: "internal", ok: false, detail: String(e?.message ?? e) }] };
     }
     if (report?.passed) {
-      try {
-        await executeCopilotTool("goLive", {}, session);
-        await transition(session, "live");
-        const r: CopilotReply = {
-          type: "text",
-          text: "🎉 All checks passed — you're LIVE! Your customers can now message your business on WhatsApp.",
-        };
-        appendTranscript(session, "agent", r.text);
-        replies.push(r);
-      } catch (e: any) {
-        replies.push({ type: "text", text: `Validation passed but go-live failed: ${e?.message ?? e}` });
-        await transition(session, "configuring");
-      }
+      replies.push(...(await emitGoLiveProposal(session, report)));
       return replies;
     }
     const outcome = await runRepairRound(session, report ?? { passed: false, checks: [] });
@@ -506,6 +505,61 @@ async function handleConfiguring(session: OnboardingSession, text: string): Prom
   return replies;
 }
 
+// ─── Literal "go live" command (C4 contract) ─────────────────────────────────
+
+const LIVE_REPLY =
+  "🎉 You're LIVE! Your customers can now message your business on WhatsApp.";
+
+/**
+ * Shared go-live advance used by BOTH the literal "go live" command and the
+ * goLive proposal approval path. Requires the tenant-side validation to have
+ * passed (enforced again inside the goLive tool — checkpoint).
+ */
+export async function advanceToLive(session: OnboardingSession): Promise<CopilotReply[]> {
+  await executeCopilotTool("goLive", {}, session); // throws when validation hasn't passed
+  const pending = session.proposals.find((p) => p.kind === "goLive" && p.status === "pending");
+  if (pending) pending.status = "approved";
+  await transition(session, "live");
+  appendTranscript(session, "agent", LIVE_REPLY);
+  return [{ type: "text", text: LIVE_REPLY }];
+}
+
+/**
+ * C4 contract: literal "go live" (case-insensitive) in postMessage.
+ * state=validating + checks passed → advance to live; otherwise reply
+ * explaining exactly what's missing.
+ */
+async function handleGoLiveCommand(session: OnboardingSession): Promise<CopilotReply[]> {
+  if (session.state === "live") {
+    const r: CopilotReply = { type: "text", text: "You're already live! 🎉" };
+    appendTranscript(session, "agent", r.text);
+    return [r];
+  }
+  if (session.state === "validating") {
+    try {
+      return await advanceToLive(session);
+    } catch (e: any) {
+      const r: CopilotReply = {
+        type: "text",
+        text: `Not yet — ${e?.message ?? "validation has not passed"}.`,
+      };
+      appendTranscript(session, "agent", r.text);
+      return [r];
+    }
+  }
+  const missing =
+    session.state === "intake"
+      ? "we haven't finished intake — tell me about your business first."
+      : session.state === "proposing" || session.state === "approving"
+        ? `there are ${session.proposals.filter((p) => p.status === "pending").length} proposal(s) waiting for your approval — approve them first.`
+        : session.state === "configuring"
+          ? "validation hasn't passed yet — fix the failing checks above and I'll re-run them."
+          : `this session is ${session.state} — start a new session to onboard.`;
+  const r: CopilotReply = { type: "text", text: `Not ready to go live: ${missing}` };
+  appendTranscript(session, "agent", r.text);
+  return [r];
+}
+
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 /**
@@ -513,6 +567,10 @@ async function handleConfiguring(session: OnboardingSession, text: string): Prom
  * (index.ts) persists and audits.
  */
 export async function runAgentTurn(session: OnboardingSession, text: string): Promise<CopilotReply[]> {
+  // C4: literal "go live" is a command in any state.
+  if (text.trim().toLowerCase() === "go live") {
+    return handleGoLiveCommand(session);
+  }
   switch (session.state) {
     case "intake":
       return handleIntake(session, text);
