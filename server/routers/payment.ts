@@ -23,6 +23,8 @@ import { getRedis } from "../redis";
 import { assessFraudRisk } from "../services/fraud";
 import { createFraudCase } from "./fraudCase";
 import { writeAuditLog } from "./audit";
+import { initiateWithFallback } from "../services/payments/initiateWithFallback";
+import { toIntentProviderEnum } from "../services/payments/providers/providerEnum";
 
 // ── TigerBeetle ledger helper ─────────────────────────────────────────────────
 
@@ -365,68 +367,57 @@ export const paymentRouter = router({
           reference,
         });
 
-        // Step 5: Get payment URL from provider
+        // Step 5: Get payment URL from the provider REGISTRY (wave-11): the
+        // tenant's priority-ordered fallback chain is walked; the caller's
+        // provider input is a preference, not a hard binding. The serving
+        // provider is recorded on the intent (existing `provider` column +
+        // metadata.servedProvider — NO migration). Manual/custom providers
+        // return settlement instructions instead of a redirect URL.
         let paymentUrl: string | null = null;
+        let instructions: string | null = null;
         let providerResponse: Record<string, unknown> = {};
+        let servedProvider: string = input.provider;
 
-        if (input.provider === "paystack") {
-          const paystackKey = ENV.paystackSecretKey;
-          if (!paystackKey) throw new Error("PAYSTACK_SECRET_KEY not configured");
-          const psRes = await fetch("https://api.paystack.co/transaction/initialize", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${paystackKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: `${input.customerPhone.replace(/\D/g, "")}@wa.commerce`,
-              amount: Math.round(input.amount * 100),
-              currency: input.currency,
-              reference,
-              metadata: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, order_id: input.orderId },
-              callback_url: `${ENV.appUrl}/api/webhooks/paystack/callback`,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (!psRes.ok) throw new Error(`Paystack initialization failed: ${await psRes.text()}`);
-          const psData = await psRes.json() as { status: boolean; data: { authorization_url: string } };
-          if (!psData.status) throw new Error("Paystack returned status=false");
-          paymentUrl = psData.data.authorization_url;
-          providerResponse = psData.data as Record<string, unknown>;
-
-        } else if (input.provider === "flutterwave") {
-          const fwKey = ENV.flwSecretKey;
-          if (!fwKey) throw new Error("FLW_SECRET_KEY not configured");
-          const fwRes = await fetch("https://api.flutterwave.com/v3/payments", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${fwKey}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              tx_ref: reference,
-              amount: input.amount,
-              currency: input.currency,
-              redirect_url: `${ENV.appUrl}/api/webhooks/flutterwave/callback`,
-              customer: { phone_number: input.customerPhone },
-              meta: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId },
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (!fwRes.ok) throw new Error(`Flutterwave initialization failed: ${await fwRes.text()}`);
-          const fwData = await fwRes.json() as { status: string; data: { link: string } };
-          paymentUrl = fwData.data.link;
-          providerResponse = fwData.data as Record<string, unknown>;
-
-        } else if (input.provider === "mojaloop") {
+        if (input.provider === "mojaloop") {
+          // Mojaloop is not a registry adapter — keep its legacy inline path.
           paymentUrl = `${ENV.appUrl}/pay/${reference}`;
           providerResponse = { mojaloop: true, transferId: paymentIntentId };
+        } else {
+          const fallback = await initiateWithFallback(input.tenantId, {
+            tenantId: input.tenantId,
+            amountCents: Math.round(input.amount * 100),
+            currency: input.currency,
+            reference,
+            metadata: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, order_id: input.orderId },
+            customer: { phone: input.customerPhone, email: `${input.customerPhone.replace(/\D/g, "")}@wa.commerce` },
+            callbackUrl: `${ENV.appUrl}/api/webhooks/paystack/callback`,
+          }, { preferredProvider: input.provider });
+          paymentUrl = fallback.result.authorizationUrl ?? null;
+          instructions = fallback.result.instructions ?? null;
+          providerResponse = fallback.result.raw ?? {};
+          servedProvider = fallback.providerId;
+          if (fallback.failedAttempts.length > 0) {
+            providerResponse = { ...providerResponse, fallbackAttempts: fallback.failedAttempts };
+          }
         }
 
         // Step 6: Update DB with payment URL (stored in jsonb metadata —
-        // payment_intents has no paymentUrl / providerResponse columns)
+        // payment_intents has no paymentUrl / providerResponse columns).
+        // `provider` is a pgEnum (mojaloop/stripe/paystack/flutterwave/
+        // manual) — the serving provider is ALWAYS recorded in
+        // metadata.servedProvider; the column is updated only when the served
+        // id is an enum member (custom/monnify → 'manual' bucket + metadata).
         await database.update(paymentIntents)
           .set({
             status: "initiated",
+            provider: toIntentProviderEnum(servedProvider),
             metadata: {
               ...(input.metadata ?? {}),
               ...fraudMeta,
               customerPhone: input.customerPhone,
               paymentUrl,
+              ...(instructions ? { instructions } : {}),
+              servedProvider,
               providerResponse,
             },
             updatedAt: new Date(),
@@ -443,7 +434,7 @@ export const paymentRouter = router({
           paymentIntentId, tenantId: input.tenantId, amount: input.amount, currency: input.currency,
         });
 
-        return { paymentIntentId, reference, paymentUrl, status: "initiated",
+        return { paymentIntentId, reference, paymentUrl, instructions, provider: servedProvider, status: "initiated",
           sagaWorkflowId: sagaResult.started ? sagaWorkflowId : null, tbDebitOk };
 
       } catch (err: any) {

@@ -7,6 +7,9 @@ import { eq, and, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
+import { listProviderAdapters, getProviderForTenant } from "../services/payments/providers/registry";
+import { initiateWithFallback } from "../services/payments/initiateWithFallback";
+import { randomUUID as newRef } from "crypto";
 
 // ─── Provider adapters ────────────────────────────────────────────────────────
 
@@ -379,6 +382,190 @@ export const paymentGatewayRouter = router({
         .where(and(...conditions))
         .orderBy(desc(paymentTransactions.createdAt))
         .limit(input.limit);
+    }),
+
+  // ── Wave-11: tenant-facing provider registry management ────────────────────
+
+  /** Catalog of known provider adapters (drives the settings UI cards). */
+  listProviderAdapters: protectedProcedure.query(() => listProviderAdapters()),
+
+  /** The tenant's providers: configured rows (secrets masked) merged onto the
+   * adapter catalog, priority-ordered — the fallback-chain preview source. */
+  getTenantProviders: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      assertTenantAccess(ctx.user, input.tenantId);
+      const catalog = listProviderAdapters();
+      if (!db) return { adapters: catalog, providers: [] };
+      const rows = await db.select().from(paymentGatewayConfigs)
+        .where(eq(paymentGatewayConfigs.tenantId, input.tenantId));
+      const providers = rows.map((r) => {
+        const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+        return {
+          provider: r.provider,
+          displayName: catalog.find((a) => a.id === r.provider)?.displayName ?? r.provider,
+          enabled: r.isActive,
+          priority: typeof meta.priority === "number" ? meta.priority : 100,
+          publicKey: r.publicKey,
+          secretKey: r.secretKey ? "••••••••" : null,
+          webhookSecret: r.webhookSecret ? "••••••••" : null,
+          callbackUrl: r.callbackUrl,
+          instructions: typeof meta.instructions === "string" ? meta.instructions : null,
+          customConfig: (meta.customConfig as Record<string, unknown> | undefined) ?? null,
+        };
+      });
+      providers.sort((a, b) => a.priority - b.priority);
+      return { adapters: catalog, providers };
+    }),
+
+  /** Upsert a provider's credentials (encrypted at rest) + priority/enabled. */
+  configureProvider: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      provider: z.string().min(1),
+      publicKey: z.string().optional(),
+      secretKey: z.string().optional(),
+      webhookSecret: z.string().optional(),
+      callbackUrl: z.string().url().optional(),
+      priority: z.number().int().positive().default(100),
+      enabled: z.boolean().default(true),
+      /** Settlement instructions (required for custom gateways). */
+      instructions: z.string().optional(),
+      /** Free-form JSON config for custom gateways (validated object). */
+      customConfig: z.record(z.string(), z.unknown()).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId || ctx.user.tenantId !== input.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only configure providers for your own tenant" });
+        }
+      }
+      const known = listProviderAdapters().some((a) => a.id === input.provider);
+      if (!known) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Unknown provider '${input.provider}'. Use the 'custom' provider with instructions for bespoke gateways.`,
+        });
+      }
+      if (input.provider === "custom" && !input.instructions?.trim() && !input.customConfig) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Custom gateways require settlement instructions (or a JSON config describing them).",
+        });
+      }
+      if (input.customConfig) {
+        try {
+          JSON.stringify(input.customConfig);
+        } catch {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "customConfig must be valid JSON" });
+        }
+      }
+      // Masked placeholder sent back by the UI means "keep the stored secret".
+      const KEEP = "••••••••";
+      const meta: Record<string, unknown> = {
+        priority: input.priority,
+        ...(input.instructions?.trim() ? { instructions: input.instructions.trim() } : {}),
+        ...(input.customConfig ? { customConfig: input.customConfig } : {}),
+      };
+      const encSecret = input.secretKey && input.secretKey !== KEEP ? encryptSecret(input.secretKey) : undefined;
+      const encWebhook = input.webhookSecret && input.webhookSecret !== KEEP ? encryptSecret(input.webhookSecret) : undefined;
+      const [existing] = await db.select().from(paymentGatewayConfigs)
+        .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, input.provider)));
+      if (existing) {
+        const prevMeta = (existing.metadata as Record<string, unknown> | null) ?? {};
+        await db.update(paymentGatewayConfigs).set({
+          publicKey: input.publicKey ?? existing.publicKey,
+          secretKey: encSecret ?? existing.secretKey,
+          webhookSecret: encWebhook ?? existing.webhookSecret,
+          callbackUrl: input.callbackUrl ?? existing.callbackUrl,
+          isActive: input.enabled,
+          metadata: { ...prevMeta, ...meta },
+          updatedAt: new Date(),
+        }).where(eq(paymentGatewayConfigs.id, existing.id));
+      } else {
+        await db.insert(paymentGatewayConfigs).values({
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          provider: input.provider,
+          publicKey: input.publicKey,
+          secretKey: encSecret ?? null,
+          webhookSecret: encWebhook ?? null,
+          callbackUrl: input.callbackUrl,
+          isActive: input.enabled,
+          metadata: meta,
+        });
+      }
+      return { ok: true };
+    }),
+
+  /** Probe a provider: manual/custom → instructions presence; hosted → a real
+   * ₦1-class initiate probe through the fallback chain restricted to that
+   * provider. Never throws — returns { ok, message }. */
+  testProvider: protectedProcedure
+    .input(z.object({ tenantId: z.string(), provider: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const chain = (await getProviderForTenant(input.tenantId)).filter((e) => e.provider.id === input.provider);
+      if (chain.length === 0) {
+        return { ok: false, message: `Provider '${input.provider}' is not configured/enabled for this tenant.` };
+      }
+      try {
+        const probe = await initiateWithFallback(input.tenantId, {
+          tenantId: input.tenantId,
+          amountCents: 100,
+          currency: "NGN",
+          reference: `TEST-${newRef().slice(0, 8).toUpperCase()}`,
+          metadata: { kind: "provider_test", tenant_id: input.tenantId },
+          customer: { phone: "+2340000000000", email: "provider-test@wa.commerce" },
+        }, { preferredProvider: input.provider });
+        if (probe.providerId !== input.provider) {
+          return { ok: false, message: `Probe fell through to '${probe.providerId}' — '${input.provider}' failed.` };
+        }
+        return {
+          ok: true,
+          message: probe.result.authorizationUrl
+            ? "Connection OK — hosted checkout link generated."
+            : "Configuration OK — settlement instructions will be sent to buyers.",
+        };
+      } catch (err: any) {
+        return { ok: false, message: `Connection failed: ${String(err?.message ?? err).slice(0, 300)}` };
+      }
+    }),
+
+  /** Reorder the fallback chain (1 = primary). */
+  setProviderPriority: protectedProcedure
+    .input(z.object({ tenantId: z.string(), provider: z.string(), priority: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const [row] = await db.select().from(paymentGatewayConfigs)
+        .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, input.provider)));
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `Provider '${input.provider}' is not configured` });
+      const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+      await db.update(paymentGatewayConfigs)
+        .set({ metadata: { ...meta, priority: input.priority }, updatedAt: new Date() })
+        .where(eq(paymentGatewayConfigs.id, row.id));
+      return { ok: true };
+    }),
+
+  /** Enable/disable a provider in the fallback chain. */
+  toggleProvider: protectedProcedure
+    .input(z.object({ tenantId: z.string(), provider: z.string(), enabled: z.boolean() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const [row] = await db.select().from(paymentGatewayConfigs)
+        .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, input.provider)));
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `Provider '${input.provider}' is not configured` });
+      await db.update(paymentGatewayConfigs)
+        .set({ isActive: input.enabled, updatedAt: new Date() })
+        .where(eq(paymentGatewayConfigs.id, row.id));
+      return { ok: true };
     }),
 
   // Verify Paystack webhook signature

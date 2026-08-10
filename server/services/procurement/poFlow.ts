@@ -352,26 +352,34 @@ export async function approvePurchaseOrder(
   // paynow — approved pending payment; create the payment link for the buyer.
   await db.update(purchaseOrders).set({ status: "approved", updatedAt: now })
     .where(eq(purchaseOrders.id, po.id));
-  const paymentUrl = await createPoPaymentLink(db, po).catch((e: any) => {
+  const link = await createPoPaymentLink(db, po).catch((e: any) => {
     console.warn("[procurement] payment link creation failed:", e?.message);
     return null;
   });
-  await notifyBuyer(
-    db,
-    po,
-    paymentUrl
-      ? `✅ ${po.poNumber} approved! Complete payment (${formatNaira(Number(po.subtotalCents))}):\n${paymentUrl}`
-      : `✅ ${po.poNumber} approved! The supplier will share payment details with you here shortly.`,
-  );
+  const paymentUrl = link?.paymentUrl ?? null;
+  // Shape-driven message (wave-11): hosted URL → pay link; manual/custom
+  // provider → settlement instructions; neither → offline fallback text.
+  const message = paymentUrl
+    ? `✅ ${po.poNumber} approved! Complete payment (${formatNaira(Number(po.subtotalCents))}):\n${paymentUrl}`
+    : link?.instructions
+      ? `✅ ${po.poNumber} approved! Payment of ${formatNaira(Number(po.subtotalCents))} is due:\n${link.instructions}`
+      : `✅ ${po.poNumber} approved! The supplier will share payment details with you here shortly.`;
+  await notifyBuyer(db, po, message);
   return { ok: true, status: "approved", paymentUrl };
 }
 
 /**
- * Existing payment-link flow for paynow POs: reuses payment.initiate (paystack
- * default) with metadata.poId so confirmProviderPayment can settle the PO.
- * Returns null when no link could be created (supplier shares details offline).
+ * Payment-link flow for paynow POs: reuses payment.initiate with
+ * metadata.poId so confirmProviderPayment can settle the PO. Wave-11: the
+ * actual provider is resolved through the tenant registry fallback chain
+ * ("paystack" below is only the PREFERRED provider). Returns the normalized
+ * result — { paymentUrl } for hosted providers, { instructions } for
+ * manual/custom — or null when no link could be created.
  */
-export async function createPoPaymentLink(db: DbHandle, po: PurchaseOrder): Promise<string | null> {
+export async function createPoPaymentLink(
+  db: DbHandle,
+  po: PurchaseOrder,
+): Promise<{ paymentUrl: string | null; instructions: string | null; provider: string } | null> {
   const { appRouter } = await import("../../routers");
   const caller = appRouter.createCaller({ user: { role: "admin", id: "procurement-po" } } as any);
   const result = await caller.payment.initiate({
@@ -383,7 +391,9 @@ export async function createPoPaymentLink(db: DbHandle, po: PurchaseOrder): Prom
     customerPhone: po.buyerPhone ?? "procurement@wa.commerce",
     metadata: { type: "po_payment", poId: po.id, poNumber: po.poNumber },
   });
-  return (result as any)?.paymentUrl ?? null;
+  const r = result as any;
+  if (!r) return null;
+  return { paymentUrl: r.paymentUrl ?? null, instructions: r.instructions ?? null, provider: r.provider ?? "paystack" };
 }
 
 /** Reject a submitted PO; the buyer is notified (reason included when given). */
