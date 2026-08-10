@@ -10,8 +10,10 @@ import {
   assembleEditedPayload,
   canGoLive,
   checklistSummary,
+  checksFromGoLiveProposal,
   copilotStateMeta,
   extractValidationChecks,
+  findPendingGoLiveProposal,
   findResumableSession,
   groupProposalsByKind,
   liveNextSteps,
@@ -100,7 +102,10 @@ describe("proposalKindMeta / proposalStatusMeta", () => {
     expect(proposalKindMeta("branding").label).toBe("Brand kit");
     expect(proposalKindMeta("useCases").label).toBe("Use cases");
     expect(proposalKindMeta("integrations").label).toBe("Integrations");
-    expect(proposalKindMeta("goLive").label).toBe("goLive");
+    // Terminal checkpoint kind (real backend vocabulary)
+    expect(proposalKindMeta("goLive").label).toBe("Go live");
+    expect(proposalKindMeta("goLive").className).toContain("emerald");
+    expect(proposalKindMeta("mystery").label).toBe("mystery");
   });
 
   it("labels proposal statuses", () => {
@@ -156,6 +161,56 @@ describe("extractValidationChecks", () => {
     expect(extractValidationChecks(null)).toEqual([]);
     expect(extractValidationChecks(undefined)).toEqual([]);
   });
+
+  it("reads the all-pass report from the goLive proposal payload (real backend shape)", () => {
+    const checks = extractValidationChecks({
+      transcript: [],
+      proposals: [
+        proposal({
+          id: "g1",
+          kind: "goLive",
+          payload: {
+            checks: [
+              { check: "whatsapp", ok: true, detail: "phone 123 reachable" },
+              { check: "menu", ok: true },
+            ],
+            validatedAt: "2026-01-01T00:00:00Z",
+          },
+        }),
+      ],
+    });
+    expect(checks).toEqual([
+      { name: "whatsapp", ok: true, detail: "phone 123 reachable" },
+      { name: "menu", ok: true, detail: null },
+    ]);
+  });
+
+  it("parses failed checks from 'validation failed (round N)' system lines (real backend format)", () => {
+    const checks = extractValidationChecks({
+      transcript: [
+        { role: "system", text: "validation failed (round 2): whatsapp:waba: Graph API returned 403 | integration:odoo: timeout" },
+      ],
+    });
+    expect(checks).toEqual([
+      { name: "whatsapp:waba", ok: false, detail: "Graph API returned 403" },
+      { name: "integration:odoo", ok: false, detail: "timeout" },
+    ]);
+  });
+});
+
+describe("checksFromGoLiveProposal / findPendingGoLiveProposal", () => {
+  it("uses the newest goLive proposal and tolerates missing payloads", () => {
+    expect(checksFromGoLiveProposal([proposal({ id: "g", kind: "goLive", payload: null })])).toEqual([]);
+    expect(checksFromGoLiveProposal([])).toEqual([]);
+  });
+
+  it("finds only a pending goLive checkpoint", () => {
+    const pending = proposal({ id: "g1", kind: "goLive", status: "pending" });
+    const approved = proposal({ id: "g2", kind: "goLive", status: "approved" });
+    expect(findPendingGoLiveProposal([approved, pending])?.id).toBe("g1");
+    expect(findPendingGoLiveProposal([approved])).toBeNull();
+    expect(findPendingGoLiveProposal([])).toBeNull();
+  });
 });
 
 describe("repairGuidance", () => {
@@ -170,6 +225,19 @@ describe("repairGuidance", () => {
 
   it("returns [] when nothing failed", () => {
     expect(repairGuidance([{ role: "agent", text: "✅ All good" }])).toEqual([]);
+  });
+
+  it("anchors on the last 'validation failed' system line and returns agent repair questions", () => {
+    const guidance = repairGuidance([
+      { role: "system", text: "validation failed (round 1): whatsapp: token expired" },
+      { role: "agent", text: "First round question — please re-paste your token." },
+      { role: "user", text: "EAA1234567890" },
+      { role: "system", text: "validation failed (round 2): integration:odoo: timeout" },
+      { role: "agent", text: "The odoo connection test failed. Please check the odoo URL and API key." },
+    ]);
+    expect(guidance).toEqual([
+      "The odoo connection test failed. Please check the odoo URL and API key.",
+    ]);
   });
 });
 
@@ -230,6 +298,13 @@ describe("normalizeWaMenu", () => {
     expect(partial.useCases[0]).toEqual({ id: "use-case-1", label: "Only label", enabled: true, order: 1 });
     expect(partial.customItems[0].label).toBe("Item 1");
   });
+
+  it("maps the backend fallback enum (nlp|menu) to human sentences", () => {
+    expect(normalizeWaMenu({ fallback: "nlp" }).fallback).toMatch(/AI assistant/);
+    expect(normalizeWaMenu({ fallback: "menu" }).fallback).toMatch(/menu options/);
+    // Custom strings (defensive) pass through unchanged
+    expect(normalizeWaMenu({ fallback: "Pick a number" }).fallback).toBe("Pick a number");
+  });
 });
 
 describe("normalizeBrandKit", () => {
@@ -255,6 +330,24 @@ describe("normalizeBrandKit", () => {
     expect(kit.colors).toEqual([{ name: "Primary", hex: "#A1B2C3" }]);
     expect(normalizeBrandKit(undefined).colors).toEqual([]);
   });
+
+  it("maps the real brand-studio shape (primaryColor/secondaryColor/tagline)", () => {
+    const kit = normalizeBrandKit({
+      logoSvgDataUri: "data:image/svg+xml;base64,AAAA",
+      logoUrl: null,
+      primaryColor: "#1E3A5F",
+      secondaryColor: "#8A5A2B",
+      tagline: "Fresh daily",
+    });
+    expect(kit.logoSvgDataUri).toBe("data:image/svg+xml;base64,AAAA");
+    expect(kit.tagline).toBe("Fresh daily");
+    expect(kit.colors).toEqual([
+      { name: "Primary", hex: "#1E3A5F" },
+      { name: "Secondary", hex: "#8A5A2B" },
+    ]);
+    // waProfileAbout doubles as tagline fallback
+    expect(normalizeBrandKit({ primaryColor: "#1E3A5F", waProfileAbout: "Market fresh" }).tagline).toBe("Market fresh");
+  });
 });
 
 describe("normalizeUseCases / normalizeIntegrations", () => {
@@ -266,6 +359,15 @@ describe("normalizeUseCases / normalizeIntegrations", () => {
     expect(items[1]).toEqual({ label: "FAQ", rationale: "", rank: 2 });
   });
 
+  it("maps the real { ranked: WaUseCaseId[] } payload to display labels", () => {
+    const items = normalizeUseCases({ ranked: ["track", "shop", "handoff"] });
+    expect(items).toEqual([
+      { label: "Track my order", rationale: "", rank: 1 },
+      { label: "Shop products", rationale: "", rank: 2 },
+      { label: "Talk to a human", rationale: "", rank: 3 },
+    ]);
+  });
+
   it("normalizes integration providers with required flag", () => {
     const items = normalizeIntegrations({
       providers: [{ provider: "Paystack", note: "collect payments", required: true }, "Odoo"],
@@ -273,6 +375,13 @@ describe("normalizeUseCases / normalizeIntegrations", () => {
     expect(items[0]).toEqual({ provider: "Paystack", note: "collect payments", required: true });
     expect(items[1]).toEqual({ provider: "Odoo", note: "", required: false });
     expect(normalizeIntegrations(null)).toEqual([]);
+  });
+
+  it("reads the real backend's `reason` field on provider suggestions", () => {
+    const items = normalizeIntegrations({
+      providers: [{ provider: "paystack", reason: "customers asked for card payments" }],
+    });
+    expect(items[0]).toEqual({ provider: "paystack", note: "customers asked for card payments", required: false });
   });
 });
 

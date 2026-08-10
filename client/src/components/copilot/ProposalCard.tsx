@@ -20,6 +20,8 @@ import { WaMenuPreview } from "./WaMenuPreview";
 import { BrandKitPreview } from "./BrandKitPreview";
 import {
   assembleEditedPayload,
+  checklistSummary,
+  checksFromGoLiveProposal,
   normalizeIntegrations,
   normalizeUseCases,
   proposalKindMeta,
@@ -73,8 +75,40 @@ function IntegrationsPreview({ payload }: { payload: unknown }) {
   );
 }
 
+/** goLive (terminal checkpoint) preview: the all-pass validation report. */
+function GoLivePreview({ payload }: { payload: unknown }) {
+  const checks = checksFromGoLiveProposal([
+    { id: "x", kind: "goLive", summary: "", payload, status: "pending" },
+  ]);
+  const summary = checklistSummary(checks);
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="text-xs text-muted-foreground">
+        {summary.total > 0
+          ? `All ${summary.total} validation check(s) passed. Approving switches your WhatsApp assistant live for customers.`
+          : "Approving switches your WhatsApp assistant live for customers."}
+      </p>
+      {checks.length > 0 && (
+        <ul className="space-y-1">
+          {checks.map((c, i) => (
+            <li key={`${c.name}-${i}`} className="flex items-start gap-1.5 text-xs">
+              <Check className={`mt-0.5 h-3 w-3 shrink-0 ${c.ok ? "text-emerald-400" : "text-red-400"}`} />
+              <span>
+                {c.name}
+                {c.detail && <span className="text-muted-foreground"> — {c.detail}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export function ProposalPreview({ proposal }: { proposal: CopilotProposal }) {
   switch (proposal.kind) {
+    case "goLive":
+      return <GoLivePreview payload={proposal.payload} />;
     case "waMenu":
       return <WaMenuPreview payload={proposal.payload} />;
     case "branding":
@@ -105,6 +139,8 @@ export function ProposalCard({
   const kind = proposalKindMeta(proposal.kind);
   const status = proposalStatusMeta(proposal.status);
   const isPending = proposal.status === "pending";
+  // goLive proposals cannot be edited (backend checkpoint) — approve/reject only.
+  const editable = isPending && proposal.kind !== "goLive";
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
 
@@ -141,12 +177,14 @@ export function ProposalCard({
           <div className="flex flex-wrap gap-2 pt-1">
             <Button size="sm" disabled={busy} onClick={() => onDecide({ proposalId: proposal.id, approve: true })}>
               {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
-              Approve
+              {proposal.kind === "goLive" ? "Go live" : "Approve"}
             </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={startEdit}>
-              <Pencil className="mr-1 h-3.5 w-3.5" />
-              Edit
-            </Button>
+            {proposal.kind !== "goLive" && (
+              <Button size="sm" variant="outline" disabled={busy} onClick={startEdit}>
+                <Pencil className="mr-1 h-3.5 w-3.5" />
+                Edit
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -159,7 +197,7 @@ export function ProposalCard({
             </Button>
           </div>
         )}
-        {isPending && editing && (
+        {editable && editing && (
           <div className="space-y-2 pt-1">
             <p className="text-xs text-muted-foreground">
               Edit the JSON below, or replace it with plain-language feedback (sent as an admin note).

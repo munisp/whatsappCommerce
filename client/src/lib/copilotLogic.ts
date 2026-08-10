@@ -23,7 +23,10 @@ export type CopilotState =
   | "failed"
   | "abandoned";
 
-export type ProposalKind = "waMenu" | "branding" | "useCases" | "integrations";
+/** 'goLive' is the terminal checkpoint proposal emitted when validation passes. */
+export type ProposalKind = "waMenu" | "branding" | "useCases" | "integrations" | "goLive";
+
+export const PROPOSAL_KINDS: readonly ProposalKind[] = ["waMenu", "branding", "useCases", "integrations", "goLive"];
 
 export type ProposalStatus = "pending" | "approved" | "rejected" | "edited";
 
@@ -101,6 +104,8 @@ export function proposalKindMeta(kind: string): { label: string; className: stri
       return { label: "Use cases", className: "border-sky-500/40 text-sky-400" };
     case "integrations":
       return { label: "Integrations", className: "border-amber-500/40 text-amber-400" };
+    case "goLive":
+      return { label: "Go live", className: "border-emerald-500/40 text-emerald-400" };
     default:
       return { label: kind.replace(/_/g, " ") || "Proposal", className: "border-border text-muted-foreground" };
   }
@@ -112,9 +117,7 @@ export function groupProposalsByKind(
 ): Partial<Record<ProposalKind, CopilotProposal[]>> {
   const out: Partial<Record<ProposalKind, CopilotProposal[]>> = {};
   for (const p of proposals ?? []) {
-    const kind = (["waMenu", "branding", "useCases", "integrations"] as const).includes(p.kind as ProposalKind)
-      ? (p.kind as ProposalKind)
-      : undefined;
+    const kind = PROPOSAL_KINDS.includes(p.kind as ProposalKind) ? (p.kind as ProposalKind) : undefined;
     if (!kind) continue;
     (out[kind] ??= []).push(p);
   }
@@ -209,6 +212,8 @@ export function checklistSummary(checks: ValidationCheck[]): ChecklistSummary {
 
 const CHECK_PASS_RE = /^(?:✅|✓|\[pass(?:ed)?\]|pass(?:ed)?:)\s*(.+)$/i;
 const CHECK_FAIL_RE = /^(?:❌|✗|✕|\[fail(?:ed)?\]|fail(?:ed)?:)\s*(.+)$/i;
+/** Real backend repair anchor: system line "validation failed (round N): r1 | r2". */
+const VALIDATION_FAILED_RE = /^validation failed\b(?:\s*\(round\s*\d+\))?\s*:?\s*(.*)$/i;
 
 function parseCheckLine(text: string): ValidationCheck | null {
   const trimmed = text.trim();
@@ -229,11 +234,40 @@ function splitCheckDetail(body: string, ok: boolean): ValidationCheck {
 }
 
 /**
- * Validation checks for the checklist panel: prefer the explicit `checks`
- * array from getSession; otherwise derive them from ✅/❌-prefixed lines in
- * the transcript (agent or system messages). Never throws.
+ * Checks carried by a goLive proposal payload: { checks: [{check, ok, detail?}] }.
+ * Newest (last) goLive proposal wins. Returns [] when none.
  */
-export function extractValidationChecks(session: Pick<CopilotSessionDetail, "transcript" | "checks"> | null | undefined): ValidationCheck[] {
+export function checksFromGoLiveProposal(proposals: CopilotProposal[] | null | undefined): ValidationCheck[] {
+  const goLive = [...(proposals ?? [])].reverse().find((p) => p.kind === "goLive");
+  const checks = goLive ? asRecord(goLive.payload).checks : undefined;
+  if (!Array.isArray(checks)) return [];
+  return checks
+    .filter((c) => c && typeof c === "object")
+    .map((c) => {
+      const r = c as Record<string, unknown>;
+      return {
+        // Backend ValidationCheckResult uses `check`; tolerate `name` too.
+        name: String(r.check ?? r.name ?? "Check"),
+        ok: Boolean(r.ok),
+        detail: r.detail != null ? String(r.detail) : null,
+      };
+    });
+}
+
+/**
+ * Validation checks for the checklist panel, in priority order:
+ *  1. an explicit `checks` array (forward-compatible),
+ *  2. the newest goLive proposal's payload checks (all-pass report),
+ *  3. failed checks parsed from "validation failed (round N): …" system lines,
+ *  4. ✅/❌-prefixed transcript lines (defensive fallback).
+ * Never throws.
+ */
+export function extractValidationChecks(
+  session:
+    | { transcript?: TranscriptMessage[]; checks?: ValidationCheck[]; proposals?: CopilotProposal[] }
+    | null
+    | undefined,
+): ValidationCheck[] {
   if (!session) return [];
   if (Array.isArray(session.checks) && session.checks.length > 0) {
     return session.checks.map((c) => ({
@@ -242,10 +276,28 @@ export function extractValidationChecks(session: Pick<CopilotSessionDetail, "tra
       detail: c?.detail != null ? String(c.detail) : null,
     }));
   }
+  const fromProposal = checksFromGoLiveProposal(session.proposals);
+  if (fromProposal.length > 0) return fromProposal;
   const out: ValidationCheck[] = [];
   for (const m of session.transcript ?? []) {
     if (m.role === "user") continue;
-    for (const line of String(m.text ?? "").split("\n")) {
+    const text = String(m.text ?? "");
+    const failedMatch = VALIDATION_FAILED_RE.exec(text.trim());
+    if (failedMatch && m.role === "system") {
+      // "validation failed (round 2): whatsapp:waba: Graph 403 | integration:odoo: timeout"
+      for (const reason of (failedMatch[1] ?? "").split("|")) {
+        const r = reason.trim();
+        if (!r) continue;
+        const [check, ...rest] = r.split(": ");
+        out.push({
+          name: check.trim() || "validation",
+          ok: false,
+          detail: rest.length ? rest.join(": ").trim() : null,
+        });
+      }
+      continue;
+    }
+    for (const line of text.split("\n")) {
       const check = parseCheckLine(line);
       if (check) out.push(check);
     }
@@ -254,32 +306,32 @@ export function extractValidationChecks(session: Pick<CopilotSessionDetail, "tra
 }
 
 /**
- * Repair guidance for a failed validation: text of agent/system messages
- * that follow the first failed check line and look like guidance
- * ("repair", "fix", "retry", "please ..."). Most recent first.
+ * Repair guidance for a failed validation. Anchors on the LAST failure
+ * marker — a system "validation failed (round N): …" line (real backend
+ * format) or a ❌-prefixed line — and returns the agent messages that follow
+ * it (the backend's targeted repair questions), verbatim.
  */
 export function repairGuidance(transcript: TranscriptMessage[]): string[] {
   const msgs = transcript ?? [];
-  let firstFailIdx = -1;
+  let anchorIdx = -1;
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i];
     if (m.role === "user") continue;
-    if (String(m.text ?? "").split("\n").some((l) => CHECK_FAIL_RE.test(l.trim()))) {
-      firstFailIdx = i;
-      break;
+    const text = String(m.text ?? "").trim();
+    if (
+      (m.role === "system" && VALIDATION_FAILED_RE.test(text)) ||
+      text.split("\n").some((l) => CHECK_FAIL_RE.test(l.trim()))
+    ) {
+      anchorIdx = i; // keep scanning — last failure round wins
     }
   }
-  if (firstFailIdx === -1) return [];
-  const GUIDANCE_RE = /\b(repair|fix|retry|re-?run|please|check your|update|provide)\b/i;
+  if (anchorIdx === -1) return [];
   const out: string[] = [];
-  for (let i = msgs.length - 1; i >= firstFailIdx; i--) {
+  for (let i = anchorIdx + 1; i < msgs.length; i++) {
     const m = msgs[i];
-    if (m.role === "user") continue;
-    const lines = String(m.text ?? "")
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l && !CHECK_FAIL_RE.test(l) && !CHECK_PASS_RE.test(l) && GUIDANCE_RE.test(l));
-    out.unshift(...lines);
+    if (m.role !== "agent") continue;
+    const text = String(m.text ?? "").trim();
+    if (text) out.push(text);
   }
   return out;
 }
@@ -287,6 +339,11 @@ export function repairGuidance(transcript: TranscriptMessage[]): string[] {
 /** Go-live is offered once validation is running/done and every check passed. */
 export function canGoLive(state: string, checks: ValidationCheck[]): boolean {
   return state === "validating" && checklistSummary(checks).allPassed;
+}
+
+/** The terminal goLive checkpoint proposal awaiting a human decision, if any. */
+export function findPendingGoLiveProposal(proposals: CopilotProposal[]): CopilotProposal | null {
+  return (proposals ?? []).find((p) => p.kind === "goLive" && p.status === "pending") ?? null;
 }
 
 /** Next-step bullets for the success panel once state === "live". */
@@ -345,11 +402,18 @@ function asString(v: unknown, fallback: string): string {
   return typeof v === "string" && v.trim() ? v.trim() : fallback;
 }
 
-/** Normalize a waMenu proposal payload; missing fields become placeholders. */
+/** Backend WaMenuConfig.fallback is an enum; map it to a human sentence. */
+const WA_FALLBACK_LABELS: Record<string, string> = {
+  nlp: "Free-form messages are answered by the AI assistant.",
+  menu: "Free-form messages show the menu options again.",
+};
+
+/** Normalize a waMenu proposal payload (WaMenuConfig); missing fields become placeholders. */
 export function normalizeWaMenu(payload: unknown): WaMenuView {
   const p = asRecord(payload);
   const useCases = Array.isArray(p.useCases) ? p.useCases : [];
   const customItems = Array.isArray(p.customItems) ? p.customItems : [];
+  const fallbackRaw = asString(p.fallback, "");
   return {
     greeting: asString(p.greeting, "Hello! How can we help you today?"),
     useCases: useCases.map((u, i) => {
@@ -368,7 +432,9 @@ export function normalizeWaMenu(payload: unknown): WaMenuView {
         response: asString(r.response ?? r.text, "No response configured"),
       };
     }),
-    fallback: asString(p.fallback, "Sorry, I didn't understand that — please pick an option."),
+    fallback:
+      WA_FALLBACK_LABELS[fallbackRaw] ??
+      (fallbackRaw || "Sorry, I didn't understand that — please pick an option."),
   };
 }
 
@@ -384,30 +450,35 @@ export interface BrandKitView {
   colors: BrandKitColor[];
 }
 
-/** Normalize a branding proposal payload; logo/colors optional. */
+/**
+ * Normalize a branding proposal payload. Real backend shape (brand studio
+ * BrandKit): { logoSvgDataUri, logoUrl, primaryColor, secondaryColor,
+ * tagline, waProfileAbout? }; colors/palette arrays also tolerated.
+ */
 export function normalizeBrandKit(payload: unknown): BrandKitView {
   const p = asRecord(payload);
+  const colors: BrandKitColor[] = [];
+  const pushColor = (name: string, hex: unknown) => {
+    const h = asString(hex, "");
+    if (/^#[0-9a-fA-F]{6}$/.test(h) && !colors.some((c) => c.hex === h)) {
+      colors.push({ name, hex: h });
+    }
+  };
+  pushColor("Primary", p.primaryColor);
+  pushColor("Secondary", p.secondaryColor);
   const colorsRaw = Array.isArray(p.colors) ? p.colors : Array.isArray(p.palette) ? p.palette : [];
-  const colors: BrandKitColor[] = colorsRaw
-    .map((c, i): BrandKitColor | null => {
-      if (typeof c === "string") return /^#[0-9a-fA-F]{6}$/.test(c) ? { name: c, hex: c } : null;
-      const r = asRecord(c);
-      const hex = asString(r.hex, "");
-      if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
-      return { name: asString(r.name ?? r.role, `Color ${i + 1}`), hex };
-    })
-    .filter((c): c is BrandKitColor => c !== null);
-  const primary = asString(p.primaryColor, "");
-  if (colors.length === 0 && /^#[0-9a-fA-F]{6}$/.test(primary)) {
-    colors.push({ name: "Primary", hex: primary });
-  }
+  colorsRaw.forEach((c, i) => {
+    if (typeof c === "string") return pushColor(c, c);
+    const r = asRecord(c);
+    pushColor(asString(r.name ?? r.role, `Color ${i + 1}`), r.hex);
+  });
   const logo = typeof p.logoSvgDataUri === "string" && p.logoSvgDataUri.startsWith("data:image/")
     ? p.logoSvgDataUri
     : null;
   return {
     brandName: asString(p.brandName ?? p.name, "Your brand"),
     logoSvgDataUri: logo,
-    tagline: asString(p.tagline, ""),
+    tagline: asString(p.tagline ?? p.waProfileAbout, ""),
     colors,
   };
 }
@@ -418,17 +489,38 @@ export interface UseCaseSuggestion {
   rank: number;
 }
 
-/** Normalize a useCases proposal payload into ranked chips. */
+/** Display labels for backend use-case ids (mirror of shared/waMenu DEFAULT_WA_MENU). */
+const WA_USE_CASE_LABELS: Record<string, string> = {
+  shop: "Shop products",
+  track: "Track my order",
+  support: "Get support",
+  booking: "Book an appointment",
+  handoff: "Talk to a human",
+  procurement: "Restock / Buy supplies",
+};
+
+/**
+ * Normalize a useCases proposal payload into ranked chips. Real backend
+ * shape: { ranked: WaUseCaseId[] } (ids only); object entries with labels /
+ * rationales also tolerated.
+ */
 export function normalizeUseCases(payload: unknown): UseCaseSuggestion[] {
   const p = asRecord(payload);
-  const list = Array.isArray(p.useCases) ? p.useCases : Array.isArray(p.suggestions) ? p.suggestions : [];
+  const list = Array.isArray(p.ranked)
+    ? p.ranked
+    : Array.isArray(p.useCases)
+      ? p.useCases
+      : Array.isArray(p.suggestions)
+        ? p.suggestions
+        : [];
   return list.map((u, i) => {
     if (typeof u === "string") {
-      return { label: u, rationale: "", rank: i + 1 };
+      return { label: WA_USE_CASE_LABELS[u] ?? u, rationale: "", rank: i + 1 };
     }
     const r = asRecord(u);
+    const id = asString(r.id, "");
     return {
-      label: asString(r.label ?? r.name, `Use case ${i + 1}`),
+      label: asString(r.label ?? r.name, WA_USE_CASE_LABELS[id] ?? `Use case ${i + 1}`),
       rationale: asString(r.rationale ?? r.reason, ""),
       rank: typeof r.rank === "number" && Number.isFinite(r.rank) ? r.rank : i + 1,
     };
@@ -452,7 +544,7 @@ export function normalizeIntegrations(payload: unknown): IntegrationSuggestion[]
     const r = asRecord(it);
     return {
       provider: asString(r.provider ?? r.name ?? r.id, `Provider ${i + 1}`),
-      note: asString(r.note ?? r.why ?? r.rationale, ""),
+      note: asString(r.note ?? r.reason ?? r.why ?? r.rationale, ""),
       required: r.required === true,
     };
   });

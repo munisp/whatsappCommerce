@@ -24,18 +24,20 @@ import { ProposalCard } from "@/components/copilot/ProposalCard";
 import { StateBadge } from "@/components/copilot/StateBadge";
 import { ValidationChecklist } from "@/components/copilot/ValidationChecklist";
 import {
+  repliesToChatMessages,
+  useApproveProposal,
   useCopilotSession,
   useCopilotSessions,
-  useDecideProposal,
+  useEditProposal,
   useInvalidateCopilot,
   usePostCopilotMessage,
   useStartCopilotSession,
-  type DecideProposalInput,
 } from "@/lib/copilot";
 import {
   canGoLive,
   copilotStateMeta,
   extractValidationChecks,
+  findPendingGoLiveProposal,
   findResumableSession,
   liveNextSteps,
   mergeTranscript,
@@ -105,27 +107,28 @@ export default function OnboardingCopilot() {
 
   const post = usePostCopilotMessage({
     onSuccess: (r) => {
-      setOptimistic((prev) => [
-        ...prev,
-        ...r.replies.map((reply, i) => ({
-          key: `reply-${Date.now()}-${i}`,
-          role: "agent" as const,
-          text: reply.text,
-          proposalId: reply.proposalId ?? null,
-        })),
-      ]);
+      setOptimistic((prev) => [...prev, ...repliesToChatMessages(r.replies, "reply")]);
       if (sessionId) invalidate(sessionId);
     },
     onError: (e) => toast.error(`Message failed: ${e.message}`),
   });
 
-  const decide = useDecideProposal({
-    onSuccess: () => {
-      toast.success("Decision recorded");
-      if (sessionId) invalidate(sessionId);
-    },
-    onError: (e) => toast.error(`Decision failed: ${e.message}`),
+  const onDecideSuccess = (replies: Parameters<typeof repliesToChatMessages>[0]) => {
+    setOptimistic((prev) => [...prev, ...repliesToChatMessages(replies, "decide")]);
+    toast.success("Decision recorded");
+    if (sessionId) invalidate(sessionId);
+  };
+  const onDecideError = (e: { message: string }) => toast.error(`Decision failed: ${e.message}`);
+
+  const approve = useApproveProposal({
+    onSuccess: (r) => onDecideSuccess(r.replies),
+    onError: onDecideError,
   });
+  const edit = useEditProposal({
+    onSuccess: (r) => onDecideSuccess(r.replies),
+    onError: onDecideError,
+  });
+  const deciding = approve.isPending || edit.isPending;
 
   const send = () => {
     const text = draft.trim();
@@ -135,21 +138,31 @@ export default function OnboardingCopilot() {
     post.mutate({ sessionId, text });
   };
 
-  const onDecide = (input: Omit<DecideProposalInput, "sessionId">) => {
+  /**
+   * C1/C3 edit semantics: structured edits go to editProposal (approve:true
+   * implied; the edited payload REPLACES the proposed one after zod
+   * validation). Plain approve/reject go to approveProposal — reject carries
+   * no payload; the agent re-drafts from free-text chat feedback instead.
+   */
+  const onDecide = (input: { proposalId: string; approve: boolean; editedPayload?: Record<string, unknown> }) => {
     if (!sessionId) return;
-    decide.mutate({ sessionId, ...input });
+    if (input.editedPayload) {
+      edit.mutate({ sessionId, proposalId: input.proposalId, payload: input.editedPayload });
+    } else {
+      approve.mutate({ sessionId, proposalId: input.proposalId, approve: input.approve });
+    }
   };
 
   /**
-   * Go-live: C1 models the final step as the last pending proposal (approve
-   * it). If none is pending we fall back to an explicit "go live" chat
-   * command — adapt to a dedicated API on the backend rebase if one lands.
+   * Go-live: approve the terminal goLive checkpoint proposal (C1 contract);
+   * if it hasn't arrived yet, fall back to the literal "go live" command,
+   * which the backend also honors in the validating state.
    */
   const goLive = () => {
     if (!sessionId) return;
-    const finalPending = proposals.find((p) => p.status === "pending");
-    if (finalPending) {
-      decide.mutate({ sessionId, proposalId: finalPending.id, approve: true });
+    const checkpoint = findPendingGoLiveProposal(proposals);
+    if (checkpoint) {
+      approve.mutate({ sessionId, proposalId: checkpoint.id, approve: true });
     } else {
       setOptimistic((prev) => [...prev, { key: `user-${Date.now()}`, role: "user", text: "go live" }]);
       post.mutate({ sessionId, text: "go live" });
@@ -250,7 +263,7 @@ export default function OnboardingCopilot() {
                     renderProposal={(proposalId) => {
                       const p = proposalById.get(proposalId);
                       return p ? (
-                        <ProposalCard proposal={p} pending={decide.isPending} onDecide={onDecide} />
+                        <ProposalCard proposal={p} pending={deciding} onDecide={onDecide} />
                       ) : null;
                     }}
                   />
@@ -307,8 +320,8 @@ export default function OnboardingCopilot() {
                     <ValidationChecklist checks={checks} guidance={guidance} />
                   )}
                   {canGoLive(state, checks) && (
-                    <Button className="w-full" onClick={goLive} disabled={decide.isPending || post.isPending}>
-                      {decide.isPending ? (
+                    <Button className="w-full" onClick={goLive} disabled={deciding || post.isPending}>
+                      {deciding ? (
                         <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       ) : (
                         <Rocket className="mr-1.5 h-4 w-4" />
@@ -325,7 +338,7 @@ export default function OnboardingCopilot() {
                     Proposals ({railProposals.filter((p) => p.status === "pending").length} awaiting decision)
                   </p>
                   {railProposals.map((p) => (
-                    <ProposalCard key={p.id} proposal={p} pending={decide.isPending} onDecide={onDecide} />
+                    <ProposalCard key={p.id} proposal={p} pending={deciding} onDecide={onDecide} />
                   ))}
                 </div>
               )}
