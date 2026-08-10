@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017243977",
-      "profileName": "Sim User 3977",
+      "phone": "2348014305569",
+      "profileName": "Sim User 5569",
       "inboundId": "wamid.sim.in.text.00009",
-      "at": 1786325819520,
+      "at": 1786326429875,
       "kind": "text",
       "text": "2 jollof rice and 1 chicken"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00009",
-      "at": 1786325819527
+      "at": 1786326429881
     },
     {
       "dir": "out",
-      "phone": "2348017243977",
+      "phone": "2348014305569",
       "wamid": "wamid.sim.000009",
       "statuses": [
         "sent"
       ],
-      "at": 1786325819585,
+      "at": 1786326429922,
       "kind": "text",
       "body": "✅ 2 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348017243977",
-      "profileName": "Sim User 3977",
+      "phone": "2348014305569",
+      "profileName": "Sim User 5569",
       "inboundId": "wamid.sim.in.text.00010",
-      "at": 1786325820072,
+      "at": 1786326430423,
       "kind": "text",
       "text": "confirm my order please"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00010",
-      "at": 1786325820077
+      "at": 1786326430428
     },
     {
       "dir": "out",
-      "phone": "2348017243977",
+      "phone": "2348014305569",
       "wamid": "wamid.sim.000010",
       "statuses": [
         "sent"
       ],
-      "at": 1786325820129,
+      "at": 1786326430487,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦8,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348017243977",
-      "profileName": "Sim User 3977",
+      "phone": "2348014305569",
+      "profileName": "Sim User 5569",
       "inboundId": "wamid.sim.in.text.00011",
-      "at": 1786325820616,
+      "at": 1786326430976,
       "kind": "text",
       "text": "1"
     },
@@ -70,41 +70,41 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00011",
-      "at": 1786325820626
+      "at": 1786326430982
     },
     {
       "dir": "out",
-      "phone": "2348017243977",
+      "phone": "2348014305569",
       "wamid": "wamid.sim.000011",
       "statuses": [
         "sent"
       ],
-      "at": 1786325820703,
+      "at": 1786326431120,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MSMK9SLB*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦8,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/c252c9a2-7f2e-41ec-b4dd-bc708380fdfd\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4174/track/d7865c59-233b-4320-9200-12f6beb595a7.q3TsqQW4P_6PoSO6KWCVHxQd"
+      "body": "🧾 *Pickup Order ORD-MSMKMVKG*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦8,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/3b6f38a6-a9d2-4f73-97be-87bd619d7a1d\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4174/track/a61810a5-bc11-44e7-a141-febebc9a3dfc.MxOSmPSYYAj8ciasuW8TwGOz"
     },
     {
       "dir": "out",
-      "phone": "2348017243977",
+      "phone": "2348014305569",
       "wamid": "wamid.sim.000012",
       "statuses": [
         "sent"
       ],
-      "at": 1786325820721,
+      "at": 1786326431126,
       "kind": "interactive",
-      "body": "Order ORD-MSMK9SLB — manage it here:",
+      "body": "Order ORD-MSMKMVKG — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:d7865c59-233b-4320-9200-12f6beb595a7",
+          "id": "order_track:a61810a5-bc11-44e7-a141-febebc9a3dfc",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:d7865c59-233b-4320-9200-12f6beb595a7",
+          "id": "order_pay:a61810a5-bc11-44e7-a141-febebc9a3dfc",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:d7865c59-233b-4320-9200-12f6beb595a7",
+          "id": "order_cancel:a61810a5-bc11-44e7-a141-febebc9a3dfc",
           "title": "Cancel Order"
         }
       ]

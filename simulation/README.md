@@ -8,7 +8,7 @@ edges (Meta Cloud API, LLM, Whisper, Paystack/Flutterwave, Keycloak) mocked.
 
 ```bash
 npm install --legacy-peer-deps --ignore-scripts
-npm run simulate                 # all 30 journeys
+npm run simulate                 # all 38 journeys
 npx tsx simulation/runner.ts j03 j18   # subset by id
 npm test                         # vitest: unit tests + simulation wrapper
 ```
@@ -45,6 +45,21 @@ template fallback), delivery-status callbacks + retry/dead-letter cron,
 read receipts, webhook dedupe, disputes → admin alert, USSD (CON/END),
 Meta catalog upsert/delete, contact provisioning.
 
+Wave 8 (J31–J38) adds a second tenant to the world — "Lagos Plastics
+Manufacturing" (supplier_profile, wholesale products + price tier, own
+phone-number id/admin phone) plus a ₦500,000 net-14 trade-credit account
+with the buyer tenant — and covers: procurement menu browse (supplier
+directory + wholesale catalog with MOQ/min-qty), PO build → submit →
+supplier approval card, approve → credit draw → invoiced + ledger,
+over-limit refusal → buyer fallback, pay-now PO → Paystack link → webhook
+settle (replay-safe), partial credit repayment (dedupe-claimed), dunning
+milestones (idempotent reminders, 2% late fee once), and the +7d default
+freeze (new draws refused).
+
+The fetch mock also serves the **ledger-bridge** service
+(`payment.initiate`'s 2-phase reserve), so PO payment links run the real
+initiation path.
+
 ## Prod bugs found by this suite (fixed surgically)
 
 1. **`server/services/useCases.ts`** — the numeric menu selector hijacked
@@ -57,6 +72,24 @@ Meta catalog upsert/delete, contact provisioning.
    back to the raw value.
 3. **`server/services/useCases.ts`** — the "Pay Now" order action resent the
    checkout link for **cancelled** orders; now refused.
+
+Wave 8 (found by J34/J35/J36):
+
+4. **`server/services/tradeCredit/draw.ts`** — the guard-failure
+   classification re-read inside `drawOnCreditTx` queried via `db` instead
+   of `tx` while the transaction still held its connection (and the row
+   lock): with a single-connection pool the over-limit path **self-deadlocked**
+   and the supplier's Approve tap hung forever. Now reads through `tx`.
+5. **`server/services/tradeCredit/repayment.ts`** — same `db`/`tx` mixup in
+   `applyRepaymentTx`'s over-repayment refusal path; now reads through `tx`.
+6. **`server/services/paymentConfirm.ts`** — wave-8 payment intents
+   (`po_payment`, `credit_repayment`) reuse `paymentIntents.orderId` for
+   non-storefront references (PO / credit-account uuids), but
+   `confirmProviderPayment` treated every `orderId` as an `orders.id`: the
+   escrow-hold insert violated the `escrow_transactions_order_id_orders_id_fk`
+   FK and the webhook 500'd **before** the PO-settle / repayment hooks ran.
+   Order confirmation now only fires for references that really are orders
+   rows.
 
 ## Rules
 
