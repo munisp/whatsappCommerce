@@ -23,7 +23,7 @@ export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 /** Any handle exposing the drizzle mutation/query surface (db or tx). */
 export type TxHandle = Pick<DbHandle, "select" | "insert" | "update" | "execute" | "transaction">;
 
-export type CreditAccountStatus = "active" | "frozen" | "closed";
+export type CreditAccountStatus = "pending" | "active" | "frozen" | "closed";
 export type CreditLedgerKind = "invoice_draw" | "repayment" | "fee" | "adjustment";
 
 export class CreditAccountExistsError extends Error {
@@ -94,6 +94,69 @@ export async function createCreditAccountTx(
     })
     .returning();
   return row;
+}
+
+/**
+ * Buyer-initiated facility request: creates the (supplier, buyer) account in
+ * 'pending' status with a zero limit. A pending account is inert — the
+ * drawOnCredit claim requires status='active' (draw.ts), so the buyer can
+ * NEVER draw against it until the supplier approves. The supplier sees the
+ * pending row in listAccounts and flips it active via approveCreditAccountTx
+ * (setting limit/terms at the same time). Same UNIQUE-pair dedupe as
+ * createCreditAccountTx — a repeat request (or an existing active facility)
+ * surfaces CreditAccountExistsError.
+ */
+export async function requestCreditAccountTx(
+  db: TxHandle,
+  args: {
+    supplierTenantId: string;
+    buyerTenantId: string;
+  },
+): Promise<CreditAccount> {
+  const existing = await getCreditAccountTx(db, args.supplierTenantId, args.buyerTenantId);
+  if (existing) throw new CreditAccountExistsError(args.supplierTenantId, args.buyerTenantId);
+  const [row] = await db
+    .insert(creditAccounts)
+    .values({
+      supplierTenantId: args.supplierTenantId,
+      buyerTenantId: args.buyerTenantId,
+      limitCents: 0,
+      status: "pending",
+    })
+    .returning();
+  return row;
+}
+
+/**
+ * Supplier approves a pending facility: claim-first UPDATE that only matches
+ * when the account belongs to `supplierTenantId` AND is still 'pending'
+ * (so double-approve / approve-after-close is a no-op returning null).
+ * Optionally sets the limit and terms in the same statement.
+ */
+export async function approveCreditAccountTx(
+  db: TxHandle,
+  args: {
+    accountId: string;
+    supplierTenantId: string;
+    limitCents?: number;
+    termsDays?: number;
+  },
+): Promise<CreditAccount | null> {
+  const set: Record<string, unknown> = { status: "active", updatedAt: new Date() };
+  if (args.limitCents !== undefined) set.limitCents = Math.max(0, Math.round(args.limitCents));
+  if (args.termsDays !== undefined) set.termsDays = args.termsDays;
+  const [row] = await db
+    .update(creditAccounts)
+    .set(set)
+    .where(
+      and(
+        eq(creditAccounts.id, args.accountId),
+        eq(creditAccounts.supplierTenantId, args.supplierTenantId),
+        eq(creditAccounts.status, "pending"),
+      ),
+    )
+    .returning();
+  return row ?? null;
 }
 
 /**

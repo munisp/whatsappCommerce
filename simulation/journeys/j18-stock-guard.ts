@@ -66,17 +66,33 @@ export const journey: Journey = {
         (o.items as any[]).some((i) => i.productId === "p-lastunit" || i.name === "Last Unit Special"),
       );
     };
-    await world.waitFor(async () => (await countLastUnitOrders()).length >= 1, 12000, "one racer created an order");
-    await world.settle(1500); // let the loser's shortage reply land
+    await world.waitFor(async () => (await countLastUnitOrders()).length >= 1, 20000, "one racer created an order");
+
+    // Identify the loser from the single winning order…
+    const winner = (await countLastUnitOrders())[0].customerId;
+    const loser = winner === phoneA ? phoneB : phoneA;
+
+    // Event-based loser-reply assertion — NO fixed settle: under full-suite
+    // load the loser's confirm turn is scheduled behind the winner's payment
+    // flow, so a fixed 1.5s settle + short poll intermittently timed out even
+    // though the reply always arrived. Poll the outbound log until the
+    // shortage reply actually lands (still proves the SAME thing: the loser
+    // is told about the stock shortage, offered NOTIFY ME, and never gets a
+    // payment link).
+    await world.waitFor(
+      () => world.outbound.toPhone(loser).map((c) => bodyText(c)).join("\n").includes("stock"),
+      30000,
+      "loser shortage reply",
+    );
+
+    // Both racers' turns have now quiesced — re-count at quiescence so the
+    // exactly-one invariant is checked after BOTH flows finished, not mid-race.
     const lastUnitOrders = await countLastUnitOrders();
     assert(lastUnitOrders.length === 1, `exactly one order won the last unit (got ${lastUnitOrders.length})`);
 
     const [prod] = await world.db.select().from(schema.products).where(eq(schema.products.id, "p-lastunit")).limit(1);
     assert(prod.stockQuantity === 0, `stock is 0 after the race (got ${prod.stockQuantity}) — never negative`);
 
-    const winner = lastUnitOrders[0].customerId;
-    const loser = winner === phoneA ? phoneB : phoneA;
-    await world.waitFor(() => world.outbound.toPhone(loser).map((c) => bodyText(c)).join("\n").includes("stock"), 10000, "loser shortage reply");
     const loserReplies = world.outbound.toPhone(loser).map((c) => bodyText(c)).join("\n");
     assertIncludes(loserReplies, "stock", "loser gets a shortage reply");
     assertIncludes(loserReplies, "NOTIFY ME", "shortage reply offers the waitlist");

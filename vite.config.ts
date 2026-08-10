@@ -167,6 +167,19 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Split heavy vendor libs out of the app chunks: the map and chart
+        // stacks are only fetched by routes that actually import them.
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("maplibre-gl") || id.includes("@maplibre")) return "vendor-map";
+          if (id.includes("recharts") || id.includes("d3-")) return "vendor-charts";
+          if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return "vendor-react";
+          return undefined;
+        },
+      },
+    },
   },
   server: {
     host: true,

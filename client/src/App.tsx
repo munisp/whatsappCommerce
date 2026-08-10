@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -6,70 +8,111 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
-import Tenants from "./pages/Tenants";
-import TenantDetail from "./pages/TenantDetail";
-import Products from "./pages/Products";
-import Conversations from "./pages/Conversations";
-import Orders from "./pages/Orders";
-import OrderTimeline from "./pages/OrderTimeline";
-import Payments from "./pages/Payments";
-import AgentConsole from "./pages/AgentConsole";
-import ServiceHealth from "./pages/ServiceHealth";
-import TwentyCRM from "./pages/TwentyCRM";
-import OdooERP from "./pages/OdooERP";
-import MenuBuilder from "./pages/MenuBuilder";
-import IntegrationHub from "./pages/IntegrationHub";
-import TemplateLibrary from "./pages/TemplateLibrary";
-import TenantMenuAssignment from "./pages/TenantMenuAssignment";
-import CredentialWizard from "./pages/CredentialWizard";
-import TemplateVersions from "./pages/TemplateVersions";
-import BroadcastCampaigns from "./pages/BroadcastCampaigns";
-import InventorySync from "./pages/InventorySync";
-import TenantOnboarding from "./pages/TenantOnboarding";
-import AgentArchitecture from "./pages/AgentArchitecture";
-import NLPSimulator from "./pages/NLPSimulator";
-import TrackOrder from "./pages/TrackOrder";
-import Invoices from "./pages/Invoices";
 import PortalMagicLogin from "@/pages/portal/PortalMagicLogin";
-import PortalDashboard from "./pages/portal/PortalDashboard";
-import PortalProducts from "./pages/portal/PortalProducts";
-import PortalOrders from "./pages/portal/PortalOrders";
-import PortalInvoices from "./pages/portal/PortalInvoices";
-import PortalSettings from "./pages/portal/PortalSettings";
-import PortalConversations from "./pages/portal/PortalConversations";
-import PortalPayments from "./pages/portal/PortalPayments";
-import DeployChecklist from "./pages/DeployChecklist";
-import MLOpsDashboard from "./pages/MLOpsDashboard";
-import ReconciliationSim from "./pages/ReconciliationSim";
-import AlertRules from "./pages/AlertRules";
-import SsoCallback from "./pages/portal/SsoCallback";
-import CogsDisputes from "./pages/CogsDisputes";
-import SsoUsers from "./pages/SsoUsers";
-import RevenueDashboard from "./pages/RevenueDashboard";
-import EscrowDashboard from "./pages/EscrowDashboard";
-import LogisticsTracker from "./pages/LogisticsTracker";
-import DisputeManagement from "./pages/DisputeManagement";
-import PortalWallet from "./pages/portal/PortalWallet";
-import OnboardingWizard from "./pages/portal/OnboardingWizard";
-import EvidencePortal from "./pages/EvidencePortal";
-import MerchantAnalytics from "./pages/portal/MerchantAnalytics";
-import PortalBroadcasts from "./pages/portal/PortalBroadcasts";
-import AuditLog from "./pages/AuditLog";
-import WaMenuBuilder from "./pages/WaMenuBuilder";
-import TenantOnboardingWizard from "./pages/TenantOnboardingWizard";
-import IntegrationsSettings from "./pages/IntegrationsSettings";
-import TenantSettings from "./pages/TenantSettings";
-import LiveLogisticsMap from "./pages/LiveLogisticsMap";
-import HealthStatus from "./pages/HealthStatus";
-import AuditLogViewer from "./pages/AuditLogViewer";
-import WaTemplates from "./pages/WaTemplates";
-import SupplierDirectory from "./pages/SupplierDirectory";
-import ProcurementHub from "./pages/ProcurementHub";
-import CreditAccounts from "./pages/CreditAccounts";
-import SupplierApprovals from "./pages/SupplierApprovals";
+
+// Route-level code splitting: every non-essential page is a lazy chunk so
+// the initial bundle only carries the shell + dashboard/login. Heavy routes
+// (LiveLogisticsMap/maplibre, OnboardingCopilot, admin/analytics pages) load on demand.
+const Tenants = lazy(() => import("./pages/Tenants"));
+const TenantDetail = lazy(() => import("./pages/TenantDetail"));
+const Products = lazy(() => import("./pages/Products"));
+const Conversations = lazy(() => import("./pages/Conversations"));
+const Orders = lazy(() => import("./pages/Orders"));
+const OrderTimeline = lazy(() => import("./pages/OrderTimeline"));
+const Payments = lazy(() => import("./pages/Payments"));
+const AgentConsole = lazy(() => import("./pages/AgentConsole"));
+const ServiceHealth = lazy(() => import("./pages/ServiceHealth"));
+const TwentyCRM = lazy(() => import("./pages/TwentyCRM"));
+const OdooERP = lazy(() => import("./pages/OdooERP"));
+const MenuBuilder = lazy(() => import("./pages/MenuBuilder"));
+const IntegrationHub = lazy(() => import("./pages/IntegrationHub"));
+const TemplateLibrary = lazy(() => import("./pages/TemplateLibrary"));
+const TenantMenuAssignment = lazy(() => import("./pages/TenantMenuAssignment"));
+const CredentialWizard = lazy(() => import("./pages/CredentialWizard"));
+const TemplateVersions = lazy(() => import("./pages/TemplateVersions"));
+const BroadcastCampaigns = lazy(() => import("./pages/BroadcastCampaigns"));
+const InventorySync = lazy(() => import("./pages/InventorySync"));
+const TenantOnboarding = lazy(() => import("./pages/TenantOnboarding"));
+const AgentArchitecture = lazy(() => import("./pages/AgentArchitecture"));
+const NLPSimulator = lazy(() => import("./pages/NLPSimulator"));
+const TrackOrder = lazy(() => import("./pages/TrackOrder"));
+const Invoices = lazy(() => import("./pages/Invoices"));
+const PortalDashboard = lazy(() => import("./pages/portal/PortalDashboard"));
+const PortalProducts = lazy(() => import("./pages/portal/PortalProducts"));
+const PortalOrders = lazy(() => import("./pages/portal/PortalOrders"));
+const PortalInvoices = lazy(() => import("./pages/portal/PortalInvoices"));
+const PortalSettings = lazy(() => import("./pages/portal/PortalSettings"));
+const PortalConversations = lazy(() => import("./pages/portal/PortalConversations"));
+const PortalPayments = lazy(() => import("./pages/portal/PortalPayments"));
+const DeployChecklist = lazy(() => import("./pages/DeployChecklist"));
+const MLOpsDashboard = lazy(() => import("./pages/MLOpsDashboard"));
+const ReconciliationSim = lazy(() => import("./pages/ReconciliationSim"));
+const AlertRules = lazy(() => import("./pages/AlertRules"));
+const SsoCallback = lazy(() => import("./pages/portal/SsoCallback"));
+const CogsDisputes = lazy(() => import("./pages/CogsDisputes"));
+const SsoUsers = lazy(() => import("./pages/SsoUsers"));
+const RevenueDashboard = lazy(() => import("./pages/RevenueDashboard"));
+const EscrowDashboard = lazy(() => import("./pages/EscrowDashboard"));
+const LogisticsTracker = lazy(() => import("./pages/LogisticsTracker"));
+const DisputeManagement = lazy(() => import("./pages/DisputeManagement"));
+const PortalWallet = lazy(() => import("./pages/portal/PortalWallet"));
+const OnboardingWizard = lazy(() => import("./pages/portal/OnboardingWizard"));
+const EvidencePortal = lazy(() => import("./pages/EvidencePortal"));
+const MerchantAnalytics = lazy(() => import("./pages/portal/MerchantAnalytics"));
+const PortalBroadcasts = lazy(() => import("./pages/portal/PortalBroadcasts"));
+const AuditLog = lazy(() => import("./pages/AuditLog"));
+const WaMenuBuilder = lazy(() => import("./pages/WaMenuBuilder"));
+const TenantOnboardingWizard = lazy(() => import("./pages/TenantOnboardingWizard"));
+const IntegrationsSettings = lazy(() => import("./pages/IntegrationsSettings"));
+const TenantSettings = lazy(() => import("./pages/TenantSettings"));
+const LiveLogisticsMap = lazy(() => import("./pages/LiveLogisticsMap"));
+const HealthStatus = lazy(() => import("./pages/HealthStatus"));
+const AuditLogViewer = lazy(() => import("./pages/AuditLogViewer"));
+const WaTemplates = lazy(() => import("./pages/WaTemplates"));
+const SupplierDirectory = lazy(() => import("./pages/SupplierDirectory"));
+const ProcurementHub = lazy(() => import("./pages/ProcurementHub"));
+const CreditAccounts = lazy(() => import("./pages/CreditAccounts"));
+const SupplierApprovals = lazy(() => import("./pages/SupplierApprovals"));
+const WhatsAppMediaPortal = lazy(() => import("./pages/WhatsAppMediaPortal"));
+const SlaExtensionResponse = lazy(() => import("./pages/SlaExtensionResponse"));
+const OperatorTemplates = lazy(() => import("./pages/OperatorTemplates"));
+const B2BPortal = lazy(() => import("./pages/B2BPortal"));
+const MultiChannelHub = lazy(() => import("./pages/MultiChannelHub"));
+const MarketplacePortal = lazy(() => import("./pages/MarketplacePortal"));
+const MobileMoneyPortal = lazy(() => import("./pages/MobileMoneyPortal"));
+const ServiceCommercePage = lazy(() => import("./pages/ServiceCommercePage"));
+const AnalyticsBIDashboard = lazy(() => import("./pages/AnalyticsBIDashboard"));
+const CompliancePortal = lazy(() => import("./pages/CompliancePortal"));
+const MedusaIntegration = lazy(() => import("./pages/MedusaIntegration"));
+const WebhookDLQ = lazy(() => import("./pages/WebhookDLQ"));
+const UnifiedOnboarding = lazy(() => import("./pages/UnifiedOnboarding"));
+const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
+const VisualInventory = lazy(() => import("./pages/VisualInventory"));
+const MedusaOnboarding = lazy(() => import("./pages/MedusaOnboarding"));
+const OdooMedusaBridge = lazy(() => import("./pages/OdooMedusaBridge"));
+const LabelStudioPipe = lazy(() => import("./pages/LabelStudioPipe"));
+const FmcgTaxonomy = lazy(() => import("./pages/FmcgTaxonomy"));
+const ProductImageCollector = lazy(() => import("./pages/ProductImageCollector"));
+const ScanStatsDashboard = lazy(() => import("./pages/ScanStatsDashboard"));
+const TenantAnalytics = lazy(() => import("./pages/TenantAnalytics"));
+const HermesDashboard = lazy(() => import("./pages/HermesDashboard"));
+const PhoneAuthPage = lazy(() => import("./pages/PhoneAuthPage"));
+const WhatsAppProfilePage = lazy(() => import("./pages/WhatsAppProfilePage"));
+const InfraHealth = lazy(() => import("./pages/InfraHealth"));
+const AdminPortal = lazy(() => import("./pages/AdminPortal"));
+const OnboardingCopilot = lazy(() => import("./pages/OnboardingCopilot"));
+
+function RouteFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-[60vh]" aria-label="Loading page">
+      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+    </div>
+  );
+}
 
 function Router() {
   return (
+    <Suspense fallback={<RouteFallback />}>
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
@@ -167,6 +210,7 @@ function Router() {
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
+    </Suspense>
   );
 }
 
@@ -184,31 +228,3 @@ function App() {
 }
 
 export default App;
-import WhatsAppMediaPortal from "./pages/WhatsAppMediaPortal";
-import SlaExtensionResponse from "./pages/SlaExtensionResponse";
-import OperatorTemplates from "./pages/OperatorTemplates";
-import B2BPortal from "./pages/B2BPortal";
-import MultiChannelHub from "./pages/MultiChannelHub";
-import MarketplacePortal from "./pages/MarketplacePortal";
-import MobileMoneyPortal from "./pages/MobileMoneyPortal";
-import ServiceCommercePage from "./pages/ServiceCommercePage";
-import AnalyticsBIDashboard from "./pages/AnalyticsBIDashboard";
-import CompliancePortal from "./pages/CompliancePortal";
-import MedusaIntegration from "./pages/MedusaIntegration";
-import WebhookDLQ from "./pages/WebhookDLQ";
-import UnifiedOnboarding from "./pages/UnifiedOnboarding";
-import IntegrationHealth from "./pages/IntegrationHealth";
-import VisualInventory from "./pages/VisualInventory";
-import MedusaOnboarding from "./pages/MedusaOnboarding";
-import OdooMedusaBridge from "./pages/OdooMedusaBridge";
-import LabelStudioPipe from "./pages/LabelStudioPipe";
-import FmcgTaxonomy from "./pages/FmcgTaxonomy";
-import ProductImageCollector from "./pages/ProductImageCollector";
-import ScanStatsDashboard from "./pages/ScanStatsDashboard";
-import TenantAnalytics from "./pages/TenantAnalytics";
-import HermesDashboard from "./pages/HermesDashboard";
-import PhoneAuthPage from "./pages/PhoneAuthPage";
-import WhatsAppProfilePage from "./pages/WhatsAppProfilePage";
-import InfraHealth from "./pages/InfraHealth";
-import AdminPortal from "./pages/AdminPortal";
-import OnboardingCopilot from "./pages/OnboardingCopilot";

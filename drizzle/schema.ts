@@ -2915,7 +2915,7 @@ export const creditAccounts = pgTable("credit_accounts", {
   limitCents: bigint("limit_cents", { mode: "number" }).notNull().default(0),
   outstandingCents: bigint("outstanding_cents", { mode: "number" }).notNull().default(0),
   termsDays: integer("terms_days").notNull().default(30),
-  status: varchar("status", { length: 20 }).notNull().default("active"), // 'active' | 'frozen' | 'closed'
+  status: varchar("status", { length: 20 }).notNull().default("active"), // 'pending' | 'active' | 'frozen' | 'closed'
   score: integer("score"),
   scoreReasons: jsonb("score_reasons"), // string[] human-readable scoring rationale
   createdAt: timestamp("created_at").defaultNow().notNull(),

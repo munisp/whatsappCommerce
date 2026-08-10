@@ -116,21 +116,20 @@ export async function confirmProviderPayment(
   // the wallet top-up pattern: runs on the claim-first success path AND on
   // replay/race paths, but runCreditRepaymentHook claims the
   // processed_webhook_events dedupe ledger before applying, so a replayed
-  // webhook can never double-apply. Failures are logged, never thrown — the
-  // payment itself is already confirmed.
+  // webhook can never double-apply. The hook NEVER throws — it returns
+  // { applied, reason } — the payment itself is already confirmed.
   const maybeApplyCreditRepayment = async () => {
     if (kind !== "intent" || intentMetadata?.kind !== "credit_repayment") return;
-    try {
-      const { runCreditRepaymentHook } = await import("./creditRepayLink");
-      await runCreditRepaymentHook(db, {
-        tenantId,
-        reference,
-        amountMajor: expectedAmount,
-        metadata: intentMetadata,
-      });
-    } catch (err: any) {
-      console.error(`[payment-confirm] credit repayment hook failed for ref=${reference}:`, err?.message);
-      captureException(err, {
+    const { runCreditRepaymentHook } = await import("./creditRepayLink");
+    const result = await runCreditRepaymentHook(db, {
+      tenantId,
+      reference,
+      amountMajor: expectedAmount,
+      metadata: intentMetadata,
+    });
+    if (!result.applied && result.reason !== "duplicate") {
+      console.warn(`[payment-confirm] credit repayment not applied for ref=${reference}: ${result.reason ?? "unknown"}`);
+      captureException(new Error(`credit repayment hook: ${result.reason ?? "unknown"}`), {
         service: "paymentConfirm",
         operation: "creditRepaymentHook",
         tenantId,

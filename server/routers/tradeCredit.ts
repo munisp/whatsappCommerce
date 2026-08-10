@@ -15,11 +15,13 @@ import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
+  approveCreditAccountTx,
   createCreditAccountTx,
   getCreditAccountByIdTx,
   getCreditAccountTx,
   listCreditAccountsWithAgingTx,
   listLedgerTx,
+  requestCreditAccountTx,
   requestLimitIncreaseTx,
   setCreditAccountStatusTx,
   updateCreditAccountTx,
@@ -109,6 +111,28 @@ export const tradeCreditRouter = router({
       return row;
     }),
 
+  /**
+   * Approve a buyer-requested ('pending') facility: flips it to 'active',
+   * optionally setting limit/terms in the same claim-first statement.
+   * Only matches accounts the supplier owns that are still pending.
+   */
+  approveAccount: protectedProcedure
+    .input(z.object({
+      supplierTenantId: z.string().min(1),
+      accountId: z.string().min(1),
+      limitCents: z.number().int().min(0).optional(),
+      termsDays: z.number().int().min(1).max(365).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.supplierTenantId);
+      const db = await requireDb();
+      const row = await approveCreditAccountTx(db, input);
+      if (!row) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Pending credit account not found" });
+      }
+      return row;
+    }),
+
   /** Portfolio list with aging buckets. */
   listAccounts: protectedProcedure
     .input(z.object({ supplierTenantId: z.string().min(1) }))
@@ -171,6 +195,31 @@ export const tradeCreditRouter = router({
     }),
 
   // ── Buyer-side ───────────────────────────────────────────────────────────
+
+  /**
+   * Buyer asks a supplier to open a credit facility: creates the account in
+   * 'pending' status (zero limit — cannot be drawn on until the supplier
+   * approves via approveAccount/updateAccount). CONFLICT when a facility
+   * (of any status) already exists for the pair.
+   */
+  requestAccount: protectedProcedure
+    .input(z.object({
+      buyerTenantId: z.string().min(1),
+      supplierTenantId: z.string().min(1),
+      note: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.buyerTenantId);
+      const db = await requireDb();
+      try {
+        return await requestCreditAccountTx(db, input);
+      } catch (err) {
+        if (err instanceof CreditAccountExistsError) {
+          throw new TRPCError({ code: "CONFLICT", message: err.message });
+        }
+        throw err;
+      }
+    }),
 
   /** The buyer's own facilities across suppliers, with outstanding. */
   myAccounts: protectedProcedure
