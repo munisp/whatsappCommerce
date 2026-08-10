@@ -103,6 +103,13 @@ export function xmlEscape(s: string): string {
   return s.replace(/[&<>"']/g, (c) => XML_ESCAPES[c] ?? c);
 }
 
+/** Letter test without the /u flag (tsconfig targets ES5): cased letters via
+ *  case folding + explicit ranges for common uncased scripts. */
+export function isLetterChar(ch: string): boolean {
+  if (ch.toUpperCase() !== ch.toLowerCase()) return true;
+  return /^[À-ɏͰ-ϿЀ-ӿ؀-ۿ぀-ヿ가-힯一-鿿]$/.test(ch);
+}
+
 /**
  * Initials for the monogram:
  *   "Adire Threads" → "AT"     (first letter of first two words)
@@ -115,7 +122,7 @@ export function xmlEscape(s: string): string {
 export function initialsFromName(name: string): string {
   const words = (name ?? "").normalize("NFC").trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return "?";
-  const letters = (w: string) => Array.from(w).filter((ch) => /\p{L}/u.test(ch));
+  const letters = (w: string) => Array.from(w).filter(isLetterChar);
   if (words.length === 1) {
     const chars = letters(words[0]);
     return (chars.slice(0, 2).join("") || "?").toUpperCase();

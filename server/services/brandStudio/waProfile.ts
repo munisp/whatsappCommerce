@@ -58,7 +58,7 @@ export function clampProfileField(value: string, limit: number): string {
 
 /** Parse a data: URI into mime + bytes. Returns null for malformed input. */
 export function parseDataUri(dataUri: string): { mime: string; bytes: Buffer } | null {
-  const m = /^data:([a-zA-Z0-9][a-zA-Z0-9/+.-]*);base64,(.+)$/s.exec(dataUri ?? "");
+  const m = /^data:([a-zA-Z0-9][a-zA-Z0-9/+.-]*);base64,([\s\S]+)$/.exec(dataUri ?? "");
   if (!m) return null;
   try {
     const bytes = Buffer.from(m[2], "base64");

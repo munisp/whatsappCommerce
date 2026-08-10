@@ -109,10 +109,10 @@ async function persistBrandKit(
   kit: BrandKit,
   aiBytes: Buffer | null,
 ): Promise<void> {
-  const { getDb } = await import("../db");
+  const { getDb } = await import("../../db");
   const db = await getDb();
   if (!db) return;
-  const { mediaAssets, tenants } = await import("../../drizzle/schema");
+  const { mediaAssets, tenants } = await import("../../../drizzle/schema");
   const { eq } = await import("drizzle-orm");
 
   const generatedAt = new Date().toISOString();
