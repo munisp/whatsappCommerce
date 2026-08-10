@@ -13,6 +13,7 @@
  * converts checkpoint violations into user-facing refusals.
  */
 import { invokeLLM, type Message } from "../../_core/llm";
+import { captureException } from "../observability";
 import { eq } from "drizzle-orm";
 import { getDb } from "../../db";
 import { tenants } from "../../../drizzle/schema";
@@ -127,7 +128,14 @@ export async function runToolLoop(
       messages.push({ role: "user", content: `Tool results:\n${summaries.join("\n")}` });
     }
     return { usedLlm: true, assistantText, replies };
-  } catch {
+  } catch (err: any) {
+    // LLM down/misconfigured — flow continues on deterministic fallbacks.
+    captureException(err, {
+      service: "onboardingCopilot/agent",
+      operation: "toolLoop",
+      tenantId: session.tenantId ?? undefined,
+      severity: "warn",
+    });
     return { usedLlm: false, assistantText: null, replies };
   }
 }

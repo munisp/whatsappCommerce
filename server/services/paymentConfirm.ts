@@ -17,6 +17,7 @@ import { splitEscrowAmounts } from "../../shared/escrowAmounts";
 import { syncLocalChange } from "./integrations/outbox";
 import { creditWalletTopUp } from "../routers/escrow";
 import { commitReservations } from "./inventory";
+import { captureException } from "./observability";
 
 // ── Shared provider payment confirmation (Paystack/Flutterwave webhooks) ────
 // Fixes the split-brain where payment.initiate wrote paymentIntents rows
@@ -99,6 +100,13 @@ export async function confirmProviderPayment(
       // Never fail the webhook on a wallet-credit error — the reconciliation
       // sweep retries completed-but-uncredited top-ups.
       console.error(`[payment-confirm] wallet top-up credit failed for intent ${rowId}:`, err?.message);
+      captureException(err, {
+        service: "paymentConfirm",
+        operation: "walletTopUpCredit",
+        tenantId,
+        severity: "critical",
+        extra: { intentId: rowId, reference },
+      });
     }
   };
 
@@ -122,6 +130,13 @@ export async function confirmProviderPayment(
       });
     } catch (err: any) {
       console.error(`[payment-confirm] credit repayment hook failed for ref=${reference}:`, err?.message);
+      captureException(err, {
+        service: "paymentConfirm",
+        operation: "creditRepaymentHook",
+        tenantId,
+        severity: "critical",
+        extra: { reference, intentId: rowId },
+      });
     }
   };
 
@@ -139,6 +154,13 @@ export async function confirmProviderPayment(
       await handlePoPaymentConfirmed(db, { poId, reference });
     } catch (err: any) {
       console.error(`[payment-confirm] PO payment hook failed for ref=${reference}:`, err?.message);
+      captureException(err, {
+        service: "paymentConfirm",
+        operation: "poPaymentHook",
+        tenantId,
+        severity: "critical",
+        extra: { reference, poId },
+      });
     }
   };
 
@@ -238,6 +260,13 @@ export async function confirmProviderPayment(
       // Never fail a confirmed payment on the reservation book-keeping — the
       // expiry sweeper skips paid orders, so rows can't leak back to stock.
       console.error(`[payment-confirm] commitReservations failed for order ${orderId}:`, err?.message);
+      captureException(err, {
+        service: "paymentConfirm",
+        operation: "commitReservations",
+        tenantId,
+        severity: "error",
+        extra: { orderId, reference },
+      });
     }
 
     // Digital receipt to the buyer (additive, non-throwing): exact figures
@@ -251,6 +280,13 @@ export async function confirmProviderPayment(
       }
     } catch (err: any) {
       console.error(`[payment-confirm] receipt send failed for order ${orderId}:`, err?.message);
+      captureException(err, {
+        service: "paymentConfirm",
+        operation: "receiptSend",
+        tenantId,
+        severity: "warn",
+        extra: { orderId, reference },
+      });
     }
 
     const [existingEscrow] = await db.select({ id: escrowTransactions.id })

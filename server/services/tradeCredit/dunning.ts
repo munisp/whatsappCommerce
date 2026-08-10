@@ -34,6 +34,7 @@ import type { TxHandle } from "./accounts";
 import { getWindow } from "../sessionWindow";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../waSender";
 import { formatNairaCompact } from "./scoring";
+import { captureException } from "../observability";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Late fee: 2% of the overdue draw amount, applied once at +3d. */
@@ -136,6 +137,13 @@ async function sendReminder(
     return true;
   } catch (err: any) {
     console.error(`[tradeCredit/dunning] reminder send failed (buyer=${args.buyerTenantId}):`, err?.message);
+    captureException(err, {
+      service: "tradeCredit/dunning",
+      operation: "reminderSend",
+      tenantId: args.buyerTenantId,
+      severity: "warn",
+      extra: { offsetDays: args.offsetDays, frozen: args.frozen },
+    });
     return false;
   }
 }
@@ -177,6 +185,11 @@ export async function runDunningCheckTx(
       .limit(SWEEP_LIMIT);
   } catch (err: any) {
     console.error("[tradeCredit/dunning] sweep scan failed:", err?.message);
+    captureException(err, {
+      service: "tradeCredit/dunning",
+      operation: "sweepScan",
+      severity: "error",
+    });
     return result;
   }
 
@@ -245,6 +258,12 @@ export async function runDunningCheckTx(
       }
     } catch (err: any) {
       console.error(`[tradeCredit/dunning] row ${draw.id} failed:`, err?.message);
+      captureException(err, {
+        service: "tradeCredit/dunning",
+        operation: "sweepRow",
+        severity: "warn",
+        extra: { drawId: draw.id, creditAccountId: draw.creditAccountId },
+      });
     }
   }
   return result;

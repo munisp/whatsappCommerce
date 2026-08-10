@@ -26,6 +26,7 @@ import { eq, desc, and, gte, sql } from "drizzle-orm";
 import { ENV } from "../_core/env";
 import { TRPCError } from "@trpc/server";
 import { daprHealthCheck } from "../dapr";
+import * as observability from "../services/observability";
 
 // ── Health check helpers ──────────────────────────────────────────────────────
 
@@ -156,6 +157,20 @@ export const infraRouter = router({
         detectedAt: new Date(),
       });
       return { recorded: true };
+    }),
+
+  /**
+   * Admin: recent captured errors (w10 observability ring buffer, newest
+   * first). Sourced from the in-process ring buffer in
+   * server/services/observability.ts — per-instance, last 200 captures.
+   */
+  systemRecentErrors: adminProcedure
+    .input(z.object({
+      limit: z.number().int().min(1).max(200).default(50),
+    }).optional())
+    .query(({ input }) => {
+      const { getRecentErrors } = observability;
+      return { errors: getRecentErrors(input?.limit ?? 50), capacity: 200 };
     }),
 
   listWafEvents: adminProcedure
