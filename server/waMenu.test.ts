@@ -26,7 +26,7 @@ describe("loadMenuConfig", () => {
     const config = loadMenuConfig({ settings: null });
     expect(config).toEqual(defaultMenuConfig());
     expect(config.fallback).toBe("nlp");
-    expect(config.useCases.map((u) => u.id)).toEqual(["shop", "track", "support", "booking", "handoff"]);
+    expect(config.useCases.map((u) => u.id)).toEqual(["shop", "track", "support", "booking", "handoff", "procurement"]);
   });
 
   it("returns the default template for a null tenant", () => {

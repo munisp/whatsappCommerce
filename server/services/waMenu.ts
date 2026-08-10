@@ -16,7 +16,7 @@
  *
  *   waMenu = {
  *     greeting: string,                    // may contain {businessName}
- *     useCases: Array<{ id: "shop"|"track"|"support"|"booking"|"handoff",
+ *     useCases: Array<{ id: "shop"|"track"|"support"|"booking"|"handoff"|"procurement",
  *                       label: string, enabled: boolean, order: number }>,
  *     customItems: Array<{ key: string, label: string, response: string }>,
  *     fallback: "nlp" | "menu"

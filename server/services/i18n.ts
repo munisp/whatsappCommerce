@@ -32,7 +32,7 @@ export const DEFAULT_LOCALE: Locale = "en";
 export interface LocalePack {
   /** Default menu greeting (supports {businessName}). */
   greeting: string;
-  menuLabels: { shop: string; track: string; support: string; booking: string; handoff: string };
+  menuLabels: { shop: string; track: string; support: string; booking: string; handoff: string; procurement: string };
   consentPrompt: string;
   consentGranted: string;
   consentDenied: string;
@@ -55,6 +55,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
       support: "Get support",
       booking: "Book an appointment",
       handoff: "Talk to a human",
+      procurement: "Restock / Buy supplies",
     },
     consentPrompt:
       "Before we continue: we'd like to send you order updates and offers on WhatsApp. " +
@@ -79,6 +80,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
       support: "Service client",
       booking: "Prendre rendez-vous",
       handoff: "Parler à un agent",
+      procurement: "Réappro / acheter des fournitures",
     },
     consentPrompt:
       "Avant de continuer : nous aimerions vous envoyer des mises à jour de commande et des offres sur WhatsApp. " +
@@ -102,6 +104,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
       support: "Taimakon abokin ciniki",
       booking: "Yi alƙawarin zuwa",
       handoff: "Yi magana da wakili",
+      procurement: "Cika kaya / sayi kayan aiki",
     },
     consentPrompt:
       "Kafin mu ci gaba: muna son aika maka sabbin labarai game da odarka da tayi ta WhatsApp. " +
@@ -123,6 +126,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
       support: "Ìrànlọ́wọ́ ónìbàárà",
       booking: "Pa àkókò ìpàdé ṣe",
       handoff: "Bá aṣojú sọ̀rọ̀",
+      procurement: "Ṣe àtòpò ọjà / ra ohun èlò",
     },
     consentPrompt:
       "Ṣáájú tí a bá tẹ̀síwájú: a fẹ́ máa rán ọ lẹ́tà nípa àṣẹ rẹ àti àwọn ìdíyelé pàtàkì lórí WhatsApp. " +
@@ -144,6 +148,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
       support: "Enyemaka ndị ahịa",
       booking: "Hazie oge njikọ",
       handoff: "Kwurịta onye nnọchi anya",
+      procurement: "Mejupụta ahịa / zụta ihe ọrụ",
     },
     consentPrompt:
       "Tupu anyị gaa n'ihu: anyị chọrọ izitere gị ozi gbasara ihe ị zụrụ na ọhụrụ na WhatsApp. " +

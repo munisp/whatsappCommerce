@@ -63,6 +63,10 @@ import LiveLogisticsMap from "./pages/LiveLogisticsMap";
 import HealthStatus from "./pages/HealthStatus";
 import AuditLogViewer from "./pages/AuditLogViewer";
 import WaTemplates from "./pages/WaTemplates";
+import SupplierDirectory from "./pages/SupplierDirectory";
+import ProcurementHub from "./pages/ProcurementHub";
+import CreditAccounts from "./pages/CreditAccounts";
+import SupplierApprovals from "./pages/SupplierApprovals";
 
 function Router() {
   return (
@@ -155,6 +159,10 @@ function Router() {
           <Route path="/integration-health" component={IntegrationHealth} />
           <Route path="/unified-onboarding" component={UnifiedOnboarding} />
           <Route path="/wa-templates" component={WaTemplates} />
+          <Route path="/suppliers" component={SupplierDirectory} />
+          <Route path="/procurement" component={ProcurementHub} />
+          <Route path="/credit-accounts" component={CreditAccounts} />
+          <Route path="/supplier-approvals" component={SupplierApprovals} />
           <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

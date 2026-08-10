@@ -2,6 +2,8 @@ import { useActiveTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import UsagePlanWidget from "@/components/UsagePlanWidget";
 import WaQualityWidget from "@/components/WaQualityWidget";
+import { CreditSummaryWidget } from "@/components/b2b/CreditSummaryWidget";
+import { PendingPoApprovalsWidget } from "@/components/b2b/PendingPoApprovalsWidget";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
@@ -103,6 +105,12 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Supply-chain: supplier credit position + PO approvals inbox */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <CreditSummaryWidget />
+          <PendingPoApprovalsWidget />
         </div>
 
         {/* Charts */}

@@ -17,7 +17,7 @@
  */
 import { z } from "zod";
 
-export const WA_USE_CASE_IDS = ["shop", "track", "support", "booking", "handoff"] as const;
+export const WA_USE_CASE_IDS = ["shop", "track", "support", "booking", "handoff", "procurement"] as const;
 export type WaUseCaseId = (typeof WA_USE_CASE_IDS)[number];
 
 export interface WaMenuUseCase {
@@ -40,7 +40,7 @@ export interface WaMenuConfig {
   fallback: "nlp" | "menu";
 }
 
-/** Default menu seeded at provisioning: all 5 use cases, shop/track/handoff enabled. */
+/** Default menu seeded at provisioning: all 6 use cases, shop/track/handoff enabled. */
 export const DEFAULT_WA_MENU: WaMenuConfig = {
   greeting: "Welcome to {businessName}! How can we help you today?",
   useCases: [
@@ -49,6 +49,7 @@ export const DEFAULT_WA_MENU: WaMenuConfig = {
     { id: "support", label: "Get support", enabled: false, order: 3 },
     { id: "booking", label: "Book an appointment", enabled: false, order: 4 },
     { id: "handoff", label: "Talk to a human", enabled: true, order: 5 },
+    { id: "procurement", label: "Restock / Buy supplies", enabled: false, order: 6 },
   ],
   customItems: [],
   fallback: "nlp",

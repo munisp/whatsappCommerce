@@ -406,10 +406,11 @@ describe("waMenuConfig", () => {
     // reorder: handoff first
     menu = await callerA().reorderWaMenuUseCases({
       tenantId: TENANT_A,
-      orderedIds: ["handoff", "shop", "track", "support", "booking"],
+      orderedIds: ["handoff", "shop", "track", "support", "booking", "procurement"],
     });
     expect(menu.useCases.find((u) => u.id === "handoff")?.order).toBe(1);
     expect(menu.useCases.find((u) => u.id === "booking")?.order).toBe(5);
+    expect(menu.useCases.find((u) => u.id === "procurement")?.order).toBe(6);
 
     // reorder missing an id rejected
     await expect(

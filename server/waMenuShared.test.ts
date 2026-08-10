@@ -86,8 +86,8 @@ describe("use-case ordering helpers", () => {
   it("moveUseCase swaps adjacent entries and renumbers", () => {
     const moved = moveUseCase(DEFAULT_WA_MENU.useCases, "support", "up");
     const ids = sortUseCasesByOrder(moved).map((u) => u.id);
-    expect(ids).toEqual(["shop", "support", "track", "booking", "handoff"]);
-    expect(sortUseCasesByOrder(moved).map((u) => u.order)).toEqual([1, 2, 3, 4, 5]);
+    expect(ids).toEqual(["shop", "support", "track", "booking", "handoff", "procurement"]);
+    expect(sortUseCasesByOrder(moved).map((u) => u.order)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   it("moveUseCase is a no-op at the boundaries and for unknown ids", () => {
@@ -95,7 +95,7 @@ describe("use-case ordering helpers", () => {
     expect(sortUseCasesByOrder(first).map((u) => u.id)).toEqual(
       DEFAULT_WA_MENU.useCases.map((u) => u.id),
     );
-    const last = moveUseCase(DEFAULT_WA_MENU.useCases, "handoff", "down");
+    const last = moveUseCase(DEFAULT_WA_MENU.useCases, "procurement", "down");
     expect(sortUseCasesByOrder(last).map((u) => u.id)).toEqual(
       DEFAULT_WA_MENU.useCases.map((u) => u.id),
     );

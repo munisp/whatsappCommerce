@@ -33,6 +33,7 @@ import {
   Database, GitBranch, AlertTriangle, Activity, Lock, Network,
   UserPlus, Rocket, KeyRound, Building2, ScrollText, Workflow, Leaf,
   Calendar, Paperclip, BarChart2, Cpu, ListTree, Plug, SlidersHorizontal, Map, HeartPulse,
+  ClipboardCheck, ShoppingCart,
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -82,6 +83,17 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: Package,         label: "Medusa Commerce", path: "/medusa" },
       { icon: ShoppingBag,     label: "Medusa Onboarding", path: "/medusa-onboarding" },
       { icon: ArrowLeftRight,  label: "Odoo↔Medusa Bridge", path: "/odoo-medusa-bridge" },
+    ],
+  },
+  {
+    id: "supply-chain",
+    label: "Supply Chain",
+    icon: Store,
+    items: [
+      { icon: Store,           label: "Supplier Directory", path: "/suppliers" },
+      { icon: ShoppingCart,    label: "Procurement Hub",    path: "/procurement" },
+      { icon: CreditCard,      label: "Credit Accounts",    path: "/credit-accounts" },
+      { icon: ClipboardCheck,  label: "PO Approvals",       path: "/supplier-approvals" },
     ],
   },
   {

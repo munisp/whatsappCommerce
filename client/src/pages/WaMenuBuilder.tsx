@@ -1,8 +1,8 @@
 /**
  * WaMenuBuilder — tenant WhatsApp menu editor (the buyer-facing text menu).
  *
- * Left panel edits the tenant's waMenu config (greeting, the 5 use cases with
- * enable/reorder/label, custom items, fallback). Right panel is a WhatsApp-style
+ * Left panel edits the tenant's waMenu config (greeting, the built-in use cases
+ * with enable/reorder/label, custom items, fallback). Right panel is a WhatsApp-style
  * phone preview rendered with the SAME pure renderer the server preview uses
  * (shared/waMenu.renderWaMenu), enriched with live catalog/order counts from
  * tenantConfig.previewWaMenu. Saving does a full-replace via
@@ -46,6 +46,7 @@ const USE_CASE_HINTS: Record<WaUseCaseId, string> = {
   support: "FAQ / help flow",
   booking: "Appointments",
   handoff: "Escalate to a human agent",
+  procurement: "Restock from your suppliers (B2B purchase orders)",
 };
 
 export default function WaMenuBuilder() {
@@ -275,7 +276,7 @@ export default function WaMenuBuilder() {
                 <CardHeader>
                   <CardTitle className="text-base">Use cases</CardTitle>
                   <CardDescription>
-                    Toggle, rename and reorder the five built-in flows. Disabled entries stay
+                    Toggle, rename and reorder the built-in flows. Disabled entries stay
                     configured but are hidden from buyers.
                   </CardDescription>
                 </CardHeader>
