@@ -7,7 +7,7 @@
  *                          branding settings when tenantId is provided.
  *   pushWhatsappProfile  — see waProfile.ts (NEVER throws).
  */
-import { generateMonogramLogo, tryGenerateAiLogo } from "./logo";
+import { clampSaturation, generateMonogramLogo, hexToHsl, hslToHex, tryGenerateAiLogo } from "./logo";
 
 export * from "./logo";
 export * from "./waProfile";
@@ -52,6 +52,38 @@ export function buildTagline(industry: string | undefined, businessName: string)
   return TAGLINE_FALLBACKS[Math.abs(h) % TAGLINE_FALLBACKS.length];
 }
 
+// ─── Vibe color hints ────────────────────────────────────────────────────────
+// Revision feedback like "use purple colors" reaches the brand studio as a
+// free-text `vibe`. Known color words steer the otherwise name-seeded palette
+// deterministically (hue preserved, saturation still clamped by logo.ts).
+
+const VIBE_COLOR_HINTS: Array<[RegExp, string]> = [
+  [/purple|violet|lilac/i, "#7C3AED"],
+  [/blue|navy|azure/i, "#2563EB"],
+  [/green|emerald|olive/i, "#16A34A"],
+  [/red|crimson|maroon/i, "#DC2626"],
+  [/orange|amber|peach/i, "#EA580C"],
+  [/pink|rose|magenta/i, "#DB2777"],
+  [/teal|turquoise|cyan/i, "#0D9488"],
+  [/gold|yellow|mustard/i, "#CA8A04"],
+  [/brown|bronze|earth/i, "#92400E"],
+];
+
+/**
+ * Map a vibe string to a muted palette, or null when no color word is present
+ * (caller keeps the name-seeded monogram palette). The secondary is a
+ * complementary hue derived from the hinted primary.
+ */
+export function paletteForVibe(vibe: string | undefined): { primaryColor: string; secondaryColor: string } | null {
+  if (!vibe) return null;
+  const hit = VIBE_COLOR_HINTS.find(([re]) => re.test(vibe));
+  if (!hit) return null;
+  const primaryColor = clampSaturation(hit[1]);
+  const { h, s, l } = hexToHsl(primaryColor);
+  const secondaryColor = clampSaturation(hslToHex(h + 180, Math.max(0.2, s * 0.8), Math.min(0.68, l + 0.2)));
+  return { primaryColor, secondaryColor };
+}
+
 // ─── Brand kit ───────────────────────────────────────────────────────────────
 
 export interface GenerateBrandKitArgs {
@@ -87,11 +119,15 @@ export async function generateBrandKit(args: GenerateBrandKitArgs): Promise<Bran
   const ai = await tryGenerateAiLogo(businessName, args.vibe);
   const logoUrl = ai?.logoUrl ?? null;
 
+  // Vibe color hints (e.g. revision feedback "use purple colors") steer the
+  // palette deterministically; anything else keeps the name-seeded monogram.
+  const vibePalette = paletteForVibe(args.vibe);
+
   const kit: BrandKit = {
     logoSvgDataUri: monogram.dataUri,
     logoUrl,
-    primaryColor: monogram.primaryColor,
-    secondaryColor: monogram.secondaryColor,
+    primaryColor: vibePalette?.primaryColor ?? monogram.primaryColor,
+    secondaryColor: vibePalette?.secondaryColor ?? monogram.secondaryColor,
     tagline: buildTagline(args.industry, businessName),
   };
 

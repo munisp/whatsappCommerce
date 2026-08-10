@@ -8,7 +8,7 @@ edges (Meta Cloud API, LLM, Whisper, Paystack/Flutterwave, Keycloak) mocked.
 
 ```bash
 npm install --legacy-peer-deps --ignore-scripts
-npm run simulate                 # all 38 journeys
+npm run simulate                 # all 44 journeys
 npx tsx simulation/runner.ts j03 j18   # subset by id
 npm test                         # vitest: unit tests + simulation wrapper
 ```
@@ -60,6 +60,21 @@ The fetch mock also serves the **ledger-bridge** service
 (`payment.initiate`'s 2-phase reserve), so PO payment links run the real
 initiation path.
 
+Wave 9 (J39–J44) drives the **agentic onboarding copilot** end-to-end. The
+world sets `ONBOARDING_PHONE_NUMBER_ID`/`ONBOARDING_WA_TOKEN`, so a
+prospect's texts hit the real `waOnboarding` webhook branch (platform intake
+number) and the REAL copilot module — the harness LLM mock answers the
+copilot's tool-registry requests with deterministic `tool_calls`
+(extractIntake / proposeWaMenu / proposeUseCases / proposeBranding /
+proposeIntegrations / revision re-drafts). The Graph mock additionally
+serves `whatsapp_business_profile` updates, the resumable-upload flow and
+`GET /{id}` phone-number/WABA lookups (with failure injection) so live
+validation (`runTenantValidation`) executes. Covered: full WhatsApp
+onboarding (intake → proposals → onb_approve → tenant live), the
+edit/re-draft path, checkpoint enforcement, the validation-repair loop
+(incl. the 3-round failure cap), webhook-redelivery idempotency + resume +
+restart, and the admin-channel (portal) session.
+
 ## Prod bugs found by this suite (fixed surgically)
 
 1. **`server/services/useCases.ts`** — the numeric menu selector hijacked
@@ -90,6 +105,22 @@ Wave 8 (found by J34/J35/J36):
    FK and the webhook 500'd **before** the PO-settle / repayment hooks ran.
    Order confirmation now only fires for references that really are orders
    rows.
+
+Wave 9 (found by J40):
+
+7. **`server/services/onboardingCopilot/agent.ts`** — free-text feedback
+   while proposals awaited approval (the WhatsApp `onb_edit:` flow's second
+   step) fell through to a generic "please review the cards" reply in
+   `handleApproving`: the stale proposal was rejected but nothing ever
+   re-drafted it, so the edit path **dead-ended**. `handleApproving` now
+   routes non-approve/reject text to `handleRevision`, which re-drafts the
+   affected proposal kinds (LLM tool loop + deterministic fallback); the
+   checkpoint invariant is untouched — re-drafts arrive PENDING.
+8. **`server/services/brandStudio/index.ts`** — `generateBrandKit`'s `vibe`
+   argument only reached the (env-gated) AI-logo provider; the always-on
+   deterministic monogram path ignored it, so revision feedback like "use
+   purple colors" could never change the palette. `paletteForVibe` now maps
+   known color words to a muted (saturation-clamped) deterministic palette.
 
 ## Rules
 

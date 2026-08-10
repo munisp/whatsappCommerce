@@ -74,6 +74,15 @@ class MetaMockState {
   sendFailures: Array<SendFailureRule & { left: number }> = [];
   /** When true, every /messages POST fails with this status until cleared. */
   failAllSendsStatus: number | null = null;
+  /**
+   * Wave 9: Graph object registry for GET /{id} lookups (phone numbers and
+   * WABAs) used by onboarding validation (checkWhatsAppCredentials /
+   * checkWabaAccess). Ids in `validGraphIds` answer 200; ids in
+   * `graphIdErrors` answer the scripted HTTP status (failure injection);
+   * anything else falls through to the media lookup (404 when unscripted).
+   */
+  validGraphIds = new Set<string>();
+  graphIdErrors = new Map<string, number>();
   /** Activity timestamp — bumped on every intercepted call (settle polling). */
   lastActivityAt = 0;
 
@@ -292,6 +301,24 @@ function handleGraph(path: string, url: URL, method: string, bodyText: string | 
     return jsonResponse({ handles: requests.map(() => ({ id: nextWamid("handle") })), validation_status: [] });
   }
 
+  // whatsapp_business_profile update (wave 9 brand-studio push). Both the
+  // text-field POST and the profile_picture_handle POST land here; every call
+  // is already recorded in outbound[] by the interceptor.
+  const profileMatch = /^([^/]+)\/whatsapp_business_profile$/.exec(path);
+  if (profileMatch && method === "POST") {
+    return jsonResponse({ success: true });
+  }
+
+  // Resumable upload flow (wave 9): 1) POST /{appId}/uploads?file_name=…
+  // creates the session, 2) POST /{upload-session-id} (raw bytes) → handle.
+  const uploadsMatch = /^([^/]+)\/uploads$/.exec(path);
+  if (uploadsMatch && method === "POST") {
+    return jsonResponse({ id: nextWamid("upload.sim") });
+  }
+  if (method === "POST" && /^upload\.sim\.\d+$/.test(path)) {
+    return jsonResponse({ h: `handle.${path}` });
+  }
+
   // WABA message_templates list/create.
   const tplMatch = /^([^/]+)\/message_templates$/.exec(path);
   if (tplMatch) {
@@ -358,6 +385,27 @@ function handleGraph(path: string, url: URL, method: string, bodyText: string | 
     });
   }
 
+  // GET /{id} — phone-number / WABA object lookup (wave 9 onboarding
+  // validation). Registry first, then failure injection, then media fallback.
+  if (method === "GET" && /^[^/]+$/.test(path) && !path.includes("?")) {
+    const id = decodeURIComponent(path);
+    const errStatus = meta.graphIdErrors.get(id);
+    if (errStatus != null) {
+      return jsonResponse(
+        { error: { message: `simulated Graph object failure ${errStatus} for ${id}`, type: "SimError", code: errStatus } },
+        errStatus,
+      );
+    }
+    if (meta.validGraphIds.has(id)) {
+      return jsonResponse({
+        id,
+        verified_name: "Sim Business",
+        display_phone_number: "+234 700 000 0000",
+        quality_rating: "GREEN",
+      });
+    }
+  }
+
   // GET /{mediaId} — media object lookup (URL + mime).
   if (method === "GET" && /^[^/]+$/.test(path) && !path.includes("?")) {
     const mediaId = path;
@@ -390,6 +438,159 @@ function extractLastUserText(body: any): string {
   return "";
 }
 
+// ── Onboarding copilot scripting (wave 9) ────────────────────────────────────
+// The onboarding copilot (server/services/onboardingCopilot/agent.ts) drives
+// the shared LLM client with a fixed tool registry and expects OpenAI-style
+// tool_calls back. The stock scripted replies are content-only (they serve the
+// NLP pipeline), which would stall the copilot's tool loop — so copilot
+// requests (detected via the extractIntake tool schema) are answered here with
+// deterministic tool_calls derived from the conversation text. Journeys can
+// still override everything via llm.when (rules run first).
+
+let copilotCallCounter = 0;
+function copilotToolCall(name: string, args: Record<string, unknown>) {
+  copilotCallCounter += 1;
+  return {
+    id: `call_sim_${String(copilotCallCounter).padStart(4, "0")}`,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  };
+}
+
+function copilotCompletion(message: Record<string, unknown>, body: any): Response {
+  return jsonResponse({
+    id: "chatcmpl-sim",
+    created: Math.floor(Date.now() / 1000),
+    model: body?.model ?? "sim",
+    choices: [{ index: 0, message: { role: "assistant", ...message }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+  });
+}
+
+/** Last "user: …" line of the copilot's Recent-conversation block. */
+function copilotLatestUserLine(userText: string): string {
+  const lines = [...userText.matchAll(/^user:\s*(.+)$/gm)].map((m) => m[1]);
+  return lines[lines.length - 1] ?? "";
+}
+
+/** Facts the scripted extractor pulls from the prospect's free text. */
+function copilotExtractFacts(userText: string): Record<string, unknown> {
+  const conv = copilotLatestUserLine(userText);
+  const lower = conv.toLowerCase();
+  const facts: Record<string, unknown> = {};
+  const nameMatch = /(?:i run|i own|we run|we own|i have|we have)\s+(?:a\s+|an\s+)?(?:small\s+)?(?:business|shop|store|brand|company)?\s*(?:called\s+)?["']?([A-Za-z0-9'&][A-Za-z0-9'&. ]{1,58}?)["']?(?:\s+in\s+[A-Z]|[,.!]|$)/i.exec(conv);
+  if (nameMatch) facts.businessName = nameMatch[1].trim();
+  if (/ankara|lace|fabric|fashion|cloth|tailor|adire/.test(lower)) facts.industry = "fashion fabrics";
+  else if (/food|restaurant|bakery|meal|kitchen/.test(lower)) facts.industry = "food";
+  else if (/electronic|phone|gadget/.test(lower)) facts.industry = "electronics";
+  const cityMatch = /\bin\s+([A-Z][a-z]+)/.exec(conv);
+  if (cityMatch) facts.city = cityMatch[1];
+  if (/deliver|dispatch|ship/.test(lower)) facts.delivery = "offers delivery";
+  if (/bank transfer|transfer/.test(lower)) facts.paymentPrefs = ["bank transfer"];
+  else if (/cash/.test(lower)) facts.paymentPrefs = ["cash"];
+  return facts;
+}
+
+/** The copilot's Known-facts JSON blob (already extracted facts). */
+function copilotKnownFacts(userText: string): Record<string, any> {
+  const m = /Known facts:\s*(\{[^\n]*\})/.exec(userText);
+  try {
+    return m ? JSON.parse(m[1]) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** A waMenu payload that satisfies the shared waMenu contract. */
+function copilotMenuPayload(facts: Record<string, any>, greeting?: string): Record<string, unknown> {
+  const name = facts.businessName ?? "your business";
+  return {
+    greeting: greeting ?? `Welcome to ${name}! How can we help you today?`,
+    useCases: [
+      { id: "shop", label: "Shop products", enabled: true, order: 1 },
+      { id: "track", label: "Track my order", enabled: true, order: 2 },
+      { id: "support", label: "Get support", enabled: false, order: 3 },
+      { id: "booking", label: "Book an appointment", enabled: false, order: 4 },
+      { id: "handoff", label: "Talk to a human", enabled: true, order: 5 },
+      { id: "procurement", label: "Restock / Buy supplies", enabled: false, order: 6 },
+    ],
+    customItems: [],
+    fallback: "nlp",
+  };
+}
+
+function handleCopilotLlm(body: any): Response | null {
+  const tools = Array.isArray(body?.tools) ? body.tools : [];
+  if (!tools.some((t: any) => t?.function?.name === "extractIntake")) return null;
+  const userText = extractLastUserText(body);
+
+  // Follow-up round after tool execution — close the loop with plain text.
+  if (userText.includes("Tool results:")) {
+    return copilotCompletion({ content: "Done — take a look and let me know what you think." }, body);
+  }
+
+  // Intake turn → extractIntake tool call with parsed facts.
+  if (userText.includes("Extract any business facts")) {
+    return copilotCompletion(
+      { content: "", tool_calls: [copilotToolCall("extractIntake", copilotExtractFacts(userText))] },
+      body,
+    );
+  }
+
+  // Proposal-generation turn → all four propose* calls at once.
+  if (userText.includes("Propose the full setup now")) {
+    const facts = copilotKnownFacts(userText);
+    const name = facts.businessName ?? "your business";
+    return copilotCompletion(
+      {
+        content: "",
+        tool_calls: [
+          copilotToolCall("proposeWaMenu", {
+            menu: copilotMenuPayload(facts),
+            summary: `WhatsApp menu for ${name}: greeting + top use cases`,
+          }),
+          copilotToolCall("proposeUseCases", {
+            ranked: ["shop", "track", "handoff", "support", "booking", "procurement"],
+            summary: "Suggested use cases: shop, track, handoff",
+          }),
+          copilotToolCall("proposeBranding", { vibe: "friendly", summary: `Brand kit for ${name}` }),
+          copilotToolCall("proposeIntegrations", {
+            providers: [{ provider: "twenty", reason: "CRM to track customer conversations and follow-ups" }],
+            summary: "Suggested integrations: twenty",
+          }),
+        ],
+      },
+      body,
+    );
+  }
+
+  // Revision turn (edit path) → re-draft the kinds the feedback mentions.
+  const revMatch = /requested these changes:\s*([\s\S]*?)\nRe-draft the affected/.exec(userText);
+  if (revMatch) {
+    const feedback = revMatch[1];
+    const facts = copilotKnownFacts(userText);
+    const name = facts.businessName ?? "your business";
+    const calls = [];
+    if (/purple|violet|lilac|blue|navy|green|red|orange|amber|pink|rose|teal|colou?r|logo|brand|tagline/i.test(feedback)) {
+      calls.push(copilotToolCall("proposeBranding", { vibe: feedback, summary: `Brand kit for ${name} (revised)` }));
+    }
+    if (/greet|welcome|warm|friendl|menu/i.test(feedback)) {
+      calls.push(
+        copilotToolCall("proposeWaMenu", {
+          menu: copilotMenuPayload(facts, `A very warm welcome to ${name}! We're so glad you're here — how can we help today?`),
+          summary: `WhatsApp menu for ${name} (revised greeting)`,
+        }),
+      );
+    }
+    if (calls.length === 0) {
+      calls.push(copilotToolCall("proposeBranding", { vibe: feedback, summary: `Brand kit for ${name} (revised)` }));
+    }
+    return copilotCompletion({ content: "", tool_calls: calls }, body);
+  }
+
+  return copilotCompletion({ content: "Got it — let me know how you'd like to proceed." }, body);
+}
+
 function handleLlm(body: any): Response {
   const userText = extractLastUserText(body);
   llm.calls.push({ userText, body });
@@ -411,6 +612,11 @@ function handleLlm(body: any): Response {
       usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
     });
   }
+  // Wave 9: onboarding copilot tool-call scripting (additive — only fires
+  // when the request carries the copilot tool registry).
+  const copilot = handleCopilotLlm(body);
+  if (copilot) return copilot;
+
   // Default: deterministic NLP fallback (valid JSON per the NLP system prompt).
   return jsonResponse({
     id: "chatcmpl-sim",
@@ -556,4 +762,24 @@ export function setTemplates(wabaId: string, templates: any[]): void {
 
 export function catalogItems(catalogId: string): Map<string, any> {
   return meta.catalogItems.get(catalogId) ?? new Map();
+}
+
+// ── Wave 9: Graph object registry (phone numbers / WABAs for validation) ────
+
+/** GET /{id} answers 200 (phone-number or WABA object exists + readable). */
+export function registerGraphObject(id: string): void {
+  meta.graphIdErrors.delete(id);
+  meta.validGraphIds.add(id);
+}
+
+/** GET /{id} answers the scripted HTTP error status (validation failure injection). */
+export function failGraphObject(id: string, status: number): void {
+  meta.validGraphIds.delete(id);
+  meta.graphIdErrors.set(id, status);
+}
+
+/** Remove an id from both registries (falls back to media lookup / 404). */
+export function clearGraphObject(id: string): void {
+  meta.validGraphIds.delete(id);
+  meta.graphIdErrors.delete(id);
 }

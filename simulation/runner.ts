@@ -66,6 +66,12 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j36-partial-repayment"),
     import("./journeys/j37-dunning"),
     import("./journeys/j38-default-freeze"),
+    import("./journeys/j39-whatsapp-full-onboarding"),
+    import("./journeys/j40-edit-path"),
+    import("./journeys/j41-checkpoint-enforcement"),
+    import("./journeys/j42-validation-repair"),
+    import("./journeys/j43-idempotency-resume-restart"),
+    import("./journeys/j44-admin-channel"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

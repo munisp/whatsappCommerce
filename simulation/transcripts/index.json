@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T04:13:14.327Z",
+  "generatedAt": "2026-08-10T05:52:45.765Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -305,6 +305,54 @@
       "pass": true,
       "file": "J38.json",
       "messageCount": 1
+    },
+    {
+      "id": "J39",
+      "title": "whatsapp full onboarding",
+      "feature": "copilot intake → proposals → approve → tenant live",
+      "pass": true,
+      "file": "J39.json",
+      "messageCount": 30
+    },
+    {
+      "id": "J40",
+      "title": "edit path re-draft",
+      "feature": "onb_edit → feedback → re-drafted proposals applied",
+      "pass": true,
+      "file": "J40.json",
+      "messageCount": 40
+    },
+    {
+      "id": "J41",
+      "title": "checkpoint enforcement",
+      "feature": "apply/goLive without approval refused, no mutation",
+      "pass": true,
+      "file": "J41.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J42",
+      "title": "validation-repair loop",
+      "feature": "failed checks → targeted repair → pass; cap → failed",
+      "pass": true,
+      "file": "J42.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J43",
+      "title": "idempotency resume restart",
+      "feature": "redelivery no-op, mid-flow resume, restart supersedes",
+      "pass": true,
+      "file": "J43.json",
+      "messageCount": 13
+    },
+    {
+      "id": "J44",
+      "title": "admin channel session",
+      "feature": "portal API: intake → approve → validate → live",
+      "pass": true,
+      "file": "J44.json",
+      "messageCount": 0
     }
   ]
 }
