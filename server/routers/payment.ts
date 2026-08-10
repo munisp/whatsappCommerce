@@ -394,7 +394,7 @@ export const paymentRouter = router({
           }, { preferredProvider: input.provider });
           paymentUrl = fallback.result.authorizationUrl ?? null;
           instructions = fallback.result.instructions ?? null;
-          providerResponse = fallback.result.raw ?? {};
+          providerResponse = {};
           servedProvider = fallback.providerId;
           if (fallback.failedAttempts.length > 0) {
             providerResponse = { ...providerResponse, fallbackAttempts: fallback.failedAttempts };

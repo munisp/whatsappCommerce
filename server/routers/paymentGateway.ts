@@ -7,9 +7,16 @@ import { eq, and, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
-import { listProviderAdapters, getProviderForTenant } from "../services/payments/providers/registry";
+import {
+  listProviderAdapters,
+  getProviderForTenant,
+  upsertTenantProviderConfig,
+} from "../services/payments/providers/registry";
 import { initiateWithFallback } from "../services/payments/initiateWithFallback";
+// Side-effect: registers the "custom" provider adapter (settings catalog).
+import "../services/payments/providers/custom";
 import { randomUUID as newRef } from "crypto";
+import { asc } from "drizzle-orm";
 
 // ─── Provider adapters ────────────────────────────────────────────────────────
 
@@ -390,7 +397,8 @@ export const paymentGatewayRouter = router({
   listProviderAdapters: protectedProcedure.query(() => listProviderAdapters()),
 
   /** The tenant's providers: configured rows (secrets masked) merged onto the
-   * adapter catalog, priority-ordered — the fallback-chain preview source. */
+   * adapter catalog, priority-ordered (higher = tried first — the
+   * fallback-chain preview source). */
   getTenantProviders: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
     .query(async ({ input, ctx }) => {
@@ -399,27 +407,28 @@ export const paymentGatewayRouter = router({
       const catalog = listProviderAdapters();
       if (!db) return { adapters: catalog, providers: [] };
       const rows = await db.select().from(paymentGatewayConfigs)
-        .where(eq(paymentGatewayConfigs.tenantId, input.tenantId));
+        .where(eq(paymentGatewayConfigs.tenantId, input.tenantId))
+        .orderBy(desc(paymentGatewayConfigs.priority), asc(paymentGatewayConfigs.createdAt));
       const providers = rows.map((r) => {
-        const meta = (r.metadata as Record<string, unknown> | null) ?? {};
+        const extras = (r.credentials as Record<string, unknown> | null) ?? {};
         return {
           provider: r.provider,
           displayName: catalog.find((a) => a.id === r.provider)?.displayName ?? r.provider,
-          enabled: r.isActive,
-          priority: typeof meta.priority === "number" ? meta.priority : 100,
+          enabled: r.enabled && r.isActive,
+          priority: r.priority,
           publicKey: r.publicKey,
           secretKey: r.secretKey ? "••••••••" : null,
           webhookSecret: r.webhookSecret ? "••••••••" : null,
           callbackUrl: r.callbackUrl,
-          instructions: typeof meta.instructions === "string" ? meta.instructions : null,
-          customConfig: (meta.customConfig as Record<string, unknown> | undefined) ?? null,
+          instructions: typeof extras.instructions === "string" ? extras.instructions : null,
+          customConfig: (extras.customConfig as Record<string, unknown> | undefined) ?? null,
         };
       });
-      providers.sort((a, b) => a.priority - b.priority);
       return { adapters: catalog, providers };
     }),
 
-  /** Upsert a provider's credentials (encrypted at rest) + priority/enabled. */
+  /** Upsert a provider's credentials (encrypted at rest via the registry's
+   * upsertTenantProviderConfig) + priority/enabled. */
   configureProvider: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
@@ -428,7 +437,8 @@ export const paymentGatewayRouter = router({
       secretKey: z.string().optional(),
       webhookSecret: z.string().optional(),
       callbackUrl: z.string().url().optional(),
-      priority: z.number().int().positive().default(100),
+      /** Higher priority = tried first in the fallback chain. */
+      priority: z.number().int().default(0),
       enabled: z.boolean().default(true),
       /** Settlement instructions (required for custom gateways). */
       instructions: z.string().optional(),
@@ -464,40 +474,38 @@ export const paymentGatewayRouter = router({
         }
       }
       // Masked placeholder sent back by the UI means "keep the stored secret".
+      // upsertTenantProviderConfig overwrites secret columns wholesale, so the
+      // effective creds are merged with the existing row here (decrypt → the
+      // upsert re-encrypts; decryptSecret passes legacy plaintext through).
       const KEEP = "••••••••";
-      const meta: Record<string, unknown> = {
-        priority: input.priority,
-        ...(input.instructions?.trim() ? { instructions: input.instructions.trim() } : {}),
-        ...(input.customConfig ? { customConfig: input.customConfig } : {}),
-      };
-      const encSecret = input.secretKey && input.secretKey !== KEEP ? encryptSecret(input.secretKey) : undefined;
-      const encWebhook = input.webhookSecret && input.webhookSecret !== KEEP ? encryptSecret(input.webhookSecret) : undefined;
       const [existing] = await db.select().from(paymentGatewayConfigs)
         .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, input.provider)));
-      if (existing) {
-        const prevMeta = (existing.metadata as Record<string, unknown> | null) ?? {};
-        await db.update(paymentGatewayConfigs).set({
-          publicKey: input.publicKey ?? existing.publicKey,
-          secretKey: encSecret ?? existing.secretKey,
-          webhookSecret: encWebhook ?? existing.webhookSecret,
-          callbackUrl: input.callbackUrl ?? existing.callbackUrl,
-          isActive: input.enabled,
-          metadata: { ...prevMeta, ...meta },
-          updatedAt: new Date(),
-        }).where(eq(paymentGatewayConfigs.id, existing.id));
-      } else {
-        await db.insert(paymentGatewayConfigs).values({
-          id: randomUUID(),
-          tenantId: input.tenantId,
-          provider: input.provider,
-          publicKey: input.publicKey,
-          secretKey: encSecret ?? null,
-          webhookSecret: encWebhook ?? null,
-          callbackUrl: input.callbackUrl,
-          isActive: input.enabled,
-          metadata: meta,
-        });
-      }
+      const prevExtras = (existing?.credentials as Record<string, unknown> | null) ?? {};
+      const keepSecret = existing?.secretKey ? decryptSecret(existing.secretKey) : undefined;
+      const keepWebhook = existing?.webhookSecret ? decryptSecret(existing.webhookSecret) : undefined;
+      const effSecret = input.secretKey && input.secretKey !== KEEP ? input.secretKey : keepSecret;
+      const effWebhook = input.webhookSecret && input.webhookSecret !== KEEP ? input.webhookSecret : keepWebhook;
+      const effInstructions = input.instructions?.trim()
+        ?? (typeof prevExtras.instructions === "string" ? prevExtras.instructions : undefined);
+      const effCustomConfig = input.customConfig
+        ?? (prevExtras.customConfig as Record<string, unknown> | undefined);
+      const res = await upsertTenantProviderConfig({
+        tenantId: input.tenantId,
+        provider: input.provider,
+        priority: input.priority,
+        enabled: input.enabled,
+        creds: {
+          ...(input.publicKey ?? existing?.publicKey ? { publicKey: input.publicKey ?? existing?.publicKey } : {}),
+          ...(effSecret ? { secretKey: effSecret } : {}),
+          ...(effWebhook ? { webhookSecret: effWebhook } : {}),
+          ...(input.callbackUrl ?? existing?.callbackUrl
+            ? { callbackUrl: input.callbackUrl ?? existing?.callbackUrl }
+            : {}),
+          ...(effInstructions ? { instructions: effInstructions } : {}),
+          ...(effCustomConfig ? { customConfig: effCustomConfig } : {}),
+        },
+      });
+      if (!res.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to save provider config" });
       return { ok: true };
     }),
 
@@ -535,9 +543,9 @@ export const paymentGatewayRouter = router({
       }
     }),
 
-  /** Reorder the fallback chain (1 = primary). */
+  /** Reorder the fallback chain (higher priority = tried first). */
   setProviderPriority: protectedProcedure
-    .input(z.object({ tenantId: z.string(), provider: z.string(), priority: z.number().int().positive() }))
+    .input(z.object({ tenantId: z.string(), provider: z.string(), priority: z.number().int() }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
@@ -545,14 +553,14 @@ export const paymentGatewayRouter = router({
       const [row] = await db.select().from(paymentGatewayConfigs)
         .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, input.provider)));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `Provider '${input.provider}' is not configured` });
-      const meta = (row.metadata as Record<string, unknown> | null) ?? {};
       await db.update(paymentGatewayConfigs)
-        .set({ metadata: { ...meta, priority: input.priority }, updatedAt: new Date() })
+        .set({ priority: input.priority, updatedAt: new Date() })
         .where(eq(paymentGatewayConfigs.id, row.id));
       return { ok: true };
     }),
 
-  /** Enable/disable a provider in the fallback chain. */
+  /** Enable/disable a provider in the fallback chain (w11 `enabled` column —
+   * the row stays visible in settings; the registry skips disabled rows). */
   toggleProvider: protectedProcedure
     .input(z.object({ tenantId: z.string(), provider: z.string(), enabled: z.boolean() }))
     .mutation(async ({ input, ctx }) => {
@@ -563,7 +571,7 @@ export const paymentGatewayRouter = router({
         .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, input.provider)));
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: `Provider '${input.provider}' is not configured` });
       await db.update(paymentGatewayConfigs)
-        .set({ isActive: input.enabled, updatedAt: new Date() })
+        .set({ enabled: input.enabled, updatedAt: new Date() })
         .where(eq(paymentGatewayConfigs.id, row.id));
       return { ok: true };
     }),

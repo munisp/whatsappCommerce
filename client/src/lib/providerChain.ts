@@ -20,11 +20,12 @@ export interface TenantProviderView {
 
 export const MASKED_SECRET = "••••••••";
 
-/** Deterministic chain order: enabled first, ascending priority, name tiebreak. */
+/** Deterministic chain order matching the server registry: enabled only,
+ * priority DESC (higher = tried first), display-name tiebreak. */
 export function orderFallbackChain(providers: TenantProviderView[]): TenantProviderView[] {
   return [...providers]
     .filter((p) => p.enabled)
-    .sort((a, b) => a.priority - b.priority || a.displayName.localeCompare(b.displayName));
+    .sort((a, b) => b.priority - a.priority || a.displayName.localeCompare(b.displayName));
 }
 
 /**

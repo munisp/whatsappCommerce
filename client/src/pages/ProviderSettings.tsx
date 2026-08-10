@@ -44,7 +44,7 @@ interface ProviderForm {
 
 const EMPTY_FORM: ProviderForm = {
   enabled: false,
-  priority: 100,
+  priority: 0,
   publicKey: "",
   secretKey: "",
   webhookSecret: "",
@@ -153,12 +153,12 @@ function ProviderCard({
       <CardContent className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label>Priority (1 = primary)</Label>
+            <Label>Priority (higher = tried first)</Label>
             <Input
               type="number"
               min={1}
               value={form.priority}
-              onChange={(e) => setForm((f) => ({ ...f, priority: Number(e.target.value) || 100 }))}
+              onChange={(e) => setForm((f) => ({ ...f, priority: Number(e.target.value) || 0 }))}
               onBlur={() => {
                 if (configured && form.priority !== configured.priority) {
                   setPriority.mutate({ tenantId, provider: adapter.id, priority: form.priority });
@@ -310,7 +310,7 @@ function CustomGatewayCard({ tenantId, configured }: { tenantId: string; configu
               tenantId,
               provider: "custom",
               enabled: true,
-              priority: configured?.priority ?? 100,
+              priority: configured?.priority ?? 0,
               instructions: typeof parsed.instructions === "string" ? parsed.instructions : undefined,
               customConfig: parsed,
             });

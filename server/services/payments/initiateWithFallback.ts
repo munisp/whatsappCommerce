@@ -12,9 +12,31 @@
  * land on their existing graceful-error paths.
  */
 
-import { getProviderForTenant } from "./providers/registry";
+import { getProviderForTenant, getProviderAdapter, type TenantProviderEntry } from "./providers/registry";
 import type { PaymentInitiateCtx, PaymentInitiateResult } from "./providers/types";
 import { captureException } from "../observability";
+import { ENV } from "../../_core/env";
+// Side-effect: registers the "custom" provider adapter with the registry.
+import "./providers/custom";
+
+/**
+ * Platform-default chain for tenants with NO configured provider rows
+ * (pre-registry behavior): env-backed Paystack, then Flutterwave when its env
+ * key is present. Additive over P1's registry (which returns [] for
+ * unconfigured tenants) so existing tenants keep working unchanged.
+ */
+function envDefaultChain(): TenantProviderEntry[] {
+  const chain: TenantProviderEntry[] = [];
+  const paystack = getProviderAdapter("paystack");
+  if (paystack && ENV.paystackSecretKey) {
+    chain.push({ provider: paystack, creds: { secretKey: ENV.paystackSecretKey }, config: { priority: 0 } });
+  }
+  const flutterwave = getProviderAdapter("flutterwave");
+  if (flutterwave && ENV.flwSecretKey) {
+    chain.push({ provider: flutterwave, creds: { secretKey: ENV.flwSecretKey }, config: { priority: -1 } });
+  }
+  return chain;
+}
 
 export class ProviderChainExhaustedError extends Error {
   readonly attempts: { provider: string; error: string }[];
@@ -49,6 +71,7 @@ export async function initiateWithFallback(
   opts: FallbackInitiateOptions = {},
 ): Promise<FallbackInitiateOutcome> {
   let chain = await getProviderForTenant(tenantId);
+  if (chain.length === 0) chain = envDefaultChain();
   if (opts.preferredProvider) {
     const idx = chain.findIndex((e) => e.provider.id === opts.preferredProvider);
     if (idx > 0) {
@@ -64,7 +87,7 @@ export async function initiateWithFallback(
       if (result.ok) {
         return { result, providerId: entry.provider.id, failedAttempts: attempts };
       }
-      attempts.push({ provider: entry.provider.id, error: result.error ?? "initiate returned ok:false" });
+      attempts.push({ provider: entry.provider.id, error: "initiate returned ok:false" });
     } catch (err: any) {
       attempts.push({ provider: entry.provider.id, error: String(err?.message ?? err).slice(0, 300) });
     }
