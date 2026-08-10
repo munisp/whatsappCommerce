@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T13:14:24.225Z",
+  "generatedAt": "2026-08-10T16:06:19.959Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -368,6 +368,54 @@
       "feature": "outbox DLQ → critical capture, redaction, error webhook sink",
       "pass": true,
       "file": "J46.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J47",
+      "title": "multi-provider tenants",
+      "feature": "provider registry per-tenant chains",
+      "pass": true,
+      "file": "J47.json",
+      "messageCount": 21
+    },
+    {
+      "id": "J48",
+      "title": "manual bank-transfer provider",
+      "feature": "manual adapter instructions + receipt confirm",
+      "pass": true,
+      "file": "J48.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J49",
+      "title": "zero-code custom gateway",
+      "feature": "customHttp declarative provider end-to-end",
+      "pass": true,
+      "file": "J49.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J50",
+      "title": "provider fallback under failure",
+      "feature": "initiateWithFallback chain hop + exhaustion",
+      "pass": true,
+      "file": "J50.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J51",
+      "title": "credit repayment via flutterwave",
+      "feature": "creditRepayLink → registry chain → applyRepayment",
+      "pass": true,
+      "file": "J51.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J52",
+      "title": "unified webhook isolation",
+      "feature": "per-adapter verify + slug routing",
+      "pass": true,
+      "file": "J52.json",
       "messageCount": 0
     }
   ]

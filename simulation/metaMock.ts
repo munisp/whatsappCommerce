@@ -170,9 +170,25 @@ export const openai = new OpenAiMockState();
 class PayMockState {
   paystackBaseUrl = "https://checkout.paystack.com/sim";
   flutterwaveBaseUrl = "https://checkout.flutterwave.com/sim";
+  stripeBaseUrl = "https://checkout.stripe.com/sim/pay";
+  monnifyBaseUrl = "https://checkout.monnify.com/sim";
   calls: RecordedCall[] = [];
+  /**
+   * W11: per-hostname scripted HTTP status for payment-provider init calls
+   * (e.g. pay.hostStatus.set("api.paystack.co", 500) forces the adapter's
+   * initiate to fail so initiateWithFallback hops to the next chain entry).
+   */
+  hostStatus = new Map<string, number>();
+  /**
+   * W11: hostnames routed to the generic custom-gateway mock (declarative
+   * customHttp providers, e.g. "api.afripay.example"). Register with
+   * registerCustomGatewayHost().
+   */
+  customGatewayHosts = new Set<string>();
   reset() {
     this.calls = [];
+    this.hostStatus.clear();
+    this.customGatewayHosts.clear();
   }
 }
 
@@ -225,7 +241,7 @@ export const outbound = {
   reset() {
     meta.outbound.length = 0;
     meta.hostStatus.clear();
-    pay.calls.length = 0;
+    pay.reset();
     ledger.calls.length = 0;
     ledger.transfers.length = 0;
   },
@@ -652,7 +668,12 @@ function handleOpenAi(url: URL, method: string): Response {
   return jsonResponse({ error: { message: "unmocked OpenAI path" } }, 404);
 }
 
-function handlePay(url: URL, method: string, body: any): Response {
+function handlePay(url: URL, method: string, body: any, rawBody: string | null): Response {
+  // W11: scripted per-host failure injection (fallback-chain fault testing).
+  const forced = pay.hostStatus.get(url.hostname);
+  if (forced != null) {
+    return jsonResponse({ error: { message: `sim: scripted ${forced} for ${url.hostname}` } }, forced);
+  }
   if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/initialize")) {
     const ref = body?.reference ?? "sim-ref";
     return jsonResponse({
@@ -665,7 +686,72 @@ function handlePay(url: URL, method: string, body: any): Response {
     const ref = body?.tx_ref ?? "sim-ref";
     return jsonResponse({ status: "success", data: { link: `${pay.flutterwaveBaseUrl}/${ref}` } });
   }
+  // ── W11: Stripe (Checkout Sessions) ──────────────────────────────────────
+  if (url.hostname === "api.stripe.com") {
+    if (method === "POST" && url.pathname === "/v1/checkout/sessions") {
+      const params = new URLSearchParams(rawBody ?? "");
+      const ref = params.get("client_reference_id") ?? "sim-ref";
+      return jsonResponse({
+        id: `cs_sim_${ref}`,
+        object: "checkout.session",
+        client_reference_id: ref,
+        payment_status: "unpaid",
+        status: "open",
+        url: `${pay.stripeBaseUrl}/${ref}`,
+      });
+    }
+    if (method === "GET" && url.pathname === "/v1/checkout/sessions") {
+      return jsonResponse({ object: "list", data: [], has_more: false });
+    }
+  }
+  // ── W11: Monnify (auth login + init-transaction + status) ────────────────
+  if (url.hostname === "api.monnify.com") {
+    if (method === "POST" && url.pathname === "/api/v1/auth/login") {
+      return jsonResponse({
+        requestSuccessful: true,
+        responseBody: { accessToken: "sim-monnify-token", expiresIn: 3600 },
+      });
+    }
+    if (method === "POST" && url.pathname === "/api/v1/merchant/transactions/init-transaction") {
+      const ref = body?.paymentReference ?? "sim-ref";
+      return jsonResponse({
+        requestSuccessful: true,
+        responseBody: { paymentReference: ref, checkoutUrl: `${pay.monnifyBaseUrl}/${ref}` },
+      });
+    }
+    if (method === "GET" && url.pathname.startsWith("/api/v2/transactions/")) {
+      const ref = decodeURIComponent(url.pathname.slice("/api/v2/transactions/".length));
+      return jsonResponse({
+        requestSuccessful: true,
+        responseBody: { paymentReference: ref, paymentStatus: "PAID", amountPaid: 0 },
+      });
+    }
+  }
+  // ── W11: generic custom gateway (declarative customHttp providers) ───────
+  // Any registered host answers POSTs with a hosted-url payload matching the
+  // AfriPay-style responseMapping ($.data.hosted_url / $.data.ref); other
+  // methods answer a benign success payload for status probes.
+  if (pay.customGatewayHosts.has(url.hostname)) {
+    if (method !== "GET") {
+      const ref = body?.ref ?? body?.reference ?? body?.paymentReference ?? "sim-ref";
+      return jsonResponse({
+        data: { hosted_url: `https://pay.${url.hostname}/sim/${ref}`, ref, status: "pending" },
+      });
+    }
+    return jsonResponse({ charge: { state: "pending", amount_minor: 0 } });
+  }
   return jsonResponse({ error: "unmocked payment path" }, 404);
+}
+
+/** W11: route a hostname to the generic custom-gateway mock. */
+export function registerCustomGatewayHost(hostname: string): void {
+  pay.customGatewayHosts.add(hostname);
+}
+
+/** W11: script the next HTTP status for a payment host (fallback testing). */
+export function setPayHostStatus(hostname: string, status: number | null): void {
+  if (status == null) pay.hostStatus.delete(hostname);
+  else pay.hostStatus.set(hostname, status);
 }
 
 // ── Ledger bridge scripting ─────────────────────────────────────────────────
@@ -737,11 +823,17 @@ export function installFetchMock(): void {
       record(url, method, bodyText, headers);
       return handleOpenAi(u, method);
     }
-    if (u.hostname.includes("paystack.co") || u.hostname.includes("flutterwave.com")) {
+    if (
+      u.hostname.includes("paystack.co") ||
+      u.hostname.includes("flutterwave.com") ||
+      u.hostname === "api.stripe.com" ||
+      u.hostname === "api.monnify.com" ||
+      pay.customGatewayHosts.has(u.hostname)
+    ) {
       const body = parseJsonSafe(bodyText);
       const call = record(url, method, bodyText, headers);
       pay.calls.push(call);
-      return handlePay(u, method, body);
+      return handlePay(u, method, body, bodyText);
     }
     if (u.hostname.includes("ledger-bridge")) {
       const body = parseJsonSafe(bodyText);

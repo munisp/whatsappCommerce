@@ -434,6 +434,14 @@ export async function bootWorld(): Promise<World> {
           const { _resetRecentErrors } = await import("../server/services/observability");
           _resetRecentErrors();
         } catch { /* observability unavailable */ }
+        // Wave 11 isolation: tenant provider-config rows created by J47–J52
+        // (flutterwave/manual/stripe/custom chains) never leak between
+        // journeys — restore the seed state (only the pgc-sim paystack row).
+        try {
+          const schema = await import("../drizzle/schema");
+          const { ne } = await import("drizzle-orm");
+          await world.db.delete(schema.paymentGatewayConfigs).where(ne(schema.paymentGatewayConfigs.id, "pgc-sim"));
+        } catch { /* w11 configs not created yet */ }
         delete process.env.ERROR_WEBHOOK_URL;
         outbound.reset();
         llmMock.reset();

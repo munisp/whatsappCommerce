@@ -74,6 +74,12 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j44-admin-channel"),
     import("./journeys/j45-secrets-roundtrip"),
     import("./journeys/j46-observability-capture"),
+    import("./journeys/j47-multi-provider-tenants"),
+    import("./journeys/j48-manual-bank-transfer"),
+    import("./journeys/j49-custom-gateway"),
+    import("./journeys/j50-provider-fallback"),
+    import("./journeys/j51-flw-credit-repayment"),
+    import("./journeys/j52-unified-webhook-isolation"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

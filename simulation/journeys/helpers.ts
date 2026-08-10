@@ -345,3 +345,142 @@ export async function tenantRowById(world: World, tenantId: string) {
 export function graphCallsTo(world: World, suffix: string) {
   return world.outbound.all().filter((c) => new URL(c.url).pathname.endsWith(suffix));
 }
+
+// ── Wave 11: unified provider webhook drivers ────────────────────────────────
+// Each driver posts a provider-shaped, correctly-signed body to the REAL
+// unified route POST /api/webhooks/payments/:provider (raw express body, so
+// the exact signed bytes are what the adapter verifies).
+
+export interface ProviderWebhookResult {
+  status: number;
+  json: any;
+}
+
+/** POST a raw body + headers to the unified provider webhook route. */
+export async function postProviderWebhook(
+  world: World,
+  provider: string,
+  raw: string,
+  headers: Record<string, string>,
+): Promise<ProviderWebhookResult> {
+  const res = await fetch(`${world.baseUrl}/api/webhooks/payments/${provider}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: raw,
+  });
+  const json = await res.json().catch(() => null);
+  await world.settle(400);
+  return { status: res.status, json };
+}
+
+/** Flutterwave: verif-hash carries the tenant's configured secret hash verbatim. */
+export async function flutterwaveChargeSuccess(
+  world: World,
+  opts: {
+    reference: string;
+    amountMajor: number;
+    secretHash: string;
+    currency?: string;
+    metadata?: Record<string, unknown>;
+    /** Override the verif-hash header (tamper testing). */
+    overrideHash?: string;
+  },
+): Promise<ProviderWebhookResult> {
+  const raw = JSON.stringify({
+    event: "charge.completed",
+    data: {
+      tx_ref: opts.reference,
+      amount: opts.amountMajor,
+      currency: opts.currency ?? "NGN",
+      status: "successful",
+      meta: opts.metadata ?? {},
+      metadata: opts.metadata ?? {},
+    },
+  });
+  return postProviderWebhook(world, "flutterwave", raw, {
+    "verif-hash": opts.overrideHash ?? opts.secretHash,
+  });
+}
+
+/** Stripe: Stripe-Signature `t=<ts>,v1=<hmac-sha256(`${t}.${raw}`)>` hex. */
+export async function stripeCheckoutCompleted(
+  world: World,
+  opts: {
+    reference: string;
+    amountCents: number;
+    webhookSecret: string;
+    metadata?: Record<string, unknown>;
+    /** Override the v1 signature (tamper testing). */
+    overrideSignature?: string;
+  },
+): Promise<ProviderWebhookResult> {
+  const raw = JSON.stringify({
+    id: "evt_sim_1",
+    type: "checkout.session.completed",
+    data: {
+      object: {
+        id: `cs_sim_${opts.reference}`,
+        object: "checkout.session",
+        client_reference_id: opts.reference,
+        amount_total: opts.amountCents,
+        currency: "ngn",
+        payment_status: "paid",
+        status: "complete",
+        metadata: { reference: opts.reference, ...(opts.metadata ?? {}) },
+      },
+    },
+  });
+  const t = Math.floor(Date.now() / 1000);
+  const v1 =
+    opts.overrideSignature ??
+    crypto.createHmac("sha256", opts.webhookSecret).update(`${t}.${raw}`).digest("hex");
+  return postProviderWebhook(world, "stripe", raw, { "stripe-signature": `t=${t},v1=${v1}` });
+}
+
+/** Monnify: Monnify-Signature = HMAC-SHA512 hex of the raw body (secret key). */
+export async function monnifyPaymentSuccess(
+  world: World,
+  opts: {
+    reference: string;
+    amountMajor: number;
+    secretKey: string;
+    metadata?: Record<string, unknown>;
+    overrideSignature?: string;
+  },
+): Promise<ProviderWebhookResult> {
+  const raw = JSON.stringify({
+    eventType: "SUCCESSFUL_TRANSACTION",
+    eventData: {
+      paymentReference: opts.reference,
+      amountPaid: opts.amountMajor,
+      currency: "NGN",
+      paymentStatus: "PAID",
+      metaData: opts.metadata ?? {},
+    },
+  });
+  const sig =
+    opts.overrideSignature ??
+    crypto.createHmac("sha512", opts.secretKey).update(raw).digest("hex");
+  return postProviderWebhook(world, "monnify", raw, { "monnify-signature": sig });
+}
+
+/** Declarative custom gateway (customHttp config): configurable header/algo/encoding. */
+export async function customGatewayWebhook(
+  world: World,
+  opts: {
+    provider: string;
+    raw: string;
+    signatureHeader: string;
+    algo: "hmac-sha256" | "hmac-sha512";
+    secret: string;
+    encoding: "hex" | "base64";
+    /** Override the signature value (tamper testing). */
+    overrideSignature?: string;
+  },
+): Promise<ProviderWebhookResult> {
+  const algo = opts.algo === "hmac-sha512" ? "sha512" : "sha256";
+  const sig =
+    opts.overrideSignature ??
+    crypto.createHmac(algo, opts.secret).update(opts.raw).digest(opts.encoding);
+  return postProviderWebhook(world, opts.provider, opts.raw, { [opts.signatureHeader]: sig });
+}
