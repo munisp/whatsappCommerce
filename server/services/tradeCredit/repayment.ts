@@ -64,7 +64,10 @@ export async function applyRepaymentTx(
       .returning();
 
     if (!claimed) {
-      const account = await getCreditAccountByIdTx(db, args.accountId);
+      // Guard refused (over-repayment). Re-read through `tx` — never `db`:
+      // the transaction still holds its connection/locks, and a `db` query
+      // here self-deadlocks on single-connection pools.
+      const account = await getCreditAccountByIdTx(tx, args.accountId);
       return { ok: false, outstandingAfter: account?.outstandingCents ?? 0 };
     }
 

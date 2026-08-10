@@ -77,7 +77,10 @@ export async function drawOnCreditTx(
       // Zero rows ⇒ guard failed. Re-read to classify (the account was
       // active pre-lookup, so a missing row now means it was frozen/closed
       // by a concurrent writer; an over-limit guard miss is the common case).
-      const fresh = await getCreditAccountTx(db, args.supplierTenantId, args.buyerTenantId);
+      // MUST go through `tx`: the transaction holds the row lock (and, with
+      // small pools, the only connection) — querying via `db` here deadlocks
+      // against the open transaction.
+      const fresh = await getCreditAccountTx(tx, args.supplierTenantId, args.buyerTenantId);
       if (!fresh) return { ok: false, reason: "no_account" };
       if (fresh.status === "frozen") return { ok: false, reason: "frozen" };
       if (fresh.status === "closed") return { ok: false, reason: "closed" };
