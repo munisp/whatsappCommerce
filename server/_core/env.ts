@@ -100,6 +100,10 @@ export const ENV = {
   waToken: process.env.WHATSAPP_TOKEN ?? "",
   waPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? "",
   waAppSecret: process.env.WHATSAPP_APP_SECRET ?? "",
+  // WhatsApp conversational onboarding (w9): the platform's own intake number.
+  // Both OPTIONAL — unset = feature off, the webhook branch stays inert.
+  onboardingPhoneNumberId: process.env.ONBOARDING_PHONE_NUMBER_ID ?? "",
+  onboardingWaToken: process.env.ONBOARDING_WA_TOKEN ?? "",
   // Payment gateways
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY ?? "",
   flwSecretKey: process.env.FLW_SECRET_KEY ?? "",

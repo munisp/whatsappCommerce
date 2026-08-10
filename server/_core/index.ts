@@ -36,6 +36,7 @@ import { redisSet, redisGet } from "../redis";
 import { runSlaScan } from "../routers/sla";
 import { confirmProviderPayment } from "../services/paymentConfirm";
 import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText, applyWaDeliveryStatus, markMessageRead } from "../services/waSender";
+import { isOnboardingIntakeNumber } from "../services/waOnboarding";
 import { handleInboundReceiptImage } from "../services/receiptVerification";
 import {
   handleIntegrationWebhook,
@@ -853,6 +854,22 @@ async function startServer() {
       for (const msg of messages) {
         const waPhoneNumber: string = msg.from ?? "";
         const contactName: string = contacts.find((c: any) => c.wa_id === waPhoneNumber)?.profile?.name ?? "";
+        // ── w9: platform conversational-onboarding intake number ────────────
+        // Messages to the platform's own onboarding number belong to a
+        // prospective tenant with no tenant row yet — hand them to the
+        // onboarding copilot BEFORE tenant resolution and skip normal tenant
+        // dispatch entirely. Unset ONBOARDING_PHONE_NUMBER_ID → predicate is
+        // always false → zero behavior change for existing tenants.
+        if (isOnboardingIntakeNumber(phoneNumberId)) {
+          try {
+            const { handleInbound } = await import("../services/waOnboarding");
+            await handleInbound(msg, waPhoneNumber);
+          } catch (e: any) {
+            // Fail-safe: the 200 ack was already sent; never rethrow.
+            console.error("[whatsapp-webhook] onboarding intake error:", e?.message);
+          }
+          continue;
+        }
         // Determine tenant from phone number ID (look up in tenants table)
         const [tenant] = await db.select().from(tenants)
           .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
