@@ -117,6 +117,7 @@ describe("webhook dedupe ledger", () => {
     set("KEYCLOAK_URL", "https://kc.example");
     set("APP_URL", "https://app.example");
     set("REDIS_URL", "redis://localhost:6379");
+    set("SECRETS_MASTER_KEY", Buffer.alloc(32, 7).toString("base64"));
     vi.resetModules();
     try {
       const { claimWebhookEvent: prodClaim } = await import("./services/webhookDedupe");

@@ -94,7 +94,9 @@ export function isEncrypted(stored: string): boolean {
 export function decryptSecret(stored: string): string {
   if (!isEncrypted(stored)) return stored;
   const parts = stored.slice(VERSION_PREFIX.length).split(":");
-  if (parts.length !== 3 || parts.some((p) => !p)) {
+  // iv/tag must be present; the ciphertext may legitimately be empty (a
+  // zero-length plaintext encrypts to an empty ct).
+  if (parts.length !== 3 || !parts[0] || !parts[1]) {
     throw new Error("[secrets] malformed encrypted secret (expected v1:<iv>:<tag>:<ct>)");
   }
   const [ivB64, tagB64, ctB64] = parts;
