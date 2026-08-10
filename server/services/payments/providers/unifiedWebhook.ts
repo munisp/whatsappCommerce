@@ -39,17 +39,47 @@ function normalizeHeaders(headers: Request["headers"]): Record<string, string> {
 }
 
 function extractTenantId(payload: any): string | null {
-  const meta = payload?.data?.metadata ?? payload?.metadata ?? null;
-  if (meta && typeof meta === "object") {
-    const t = (meta as Record<string, unknown>).tenant_id ?? (meta as Record<string, unknown>).tenantId;
-    if (typeof t === "string" && t) return t;
+  // Metadata containers per adapter body shape: paystack/custom data.metadata,
+  // flutterwave data.meta, stripe data.object.metadata, monnify
+  // eventData.metaData, customHttp payload.meta.
+  const candidates = [
+    payload?.data?.metadata,
+    payload?.data?.meta,
+    payload?.data?.object?.metadata,
+    payload?.eventData?.metaData,
+    payload?.payload?.meta,
+    payload?.metadata,
+  ];
+  for (const meta of candidates) {
+    if (meta && typeof meta === "object") {
+      const t = (meta as Record<string, unknown>).tenant_id ?? (meta as Record<string, unknown>).tenantId;
+      if (typeof t === "string" && t) return t;
+    }
   }
   return null;
 }
 
 function extractReference(payload: any): string | null {
-  const ref = payload?.data?.reference ?? payload?.reference;
-  return typeof ref === "string" && ref ? ref : null;
+  // Reference fields per adapter body shape (see the adapters' verifyWebhook):
+  // paystack data.reference, flutterwave data.tx_ref, stripe
+  // data.object.client_reference_id / data.object.metadata.reference,
+  // monnify eventData.paymentReference/transactionReference, customHttp
+  // payload.ref.
+  const candidates = [
+    payload?.data?.reference,
+    payload?.data?.tx_ref,
+    payload?.data?.txRef,
+    payload?.data?.object?.client_reference_id,
+    payload?.data?.object?.metadata?.reference,
+    payload?.eventData?.paymentReference,
+    payload?.eventData?.transactionReference,
+    payload?.payload?.ref,
+    payload?.reference,
+  ];
+  for (const ref of candidates) {
+    if (typeof ref === "string" && ref) return ref;
+  }
+  return null;
 }
 
 /** Look the reference up in the payment tables to recover the tenantId. */
@@ -132,7 +162,16 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
     }
 
     // ── Feed the EXISTING claim-first confirm path ────────────────────────
-    const currency = (payload?.data?.currency as string | undefined) ?? null;
+    // Currency extraction mirrors the adapters' body shapes: paystack/
+    // flutterwave put it at data.currency, stripe at data.object.currency,
+    // monnify at eventData.currency, customHttp configs commonly nest under
+    // payload.currency. A missing currency fails the confirm path's
+    // amount/currency verification (fail closed) just like before.
+    const currency =
+      ((payload?.data?.currency ??
+        payload?.data?.object?.currency ??
+        payload?.eventData?.currency ??
+        payload?.payload?.currency) as string | undefined) ?? null;
     const result = await confirmProviderPayment(db, {
       provider: providerId,
       reference: norm.reference,
