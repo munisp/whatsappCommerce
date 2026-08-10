@@ -31,18 +31,18 @@ import { useB2bUtils, useCancelPo, useCreditAccounts, usePos, useRequestCreditAc
 import {
   dueCountdown, formatDate, formatNaira, type PoStatus, type PurchaseOrder, type SupplierSummary,
 } from "@/lib/b2bLogic";
-import { ExternalLink, FileText, HandCoins, Loader2, Plus, ShoppingCart } from "lucide-react";
+import { FileText, HandCoins, Loader2, Plus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUS_FILTERS: Array<{ value: "all" | PoStatus; label: string }> = [
   { value: "all", label: "All statuses" },
-  { value: "pending_approval", label: "Pending approval" },
+  { value: "draft", label: "Draft" },
+  { value: "submitted", label: "Pending approval" },
   { value: "approved", label: "Approved" },
   { value: "invoiced", label: "Invoiced" },
-  { value: "paid", label: "Paid" },
   { value: "fulfilled", label: "Fulfilled" },
+  { value: "paid", label: "Paid" },
   { value: "rejected", label: "Rejected" },
-  { value: "cancelled", label: "Cancelled" },
 ];
 
 const DUE_TONE: Record<string, string> = {
@@ -70,8 +70,8 @@ export default function ProcurementHub() {
 
   const cancelPo = useCancelPo({
     onSuccess: () => {
-      toast.success("Purchase order cancelled");
-      utils?.procurement?.listPos?.invalidate();
+      toast.success("Draft purchase order cancelled");
+      utils.procurement.listPos.invalidate();
       setCancelTarget(null);
     },
     onError: (e) => toast.error(e.message),
@@ -80,20 +80,31 @@ export default function ProcurementHub() {
   const requestCredit = useRequestCreditAccount({
     onSuccess: () => {
       toast.success("Credit request sent — the supplier will review it");
-      utils?.tradeCredit?.listAccounts?.invalidate();
-      utils?.procurement?.listSuppliers?.invalidate();
+      utils.tradeCredit.myAccounts.invalidate();
+      utils.procurement.listSuppliers.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    // No requestAccount endpoint exists yet this wave — degrade gracefully.
+    onError: () =>
+      toast.info("Credit is opened by the supplier — ask them to set you a limit from their Credit Accounts page."),
   });
 
-  // supplierTenantId → my credit account (for the Repay action on credit POs)
+  // supplierTenantId → my credit account (fallback for Repay when the PO has
+  // no creditAccountId yet, and for the dialog's outstanding balance).
   const accountBySupplier = useMemo(() => {
     const map = new Map<string, { id: string; outstanding: number }>();
     for (const a of accounts ?? []) map.set(a.supplierTenantId, { id: a.id, outstanding: a.outstanding });
     return map;
   }, [accounts]);
+  const accountById = useMemo(() => {
+    const map = new Map<string, { id: string; outstanding: number }>();
+    for (const a of accounts ?? []) map.set(a.id, { id: a.id, outstanding: a.outstanding });
+    return map;
+  }, [accounts]);
 
-  const repayAccount = repayTarget ? accountBySupplier.get(repayTarget.supplierTenantId) : undefined;
+  const repayAccount = repayTarget
+    ? (repayTarget.creditAccountId ? accountById.get(repayTarget.creditAccountId) : undefined) ??
+      accountBySupplier.get(repayTarget.supplierTenantId)
+    : undefined;
 
   return (
     <DashboardLayout>
@@ -176,9 +187,12 @@ export default function ProcurementHub() {
                   <TableBody>
                     {(pos ?? []).map((po) => {
                       const due = dueCountdown(po.dueDate);
-                      const canPay = po.paymentMode === "paynow" && !!po.paymentUrl && ["approved", "invoiced"].includes(po.status);
-                      const canRepay = po.paymentMode === "credit" && po.status === "invoiced" && accountBySupplier.has(po.supplierTenantId);
-                      const canCancel = ["draft", "pending_approval"].includes(po.status);
+                      // Pay-now POs: the payment link is generated at approval and
+                      // delivered to the buyer over WhatsApp (no stored URL).
+                      const awaitingPayment = po.paymentMode === "paynow" && po.status === "approved";
+                      const canRepay = po.paymentMode === "credit" && po.status === "invoiced" &&
+                        (!!po.creditAccountId || accountBySupplier.has(po.supplierTenantId));
+                      const canCancel = po.status === "draft"; // only drafts are buyer-cancellable
                       return (
                         <TableRow key={po.id}>
                           <TableCell className="font-mono text-xs">{po.poNumber}</TableCell>
@@ -202,13 +216,8 @@ export default function ProcurementHub() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1.5">
-                              {canPay && (
-                                <Button
-                                  size="sm" variant="outline" className="gap-1 h-8"
-                                  onClick={() => window.open(po.paymentUrl!, "_blank", "noopener")}
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" /> Pay
-                                </Button>
+                              {awaitingPayment && (
+                                <span className="text-xs text-muted-foreground italic self-center">Payment link sent via WhatsApp</span>
                               )}
                               {canRepay && (
                                 <Button size="sm" variant="outline" className="gap-1 h-8" onClick={() => setRepayTarget(po)}>

@@ -17,12 +17,12 @@ import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { useB2bUtils, useCreatePo, useSupplierProfile } from "@/lib/b2b";
+import { useB2bUtils, useCreatePo, useWholesaleCatalog } from "@/lib/b2b";
 import {
   formatNaira, poPaymentModes, poSubtotal, validateMoq, validatePoLines,
   type PoLine, type PoPaymentMode, type SupplierSummary,
 } from "@/lib/b2bLogic";
-import { AlertTriangle, ExternalLink, Loader2, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function PoBuilderDrawer({
@@ -38,7 +38,7 @@ export function PoBuilderDrawer({
 }) {
   const utils = useB2bUtils();
   const supplierTenantId = supplier?.supplierTenantId ?? null;
-  const { data: profile, isLoading: profileLoading } = useSupplierProfile(tenantId, supplierTenantId, { enabled: open });
+  const { data: catalogData, isLoading: profileLoading } = useWholesaleCatalog(tenantId, supplierTenantId, { enabled: open });
 
   const [lines, setLines] = useState<PoLine[]>([]);
   const [termsDays, setTermsDays] = useState<number | null>(null);
@@ -49,31 +49,34 @@ export function PoBuilderDrawer({
   useEffect(() => {
     if (open) {
       setLines([]);
-      setTermsDays(supplier?.termsDays[0] ?? null);
+      setTermsDays(supplier?.defaultTermsDays ?? supplier?.termsDays[0] ?? null);
       setPaymentMode(supplier?.myAccount?.status === "active" ? "credit" : "paynow");
       setNotes("");
     }
   }, [open, supplier?.supplierTenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const createPo = useCreatePo({
-    onSuccess: (po) => {
-      toast.success(`PO ${po.poNumber ?? ""} submitted to ${supplier?.businessName ?? "supplier"}`.trim());
-      utils?.procurement?.listPos?.invalidate();
+    onSuccess: ({ po, autoApproved }) => {
+      toast.success(
+        autoApproved
+          ? `PO ${po.poNumber} auto-approved by ${supplier?.businessName ?? "supplier"}`
+          : `PO ${po.poNumber} submitted to ${supplier?.businessName ?? "supplier"} for approval`,
+      );
+      utils.procurement.listPos.invalidate();
       onOpenChange(false);
-      if (po.paymentMode === "paynow" && po.paymentUrl) {
-        window.open(po.paymentUrl, "_blank", "noopener");
-      }
     },
     onError: (e) => toast.error(e.message),
   });
 
-  const catalog = profile?.catalog ?? [];
+  const catalog = catalogData?.catalog ?? [];
+  // Supplier MOQ from the live catalog when available, else the directory entry.
+  const effectiveMoq = catalogData?.moq ?? supplier?.moq ?? 0;
   const subtotal = useMemo(() => poSubtotal(lines), [lines]);
-  const moq = useMemo(() => validateMoq(subtotal, supplier?.moq), [subtotal, supplier?.moq]);
+  const moq = useMemo(() => validateMoq(subtotal, effectiveMoq), [subtotal, effectiveMoq]);
   const lineError = useMemo(() => validatePoLines(lines), [lines]);
   const modes = useMemo(
-    () => poPaymentModes(supplier?.myAccount, paymentMode === "credit" ? termsDays : (termsDays ?? supplier?.termsDays[0])),
-    [supplier, termsDays, paymentMode],
+    () => poPaymentModes(supplier?.myAccount, termsDays ?? supplier?.defaultTermsDays ?? supplier?.termsDays[0]),
+    [supplier, termsDays],
   );
   const creditMode = modes.find((m) => m.mode === "credit");
 
@@ -85,9 +88,12 @@ export function PoBuilderDrawer({
       if (existing) {
         return prev.map((l) => (l.catalogItemId === item.id ? { ...l, quantity: l.quantity + 1 } : l));
       }
-      return [...prev, { catalogItemId: item.id, name: item.name, quantity: 1, unitPrice: item.unitPrice }];
+      return [...prev, { catalogItemId: item.id, name: item.name, quantity: item.minQty ?? 1, unitPrice: item.unitPrice }];
     });
   };
+
+  const minQtyFor = (catalogItemId: string | null | undefined) =>
+    catalog.find((c) => c.id === catalogItemId)?.minQty ?? 1;
 
   const setQty = (catalogItemId: string | null | undefined, quantity: number) => {
     setLines((prev) => prev.map((l) => (l.catalogItemId === catalogItemId ? { ...l, quantity } : l)));
@@ -97,7 +103,8 @@ export function PoBuilderDrawer({
     setLines((prev) => prev.filter((l) => l.catalogItemId !== catalogItemId));
   };
 
-  const canSubmit = !lineError && moq.ok && !createPo.isPending && (paymentMode === "paynow" || creditMode?.enabled === true);
+  const belowMinQty = lines.some((l) => l.quantity < minQtyFor(l.catalogItemId));
+  const canSubmit = !lineError && !belowMinQty && moq.ok && !createPo.isPending && (paymentMode === "paynow" || creditMode?.enabled === true);
 
   const submit = () => {
     if (!supplier) return;
@@ -119,7 +126,7 @@ export function PoBuilderDrawer({
             <ShoppingCart className="w-5 h-5 text-primary" /> New purchase order
           </SheetTitle>
           <SheetDescription>
-            {supplier ? `Buying from ${supplier.businessName} · min order ${formatNaira(supplier.moq)}` : "Select a supplier first"}
+            {supplier ? `Buying from ${supplier.businessName} · min order ${formatNaira(effectiveMoq)}` : "Select a supplier first"}
           </SheetDescription>
         </SheetHeader>
 
@@ -181,7 +188,7 @@ export function PoBuilderDrawer({
                         <TableCell>
                           <Input
                             type="number"
-                            min={1}
+                            min={minQtyFor(l.catalogItemId)}
                             className="h-8 w-20"
                             value={l.quantity}
                             onChange={(e) => setQty(l.catalogItemId, Number(e.target.value))}
@@ -269,13 +276,16 @@ export function PoBuilderDrawer({
             {lineError && lines.length > 0 && (
               <p className="text-xs text-destructive">{lineError}</p>
             )}
+            {belowMinQty && !lineError && (
+              <p className="text-xs text-destructive">One or more lines are below the supplier's minimum line quantity.</p>
+            )}
 
             <div className="flex items-center justify-between gap-3 pt-2">
               <Badge variant="outline" className="font-normal text-muted-foreground">
                 {paymentMode === "credit" ? `On credit · net ${termsDays ?? 0}d` : "Pay now"}
               </Badge>
               <Button className="gap-1.5" disabled={!canSubmit} onClick={submit}>
-                {createPo.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                {createPo.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingCart className="w-4 h-4" />}
                 Submit PO · {formatNaira(subtotal)}
               </Button>
             </div>

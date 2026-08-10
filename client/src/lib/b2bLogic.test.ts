@@ -44,12 +44,12 @@ describe("formatNaira", () => {
 
 describe("poStatusMeta", () => {
   it("maps known statuses to muted labels/classes", () => {
-    expect(poStatusMeta("pending_approval").label).toBe("Pending approval");
-    expect(poStatusMeta("pending_approval").className).toContain("amber");
+    expect(poStatusMeta("submitted").label).toBe("Pending approval");
+    expect(poStatusMeta("submitted").className).toContain("amber");
     expect(poStatusMeta("approved").className).toContain("emerald");
     expect(poStatusMeta("rejected").className).toContain("red");
     // Muted outline style — never saturated solid backgrounds
-    for (const s of ["draft", "pending_approval", "approved", "rejected", "invoiced", "paid", "fulfilled", "cancelled"] as const) {
+    for (const s of ["draft", "submitted", "approved", "rejected", "invoiced", "paid", "fulfilled"] as const) {
       expect(poStatusMeta(s).className).not.toMatch(/bg-(red|green|amber|blue)-[5-9]00(?!\d)/);
     }
   });
@@ -251,11 +251,11 @@ describe("dashboard derivations", () => {
     expect(s.accountCount).toBe(2);
   });
 
-  it("countPendingApprovals counts only pending_approval", () => {
+  it("countPendingApprovals counts only submitted", () => {
     expect(countPendingApprovals([
-      { status: "pending_approval" },
+      { status: "submitted" },
       { status: "approved" },
-      { status: "pending_approval" },
+      { status: "submitted" },
     ])).toBe(2);
     expect(countPendingApprovals([])).toBe(0);
   });

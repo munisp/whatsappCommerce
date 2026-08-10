@@ -14,11 +14,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useActiveTenant } from "@/contexts/TenantContext";
-import { useB2bUtils, useRequestCreditAccount, useSuppliers, useUpsertSupplierProfile } from "@/lib/b2b";
+import { useB2bUtils, useMySupplierProfile, useRequestCreditAccount, useSuppliers, useUpsertSupplierProfile } from "@/lib/b2b";
 import type { SupplierSummary } from "@/lib/b2bLogic";
 import { Building2, Loader2, RefreshCw, Search, Store } from "lucide-react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 
 function MyProfileDialog({
@@ -31,19 +31,32 @@ function MyProfileDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = useB2bUtils();
-  const [form, setForm] = useState({ categories: "", moq: "", leadTimeDays: "", termsDays: "", description: "" });
+  const { data: existing } = useMySupplierProfile(tenantId, { enabled: open });
+  const [form, setForm] = useState({ categories: "", moq: "", leadTimeDays: "", termsDays: "" });
+
+  // Prefill from the existing supplier profile each time the dialog opens.
+  useEffect(() => {
+    if (!open) return;
+    setForm({
+      categories: (existing?.categories ?? []).join(", "),
+      moq: existing?.moqCents != null ? String(existing.moqCents / 100) : "",
+      leadTimeDays: existing?.leadTimeDays != null ? String(existing.leadTimeDays) : "",
+      termsDays: (existing?.termsOffered ?? []).join(", "),
+    });
+  }, [open, existing]);
 
   const save = useUpsertSupplierProfile({
     onSuccess: () => {
       toast.success("Supplier profile saved");
-      utils?.procurement?.listSuppliers?.invalidate();
+      utils.procurement.listSuppliers.invalidate();
+      utils.procurement.getMySupplierProfile.invalidate();
       onOpenChange(false);
     },
     onError: (e) => toast.error(e.message),
   });
 
   const categories = form.categories.split(",").map((c) => c.trim()).filter(Boolean);
-  const termsDays = form.termsDays.split(",").map((t) => Number(t.trim())).filter((n) => Number.isInteger(n) && n >= 0 && n <= 90);
+  const termsDays = form.termsDays.split(",").map((t) => Number(t.trim())).filter((n) => Number.isInteger(n) && n >= 1 && n <= 90);
   const moq = Number(form.moq);
   const leadTimeDays = Number(form.leadTimeDays);
   const valid = categories.length > 0 && Number.isFinite(moq) && moq >= 0 && Number.isInteger(leadTimeDays) && leadTimeDays >= 0;
@@ -94,14 +107,6 @@ function MyProfileDialog({
               onChange={(e) => setForm((f) => ({ ...f, termsDays: e.target.value }))}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="sp-desc">Description (optional)</Label>
-            <Textarea
-              id="sp-desc" rows={2} maxLength={500}
-              value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            />
-          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -113,7 +118,6 @@ function MyProfileDialog({
               moq,
               leadTimeDays,
               termsDays,
-              description: form.description.trim() || undefined,
             })}
           >
             {save.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
@@ -137,10 +141,12 @@ export default function SupplierDirectory() {
   const requestCredit = useRequestCreditAccount({
     onSuccess: () => {
       toast.success("Credit request sent — the supplier will review it");
-      utils?.tradeCredit?.listAccounts?.invalidate();
-      utils?.procurement?.listSuppliers?.invalidate();
+      utils.tradeCredit.myAccounts.invalidate();
+      utils.procurement.listSuppliers.invalidate();
     },
-    onError: (e) => toast.error(e.message),
+    // No requestAccount endpoint exists yet this wave — degrade gracefully.
+    onError: () =>
+      toast.info("Credit is opened by the supplier — ask them to set you a limit from their Credit Accounts page."),
   });
 
   const filtered = useMemo(() => {

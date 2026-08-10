@@ -12,7 +12,7 @@ import { useLocation } from "wouter";
 
 export function PendingPoApprovalsWidget() {
   const { activeTenantId: tenantId } = useActiveTenant();
-  const { data: pos, isLoading, error } = usePos({ tenantId, side: "supplier", status: "pending_approval" });
+  const { data: pos, isLoading, error } = usePos({ tenantId, side: "supplier", status: "submitted" });
   const [, setLocation] = useLocation();
 
   const count = countPendingApprovals(pos ?? []);

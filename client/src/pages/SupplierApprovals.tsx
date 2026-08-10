@@ -1,12 +1,16 @@
 /**
  * SupplierApprovals — supplier-side PO inbox (route /supplier-approvals).
  *
- * "Pending" tab: POs awaiting my decision, one card each — buyer, lines
- * summary, subtotal, requested terms and a credit-fit chip (within-limit /
- * over-limit / no-account / frozen from the buyer's credit account with me).
- * Approve directly; Reject requires a reason.
+ * "Pending" tab: submitted POs awaiting my decision, one card each — buyer,
+ * lines summary (from getPo), subtotal, requested terms and a credit-fit chip
+ * (within-limit / over-limit / no-account / frozen from the buyer's credit
+ * account with me). Approve (credit draws immediately; pay-now generates the
+ * buyer's payment link, shown for sharing); Reject with an optional reason.
+ * Credit-guard failures come back as a normal outcome (approved: false), not
+ * an error, and are surfaced as a warning toast.
  *
- * "History" tab: decided POs (approved / rejected / cancelled) as a table.
+ * "History" tab: decided POs with follow-through actions — mark fulfilled
+ * (delivered) and manually confirm payment on pay-now POs.
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -16,62 +20,66 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useActiveTenant } from "@/contexts/TenantContext";
-import { useApprovePo, useB2bUtils, useCreditAccounts, usePos, useRejectPo } from "@/lib/b2b";
+import {
+  useApprovePo, useB2bUtils, useCreditAccounts, useMarkFulfilled, useMarkPaid, usePo, usePos, useRejectPo, useTenantNames,
+} from "@/lib/b2b";
 import { formatDate, formatNaira, type PurchaseOrder } from "@/lib/b2bLogic";
-import { Check, ClipboardCheck, Inbox, Loader2, X } from "lucide-react";
+import { Check, ClipboardCheck, Copy, Inbox, Loader2, PackageCheck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 
 function linesSummary(po: PurchaseOrder): string {
-  const parts = po.lines.slice(0, 2).map((l) => `${l.quantity}× ${l.name}`);
-  const rest = po.lines.length - parts.length;
+  const lines = po.lines ?? [];
+  const parts = lines.slice(0, 2).map((l) => `${l.quantity}× ${l.name}`);
+  const rest = lines.length - parts.length;
   return rest > 0 ? `${parts.join(", ")} +${rest} more` : parts.join(", ");
 }
 
 function PendingCard({
-  tenantId,
   po,
+  buyerName,
   account,
   onApprove,
   onReject,
   busy,
 }: {
-  tenantId: string;
   po: PurchaseOrder;
-  account: { status: string; limit: number; outstanding: number } | null;
+  buyerName: string;
+  account: { status: "active" | "frozen" | "closed"; limit: number; outstanding: number } | null;
   onApprove: () => void;
   onReject: () => void;
   busy: boolean;
 }) {
-  void tenantId;
+  const { data: detail, isLoading: detailLoading } = usePo("", po.id);
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <CardTitle className="text-base">{po.buyerName ?? po.buyerTenantId}</CardTitle>
+            <CardTitle className="text-base">{buyerName}</CardTitle>
             <CardDescription>
               <span className="font-mono text-xs">{po.poNumber}</span> · {formatDate(po.createdAt)}
             </CardDescription>
           </div>
-          <CreditStatusChip
-            account={account as { status: "active" | "frozen" | "closed"; limit: number; outstanding: number } | null}
-            poSubtotal={po.subtotal}
-          />
+          <CreditStatusChip account={account} poSubtotal={po.subtotal} />
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm text-muted-foreground">{linesSummary(po) || "No lines"}</p>
+        <p className="text-sm text-muted-foreground">
+          {detailLoading ? "Loading lines…" : linesSummary(detail ?? po) || "No lines"}
+        </p>
         <div className="flex items-center gap-4 text-sm flex-wrap">
           <span className="font-semibold">{formatNaira(po.subtotal)}</span>
           <Badge variant="outline" className="font-normal text-muted-foreground">
             {po.paymentMode === "credit" ? `On credit · net ${po.termsDays ?? 0}d` : "Pay now"}
           </Badge>
         </div>
+        {po.notes && <p className="text-xs text-muted-foreground italic">“{po.notes}”</p>}
         <div className="flex gap-2 pt-1">
           <Button size="sm" className="gap-1.5" disabled={busy} onClick={onApprove}>
             <Check className="w-4 h-4" /> Approve
@@ -88,43 +96,61 @@ function PendingCard({
 export default function SupplierApprovals() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const utils = useB2bUtils();
-  const { data: pending, isLoading, error, refetch } = usePos({ tenantId, side: "supplier", status: "pending_approval" });
+  const { data: pending, isLoading, error, refetch } = usePos({ tenantId, side: "supplier", status: "submitted" });
   const { data: decided, isLoading: decidedLoading } = usePos({ tenantId, side: "supplier" });
   const { data: accounts } = useCreditAccounts({ tenantId, side: "supplier" });
+  const tenantNames = useTenantNames();
 
   const [rejectTarget, setRejectTarget] = useState<PurchaseOrder | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [paymentLink, setPaymentLink] = useState<string | null>(null);
 
-  const invalidate = () => utils?.procurement?.listPos?.invalidate();
+  const invalidate = () => utils.procurement.listPos.invalidate();
 
   const approve = useApprovePo({
-    onSuccess: (po) => {
-      toast.success(`Approved ${po.poNumber ?? "PO"}`);
+    onSuccess: (outcome) => {
+      if (!outcome.approved) {
+        // Credit guard failure is a normal business outcome, not an error.
+        toast.warning(`Approval blocked: ${outcome.creditFailure?.replaceAll("_", " ") ?? "credit check failed"}`);
+        return;
+      }
+      toast.success("PO approved");
+      if (outcome.paymentUrl) setPaymentLink(outcome.paymentUrl);
       invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
   const reject = useRejectPo({
-    onSuccess: (po) => {
-      toast.success(`Rejected ${po.poNumber ?? "PO"}`);
+    onSuccess: () => {
+      toast.success("PO rejected");
       invalidate();
       setRejectTarget(null);
       setRejectReason("");
     },
     onError: (e) => toast.error(e.message),
   });
+  const markFulfilled = useMarkFulfilled({
+    onSuccess: () => { toast.success("Marked as fulfilled"); invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const markPaid = useMarkPaid({
+    onSuccess: () => { toast.success("Payment confirmed"); invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
 
   // buyerTenantId → their credit account with me
   const accountByBuyer = useMemo(() => {
-    const map = new Map<string, { status: string; limit: number; outstanding: number }>();
+    const map = new Map<string, { status: "active" | "frozen" | "closed"; limit: number; outstanding: number }>();
     for (const a of accounts ?? []) map.set(a.buyerTenantId, { status: a.status, limit: a.limit, outstanding: a.outstanding });
     return map;
   }, [accounts]);
 
   const history = useMemo(
-    () => (decided ?? []).filter((p) => ["approved", "rejected", "invoiced", "paid", "fulfilled", "cancelled"].includes(p.status)),
+    () => (decided ?? []).filter((p) => p.status !== "submitted" && p.status !== "draft"),
     [decided],
   );
+
+  const busy = approve.isPending || reject.isPending;
 
   return (
     <DashboardLayout>
@@ -178,11 +204,11 @@ export default function SupplierApprovals() {
                 {(pending ?? []).map((po) => (
                   <PendingCard
                     key={po.id}
-                    tenantId={tenantId}
                     po={po}
+                    buyerName={po.buyerName ?? tenantNames.get(po.buyerTenantId) ?? po.buyerTenantId}
                     account={accountByBuyer.get(po.buyerTenantId) ?? null}
-                    busy={approve.isPending || reject.isPending}
-                    onApprove={() => approve.mutate({ tenantId, poId: po.id })}
+                    busy={busy}
+                    onApprove={() => approve.mutate({ poId: po.id })}
                     onReject={() => setRejectTarget(po)}
                   />
                 ))}
@@ -210,21 +236,44 @@ export default function SupplierApprovals() {
                       <TableHead>Buyer</TableHead>
                       <TableHead className="text-right">Subtotal</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>Decided reason</TableHead>
+                      <TableHead>Notes</TableHead>
                       <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {history.map((po) => (
                       <TableRow key={po.id}>
                         <TableCell className="font-mono text-xs">{po.poNumber}</TableCell>
-                        <TableCell className="font-medium">{po.buyerName ?? po.buyerTenantId}</TableCell>
+                        <TableCell className="font-medium">{po.buyerName ?? tenantNames.get(po.buyerTenantId) ?? po.buyerTenantId}</TableCell>
                         <TableCell className="text-right">{formatNaira(po.subtotal)}</TableCell>
                         <TableCell><PoStatusBadge status={po.status} /></TableCell>
                         <TableCell className="text-xs text-muted-foreground max-w-48 truncate">
-                          {po.rejectionReason ?? "—"}
+                          {po.notes ?? "—"}
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">{formatDate(po.createdAt)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1.5">
+                            {po.status === "approved" && po.paymentMode === "paynow" && (
+                              <Button
+                                size="sm" variant="outline" className="h-8 gap-1"
+                                disabled={markPaid.isPending}
+                                onClick={() => markPaid.mutate({ poId: po.id })}
+                              >
+                                <Wallet className="w-3.5 h-3.5" /> Mark paid
+                              </Button>
+                            )}
+                            {(po.status === "approved" || po.status === "invoiced") && (
+                              <Button
+                                size="sm" variant="ghost" className="h-8 gap-1"
+                                disabled={markFulfilled.isPending}
+                                onClick={() => markFulfilled.mutate({ poId: po.id })}
+                              >
+                                <PackageCheck className="w-3.5 h-3.5" /> Fulfilled
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -241,7 +290,7 @@ export default function SupplierApprovals() {
           <DialogHeader>
             <DialogTitle>Reject {rejectTarget?.poNumber}</DialogTitle>
             <DialogDescription>
-              Tell the buyer why this purchase order was rejected.
+              Tell the buyer why this purchase order was rejected (optional).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
@@ -259,12 +308,40 @@ export default function SupplierApprovals() {
             <Button variant="outline" onClick={() => { setRejectTarget(null); setRejectReason(""); }}>Back</Button>
             <Button
               variant="destructive"
-              disabled={!rejectReason.trim() || reject.isPending}
-              onClick={() => rejectTarget && reject.mutate({ tenantId, poId: rejectTarget.id, reason: rejectReason.trim() })}
+              disabled={reject.isPending}
+              onClick={() => rejectTarget && reject.mutate({ poId: rejectTarget.id, reason: rejectReason.trim() || undefined })}
             >
               {reject.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
               Reject PO
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pay-now payment link generated at approval */}
+      <Dialog open={!!paymentLink} onOpenChange={(o) => !o && setPaymentLink(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Payment link for the buyer</DialogTitle>
+            <DialogDescription>
+              This link was also sent to the buyer on WhatsApp — share it again if needed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2">
+            <Input readOnly value={paymentLink ?? ""} className="font-mono text-xs" />
+            <Button
+              variant="outline" size="icon"
+              aria-label="Copy payment link"
+              onClick={() => {
+                navigator.clipboard?.writeText(paymentLink ?? "");
+                toast.success("Link copied");
+              }}
+            >
+              <Copy className="w-4 h-4" />
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setPaymentLink(null)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

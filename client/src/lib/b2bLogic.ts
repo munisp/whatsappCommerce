@@ -28,36 +28,46 @@ export interface SupplierSummary {
   leadTimeDays: number;
   /** Supported net terms in days, e.g. [7, 14, 30]. */
   termsDays: number[];
+  /** Supplier's default terms (days). */
+  defaultTermsDays?: number | null;
   /** The viewing tenant's credit account with this supplier, if any. */
   myAccount?: CreditAccountRef | null;
 }
 
 export interface CatalogItem {
+  /** products.id or `medusa:<id>:<variant>` — sent back as productRef on PO lines. */
   id: string;
   name: string;
   sku?: string | null;
   unitPrice: number;
   unit?: string | null;
+  /** Wholesale tier minimum quantity for this line (default 1). */
+  minQty?: number;
 }
 
-export interface SupplierProfile extends SupplierSummary {
-  description?: string | null;
+/** Wholesale catalog for one supplier (procurement.getWholesaleCatalog). */
+export interface SupplierCatalog {
+  supplierTenantId: string;
   catalog: CatalogItem[];
+  moq: number;
+  leadTimeDays: number;
+  termsDays: number[];
+  defaultTermsDays: number | null;
 }
 
 export type PoStatus =
   | "draft"
-  | "pending_approval"
+  | "submitted"
   | "approved"
   | "rejected"
-  | "invoiced"
-  | "paid"
   | "fulfilled"
-  | "cancelled";
+  | "invoiced"
+  | "paid";
 
 export type PoPaymentMode = "credit" | "paynow";
 
 export interface PoLine {
+  /** Sent to the backend as productRef. */
   catalogItemId?: string | null;
   name: string;
   quantity: number;
@@ -71,15 +81,17 @@ export interface PurchaseOrder {
   supplierTenantId: string;
   buyerName?: string | null;
   supplierName?: string | null;
-  lines: PoLine[];
+  /** Present on detail fetch (getPo); list rows omit items. */
+  lines?: PoLine[];
   subtotal: number;
   status: PoStatus;
   paymentMode: PoPaymentMode;
   termsDays?: number | null;
   dueDate?: string | null;
-  rejectionReason?: string | null;
-  /** Checkout URL for pay-now POs (present once the PO is approved). */
-  paymentUrl?: string | null;
+  /** Set once a credit draw succeeded (Repay targets this account). */
+  creditAccountId?: string | null;
+  /** Free-text notes; rejected POs carry "Rejected: <reason>" here. */
+  notes?: string | null;
   createdAt: string;
 }
 
@@ -161,14 +173,13 @@ export interface StatusMeta {
 }
 
 export const PO_STATUS_META: Record<PoStatus, StatusMeta> = {
-  draft:            { label: "Draft",            className: "border-border text-muted-foreground" },
-  pending_approval: { label: "Pending approval", className: "border-amber-500/40 text-amber-400" },
-  approved:         { label: "Approved",         className: "border-emerald-500/40 text-emerald-400" },
-  rejected:         { label: "Rejected",         className: "border-red-500/40 text-red-400" },
-  invoiced:         { label: "Invoiced",         className: "border-sky-500/40 text-sky-400" },
-  paid:             { label: "Paid",             className: "border-emerald-500/40 text-emerald-400" },
-  fulfilled:        { label: "Fulfilled",        className: "border-teal-500/40 text-teal-400" },
-  cancelled:        { label: "Cancelled",        className: "border-border text-muted-foreground" },
+  draft:     { label: "Draft",            className: "border-border text-muted-foreground" },
+  submitted: { label: "Pending approval", className: "border-amber-500/40 text-amber-400" },
+  approved:  { label: "Approved",         className: "border-emerald-500/40 text-emerald-400" },
+  rejected:  { label: "Rejected",         className: "border-red-500/40 text-red-400" },
+  fulfilled: { label: "Fulfilled",        className: "border-teal-500/40 text-teal-400" },
+  invoiced:  { label: "Invoiced",         className: "border-sky-500/40 text-sky-400" },
+  paid:      { label: "Paid",             className: "border-emerald-500/40 text-emerald-400" },
 };
 
 /** Status metadata with a safe fallback for statuses added server-side later. */
@@ -472,5 +483,5 @@ export function summarizeCreditAccounts(accounts: Array<Pick<CreditAccount, "out
 
 /** Count supplier-side POs awaiting a decision (dashboard widget). */
 export function countPendingApprovals(pos: Array<Pick<PurchaseOrder, "status">>): number {
-  return pos.filter((p) => p.status === "pending_approval").length;
+  return pos.filter((p) => p.status === "submitted").length;
 }
