@@ -3033,3 +3033,34 @@ export const mediaAssets = pgTable("media_assets", {
 ]);
 export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type NewMediaAsset = typeof mediaAssets.$inferInsert;
+// ── Wave 9: Agentic onboarding copilot sessions ─────────────────────────────
+// One row per onboarding-copilot conversation (admin dashboard or WhatsApp
+// channel). `state` machine: intake → proposing → approving → configuring →
+// validating → live (↘ failed / abandoned). `proposals` is the approval-
+// checkpoint ledger: the copilot may create proposals freely, but
+// applyProposal/pushProfile/goLive refuse until a human flips status to
+// 'approved' (or 'edited' with a caller-supplied payload).
+export const onboardingSessions = pgTable("onboarding_sessions", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  /** Null until the copilot provisions the tenant mid-flow. */
+  tenantId:    varchar("tenant_id", { length: 36 }),
+  channel:     varchar("channel", { length: 16 }).notNull(), // 'admin' | 'whatsapp'
+  /** WhatsApp phone (E.164) for channel='whatsapp' resume lookups. */
+  phone:       varchar("phone", { length: 30 }),
+  state:       varchar("state", { length: 20 }).notNull().default("intake"),
+  /** [{ role: 'user'|'agent'|'system', text, ts }] */
+  transcript:  jsonb("transcript").notNull().default([]),
+  /** [{ id, kind, summary, payload, status }] — see server/services/onboardingCopilot */
+  proposals:   jsonb("proposals").notNull().default([]),
+  /** Extracted business facts + repair-loop metadata. */
+  intake:      jsonb("intake"),
+  error:       text("error"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("onboarding_sessions_tenant_idx").on(t.tenantId),
+  index("onboarding_sessions_channel_phone_idx").on(t.channel, t.phone),
+  index("onboarding_sessions_state_idx").on(t.state),
+]);
+export type OnboardingSessionRow = typeof onboardingSessions.$inferSelect;
+export type NewOnboardingSessionRow = typeof onboardingSessions.$inferInsert;
