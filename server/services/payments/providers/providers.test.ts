@@ -21,7 +21,16 @@ vi.mock("../../../db", () => ({
             [...configRows].sort(
               (a, b) => (b.priority ?? 0) - (a.priority ?? 0) || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
             ),
+          // Manual upsert's existence probe (select-then-insert/update).
+          limit: async () => configRows.slice(0, 1),
         }),
+      }),
+    }),
+    update: () => ({
+      set: (s: any) => ({
+        where: async () => {
+          if (configRows[0]) Object.assign(configRows[0], s);
+        },
       }),
     }),
     insert: () => ({

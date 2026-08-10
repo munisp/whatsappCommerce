@@ -94,6 +94,21 @@ reach a scripted mock endpoint sanitized, and a webhook-sink outage is
 swallowed without disturbing the outbox sweep. Fault injection uses the new
 `meta.hostStatus` per-hostname status scripting in the fetch mock.
 
+Wave 11 (J47–J52) proves the **universal provider framework** end-to-end. The
+fetch mock gains scripted hosts for `api.stripe.com` (Checkout Sessions),
+`api.monnify.com` (auth + init-transaction) and a generic custom-gateway mock
+(`registerCustomGatewayHost`, e.g. the fictional `api.afripay.example`), plus
+`pay.hostStatus` per-host failure injection for fallback testing; journeys
+drive the REAL unified route `POST /api/webhooks/payments/:provider` with
+per-provider signing helpers (flutterwave verif-hash, stripe `t/v1`
+HMAC-SHA256, monnify HMAC-SHA512, custom configurable HMAC). Covered:
+multi-provider tenants side-by-side with creds/config isolation (J47),
+manual/bank-transfer instructions + receipt-upload confirm (J48), zero-code
+declarative customHttp gateway incl. tamper rejection (J49), fallback under
+failure + all-fail exhaustion (J50), credit repayment served by flutterwave
+with replay dedupe (J51), and unified-webhook isolation across adapters and
+unknown slugs (J52).
+
 ## Prod bugs found by this suite (fixed surgically)
 
 1. **`server/services/useCases.ts`** — the numeric menu selector hijacked
@@ -140,6 +155,29 @@ Wave 9 (found by J40):
    deterministic monogram path ignored it, so revision feedback like "use
    purple colors" could never change the palette. `paletteForVibe` now maps
    known color words to a muted (saturation-clamped) deterministic palette.
+
+Wave 11 (found by J49/J52):
+
+9. **`server/services/payments/providers/registry.ts`** — the declarative
+   customHttp factory (`createCustomProvider`) existed but NOTHING resolved it
+   at runtime: a tenant row whose provider id had no built-in adapter was
+   silently skipped, so a "zero-code" custom gateway could never initiate or
+   receive webhooks. The registry now builds + registers the adapter from
+   `credentials.customHttp` when the config id matches the row provider
+   (invalid configs fail closed — the row is skipped).
+10. **`server/services/payments/providers/unifiedWebhook.ts`** — tenant/
+    reference/currency extraction was paystack-shaped only: stripe
+    (`data.object.*`), flutterwave (`data.tx_ref`, `data.meta`), monnify
+    (`eventData.*`) and customHttp (`payload.*`) bodies failed tenant-cred
+    resolution with `provider-not-configured` (401) even when correctly
+    signed, and the paystack-only currency read then failed the confirm
+    path's amount/currency verification. The route now reads all four body
+    shapes; genuinely missing fields still fail closed.
+11. **`server/services/payments/providers/registry.ts`** —
+    `upsertTenantProviderConfig` used `onConflictDoUpdate` targeting
+    `(tenantId, provider)`, but NO unique constraint exists on that pair
+    (42P10 on every call) — tenant provider configs could never be written
+    through the registry. The upsert is now a select-then-insert/update.
 
 ## Rules
 

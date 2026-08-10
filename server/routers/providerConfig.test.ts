@@ -33,6 +33,8 @@ function makeDb() {
   const thenable = (rows: any[]) => {
     const self: any = {};
     self.orderBy = () => thenable([...rows].sort((a, b) => b.priority - a.priority));
+    // Manual upsert's existence probe (select-then-insert/update).
+    self.limit = () => thenable(rows.slice(0, 1));
     self.then = (res: (v: any[]) => void) => {
       res(rows);
       return self;

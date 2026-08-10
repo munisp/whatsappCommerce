@@ -23,6 +23,7 @@ import { decryptSecret, encryptSecret } from "../../crypto/secrets";
 import type { PaymentProvider } from "./types";
 import { paystackProvider } from "./paystack";
 import { manualProvider } from "./manual";
+import { createCustomProvider } from "./customHttp";
 
 const adapters = new Map<string, PaymentProvider>();
 
@@ -61,12 +62,29 @@ export async function getProviderForTenant(tenantId: string): Promise<TenantProv
   const chain: TenantProviderEntry[] = [];
   for (const row of rows) {
     if (row.enabled === false) continue;
-    const provider = adapters.get(row.provider);
-    if (!provider) continue;
     const extras =
       row.credentials && typeof row.credentials === "object"
         ? (row.credentials as Record<string, unknown>)
         : {};
+    let provider = adapters.get(row.provider);
+    if (!provider) {
+      // Zero-code custom gateway (w11): a row whose provider id has no
+      // built-in adapter can still resolve when its credentials jsonb carries
+      // a declarative customHttp config (`credentials.customHttp`) whose id
+      // matches the row provider. The built adapter is registered so the
+      // unified webhook route (getProviderAdapter) resolves the same id.
+      // Invalid configs fail closed — the row is skipped.
+      const cfg = (extras as Record<string, unknown>).customHttp;
+      if (cfg && typeof cfg === "object" && (cfg as Record<string, unknown>).id === row.provider) {
+        try {
+          provider = createCustomProvider(cfg);
+          registerProvider(provider);
+        } catch {
+          provider = undefined;
+        }
+      }
+    }
+    if (!provider) continue;
     // decryptSecret passes legacy plaintext through unchanged.
     const secretKey = row.secretKey ? decryptSecret(row.secretKey) : undefined;
     const webhookSecret = row.webhookSecret ? decryptSecret(row.webhookSecret) : undefined;
@@ -116,12 +134,18 @@ export async function upsertTenantProviderConfig(opts: {
     credentials: Object.keys(extras).length ? extras : null,
     metadata: null,
   };
-  await db
-    .insert(paymentGatewayConfigs)
-    .values(values)
-    .onConflictDoUpdate({
-      target: [paymentGatewayConfigs.tenantId, paymentGatewayConfigs.provider],
-      set: {
+  // No unique constraint exists on (tenantId, provider), so an ON CONFLICT
+  // target would raise 42P10 — do the upsert manually: update the existing
+  // row when one is present, insert otherwise.
+  const [existing] = await db
+    .select({ id: paymentGatewayConfigs.id })
+    .from(paymentGatewayConfigs)
+    .where(and(eq(paymentGatewayConfigs.tenantId, opts.tenantId), eq(paymentGatewayConfigs.provider, opts.provider)))
+    .limit(1);
+  if (existing) {
+    await db
+      .update(paymentGatewayConfigs)
+      .set({
         publicKey: values.publicKey,
         secretKey: values.secretKey,
         webhookSecret: values.webhookSecret,
@@ -131,8 +155,11 @@ export async function upsertTenantProviderConfig(opts: {
         priority: values.priority,
         credentials: values.credentials,
         updatedAt: new Date(),
-      },
-    });
+      })
+      .where(eq(paymentGatewayConfigs.id, existing.id));
+    return { ok: true, id: existing.id };
+  }
+  await db.insert(paymentGatewayConfigs).values(values);
   return { ok: true, id };
 }
 
