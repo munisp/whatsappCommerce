@@ -160,6 +160,26 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
+  // ── w11 payment provider adapter pack (flutterwave/stripe/monnify) ───────
+  // Additive + non-blocking: a registration failure is reported via
+  // observability but must NEVER prevent server boot (paystack/manual are
+  // registered at registry module load and keep working regardless).
+  try {
+    const { registerAdapterPack } = await import("../services/payments/providers/registerAll");
+    registerAdapterPack();
+  } catch (adapterErr: any) {
+    try {
+      const { captureException } = await import("../services/observability");
+      captureException(adapterErr, {
+        service: "server/boot",
+        operation: "registerAdapterPack",
+        severity: "error",
+      });
+    } catch {
+      console.error("[boot] registerAdapterPack failed:", adapterErr?.message ?? adapterErr);
+    }
+  }
+
   // ── WebSocket server for /api/ws/conversations ────────────────────────────
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => {

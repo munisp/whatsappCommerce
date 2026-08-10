@@ -43,9 +43,15 @@ export function RepaymentDialog({
   const valid = Number.isFinite(parsed) && parsed > 0 && parsed <= outstanding;
 
   const requestLink = useRequestRepaymentLink({
-    onSuccess: ({ url }) => {
-      toast.success("Repayment link created — opening checkout");
-      window.open(url, "_blank", "noopener");
+    onSuccess: ({ url, instructions }) => {
+      // Shape-driven (wave-11): hosted providers → open checkout; manual/custom
+      // providers → surface the settlement instructions instead.
+      if (url) {
+        toast.success("Repayment link created — opening checkout");
+        window.open(url, "_blank", "noopener");
+      } else {
+        toast.success("Repayment instructions sent", { description: instructions ?? undefined });
+      }
       onOpenChange(false);
       utils?.tradeCredit?.myAccounts?.invalidate();
       utils?.tradeCredit?.myLedger?.invalidate();

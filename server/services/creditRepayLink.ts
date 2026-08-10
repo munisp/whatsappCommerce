@@ -35,6 +35,8 @@ import { ENV } from "../_core/env";
 import { claimWebhookEvent } from "./webhookDedupe";
 import { recordUsage } from "./metering";
 import { captureException } from "./observability";
+import { initiateWithFallback, ProviderChainExhaustedError } from "./payments/initiateWithFallback";
+import { toIntentProviderEnum } from "./payments/providers/providerEnum";
 
 // ── Usage-metering metrics ───────────────────────────────────────────────────
 export const METRIC_CREDIT_REPAYMENT_LINKS = "credit_repayment_links";
@@ -113,7 +115,12 @@ export interface CreateRepaymentLinkInput {
 export interface RepaymentLinkResult {
   paymentIntentId: string;
   reference: string;
-  paymentUrl: string;
+  /** Hosted-checkout URL (null when the serving provider is manual/custom). */
+  paymentUrl: string | null;
+  /** Settlement instructions for manual/custom providers (wave-11, additive). */
+  instructions: string | null;
+  /** Provider that actually served the link (wave-11, additive). */
+  provider: string;
   amountCents: number;
   currency: string;
   outstandingCents: number;
@@ -142,9 +149,6 @@ export async function createRepaymentLink(
       `amount ${amountCents} exceeds outstanding balance ${outstanding}`,
     );
   }
-
-  const paystackKey = ENV.paystackSecretKey;
-  if (!paystackKey) throw new CreditRepayError("paystack-not-configured", "PAYSTACK_SECRET_KEY not configured");
 
   const amountMajor = amountCents / 100;
   const paymentIntentId = randomUUID();
@@ -178,58 +182,70 @@ export async function createRepaymentLink(
     updatedAt: now,
   });
 
-  let paymentUrl: string;
+  // Wave-11: resolve the provider through the tenant's registry fallback
+  // chain instead of a hard-coded Paystack call. The provider-bound metadata
+  // shape is UNCHANGED (paymentConfirm hooks pattern-match on it).
+  const customerPhone = input.customerPhone ?? input.accountId;
+  let paymentUrl: string | null = null;
+  let instructions: string | null = null;
+  let servedProvider = "paystack";
   try {
-    const psRes = await fetch("https://api.paystack.co/transaction/initialize", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${paystackKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: `${(input.customerPhone ?? input.accountId).replace(/\D/g, "") || "credit"}@wa.commerce`,
-        amount: amountCents, // Paystack minor units (kobo) == cents
-        currency: account.currency,
-        reference,
-        metadata: {
-          payment_intent_id: paymentIntentId,
-          tenant_id: input.buyerTenantId,
-          kind: "credit_repayment",
-          accountId: input.accountId,
-          ...(input.poId ? { poId: input.poId } : {}),
-        },
-        callback_url: `${ENV.appUrl}/api/webhooks/paystack/callback`,
-      }),
-      signal: AbortSignal.timeout(10_000),
+    const fallback = await initiateWithFallback(input.buyerTenantId, {
+      tenantId: input.buyerTenantId,
+      amountCents, // minor units (kobo) == cents
+      currency: account.currency,
+      reference,
+      metadata: {
+        payment_intent_id: paymentIntentId,
+        tenant_id: input.buyerTenantId,
+        kind: "credit_repayment",
+        accountId: input.accountId,
+        ...(input.poId ? { poId: input.poId } : {}),
+      },
+      customer: {
+        phone: customerPhone,
+        email: `${customerPhone.replace(/\D/g, "") || "credit"}@wa.commerce`,
+      },
+      callbackUrl: `${ENV.appUrl}/api/webhooks/paystack/callback`,
     });
-    if (!psRes.ok) throw new Error(`HTTP ${psRes.status}: ${(await psRes.text().catch(() => "")).slice(0, 200)}`);
-    const psData = (await psRes.json()) as { status: boolean; data?: { authorization_url?: string } };
-    if (!psData.status || !psData.data?.authorization_url) throw new Error("Paystack returned status=false");
-    paymentUrl = psData.data.authorization_url;
+    paymentUrl = fallback.result.authorizationUrl ?? null;
+    instructions = fallback.result.instructions ?? null;
+    servedProvider = fallback.providerId;
   } catch (err: any) {
     // Leave a failed intent for audit rather than a dangling 'pending' one.
     await db
       .update(paymentIntents)
-      .set({ status: "failed", failureReason: `paystack_init: ${String(err?.message ?? err).slice(0, 300)}`, updatedAt: new Date() })
+      .set({ status: "failed", failureReason: `provider_init: ${String(err?.message ?? err).slice(0, 300)}`, updatedAt: new Date() })
       .where(eq(paymentIntents.id, paymentIntentId))
       .catch(() => {});
     // Money-path: a repayment link could not be initialized.
     captureException(err, {
       service: "creditRepayLink",
-      operation: "paystackInit",
+      operation: "providerInit",
       tenantId: input.buyerTenantId,
       severity: "critical",
       extra: { paymentIntentId, reference, amountCents },
     });
-    throw new CreditRepayError("paystack-init-failed", `Paystack initialization failed: ${err?.message ?? err}`);
+    if (err instanceof ProviderChainExhaustedError && err.attempts.length === 0) {
+      throw new CreditRepayError("paystack-not-configured", "No payment provider is configured for this tenant");
+    }
+    throw new CreditRepayError("paystack-init-failed", `Payment provider initialization failed: ${err?.message ?? err}`);
   }
 
   await db
     .update(paymentIntents)
-    .set({ status: "initiated", metadata: { ...metadata, paymentUrl }, updatedAt: new Date() })
+    .set({
+      status: "initiated",
+      provider: toIntentProviderEnum(servedProvider),
+      metadata: { ...metadata, paymentUrl, ...(instructions ? { instructions } : {}), servedProvider },
+      updatedAt: new Date(),
+    })
     .where(eq(paymentIntents.id, paymentIntentId));
 
   // Ops metering (never throws).
   await recordUsage(db, input.buyerTenantId, METRIC_CREDIT_REPAYMENT_LINKS);
 
-  return { paymentIntentId, reference, paymentUrl, amountCents, currency: account.currency, outstandingCents: outstanding };
+  return { paymentIntentId, reference, paymentUrl, instructions, provider: servedProvider, amountCents, currency: account.currency, outstandingCents: outstanding };
 }
 
 // ── Post-confirm hook (called from paymentConfirm) ───────────────────────────

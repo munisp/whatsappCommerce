@@ -595,10 +595,10 @@ export function useUnfreezeAccount(opts?: MutationOpts<unknown>) {
  * `amount` is ₦ (converted to amountCents; omitted → full outstanding).
  */
 export function useRequestRepaymentLink(
-  opts?: MutationOpts<{ url: string }>,
-): MutationResult<{ tenantId: string; accountId: string; amount?: number; poId?: string }, { url: string }> {
+  opts?: MutationOpts<{ url: string | null; instructions: string | null }>,
+): MutationResult<{ tenantId: string; accountId: string; amount?: number; poId?: string }, { url: string | null; instructions: string | null }> {
   const m = trpc.creditRepay.requestRepaymentLink.useMutation({
-    onSuccess: (r) => opts?.onSuccess?.({ url: r.paymentUrl }),
+    onSuccess: (r) => opts?.onSuccess?.({ url: r.paymentUrl, instructions: r.instructions }),
     onError: opts?.onError,
   });
   const toBackend = (v: { tenantId: string; accountId: string; amount?: number; poId?: string }) => ({
@@ -610,7 +610,7 @@ export function useRequestRepaymentLink(
   return {
     ...m,
     mutate: (v) => m.mutate(toBackend(v)),
-    mutateAsync: (v) => m.mutateAsync(toBackend(v)).then((r) => ({ url: r.paymentUrl })),
+    mutateAsync: (v) => m.mutateAsync(toBackend(v)).then((r) => ({ url: r.paymentUrl, instructions: r.instructions })),
   };
 }
 
