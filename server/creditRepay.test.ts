@@ -396,7 +396,7 @@ describe("runCreditRepaymentHook", () => {
 
 // ── Claim-first confirm integration: webhook replay never double-applies ─────
 describe("confirmProviderPayment credit_repayment hook", () => {
-  function makeConfirmDb(intent: Record<string, any>) {
+  function makeConfirmDb(intent: Record<string, any>, opts: { orderRow?: any } = {}) {
     const ledger = new Set<string>();
     const escrowInserted: any[] = [];
     const db: any = {
@@ -411,6 +411,8 @@ describe("confirmProviderPayment credit_repayment hook", () => {
                   return [];
                 case "payment_intents":
                   return [{ ...intent }];
+                case "orders":
+                  return opts.orderRow ? [opts.orderRow] : [];
                 case "escrow_config":
                   return []; // defaults (pssp custody)
                 default:
@@ -531,5 +533,40 @@ describe("confirmProviderPayment credit_repayment hook", () => {
     expect(res.action).toBe("confirmed"); // payment itself is safe
     expect(intent.status).toBe("completed");
     errSpy.mockRestore();
+  });
+
+  // ── Escrow gate regression (wave-8 FK violation fix) ─────────────────────
+  // paymentConfirm reuses paymentIntents.orderId for NON-order references
+  // (credit_repayment carries the account/PO uuid). The order-confirmation /
+  // escrow-hold block must only fire when the reference is a REAL orders row.
+  it("escrow gate: non-order intent references NEVER create escrow-hold rows", async () => {
+    const intent = makeIntent(); // orderId = "acct-1" — a credit account, not an order
+    const db = makeConfirmDb(intent); // orders table has no such row
+    __setApplyRepaymentForTests(vi.fn(async () => ({ ok: true, outstandingAfter: 0 })));
+    const res = await confirmProviderPayment(db, {
+      provider: "paystack",
+      reference: "CRP-REPLAY-1",
+      amountMajor: 1000,
+      currency: "NGN",
+      rawPayload: {},
+    });
+    expect(res.action).toBe("confirmed");
+    expect(db.escrowInserted).toHaveLength(0); // gate suppressed the escrow block
+  });
+
+  it("escrow gate: a real orders row still gets its escrow hold (positive control)", async () => {
+    const intent = { ...makeIntent(), metadata: { kind: "storefront" }, orderId: "order-1" };
+    const db = makeConfirmDb(intent, { orderRow: { id: "order-1" } });
+    __setApplyRepaymentForTests(vi.fn(async () => ({ ok: true, outstandingAfter: 0 })));
+    const res = await confirmProviderPayment(db, {
+      provider: "paystack",
+      reference: "CRP-REPLAY-1",
+      amountMajor: 1000,
+      currency: "NGN",
+      rawPayload: {},
+    });
+    expect(res.action).toBe("confirmed");
+    expect(db.escrowInserted).toHaveLength(1);
+    expect(db.escrowInserted[0].orderId).toBe("order-1");
   });
 });
