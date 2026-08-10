@@ -130,6 +130,11 @@ export const REQUIRED_BY_ENV: Record<string, string> = {
   KEYCLOAK_URL: process.env.KEYCLOAK_URL ?? "",
   APP_URL: process.env.APP_URL ?? "",
   REDIS_URL: process.env.REDIS_URL ?? process.env.REDIS_TLS_URL ?? "",
+  // Master key for at-rest envelope encryption of tenant secrets
+  // (server/services/crypto/secrets.ts). Base64-encoded 32 bytes
+  // (`openssl rand -base64 32`). Dev/test fall back to a deterministic
+  // dev-only key with a loud warning; production refuses to boot without it.
+  SECRETS_MASTER_KEY: process.env.SECRETS_MASTER_KEY ?? "",
 };
 
 const missingRequiredEnv = Object.entries(REQUIRED_BY_ENV)
@@ -144,4 +149,22 @@ if (missingRequiredEnv.length > 0) {
     throw new Error(`[ENV] FATAL: ${msg}. Set them before starting — refusing to boot.`);
   }
   console.warn(`[ENV] WARNING: ${msg}. Allowed to continue outside production.`);
+}
+
+// A *present but malformed* SECRETS_MASTER_KEY is as fatal as a missing one in
+// production: it would silently encrypt secrets with the dev-only fallback or
+// fail at first use. Validate shape (base64, 32 bytes) at boot.
+if (isProd && process.env.SECRETS_MASTER_KEY) {
+  let valid = false;
+  try {
+    valid = Buffer.from(process.env.SECRETS_MASTER_KEY, "base64").length === 32;
+  } catch {
+    valid = false;
+  }
+  if (!valid) {
+    throw new Error(
+      "[ENV] FATAL: SECRETS_MASTER_KEY is not a valid base64-encoded 32-byte key " +
+        "(`openssl rand -base64 32`) — refusing to boot.",
+    );
+  }
 }

@@ -9,6 +9,7 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 import {
   getOdooIntegrationConfig,
   getTwentyIntegrationConfig,
@@ -192,9 +193,12 @@ export const provisioningRouter = router({
       const existing = await db.select({ id: tenantIntegrations.id }).from(tenantIntegrations)
         .where(and(eq(tenantIntegrations.tenantId, tenantId), eq(tenantIntegrations.integrationType, "medusa"))).limit(1);
 
+      // Admin API key is a secret — encrypt at rest (v1: envelope); reads
+      // decrypt transparently via decryptSecret (legacy plaintext passthrough).
+      const encAdminApiKey = encryptSecret(input.adminApiKey);
       if (existing[0]) {
         await db.update(tenantIntegrations).set({
-          baseUrl: input.baseUrl, apiKey: input.adminApiKey, apiSecret: input.publishableKey,
+          baseUrl: input.baseUrl, apiKey: encAdminApiKey, apiSecret: input.publishableKey,
           status: "active", lastHealthCheck: new Date(), lastHealthStatus: "ok",
           enabledAt: new Date(), updatedAt: new Date(),
         }).where(and(eq(tenantIntegrations.tenantId, tenantId), eq(tenantIntegrations.integrationType, "medusa")));
@@ -202,7 +206,7 @@ export const provisioningRouter = router({
         await db.insert(tenantIntegrations).values({
           id: randomUUID(), tenantId, integrationType: "medusa",
           displayName: "Medusa Commerce", baseUrl: input.baseUrl,
-          apiKey: input.adminApiKey, apiSecret: input.publishableKey,
+          apiKey: encAdminApiKey, apiSecret: input.publishableKey,
           status: "active", lastHealthCheck: new Date(), lastHealthStatus: "ok",
           enabledAt: new Date(),
         });
@@ -244,13 +248,13 @@ export const provisioningRouter = router({
 
       if (existing[0]) {
         await db.update(twentyIntegrations).set({
-          baseUrl: input.baseUrl, apiKey: input.apiKey,
+          baseUrl: input.baseUrl, apiKey: encryptSecret(input.apiKey),
           status: "connected",
         }).where(eq(twentyIntegrations.tenantId, tenantId));
       } else {
         await db.insert(twentyIntegrations).values({
           id: randomUUID(), tenantId,
-          baseUrl: input.baseUrl, apiKey: input.apiKey,
+          baseUrl: input.baseUrl, apiKey: encryptSecret(input.apiKey),
           status: "connected",
         });
       }
@@ -313,14 +317,14 @@ export const provisioningRouter = router({
       if (existing[0]) {
         await db.update(odooIntegrations).set({
           baseUrl: input.baseUrl, database: input.database,
-          username: input.username, apiKey: input.apiKey,
+          username: input.username, apiKey: encryptSecret(input.apiKey),
           status: "connected",
         }).where(eq(odooIntegrations.tenantId, tenantId));
       } else {
         await db.insert(odooIntegrations).values({
           id: randomUUID(), tenantId,
           baseUrl: input.baseUrl, database: input.database,
-          username: input.username, apiKey: input.apiKey,
+          username: input.username, apiKey: encryptSecret(input.apiKey),
           status: "connected",
         });
       }
@@ -423,7 +427,8 @@ export const provisioningRouter = router({
       // in tenant_integrations carry no secrets for odoo_erp / twenty_crm.
       let health: { ok: boolean; latencyMs: number; error?: string } = { ok: false, latencyMs: 0, error: "No health check for this type" };
       if (integ.integrationType === "medusa" && integ.baseUrl && integ.apiKey) {
-        health = await checkMedusaHealth(integ.baseUrl, integ.apiKey);
+        // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
+        health = await checkMedusaHealth(integ.baseUrl, decryptSecret(integ.apiKey));
       } else if (integ.integrationType === "twenty_crm") {
         const cfg = await getTwentyIntegrationConfig(tenantId);
         if (cfg) {

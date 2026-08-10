@@ -20,6 +20,22 @@
 
 import { eq } from "drizzle-orm";
 import { tenants } from "../../../drizzle/schema";
+import { decryptSecret } from "../crypto/secrets";
+
+/**
+ * Secrets inside a stored IntegrationConfig (apiKey, webhookSecret) are
+ * encrypted at rest (v1: envelope) since w10. decryptSecret passes legacy
+ * plaintext through unchanged, so this is transparent for pre-encryption rows.
+ */
+function decryptConfigSecrets(cfg: IntegrationConfig): IntegrationConfig {
+  return {
+    ...cfg,
+    ...(typeof cfg.apiKey === "string" && cfg.apiKey ? { apiKey: decryptSecret(cfg.apiKey) } : {}),
+    ...(typeof cfg.webhookSecret === "string" && cfg.webhookSecret
+      ? { webhookSecret: decryptSecret(cfg.webhookSecret) }
+      : {}),
+  };
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -150,7 +166,7 @@ export async function resolveIntegrationConfig(
       retriable: false,
     });
   }
-  return { ...cfg, url: cfg.url.replace(/\/+$/, "") };
+  return { ...decryptConfigSecrets(cfg), url: cfg.url.replace(/\/+$/, "") };
 }
 
 // ── Medusa v2 Admin REST ─────────────────────────────────────────────────────

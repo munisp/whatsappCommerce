@@ -4,6 +4,7 @@ import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import * as db from "../db";
 import { DEFAULT_TENANT_ID, getTenantByIdForTheme } from "../_core/tenantDomain";
+import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
@@ -80,7 +81,10 @@ export const tenantRouter = router({
       if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
       const settings = (t.settings ?? {}) as Record<string, unknown>;
       const wa = (settings.whatsapp ?? {}) as Record<string, unknown>;
-      const accessToken = typeof wa.accessToken === "string" ? wa.accessToken : "";
+      const rawToken = typeof wa.accessToken === "string" ? wa.accessToken : "";
+      // Stored encrypted (v1:) since w10 — decrypt for masking; legacy
+      // plaintext passes through unchanged.
+      const accessToken = rawToken ? decryptSecret(rawToken) : "";
       return {
         tenantId: t.id,
         phoneNumberId: t.whatsappPhoneNumberId ?? "",
@@ -105,7 +109,8 @@ export const tenantRouter = router({
       const settings = { ...((t.settings ?? {}) as Record<string, unknown>) };
       settings.whatsapp = {
         ...((settings.whatsapp ?? {}) as Record<string, unknown>),
-        accessToken: input.accessToken,
+        // Encrypt at rest (v1: envelope) — reads decrypt transparently.
+        accessToken: encryptSecret(input.accessToken),
       };
       await db.updateTenant(input.tenantId, {
         whatsappPhoneNumberId: input.phoneNumberId,

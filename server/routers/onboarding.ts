@@ -21,6 +21,7 @@ import {
   type TenantSettings,
 } from "../../shared/tenantConfig";
 import { parseWaMenuConfig, waCustomItemSchema, waUseCaseSchema } from "../../shared/waMenu";
+import { encryptSecret } from "../services/crypto/secrets";
 
 // Billing plan definitions
 export const BILLING_PLANS = {
@@ -269,7 +270,8 @@ export const onboardingRouter = router({
           .set({ whatsappPhoneNumberId: creds.phoneNumberId, updatedAt: new Date() })
           .where(eq(tenants.id, input.tenantId));
         await updateTenantSettings(input.tenantId, (s) => {
-          s.whatsapp = { ...(s.whatsapp ?? {}), accessToken: creds.accessToken };
+          // Encrypt at rest (v1: envelope) — reads decrypt transparently.
+          s.whatsapp = { ...(s.whatsapp ?? {}), accessToken: encryptSecret(creds.accessToken) };
         });
       } else if (input.step === "useCases") {
         const patch = z
@@ -295,7 +297,12 @@ export const onboardingRouter = router({
           })
           .parse(input.data);
         await updateTenantSettings(input.tenantId, (s) => {
-          s.integrations = { ...(s.integrations ?? {}), [patch.provider]: patch.creds };
+          // apiKey is a secret — encrypt at rest; reads decrypt transparently.
+          const creds = {
+            ...patch.creds,
+            ...(patch.creds.apiKey ? { apiKey: encryptSecret(patch.creds.apiKey) } : {}),
+          };
+          s.integrations = { ...(s.integrations ?? {}), [patch.provider]: creds };
         });
       } else {
         // branding

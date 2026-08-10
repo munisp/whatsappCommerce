@@ -326,6 +326,7 @@ describe("env boot gate", () => {
     process.env.KEYCLOAK_URL = "https://kc.example";
     process.env.APP_URL = "https://app.example";
     process.env.REDIS_URL = "redis://localhost:6379";
+    process.env.SECRETS_MASTER_KEY = Buffer.alloc(32, 7).toString("base64");
     vi.resetModules();
     const mod = await import("./_core/env");
     expect(mod.REQUIRED_BY_ENV.DATABASE_URL).toBe("postgres://x");

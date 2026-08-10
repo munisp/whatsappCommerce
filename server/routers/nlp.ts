@@ -17,6 +17,7 @@ import {
   customers, products, conversations, agentEvents, tenants,
 } from "../../drizzle/schema";
 import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
+import { decryptSecret } from "../services/crypto/secrets";
 import { offlineMessageQueue } from "../../drizzle/schema";
 import { tenantIntegrations } from "../../drizzle/schema";
 import {
@@ -372,17 +373,19 @@ export async function createChatOrder(
     if (gwConfig) {
       const txId = crypto.randomUUID();
       const callbackUrl = gwConfig.callbackUrl ?? `https://wa.me/${opts.waPhoneNumber}`;
+      // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
+      const gwSecretKey = gwConfig.secretKey ? decryptSecret(gwConfig.secretKey) : gwConfig.secretKey;
       if (gwConfig.provider === "paystack") {
         const resp = await fetch("https://api.paystack.co/transaction/initialize", {
           method: "POST",
-          headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${gwSecretKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ amount: Math.round(total * 100), currency, reference: txId, callback_url: callbackUrl }),
         }).then(r => r.json()).catch(() => null);
         paymentUrl = resp?.data?.authorization_url ?? null;
       } else if (gwConfig.provider === "flutterwave") {
         const resp = await fetch("https://api.flutterwave.com/v3/payments", {
           method: "POST",
-          headers: { Authorization: `Bearer ${gwConfig.secretKey}`, "Content-Type": "application/json" },
+          headers: { Authorization: `Bearer ${gwSecretKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({ tx_ref: txId, amount: total, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber } }),
         }).then(r => r.json()).catch(() => null);
         paymentUrl = resp?.data?.link ?? null;

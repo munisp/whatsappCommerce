@@ -25,6 +25,7 @@
 import { and, eq, isNotNull, lte, lt, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { tenants, whatsappNotificationLog } from "../../drizzle/schema";
+import { decryptSecret } from "./crypto/secrets";
 
 /** Metering imports waSender (alert sends) — lazy import avoids the cycle. */
 async function meterFailedSend(db: WaDb, tenantId: string): Promise<void> {
@@ -68,7 +69,10 @@ export async function resolveTenantWaCredentials(tenantId: string | null | undef
           .where(eq(tenants.id, tenantId))
           .limit(1);
         const wa = (((t?.settings as Record<string, unknown> | null)?.whatsapp ?? {}) as Record<string, unknown>);
-        const accessToken = typeof wa.accessToken === "string" ? wa.accessToken : "";
+        // Stored encrypted (v1:) since w10 — decryptSecret passes legacy
+        // plaintext through unchanged.
+        const rawToken = typeof wa.accessToken === "string" ? wa.accessToken : "";
+        const accessToken = rawToken ? decryptSecret(rawToken) : "";
         if (t?.phoneNumberId && accessToken) {
           return { phoneNumberId: t.phoneNumberId, accessToken, source: "tenant" };
         }

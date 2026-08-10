@@ -19,6 +19,7 @@ import {
   syncTenantIntegrationPointer,
   type OdooIntegrationConfig,
 } from "../services/integrationSync";
+import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 
 const DEMO_TENANT = "demo-tenant-001";
 function getTenantId(ctx: { user: { tenantId?: string | null } }) {
@@ -99,7 +100,10 @@ export const odooRouter = router({
     if (!db) return null;
     const rows = await db.select().from(odooIntegrations).where(eq(odooIntegrations.tenantId, getTenantId(ctx))).limit(1);
     if (!rows[0]) return null;
-    return { ...rows[0], apiKey: rows[0].apiKey ? "••••••••" + rows[0].apiKey.slice(-4) : "" };
+    // Mask API key (decrypt the v1: envelope first so the last-4 hint is
+    // meaningful; decryptSecret passes legacy plaintext through unchanged).
+    const plainKey = rows[0].apiKey ? decryptSecret(rows[0].apiKey) : "";
+    return { ...rows[0], apiKey: plainKey ? "••••••••" + plainKey.slice(-4) : "" };
   }),
 
   saveConfig: protectedProcedure
@@ -119,12 +123,15 @@ export const odooRouter = router({
       const tenantId = getTenantId(ctx);
       const existing = await db.select({ id: odooIntegrations.id }).from(odooIntegrations).where(eq(odooIntegrations.tenantId, tenantId)).limit(1);
       let id: string;
+      // API key is a secret — encrypt at rest (v1: envelope); reads decrypt
+      // transparently via decryptSecret (legacy plaintext passthrough).
+      const stored = { ...input, apiKey: encryptSecret(input.apiKey) };
       if (existing[0]) {
-        await db.update(odooIntegrations).set({ ...input, status: "disconnected" }).where(eq(odooIntegrations.tenantId, tenantId));
+        await db.update(odooIntegrations).set({ ...stored, status: "disconnected" }).where(eq(odooIntegrations.tenantId, tenantId));
         id = existing[0].id;
       } else {
         id = nanoid();
-        await db.insert(odooIntegrations).values({ id, tenantId, ...input, status: "disconnected" });
+        await db.insert(odooIntegrations).values({ id, tenantId, ...stored, status: "disconnected" });
       }
       // Keep the tenant_integrations pointer row in step so the real sync
       // paths (cron heartbeats, integrationSync) see this tenant.
@@ -146,8 +153,10 @@ export const odooRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const { tenantId: requestedTenant, ...config } = input;
+      const { tenantId: requestedTenant, ...rawConfig } = input;
       const tenantId = requestedTenant ?? getTenantId(ctx);
+      // Encrypt at rest (v1: envelope) — integrationSync decrypts on read.
+      const config = { ...rawConfig, apiKey: encryptSecret(rawConfig.apiKey) };
       assertTenantAccess(ctx, tenantId);
       const existing = await db
         .select({ id: odooIntegrations.id })

@@ -11,6 +11,7 @@ import { eq, and, desc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { decryptSecret } from "../services/crypto/secrets";
 import {
   medusaProductOnboarding,
   products,
@@ -35,7 +36,12 @@ async function getMedusaAdminConfig(tenantId: string) {
       eq(tenantIntegrations.integrationType, "medusa"),
     ))
     .limit(1);
-  return integration ?? null;
+  if (!integration) return null;
+  // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
+  return {
+    ...integration,
+    apiKey: integration.apiKey ? decryptSecret(integration.apiKey) : integration.apiKey,
+  };
 }
 
 async function pushProductToMedusa(

@@ -26,6 +26,7 @@ import { whatsappMenus, whatsappMenuItems, tenantIntegrations } from "../../driz
 import { and, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { fetchMedusaCatalog, getMedusaIntegrationConfig } from "../services/integrationSync";
+import { encryptSecret } from "../services/crypto/secrets";
 import { randomUUID } from "crypto";
 
 function getMedusaTenantId(ctx: { user?: { tenantId?: string | null } | null }): string {
@@ -246,11 +247,14 @@ export const medusaRouter = router({
           eq(tenantIntegrations.integrationType, "medusa"),
         ))
         .limit(1);
+      // Admin API key is a secret — encrypt at rest (v1: envelope); reads
+      // decrypt transparently via decryptSecret (legacy plaintext passthrough).
+      const encApiKey = encryptSecret(input.apiKey);
       if (existing[0]) {
         await db.update(tenantIntegrations)
           .set({
             baseUrl,
-            apiKey: input.apiKey,
+            apiKey: encApiKey,
             apiSecret: input.publishableKey ?? null,
             status: "active",
             enabledAt: new Date(),
@@ -266,7 +270,7 @@ export const medusaRouter = router({
         integrationType: "medusa",
         displayName: "Medusa Commerce",
         baseUrl,
-        apiKey: input.apiKey,
+        apiKey: encApiKey,
         apiSecret: input.publishableKey ?? null,
         status: "active",
         enabledAt: new Date(),
