@@ -45,6 +45,7 @@ import {
 } from "../services/integrations/inbound";
 import { processOutbox } from "../services/integrations/outbox";
 import { claimWebhookEvent, sweepProcessedWebhookEvents } from "../services/webhookDedupe";
+import { handleUnifiedPaymentWebhook } from "../services/payments/providers/unifiedWebhook";
 import {
   recordUsage, getPlan, evaluateQuota, notifyQuotaWarning,
   METRIC_MESSAGES, METRIC_MESSAGES_IN, METRIC_MESSAGES_OUT,
@@ -615,6 +616,13 @@ async function startServer() {
       console.error("[paystack-webhook]", err);
       return res.status(500).json({ error: err?.message });
     }
+  });
+
+  // ── Unified provider webhook (w11): /api/webhooks/payments/:provider ─────
+  // Additive: resolves the registered adapter, verifies (fail-closed), and
+  // feeds normalized events into the SAME confirmProviderPayment money path.
+  app.post("/api/webhooks/payments/:provider", express.raw({ type: "application/json" }), (req, res) => {
+    void handleUnifiedPaymentWebhook(req, res);
   });
 
   // ── Flutterwave webhook (/api/webhooks/flutterwave) ───────────────────────

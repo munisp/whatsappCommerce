@@ -1007,6 +1007,11 @@ export const paymentGatewayConfigs = pgTable("payment_gateway_configs", {
   callbackUrl: text("callbackUrl"),
   isActive: boolean("isActive").default(true).notNull(),
   metadata: jsonb("metadata"),
+  // w11 Universal Provider Framework: non-secret provider extras (manual bank
+  // details etc.); secrets stay in the encrypted secretKey/webhookSecret cols.
+  credentials: jsonb("credentials"),
+  priority: integer("priority").default(0).notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
