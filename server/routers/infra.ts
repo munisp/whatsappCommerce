@@ -115,8 +115,8 @@ export const infraRouter = router({
       ping(`${ENV.fluvioConsumerUrl}/health`),
       daprHealthCheck(),
       ping(`${ENV.appUrl}/api/health/temporal`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
-      ping(`http://localhost:8099/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
-      ping(`http://localhost:8096/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
+      ping(`${ENV.mlStackUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
+      ping(`${ENV.reconWorkerUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
     ]);
     return {
       checkedAt: Date.now(),
@@ -344,7 +344,7 @@ export const infraRouter = router({
       force: z.boolean().default(false),
     }))
     .mutation(async ({ input }) => {
-      const mlStackUrl = "http://localhost:8099";
+      const mlStackUrl = ENV.mlStackUrl;
       try {
         const res = await fetch(`${mlStackUrl}/lakehouse/trigger`, {
           method: "POST",
@@ -405,7 +405,7 @@ export const infraRouter = router({
   // ── Reconciliation ───────────────────────────────────────────────────────────
   triggerReconciliation: adminProcedure.mutation(async () => {
     try {
-      const res = await fetch("http://localhost:8096/recon/trigger", {
+      const res = await fetch(`${ENV.reconWorkerUrl}/recon/trigger`, {
         method: "POST", signal: AbortSignal.timeout(30_000),
       });
       if (res.ok) return res.json();
@@ -415,7 +415,7 @@ export const infraRouter = router({
 
   getLastReconciliation: adminProcedure.query(async () => {
     try {
-      const res = await fetch("http://localhost:8096/recon/last", { signal: AbortSignal.timeout(5_000) });
+      const res = await fetch(`${ENV.reconWorkerUrl}/recon/last`, { signal: AbortSignal.timeout(5_000) });
       if (res.ok) return res.json();
     } catch { /* ignore */ }
     return { status: "no_runs_yet" };

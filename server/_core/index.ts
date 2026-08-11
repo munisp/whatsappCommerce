@@ -249,9 +249,15 @@ async function startServer() {
     next();
   });
 
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Configure body parser with larger size limit for file uploads.
+  // Skip routes that need the exact raw bytes for HMAC signature verification
+  // (webhooks, evidence uploads) — express.raw() further down would otherwise
+  // find the body already consumed/parsed and fall back to re-serializing it,
+  // which is not guaranteed byte-identical to what the sender actually signed.
+  const RAW_BODY_PATH_PREFIXES = ["/api/webhooks/", "/integrations/", "/api/evidence/", "/api/internal/recon-settlements"];
+  const needsRawBody = (path: string) => RAW_BODY_PATH_PREFIXES.some((p) => path.startsWith(p));
+  app.use((req, res, next) => needsRawBody(req.path) ? next() : express.json({ limit: "50mb" })(req, res, next));
+  app.use((req, res, next) => needsRawBody(req.path) ? next() : express.urlencoded({ limit: "50mb", extended: true })(req, res, next));
 
   // ── Edge rate limiting (wave 10, additive) ────────────────────────────────
   // Token buckets keyed by IP (+X-Tenant-Id when present): webhooks 300/min
@@ -913,16 +919,21 @@ async function startServer() {
         const [tenant] = await db.select().from(tenants)
           .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
-        const tenantId: string = (tenant as any)?.id ?? "default";
+        const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
         // ── Platform ops: webhook idempotency (insert-first claim) ──────────
         // Meta retries deliveries until a 200; the wamid is the ledger PK, so
         // a retry collides (ON CONFLICT DO NOTHING) and is skipped — a
         // message is never reprocessed. Production fails closed when the
         // ledger is unavailable (dev/test use an in-memory fallback).
+        // Messages that don't match a real tenant (e.g. Meta's fixed-payload
+        // test button, always the same wamid) get a unique claim key per
+        // delivery instead, so they're never skipped as duplicates — real
+        // tenant-matched messages keep strict per-wamid dedup unchanged.
         if (msg.id) {
+          const claimId = tenant ? msg.id : `${msg.id}:${Date.now()}`;
           let claim: "claimed" | "duplicate";
           try {
-            claim = await claimWebhookEvent(db, { id: msg.id, tenantId, type: msg.type ?? "unknown" });
+            claim = await claimWebhookEvent(db, { id: claimId, tenantId, type: msg.type ?? "unknown" });
           } catch (dedupeErr: any) {
             // Fail closed (production policy): the ack was already sent, but a
             // blind dedupe ledger must NOT reprocess — skip the message.
@@ -2236,7 +2247,7 @@ async function startServer() {
               const [tenant] = await db.select().from(tenants)
                 .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
                 .limit(1).catch(() => [null as any]);
-              const tenantId: string = (tenant as any)?.id ?? "default";
+              const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
               const { appRouter: ar } = await import("../routers");
               const caller = ar.createCaller({ user: null } as any);
               const nlpResult = await caller.nlp.processMessage({

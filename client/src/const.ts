@@ -14,7 +14,7 @@ export const startLogin = () => {
   const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL ?? "http://localhost:8080";
   const keycloakRealm = import.meta.env.VITE_KEYCLOAK_REALM ?? "wacommerce";
   const clientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? "wacommerce-app";
-  const redirectUri = `${window.location.origin}/api/oauth/callback`;
+  const redirectUri = `${window.location.origin}/api/auth/callback`;
 
   // Generate PKCE code verifier and challenge
   const nonce = crypto.randomUUID();

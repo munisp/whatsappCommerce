@@ -9,9 +9,19 @@ WORKDIR /app
 # Install deps first for layer caching (patched packages ship in ./patches).
 COPY package.json package-lock.json ./
 COPY patches ./patches
-RUN npm ci --legacy-peer-deps --ignore-scripts
+RUN npm install -g npm@latest && npm config set allow-remote all && npm ci --legacy-peer-deps --ignore-scripts
 
 COPY . .
+
+# Vite bakes VITE_* vars into the static bundle at build time — must be
+# supplied as build args, not runtime env (kubectl set env can't reach these).
+ARG VITE_KEYCLOAK_URL
+ARG VITE_KEYCLOAK_REALM
+ARG VITE_KEYCLOAK_CLIENT_ID
+ENV VITE_KEYCLOAK_URL=${VITE_KEYCLOAK_URL} \
+    VITE_KEYCLOAK_REALM=${VITE_KEYCLOAK_REALM} \
+    VITE_KEYCLOAK_CLIENT_ID=${VITE_KEYCLOAK_CLIENT_ID}
+
 RUN npm run build
 
 # Prune to production deps for the runtime image.
