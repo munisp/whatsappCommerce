@@ -2,7 +2,7 @@
  * OpenSearch full-text search procedures
  */
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { osIndex, osSearch } from "../opensearch";
 
 export const searchRouter = router({
@@ -14,7 +14,8 @@ export const searchRouter = router({
       limit: z.number().default(20),
       from: z.number().default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return osSearch("wa_messages", input.query, input.limit);
     }),
 
@@ -28,7 +29,8 @@ export const searchRouter = router({
       timestamp: z.number(),
       direction: z.enum(["inbound", "outbound"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       await osIndex("wa_messages", input.messageId, {
         tenantId: input.tenantId,
         from: input.from,
@@ -46,7 +48,8 @@ export const searchRouter = router({
       query: z.string().min(1),
       limit: z.number().default(20),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return osSearch("wa_orders", input.query, input.limit);
     }),
 });

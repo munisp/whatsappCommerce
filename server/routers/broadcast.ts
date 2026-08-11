@@ -495,6 +495,7 @@ export const broadcastRouter = router({
       templateName: z.string().trim().min(1).max(255).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
 

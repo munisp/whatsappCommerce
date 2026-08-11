@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
 import { channelMessages, conversations } from "../../drizzle/schema";
@@ -14,13 +14,15 @@ export const conversationRouter = router({
       limit: z.number().default(50),
       offset: z.number().default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return db.getConversations(input.tenantId, input.status, input.limit, input.offset);
     }),
 
   stats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return db.getConversationStats(input.tenantId);
     }),
 
@@ -30,7 +32,8 @@ export const conversationRouter = router({
       customerPhone: z.string().optional(),
       limit: z.number().default(60),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const dbConn = await getDb();
       if (!dbConn) return [];
       const rows = await dbConn
@@ -54,7 +57,8 @@ export const conversationRouter = router({
       toPhone: z.string(),
       body: z.string().min(1).max(4096),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       if (!ENV.waToken || !ENV.waPhoneNumberId) {
         return { sent: false, error: "WhatsApp credentials not configured — set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID in Secrets." };
       }

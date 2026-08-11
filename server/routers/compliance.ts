@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { taxFilings, cacRegistrations, procurementBids, governmentContracts } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -9,7 +9,8 @@ export const complianceRouter = router({
   // ── FIRS Tax Filings ─────────────────────────────────────────────────────
   listTaxFilings: protectedProcedure
     .input(z.object({ tenantId: z.string(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(taxFilings.tenantId, input.tenantId)];
       if (input.status) conds.push(eq(taxFilings.status, input.status as "draft" | "submitted" | "accepted" | "rejected" | "under_review"));
@@ -28,7 +29,8 @@ export const complianceRouter = router({
       taxAmount: z.string(),
       currency: z.string().default("NGN"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const now = new Date();
@@ -57,7 +59,8 @@ export const complianceRouter = router({
   // ── CAC Business Registration ────────────────────────────────────────────
   listCacRegistrations: protectedProcedure
     .input(z.object({ tenantId: z.string(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       return db.select().from(cacRegistrations).where(eq(cacRegistrations.tenantId, input.tenantId)).orderBy(desc(cacRegistrations.createdAt)).limit(input.limit);
     }),
@@ -70,7 +73,8 @@ export const complianceRouter = router({
       rcNumber: z.string().optional(),
       tinNumber: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const now = new Date();
@@ -94,7 +98,8 @@ export const complianceRouter = router({
   // ── B2G Procurement Bids ─────────────────────────────────────────────────
   listProcurementBids: protectedProcedure
     .input(z.object({ tenantId: z.string(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(procurementBids.tenantId, input.tenantId)];
       if (input.status) conds.push(eq(procurementBids.status, input.status as "draft" | "submitted" | "shortlisted" | "awarded" | "rejected" | "withdrawn"));
@@ -112,7 +117,8 @@ export const complianceRouter = router({
       technicalProposal: z.string().optional(),
       financialProposal: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const now = new Date();
@@ -135,7 +141,8 @@ export const complianceRouter = router({
   // ── Government Contracts ─────────────────────────────────────────────────
   listGovernmentContracts: protectedProcedure
     .input(z.object({ tenantId: z.string(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       return db.select().from(governmentContracts).where(eq(governmentContracts.tenantId, input.tenantId)).orderBy(desc(governmentContracts.createdAt)).limit(input.limit);
     }),
@@ -143,7 +150,8 @@ export const complianceRouter = router({
   // ── Compliance Summary ───────────────────────────────────────────────────
   complianceSummary: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const [filings, cacs, bids] = await Promise.all([
         db.select().from(taxFilings).where(eq(taxFilings.tenantId, input.tenantId)),

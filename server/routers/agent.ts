@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
 import { agentEvents } from "../../drizzle/schema";
@@ -8,7 +8,8 @@ import { eq, desc, and, gte, lte } from "drizzle-orm";
 export const agentRouter = router({
   stats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return db.getAgentStats(input.tenantId);
     }),
 

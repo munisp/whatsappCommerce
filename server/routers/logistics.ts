@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   logisticsShipments, escrowTransactions, escrowConfig, orders, customers,
@@ -205,7 +205,8 @@ export const logisticsRouter = router({
       weightKg: z.number().optional(),
       shippingFee: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));

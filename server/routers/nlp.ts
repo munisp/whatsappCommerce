@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { invokeLLM } from "../_core/llm";
 import {
@@ -1122,7 +1122,8 @@ export const nlpRouter = router({
   /** Get or create a session for a phone number */
   getSession: protectedProcedure
     .input(z.object({ tenantId: z.string(), waPhoneNumber: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [session] = await db.select().from(nlpSessions)
@@ -1134,7 +1135,8 @@ export const nlpRouter = router({
   /** List active sessions for a tenant */
   listSessions: protectedProcedure
     .input(z.object({ tenantId: z.string(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       return db.select().from(nlpSessions)
@@ -1167,6 +1169,7 @@ export const nlpRouter = router({
       messages: z.array(z.string()),
     }))
     .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const results = [];
       for (const msg of input.messages) {
         // Re-use processMessage logic inline
@@ -1186,7 +1189,8 @@ export const nlpRouter = router({
       message: z.string(),
       direction: z.enum(["inbound", "outbound"]).default("outbound"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [row] = await db.insert(offlineMessageQueue).values({

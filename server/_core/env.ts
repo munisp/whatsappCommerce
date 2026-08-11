@@ -164,6 +164,25 @@ if (isProd) {
   }
 }
 
+// ─── Permify production posture (W12.1; additive, default off) ─────────────
+// adminProcedure layers Permify on top of the role check ONLY when PERMIFY_URL
+// is set; otherwise the role check stands alone. Deployments that require the
+// defense-in-depth layer can set REQUIRE_PERMIFY=true: in production-like
+// environments the process then refuses to boot when PERMIFY_URL is unset,
+// instead of silently running with Permify disabled. Outside production this
+// is a warning so local/dev runs are unaffected.
+if ((process.env.REQUIRE_PERMIFY ?? "").trim().toLowerCase() === "true") {
+  if (!(process.env.PERMIFY_URL ?? "").trim()) {
+    const msg =
+      "[ENV] REQUIRE_PERMIFY=true but PERMIFY_URL is unset — the Permify " +
+      "authorization layer would be silently disabled for admin procedures.";
+    if (isProd) {
+      throw new Error(`${msg} Set PERMIFY_URL before starting — refusing to boot.`);
+    }
+    console.warn(`[ENV] WARNING: ${msg} Allowed to continue outside production.`);
+  }
+}
+
 const missingRequiredEnv = Object.entries(REQUIRED_BY_ENV)
   .filter(([, value]) => !value || !value.trim())
   .map(([name]) => name);

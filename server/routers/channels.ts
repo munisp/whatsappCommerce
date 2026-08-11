@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { channelMessages, ussdSessions as ussdSessionsTable } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -266,7 +266,8 @@ export const channelsRouter = router({
       channel: z.enum(["whatsapp", "sms", "ussd", "telegram", "instagram", "email"]).optional(),
       limit: z.number().default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(channelMessages.tenantId, input.tenantId)];
       if (input.channel) conds.push(eq(channelMessages.channel, input.channel));
@@ -276,7 +277,8 @@ export const channelsRouter = router({
   // ── Channel Stats ────────────────────────────────────────────────────────
   channelStats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const msgs = await db.select().from(channelMessages).where(eq(channelMessages.tenantId, input.tenantId));
       const byChannel: Record<string, number> = {};

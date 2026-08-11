@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure, adminProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { marketplaceSellers, marketplaceCommissions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -74,7 +74,8 @@ export const marketplaceRouter = router({
       commissionAmount: z.string(),
       currency: z.string().default("NGN"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const now = new Date();
@@ -109,7 +110,8 @@ export const marketplaceRouter = router({
   // ── Marketplace Stats ────────────────────────────────────────────────────
   marketplaceStats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const sellers = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.tenantId, input.tenantId));
       const commissions = await db.select().from(marketplaceCommissions);

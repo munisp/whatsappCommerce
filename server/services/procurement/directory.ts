@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 import type { getDb } from "../../db";
 import { supplierProfiles, tenants, type SupplierProfile } from "../../../drizzle/schema";
 import { getCreditAccount } from "../tradeCredit";
-import { hasApprovedKyb } from "../kycGate";
+import { approvedKybTenantIds } from "../kycGate";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -100,8 +100,14 @@ export async function listSuppliers(
     return cats.some((c) => String(c).toLowerCase() === category);
   });
 
+  // W12.1: KYB trust flags resolved in ONE batched query (inArray over
+  // kycApplications) instead of a per-supplier round-trip — O(1) queries, not
+  // O(n). Fails closed (empty set → all flags false) on any lookup error.
+  const page = filtered.slice(0, limit);
+  const kybVerifiedIds = await approvedKybTenantIds(db, page.map(({ profile }) => profile.tenantId));
+
   const out: SupplierDirectoryEntry[] = [];
-  for (const { profile, tenantName } of filtered.slice(0, limit)) {
+  for (const { profile, tenantName } of page) {
     let credit: DirectoryCreditSummary | null = null;
     if (opts.buyerTenantId) {
       const account = await getCreditAccount(profile.tenantId, opts.buyerTenantId)
@@ -112,7 +118,7 @@ export async function listSuppliers(
       credit = creditSummaryOf(account);
     }
     // KYB trust flag — fails closed (false) on any lookup error.
-    const kybVerified = await hasApprovedKyb(db, profile.tenantId).catch(() => false);
+    const kybVerified = kybVerifiedIds.has(profile.tenantId);
     out.push({
       tenantId: profile.tenantId,
       name: tenantName ?? null,

@@ -12,7 +12,7 @@
  */
 
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { hermesConfigs, hermesEventLog, hermesPODrafts, hermesHealthLog } from "../../drizzle/schema";
 import { eq, desc, and, sql, gte, asc } from "drizzle-orm";
@@ -47,7 +47,8 @@ export const hermesRouter = router({
   // Get or create Hermes config for the current tenant
   getConfig: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -106,7 +107,8 @@ export const hermesRouter = router({
   // Mark onboarding tour as completed for a tenant
   completeTour: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const now = Date.now();
@@ -280,7 +282,8 @@ export const hermesRouter = router({
       eventType: z.string(),
       payload: z.record(z.string(), z.unknown()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const eventId = crypto.randomUUID();
       const body = {
         id: eventId,

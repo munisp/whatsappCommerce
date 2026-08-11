@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { whatsappMediaFiles } from "../../drizzle/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -43,7 +43,8 @@ export const whatsappMediaRouter = router({
       fileBase64: z.string(), // base64-encoded file content
       fileSize: z.number().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const buf = Buffer.from(input.fileBase64, "base64");
@@ -95,7 +96,8 @@ export const whatsappMediaRouter = router({
       documentType: z.string().optional(),
       limit: z.number().min(1).max(100).default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return [];
       const conditions = [eq(whatsappMediaFiles.tenantId, input.tenantId)];
@@ -110,7 +112,8 @@ export const whatsappMediaRouter = router({
   /** Get a fresh presigned download URL for a media file */
   getDownloadUrl: protectedProcedure
     .input(z.object({ fileId: z.string(), tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [file] = await db.select().from(whatsappMediaFiles)
@@ -124,7 +127,8 @@ export const whatsappMediaRouter = router({
   /** Toggle USSD mode for an NLP session (stores in context jsonb) */
   setUssdMode: protectedProcedure
     .input(z.object({ tenantId: z.string(), waPhoneNumber: z.string(), enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { nlpSessions } = await import("../../drizzle/schema");
@@ -132,16 +136,17 @@ export const whatsappMediaRouter = router({
         .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, input.waPhoneNumber)))
         .limit(1);
       if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
-      const ctx = (session.context as Record<string, unknown>) ?? {};
-      ctx.ussdMode = input.enabled;
-      await db.update(nlpSessions).set({ context: ctx }).where(eq(nlpSessions.id, session.id));
+      const sessCtx = (session.context as Record<string, unknown>) ?? {};
+      sessCtx.ussdMode = input.enabled;
+      await db.update(nlpSessions).set({ context: sessCtx }).where(eq(nlpSessions.id, session.id));
       return { success: true, ussdMode: input.enabled };
     }),
 
   /** Update SMS failover flag for a tenant */
   setSmsFailover: protectedProcedure
     .input(z.object({ tenantId: z.string(), enabled: z.boolean() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const { tenants } = await import("../../drizzle/schema");

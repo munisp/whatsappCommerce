@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { paymentTransactions, paymentGatewayConfigs, orders } from "../../drizzle/schema";
 import { eq, desc, and, gte } from "drizzle-orm";
@@ -280,7 +280,8 @@ export const reconciliationRouter = router({
   // Verify reconciliation of real transactions in DB
   verifyReconciliation: protectedProcedure
     .input(z.object({ tenantId: z.string(), days: z.number().min(1).max(90).default(7) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { transactions: [], summary: { total: 0, reconciled: 0, unreconciled: 0, discrepancies: [] } };
       const since = new Date(Date.now() - input.days * 24 * 3600 * 1000);
