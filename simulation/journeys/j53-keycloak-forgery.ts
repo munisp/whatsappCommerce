@@ -12,8 +12,7 @@ import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
-import { ENV } from "../../server/_core/env";
-import { SUPPLIER_TENANT_ID, TENANT_ID } from "../world";
+import { JWT_SECRET_VALUE, SUPPLIER_TENANT_ID, TENANT_ID } from "../world";
 import { adminCaller, expectTrpcError, publicCaller } from "./helpers";
 
 const REDIRECT = "https://portal.sim.local/callback";
@@ -93,7 +92,7 @@ export const journey: Journey = {
     const first = await pub.keycloak.exchangeCode({ tenantId: SUPPLIER_TENANT_ID, code: "code-owner-b", redirectUri: REDIRECT });
     assert(first.sessionToken && first.tenantId === SUPPLIER_TENANT_ID, "first-bind minted a tenant-B session");
     assert(first.portalRole === "admin", `realm admin role mapped to portal admin (got ${first.portalRole})`);
-    const decoded = jwt.verify(first.sessionToken, ENV.jwtSecret) as any;
+    const decoded = jwt.verify(first.sessionToken, JWT_SECRET_VALUE) as any;
     assert(decoded.tenantId === SUPPLIER_TENANT_ID, "session token is scoped to tenant B");
     assert(decoded.sub === "kc-sub-owner-b", "session carries the realm sub");
     assert(decoded.loginMethod === "keycloak_sso", "session is marked keycloak_sso");

@@ -11,7 +11,7 @@
 import jwt from "jsonwebtoken";
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
-import { ENV } from "../../server/_core/env";
+import { JWT_SECRET_VALUE } from "../world";
 import { adminCaller, expectTrpcError, publicCaller, tenantCaller } from "./helpers";
 
 export const journey: Journey = {
@@ -45,7 +45,7 @@ export const journey: Journey = {
     const inviteB = await admin.tenantInvite.create({ tenantId: tenantB, expiryHours: 72 });
     assert(inviteB.token && inviteB.tenantId === tenantB, "admin minted tenant-B invite");
     assert(inviteB.portalUrl.includes(inviteB.token), "portal URL carries the token");
-    const invitePayload = jwt.verify(inviteB.token, ENV.jwtSecret) as any;
+    const invitePayload = jwt.verify(inviteB.token, JWT_SECRET_VALUE) as any;
     assert(invitePayload.type === "portal_invite", "invite token type is portal_invite");
     assert(invitePayload.tenantId === tenantB, "invite scoped to tenant B");
     assert(invitePayload.exp - invitePayload.iat === 72 * 3600, "invite TTL = 72h");
@@ -54,7 +54,7 @@ export const journey: Journey = {
     const pub = await publicCaller();
     const session = await pub.tenantInvite.validate({ token: inviteB.token });
     assert(session.valid === true, "magic link validates");
-    const sessionPayload = jwt.verify(session.sessionToken!, ENV.jwtSecret) as any;
+    const sessionPayload = jwt.verify(session.sessionToken!, JWT_SECRET_VALUE) as any;
     assert(sessionPayload.type === "portal_session", "session token type is portal_session");
     assert(sessionPayload.tenantId === tenantB, "session scoped to the INVITED tenant (B)");
     assert(sessionPayload.tenantId !== tenantA, "session is NOT usable for tenant A");
@@ -64,7 +64,7 @@ export const journey: Journey = {
     const inviteA = await admin.tenantInvite.create({ tenantId: tenantA, expiryHours: 24 });
     const sessionA = await pub.tenantInvite.validate({ token: inviteA.token });
     assert(sessionA.valid === true, "tenant-A invite validates");
-    const payloadA = jwt.verify(sessionA.sessionToken!, ENV.jwtSecret) as any;
+    const payloadA = jwt.verify(sessionA.sessionToken!, JWT_SECRET_VALUE) as any;
     assert(payloadA.tenantId === tenantA, "tenant-A session scoped to A");
     assert(payloadA.tenantId !== tenantB, "tenant-A session NOT usable for tenant B");
 
@@ -80,7 +80,7 @@ export const journey: Journey = {
     // A valid invite whose type claim is flipped is rejected too.
     const typeFlipped = jwt.sign(
       { type: "portal_session", tenantId: tenantA },
-      ENV.jwtSecret,
+      JWT_SECRET_VALUE,
       { expiresIn: "72h" },
     );
     const flippedResult = await pub.tenantInvite.validate({ token: typeFlipped });

@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015903753",
-      "profileName": "Sim User 3753",
+      "phone": "2348018154417",
+      "profileName": "Sim User 4417",
       "inboundId": "wamid.sim.in.text.00097",
-      "at": 1786483083081,
+      "at": 1786488381339,
       "kind": "text",
       "text": "status pipeline hello"
     },
@@ -18,27 +18,27 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00097",
-      "at": 1786483083085
+      "at": 1786488381343
     },
     {
       "dir": "out",
-      "phone": "2348015903753",
+      "phone": "2348018154417",
       "wamid": "wamid.sim.000157",
       "statuses": [
         "sent",
         "delivered",
         "read"
       ],
-      "at": 1786483083110,
+      "at": 1786488381367,
       "kind": "text",
       "body": "Hello from the status pipeline!"
     },
     {
       "dir": "in",
-      "phone": "2348017633097",
-      "profileName": "Sim User 3097",
+      "phone": "2348018306696",
+      "profileName": "Sim User 6696",
       "inboundId": "wamid.sim.in.text.00098",
-      "at": 1786483084247,
+      "at": 1786488382512,
       "kind": "text",
       "text": "retry me please"
     },
@@ -46,12 +46,12 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00098",
-      "at": 1786483084251
+      "at": 1786488382517
     },
     {
       "dir": "out",
-      "phone": "2348017633097",
-      "at": 1786483084269,
+      "phone": "2348018306696",
+      "at": 1786488382544,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -59,21 +59,21 @@
     },
     {
       "dir": "out",
-      "phone": "2348017633097",
+      "phone": "2348018306696",
       "wamid": "wamid.sim.000158",
       "statuses": [
         "sent"
       ],
-      "at": 1786483085231,
+      "at": 1786488383494,
       "kind": "text",
       "body": "This reply fails once, then succeeds."
     },
     {
       "dir": "in",
-      "phone": "2348019310080",
-      "profileName": "Sim User 0080",
+      "phone": "2348011056446",
+      "profileName": "Sim User 6446",
       "inboundId": "wamid.sim.in.text.00099",
-      "at": 1786483085660,
+      "at": 1786488383924,
       "kind": "text",
       "text": "permanent failure please"
     },
@@ -81,12 +81,12 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00099",
-      "at": 1786483085664
+      "at": 1786488383928
     },
     {
       "dir": "out",
-      "phone": "2348019310080",
-      "at": 1786483085682,
+      "phone": "2348011056446",
+      "at": 1786488383947,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -94,8 +94,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348019310080",
-      "at": 1786483086214,
+      "phone": "2348011056446",
+      "at": 1786488384477,
       "failed": true,
       "failStatus": 400,
       "kind": "text",
@@ -108,9 +108,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1786483086219,
+      "at": 1786488384481,
       "kind": "text",
-      "body": "⚠️ WhatsApp message dead-lettered after 4 attempts.\nRecipient: 2348019310080\nType: conversation_reply\nError: {\"error\":{\"message\":\"simulated Graph failure 400\",\"type\":\"SimError\",\"code\":131000}}"
+      "body": "⚠️ WhatsApp message dead-lettered after 4 attempts.\nRecipient: 2348011056446\nType: conversation_reply\nError: {\"error\":{\"message\":\"simulated Graph failure 400\",\"type\":\"SimError\",\"code\":131000}}"
     }
   ]
 }

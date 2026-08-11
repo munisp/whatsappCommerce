@@ -15,8 +15,7 @@ import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
-import { ENV } from "../../server/_core/env";
-import { SUPPLIER_TENANT_ID, TENANT_ID } from "../world";
+import { JWT_SECRET_VALUE, SUPPLIER_TENANT_ID, TENANT_ID } from "../world";
 import { adminCaller, expectTrpcError, tenantCaller } from "./helpers";
 
 export const journey: Journey = {
@@ -87,7 +86,7 @@ export const journey: Journey = {
     const token1 = signSessionToken(sessionUser);
 
     // 12h default TTL on the issued token.
-    const claims = jwt.verify(token1, ENV.jwtSecret) as any;
+    const claims = jwt.verify(token1, JWT_SECRET_VALUE) as any;
     assert(claims.exp - claims.iat === 12 * 3600, `default session TTL = 12h (got ${claims.exp - claims.iat}s)`);
     assert(typeof claims.jti === "string" && claims.jti.length > 0, "token carries a jti");
     assert(String(claims.uid) === String(operator.id), "token carries the numeric uid");
