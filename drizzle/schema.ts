@@ -21,6 +21,16 @@ import { uuid } from "drizzle-orm/pg-core";
 // ─── Enums ────────────────────────────────────────────────────────────────────
 export const userRoleEnum = pgEnum("user_role", ["user", "admin", "operator", "analyst"]);
 export const tenantPlanEnum = pgEnum("tenant_plan", ["starter", "growth", "enterprise"]);
+// ─── W12 tenancy ─────────────────────────────────────────────────────────────
+// tenantType: retailer = sells via WhatsApp commerce (default),
+// supplier = manufacturer/wholesaler on the B2B directory, hybrid = both.
+// Stored as varchar (not a PG enum) so values can evolve without ALTER TYPE.
+export const tenantTypeEnum = ["retailer", "supplier", "hybrid"] as const;
+export type TenantType = (typeof tenantTypeEnum)[number];
+// tenant_memberships roles: owner > operator > analyst.
+export const membershipRoleEnum = ["owner", "operator", "analyst"] as const;
+export type MembershipRole = (typeof membershipRoleEnum)[number];
+// ─── end W12 tenancy ─────────────────────────────────────────────────────────
 export const tenantStatusEnum = pgEnum("tenant_status", ["active", "suspended", "trial", "churned"]);
 export const productStatusEnum = pgEnum("product_status", ["active", "inactive", "archived"]);
 export const conversationStatusEnum = pgEnum("conversation_status", ["open", "resolved", "pending", "snoozed", "bot_active", "human_active"]);
@@ -66,6 +76,8 @@ export const tenants = pgTable("tenants", {
   slug: varchar("slug", { length: 100 }).notNull().unique(),
   plan: tenantPlanEnum("plan").default("starter").notNull(),
   status: tenantStatusEnum("status").default("trial").notNull(),
+  // W12 tenancy: tenant classification (retailer default; supplier/hybrid set by backfill).
+  tenantType: varchar("tenantType", { length: 20 }).default("retailer").notNull().$type<TenantType>(),
   whatsappPhoneNumberId: varchar("whatsappPhoneNumberId", { length: 64 }),
   whatsappBusinessAccountId: varchar("whatsappBusinessAccountId", { length: 64 }),
   webhookVerifyToken: varchar("webhookVerifyToken", { length: 128 }),
@@ -102,6 +114,39 @@ export const tenantSsoProfiles = pgTable("tenant_sso_profiles", {
 ]);
 export type TenantSsoProfile = typeof tenantSsoProfiles.$inferSelect;
 export type NewTenantSsoProfile = typeof tenantSsoProfiles.$inferInsert;
+
+// ─── W12 tenancy: multi-user tenant memberships ─────────────────────────────
+// Maps users to tenants with an enforced role (owner/operator/analyst).
+// users.tenantId remains the "home tenant" shortcut; this table is the
+// authoritative many-to-many staff mapping checked by assertTenantAccess.
+export const tenantMemberships = pgTable("tenant_memberships", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().references(() => tenants.id),
+  userId: varchar("userId", { length: 36 }).notNull(),
+  role: varchar("role", { length: 20 }).notNull().default("operator").$type<MembershipRole>(),
+  invitedBy: varchar("invitedBy", { length: 36 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("tenant_memberships_tenant_user_uniq").on(t.tenantId, t.userId),
+  index("tenant_memberships_user_idx").on(t.userId),
+  index("tenant_memberships_tenant_idx").on(t.tenantId),
+]);
+export type TenantMembership = typeof tenantMemberships.$inferSelect;
+export type NewTenantMembership = typeof tenantMemberships.$inferInsert;
+
+// ─── W12 session hardening: revoked JWT IDs ──────────────────────────────────
+// Rows are checked on every authenticated request (cached 60s). Two row kinds:
+//   - jti = token jti            → that specific token is revoked (logout)
+//   - jti = 'user:' + userId     → revoke-all marker for that user (admin)
+// expiresAt mirrors the token's exp so stale rows can be garbage-collected.
+export const sessionRevocations = pgTable("session_revocations", {
+  jti: varchar("jti", { length: 64 }).primaryKey(),
+  userId: varchar("userId", { length: 36 }),
+  expiresAt: timestamp("expiresAt").notNull(),
+});
+export type SessionRevocation = typeof sessionRevocations.$inferSelect;
+export type NewSessionRevocation = typeof sessionRevocations.$inferInsert;
+// ─── end W12 tenancy ─────────────────────────────────────────────────────────
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 export const products = pgTable("products", {

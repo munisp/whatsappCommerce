@@ -4,6 +4,7 @@
  * Keycloak OIDC is supported via KEYCLOAK_URL env var.
  */
 import jwt from "jsonwebtoken";
+import { randomUUID } from "crypto";
 import { ENV } from "./env";
 import type { Request } from "express";
 
@@ -23,17 +24,33 @@ export interface JWTPayload {
   name?: string;
   role?: string;
   tenantId?: string;
+  /** W12: numeric user id (string) — used for revoke-all markers. */
+  uid?: string;
+  /** W12: unique token id — used for session revocation. */
+  jti?: string;
   iat?: number;
   exp?: number;
 }
 
-export function signSessionToken(user: SessionUser, expiresIn = "365d"): string {
+/**
+ * W12 session hardening: access-token TTL is 12h by default (was 365d),
+ * overridable via the SESSION_TTL env var (jsonwebtoken `expiresIn` syntax,
+ * e.g. "12h", "30m", or seconds as a number-string). Read per call so tests
+ * and runtime config changes take effect without reload.
+ */
+export function sessionTtl(): string {
+  return process.env.SESSION_TTL ?? "12h";
+}
+
+export function signSessionToken(user: SessionUser, expiresIn: string | number = sessionTtl()): string {
   const payload: JWTPayload = {
     sub: user.openId,
     email: user.email ?? undefined,
     name: user.name ?? undefined,
     role: user.role,
     tenantId: user.tenantId ?? undefined,
+    uid: user.id,
+    jti: randomUUID(),
   };
   return jwt.sign(payload, ENV.jwtSecret, { algorithm: "HS256", expiresIn } as jwt.SignOptions);
 }

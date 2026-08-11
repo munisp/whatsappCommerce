@@ -1,7 +1,11 @@
 import { COOKIE_NAME } from "@shared/const";
+import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, router } from "./_core/trpc";
+import { parse as parseCookieHeader } from "cookie";
+import { verifySessionToken } from "./_core/auth";
+import { revokeAllUserSessions, revokeSessionJti } from "./_core/sdk";
 import { tenantRouter } from "./routers/tenant";
 import { tenantConfigRouter } from "./routers/tenantConfig";
 import { productRouter } from "./routers/product";
@@ -85,16 +89,42 @@ import { integrationsRouter } from "./routers/integrations";
 import { procurementRouter } from "./routers/procurement";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
+import { membershipRouter } from "./routers/membership";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
+    logout: publicProcedure.mutation(async ({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
+      // W12 session hardening: revoke the current token's jti so it cannot
+      // be replayed even before its 12h expiry.
+      try {
+        const cookies = parseCookieHeader(ctx.req.headers.cookie ?? "");
+        const token = cookies["wa_session"] ?? cookies["session"];
+        const payload = token ? verifySessionToken(token) : null;
+        if (payload?.jti) {
+          await revokeSessionJti(
+            payload.jti,
+            payload.uid ?? null,
+            new Date((payload.exp ?? Math.floor(Date.now() / 1000)) * 1000),
+          );
+        }
+      } catch (err) {
+        // Logout must never fail because revocation storage is unavailable.
+        console.warn("[auth.logout] session revocation failed:", (err as Error)?.message);
+      }
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    /** W12: admin kill-switch — revoke ALL sessions for a user. */
+    revokeUserSessions: adminProcedure
+      .input(z.object({ userId: z.union([z.string().min(1), z.number()]) }))
+      .mutation(async ({ input }) => {
+        await revokeAllUserSessions(input.userId);
+        return { success: true } as const;
+      }),
   }),
+  membership: membershipRouter,
   tenant: tenantRouter,
   tenantConfig: tenantConfigRouter,
   product: productRouter,

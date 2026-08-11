@@ -5,6 +5,8 @@ import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, createRemoteJWKSet, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
+import { eq, inArray } from "drizzle-orm";
+import { sessionRevocations, tenantMemberships } from "../../drizzle/schema";
 import * as db from "../db";
 import { verifySessionToken } from "./auth";
 import { ENV } from "./env";
@@ -31,6 +33,149 @@ const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserI
 
 /** Session cookie issued by server/_core/oauth.ts (self-hosted Keycloak/local login). */
 const WA_SESSION_COOKIE = "wa_session";
+
+// ─── W12 session hardening: revocation registry (jti blocklist) ─────────────
+// session_revocations rows are checked on every wa_session authentication.
+// Results are cached for 60s to bound DB load; revocation therefore takes at
+// most ~60s to propagate. Fail-closed in production on DB errors.
+
+const REVOCATION_CACHE_TTL_MS = 60_000;
+const revocationCache = new Map<string, { revoked: boolean; checkedAt: number }>();
+
+/** Marker jti used by admin revoke-all: revokes every session of a user. */
+export function userRevocationMarkerJti(userId: string | number): string {
+  return `user:${userId}`;
+}
+
+/** Test hook: drop all in-memory revocation/membership caches. */
+export function clearSessionCaches(): void {
+  revocationCache.clear();
+  membershipCache.clear();
+}
+
+async function lookupRevocations(keys: string[]): Promise<Set<string> | null> {
+  const conn = await db.getDb();
+  if (!conn) return null; // no database configured (unit tests) — nothing to check
+  const rows = await conn
+    .select({ jti: sessionRevocations.jti })
+    .from(sessionRevocations)
+    .where(inArray(sessionRevocations.jti, keys));
+  return new Set(rows.map((r) => r.jti));
+}
+
+/**
+ * Returns true when the given token jti (or the user's revoke-all marker) is
+ * revoked. Cached 60s per key. On a DB error: fail-closed in production
+ * (treat as revoked), fail-open with a warning elsewhere.
+ */
+export async function isSessionRevoked(args: {
+  jti?: string | null;
+  userId?: string | number | null;
+}): Promise<boolean> {
+  const keys: string[] = [];
+  if (args.jti) keys.push(args.jti);
+  if (args.userId != null && String(args.userId).length > 0) {
+    keys.push(userRevocationMarkerJti(args.userId));
+  }
+  if (keys.length === 0) return false;
+
+  const now = Date.now();
+  const pending: string[] = [];
+  for (const k of keys) {
+    const hit = revocationCache.get(k);
+    if (hit && now - hit.checkedAt < REVOCATION_CACHE_TTL_MS) {
+      if (hit.revoked) return true;
+    } else {
+      pending.push(k);
+    }
+  }
+  if (pending.length === 0) return false;
+
+  let found: Set<string> | null = null;
+  try {
+    found = await lookupRevocations(pending);
+  } catch (err) {
+    if (ENV.isProduction) {
+      console.error("[Auth] Revocation check failed in production — failing closed:", (err as Error)?.message);
+      return true; // fail closed
+    }
+    console.warn("[Auth] Revocation check failed — failing open (non-prod):", (err as Error)?.message);
+    return false;
+  }
+  if (found === null) return false; // DB not configured
+  for (const k of pending) {
+    const revoked = found.has(k);
+    revocationCache.set(k, { revoked, checkedAt: now });
+    if (revoked) return true;
+  }
+  return false;
+}
+
+/** Revoke a single token by jti (logout). expiresAt mirrors the token exp. */
+export async function revokeSessionJti(
+  jti: string,
+  userId: string | number | null,
+  expiresAt: Date,
+): Promise<void> {
+  const conn = await db.getDb();
+  if (!conn) return;
+  await conn
+    .insert(sessionRevocations)
+    .values({ jti, userId: userId != null ? String(userId) : null, expiresAt })
+    .onConflictDoNothing();
+  revocationCache.delete(jti);
+}
+
+/** Admin: revoke ALL sessions for a user (marker row, valid for `ttlMs`). */
+export async function revokeAllUserSessions(
+  userId: string | number,
+  ttlMs = 24 * 60 * 60 * 1000,
+): Promise<void> {
+  const marker = userRevocationMarkerJti(userId);
+  const conn = await db.getDb();
+  if (!conn) return;
+  await conn
+    .insert(sessionRevocations)
+    .values({ jti: marker, userId: String(userId), expiresAt: new Date(Date.now() + ttlMs) })
+    .onConflictDoNothing();
+  revocationCache.delete(marker);
+}
+
+// ─── W12 tenancy: per-user membership snapshot (for assertTenantAccess) ──────
+const MEMBERSHIP_CACHE_TTL_MS = 60_000;
+const membershipCache = new Map<string, { tenants: string[]; checkedAt: number }>();
+
+/**
+ * Tenant ids the user is a member of (tenant_memberships), cached 60s.
+ * Fails open to [] — assertTenantAccess then simply falls through to its
+ * existing FORBIDDEN behavior, so a DB error can never grant access.
+ */
+export async function getUserMembershipTenantIds(userId: string | number): Promise<string[]> {
+  const key = String(userId);
+  const now = Date.now();
+  const hit = membershipCache.get(key);
+  if (hit && now - hit.checkedAt < MEMBERSHIP_CACHE_TTL_MS) return hit.tenants;
+  try {
+    const conn = await db.getDb();
+    if (!conn) return [];
+    const rows = await conn
+      .select({ tenantId: tenantMemberships.tenantId })
+      .from(tenantMemberships)
+      .where(eq(tenantMemberships.userId, key));
+    const tenants = rows.map((r) => r.tenantId);
+    membershipCache.set(key, { tenants, checkedAt: now });
+    return tenants;
+  } catch (err) {
+    console.warn("[Auth] Membership lookup failed:", (err as Error)?.message);
+    return [];
+  }
+}
+
+/** Attach the membership snapshot to an authenticated user. */
+async function withMemberships<T extends User>(user: T): Promise<T & { memberships: string[] }> {
+  const memberships = await getUserMembershipTenantIds(user.id);
+  return { ...user, memberships };
+}
 
 // ─── Keycloak JWKS (RS256 Bearer token verification) ─────────────────────────
 // jose is already a project dependency; no new packages are introduced.
@@ -373,11 +518,15 @@ class SDKServer {
     if (waSession) {
       const payload = verifySessionToken(waSession);
       if (payload && isNonEmptyString(payload.sub)) {
-        return this.resolveLocalUser(payload.sub, {
+        // W12: reject revoked tokens (logout / admin revoke-all).
+        if (await isSessionRevoked({ jti: payload.jti ?? null, userId: payload.uid ?? null })) {
+          throw ForbiddenError("Session revoked");
+        }
+        return withMemberships(await this.resolveLocalUser(payload.sub, {
           name: payload.name ?? null,
           email: payload.email ?? null,
           loginMethod: "keycloak",
-        });
+        }));
       }
     }
 
@@ -399,11 +548,15 @@ class SDKServer {
       }
       const waPayload = verifySessionToken(bearerToken);
       if (waPayload && isNonEmptyString(waPayload.sub)) {
-        return this.resolveLocalUser(waPayload.sub, {
+        // W12: reject revoked tokens (logout / admin revoke-all).
+        if (await isSessionRevoked({ jti: waPayload.jti ?? null, userId: waPayload.uid ?? null })) {
+          throw ForbiddenError("Session revoked");
+        }
+        return withMemberships(await this.resolveLocalUser(waPayload.sub, {
           name: waPayload.name ?? null,
           email: waPayload.email ?? null,
           loginMethod: "keycloak",
-        });
+        }));
       }
     }
 
@@ -462,7 +615,7 @@ class SDKServer {
       lastSignedIn: signedInAt,
     });
 
-    return user;
+    return withMemberships(user);
   }
 }
 
@@ -472,6 +625,8 @@ const CRON_OPEN_ID_PREFIX = "cron_";
 export type AuthenticatedUser = User & {
   taskUid?: string;
   isCron?: boolean;
+  /** W12: tenant ids the user is a member of (tenant_memberships, cached 60s). */
+  memberships?: string[];
 };
 
 function buildCronUser(
