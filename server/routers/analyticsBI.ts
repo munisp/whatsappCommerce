@@ -29,13 +29,23 @@ export const analyticsBIRouter = router({
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
-      const id = randomUUID();
       const now = new Date();
-      await db.insert(cohortSnapshots).values({ id, ...input, calculatedAt: now })
-        .onConflictDoUpdate({
-          target: [cohortSnapshots.tenantId, cohortSnapshots.cohortMonth],
-          set: { totalCustomers: input.totalCustomers, retentionByMonth: input.retentionByMonth, avgOrderValue: input.avgOrderValue, totalRevenue: input.totalRevenue, calculatedAt: now },
-        });
+      // Select-then-insert/update: NO unique constraint exists on
+      // (tenantId, cohortMonth), so onConflictDoUpdate would throw 42P10 on
+      // every call (same bug class as the w11 registry upsert).
+      const { and } = await import("drizzle-orm");
+      const [existing] = await db
+        .select({ id: cohortSnapshots.id })
+        .from(cohortSnapshots)
+        .where(and(eq(cohortSnapshots.tenantId, input.tenantId), eq(cohortSnapshots.cohortMonth, input.cohortMonth)))
+        .limit(1);
+      if (existing) {
+        await db.update(cohortSnapshots)
+          .set({ totalCustomers: input.totalCustomers, retentionByMonth: input.retentionByMonth, avgOrderValue: input.avgOrderValue, totalRevenue: input.totalRevenue, calculatedAt: now })
+          .where(eq(cohortSnapshots.id, existing.id));
+      } else {
+        await db.insert(cohortSnapshots).values({ id: randomUUID(), ...input, calculatedAt: now });
+      }
       return { ok: true };
     }),
 
@@ -63,16 +73,25 @@ export const analyticsBIRouter = router({
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
-      const id = randomUUID();
       const now = new Date();
-      await db.insert(churnPredictions).values({
-        id, ...input,
-        predictedChurnDate: input.predictedChurnDate ? new Date(input.predictedChurnDate) : undefined,
-        interventionSent: false, calculatedAt: now,
-      }).onConflictDoUpdate({
-        target: [churnPredictions.tenantId, churnPredictions.customerPhone],
-        set: { churnScore: input.churnScore, riskLevel: input.riskLevel, daysSinceLastOrder: input.daysSinceLastOrder, calculatedAt: now },
-      });
+      // Select-then-insert/update: NO unique constraint exists on
+      // (tenantId, customerPhone) — onConflictDoUpdate would throw 42P10.
+      const { and } = await import("drizzle-orm");
+      const [existing] = await db
+        .select({ id: churnPredictions.id })
+        .from(churnPredictions)
+        .where(and(eq(churnPredictions.tenantId, input.tenantId), eq(churnPredictions.customerPhone, input.customerPhone)))
+        .limit(1);
+      const patch = { churnScore: input.churnScore, riskLevel: input.riskLevel, daysSinceLastOrder: input.daysSinceLastOrder, calculatedAt: now };
+      if (existing) {
+        await db.update(churnPredictions).set(patch).where(eq(churnPredictions.id, existing.id));
+      } else {
+        await db.insert(churnPredictions).values({
+          id: randomUUID(), ...input,
+          predictedChurnDate: input.predictedChurnDate ? new Date(input.predictedChurnDate) : undefined,
+          interventionSent: false, calculatedAt: now,
+        });
+      }
       return { ok: true };
     }),
 
