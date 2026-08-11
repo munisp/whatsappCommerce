@@ -16,7 +16,8 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import jwt from "jsonwebtoken";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
+import { assertTenantAccess, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
@@ -39,6 +40,12 @@ export const tenantInviteRouter = router({
       expiryHours: z.number().min(1).max(168).default(72),
     }))
     .mutation(async ({ input, ctx }) => {
+      // Only admins may mint invite links. Platform admins (role "admin")
+      // bypass the tenant check; tenant admins invite their own staff.
+      assertTenantAccess(ctx.user, input.tenantId);
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can create tenant invites" });
+      }
       const db = await requireDb();
 
       // Verify tenant exists
@@ -133,6 +140,11 @@ export const tenantInviteRouter = router({
   resend: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid() }))
     .mutation(async ({ input, ctx }) => {
+      // Same authorization as create: admins only, tenant-scoped.
+      assertTenantAccess(ctx.user, input.tenantId);
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can resend tenant invites" });
+      }
       // Re-use create to generate a fresh token
       const db = await requireDb();
 

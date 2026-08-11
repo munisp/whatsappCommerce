@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { publicProcedure } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
-import { paymentGatewayConfigs, tenants, tenantSsoProfiles } from "../../drizzle/schema";
+import { paymentGatewayConfigs, tenants, tenantSsoProfiles, users } from "../../drizzle/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
@@ -263,6 +264,54 @@ export const keycloakRouter = router({
         ? "admin"
         : "agent";
 
+      // ── Identity ↔ tenant binding (fail closed) ──────────────────────────
+      // A Keycloak token alone must never mint a portal session for an
+      // arbitrary input.tenantId. The realm identity (sub) is only accepted
+      // for this tenant when:
+      //   1. an SSO profile already binds this sub to this tenant, OR
+      //   2. first-bind: the tenant has SSO configured (checked above) AND
+      //      the realm user's email matches a registered user (tenant
+      //      owner/staff) of THIS tenant — i.e. someone explicitly invited
+      //      into the tenant account.
+      // Anything else is a cross-tenant session forgery attempt → 403.
+      const ssoSub = userInfo.sub ?? null;
+      const ssoEmail = userInfo.email?.toLowerCase() ?? null;
+
+      const [existingProfile] = await db
+        .select()
+        .from(tenantSsoProfiles)
+        .where(eq(tenantSsoProfiles.tenantId, input.tenantId))
+        .limit(1);
+
+      const profileBoundToThisIdentity =
+        !!existingProfile && !!ssoSub && existingProfile.ssoSub === ssoSub;
+
+      if (!profileBoundToThisIdentity) {
+        if (!ssoEmail) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "SSO identity is not bound to this tenant and the token carries no email to verify against tenant membership",
+          });
+        }
+        // First-bind path: email must match a user registered under this
+        // tenant (owner/admin first, then any staff member).
+        const tenantUsers = await db
+          .select({ email: users.email, role: users.role })
+          .from(users)
+          .where(eq(users.tenantId, input.tenantId));
+        const emailMatch = tenantUsers.some(
+          (u) => u.email && u.email.toLowerCase() === ssoEmail,
+        );
+        if (!emailMatch) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "SSO identity does not match any account registered for this tenant",
+          });
+        }
+      }
+
       // Load tenant name for the session
       const [tenant] = await db
         .select({ name: tenants.name })
@@ -329,7 +378,7 @@ export const keycloakRouter = router({
     }),
 
   // ── List all SSO-provisioned tenant profiles (admin view) ─────────────────
-  listSsoProfiles: protectedProcedure
+  listSsoProfiles: adminProcedure
     .input(
       z.object({
         search: z.string().optional(),

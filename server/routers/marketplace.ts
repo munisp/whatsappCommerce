@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { marketplaceSellers, marketplaceCommissions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -47,7 +47,7 @@ export const marketplaceRouter = router({
       return seller ?? null;
     }),
 
-  updateSellerStatus: protectedProcedure
+  updateSellerStatus: adminProcedure
     .input(z.object({ id: z.string(), status: z.enum(["active", "suspended", "rejected"]) }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
@@ -55,7 +55,7 @@ export const marketplaceRouter = router({
       return { ok: true };
     }),
 
-  updateSellerCommission: protectedProcedure
+  updateSellerCommission: adminProcedure
     .input(z.object({ id: z.string(), commissionRate: z.string() }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;

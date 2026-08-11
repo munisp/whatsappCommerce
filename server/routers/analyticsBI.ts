@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { cohortSnapshots, churnPredictions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -9,7 +10,8 @@ export const analyticsBIRouter = router({
   // ── Cohort Analysis ──────────────────────────────────────────────────────
   listCohorts: protectedProcedure
     .input(z.object({ tenantId: z.string(), limit: z.number().default(12) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       return db.select().from(cohortSnapshots).where(eq(cohortSnapshots.tenantId, input.tenantId))
         .orderBy(desc(cohortSnapshots.cohortMonth)).limit(input.limit);
@@ -24,7 +26,8 @@ export const analyticsBIRouter = router({
       avgOrderValue: z.string().optional(),
       totalRevenue: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const now = new Date();
@@ -39,7 +42,8 @@ export const analyticsBIRouter = router({
   // ── Churn Predictions ────────────────────────────────────────────────────
   listChurnRisks: protectedProcedure
     .input(z.object({ tenantId: z.string(), riskLevel: z.enum(["high", "medium", "low"]).optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(churnPredictions.tenantId, input.tenantId)];
       if (input.riskLevel) conds.push(eq(churnPredictions.riskLevel, input.riskLevel));
@@ -56,7 +60,8 @@ export const analyticsBIRouter = router({
       daysSinceLastOrder: z.number().int().optional(),
       predictedChurnDate: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const now = new Date();
@@ -73,8 +78,12 @@ export const analyticsBIRouter = router({
 
   markInterventionSent: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      // No tenantId in input — resolve the row and assert on its tenant.
+      const [row] = await db.select().from(churnPredictions).where(eq(churnPredictions.id, input.id)).limit(1);
+      if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Churn prediction not found" });
+      assertTenantAccess(ctx.user, row.tenantId);
       await db.update(churnPredictions).set({ interventionSent: true }).where(eq(churnPredictions.id, input.id));
       return { ok: true };
     }),
@@ -82,7 +91,8 @@ export const analyticsBIRouter = router({
   // ── BI Summary ───────────────────────────────────────────────────────────
   biSummary: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const cohorts = await db.select().from(cohortSnapshots).where(eq(cohortSnapshots.tenantId, input.tenantId)).orderBy(desc(cohortSnapshots.cohortMonth)).limit(6);
       const churnRisks = await db.select().from(churnPredictions).where(eq(churnPredictions.tenantId, input.tenantId));
