@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-10T16:06:19.959Z",
+  "generatedAt": "2026-08-11T22:49:05.887Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -416,6 +416,70 @@
       "feature": "per-adapter verify + slug routing",
       "pass": true,
       "file": "J52.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J53",
+      "title": "keycloak session forgery",
+      "feature": "exchangeCode identity↔tenant binding",
+      "pass": true,
+      "file": "J53.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J54",
+      "title": "invite-mint attack",
+      "feature": "tenantInvite admin gate + magic-link scope",
+      "pass": true,
+      "file": "J54.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J55",
+      "title": "IDOR sweep",
+      "feature": "cross-tenant 403s + zero-row mutation",
+      "pass": true,
+      "file": "J55.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J56",
+      "title": "marketplace abuse",
+      "feature": "updateSellerStatus admin gate",
+      "pass": true,
+      "file": "J56.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J57",
+      "title": "KYB-gated go-live",
+      "feature": "onboarding.activate KYB precondition",
+      "pass": true,
+      "file": "J57.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J58",
+      "title": "KYB-gated credit",
+      "feature": "tradeCredit.approveAccount dual-KYB gate",
+      "pass": true,
+      "file": "J58.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J59",
+      "title": "supplier verification",
+      "feature": "supplier-profile KYB gate + directory trust flag",
+      "pass": true,
+      "file": "J59.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J60",
+      "title": "sessions + memberships + tenant types",
+      "feature": "W12 tenancy hardening cross-cut",
+      "pass": true,
+      "file": "J60.json",
       "messageCount": 0
     }
   ]

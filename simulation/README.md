@@ -109,6 +109,27 @@ failure + all-fail exhaustion (J50), credit repayment served by flutterwave
 with replay dedupe (J51), and unified-webhook isolation across adapters and
 unknown slugs (J52).
 
+Wave 12 (J53–J60) ADVERSARIALLY tests the W12 merges (authz fixes,
+tenancy/memberships/sessions, KYB gates) end-to-end in the multi-tenant
+world. The world's auth mock doubles as a scripted **Keycloak realm** (OIDC
+discovery + authorization-code token endpoint, per-code claims scripting,
+every token POST recorded in `world.keycloak.tokenCalls`) so the REAL
+`keycloak.exchangeCode` HTTP path executes; `resetJourneyState` gains W12
+isolation (SSO profiles, KYB applications/documents, memberships, session
+revocations, marketplace sellers, BI rows, Temporal runs, ad-hoc
+tenants/credit accounts, `TEMPORAL_ADDRESS`/`KYC_GATE_DISABLED` env, and the
+sdk revocation/membership caches). Covered: cross-tenant SSO session forgery
++ first-bind + bound-sub replay (J53), invite-mint by non-admins +
+magic-link tenant scope + tampered tokens (J54), a four-router IDOR sweep
+with a zero-rows-mutated DB diff (J55), rival-seller suspension abuse
+(J56), KYB-gated go-live incl. the Temporal onboarding-workflow record
+(J57), dual-side KYB gating of trade-credit approval + a real draw (J58),
+supplier-profile activation gating + directory `kybVerified` trust flag
+(J59), and the tenancy cross-cut — membership fallback in
+`assertTenantAccess`, operatorProcedure role gating, 12h session TTL, logout
+jti revocation, admin revoke-all, tenantType backfill to 'hybrid', and the
+last-owner guard (J60).
+
 ## Prod bugs found by this suite (fixed surgically)
 
 1. **`server/services/useCases.ts`** — the numeric menu selector hijacked
@@ -178,6 +199,19 @@ Wave 11 (found by J49/J52):
     `(tenantId, provider)`, but NO unique constraint exists on that pair
     (42P10 on every call) — tenant provider configs could never be written
     through the registry. The upsert is now a select-then-insert/update.
+
+Wave 12 (found by J53/J55):
+
+12. **`server/routers/keycloak.ts`** — `saveConfig` used `onConflictDoUpdate`
+    targeting `(tenantId, provider)`, but NO unique constraint exists on that
+    pair (42P10 on every call) — tenant Keycloak configs could never be
+    written, so SSO setup dead-ended before `exchangeCode` could ever run.
+    Same bug class as w11 #11; the upsert is now select-then-insert/update.
+13. **`server/routers/analyticsBI.ts`** — `upsertCohort` and
+    `upsertChurnPrediction` had the same broken pattern
+    (`onConflictDoUpdate` on `(tenantId, cohortMonth)` /
+    `(tenantId, customerPhone)` with no backing unique constraint), so every
+    cohort/churn write 500'd. Both are now select-then-insert/update.
 
 ## Rules
 
