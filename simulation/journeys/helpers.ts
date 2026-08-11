@@ -6,6 +6,7 @@ import crypto from "crypto";
 import {
   ADMIN_PHONE,
   TENANT_ID,
+  AssertionError,
   assert,
   bodyText,
   latestOrderForPhone,
@@ -149,6 +150,53 @@ export async function adminCaller() {
     req: { protocol: "http", headers: {} },
     res: { clearCookie: () => {} },
   } as any);
+}
+
+/** Non-admin tenant-scoped tRPC caller (W12 adversarial journeys). */
+export async function tenantCaller(
+  tenantId: string,
+  opts: { userId?: number; role?: string; memberships?: string[] | null } = {},
+) {
+  const { appRouter } = await import("../../server/routers");
+  return appRouter.createCaller({
+    user: {
+      id: opts.userId ?? 42,
+      openId: `sim-tenant-${opts.userId ?? 42}`,
+      email: "tenant-user@sim.local",
+      name: "Sim Tenant User",
+      loginMethod: "keycloak",
+      role: opts.role ?? "user",
+      tenantId,
+      memberships: opts.memberships ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
+    req: { protocol: "http", headers: {} },
+    res: { clearCookie: () => {} },
+  } as any);
+}
+
+/** Unauthenticated tRPC caller (public procedures only). */
+export async function publicCaller() {
+  const { appRouter } = await import("../../server/routers");
+  return appRouter.createCaller({
+    user: null,
+    req: { protocol: "http", headers: {} },
+    res: { clearCookie: () => {} },
+  } as any);
+}
+
+/** Assert a tRPC call rejects with the given error code; returns the error. */
+export async function expectTrpcError(p: Promise<any>, code: string, label: string): Promise<any> {
+  try {
+    const v = await p;
+    throw new AssertionError(`${label}: expected ${code}, but the call SUCCEEDED (${JSON.stringify(v)?.slice(0, 200)})`);
+  } catch (e: any) {
+    if (e instanceof AssertionError) throw e;
+    assert(e?.code === code || e?.data?.code === code, `${label}: expected ${code}, got ${e?.code ?? e?.data?.code ?? e?.message}`);
+    return e;
+  }
 }
 
 export { ADMIN_PHONE, TENANT_ID };

@@ -80,6 +80,14 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j50-provider-fallback"),
     import("./journeys/j51-flw-credit-repayment"),
     import("./journeys/j52-unified-webhook-isolation"),
+    import("./journeys/j53-keycloak-forgery"),
+    import("./journeys/j54-invite-mint"),
+    import("./journeys/j55-idor-sweep"),
+    import("./journeys/j56-marketplace-abuse"),
+    import("./journeys/j57-kyb-golive"),
+    import("./journeys/j58-kyb-credit"),
+    import("./journeys/j59-supplier-verification"),
+    import("./journeys/j60-sessions-memberships"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

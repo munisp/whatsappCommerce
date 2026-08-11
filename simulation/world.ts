@@ -134,6 +134,8 @@ export interface World {
   openai: typeof openaiMock;
   outbound: typeof outbound;
   meta: typeof meta;
+  /** W12: scripted Keycloak realm mock (token endpoint + recorded calls). */
+  keycloak: KeycloakMock;
 }
 
 // ── Env + boot ───────────────────────────────────────────────────────────────
@@ -157,13 +159,49 @@ async function freePort(preferred: number): Promise<number> {
 }
 import net from "net";
 
-/** Mock Keycloak/auth server: answers GetUserInfoWithJwt for cron auth. */
+// ── Wave 12: scripted Keycloak realm (OIDC token endpoint + discovery) ──────
+// Journeys script authorization codes → claims; the REAL exchangeCode path in
+// server/routers/keycloak.ts performs the token POST against this server
+// (plain HTTP on localhost, so the unmodified fetch path executes). Every
+// token call is recorded in keycloakMock.tokenCalls for hard assertions.
+export interface KeycloakScriptedClaims {
+  sub?: string;
+  email?: string;
+  name?: string;
+  preferred_username?: string;
+  realm_access?: { roles?: string[] };
+  resource_access?: Record<string, { roles?: string[] }>;
+}
+export interface KeycloakTokenCall {
+  realm: string;
+  params: Record<string, string>;
+}
+const keycloakMock = {
+  codes: new Map<string, { claims: KeycloakScriptedClaims; status?: number }>(),
+  tokenCalls: [] as KeycloakTokenCall[],
+  scriptCode(code: string, claims: KeycloakScriptedClaims, status?: number): void {
+    this.codes.set(code, { claims, status });
+  },
+  reset(): void {
+    this.codes.clear();
+    this.tokenCalls.length = 0;
+  },
+};
+export type KeycloakMock = typeof keycloakMock;
+
+function b64url(obj: unknown): string {
+  return Buffer.from(JSON.stringify(obj)).toString("base64url");
+}
+
+/** Mock Keycloak/auth server: answers GetUserInfoWithJwt for cron auth and
+ *  the scripted OIDC discovery/token endpoints for W12 realm exchanges. */
 async function startAuthMock(port: number): Promise<http.Server> {
   const srv = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
-      if (req.method === "POST" && (req.url ?? "").includes("GetUserInfoWithJwt")) {
+      const url = req.url ?? "";
+      if (req.method === "POST" && url.includes("GetUserInfoWithJwt")) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           openId: "cron_sim",
@@ -173,6 +211,42 @@ async function startAuthMock(port: number): Promise<http.Server> {
           platform: "manus",
           taskUid: "sim-task-1",
           platforms: [],
+        }));
+        return;
+      }
+      // OIDC discovery document.
+      const wellKnown = /^\/realms\/([^/]+)\/\.well-known\/openid-configuration/.exec(url);
+      if (req.method === "GET" && wellKnown) {
+        const base = `http://127.0.0.1:${port}/realms/${wellKnown[1]}`;
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          issuer: base,
+          token_endpoint: `${base}/protocol/openid-connect/token`,
+        }));
+        return;
+      }
+      // OIDC authorization_code token exchange (scripted per code).
+      const tokenPath = /^\/realms\/([^/]+)\/protocol\/openid-connect\/token/.exec(url);
+      if (req.method === "POST" && tokenPath) {
+        const params = Object.fromEntries(new URLSearchParams(body));
+        keycloakMock.tokenCalls.push({ realm: tokenPath[1], params });
+        const scripted = keycloakMock.codes.get(params.code ?? "");
+        if (!scripted) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "invalid_grant", error_description: "sim: unscripted authorization code" }));
+          return;
+        }
+        if (scripted.status && scripted.status >= 400) {
+          res.writeHead(scripted.status, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "sim_scripted_error", error_description: `sim: scripted ${scripted.status}` }));
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          access_token: "sim-kc-access",
+          refresh_token: "sim-kc-refresh",
+          expires_in: 3600,
+          id_token: `hdr.${b64url(scripted.claims)}.sig`,
         }));
         return;
       }
@@ -442,7 +516,39 @@ export async function bootWorld(): Promise<World> {
           const { ne } = await import("drizzle-orm");
           await world.db.delete(schema.paymentGatewayConfigs).where(ne(schema.paymentGatewayConfigs.id, "pgc-sim"));
         } catch { /* w11 configs not created yet */ }
+        // Wave 12 isolation: SSO bindings, KYB applications/documents,
+        // memberships, session revocations, marketplace sellers, BI rows and
+        // ad-hoc tenants/credit accounts created by J53–J60 never leak
+        // between journeys — restore the two-tenant seed world.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { ne, notInArray } = await import("drizzle-orm");
+          await world.db.delete(schema.tenantSsoProfiles);
+          await world.db.delete(schema.kycDocuments);
+          await world.db.delete(schema.kycApplications);
+          await world.db.delete(schema.tenantMemberships);
+          await world.db.delete(schema.sessionRevocations);
+          await world.db.delete(schema.marketplaceSellers);
+          await world.db.delete(schema.churnPredictions);
+          await world.db.delete(schema.cohortSnapshots);
+          await world.db.delete(schema.temporalWorkflowRuns);
+          await world.db.delete(schema.creditAccounts).where(ne(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
+          // Non-seed tenants (onboarding.start / KYB journeys) and their
+          // supplier profiles are dropped; the two seeded tenants stay.
+          await world.db.delete(schema.supplierProfiles).where(ne(schema.supplierProfiles.tenantId, SUPPLIER_TENANT_ID));
+          await world.db.delete(schema.tenants).where(notInArray(schema.tenants.id, [TENANT_ID, SUPPLIER_TENANT_ID]));
+          // Supplier profile back to its seeded ACTIVE state (J59 may pause it).
+          await world.db
+            .update(schema.supplierProfiles)
+            .set({ status: "active", moqCents: SUPPLIER_MOQ_CENTS })
+            .where(eq(schema.supplierProfiles.tenantId, SUPPLIER_TENANT_ID));
+          const { clearSessionCaches } = await import("../server/_core/sdk");
+          clearSessionCaches();
+          keycloakMock.reset();
+        } catch { /* w12 tables not migrated yet */ }
         delete process.env.ERROR_WEBHOOK_URL;
+        delete process.env.TEMPORAL_ADDRESS;
+        delete process.env.KYC_GATE_DISABLED;
         outbound.reset();
         llmMock.reset();
         openaiMock.reset();
@@ -486,6 +592,7 @@ export async function bootWorld(): Promise<World> {
       openai: openaiMock,
       outbound,
       meta,
+      keycloak: keycloakMock,
     };
 
     await seedWorld(world);
