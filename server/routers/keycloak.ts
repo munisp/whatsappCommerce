@@ -37,26 +37,35 @@ export const keycloakRouter = router({
         adminPassword: input.adminPassword,
         enableSso: input.enableSso,
       });
-      await db.insert(paymentGatewayConfigs).values({
-        id: randomUUID(),
-        tenantId: input.tenantId,
-        provider: "manual",  // store under "manual" slot with keycloak marker in secretKey
-        // The keycloak:: JSON blob contains admin credentials and the
-        // clientSecret — both are secrets, encrypt at rest (v1: envelope).
-        // Reads decrypt via decryptSecret before the keycloak:: prefix check;
-        // legacy plaintext rows pass through unchanged.
-        secretKey: encryptSecret(`keycloak::${configJson}`),
-        webhookSecret: input.clientSecret ? encryptSecret(input.clientSecret) : input.clientSecret,
-        isActive: true,
-      }).onConflictDoUpdate({
-        target: [paymentGatewayConfigs.tenantId, paymentGatewayConfigs.provider],
-        set: {
-          secretKey: encryptSecret(`keycloak::${configJson}`),
-          webhookSecret: input.clientSecret ? encryptSecret(input.clientSecret) : input.clientSecret,
+      // The keycloak:: JSON blob contains admin credentials and the
+      // clientSecret — both are secrets, encrypt at rest (v1: envelope).
+      // Reads decrypt via decryptSecret before the keycloak:: prefix check;
+      // legacy plaintext rows pass through unchanged.
+      // Upsert is select-then-insert/update: NO unique constraint exists on
+      // (tenantId, provider), so onConflictDoUpdate would throw 42P10 on
+      // every call (same bug class as the w11 registry upsert).
+      const [existing] = await db
+        .select({ id: paymentGatewayConfigs.id })
+        .from(paymentGatewayConfigs)
+        .where(and(eq(paymentGatewayConfigs.tenantId, input.tenantId), eq(paymentGatewayConfigs.provider, "manual")))
+        .limit(1);
+      const secretKey = encryptSecret(`keycloak::${configJson}`);
+      const webhookSecret = input.clientSecret ? encryptSecret(input.clientSecret) : input.clientSecret;
+      if (existing) {
+        await db
+          .update(paymentGatewayConfigs)
+          .set({ secretKey, webhookSecret, isActive: true, updatedAt: new Date() })
+          .where(eq(paymentGatewayConfigs.id, existing.id));
+      } else {
+        await db.insert(paymentGatewayConfigs).values({
+          id: randomUUID(),
+          tenantId: input.tenantId,
+          provider: "manual",  // store under "manual" slot with keycloak marker in secretKey
+          secretKey,
+          webhookSecret,
           isActive: true,
-          updatedAt: new Date(),
-        },
-      });
+        });
+      }
       return { ok: true };
     }),
 
