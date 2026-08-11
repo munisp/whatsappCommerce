@@ -2,12 +2,21 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq, desc, and, ilike, sql } from "drizzle-orm";
 import { protectedProcedure, router } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { whatsappTemplates, InsertWhatsappTemplate, templateVersions, templateApprovalHistory } from "../../drizzle/schema";
 
 const DEMO_TENANT = "demo-tenant-001";
-function getTenantId(ctx: { user: { tenantId?: string | null } }) {
-  return ctx.user.tenantId ?? DEMO_TENANT;
+function getTenantId(ctx: { user: { role?: string; tenantId?: string | null } }) {
+  if (ctx.user.tenantId) return ctx.user.tenantId;
+  // Platform admins may still operate on the demo tenant; any other
+  // authenticated user without a tenant must NOT be silently mapped onto
+  // the shared demo tenant's data — fail closed.
+  if (ctx.user.role === "admin") return DEMO_TENANT;
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: "Your account is not associated with a tenant",
+  });
 }
 
 const templateVariableSchema = z.object({

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   inventorySnapshots, inventorySyncLog, products, odooSyncedProducts,
@@ -9,9 +9,10 @@ import { randomUUID } from "crypto";
 
 export const inventoryRouter = router({
   // ── Get stock levels for a tenant ──────────────────────────────────────────
-  getStockLevels: publicProcedure
+  getStockLevels: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return [];
       // Join inventory snapshots with products for full picture
@@ -42,9 +43,10 @@ export const inventoryRouter = router({
     }),
 
   // ── Stock alert summary for dashboard ──────────────────────────────────────
-  getStockAlerts: publicProcedure
+  getStockAlerts: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { outOfStock: 0, lowStock: 0, inStock: 0, lastSyncedAt: null };
       const rows = await db.execute(sql`
@@ -70,7 +72,8 @@ export const inventoryRouter = router({
   // ── Sync from Odoo (simulated — real impl calls Odoo XML-RPC) ──────────────
   syncFromOdoo: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const logId = randomUUID();
@@ -140,7 +143,8 @@ export const inventoryRouter = router({
       productId: z.string(),
       qty: z.number().positive(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       // Atomic check-and-reserve: only succeeds if availableQty >= requested qty
@@ -168,7 +172,8 @@ export const inventoryRouter = router({
       productId: z.string(),
       qty: z.number().positive(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       await db.execute(sql`
@@ -184,9 +189,10 @@ export const inventoryRouter = router({
     }),
 
   // ── Sync history ───────────────────────────────────────────────────────────
-  getSyncHistory: publicProcedure
+  getSyncHistory: protectedProcedure
     .input(z.object({ tenantId: z.string(), limit: z.number().default(20) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return [];
       return db.select().from(inventorySyncLog)

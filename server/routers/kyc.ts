@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { kycApplications, kycDocuments, livenessChecks } from "../../drizzle/schema";
 import type { KycApplication } from "../../drizzle/schema";
@@ -29,7 +30,8 @@ export const kycRouter = router({
       tenantId: z.string(),
       type: z.enum(["kyc", "kyb"]).default("kyb"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
 
@@ -59,12 +61,14 @@ export const kycRouter = router({
   // Get application with documents and liveness
   getApplication: protectedProcedure
     .input(z.object({ applicationId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
       const [app] = await db.select().from(kycApplications)
         .where(eq(kycApplications.id, input.applicationId)).limit(1);
       if (!app) return null;
+      // Ownership: the application belongs to a tenant the caller may access.
+      assertTenantAccess(ctx.user, app.tenantId);
       const docs = await db.select().from(kycDocuments)
         .where(eq(kycDocuments.applicationId, input.applicationId))
         .orderBy(desc(kycDocuments.createdAt));
@@ -86,9 +90,13 @@ export const kycRouter = router({
       businessCountry: z.string().optional(),
       businessType: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const [app] = await db.select().from(kycApplications)
+        .where(eq(kycApplications.id, input.applicationId)).limit(1);
+      if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "KYC application not found" });
+      assertTenantAccess(ctx.user, app.tenantId);
       const { applicationId, ...data } = input;
       await db.update(kycApplications)
         .set({ ...data, updatedAt: new Date() })
@@ -99,9 +107,13 @@ export const kycRouter = router({
   // Submit application for review
   submit: protectedProcedure
     .input(z.object({ applicationId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const [app] = await db.select().from(kycApplications)
+        .where(eq(kycApplications.id, input.applicationId)).limit(1);
+      if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "KYC application not found" });
+      assertTenantAccess(ctx.user, app.tenantId);
       await db.update(kycApplications)
         .set({ status: "pending", submittedAt: new Date(), updatedAt: new Date() })
         .where(eq(kycApplications.id, input.applicationId));
@@ -117,9 +129,15 @@ export const kycRouter = router({
       mimeType: z.string().default("image/jpeg"),
       fileName: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // Ownership: resolve the application and require tenant access before
+      // storing anything; also gives us the real tenantId for the document row.
+      const [app] = await db.select().from(kycApplications)
+        .where(eq(kycApplications.id, input.applicationId)).limit(1);
+      if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "KYC application not found" });
+      assertTenantAccess(ctx.user, app.tenantId);
       // 1. Store file in S3
       const buffer = Buffer.from(input.fileBase64, "base64");
       const key = `kyc/${input.applicationId}/${input.documentType}-${Date.now()}`;
@@ -129,7 +147,7 @@ export const kycRouter = router({
       await db.insert(kycDocuments).values({
         id: docId,
         applicationId: input.applicationId,
-        tenantId: "unknown", // will be resolved from applicationId in production
+        tenantId: app.tenantId,
         documentType: input.documentType,
         fileUrl,
         fileKey: key,
@@ -205,7 +223,8 @@ export const kycRouter = router({
   // Create liveness session via KYC Python service
   createLivenessSession: protectedProcedure
     .input(z.object({ applicationId: z.string(), tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       try {
