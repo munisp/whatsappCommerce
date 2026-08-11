@@ -19,6 +19,7 @@ import { randomUUID } from "crypto";
 import {
   creditAccounts,
   creditLedger,
+  kycApplications,
   orders,
   paymentTransactions,
   tenants,
@@ -60,6 +61,7 @@ export interface FakeStore {
   orders: OrderRow[];
   payments: PaymentRow[];
   tenants: TenantRow[];
+  kycApplications: Array<{ id: string; tenantId: string; type: string; status: string }>;
 }
 
 // ── drizzle condition decoding ───────────────────────────────────────────────
@@ -126,6 +128,7 @@ const PROP: Record<string, Record<string, string>> = {
   orders: { tenantId: "tenantId", totalAmount: "totalAmount", createdAt: "createdAt" },
   payment_transactions: { tenantId: "tenantId", status: "status", createdAt: "createdAt", paidAt: "paidAt" },
   tenants: { id: "id", settings: "settings" },
+  kyc_applications: { id: "id", tenantId: "tenantId", type: "type", status: "status" },
 };
 
 /** Extract { delta } from an arithmetic SQL set value, honoring +/-. */
@@ -154,6 +157,7 @@ function tableName(table: unknown): string {
     orders,
     payment_transactions: paymentTransactions,
     tenants,
+    kyc_applications: kycApplications,
   })) {
     if (t === table) return name;
   }
@@ -167,12 +171,14 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     orders: (seed?.orders ?? []).map((r) => ({ ...r })),
     payments: (seed?.payments ?? []).map((r) => ({ ...r })),
     tenants: (seed?.tenants ?? []).map((r) => ({ ...r })),
+    kycApplications: (seed?.kycApplications ?? []).map((r) => ({ ...r })),
   };
   const rowsOf = (t: string): any[] =>
     t === "credit_accounts" ? store.accounts
     : t === "credit_ledger" ? store.ledger
     : t === "orders" ? store.orders
     : t === "payment_transactions" ? store.payments
+    : t === "kyc_applications" ? store.kycApplications
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────
@@ -217,6 +223,12 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     } else if (t === "tenants") {
       if (sig === "id") rows = rows.filter((r) => r.id === values[0]);
       else throw new Error(`fakeDb select tenants: unhandled ${sig}`);
+    } else if (t === "kyc_applications") {
+      if (sig === "tenantId,type,status") {
+        rows = rows.filter((r) => r.tenantId === values[0] && r.type === values[1] && r.status === values[2]);
+      } else if (sig === "tenantId") {
+        rows = rows.filter((r) => r.tenantId === values[0]);
+      } else throw new Error(`fakeDb select kyc_applications: unhandled ${sig}`);
     }
     // orderBy
     for (const { prop, desc } of decodeOrder(orderExprs).reverse()) {
@@ -451,4 +463,15 @@ export function seedDraw(accountId: string, over: Partial<LedgerRow> = {}): Ledg
     createdAt: new Date("2025-01-02T00:00:00Z"),
     ...over,
   };
+}
+
+/** Approved-by-default KYB application row for KYB-gate router tests. */
+export function seedKycApplication(over: Record<string, unknown> = {}) {
+  return {
+    id: (over.id as string) ?? randomUUID(),
+    tenantId: "supplier-1",
+    type: "kyb",
+    status: "approved",
+    ...over,
+  } as FakeStore["kycApplications"][number];
 }

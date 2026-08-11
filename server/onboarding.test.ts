@@ -142,6 +142,11 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./permify", () => ({ permifyCheck: vi.fn().mockResolvedValue(true) }));
 
+const temporalMock = vi.hoisted(() => ({
+  startTenantOnboardingWorkflow: vi.fn(async () => ({ workflowId: "wf-1", runId: "run-1", started: true })),
+}));
+vi.mock("./temporal", () => temporalMock);
+
 const { onboardingRouter } = await import("./routers/onboarding");
 
 // ─── Context helpers ─────────────────────────────────────────────────────────
@@ -183,6 +188,8 @@ function fetchOk(url: string) {
 
 beforeEach(() => {
   stores.tenants = [];
+  stores.kyc_applications = [];
+  temporalMock.startTenantOnboardingWorkflow.mockClear();
 });
 
 afterEach(() => {
@@ -290,10 +297,18 @@ describe("onboarding pipeline happy path (draft → live)", () => {
     expect(calledUrls.some((u) => u === "https://graph.facebook.com/v21.0/1234567890")).toBe(true);
     expect(calledUrls.some((u) => u.startsWith("https://medusa.example.com/"))).toBe(true);
 
+    // Approved KYB is a hard precondition for go-live
+    stores.kyc_applications.push({
+      id: "kyb-1", tenantId, type: "kyb", status: "approved",
+      createdAt: new Date(), updatedAt: new Date(),
+    });
     const act = await tenantCaller.activate({ tenantId });
     expect(act.status).toBe("live");
     const row = stores.tenants.find((t) => t.id === tenantId)!;
     expect(row.status).toBe("active");
+
+    // Temporal wiring: TEMPORAL_ADDRESS unset → start is a graceful no-op
+    expect(temporalMock.startTenantOnboardingWorkflow).not.toHaveBeenCalled();
   });
 });
 
@@ -335,6 +350,10 @@ describe("validation failure blocks activation", () => {
     vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => fetchOk(url)));
     const val2 = await tenantCaller.validate({ tenantId });
     expect(val2.passed).toBe(true);
+    stores.kyc_applications.push({
+      id: "kyb-retry", tenantId, type: "kyb", status: "approved",
+      createdAt: new Date(), updatedAt: new Date(),
+    });
     const act = await tenantCaller.activate({ tenantId });
     expect(act.status).toBe("live");
   });
@@ -363,5 +382,127 @@ describe("cross-tenant access", () => {
     await expect(intruder.validate({ tenantId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(intruder.activate({ tenantId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(intruder.retryValidation({ tenantId })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+// ─── KYB hard gate on activation (w12) ─────────────────────────────────────
+
+function seedValidatingTenant(tenantId: string) {
+  stores.tenants.push({
+    id: tenantId,
+    name: "Gate Co",
+    status: "onboarding",
+    settings: {
+      onboarding: {
+        status: "validating",
+        validationPassed: true,
+        validatedAt: new Date().toISOString(),
+        reasons: [],
+        completedSteps: [],
+      },
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+}
+
+function seedKyb(tenantId: string, type: string, status: string) {
+  stores.kyc_applications.push({
+    id: `kyc-${type}-${status}-${tenantId}`,
+    tenantId, type, status,
+    createdAt: new Date(), updatedAt: new Date(),
+  });
+}
+
+describe("KYB hard gate on onboarding.activate", () => {
+  it("blocks activation with 403 when no KYB application exists", async () => {
+    seedValidatingTenant("t-gate-none");
+    const caller = onboardingRouter.createCaller(makeCtx(makeUser("user", "t-gate-none")));
+    await expect(caller.activate({ tenantId: "t-gate-none" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    const row = stores.tenants.find((t) => t.id === "t-gate-none")!;
+    expect(row.status).toBe("onboarding"); // not flipped live
+  });
+
+  it("blocks activation when KYB is only pending / under_review / rejected", async () => {
+    for (const status of ["pending", "under_review", "rejected"]) {
+      const tid = `t-gate-${status}`;
+      seedValidatingTenant(tid);
+      seedKyb(tid, "kyb", status);
+      const caller = onboardingRouter.createCaller(makeCtx(makeUser("user", tid)));
+      await expect(caller.activate({ tenantId: tid })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
+  });
+
+  it("individual KYC approval does NOT satisfy the KYB gate", async () => {
+    seedValidatingTenant("t-gate-kyc");
+    seedKyb("t-gate-kyc", "kyc", "approved");
+    const caller = onboardingRouter.createCaller(makeCtx(makeUser("user", "t-gate-kyc")));
+    await expect(caller.activate({ tenantId: "t-gate-kyc" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("another tenant's approved KYB does not count", async () => {
+    seedValidatingTenant("t-gate-other");
+    seedKyb("t-someone-else", "kyb", "approved");
+    const caller = onboardingRouter.createCaller(makeCtx(makeUser("user", "t-gate-other")));
+    await expect(caller.activate({ tenantId: "t-gate-other" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("activates with an approved KYB application", async () => {
+    seedValidatingTenant("t-gate-ok");
+    seedKyb("t-gate-ok", "kyb", "approved");
+    const caller = onboardingRouter.createCaller(makeCtx(makeUser("user", "t-gate-ok")));
+    const res = await caller.activate({ tenantId: "t-gate-ok" });
+    expect(res.status).toBe("live");
+  });
+
+  it("KYC_GATE_DISABLED=true is honored outside production (NODE_ENV=test)", async () => {
+    vi.stubEnv("KYC_GATE_DISABLED", "true");
+    try {
+      seedValidatingTenant("t-gate-disabled");
+      const caller = onboardingRouter.createCaller(makeCtx(makeUser("user", "t-gate-disabled")));
+      const res = await caller.activate({ tenantId: "t-gate-disabled" });
+      expect(res.status).toBe("live");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("Temporal TenantOnboardingWorkflow wiring", () => {
+  it("start is a graceful no-op when TEMPORAL_ADDRESS is unset", async () => {
+    delete process.env.TEMPORAL_ADDRESS;
+    const caller = onboardingRouter.createCaller(adminCtx);
+    const res = await caller.start({ name: "No Temporal Ltd" });
+    expect(res.tenantId).toBeTruthy();
+    expect(temporalMock.startTenantOnboardingWorkflow).not.toHaveBeenCalled();
+  });
+
+  it("start kicks off TenantOnboardingWorkflow when Temporal is configured", async () => {
+    vi.stubEnv("TEMPORAL_ADDRESS", "temporal:7233");
+    try {
+      const caller = onboardingRouter.createCaller(adminCtx);
+      const res = await caller.start({ name: "Temporal Co", plan: "growth" });
+      expect(temporalMock.startTenantOnboardingWorkflow).toHaveBeenCalledTimes(1);
+      expect(temporalMock.startTenantOnboardingWorkflow).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: res.tenantId, billingModel: "subscription" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("provisioning still succeeds when the workflow start throws", async () => {
+    vi.stubEnv("TEMPORAL_ADDRESS", "temporal:7233");
+    temporalMock.startTenantOnboardingWorkflow.mockRejectedValueOnce(new Error("temporal down"));
+    try {
+      const caller = onboardingRouter.createCaller(adminCtx);
+      const res = await caller.start({ name: "Resilient Co" });
+      expect(res.tenantId).toBeTruthy();
+      expect(res.onboardingStatus).toBe("draft");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

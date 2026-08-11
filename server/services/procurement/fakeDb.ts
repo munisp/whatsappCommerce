@@ -7,6 +7,7 @@
  */
 import { randomUUID } from "crypto";
 import {
+  kycApplications,
   poItems,
   products,
   purchaseOrders,
@@ -22,6 +23,7 @@ export interface FakeStore {
   tenants: any[];
   products: any[];
   wholesaleTiers: any[];
+  kycApplications: any[];
 }
 
 // ── drizzle condition decoding (columns + bound values, in order) ───────────
@@ -95,6 +97,9 @@ const PROP: Record<string, Record<string, string>> = {
     unit_price_cents: "unitPriceCents", line_total_cents: "lineTotalCents",
   },
   tenants: { id: "id", name: "name", settings: "settings" },
+  kyc_applications: {
+    id: "id", tenantId: "tenantId", type: "type", status: "status",
+  },
   products: {
     id: "id", tenantId: "tenantId", sku: "sku", name: "name", price: "price",
     currency: "currency", status: "status", stockQuantity: "stockQuantity", metadata: "metadata",
@@ -110,6 +115,7 @@ const TABLES: Record<string, unknown> = {
   purchase_orders: purchaseOrders,
   po_items: poItems,
   tenants,
+  kyc_applications: kycApplications,
   products,
   wholesale_price_tiers: wholesalePriceTiers,
 };
@@ -146,12 +152,14 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     tenants: (seed?.tenants ?? []).map((r) => ({ ...r })),
     products: (seed?.products ?? []).map((r) => ({ ...r })),
     wholesaleTiers: (seed?.wholesaleTiers ?? []).map((r) => ({ ...r })),
+    kycApplications: (seed?.kycApplications ?? []).map((r) => ({ ...r })),
   };
   const STORE_KEY: Record<string, keyof FakeStore> = {
     supplier_profiles: "supplierProfiles",
     purchase_orders: "purchaseOrders",
     po_items: "poItems",
     tenants: "tenants",
+    kyc_applications: "kycApplications",
     products: "products",
     wholesale_price_tiers: "wholesaleTiers",
   };
@@ -316,6 +324,19 @@ export function seedPo(over: Record<string, unknown> = {}) {
     notes: null,
     createdAt: new Date("2025-01-02T00:00:00Z"),
     updatedAt: new Date("2025-01-02T00:00:00Z"),
+    ...over,
+  };
+}
+
+/** Approved-by-default KYB application row for gate tests. */
+export function seedKycApplication(over: Record<string, unknown> = {}) {
+  return {
+    id: over.id ?? randomUUID(),
+    tenantId: "supplier-1",
+    type: "kyb",
+    status: "approved",
+    createdAt: new Date("2025-01-01T00:00:00Z"),
+    updatedAt: new Date("2025-01-01T00:00:00Z"),
     ...over,
   };
 }

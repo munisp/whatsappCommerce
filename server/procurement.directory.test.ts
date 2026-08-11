@@ -39,7 +39,7 @@ import {
   upsertSupplierProfile,
 } from "./services/procurement/directory";
 import { getWholesaleCatalog, majorToCents } from "./services/procurement/b2bCatalog";
-import { makeFakeDb, seedSupplierProfile } from "./services/procurement/fakeDb";
+import { makeFakeDb, seedKycApplication, seedSupplierProfile } from "./services/procurement/fakeDb";
 import { buildMenuEntries, renderWhatsAppMenu } from "./services/waMenu";
 import { useCaseRegistry } from "./services/useCases";
 
@@ -113,6 +113,30 @@ describe("supplier directory", () => {
     expect(store.supplierProfiles).toHaveLength(1);
     const fetched = await getSupplierProfile(db, "supplier-1");
     expect(fetched?.defaultTermsDays).toBe(14);
+  });
+
+  it("flags KYB-verified suppliers in the directory (fail closed otherwise)", async () => {
+    const { db } = makeDb({
+      supplierProfiles: [
+        seedSupplierProfile({ tenantId: "supplier-1" }),
+        seedSupplierProfile({ tenantId: "supplier-2" }),
+        seedSupplierProfile({ tenantId: "supplier-3" }),
+      ],
+      kycApplications: [
+        seedKycApplication({ tenantId: "supplier-1" }), // approved kyb
+        seedKycApplication({ tenantId: "supplier-2", status: "pending" }), // not approved
+        seedKycApplication({ tenantId: "supplier-3", type: "kyc" }), // individual kyc ≠ kyb
+      ],
+    });
+    const list = await listSuppliers(db, { buyerTenantId: "buyer-1" });
+    const byTenant = Object.fromEntries(list.map((s) => [s.tenantId, s.kybVerified]));
+    expect(byTenant).toEqual({ "supplier-1": true, "supplier-2": false, "supplier-3": false });
+  });
+
+  it("kybVerified defaults to false when no applications exist", async () => {
+    const { db } = makeDb({ supplierProfiles: [seedSupplierProfile({ tenantId: "supplier-1" })] });
+    const [entry] = await listSuppliers(db, { buyerTenantId: "buyer-1" });
+    expect(entry.kybVerified).toBe(false);
   });
 });
 

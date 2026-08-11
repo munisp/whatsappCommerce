@@ -32,7 +32,7 @@ vi.mock("./db", async (importOriginal) => {
 
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
-import { makeFakeDb, seedPo, seedSupplierProfile } from "./services/procurement/fakeDb";
+import { makeFakeDb, seedKycApplication, seedPo, seedSupplierProfile } from "./services/procurement/fakeDb";
 
 function makeCtx(role: "admin" | "user", tenantId?: string): TrpcContext {
   return {
@@ -68,6 +68,10 @@ beforeEach(() => {
   const fake = makeFakeDb({
     tenants: TENANTS.map((t) => ({ ...t })),
     supplierProfiles: [seedSupplierProfile({ tenantId: "supplier-1" })],
+    kycApplications: [
+      // supplier-1 is KYB-verified; supplier-2 and buyers are NOT
+      seedKycApplication({ tenantId: "supplier-1" }),
+    ],
     purchaseOrders: [
       seedPo({ id: "po-b1", poNumber: "PO-20250101-AAAA", buyerTenantId: "buyer-1", supplierTenantId: "supplier-1" }),
       seedPo({ id: "po-b2", poNumber: "PO-20250101-BBBB", buyerTenantId: "buyer-2", supplierTenantId: "supplier-1" }),
@@ -204,5 +208,50 @@ describe("create + fulfill + markPaid via router", () => {
   it("unauthenticated callers are rejected", async () => {
     const caller = appRouter.createCaller({ ...makeCtx("user", "buyer-1"), user: null });
     await expect(caller.procurement.listPos({ tenantId: "buyer-1", role: "buyer" })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+});
+
+describe("KYB gate on supplier profile activation (w12)", () => {
+  it("blocks creating an active supplier profile without approved KYB", async () => {
+    const caller = appRouter.createCaller(makeCtx("user", "supplier-2"));
+    await expect(
+      caller.procurement.upsertSupplierProfile({ tenantId: "supplier-2", moqCents: 1_000 }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(store.supplierProfiles.find((p: any) => p.tenantId === "supplier-2")).toBeUndefined();
+  });
+
+  it("blocks reactivating a paused profile without approved KYB", async () => {
+    store.supplierProfiles.push(seedSupplierProfile({ tenantId: "supplier-2", status: "paused" }));
+    const caller = appRouter.createCaller(makeCtx("user", "supplier-2"));
+    await expect(
+      caller.procurement.upsertSupplierProfile({ tenantId: "supplier-2", status: "active" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(store.supplierProfiles.find((p: any) => p.tenantId === "supplier-2")?.status).toBe("paused");
+  });
+
+  it("allows a KYB-verified tenant to create/activate its profile", async () => {
+    const caller = appRouter.createCaller(makeCtx("user", "supplier-1"));
+    const profile = await caller.procurement.upsertSupplierProfile({
+      tenantId: "supplier-1", status: "active", moqCents: 7_500,
+    });
+    expect(profile.status).toBe("active");
+  });
+
+  it("pausing / editing a paused profile stays open without KYB", async () => {
+    store.supplierProfiles.push(seedSupplierProfile({ tenantId: "supplier-2", status: "paused" }));
+    const caller = appRouter.createCaller(makeCtx("user", "supplier-2"));
+    const profile = await caller.procurement.upsertSupplierProfile({
+      tenantId: "supplier-2", moqCents: 2_000,
+    });
+    expect(profile.status).toBe("paused");
+    expect(profile.moqCents).toBe(2_000);
+  });
+
+  it("a verified supplier can pause itself freely", async () => {
+    const caller = appRouter.createCaller(makeCtx("user", "supplier-1"));
+    const profile = await caller.procurement.upsertSupplierProfile({
+      tenantId: "supplier-1", status: "paused",
+    });
+    expect(profile.status).toBe("paused");
   });
 });
