@@ -250,6 +250,7 @@ describe("SECRETS_MASTER_KEY production boot gate", () => {
   const BOOT_VARS = [
     "DATABASE_URL", "POSTGRES_URL", "JWT_SECRET", "KEYCLOAK_URL",
     "APP_URL", "REDIS_URL", "REDIS_TLS_URL", "SECRETS_MASTER_KEY",
+    "KYC_SERVICE_API_KEY", "KYC_INTERNAL_API_KEY",
   ];
   let saved: Record<string, string | undefined>;
   beforeEach(() => {
@@ -271,6 +272,7 @@ describe("SECRETS_MASTER_KEY production boot gate", () => {
     process.env.KEYCLOAK_URL = "https://kc.example";
     process.env.APP_URL = "https://app.example";
     process.env.REDIS_URL = "redis://localhost:6379";
+    process.env.KYC_SERVICE_API_KEY = "kyc-live-test-key";
   }
 
   it("refuses to boot in production without SECRETS_MASTER_KEY", async () => {

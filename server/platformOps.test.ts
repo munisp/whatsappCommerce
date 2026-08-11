@@ -118,6 +118,7 @@ describe("webhook dedupe ledger", () => {
     set("APP_URL", "https://app.example");
     set("REDIS_URL", "redis://localhost:6379");
     set("SECRETS_MASTER_KEY", Buffer.alloc(32, 7).toString("base64"));
+    set("KYC_SERVICE_API_KEY", "kyc-live-test-key");
     vi.resetModules();
     try {
       const { claimWebhookEvent: prodClaim } = await import("./services/webhookDedupe");
@@ -287,7 +288,7 @@ describe("usage metering + quotas", () => {
 // ── 4. Env boot gate ─────────────────────────────────────────────────────────
 
 describe("env boot gate", () => {
-  const BOOT_VARS = ["DATABASE_URL", "POSTGRES_URL", "JWT_SECRET", "KEYCLOAK_URL", "APP_URL", "REDIS_URL", "REDIS_TLS_URL"];
+  const BOOT_VARS = ["DATABASE_URL", "POSTGRES_URL", "JWT_SECRET", "KEYCLOAK_URL", "APP_URL", "REDIS_URL", "REDIS_TLS_URL", "KYC_SERVICE_API_KEY", "KYC_INTERNAL_API_KEY"];
   let saved: Record<string, string | undefined>;
   beforeEach(() => {
     saved = Object.fromEntries(BOOT_VARS.concat("NODE_ENV").map(k => [k, process.env[k]]));
@@ -328,6 +329,7 @@ describe("env boot gate", () => {
     process.env.APP_URL = "https://app.example";
     process.env.REDIS_URL = "redis://localhost:6379";
     process.env.SECRETS_MASTER_KEY = Buffer.alloc(32, 7).toString("base64");
+    process.env.KYC_SERVICE_API_KEY = "kyc-live-test-key";
     vi.resetModules();
     const mod = await import("./_core/env");
     expect(mod.REQUIRED_BY_ENV.DATABASE_URL).toBe("postgres://x");

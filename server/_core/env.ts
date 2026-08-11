@@ -135,7 +135,34 @@ export const REQUIRED_BY_ENV: Record<string, string> = {
   // (`openssl rand -base64 32`). Dev/test fall back to a deterministic
   // dev-only key with a loud warning; production refuses to boot without it.
   SECRETS_MASTER_KEY: process.env.SECRETS_MASTER_KEY ?? "",
+  // API key for the KYC microservice. KYC_INTERNAL_API_KEY accepted as an
+  // alias (the name used by server/routers/kyc.ts). Production refuses to
+  // boot when unset or still the known insecure "dev-kyc-key".
+  KYC_SERVICE_API_KEY: process.env.KYC_SERVICE_API_KEY ?? process.env.KYC_INTERNAL_API_KEY ?? "",
 };
+
+// ─── KYC pipeline fail-closed checks (production only) ─────────────────────
+// The KYC/KYB pipeline gates money/trust surfaces. In production-like
+// environments it must NEVER boot against mocked or default-credential
+// verification:
+//   - VLM_MOCK_MODE=true swaps real document vision for a mock — fatal.
+//   - an unset/known-default KYC service API key — fatal (the generic
+//     REQUIRED_BY_ENV check above already covers unset; this also rejects
+//     the well-known dev key).
+if (isProd) {
+  if ((process.env.VLM_MOCK_MODE ?? "").trim().toLowerCase() === "true") {
+    throw new Error(
+      "[ENV] FATAL: VLM_MOCK_MODE=true in production — the KYC document " +
+        "pipeline would verify against a mock. Unset it before starting.",
+    );
+  }
+  if (REQUIRED_BY_ENV.KYC_SERVICE_API_KEY === "dev-kyc-key") {
+    throw new Error(
+      '[ENV] FATAL: KYC_SERVICE_API_KEY is the known insecure default "dev-kyc-key". ' +
+        "Set a strong, unique key before starting.",
+    );
+  }
+}
 
 const missingRequiredEnv = Object.entries(REQUIRED_BY_ENV)
   .filter(([, value]) => !value || !value.trim())

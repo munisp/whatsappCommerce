@@ -22,6 +22,15 @@ import {
 } from "../../shared/tenantConfig";
 import { parseWaMenuConfig, waCustomItemSchema, waUseCaseSchema } from "../../shared/waMenu";
 import { encryptSecret } from "../services/crypto/secrets";
+import { requireApprovedKyb } from "../services/kycGate";
+import { startTenantOnboardingWorkflow } from "../temporal";
+
+/** plan → billing model for the TenantOnboardingWorkflow input. */
+const PLAN_BILLING_MODEL = {
+  starter: "profit_sharing",
+  growth: "subscription",
+  enterprise: "hybrid",
+} as const;
 
 // Billing plan definitions
 export const BILLING_PLANS = {
@@ -187,8 +196,23 @@ export const onboardingRouter = router({
         businessType: z.string().trim().max(100).optional(),
       }),
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const { tenantId, slug, settings } = await createTenant(input);
+      // Kick off the TenantOnboardingWorkflow when Temporal is configured
+      // (env-gated; graceful skip otherwise — provisioning must succeed
+      // regardless of Temporal availability).
+      if (process.env.TEMPORAL_ADDRESS) {
+        try {
+          await startTenantOnboardingWorkflow({
+            tenantId,
+            applicantEmail: ctx.user?.email ?? "",
+            billingModel: PLAN_BILLING_MODEL[input.plan ?? "starter"],
+            // no KYB application exists at provisioning time
+          });
+        } catch (err: any) {
+          console.warn("[onboarding.start] Temporal workflow start failed (continuing):", err?.message);
+        }
+      }
       return {
         tenantId,
         slug,
@@ -383,6 +407,9 @@ export const onboardingRouter = router({
           message: `Cannot activate: validation has not passed (status=${state.status}). Run onboarding.validate first.`,
         });
       }
+      // Hard KYB gate: an approved KYB application is a precondition for
+      // go-live. Fails closed in production (see services/kycGate).
+      await requireApprovedKyb(input.tenantId, db);
       const next = await setOnboardingStatus(input.tenantId, "live");
       await db
         .update(tenants)

@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TrpcContext } from "./_core/context";
-import { makeFakeDb, seedAccount, seedDraw } from "./services/tradeCredit/fakeDb";
+import { makeFakeDb, seedAccount, seedDraw, seedKycApplication } from "./services/tradeCredit/fakeDb";
 
 const fake = makeFakeDb({
   accounts: [
@@ -19,6 +19,11 @@ const fake = makeFakeDb({
     seedDraw("acc-A", { id: "draw-A1", amountCents: 20_000, createdAt: new Date("2025-01-02T00:00:00Z") }),
     seedDraw("acc-B", { id: "draw-B1", amountCents: 10_000, createdAt: new Date("2025-01-03T00:00:00Z") }),
   ],
+  // approveAccount is KYB-gated (w12): all test tenants are KYB-verified here
+  // so the lifecycle tests exercise the account state machine, not the gate.
+  kycApplications: ["supplier-A", "supplier-B", "buyer-A", "buyer-B", "buyer-req"].map((tenantId) =>
+    seedKycApplication({ tenantId }),
+  ),
 });
 
 vi.mock("./db", () => ({

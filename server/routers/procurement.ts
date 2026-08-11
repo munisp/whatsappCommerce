@@ -28,6 +28,7 @@ import {
   PO_STATUSES,
   type DbHandle,
 } from "../services/procurement";
+import { requireApprovedKyb } from "../services/kycGate";
 
 async function requireDb(): Promise<DbHandle> {
   const db = await getDb();
@@ -84,6 +85,15 @@ export const procurementRouter = router({
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = await requireDb();
+      // Hard KYB gate on ACTIVATION: a supplier profile may only be (or
+      // become) 'active' when the tenant has an approved KYB application.
+      // New profiles default to 'active', so creation is gated too. Pausing
+      // / editing an already-paused profile stays open.
+      const existing = await getSupplierProfile(db, input.tenantId);
+      const resultingStatus = input.status ?? existing?.status ?? "active";
+      if (resultingStatus === "active") {
+        await requireApprovedKyb(input.tenantId, db);
+      }
       return upsertSupplierProfile(db, input);
     }),
 

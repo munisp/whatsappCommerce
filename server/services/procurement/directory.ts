@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import type { getDb } from "../../db";
 import { supplierProfiles, tenants, type SupplierProfile } from "../../../drizzle/schema";
 import { getCreditAccount } from "../tradeCredit";
+import { hasApprovedKyb } from "../kycGate";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -31,6 +32,8 @@ export interface SupplierDirectoryEntry {
   termsOffered: number[];
   defaultTermsDays: number;
   categories: string[];
+  /** True when the supplier tenant has an approved KYB application. */
+  kybVerified: boolean;
   credit: DirectoryCreditSummary | null;
 }
 
@@ -108,6 +111,8 @@ export async function listSuppliers(
         });
       credit = creditSummaryOf(account);
     }
+    // KYB trust flag — fails closed (false) on any lookup error.
+    const kybVerified = await hasApprovedKyb(db, profile.tenantId).catch(() => false);
     out.push({
       tenantId: profile.tenantId,
       name: tenantName ?? null,
@@ -116,6 +121,7 @@ export async function listSuppliers(
       termsOffered: Array.isArray(profile.termsOffered) ? (profile.termsOffered as number[]) : [],
       defaultTermsDays: Number(profile.defaultTermsDays ?? 14),
       categories: Array.isArray(profile.categories) ? (profile.categories as string[]) : [],
+      kybVerified,
       credit,
     });
   }

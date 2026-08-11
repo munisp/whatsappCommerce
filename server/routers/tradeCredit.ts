@@ -31,6 +31,7 @@ import {
 } from "../services/tradeCredit";
 import { creditAccounts } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { requireApprovedKyb } from "../services/kycGate";
 
 async function requireDb() {
   const db = await getDb();
@@ -126,6 +127,12 @@ export const tradeCreditRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertTenantAccess(ctx.user, input.supplierTenantId);
       const db = await requireDb();
+      // Hard KYB gate: BOTH sides of the facility must hold an approved KYB
+      // application before credit is extended. The account row supplies the
+      // buyer side (ownership-checked against the claiming supplier).
+      const account = await requireSupplierAccount(db, input.accountId, input.supplierTenantId);
+      await requireApprovedKyb(input.supplierTenantId, db);
+      await requireApprovedKyb(account.buyerTenantId, db);
       const row = await approveCreditAccountTx(db, input);
       if (!row) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Pending credit account not found" });

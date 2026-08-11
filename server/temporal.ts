@@ -209,7 +209,8 @@ export async function startTenantOnboardingWorkflow(input: {
   tenantId: string;
   applicantEmail: string;
   billingModel: "profit_sharing" | "subscription" | "hybrid";
-  kycApplicationId: string;
+  /** Optional at provisioning time — no KYB application exists yet. */
+  kycApplicationId?: string;
 }): Promise<WorkflowStartResult> {
   return startWorkflow("TenantOnboardingWorkflow", input, {
     workflowId: `tenant-onboarding-${input.tenantId}`,
