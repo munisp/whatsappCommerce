@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { desc, eq, gte, and, sql, count } from "drizzle-orm";
-import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
+import { publicProcedure, protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { waMessageDeliveryReceipts } from "../../drizzle/schema";
 
@@ -40,7 +40,8 @@ export const deliveryReceiptsRouter = router({
       tenantId: z.string(),
       days: z.number().min(1).max(90).default(7),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { sent: 0, delivered: 0, read: 0, failed: 0, total: 0, deliveryRate: 0, readRate: 0, failureRate: 0, series: [], recentMessages: [] };
       const cutoff = new Date(Date.now() - input.days * 86400 * 1000);
@@ -114,7 +115,8 @@ export const deliveryReceiptsRouter = router({
       tenantId: z.string(),
       phones: z.array(z.string()).max(100),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       if (input.phones.length === 0) return {};
       const db = await getDb();
       if (!db) return {};

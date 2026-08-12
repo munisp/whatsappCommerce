@@ -2,7 +2,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { mobileMoneyTransactions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -20,7 +20,8 @@ export const mobileMoneyRouter = router({
       reference: z.string().optional(),
       description: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const externalRef = input.reference ?? `MOMO-${Date.now().toString(36).toUpperCase()}`;
@@ -87,7 +88,8 @@ export const mobileMoneyRouter = router({
   // ── List Transactions ────────────────────────────────────────────────────
   listTransactions: protectedProcedure
     .input(z.object({ tenantId: z.string(), provider: z.string().optional(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(mobileMoneyTransactions.tenantId, input.tenantId)];
       if (input.provider) conds.push(eq(mobileMoneyTransactions.provider, input.provider as "mtn_momo" | "airtel_money" | "mpesa" | "orange_money" | "wave"));
@@ -98,7 +100,8 @@ export const mobileMoneyRouter = router({
   // ── Stats ────────────────────────────────────────────────────────────────
   stats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const txns = await db.select().from(mobileMoneyTransactions).where(eq(mobileMoneyTransactions.tenantId, input.tenantId));
       const byProvider: Record<string, number> = {};

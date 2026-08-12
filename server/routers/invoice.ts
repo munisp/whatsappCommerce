@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { invoices, orders, tenants } from "../../drizzle/schema";
 
@@ -20,7 +20,8 @@ export const invoiceRouter = router({
       commissionRate: z.number().min(0).max(1).optional(), // e.g. 0.05 = 5%
       currency: z.string().default("NGN"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -89,7 +90,8 @@ export const invoiceRouter = router({
       status: z.enum(["draft", "sent", "paid", "overdue", "cancelled"]).optional(),
       limit: z.number().default(50),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const conditions = [eq(invoices.tenantId, input.tenantId)];
@@ -103,9 +105,12 @@ export const invoiceRouter = router({
   /** Mark invoice as sent */
   send: protectedProcedure
     .input(z.object({ invoiceId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      assertTenantAccess(ctx.user, inv.tenantId);
       await db.update(invoices).set({
         status: "sent",
         sentAt: new Date(),
@@ -117,9 +122,12 @@ export const invoiceRouter = router({
   /** Mark invoice as paid */
   markPaid: protectedProcedure
     .input(z.object({ invoiceId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      assertTenantAccess(ctx.user, inv.tenantId);
       await db.update(invoices).set({
         status: "paid",
         paidAt: new Date(),
@@ -131,18 +139,20 @@ export const invoiceRouter = router({
   /** Get invoice details */
   get: protectedProcedure
     .input(z.object({ invoiceId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [invoice] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      assertTenantAccess(ctx.user, invoice.tenantId);
       return invoice;
     }),
 
   /** Summary stats */
   stats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const result = await db.execute(sql`

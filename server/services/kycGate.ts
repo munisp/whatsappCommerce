@@ -16,7 +16,7 @@
  * unit tests run without a database, plus thin db wrappers that query
  * kycApplications (same core+wrapper pattern as services/tradeCredit).
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { kycApplications } from "../../drizzle/schema";
@@ -116,13 +116,35 @@ export async function hasApprovedKyb(db: DbHandle, tenantId: string): Promise<bo
   return evaluateKybRows(rows as KybApplicationRow[], tenantId);
 }
 
-/** Batch variant for directory listings: returns the set of KYB-verified tenant ids. */
+/**
+ * Batch variant for directory listings: returns the set of KYB-verified tenant
+ * ids. W12.1: ONE query (`inArray`) over kycApplications instead of N
+ * sequential per-tenant lookups — a 100-supplier directory page went from
+ * 100 round-trips to 1. Behavior identical: any error fails closed (empty set).
+ */
 export async function approvedKybTenantIds(db: DbHandle, tenantIds: string[]): Promise<Set<string>> {
-  const out = new Set<string>();
-  for (const tenantId of tenantIds) {
-    if (await hasApprovedKyb(db, tenantId)) out.add(tenantId);
-  }
-  return out;
+  const unique = Array.from(new Set(tenantIds));
+  if (unique.length === 0) return new Set();
+  const rows = await db
+    .select({
+      tenantId: kycApplications.tenantId,
+      type: kycApplications.type,
+      status: kycApplications.status,
+    })
+    .from(kycApplications)
+    .where(
+      and(
+        inArray(kycApplications.tenantId, unique),
+        eq(kycApplications.type, "kyb"),
+        eq(kycApplications.status, "approved"),
+      ),
+    )
+    .catch(() => [] as KybApplicationRow[]);
+  return new Set(
+    (rows as KybApplicationRow[])
+      .filter((r) => evaluateKybRows([r], r.tenantId))
+      .map((r) => r.tenantId),
+  );
 }
 
 /**

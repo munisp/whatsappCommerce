@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { invokeLLM } from "../_core/llm";
 import {
@@ -18,6 +18,27 @@ import {
 } from "../../drizzle/schema";
 import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
 import { decryptSecret } from "../services/crypto/secrets";
+
+/**
+ * W12.1 IDOR guard for sessionId-keyed procedures: resolve the session's
+ * tenant from nlp_sessions, then assert the caller may access that tenant.
+ * Throws NOT_FOUND for unknown sessions (no cross-tenant existence leak
+ * beyond what the caller already knows — they supplied the id).
+ */
+async function assertNlpSessionAccess(
+  user: { role: string; tenantId?: string | null; memberships?: readonly string[] | null },
+  sessionId: string,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+  const [session] = await db
+    .select({ tenantId: nlpSessions.tenantId })
+    .from(nlpSessions)
+    .where(eq(nlpSessions.id, sessionId))
+    .limit(1);
+  if (!session) throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
+  assertTenantAccess(user, session.tenantId);
+}
 import { offlineMessageQueue } from "../../drizzle/schema";
 import { tenantIntegrations } from "../../drizzle/schema";
 import {
@@ -1122,7 +1143,8 @@ export const nlpRouter = router({
   /** Get or create a session for a phone number */
   getSession: protectedProcedure
     .input(z.object({ tenantId: z.string(), waPhoneNumber: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [session] = await db.select().from(nlpSessions)
@@ -1134,7 +1156,8 @@ export const nlpRouter = router({
   /** List active sessions for a tenant */
   listSessions: protectedProcedure
     .input(z.object({ tenantId: z.string(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       return db.select().from(nlpSessions)
@@ -1146,7 +1169,8 @@ export const nlpRouter = router({
   /** Reset/clear a session (e.g. after order confirmed) */
   resetSession: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await assertNlpSessionAccess(ctx.user, input.sessionId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       await db.update(nlpSessions).set({
@@ -1167,6 +1191,7 @@ export const nlpRouter = router({
       messages: z.array(z.string()),
     }))
     .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const results = [];
       for (const msg of input.messages) {
         // Re-use processMessage logic inline
@@ -1186,7 +1211,8 @@ export const nlpRouter = router({
       message: z.string(),
       direction: z.enum(["inbound", "outbound"]).default("outbound"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [row] = await db.insert(offlineMessageQueue).values({
@@ -1208,7 +1234,8 @@ export const nlpRouter = router({
       sessionId: z.string(),
       waPhoneNumber: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      await assertNlpSessionAccess(ctx.user, input.sessionId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const queued = await db.select().from(offlineMessageQueue)
@@ -1230,7 +1257,8 @@ export const nlpRouter = router({
   /** Get queued offline message count for a session */
   getOfflineQueueCount: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await assertNlpSessionAccess(ctx.user, input.sessionId);
       const db = await getDb();
       if (!db) return { count: 0 };
       const rows = await db.select().from(offlineMessageQueue)
@@ -1243,7 +1271,8 @@ export const nlpRouter = router({
   /** Load queued offline messages for a session (mount-time pre-population) */
   getQueuedMessages: protectedProcedure
     .input(z.object({ sessionId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      await assertNlpSessionAccess(ctx.user, input.sessionId);
       const db = await getDb();
       if (!db) return { messages: [] };
       const rows = await db.select().from(offlineMessageQueue)

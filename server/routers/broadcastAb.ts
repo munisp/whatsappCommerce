@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { broadcastAbTests, broadcastCampaigns } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
@@ -19,7 +19,8 @@ export const broadcastAbRouter = router({
       winnerCriteria: z.enum(["read_rate", "delivery_rate", "click_rate"]).default("read_rate"),
       testDurationHours: z.number().default(24),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const id = randomUUID();

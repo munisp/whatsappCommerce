@@ -29,7 +29,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { customers, orders, users, whatsappNotificationLog, whatsappCustomerReplies } from "../../drizzle/schema";
 import { eq, desc, and, ilike, gte, lte, or, sql, inArray } from "drizzle-orm";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { z } from "zod";
 import { sendWhatsAppTemplate, sendWhatsAppText, resolveTenantWaCredentials } from "../services/waSender";
 
@@ -244,6 +244,7 @@ export const whatsappNotificationsRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      assertTenantAccess(ctx.user, order.tenantId);
       await sendOrderNotificationWithLog(
         input.orderId,
         input.notifType,
@@ -256,11 +257,12 @@ export const whatsappNotificationsRouter = router({
   /** Get notification log for a specific order (admin). */
   getOrderNotifStatus: protectedProcedure
     .input(z.object({ orderId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { order: null, logs: [] };
       const [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      assertTenantAccess(ctx.user, order.tenantId);
       const logs = await db
         .select()
         .from(whatsappNotificationLog)
@@ -320,7 +322,7 @@ export const whatsappNotificationsRouter = router({
   /** Admin: Resend a failed notification by log ID. Creates a new log row. */
   resendNotification: protectedProcedure
     .input(z.object({ logId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [original] = await db
@@ -329,6 +331,7 @@ export const whatsappNotificationsRouter = router({
         .where(eq(whatsappNotificationLog.id, input.logId))
         .limit(1);
       if (!original) throw new TRPCError({ code: "NOT_FOUND", message: "Notification log not found" });
+      assertTenantAccess(ctx.user, original.tenantId);
       if (original.status !== "failed") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Only failed notifications can be resent" });
       }
@@ -399,9 +402,15 @@ export const whatsappNotificationsRouter = router({
       limit: z.number().int().min(1).max(100).default(50),
       offset: z.number().int().min(0).default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { replies: [] };
+      const [order] = await db
+        .select({ tenantId: orders.tenantId })
+        .from(orders)
+        .where(eq(orders.id, input.orderId))
+        .limit(1);
+      if (order) assertTenantAccess(ctx.user, order.tenantId);
       const replies = await db
         .select()
         .from(whatsappCustomerReplies)

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { merchantNotifications, NewMerchantNotification } from "../../drizzle/schema";
 import { eq, and, desc, lt, count, inArray } from "drizzle-orm";
@@ -161,6 +161,7 @@ export const notificationsRouter = router({
       limit: z.number().int().min(1).max(100).default(50),
     }))
     .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       if (ctx.user.role !== "admin") throw new Error("Forbidden");
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");

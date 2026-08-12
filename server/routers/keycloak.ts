@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import { publicProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
@@ -26,7 +26,8 @@ export const keycloakRouter = router({
       adminPassword: z.string().optional(),
       enableSso: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const configJson = JSON.stringify({
@@ -72,7 +73,8 @@ export const keycloakRouter = router({
   // Get Keycloak configuration for a tenant
   getConfig: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return null;
       const rows = await db
@@ -151,7 +153,8 @@ export const keycloakRouter = router({
       redirectUri: z.string().url(),
       state: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const rows = await db
@@ -295,6 +298,22 @@ export const keycloakRouter = router({
       const profileBoundToThisIdentity =
         !!existingProfile && !!ssoSub && existingProfile.ssoSub === ssoSub;
 
+      // ── First-bind rebind lock (W12.1) ───────────────────────────────────
+      // Once a tenantSsoProfiles row exists, the tenant's SSO identity is
+      // BOUND. A different Keycloak sub must NOT be able to take the binding
+      // over via the email-match first-bind path below (a stale/compromised
+      // mailbox match would silently transfer the tenant's SSO identity).
+      // The only way to rebind is an explicit platform-admin action:
+      // keycloak.rebindSsoProfile (adminProcedure).
+      if (existingProfile && !profileBoundToThisIdentity) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "SSO identity for this tenant is already bound to a different Keycloak subject. " +
+            "A platform admin must explicitly rebind it (keycloak.rebindSsoProfile).",
+        });
+      }
+
       if (!profileBoundToThisIdentity) {
         if (!ssoEmail) {
           throw new TRPCError({
@@ -384,6 +403,49 @@ export const keycloakRouter = router({
         portalRole,
         keycloakRoles,
       };
+    }),
+
+  // ── Platform admin: explicitly rebind a tenant's SSO identity ────────────
+  // The ONLY escape from the first-bind rebind lock in exchangeCode. Use when
+  // a tenant's Keycloak identity is rotated (realm migration, compromised
+  // account). Rewrites ssoSub (+ optional email/name) on the existing profile;
+  // login counters are preserved so the audit trail stays continuous.
+  rebindSsoProfile: adminProcedure
+    .input(
+      z.object({
+        tenantId: z.string(),
+        ssoSub: z.string().min(1),
+        ssoEmail: z.string().email().optional(),
+        ssoName: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const [existing] = await db
+        .select()
+        .from(tenantSsoProfiles)
+        .where(eq(tenantSsoProfiles.tenantId, input.tenantId))
+        .limit(1);
+      if (!existing) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "No SSO profile exists for this tenant — nothing to rebind",
+        });
+      }
+      await db
+        .update(tenantSsoProfiles)
+        .set({
+          ssoSub: input.ssoSub,
+          ...(input.ssoEmail !== undefined ? { ssoEmail: input.ssoEmail } : {}),
+          ...(input.ssoName !== undefined ? { ssoName: input.ssoName } : {}),
+        })
+        .where(eq(tenantSsoProfiles.tenantId, input.tenantId));
+      console.warn(
+        `[keycloak] SSO REBIND by admin ${ctx.user.id}: tenant=${input.tenantId} ` +
+          `oldSub=${existing.ssoSub} newSub=${input.ssoSub}`,
+      );
+      return { ok: true, previousSub: existing.ssoSub, ssoSub: input.ssoSub };
     }),
 
   // ── List all SSO-provisioned tenant profiles (admin view) ─────────────────

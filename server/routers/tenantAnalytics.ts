@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders, customers, products, paymentTransactions } from "../../drizzle/schema";
 import { eq, gte, sql, and, desc } from "drizzle-orm";
@@ -11,7 +11,8 @@ export const tenantAnalyticsRouter = router({
       tenantId: z.string(),
       days: z.number().min(1).max(365).default(30),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { gmv: 0, orderCount: 0, revenue: 0, avgOrderValue: 0, paidOrders: 0, cancelledOrders: 0, newCustomers: 0 };
       const cutoff = new Date(Date.now() - input.days * 86400 * 1000);
@@ -68,7 +69,8 @@ export const tenantAnalyticsRouter = router({
       tenantId: z.string(),
       days: z.number().min(7).max(90).default(30),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { series: [] };
       const cutoff = new Date(Date.now() - input.days * 86400 * 1000);
@@ -90,7 +92,8 @@ export const tenantAnalyticsRouter = router({
       days: z.number().min(1).max(365).default(30),
       limit: z.number().min(1).max(20).default(10),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { products: [] };
       const cutoff = new Date(Date.now() - input.days * 86400 * 1000);
@@ -127,7 +130,8 @@ export const tenantAnalyticsRouter = router({
       tenantId: z.string(),
       days: z.number().min(7).max(365).default(30),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { newCustomers: 0, returningCustomers: 0, retentionRate: 0, cohorts: [] };
       const cutoff = new Date(Date.now() - input.days * 86400 * 1000);
@@ -185,7 +189,8 @@ export const tenantAnalyticsRouter = router({
       tenantId: z.string(),
       days: z.number().min(1).max(365).default(30),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { breakdown: [] };
       const cutoff = new Date(Date.now() - input.days * 86400 * 1000);

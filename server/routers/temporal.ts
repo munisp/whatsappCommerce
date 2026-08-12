@@ -9,7 +9,7 @@
  *   - Update workflow status from callbacks
  */
 import { z } from "zod";
-import { router, adminProcedure, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, adminProcedure, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { temporalWorkflowRuns } from "../../drizzle/schema";
 import {
@@ -170,7 +170,8 @@ export const temporalRouter = router({
       totalAmount: z.number().positive(),
       waPhoneNumber: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return startOrderFulfillmentWorkflow(input);
     }),
 
@@ -183,7 +184,8 @@ export const temporalRouter = router({
       batchSize: z.number().int().positive().default(50),
       scheduledAt: z.string(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return startBroadcastCampaignWorkflow(input);
     }),
 
@@ -193,7 +195,18 @@ export const temporalRouter = router({
       odooUrl: z.string().url(),
       odooDb: z.string(),
     }))
-    .mutation(async ({ input }) => {
-      return startInventorySyncWorkflow(input);
+    .mutation(async ({ input, ctx }) => {
+      // W12.1: explicit tenantId must pass tenant access; non-admins default
+      // to their own tenant rather than running an unscoped sync.
+      let tenantId = input.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
+      return startInventorySyncWorkflow({ ...input, tenantId });
     }),
 });

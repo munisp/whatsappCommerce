@@ -204,14 +204,52 @@ export const kycRouter = router({
       decision: z.enum(["approved", "rejected", "resubmit_required"]),
       notes: z.string().optional(),
       rejectionReason: z.string().optional(),
+      // W12.1 fail-closed gate: approving while documents are still
+      // pending/processing requires this EXPLICIT waiver. The waiver is
+      // recorded on each affected document (verificationNotes) and in
+      // reviewNotes so the audit trail shows who waived and when.
+      waivePendingDocuments: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const reviewer = ctx.user.name ?? ctx.user.email ?? "admin";
+
+      // ── Document-verification gate (W12.1, fail closed) ─────────────────
+      // An application may not reach 'approved' while any of its documents is
+      // still awaiting OCR/VLM verification (processedAt unset = pending /
+      // processing). Approving anyway requires the admin's explicit waiver,
+      // which is recorded per document.
+      let reviewNotes = input.notes;
+      if (input.decision === "approved") {
+        const docs = await db.select().from(kycDocuments)
+          .where(eq(kycDocuments.applicationId, input.applicationId));
+        const pendingDocs = docs.filter((d) => !d.processedAt);
+        if (pendingDocs.length > 0) {
+          if (!input.waivePendingDocuments) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                `Cannot approve: ${pendingDocs.length} document(s) are still pending verification ` +
+                `(${pendingDocs.map((d) => d.documentType).join(", ")}). ` +
+                "Wait for the OCR/VLM pipeline to finish, or re-review with waivePendingDocuments=true.",
+            });
+          }
+          const waiverNote =
+            `[doc-waiver] verification waived by admin ${reviewer} at ${new Date().toISOString()}`;
+          for (const d of pendingDocs) {
+            await db.update(kycDocuments)
+              .set({ verificationNotes: [d.verificationNotes, waiverNote].filter(Boolean).join("\n") })
+              .where(eq(kycDocuments.id, d.id));
+          }
+          reviewNotes = [input.notes, waiverNote].filter(Boolean).join("\n");
+        }
+      }
+
       await db.update(kycApplications).set({
         status: input.decision,
-        reviewedBy: ctx.user.name ?? ctx.user.email ?? "admin",
-        reviewNotes: input.notes,
+        reviewedBy: reviewer,
+        reviewNotes,
         rejectionReason: input.rejectionReason,
         reviewedAt: new Date(),
         approvedAt: input.decision === "approved" ? new Date() : undefined,

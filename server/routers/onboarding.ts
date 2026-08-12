@@ -88,7 +88,8 @@ export const onboardingRouter = router({
 
   getProgress: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return null;
       const [record] = await db
@@ -105,7 +106,8 @@ export const onboardingRouter = router({
       step: z.enum(["business_profile", "billing_model", "whatsapp_setup", "ai_config", "review"]),
       data: z.record(z.string(), z.unknown()),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const existing = await db
@@ -138,7 +140,8 @@ export const onboardingRouter = router({
 
   complete: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       await db.update(tenantOnboarding)

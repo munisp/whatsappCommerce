@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { wholesalePriceTiers, b2bRfq, b2bPurchaseOrders } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -16,7 +16,8 @@ export const b2bRouter = router({
   // ── Wholesale Price Tiers ────────────────────────────────────────────────
   listPriceTiers: protectedProcedure
     .input(z.object({ tenantId: z.string(), productId: z.string().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(wholesalePriceTiers.tenantId, input.tenantId)];
       if (input.productId) conds.push(eq(wholesalePriceTiers.productId, input.productId));
@@ -36,7 +37,8 @@ export const b2bRouter = router({
       discountPercent: z.string().optional(),
       paymentTermsDays: z.number().int().default(0),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = input.id ?? randomUUID();
       const now = new Date();
@@ -60,7 +62,8 @@ export const b2bRouter = router({
   // ── RFQ (Request for Quotation) ──────────────────────────────────────────
   listRfqs: protectedProcedure
     .input(z.object({ tenantId: z.string(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(b2bRfq.tenantId, input.tenantId)];
       if (input.status) conds.push(eq(b2bRfq.status, input.status as "draft" | "submitted" | "quoted" | "accepted" | "rejected" | "expired"));
@@ -109,7 +112,8 @@ export const b2bRouter = router({
   // ── Purchase Orders ──────────────────────────────────────────────────────
   listPurchaseOrders: protectedProcedure
     .input(z.object({ tenantId: z.string(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(b2bPurchaseOrders.tenantId, input.tenantId)];
       if (input.status) conds.push(eq(b2bPurchaseOrders.status, input.status as "draft" | "submitted" | "approved" | "rejected" | "fulfilled" | "cancelled"));
@@ -130,7 +134,8 @@ export const b2bRouter = router({
       deliveryAddress: z.record(z.string(), z.unknown()).optional(),
       notes: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const poNumber = `PO-${Date.now().toString(36).toUpperCase()}`;
@@ -164,7 +169,8 @@ export const b2bRouter = router({
   // ── Analytics ────────────────────────────────────────────────────────────
   b2bStats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const [rfqStats] = await db.select({
         total: sql<number>`count(*)`,

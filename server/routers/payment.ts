@@ -623,10 +623,15 @@ export const paymentRouter = router({
       return { ok: true, skipped: false, status: newStatus, paymentIntentId: intent.id };
     }),
 
-  /** Query TigerBeetle ledger balance for a tenant account */
+  /** Query TigerBeetle ledger balance for a tenant account (admin-only:
+   *  the accountId ↔ tenant mapping lives in the ledger, so non-admins
+   *  could otherwise probe arbitrary account balances). */
   getLedgerBalance: protectedProcedure
     .input(z.object({ accountId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      if (ctx.user?.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
       try {
         return await ledgerRequest(`/balance/${encodeURIComponent(input.accountId)}`);
       } catch (err: any) {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq, and, asc, desc } from "drizzle-orm";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import {
@@ -529,7 +529,8 @@ export const menuRouter = router({
   }),
   assignToTenant: protectedProcedure
     .input(z.object({ tenantId: z.string(), menuId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const id = nanoid();
@@ -544,7 +545,8 @@ export const menuRouter = router({
     }),
   unassignFromTenant: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       await db.delete(tenantMenuAssignments).where(eq(tenantMenuAssignments.tenantId, input.tenantId));

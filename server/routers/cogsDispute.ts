@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { cogsDisputeRequests, tenants } from "../../drizzle/schema";
 import { eq, desc, and } from "drizzle-orm";
@@ -13,7 +14,8 @@ export const cogsDisputeRouter = router({
       requestedCogsRate: z.number().min(0.01).max(0.95),
       justification: z.string().min(10).max(1000),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
 
@@ -76,6 +78,10 @@ export const cogsDisputeRouter = router({
       reviewNote: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Admin-only: approving a dispute rewrites the tenant's COGS rate.
+      if (ctx.user?.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
 
@@ -106,7 +112,8 @@ export const cogsDisputeRouter = router({
   // Get disputes for a specific tenant
   getForTenant: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return [];
       return db.select().from(cogsDisputeRequests)

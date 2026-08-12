@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { serviceCatalog, appointments, digitalProducts, digitalProductPurchases, subscriptions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -30,7 +30,8 @@ export const serviceCommerceRouter = router({
       availableSlots: z.array(z.unknown()).optional(),
       downloadUrl: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const id = randomUUID();
       const now = new Date();
@@ -62,7 +63,8 @@ export const serviceCommerceRouter = router({
 
   listAppointments: protectedProcedure
     .input(z.object({ tenantId: z.string(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(appointments.tenantId, input.tenantId)];
       if (input.status) conds.push(eq(appointments.status, input.status as "scheduled" | "confirmed" | "completed" | "cancelled" | "no_show"));
@@ -131,7 +133,8 @@ export const serviceCommerceRouter = router({
 
   listSubscriptions: protectedProcedure
     .input(z.object({ tenantId: z.string(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(subscriptions.tenantId, input.tenantId)];
       if (input.status) conds.push(eq(subscriptions.status, input.status as "active" | "paused" | "cancelled" | "expired" | "trial"));

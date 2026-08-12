@@ -28,13 +28,15 @@ export const productRouter = router({
       offset: z.number().default(0),
       search: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return db.getProducts(input.tenantId, input.limit, input.offset, input.search);
     }),
 
   stats: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       return db.getProductStats(input.tenantId);
     }),
 
@@ -122,7 +124,8 @@ export const productRouter = router({
       })).min(1).max(500),
       skipDuplicates: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const results = { inserted: 0, skipped: 0, errors: [] as string[] };
       for (const row of input.rows) {
         try {
