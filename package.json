@@ -5,8 +5,12 @@
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx watch server/_core/index.ts",
-    "build": "vite build && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "build": "vite build && vite build --config ui/platform-admin/vite.config.ts && vite build --config ui/tenant-portal/vite.config.ts && esbuild server/_core/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production NODE_OPTIONS=--max-old-space-size=2048 node dist/index.js",
+    "dev:platform-admin": "vite --config ui/platform-admin/vite.config.ts",
+    "dev:tenant-portal": "vite --config ui/tenant-portal/vite.config.ts",
+    "build:platform-admin": "vite build --config ui/platform-admin/vite.config.ts",
+    "build:tenant-portal": "vite build --config ui/tenant-portal/vite.config.ts",
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",

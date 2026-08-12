@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { TenantPortalLayout } from "@/components/TenantPortalLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -85,11 +86,14 @@ export default function PortalBroadcasts() {
   const [varMapping, setVarMapping] = useState<Record<string, string>>({});
   const [scheduledAt, setScheduledAt] = useState("");
 
+  const { user } = useAuth();
+  const tenantId = user?.tenantId ?? "";
+
   // Campaigns list
-  const { data: campaignsData, isLoading: campaignsLoading, refetch } = trpc.broadcast.list.useQuery({
-    limit: 50,
-    offset: 0,
-  });
+  const { data: campaignsData, isLoading: campaignsLoading, refetch } = trpc.broadcast.list.useQuery(
+    { tenantId, limit: 50, offset: 0 },
+    { enabled: Boolean(tenantId) },
+  );
   const campaigns = campaignsData?.campaigns ?? [];
 
   // Approved operator templates for picker
@@ -433,7 +437,7 @@ export default function PortalBroadcasts() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
               onClick={() => createCampaign.mutate({
-                tenantId: "demo-tenant-1",
+                tenantId,
                 name: newName,
                 templateId: selectedTemplateId || undefined,
                 segment: newSegment as any,

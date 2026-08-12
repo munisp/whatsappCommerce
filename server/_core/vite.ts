@@ -47,11 +47,35 @@ export async function setupVite(app: Express, server: Server) {
   });
 }
 
+/**
+ * Serve a standalone Vite app (ui/platform-admin, ui/tenant-portal) mounted
+ * at `urlPrefix`, built with a matching Vite `base` so its own asset URLs
+ * already carry that prefix. Registered before the main client's catch-all
+ * so its own SPA fallback (not the main client's index.html) wins for
+ * unmatched paths under the prefix — client-side routing still works on
+ * refresh/deep-link.
+ */
+function serveStaticApp(app: Express, urlPrefix: string, distPath: string) {
+  if (!fs.existsSync(distPath)) {
+    console.error(`Could not find the build directory: ${distPath}, make sure to build ${urlPrefix} first`);
+    return;
+  }
+  app.use(urlPrefix, express.static(distPath));
+  app.get(`${urlPrefix}*`, (_req, res) => {
+    res.sendFile(path.resolve(distPath, "index.html"));
+  });
+}
+
 export function serveStatic(app: Express) {
-  const distPath =
-    process.env.NODE_ENV === "development"
-      ? path.resolve(import.meta.dirname, "../..", "dist", "public")
-      : path.resolve(import.meta.dirname, "public");
+  const isDev = process.env.NODE_ENV === "development";
+  const distRoot = isDev
+    ? path.resolve(import.meta.dirname, "../..", "dist")
+    : path.resolve(import.meta.dirname);
+
+  serveStaticApp(app, "/platform-admin", path.resolve(distRoot, "platform-admin"));
+  serveStaticApp(app, "/tenant-portal", path.resolve(distRoot, "tenant-portal"));
+
+  const distPath = path.resolve(distRoot, "public");
   if (!fs.existsSync(distPath)) {
     console.error(
       `Could not find the build directory: ${distPath}, make sure to build the client first`

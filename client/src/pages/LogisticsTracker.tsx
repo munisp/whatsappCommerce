@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { useActiveTenant } from "@/contexts/TenantContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,9 @@ export default function LogisticsTracker() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [simStatus, setSimStatus] = useState<Record<string, string>>({});
 
+  const { activeTenantId } = useActiveTenant();
   const { data: shipments, isLoading, refetch } = trpc.logistics.listShipments.useQuery({
+    tenantId: activeTenantId,
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 100,
   });

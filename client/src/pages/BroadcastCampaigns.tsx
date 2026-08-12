@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { trpc } from "@/lib/trpc";
+import { useActiveTenant } from "@/contexts/TenantContext";
 import { buildSegmentFilter } from "@/lib/opsLogistics";
 import { toast } from "sonner";
 import {
@@ -127,10 +128,11 @@ export default function BroadcastCampaigns() {
   const [segMinSpend, setSegMinSpend] = useState("");
   const [segLastOrderDays, setSegLastOrderDays] = useState("");
 
-  const { data: campaignsData, isLoading, refetch } = trpc.broadcast.list.useQuery({});
+  const { activeTenantId } = useActiveTenant();
+  const { data: campaignsData, isLoading, refetch } = trpc.broadcast.list.useQuery({ tenantId: activeTenantId });
   const campaigns = (campaignsData?.campaigns ?? []) as Campaign[];
 
-  const { data: statsData } = trpc.broadcast.stats.useQuery();
+  const { data: statsData } = trpc.broadcast.stats.useQuery({ tenantId: activeTenantId });
   const stats = statsData ?? { totalCampaigns: 0, totalSent: 0, avgDeliveryRate: 0, avgReadRate: 0 };
 
   const { data: templatesData } = trpc.template.list.useQuery({});
@@ -139,7 +141,7 @@ export default function BroadcastCampaigns() {
   // Meta-approved templates (synced from the WABA) — the dropdown source for
   // out-of-window sends; the free-form field below remains as an override.
   const { data: waTemplatesData } = trpc.waTemplates.list.useQuery(
-    { tenantId: "demo-tenant-1", approvedOnly: true },
+    { tenantId: activeTenantId, approvedOnly: true },
     { retry: false },
   );
   const approvedMetaTemplates = waTemplatesData?.templates ?? [];
@@ -654,7 +656,7 @@ export default function BroadcastCampaigns() {
               disabled={!abVariantA || !abVariantB || createAbTest.isPending}
               onClick={() => createAbTest.mutate({
                 campaignId: selectedId!,
-                tenantId: "demo-tenant-1",
+                tenantId: activeTenantId,
                 variantATemplateId: abVariantA,
                 variantBTemplateId: abVariantB,
                 splitRatio: parseInt(abSplit),
@@ -774,7 +776,7 @@ export default function BroadcastCampaigns() {
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button
               onClick={() => createCampaign.mutate({
-                tenantId: "demo-tenant-1",
+                tenantId: activeTenantId,
                 name: newName,
                 templateId: newTemplateId || undefined,
                 templateName: metaTemplateFree.trim() || (metaTemplateName && metaTemplateName !== "__none" ? metaTemplateName : undefined),

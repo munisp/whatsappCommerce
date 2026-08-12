@@ -10,6 +10,7 @@
 import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
+import { decodeOAuthState } from "@shared/const";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import {
@@ -47,7 +48,18 @@ export function registerOAuthRoutes(app: Express) {
     const code = getQueryParam(req, "code");
     const stateParam = getQueryParam(req, "state") ?? "";
     const [state, encodedRedirect] = stateParam.split(":");
-    const redirectTo = encodedRedirect ? decodeURIComponent(encodedRedirect) : "/";
+    let redirectTo = encodedRedirect ? decodeURIComponent(encodedRedirect) : "/";
+    // client/src/const.ts's startLogin() encodes state as base64 JSON
+    // (encodeOAuthState) with no ":" separator, so it falls through the
+    // legacy split above — decode it here for its returnTo path. Only ever
+    // accept a same-origin relative path (never "//host/..." or "scheme://"),
+    // so a crafted state can't turn this into an open redirect.
+    if (!encodedRedirect) {
+      const decoded = decodeOAuthState(stateParam);
+      if (decoded.returnTo && decoded.returnTo.startsWith("/") && !decoded.returnTo.startsWith("//")) {
+        redirectTo = decoded.returnTo;
+      }
+    }
     if (!code || !state) { res.status(400).json({ error: "code and state required" }); return; }
     try {
       const tokens = await exchangeKeycloakCode(code);

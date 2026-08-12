@@ -21,9 +21,12 @@ RUN pip install --no-cache-dir -r requirements.txt \
 # inference/  — FastAPI server (inference.server:app) + CLI predictor
 # lakehouse/  — lakehouse pipeline triggered via /lakehouse/trigger
 # models/     — model architectures + weights (training model-loading support)
+# model_io.py / model_defs.py / ray_train_config.py — shared top-level modules
+# imported by inference/server.py (e.g. `import model_io`).
 COPY inference/ ./inference/
 COPY lakehouse/ ./lakehouse/
 COPY models/ ./models/
+COPY model_io.py model_defs.py ray_train_config.py ./
 
 # Runtime dirs for model weights and pipeline artifacts
 RUN mkdir -p /app/models/weights /app/data
