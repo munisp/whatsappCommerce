@@ -30,9 +30,22 @@ export interface FakeStore {
 function decode(v: unknown): { columns: string[]; values: unknown[] } {
   const columns: string[] = [];
   const values: unknown[] = [];
-  const walk = (c: unknown): void => {
+  const walk = (c: unknown, isChunkList = false): void => {
     if (c == null) return;
-    if (Array.isArray(c)) return c.forEach(walk);
+    if (Array.isArray(c)) {
+      // The queryChunks list itself is walked item by item; a raw Array chunk
+      // nested inside it is an inArray binding and counts as ONE value
+      // (drizzle: sql`${col} in ${values.map(bindIfParam)}` keeps the array).
+      if (isChunkList) return c.forEach((x) => walk(x));
+      values.push(
+        c.map((p) =>
+          p != null && typeof p === "object" && "value" in (p as Record<string, unknown>)
+            ? (p as { value: unknown }).value
+            : p,
+        ),
+      );
+      return;
+    }
     const t = typeof c;
     if (t === "string" || t === "number" || t === "boolean" || c instanceof Date) {
       values.push(c);
@@ -45,13 +58,13 @@ function decode(v: unknown): { columns: string[]; values: unknown[] } {
       columns.push(o.name);
       return;
     }
-    if (Array.isArray(o.queryChunks)) return walk(o.queryChunks);
+    if (Array.isArray(o.queryChunks)) return walk(o.queryChunks, true);
     if ("value" in o) {
       values.push(o.value);
       return;
     }
   };
-  walk((v as { queryChunks?: unknown[] })?.queryChunks ?? v);
+  walk((v as { queryChunks?: unknown[] })?.queryChunks ?? v, true);
   return { columns, values };
 }
 

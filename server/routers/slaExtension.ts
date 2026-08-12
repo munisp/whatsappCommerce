@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { escrowSlaExtensions, escrowTransactions } from "../../drizzle/schema";
 import { eq, and } from "drizzle-orm";
@@ -251,9 +251,16 @@ export const slaExtensionRouter = router({
   // Admin: list all extension requests for a specific escrow transaction
   listByEscrow: protectedProcedure
     .input(z.object({ escrowId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
+      const [escrow] = await db
+        .select({ tenantId: escrowTransactions.tenantId })
+        .from(escrowTransactions)
+        .where(eq(escrowTransactions.id, input.escrowId))
+        .limit(1);
+      if (!escrow) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found" });
+      assertTenantAccess(ctx.user, escrow.tenantId);
       const { desc } = await import("drizzle-orm");
       return db
         .select()

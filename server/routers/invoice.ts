@@ -105,9 +105,12 @@ export const invoiceRouter = router({
   /** Mark invoice as sent */
   send: protectedProcedure
     .input(z.object({ invoiceId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      assertTenantAccess(ctx.user, inv.tenantId);
       await db.update(invoices).set({
         status: "sent",
         sentAt: new Date(),
@@ -119,9 +122,12 @@ export const invoiceRouter = router({
   /** Mark invoice as paid */
   markPaid: protectedProcedure
     .input(z.object({ invoiceId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [inv] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
+      if (!inv) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      assertTenantAccess(ctx.user, inv.tenantId);
       await db.update(invoices).set({
         status: "paid",
         paidAt: new Date(),
@@ -133,11 +139,12 @@ export const invoiceRouter = router({
   /** Get invoice details */
   get: protectedProcedure
     .input(z.object({ invoiceId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [invoice] = await db.select().from(invoices).where(eq(invoices.id, input.invoiceId)).limit(1);
       if (!invoice) throw new TRPCError({ code: "NOT_FOUND", message: "Invoice not found" });
+      assertTenantAccess(ctx.user, invoice.tenantId);
       return invoice;
     }),
 

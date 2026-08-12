@@ -185,3 +185,67 @@ a default. Client code must resolve the active tenant explicitly
 4. **In-process sanctions cache** — the 24h cache is per-process; multi-replica
    deployments should move it to shared storage to keep cache-hit semantics
    uniform.
+
+## 10. W12.1 hardening wave
+
+### Authorization coverage ratchet
+
+`server/routers/__tests__/authzCoverage.test.ts` source-scans every router
+file and fails CI if any procedure with a required `tenantId` input loses its
+`assertTenantAccess` (or equivalent inline/role-scoped) guard. It also pins
+the W12.1 surgical guards by name, so a guard can never be deleted silently —
+only ever add procedures and guards. The ratchet caught
+`onboarding.getProgress` (unguarded direct-tenantId read) when introduced.
+
+### SSO rebind lock (keycloak)
+
+Once a `tenant_sso_profiles` row exists, the tenant's SSO identity is locked
+to the bound Keycloak subject: `keycloak.exchangeCode` rejects any different
+`sub` with FORBIDDEN — even when the token's email matches a tenant user
+(first-bind email verification is NOT a rebind path). The only rebind route
+is `keycloak.rebindSsoProfile` (adminProcedure), which records an audit
+warning (`[keycloak] SSO REBIND ...`) with the admin id and old/new subjects.
+
+### KYB batch lookup
+
+The procurement supplier directory resolves KYB trust flags via
+`approvedKybTenantIds()` — ONE `inArray` query over `kyc_applications` per
+directory page instead of N per-supplier round-trips. Fail-closed semantics
+are unchanged: any query error yields an empty set (no tenant flagged
+verified).
+
+### KYC document-verification gate
+
+`kyc.review` can no longer approve an application while any of its documents
+is still awaiting OCR/VLM verification (`processedAt` unset) — the call fails
+closed with PRECONDITION_FAILED naming the pending document types. An admin
+may explicitly override with `waivePendingDocuments=true`; the waiver is
+recorded on each pending document (`verificationNotes`) and in the
+application's `reviewNotes` with the reviewer name and timestamp.
+
+### Permify production gate (opt-in)
+
+`adminProcedure` layers Permify on top of the role check only when
+`PERMIFY_URL` is set. Setting `REQUIRE_PERMIFY=true` makes a production-like
+boot refuse to start when `PERMIFY_URL` is unset (instead of silently
+running without the defense-in-depth layer); outside production it downgrades
+to a warning. Default off.
+
+```
+REQUIRE_PERMIFY=true|false   # default false; prod-fatal when PERMIFY_URL unset
+```
+
+### Id-keyed and list-filter guards
+
+Id-keyed procedures now resolve the row's tenant and assert access before
+reading/writing (invoice.send/markPaid/get, conversation.updateStatus,
+logistics.simulateDelivery, broadcast.cancel/simulateDelivery,
+slaExtension.listByEscrow, templateVersions.list/create via the owning
+template, whatsappNotifications.sendOrderNotif/getOrderNotifStatus/
+resendNotification/getCustomerReplies, and the nlp offline-queue procedures
+via `assertNlpSessionAccess`). Optional-`tenantId` list filters
+(agent.listAuditLog, broadcast.list, hermes.getEventLog/getPOQueue,
+logistics.listShipments, marketplace.listCommissions,
+temporal.startInventorySync) must pass `assertTenantAccess` when given, and
+non-admin callers without a filter are scoped to their own tenant.
+`cogsDispute.review` and `payment.getLedgerBalance` are admin-only.

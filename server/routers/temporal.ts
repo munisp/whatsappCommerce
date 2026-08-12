@@ -195,7 +195,18 @@ export const temporalRouter = router({
       odooUrl: z.string().url(),
       odooDb: z.string(),
     }))
-    .mutation(async ({ input }) => {
-      return startInventorySyncWorkflow(input);
+    .mutation(async ({ input, ctx }) => {
+      // W12.1: explicit tenantId must pass tenant access; non-admins default
+      // to their own tenant rather than running an unscoped sync.
+      let tenantId = input.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
+      return startInventorySyncWorkflow({ ...input, tenantId });
     }),
 });

@@ -1,17 +1,34 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq, desc, and } from "drizzle-orm";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { templateVersions, whatsappTemplates } from "../../drizzle/schema";
+
+/** W12.1 IDOR guard: resolve the owning template's tenant and assert access. */
+async function assertTemplateAccess(
+  user: { role: string; tenantId?: string | null; memberships?: readonly string[] | null },
+  templateId: string,
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const [tpl] = await db
+    .select({ tenantId: whatsappTemplates.tenantId })
+    .from(whatsappTemplates)
+    .where(eq(whatsappTemplates.id, templateId))
+    .limit(1);
+  if (!tpl) throw new Error("Template not found");
+  assertTenantAccess(user, tpl.tenantId);
+}
 
 export const templateVersionsRouter = router({
   // List all versions for a template
   list: protectedProcedure
     .input(z.object({ templateId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { versions: [] };
+      await assertTemplateAccess(ctx.user, input.templateId);
       const versions = await db
         .select()
         .from(templateVersions)
@@ -34,6 +51,7 @@ export const templateVersionsRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      await assertTemplateAccess(ctx.user, input.templateId);
 
       // Get the latest version number
       const existing = await db

@@ -123,7 +123,7 @@ export async function hasApprovedKyb(db: DbHandle, tenantId: string): Promise<bo
  * 100 round-trips to 1. Behavior identical: any error fails closed (empty set).
  */
 export async function approvedKybTenantIds(db: DbHandle, tenantIds: string[]): Promise<Set<string>> {
-  const unique = [...new Set(tenantIds)];
+  const unique = Array.from(new Set(tenantIds));
   if (unique.length === 0) return new Set();
   const rows = await db
     .select({

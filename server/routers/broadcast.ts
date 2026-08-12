@@ -440,13 +440,26 @@ export const broadcastRouter = router({
       limit: z.number().default(20),
       offset: z.number().default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { campaigns: [], total: 0 };
+
+      // W12.1: explicit tenantId filters must pass tenant access; non-admins
+      // without a filter are scoped to their own tenant.
+      let tenantId = input.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
 
       const rows = await db
         .select()
         .from(broadcastCampaigns)
+        .where(tenantId ? eq(broadcastCampaigns.tenantId, tenantId) : undefined)
         .orderBy(desc(broadcastCampaigns.createdAt))
         .limit(input.limit)
         .offset(input.offset);
@@ -634,9 +647,13 @@ export const broadcastRouter = router({
   // Cancel a campaign
   cancel: protectedProcedure
     .input(z.object({ campaignId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const [campaign] = await db.select().from(broadcastCampaigns)
+        .where(eq(broadcastCampaigns.id, input.campaignId)).limit(1);
+      if (!campaign) throw new Error("Campaign not found");
+      assertTenantAccess(ctx.user, campaign.tenantId);
       await db
         .update(broadcastCampaigns)
         .set({ status: "cancelled", updatedAt: new Date() })
@@ -681,12 +698,13 @@ export const broadcastRouter = router({
   // Simulate delivery/read events on a sent campaign
   simulateDelivery: protectedProcedure
     .input(z.object({ campaignId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const [campaign] = await db.select().from(broadcastCampaigns)
         .where(eq(broadcastCampaigns.id, input.campaignId)).limit(1);
       if (!campaign) throw new Error("Campaign not found");
+      assertTenantAccess(ctx.user, campaign.tenantId);
       if (campaign.status !== "completed") throw new Error("Campaign must be completed before simulating delivery");
       const recipients = await db.select().from(broadcastRecipients)
         .where(eq(broadcastRecipients.campaignId, input.campaignId));

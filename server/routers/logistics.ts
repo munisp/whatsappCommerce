@@ -339,11 +339,22 @@ export const logisticsRouter = router({
       limit: z.number().default(50),
       offset: z.number().default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { items: [], total: 0 };
+      // W12.1: explicit tenantId filters must pass tenant access; non-admins
+      // without a filter are scoped to their own tenant.
+      let tenantId = input.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
       const conditions = [];
-      if (input.tenantId) conditions.push(eq(logisticsShipments.tenantId, input.tenantId));
+      if (tenantId) conditions.push(eq(logisticsShipments.tenantId, tenantId));
       if (input.status) conditions.push(eq(logisticsShipments.status, input.status as any));
       const items = await db.select().from(logisticsShipments)
         .where(conditions.length ? and(...conditions) : undefined)
@@ -372,6 +383,7 @@ export const logisticsRouter = router({
       const [shipment] = await db.select().from(logisticsShipments)
         .where(eq(logisticsShipments.id, input.shipmentId));
       if (!shipment) throw new Error("Shipment not found");
+      assertTenantAccess(ctx.user, shipment.tenantId);
 
       if (input.status === "delivered") {
         checkDeliveryPin({

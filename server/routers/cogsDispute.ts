@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { cogsDisputeRequests, tenants } from "../../drizzle/schema";
@@ -77,6 +78,10 @@ export const cogsDisputeRouter = router({
       reviewNote: z.string().max(500).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      // Admin-only: approving a dispute rewrites the tenant's COGS rate.
+      if (ctx.user?.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+      }
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
 

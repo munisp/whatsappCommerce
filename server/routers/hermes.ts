@@ -154,12 +154,24 @@ export const hermesRouter = router({
       limit: z.number().min(1).max(100).default(50),
       offset: z.number().min(0).default(0),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { events: [], total: 0 };
 
-      const where = input.tenantId
-        ? eq(hermesEventLog.tenantId, input.tenantId)
+      // W12.1: explicit tenantId filters must pass tenant access; non-admins
+      // without a filter are scoped to their own tenant.
+      let tenantId = input.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
+
+      const where = tenantId
+        ? eq(hermesEventLog.tenantId, tenantId)
         : undefined;
 
       const [events, [{ count }]] = await Promise.all([
@@ -177,13 +189,25 @@ export const hermesRouter = router({
   // Pending PO drafts awaiting merchant approval
   getPOQueue: protectedProcedure
     .input(z.object({ tenantId: z.string().optional() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return [];
 
+      // W12.1: explicit tenantId filters must pass tenant access; non-admins
+      // without a filter are scoped to their own tenant.
+      let tenantId = input.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
+
       const where = and(
         eq(hermesPODrafts.status, "pending"),
-        input.tenantId ? eq(hermesPODrafts.tenantId, input.tenantId) : undefined,
+        tenantId ? eq(hermesPODrafts.tenantId, tenantId) : undefined,
       );
 
       return db.select().from(hermesPODrafts)

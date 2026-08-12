@@ -88,7 +88,8 @@ export const onboardingRouter = router({
 
   getProgress: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return null;
       const [record] = await db

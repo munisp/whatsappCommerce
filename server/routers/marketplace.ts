@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { router, protectedProcedure, publicProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { marketplaceSellers, marketplaceCommissions } from "../../drizzle/schema";
@@ -32,7 +33,8 @@ export const marketplaceRouter = router({
 
   listSellers: protectedProcedure
     .input(z.object({ tenantId: z.string(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
       const conds = [eq(marketplaceSellers.tenantId, input.tenantId)];
       if (input.status) conds.push(eq(marketplaceSellers.status, input.status as "pending" | "active" | "suspended" | "rejected"));
@@ -88,9 +90,28 @@ export const marketplaceRouter = router({
 
   listCommissions: protectedProcedure
     .input(z.object({ tenantId: z.string().optional(), sellerId: z.string().optional(), status: z.string().optional(), limit: z.number().default(50) }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = (await getDb())!;
-      const conds: ReturnType<typeof eq>[] = [];
+      // W12.1: explicit tenantId filters must pass tenant access; non-admins
+      // without a filter are scoped to their own tenant.
+      let tenantId = input.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
+      const conds: any[] = [];
+      // Commissions carry no tenantId column — scope via the seller's tenant.
+      if (tenantId) {
+        conds.push(inArray(
+          marketplaceCommissions.sellerId,
+          db.select({ id: marketplaceSellers.id }).from(marketplaceSellers)
+            .where(eq(marketplaceSellers.tenantId, tenantId)),
+        ));
+      }
       if (input.sellerId) conds.push(eq(marketplaceCommissions.sellerId, input.sellerId));
       if (input.status) conds.push(eq(marketplaceCommissions.status, input.status as "pending" | "paid" | "disputed" | "waived"));
       const query = db.select().from(marketplaceCommissions);

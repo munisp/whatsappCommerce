@@ -105,9 +105,16 @@ export const conversationRouter = router({
       conversationId: z.string(),
       status: z.enum(["open", "resolved", "pending", "snoozed", "bot_active", "human_active"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const dbConn = await getDb();
       if (!dbConn) throw new Error("DB unavailable");
+      const [conv] = await dbConn
+        .select({ tenantId: conversations.tenantId })
+        .from(conversations)
+        .where(eq(conversations.id, input.conversationId))
+        .limit(1);
+      if (!conv) throw new Error("Conversation not found");
+      assertTenantAccess(ctx.user, conv.tenantId);
       await dbConn
         .update(conversations)
         .set({
