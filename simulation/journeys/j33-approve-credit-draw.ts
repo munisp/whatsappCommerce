@@ -33,11 +33,12 @@ export const journey: Journey = {
     assertIncludes(supplierReply, "approved on credit", "supplier told the draw succeeded");
     assertIncludes(supplierReply, po.poNumber, "supplier ack references the PO");
 
-    // ── PO invoiced with due date now+14d ─────────────────────────────────
+    // ── PO paid-via-credit with due date now+14d (W13 supplier-direct
+    // settlement flips invoiced → paid; no payment link is ever issued) ────
     const schema = await import("../../drizzle/schema");
     const { eq } = await import("drizzle-orm");
     const [row] = await world.db.select().from(schema.purchaseOrders).where(eq(schema.purchaseOrders.id, po.poId)).limit(1);
-    assert(row.status === "invoiced", `PO invoiced after credit draw (got ${row.status})`);
+    assert(row.status === "paid", `PO paid-via-credit after credit draw (got ${row.status})`);
     assert(row.dueDate, "PO due_date set");
     const dueMs = new Date(row.dueDate).getTime();
     const expected = approvedAt + 14 * 24 * 60 * 60 * 1000;

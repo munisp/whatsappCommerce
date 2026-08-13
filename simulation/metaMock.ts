@@ -185,10 +185,18 @@ class PayMockState {
    * registerCustomGatewayHost().
    */
   customGatewayHosts = new Set<string>();
+  /**
+   * W13: scripted HTTP status for mandate (off-session) charge endpoints —
+   * paystack /transaction/charge_authorization and flutterwave
+   * /v3/tokenized-charges. While set, those endpoints answer with this
+   * status (decline injection); null restores success.
+   */
+  mandateChargeStatus: number | null = null;
   reset() {
     this.calls = [];
     this.hostStatus.clear();
     this.customGatewayHosts.clear();
+    this.mandateChargeStatus = null;
   }
 }
 
@@ -682,6 +690,32 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
       data: { authorization_url: `${pay.paystackBaseUrl}/${ref}`, reference: ref },
     });
   }
+  // ── W13: mandate (off-session / tokenized) charges ───────────────────────
+  if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/charge_authorization")) {
+    if (pay.mandateChargeStatus != null) {
+      return jsonResponse(
+        { status: false, message: `sim: mandate charge declined (${pay.mandateChargeStatus})` },
+        pay.mandateChargeStatus,
+      );
+    }
+    return jsonResponse({
+      status: true,
+      message: "Charge attempted",
+      data: { status: "success", reference: body?.reference ?? "sim-ref" },
+    });
+  }
+  if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/tokenized-charges")) {
+    if (pay.mandateChargeStatus != null) {
+      return jsonResponse(
+        { status: "error", message: `sim: mandate charge declined (${pay.mandateChargeStatus})` },
+        pay.mandateChargeStatus,
+      );
+    }
+    return jsonResponse({
+      status: "success",
+      data: { status: "successful", tx_ref: body?.tx_ref ?? "sim-ref" },
+    });
+  }
   if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/payments")) {
     const ref = body?.tx_ref ?? "sim-ref";
     return jsonResponse({ status: "success", data: { link: `${pay.flutterwaveBaseUrl}/${ref}` } });
@@ -752,6 +786,11 @@ export function registerCustomGatewayHost(hostname: string): void {
 export function setPayHostStatus(hostname: string, status: number | null): void {
   if (status == null) pay.hostStatus.delete(hostname);
   else pay.hostStatus.set(hostname, status);
+}
+
+/** W13: script the HTTP status for mandate charge endpoints (decline injection). */
+export function setMandateChargeStatus(status: number | null): void {
+  pay.mandateChargeStatus = status;
 }
 
 // ── Ledger bridge scripting ─────────────────────────────────────────────────
