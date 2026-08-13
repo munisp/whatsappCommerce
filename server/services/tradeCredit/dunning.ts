@@ -34,6 +34,7 @@ import type { TxHandle } from "./accounts";
 import { getWindow } from "../sessionWindow";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../waSender";
 import { formatNairaCompact } from "./scoring";
+import { suspendOrderAccessTx } from "./enforcement";
 import { captureException } from "../observability";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -217,6 +218,14 @@ export async function runDunningCheckTx(
         if (frozenRow) {
           result.frozen += 1;
           justFroze = true;
+          // W13 credit control plane: the +7d freeze ALSO suspends the
+          // buyer's order access with this supplier (claim-first; lifted
+          // automatically when outstanding returns to 0 — repayment.ts).
+          await suspendOrderAccessTx(db, {
+            buyerTenantId: account.buyerTenantId,
+            supplierTenantId: account.supplierTenantId,
+            reason: "dunning_freeze_+7d",
+          }, now);
         }
       }
 

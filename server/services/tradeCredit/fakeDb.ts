@@ -19,9 +19,13 @@ import { randomUUID } from "crypto";
 import {
   creditAccounts,
   creditLedger,
+  creditLimitHistory,
   kycApplications,
   orders,
+  paymentMandates,
   paymentTransactions,
+  processedWebhookEvents,
+  purchaseOrders,
   tenants,
 } from "../../../drizzle/schema";
 
@@ -36,8 +40,54 @@ export interface AccountRow {
   status: string;
   score: number | null;
   scoreReasons: unknown;
+  mandateId: string | null;
+  suspended: boolean;
+  suspendedAt: Date | null;
+  suspensionReason: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+export interface MandateRow {
+  id: string;
+  tenantId: string;
+  provider: string;
+  mandateRef: string;
+  customerRef: string | null;
+  status: string;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+export interface LimitHistoryRow {
+  id: string;
+  accountId: string;
+  oldLimitCents: number;
+  newLimitCents: number;
+  score: number | null;
+  reason: string | null;
+  createdAt: Date;
+}
+export interface PoRow {
+  id: string;
+  poNumber: string;
+  buyerTenantId: string;
+  supplierTenantId: string;
+  status: string;
+  subtotalCents: number;
+  paymentMode: string;
+  creditAccountId: string | null;
+  termsDays: number | null;
+  dueDate: Date | null;
+  buyerPhone: string | null;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+export interface WebhookEventRow {
+  id: string;
+  tenantId: string;
+  type: string;
+  processedAt: Date;
 }
 export interface LedgerRow {
   id: string;
@@ -62,6 +112,10 @@ export interface FakeStore {
   payments: PaymentRow[];
   tenants: TenantRow[];
   kycApplications: Array<{ id: string; tenantId: string; type: string; status: string }>;
+  mandates: MandateRow[];
+  limitHistory: LimitHistoryRow[];
+  purchaseOrders: PoRow[];
+  webhookEvents: WebhookEventRow[];
 }
 
 // ── drizzle condition decoding ───────────────────────────────────────────────
@@ -129,6 +183,22 @@ const PROP: Record<string, Record<string, string>> = {
   payment_transactions: { tenantId: "tenantId", status: "status", createdAt: "createdAt", paidAt: "paidAt" },
   tenants: { id: "id", settings: "settings" },
   kyc_applications: { id: "id", tenantId: "tenantId", type: "type", status: "status" },
+  payment_mandates: {
+    id: "id", tenantId: "tenantId", provider: "provider", mandateRef: "mandateRef",
+    customerRef: "customerRef", status: "status", metadata: "metadata",
+    createdAt: "createdAt", updatedAt: "updatedAt",
+  },
+  credit_limit_history: {
+    id: "id", accountId: "accountId", oldLimitCents: "oldLimitCents", newLimitCents: "newLimitCents",
+    score: "score", reason: "reason", createdAt: "createdAt",
+  },
+  purchase_orders: {
+    id: "id", po_number: "poNumber", buyer_tenant_id: "buyerTenantId", supplier_tenant_id: "supplierTenantId",
+    status: "status", subtotal_cents: "subtotalCents", payment_mode: "paymentMode",
+    credit_account_id: "creditAccountId", terms_days: "termsDays", due_date: "dueDate",
+    buyer_phone: "buyerPhone", notes: "notes", created_at: "createdAt", updated_at: "updatedAt",
+  },
+  processed_webhook_events: { id: "id", tenantId: "tenantId", type: "type", processedAt: "processedAt" },
 };
 
 /** Extract { delta } from an arithmetic SQL set value, honoring +/-. */
@@ -158,6 +228,10 @@ function tableName(table: unknown): string {
     payment_transactions: paymentTransactions,
     tenants,
     kyc_applications: kycApplications,
+    payment_mandates: paymentMandates,
+    credit_limit_history: creditLimitHistory,
+    purchase_orders: purchaseOrders,
+    processed_webhook_events: processedWebhookEvents,
   })) {
     if (t === table) return name;
   }
@@ -172,6 +246,10 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     payments: (seed?.payments ?? []).map((r) => ({ ...r })),
     tenants: (seed?.tenants ?? []).map((r) => ({ ...r })),
     kycApplications: (seed?.kycApplications ?? []).map((r) => ({ ...r })),
+    mandates: (seed?.mandates ?? []).map((r) => ({ ...r })),
+    limitHistory: (seed?.limitHistory ?? []).map((r) => ({ ...r })),
+    purchaseOrders: (seed?.purchaseOrders ?? []).map((r) => ({ ...r })),
+    webhookEvents: (seed?.webhookEvents ?? []).map((r) => ({ ...r })),
   };
   const rowsOf = (t: string): any[] =>
     t === "credit_accounts" ? store.accounts
@@ -179,6 +257,10 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     : t === "orders" ? store.orders
     : t === "payment_transactions" ? store.payments
     : t === "kyc_applications" ? store.kycApplications
+    : t === "payment_mandates" ? store.mandates
+    : t === "credit_limit_history" ? store.limitHistory
+    : t === "purchase_orders" ? store.purchaseOrders
+    : t === "processed_webhook_events" ? store.webhookEvents
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────
@@ -229,6 +311,26 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       } else if (sig === "tenantId") {
         rows = rows.filter((r) => r.tenantId === values[0]);
       } else throw new Error(`fakeDb select kyc_applications: unhandled ${sig}`);
+    } else if (t === "payment_mandates") {
+      if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else if (sig === "tenantId,status") {
+        rows = rows.filter((r) => r.tenantId === values[0] && r.status === values[1]);
+      } else if (sig === "tenantId,mandateRef") {
+        rows = rows.filter((r) => r.tenantId === values[0] && r.mandateRef === values[1]);
+      } else throw new Error(`fakeDb select payment_mandates: unhandled ${sig}`);
+    } else if (t === "purchase_orders") {
+      if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else throw new Error(`fakeDb select purchase_orders: unhandled ${sig}`);
+    } else if (t === "credit_limit_history") {
+      if (sig === "accountId") {
+        rows = rows.filter((r) => r.accountId === values[0]);
+      } else throw new Error(`fakeDb select credit_limit_history: unhandled ${sig}`);
+    } else if (t === "processed_webhook_events") {
+      if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else throw new Error(`fakeDb select processed_webhook_events: unhandled ${sig}`);
     }
     // orderBy
     for (const { prop, desc } of decodeOrder(orderExprs).reverse()) {
@@ -263,10 +365,52 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         status: values.status ?? "active",
         score: values.score ?? null,
         scoreReasons: values.scoreReasons ?? null,
+        mandateId: values.mandateId ?? null,
+        suspended: values.suspended ?? false,
+        suspendedAt: values.suspendedAt ?? null,
+        suspensionReason: values.suspensionReason ?? null,
         createdAt: values.createdAt ?? new Date(),
         updatedAt: values.updatedAt ?? new Date(),
       };
       store.accounts.push(row);
+      return { ...row };
+    }
+    if (t === "payment_mandates") {
+      const row: MandateRow = {
+        id: values.id ?? randomUUID(),
+        tenantId: values.tenantId,
+        provider: values.provider,
+        mandateRef: values.mandateRef,
+        customerRef: values.customerRef ?? null,
+        status: values.status ?? "pending",
+        metadata: values.metadata ?? null,
+        createdAt: values.createdAt ?? new Date(),
+        updatedAt: values.updatedAt ?? new Date(),
+      };
+      store.mandates.push(row);
+      return { ...row };
+    }
+    if (t === "credit_limit_history") {
+      const row: LimitHistoryRow = {
+        id: values.id ?? randomUUID(),
+        accountId: values.accountId,
+        oldLimitCents: values.oldLimitCents,
+        newLimitCents: values.newLimitCents,
+        score: values.score ?? null,
+        reason: values.reason ?? null,
+        createdAt: values.createdAt ?? new Date(),
+      };
+      store.limitHistory.push(row);
+      return { ...row };
+    }
+    if (t === "processed_webhook_events") {
+      const row: WebhookEventRow = {
+        id: values.id,
+        tenantId: values.tenantId,
+        type: values.type,
+        processedAt: values.processedAt ?? new Date(),
+      };
+      store.webhookEvents.push(row);
       return { ...row };
     }
     if (t === "credit_ledger") {
@@ -312,6 +456,18 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         } else if (sig === "id,status") {
           // dunning freeze: id + status='active'
           ok = r.id === values[0] && r.status === values[1];
+        } else if (sig === "id,suspended") {
+          // enforcement suspend/lift claim: id + suspended=<bool>
+          ok = r.id === values[0] && r.suspended === values[1];
+        } else if (sig === "id,limit_cents") {
+          // reviseLimits claim: id + limit unchanged
+          ok = r.id === values[0] && r.limitCents === Number(values[1]);
+        } else if (sig === "id,mandate_id") {
+          // mandate link claim: id + mandate_id IS NULL (1 value) or = prior link
+          ok = r.id === values[0] && (values.length < 2 ? r.mandateId == null : r.mandateId === values[1]);
+        } else if (sig === "buyer_tenant_id,mandate_id") {
+          // mandate revoke detach: buyer + linked mandate
+          ok = r.buyerTenantId === values[0] && r.mandateId === values[1];
         } else throw new Error(`fakeDb update credit_accounts: unhandled ${sig}`);
         if (!ok) continue;
         for (const [k, v] of Object.entries(set)) {
@@ -353,6 +509,35 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
             (r as any)[k] = v;
           }
         }
+        matched.push({ ...r });
+      }
+      return matched;
+    }
+    if (t === "payment_mandates") {
+      for (const r of store.mandates) {
+        let ok = false;
+        if (sig === "id,tenantId,status") {
+          // confirmMandate claim: id + tenant + status='pending'
+          ok = r.id === values[0] && r.tenantId === values[1] && r.status === values[2];
+        } else if (sig === "id,status") {
+          // revokeMandate claim: id + current status
+          ok = r.id === values[0] && r.status === values[1];
+        } else throw new Error(`fakeDb update payment_mandates: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
+    if (t === "purchase_orders") {
+      for (const r of store.purchaseOrders) {
+        let ok = false;
+        if (sig === "id,status") {
+          // settleDrawToSupplier claim: id + status='invoiced'
+          ok = r.id === values[0] && r.status === values[1];
+        } else throw new Error(`fakeDb update purchase_orders: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
         matched.push({ ...r });
       }
       return matched;
@@ -399,7 +584,38 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       const t = tableName(table);
       return {
         values(vals: any) {
-          const get = () => [runInsert(t, vals)];
+          let conflictNothing = false;
+          const get = () => {
+            // ON CONFLICT DO NOTHING: PK (id) collision inserts zero rows.
+            if (conflictNothing && t === "processed_webhook_events") {
+              if (store.webhookEvents.some((r) => r.id === vals.id)) return [];
+            }
+            return [runInsert(t, vals)];
+          };
+          const chain: any = thenable(get);
+          chain.returning = () => chain;
+          chain.onConflictDoNothing = () => {
+            conflictNothing = true;
+            return chain;
+          };
+          return chain;
+        },
+      };
+    },
+    delete(table: unknown) {
+      const t = tableName(table);
+      return {
+        where(cond: unknown) {
+          const get = () => {
+            const { columns, values } = decode(cond);
+            const sig = columns.join(",");
+            if (t === "processed_webhook_events" && sig === "id") {
+              const idx = store.webhookEvents.findIndex((r) => r.id === values[0]);
+              if (idx >= 0) return store.webhookEvents.splice(idx, 1).map((r) => ({ ...r }));
+              return [];
+            }
+            throw new Error(`fakeDb delete: unhandled ${t} ${sig}`);
+          };
           const chain: any = thenable(get);
           chain.returning = () => chain;
           return chain;
@@ -443,8 +659,47 @@ export function seedAccount(over: Partial<AccountRow> = {}): AccountRow {
     status: "active",
     score: null,
     scoreReasons: null,
+    mandateId: null,
+    suspended: false,
+    suspendedAt: null,
+    suspensionReason: null,
     createdAt: new Date("2025-01-01T00:00:00Z"),
     updatedAt: new Date("2025-01-01T00:00:00Z"),
+    ...over,
+  };
+}
+
+export function seedMandate(over: Partial<MandateRow> = {}): MandateRow {
+  return {
+    id: over.id ?? randomUUID(),
+    tenantId: "buyer-1",
+    provider: "fake",
+    mandateRef: `fake-${randomUUID()}`,
+    customerRef: null,
+    status: "active",
+    metadata: null,
+    createdAt: new Date("2025-01-01T00:00:00Z"),
+    updatedAt: new Date("2025-01-01T00:00:00Z"),
+    ...over,
+  };
+}
+
+export function seedPurchaseOrder(over: Partial<PoRow> = {}): PoRow {
+  return {
+    id: over.id ?? randomUUID(),
+    poNumber: `PO-${Math.floor(Math.random() * 1e6)}`,
+    buyerTenantId: "buyer-1",
+    supplierTenantId: "supplier-1",
+    status: "invoiced",
+    subtotalCents: 10_000,
+    paymentMode: "credit",
+    creditAccountId: null,
+    termsDays: 30,
+    dueDate: null,
+    buyerPhone: null,
+    notes: null,
+    createdAt: new Date("2025-01-02T00:00:00Z"),
+    updatedAt: new Date("2025-01-02T00:00:00Z"),
     ...over,
   };
 }

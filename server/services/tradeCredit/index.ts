@@ -16,19 +16,51 @@
  */
 import { getDb } from "../../db";
 import type { CreditAccount } from "../../../drizzle/schema";
-import { getCreditAccountTx, type DbHandle } from "./accounts";
+import { getCreditAccountTx, getCreditAccountByIdTx, type DbHandle } from "./accounts";
 import { drawOnCreditTx, type DrawArgs, type DrawResult } from "./draw";
 import { applyRepaymentTx, type RepaymentArgs, type RepaymentResult } from "./repayment";
 import { suggestLimitTx, type CreditScoreResult } from "./scoring";
 import { runDunningCheckTx, type DunningResult } from "./dunning";
+import { reviseLimitsTx, type ReviseLimitsResult } from "./limits";
+import { applyMandateRepaymentTx, type MandateRepaymentResult } from "./capture";
+import {
+  isOrderAccessSuspendedTx,
+  settleDrawToSupplierTx,
+  suspendOrderAccessTx,
+  type SettleDrawResult,
+} from "./enforcement";
 
 // Re-export the tx-level cores and account-admin helpers for the router and
 // for other services composing credit flows inside larger transactions.
 export * from "./accounts";
-export { drawOnCreditTx, type DrawArgs, type DrawResult } from "./draw";
+export { drawOnCreditTx, tenureGateDays, type DrawArgs, type DrawResult } from "./draw";
 export { applyRepaymentTx, type RepaymentArgs, type RepaymentResult } from "./repayment";
-export { suggestLimitTx, formatNairaCompact, type CreditScoreResult } from "./scoring";
+export {
+  suggestLimitTx,
+  formatNairaCompact,
+  FLOOR_LIMIT_CENTS,
+  CAP_LIMIT_CENTS,
+  type CreditScoreResult,
+} from "./scoring";
 export { runDunningCheckTx, LATE_FEE_RATE, FREEZE_AFTER_DAYS, type DunningResult } from "./dunning";
+// ── W13: credit control plane + repayment-at-source ─────────────────────────
+export { reviseLimitsTx, type ReviseLimitsResult, type LimitRevisionReason } from "./limits";
+export {
+  applyMandateRepaymentTx,
+  repaymentReference,
+  __setDunningNoticeForTests,
+  type MandateRepaymentResult,
+  type DunningNoticeFn,
+} from "./capture";
+export {
+  suspendOrderAccessTx,
+  liftOrderAccessTx,
+  isOrderAccessSuspendedTx,
+  settleDrawToSupplierTx,
+  type SuspendArgs,
+  type SettleDrawResult,
+  type SettleDrawToSupplierArgs,
+} from "./enforcement";
 
 async function requireDb(): Promise<DbHandle> {
   const db = await getDb();
@@ -42,10 +74,7 @@ export async function drawOnCredit(args: {
   amountCents: number;
   poId: string;
   termsDays?: number;
-}): Promise<
-  | { ok: true; ledgerId: string; outstandingAfter: number }
-  | { ok: false; reason: "over_limit" | "no_account" | "frozen" | "closed" }
-> {
+}): Promise<DrawResult> {
   return drawOnCreditTx(await requireDb(), args);
 }
 
@@ -77,4 +106,59 @@ export async function runDunningCheck(now?: Date): Promise<{
   frozen: number;
 }> {
   return runDunningCheckTx(await requireDb(), now ?? new Date());
+}
+
+// ── W13 public API ───────────────────────────────────────────────────────────
+
+/**
+ * Buyer-initiated repayment (W13): when the facility has an ACTIVE mandate
+ * the repayment is charged AT SOURCE first (exactly-once reference claim,
+ * then FIFO settlement on success); on charge failure (or no mandate) the
+ * result tells the caller to fall back to the payment-link flow. The plain
+ * applyRepayment above stays the SETTLEMENT primitive (used by the
+ * payment-link confirm hook) and never charges a mandate.
+ */
+export async function requestRepayment(args: {
+  accountId: string;
+  amountCents: number;
+  currency?: string;
+}): Promise<MandateRepaymentResult> {
+  return applyMandateRepaymentTx(await requireDb(), args);
+}
+
+/** Scorer-driven limit revision (downward applies immediately, clamped at
+ *  outstanding); null when the account does not exist. */
+export async function reviseLimits(accountId: string): Promise<ReviseLimitsResult | null> {
+  return reviseLimitsTx(await requireDb(), { accountId });
+}
+
+/** Suspend the buyer's credit-backed order access with a supplier. */
+export async function suspendOrderAccess(args: {
+  buyerTenantId: string;
+  supplierTenantId: string;
+  reason: string;
+}): Promise<{ ok: boolean; changed: boolean; reason?: string }> {
+  return suspendOrderAccessTx(await requireDb(), args);
+}
+
+/** True when the buyer's order access with the supplier is suspended
+ *  (false when no facility exists for the pair). */
+export async function isOrderAccessSuspended(
+  buyerTenantId: string,
+  supplierTenantId: string,
+): Promise<boolean> {
+  return isOrderAccessSuspendedTx(await requireDb(), buyerTenantId, supplierTenantId);
+}
+
+/** Mark the PO linked to a successful credit draw as paid-via-credit. */
+export async function settleDrawToSupplier(args: {
+  poId: string;
+  drawResult: Extract<DrawResult, { ok: true }>;
+}): Promise<SettleDrawResult> {
+  return settleDrawToSupplierTx(await requireDb(), args);
+}
+
+/** Read helper for the router: account by id. */
+export async function getCreditAccountById(accountId: string): Promise<CreditAccount | null> {
+  return getCreditAccountByIdTx(await requireDb(), accountId);
 }
