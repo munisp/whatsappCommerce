@@ -21,6 +21,7 @@
  * sites stay a single line.
  */
 import * as tradeCredit from "../tradeCredit";
+import { isCreditEnforcementStrict } from "../../_core/env";
 
 export interface OrderSuspension {
   suspended: boolean;
@@ -28,6 +29,12 @@ export interface OrderSuspension {
   reason: string | null;
   /** Outstanding balance in cents, when an account exists. */
   outstandingCents: number | null;
+  /**
+   * True when the suspension verdict is a fail-CLOSED stand-in for a failed
+   * lookup (strict mode), not a supplier-recorded suspension. Callers should
+   * surface a transient "unavailable, try again" message, not dunning copy.
+   */
+  unavailable?: boolean;
 }
 
 const NOT_SUSPENDED: OrderSuspension = { suspended: false, reason: null, outstandingCents: null };
@@ -49,8 +56,16 @@ function contractFn(name: string): ((...args: any[]) => any) | undefined {
 /**
  * Is the buyer barred from submitting new POs to this supplier? Combines the
  * enforcement contract with the account row for reason/outstanding UX copy.
- * Never throws — failures fail OPEN (ordering stays available) and are logged.
+ * Never throws. Lookup failures are governed by CREDIT_ENFORCEMENT_STRICT
+ * (see _core/env.isCreditEnforcementStrict):
+ *   - strict (default in production-like envs): FAIL-CLOSED — the error
+ *     blocks submission with a transient "credit status unavailable, try
+ *     again" verdict (`unavailable: true`), so a delinquent buyer can never
+ *     slip orders through a lookup outage.
+ *   - non-strict (default in dev/test): FAIL-OPEN — ordering stays
+ *     available and the failure is logged (historical behavior).
  */
+export const CREDIT_STATUS_UNAVAILABLE_REASON = "credit status unavailable, try again";
 export async function checkOrderSuspension(
   buyerTenantId: string,
   supplierTenantId: string,
@@ -79,6 +94,15 @@ export async function checkOrderSuspension(
     }
     return { suspended: true, reason, outstandingCents };
   } catch (e: any) {
+    if (isCreditEnforcementStrict()) {
+      console.warn("[procurement] suspension check failed (strict: fail-closed):", e?.message);
+      return {
+        suspended: true,
+        unavailable: true,
+        reason: CREDIT_STATUS_UNAVAILABLE_REASON,
+        outstandingCents: null,
+      };
+    }
     console.warn("[procurement] suspension check failed (fail-open):", e?.message);
     return NOT_SUSPENDED;
   }

@@ -22,8 +22,8 @@
  * Never throws into the caller.
  */
 import { randomInt } from "node:crypto";
-import { eq } from "drizzle-orm";
-import { processedWebhookEvents } from "../../../drizzle/schema";
+import { and, asc, eq, inArray, like } from "drizzle-orm";
+import { creditLedger, processedWebhookEvents } from "../../../drizzle/schema";
 import { getCreditAccountByIdTx, type TxHandle } from "./accounts";
 import { applyRepaymentTx } from "./repayment";
 import { chargeOnMandate } from "../payments/mandates";
@@ -184,9 +184,28 @@ export async function applyMandateRepaymentTx(
     }, now);
     if (!settled.ok) {
       // The provider charge succeeded but the local settlement refused (e.g.
-      // a concurrent repayment drained outstanding first). Keep the claim so
-      // the charge is never retried double; surface for reconciliation.
-      console.error(`[tradeCredit/capture] settlement refused after successful charge ${reference}`);
+      // a concurrent repayment drained outstanding first): money moved with
+      // no settlement. W14 hardening — (a) CRITICAL observability capture so
+      // the ops webhook/ring surfaces it immediately (redacted per
+      // observability rules), (b) persist a durable settlement_retry marker
+      // on the credit ledger so the gap survives restarts and can be
+      // re-attempted exactly-once via retrySettlement / the
+      // tradeCredit.retrySettlement admin procedure. The processed-event
+      // claim is KEPT so the charge itself is never retried double.
+      captureException(new Error(`settlement refused after successful mandate charge ${reference}`), {
+        service: "tradeCredit/capture",
+        operation: "mandateRepaymentSettlement",
+        tenantId: account.buyerTenantId,
+        severity: "critical",
+        extra: {
+          accountId: account.id,
+          reference,
+          amountCents,
+          provider: charge.provider,
+          providerStatus: charge.status,
+        },
+      });
+      await persistSettlementRetryMarker(db, account.id, reference, amountCents, now);
       return {
         ok: false,
         mode: "none",
@@ -213,4 +232,162 @@ export async function applyMandateRepaymentTx(
     });
     return { ok: false, mode: "none", reason: "charge_failed", error: err?.message, outstandingAfter: 0 };
   }
+}
+
+// ── W14: settlement-retry durable marker + admin retry ─────────────────────
+// No schema change: the marker rides the append-only credit_ledger as a
+// zero-amount 'adjustment' note (same convention as limit-increase requests
+// and [dun:...] dunning markers). kind='adjustment' rows consume nothing in
+// the FIFO pool (only invoice_draw/repayment rows do), so the marker never
+// distorts settlement math. `ref` carries the repayment reference and the
+// note carries the pending amount as JSON after the marker prefix.
+const SETTLEMENT_RETRY_PREFIX = "[settlement_retry] ";
+
+function settlementRetryNote(amountCents: number): string {
+  return `${SETTLEMENT_RETRY_PREFIX}${JSON.stringify({ amountCents })}`;
+}
+
+function parseSettlementRetryNote(note: string | null): number | null {
+  if (!note || !note.startsWith(SETTLEMENT_RETRY_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(note.slice(SETTLEMENT_RETRY_PREFIX.length));
+    const amt = Number(parsed?.amountCents);
+    return Number.isFinite(amt) && amt > 0 ? Math.round(amt) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the settlement_retry marker (best-effort — never throws). */
+async function persistSettlementRetryMarker(
+  db: TxHandle,
+  accountId: string,
+  reference: string,
+  amountCents: number,
+  now: Date,
+): Promise<void> {
+  try {
+    await db.insert(creditLedger).values({
+      creditAccountId: accountId,
+      kind: "adjustment",
+      amountCents: 0,
+      ref: reference.slice(0, 128),
+      note: settlementRetryNote(amountCents),
+      createdAt: now,
+    });
+  } catch (err: any) {
+    console.warn(`[tradeCredit/capture] settlement_retry marker persist failed for ${reference}:`, err?.message);
+  }
+}
+
+export type SettlementRetryStatus =
+  | "settled" // the retry applied the repayment (outstanding decremented)
+  | "already_settled" // a repayment row with this reference already exists — no-op
+  | "no_pending_retry" // no settlement_retry marker and no amount given
+  | "settlement_refused"; // applyRepaymentTx refused again (marker restored)
+
+export interface SettlementRetryResult {
+  ok: boolean;
+  status: SettlementRetryStatus;
+  reference: string;
+  outstandingAfter?: number;
+}
+
+/**
+ * Admin-invokable exactly-once re-attempt of a charge-success/settle-fail
+ * repayment (see the settlement-fail branch above). Idempotent:
+ *
+ *   1. A 'repayment' ledger row already carrying `reference` → the money is
+ *      settled; any lingering marker is cleaned up and the call is a no-op
+ *      ('already_settled').
+ *   2. Otherwise the settlement_retry marker is CLAIMED FIRST (DELETE ...
+ *      RETURNING) — only one concurrent caller can win the claim, so a
+ *      double-invocation can never settle twice.
+ *   3. applyRepaymentTx re-runs the claim-first FIFO settlement with the
+ *      SAME reference. On refusal the marker is restored (best-effort) so a
+ *      later retry remains possible.
+ *
+ * Never throws into the caller.
+ */
+export async function retrySettlement(
+  db: TxHandle,
+  args: { accountId: string; reference: string; amountCents?: number },
+  now: Date = new Date(),
+): Promise<SettlementRetryResult> {
+  const reference = (args.reference ?? "").trim();
+  try {
+    if (!args.accountId || !reference) {
+      return { ok: false, status: "no_pending_retry", reference };
+    }
+    // (1) Already settled? — exactly-once guard.
+    const rows = await (db as any)
+      .select({ kind: creditLedger.kind, ref: creditLedger.ref, note: creditLedger.note })
+      .from(creditLedger)
+      .where(
+        and(
+          eq(creditLedger.creditAccountId, args.accountId),
+          inArray(creditLedger.kind, ["invoice_draw", "repayment", "adjustment"]),
+        ),
+      )
+      .orderBy(asc(creditLedger.createdAt));
+    const settledRow = (rows as any[]).find((r) => r.kind === "repayment" && r.ref === reference);
+    if (settledRow) {
+      await claimSettlementRetryMarker(db, args.accountId, reference); // clean lingering marker
+      return { ok: true, status: "already_settled", reference };
+    }
+    // (2) Claim the pending marker (claim-first delete ⇒ single winner).
+    const claimed = await claimSettlementRetryMarker(db, args.accountId, reference);
+    const amountCents = parseSettlementRetryNote(claimed?.note ?? null) ?? (
+      Number.isFinite(args.amountCents) && (args.amountCents as number) > 0
+        ? Math.round(args.amountCents as number)
+        : null
+    );
+    if (amountCents == null) {
+      return { ok: false, status: "no_pending_retry", reference };
+    }
+    // (3) Re-attempt the claim-first FIFO settlement with the same ref.
+    const settled = await applyRepaymentTx(db, {
+      accountId: args.accountId,
+      amountCents,
+      ref: reference,
+    }, now);
+    if (!settled.ok) {
+      // Restore the marker so the retry stays pending for a later attempt.
+      await persistSettlementRetryMarker(db, args.accountId, reference, amountCents, now);
+      return { ok: false, status: "settlement_refused", reference, outstandingAfter: settled.outstandingAfter };
+    }
+    return { ok: true, status: "settled", reference, outstandingAfter: settled.outstandingAfter };
+  } catch (err: any) {
+    captureException(err, {
+      service: "tradeCredit/capture",
+      operation: "retrySettlement",
+      severity: "error",
+      extra: { accountId: args.accountId, reference },
+    });
+    return { ok: false, status: "settlement_refused", reference };
+  }
+}
+
+/**
+ * Claim-first delete of the settlement_retry marker row(s) for a reference.
+ * Returns the first claimed row (note carries the pending amount), or null.
+ */
+async function claimSettlementRetryMarker(
+  db: TxHandle,
+  accountId: string,
+  reference: string,
+): Promise<{ note: string | null } | null> {
+  const deleted = await (db as any)
+    .delete(creditLedger)
+    .where(
+      and(
+        eq(creditLedger.creditAccountId, accountId),
+        eq(creditLedger.ref, reference),
+        eq(creditLedger.kind, "adjustment"),
+        like(creditLedger.note, `${SETTLEMENT_RETRY_PREFIX}%`),
+      ),
+    )
+    .returning();
+  const rows = Array.isArray(deleted) ? deleted : [];
+  return rows.length > 0 ? { note: (rows[0] as any).note ?? null } : null;
 }
