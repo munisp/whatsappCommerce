@@ -28,6 +28,7 @@ import {
   PO_STATUSES,
   type DbHandle,
 } from "../services/procurement";
+import { suspensionMessage } from "../services/procurement/creditEnforcement";
 import { requireApprovedKyb } from "../services/kycGate";
 
 async function requireDb(): Promise<DbHandle> {
@@ -150,14 +151,19 @@ export const procurementRouter = router({
       });
       if (!result.ok) {
         if (result.reason === "suspended") {
-          const outstanding = result.outstandingCents != null && result.outstandingCents > 0
-            ? ` of ₦${(result.outstandingCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : "";
+          // W14.1: transient lookup outage (unavailable) → neutral try-again
+          // copy via suspensionMessage, never dunning guidance.
           throw new TRPCError({
             code: "FORBIDDEN",
-            message:
-              `Ordering is suspended with this supplier${result.suspensionReason ? ` — ${result.suspensionReason}` : ""}. ` +
-              `Repay your outstanding balance${outstanding} to restore ordering.`,
+            message: suspensionMessage(
+              {
+                suspended: true,
+                reason: result.suspensionReason ?? null,
+                outstandingCents: result.outstandingCents ?? null,
+                unavailable: result.unavailable === true,
+              },
+              (cents) => `₦${(cents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            ),
           });
         }
         const msg = result.reason === "below_moq"

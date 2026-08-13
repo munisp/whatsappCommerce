@@ -123,3 +123,53 @@ describe("applyRepaymentTx", () => {
     expect(store.accounts[0].outstandingCents).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe("W14.1 — repayment ref dedupe (0052 unique index)", () => {
+  it("same ref twice → second call is an idempotent alreadySettled no-op", async () => {
+    const account = seedAccount({ outstandingCents: 10_000 });
+    const { db, store } = makeFakeDb({ accounts: [account] });
+    const first = await applyRepaymentTx(db, { accountId: account.id, amountCents: 4_000, ref: "pay-dupe" });
+    expect(first).toEqual({ ok: true, outstandingAfter: 6_000 });
+    const second = await applyRepaymentTx(db, { accountId: account.id, amountCents: 4_000, ref: "pay-dupe" });
+    expect(second).toEqual({ ok: true, outstandingAfter: 6_000, alreadySettled: true });
+    // Exactly one repayment row; outstanding decremented exactly once
+    // (the loser's transaction rolled back the claim).
+    expect(store.ledger.filter((l) => l.kind === "repayment" && l.ref === "pay-dupe")).toHaveLength(1);
+    expect(store.accounts[0].outstandingCents).toBe(6_000);
+  });
+
+  it("concurrent same-ref repayments settle exactly once", async () => {
+    const account = seedAccount({ outstandingCents: 10_000 });
+    const { db, store } = makeFakeDb({ accounts: [account] });
+    const results = await Promise.all([
+      applyRepaymentTx(db, { accountId: account.id, amountCents: 4_000, ref: "pay-race" }),
+      applyRepaymentTx(db, { accountId: account.id, amountCents: 4_000, ref: "pay-race" }),
+    ]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    expect(results.filter((r) => r.alreadySettled)).toHaveLength(1);
+    expect(store.ledger.filter((l) => l.kind === "repayment" && l.ref === "pay-race")).toHaveLength(1);
+    expect(store.accounts[0].outstandingCents).toBe(6_000);
+  });
+
+  it("different refs are NOT deduped — both apply", async () => {
+    const account = seedAccount({ outstandingCents: 10_000 });
+    const { db, store } = makeFakeDb({ accounts: [account] });
+    const a = await applyRepaymentTx(db, { accountId: account.id, amountCents: 4_000, ref: "pay-a" });
+    const b = await applyRepaymentTx(db, { accountId: account.id, amountCents: 4_000, ref: "pay-b" });
+    expect(a).toMatchObject({ ok: true, outstandingAfter: 6_000 });
+    expect(b).toMatchObject({ ok: true, outstandingAfter: 2_000 });
+    expect(b.alreadySettled).toBeUndefined();
+    expect(store.ledger.filter((l) => l.kind === "repayment")).toHaveLength(2);
+    expect(store.accounts[0].outstandingCents).toBe(2_000);
+  });
+
+  it("the dedupe index is per-account: same ref on another account applies", async () => {
+    const a1 = seedAccount({ id: "acct-a", outstandingCents: 10_000 });
+    const a2 = seedAccount({ id: "acct-b", outstandingCents: 10_000 });
+    const { db, store } = makeFakeDb({ accounts: [a1, a2] });
+    await applyRepaymentTx(db, { accountId: "acct-a", amountCents: 4_000, ref: "pay-shared" });
+    const res = await applyRepaymentTx(db, { accountId: "acct-b", amountCents: 4_000, ref: "pay-shared" });
+    expect(res).toEqual({ ok: true, outstandingAfter: 6_000 });
+    expect(store.ledger.filter((l) => l.kind === "repayment" && l.ref === "pay-shared")).toHaveLength(2);
+  });
+});

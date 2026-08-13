@@ -17,7 +17,7 @@
  * fail closed, and no dunning notice is re-sent.
  */
 import { eq, like } from "drizzle-orm";
-import { assert, assertIncludes, bodyText, type World } from "../world";
+import { assert, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
 import {
   ADMIN_PHONE,
@@ -76,19 +76,22 @@ export const journey: Journey = {
         await renameBack();
         console.info = origInfo;
       }
-      const blocked = infos.find((m) => m.includes("Ordering is suspended"));
-      assert(blocked, "strict outage produced the suspended-ordering reply");
-      assertIncludes(blocked, "credit status unavailable, try again", "strict outage surfaces transient copy");
+      const blocked = infos.find((m) => m.includes("couldn't confirm your credit status"));
+      assert(blocked, "strict outage produced the credit-unavailable reply");
+      assert(!blocked.includes("Ordering is suspended"), "W14.1: transient outage is NOT dunning copy (no 'Ordering is suspended')");
+      assert(!blocked.includes("Repay your outstanding"), "W14.1: transient outage is NOT dunning copy (no repay guidance)");
+      // (The "resend CONFIRM" tail is truncated in the log — the neutral
+      // copy + no-dunning assertions above cover the copy; cart survival is
+      // proven behaviorally below by the plain-CONFIRM resubmit.)
       // (Cart survival is proven behaviorally below: the same cart submits
       // once the outage clears — the reply tail is truncated in the log.)
       assert((await poCount()) === posBefore, "NO PO persisted while the gate fails closed");
 
-      // Recovery: outage cleared, the buyer can resubmit and the PO lands.
-      // (The block branch returns nextState:null, so the buyer re-issues
-      // CONFIRM against a fresh checkout — the gate no longer blocks.)
-      await buildCart(phoneA, "credit");
+      // Recovery: outage cleared. W14.1 — the suspension block keeps the
+      // confirm session alive, so the SAME draft cart submits on a plain
+      // CONFIRM resend (no cart rebuild).
       await world.text(phoneA, "CONFIRM");
-      assert((await poCount()) === posBefore + 1, "PO submits after the outage clears");
+      assert((await poCount()) === posBefore + 1, "PO submits after the outage clears (session survived the block)");
       delete process.env.CREDIT_ENFORCEMENT_STRICT;
 
       // ── A2. DEFAULT (test env): same outage fails OPEN for paynow ──────

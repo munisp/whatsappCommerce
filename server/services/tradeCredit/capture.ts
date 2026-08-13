@@ -351,6 +351,14 @@ export async function retrySettlement(
       amountCents,
       ref: reference,
     }, now);
+    // W14.1: lost the insert race against a concurrent retry — the unique
+    // index (0052) already guarantees exactly-once, so report already_settled
+    // and clean any lingering marker (belt-and-braces with step 1's read,
+    // which can miss a just-committed concurrent insert).
+    if (settled.ok && settled.alreadySettled) {
+      await claimSettlementRetryMarker(db, args.accountId, reference);
+      return { ok: true, status: "already_settled", reference, outstandingAfter: settled.outstandingAfter };
+    }
     if (!settled.ok) {
       // Restore the marker so the retry stays pending for a later attempt.
       await persistSettlementRetryMarker(db, args.accountId, reference, amountCents, now);

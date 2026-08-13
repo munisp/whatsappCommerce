@@ -17,6 +17,7 @@ vi.mock("./services/waSender", () => ({
 
 const credit = vi.hoisted(() => ({
   getCreditAccount: vi.fn(async (_s: string, _b: string) => null as any),
+  isOrderAccessSuspended: vi.fn(async (_b: string, _s: string) => false),
   drawOnCredit: vi.fn(async (_a: any) => ({ ok: true as const, ledgerId: "led-1", outstandingAfter: 150_000 })),
   suggestLimit: vi.fn(async () => ({ score: 62, suggestedLimitCents: 500_000, reasons: ["10 paid orders"] })),
 }));
@@ -64,6 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   __clearMemorySessions();
   credit.getCreditAccount.mockResolvedValue(null);
+  credit.isOrderAccessSuspended.mockResolvedValue(false);
   credit.drawOnCredit.mockResolvedValue({ ok: true, ledgerId: "led-1", outstandingAfter: 150_000 });
 });
 
@@ -451,5 +453,70 @@ describe("buyer chat flow", () => {
     expect(out.reply).toContain("Incoming wholesale orders");
     out = await handleProcurementChat(ctx, { step: "entry", data: { hasSupplierInbox: true } }, "3");
     expect(out.reply).toContain("awaiting your approval");
+  });
+
+  /** Drive the machine to the confirm step with one credit cart line. */
+  async function toConfirm(db: any, ctx: any) {
+    credit.getCreditAccount.mockResolvedValue({ id: "acct-1", status: "active", limitCents: 1_000_000, outstandingCents: 0, termsDays: 14 } as any);
+    let out = await handleProcurementChat(ctx, { step: "entry", data: {} }, "1");
+    out = await handleProcurementChat(ctx, { step: "choose_supplier", data: out.nextState!.data! }, "1");
+    const browseData = out.nextState!.data!;
+    out = await handleProcurementChat(ctx, { step: "browse", data: browseData }, "add 2 5");
+    out = await handleProcurementChat(ctx, { step: "browse", data: out.nextState!.data! }, "done");
+    out = await handleProcurementChat(ctx, { step: "choose_payment", data: out.nextState!.data! }, "1");
+    out = await handleProcurementChat(ctx, { step: "choose_terms", data: out.nextState!.data! }, "2");
+    return out.nextState!.data!;
+  }
+
+  it("W14.1: suspension block keeps the confirm session — the SAME cart resubmits after repayment", async () => {
+    const { db, store } = seedCatalogDb();
+    const ctx = ctxFor(db);
+    const confirmData = await toConfirm(db, ctx);
+
+    // Supplier-recorded suspension blocks the submit…
+    credit.isOrderAccessSuspended.mockResolvedValue(true);
+    credit.getCreditAccount.mockResolvedValue({ id: "acct-1", suspensionReason: "overdue", outstandingCents: 50_000 } as any);
+    let out = await handleProcurementChat(ctx, { step: "confirm", data: confirmData }, "CONFIRM");
+    expect(out.reply).toContain("Ordering is suspended");
+    expect(out.reply).toContain("Repay your outstanding balance");
+    // …but the draft survives: the session stays on confirm with the cart.
+    expect(out.nextState?.step).toBe("confirm");
+    expect((out.nextState!.data as any).cart).toHaveLength(1);
+    expect(store.purchaseOrders).toHaveLength(0);
+
+    // Repayment lifts the suspension; a plain CONFIRM resend submits the
+    // SAME cart — no rebuild needed.
+    credit.isOrderAccessSuspended.mockResolvedValue(false);
+    credit.getCreditAccount.mockResolvedValue({ id: "acct-1", status: "active", limitCents: 1_000_000, outstandingCents: 0, termsDays: 14 } as any);
+    out = await handleProcurementChat(ctx, out.nextState!, "CONFIRM");
+    expect(out.reply).toContain("submitted to Ada Wholesale");
+    expect(store.purchaseOrders).toHaveLength(1);
+    expect(store.purchaseOrders[0]).toMatchObject({ status: "submitted", paymentMode: "credit" });
+  });
+
+  it("W14.1: strict-mode lookup outage gets neutral try-again copy (never dunning), session kept", async () => {
+    const { db, store } = seedCatalogDb();
+    const ctx = ctxFor(db);
+    const confirmData = await toConfirm(db, ctx);
+
+    process.env.CREDIT_ENFORCEMENT_STRICT = "true";
+    try {
+      credit.isOrderAccessSuspended.mockRejectedValue(new Error("db down"));
+      const out = await handleProcurementChat(ctx, { step: "confirm", data: confirmData }, "CONFIRM");
+      expect(out.reply).toContain("couldn't confirm your credit status");
+      expect(out.reply).not.toContain("Ordering is suspended");
+      expect(out.reply).not.toContain("Repay your outstanding");
+      expect(out.reply).toContain("resend CONFIRM to try again");
+      expect(out.nextState?.step).toBe("confirm");
+      expect(store.purchaseOrders).toHaveLength(0);
+
+      // Outage clears → the same session resubmits.
+      credit.isOrderAccessSuspended.mockResolvedValue(false);
+      const retry = await handleProcurementChat(ctx, out.nextState!, "CONFIRM");
+      expect(retry.reply).toContain("submitted to Ada Wholesale");
+      expect(store.purchaseOrders).toHaveLength(1);
+    } finally {
+      delete process.env.CREDIT_ENFORCEMENT_STRICT;
+    }
   });
 });

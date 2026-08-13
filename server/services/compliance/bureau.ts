@@ -107,6 +107,28 @@ export function redactPayload(value: unknown, depth = 0): unknown {
   return out;
 }
 
+/**
+ * Redact a bureau HTTP response body before persisting it to
+ * bureau_report_log.response (success path). Two layers, matching the
+ * failure-path conventions: redactPayload strips secret-ish KEYS, then
+ * redactSecrets strips any echoed credential VALUE (the configured api key)
+ * from string leaves. Non-JSON bodies degrade to a redacted string.
+ */
+export function redactResponse(response: unknown, env: NodeJS.ProcessEnv = process.env): unknown {
+  const apiKey = (env.BUREAU_API_KEY ?? "").trim();
+  const secrets = apiKey ? [apiKey] : [];
+  if (response == null) return response;
+  if (typeof response === "string") return redactSecrets(response, secrets);
+  const stripped = redactPayload(response);
+  if (secrets.length === 0) return stripped;
+  try {
+    const text = redactSecrets(JSON.stringify(stripped), secrets);
+    return JSON.parse(text);
+  } catch {
+    return stripped;
+  }
+}
+
 // ── Adapters ────────────────────────────────────────────────────────────────
 
 function httpAdapter(
@@ -248,7 +270,11 @@ export async function reportEvent(
       if (logId) {
         await db
           .update(bureauReportLog)
-          .set({ status: "sent", response: response as never, updatedAt: new Date() })
+          // W14.1: redact BEFORE persist — a bureau success body can echo
+          // back api-key-shaped secrets or secret-ish keys (the failure path
+          // already redacts via redactSecrets). Provenance fields otherwise
+          // pass through intact.
+          .set({ status: "sent", response: redactResponse(response, env) as never, updatedAt: new Date() })
           .where(eq(bureauReportLog.id, logId));
       }
       return { reported: true, logId, status: "sent" };

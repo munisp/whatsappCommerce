@@ -218,6 +218,12 @@ export interface SubmitPoResult {
   /** Present when reason === "suspended": UX copy for the block. */
   suspensionReason?: string | null;
   outstandingCents?: number | null;
+  /**
+   * Present when reason === "suspended" and the verdict is a fail-closed
+   * stand-in for a transient lookup outage — callers render neutral
+   * try-again copy, not dunning guidance.
+   */
+  unavailable?: boolean;
   po?: PurchaseOrder;
   autoApproved?: boolean;
 }
@@ -253,6 +259,7 @@ export async function submitPurchaseOrder(
       reason: "suspended",
       suspensionReason: suspension.reason,
       outstandingCents: suspension.outstandingCents,
+      unavailable: suspension.unavailable === true,
     };
   }
   const lines = (opts.lines ?? []).filter((l) => l.qty > 0 && l.unitPriceCents >= 0 && l.name.trim());
@@ -857,12 +864,26 @@ export async function handleProcurementChat(
       };
     }
     if (result.reason === "suspended") {
+      // W14.1: the draft SURVIVES a suspension block — keep the confirm
+      // session alive (nextState: state("confirm", data)) so the buyer can
+      // resend CONFIRM once repaid / once a transient outage clears. The
+      // gate itself is unchanged: the block still blocks, no PO persists.
+      // Transient lookup outages (unavailable) get neutral try-again copy,
+      // never dunning guidance.
+      const tail = result.unavailable
+        ? " Your draft cart is unchanged — resend CONFIRM to try again."
+        : " Your draft cart is unchanged — message us once your repayment lands.";
       return {
         reply: `🚫 ${suspensionMessage(
-          { suspended: true, reason: result.suspensionReason ?? null, outstandingCents: result.outstandingCents ?? null },
+          {
+            suspended: true,
+            reason: result.suspensionReason ?? null,
+            outstandingCents: result.outstandingCents ?? null,
+            unavailable: result.unavailable === true,
+          },
           formatNaira,
-        )} Your draft cart is unchanged — message us once your repayment lands.`,
-        nextState: null,
+        )}${tail}`,
+        nextState: state("confirm", data),
       };
     }
     return { reply: "Sorry, that supplier isn't available for procurement right now.", nextState: null };

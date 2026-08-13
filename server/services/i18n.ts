@@ -44,6 +44,8 @@ export interface LocalePack {
   disputeConfirm: string;
   /** B2B enforcement: buyer's credit access is suspended ({reason}, {outstanding}). */
   orderingSuspended: string;
+  /** B2B enforcement: transient credit-status lookup outage — neutral try-again copy (never dunning). */
+  orderingUnavailable: string;
   /** B2B settlement notice: PO settled straight to the supplier via credit ({poNumber}, {dueDate}). */
   paidViaCredit: string;
 }
@@ -106,6 +108,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     reorderNoPriorOrder: "I couldn't find a previous paid order for this number — tell me what you'd like and I'll add it to your cart.",
     disputeConfirm: "Your complaint has been logged and our team has been notified. We'll get back to you shortly. 🙏",
     orderingSuspended: "Ordering is suspended with this supplier{reason}. Repay your outstanding balance{outstanding} to restore ordering.",
+    orderingUnavailable: "We couldn't confirm your credit status just now — please try again shortly. Your cart is unchanged and no order was placed.",
     paidViaCredit: "Paid via credit — due {dueDate}. Repay by the due date to keep ordering.",
   },
   fr: {
@@ -132,6 +135,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     reorderNoPriorOrder: "Je n'ai trouvé aucune commande payée précédente pour ce numéro — dites-moi ce que vous voulez et je l'ajoute au panier.",
     disputeConfirm: "Votre réclamation a été enregistrée et notre équipe a été informée. Nous revenons vers vous rapidement. 🙏",
     orderingSuspended: "Les commandes sont suspendues auprès de ce fournisseur{reason}. Remboursez votre solde impayé{outstanding} pour rétablir les commandes.",
+    orderingUnavailable: "Nous n'avons pas pu vérifier votre statut de crédit pour le moment — veuillez réessayer dans un instant. Votre panier est inchangé et aucune commande n'a été passée.",
     paidViaCredit: "Payé à crédit — échéance {dueDate}. Remboursez avant l'échéance pour continuer à commander.",
   },
   ha: {
@@ -156,6 +160,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     reorderNoPriorOrder: "Ban sami tsohon oda da ka biya ba — faɗa min abin da kake so in saka maka a kwando.",
     disputeConfirm: "An rubuta kōƙarinka kuma an sanar da tawagarmu. Za mu dawo gare ka nan ba da jimawa ba. 🙏",
     orderingSuspended: "An dakatar da oda a wannan mai sayarwa{reason}. Biya bashin da ka ke dasu{outstanding} don a sake buɗe oda.",
+    orderingUnavailable: "Ba mu iya tabbatar da matsayin bashin ku a yanzu ba — don Allah sake gwadawa da sannu. Kwandonku bai canja ba kuma ba a sanya oda ba.",
     paidViaCredit: "An biya ta bashi — ranar biya {dueDate}. Biya kafin ranar don ci gaba da oda.",
   },
   yo: {
@@ -180,6 +185,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     reorderNoPriorOrder: "N kò rí àṣẹ àtijọ́ tí o ti sanwó fún nọ́ńbà yìí — sọ ohun tí o fẹ́ kí n sì í sínú àpò.",
     disputeConfirm: "A ti kọ ẹ̀jọ́ rẹ sílẹ̀, a sì ti jẹ́ kí àwọn ọmọ ẹgbẹ́ wa mọ̀. A ó padà sọ́dọ̀ rẹ láìpẹ́. 🙏",
     orderingSuspended: "A ti dáwọ́ ìbéèrè lọ́dọ̀ olùtà yìí dúró{reason}. San gbèsè tó kù{outstanding} láti tún bẹ̀rẹ̀ ìbéèrè.",
+    orderingUnavailable: "A kò lè jẹ́rìí sí ipo gbèsè yín ní ìsìn yìí — jọ̀wọ́ gbìyànjú lẹ́ẹ̀kansi. Àkópọ̀ yín kò yí padà, kò sì sí ìbéèrè tí a ṣe.",
     paidViaCredit: "A sanwó ní gbèsè — ojọ́ ìsanwó {dueDate}. San ṣáájú ojọ́ náà láti tẹ̀síwájú pẹ̀lú ìbéèrè.",
   },
   ig: {
@@ -204,6 +210,7 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     reorderNoPriorOrder: "Achọtaghị m ihe ọ bụla ị zụrụ ma kwụọ ụgwọ maka nọmba a — gwa m ihe ị chọrọ ka m tinye na ngọdo.",
     disputeConfirm: "Edebela mkpesa gị, ọzụzụkwa anyị amataala ya. Anyị ga-azaghachi gị n'oge na-adịghị anya. 🙏",
     orderingSuspended: "A kwụsịtụru ịtụ ihe ndazị na onye na-ere a{reason}. Kwụọ ụgwọ fọdụrụ{outstanding} ka e weghachi ike ịtụ ihe.",
+    orderingUnavailable: "Anyị enwebeghị ike ịkwenye ọnọdụ kredit gị ugbu a — biko nwaa ọzọ n'oge na-adịghị anya. Ọ dịghị ihe gbanwere na ngọdo gị, e mebeghị ihe ndazị ọ bụla.",
     paidViaCredit: "A kwụrụ site na kredit — ụbọchị akwụ ụgwọ {dueDate}. Kwụọ tupu ụbọchị ahụ ka ị gaa n'ihu ịtụ ihe.",
   },
 };

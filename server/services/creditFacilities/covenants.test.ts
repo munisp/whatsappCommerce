@@ -10,6 +10,7 @@ import {
 } from "./covenants";
 import { makeFakeDb, seedAccountExt, seedFacility, seedLedgerDue } from "./fakeDb";
 import { FacilityNotFoundError } from "./facilities";
+import { generateLoanBookTape } from "./tape";
 
 const AS_OF = new Date("2025-03-15T00:00:00Z");
 const daysAgo = (n: number) => new Date(AS_OF.getTime() - n * 24 * 60 * 60 * 1000);
@@ -110,6 +111,29 @@ describe("checkFacilityCovenants (fakeDb)", () => {
     const res = await checkFacilityCovenants(db, "f1", { asOf: AS_OF });
     expect(res.compliant).toBe(false);
     expect(res.breaches[0].covenant).toBe("singleBuyerConcentration");
+    expect(res.breaches[0].actualPct).toBeCloseTo(70);
+  });
+
+  // W14.1 — the singleBuyer numerator comes from the SAME asOf snapshot as
+  // the denominator (tape rows), not a current-state account query.
+  it("singleBuyerPct numerator derives from the tape rows (same asOf snapshot as the denominator)", async () => {
+    const fac = seedFacility({ id: "f1", covenants: { maxSingleBuyerPct: 50 } });
+    const { db } = makeFakeDb({
+      facilities: [fac],
+      accounts: [
+        seedAccountExt({ id: "a1", facilityId: "f1", buyerTenantId: "big", outstandingCents: 400 }),
+        seedAccountExt({ id: "a2", facilityId: "f1", buyerTenantId: "big", outstandingCents: 300 }),
+        seedAccountExt({ id: "a3", facilityId: "f1", buyerTenantId: "small", outstandingCents: 300 }),
+      ],
+    });
+    const res = await checkFacilityCovenants(db, "f1", { asOf: AS_OF });
+    // Recompute the expectation straight from the tape snapshot.
+    const tape = await generateLoanBookTape(db, { facilityId: "f1", asOf: AS_OF });
+    const byBuyer = new Map<string, number>();
+    for (const r of tape.rows) byBuyer.set(r.buyerTenantId, (byBuyer.get(r.buyerTenantId) ?? 0) + r.outstandingCents);
+    const expected = singleBuyerConcentrationPct(byBuyer, tape.summary.totalOutstandingCents);
+    expect(res.breaches[0].actualPct).toBeCloseTo(expected);
+    // Sanity: the tape-derived numerator (700) is what the 70% comes from.
     expect(res.breaches[0].actualPct).toBeCloseTo(70);
   });
 

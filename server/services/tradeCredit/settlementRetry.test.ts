@@ -137,3 +137,40 @@ describe("retrySettlement", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("W14.1 — retrySettlement double-settle race (0052 unique index)", () => {
+  // The W14 verifier finding: when the settlement_retry marker persist
+  // silently fails, two concurrent admin retries with an explicit amountCents
+  // both pass the marker claim and step-1 read. The partial unique index on
+  // (credit_account_id, ref) makes the second insert fail; applyRepaymentTx
+  // translates 23505 into an idempotent already-settled no-op.
+  it("concurrent retries with explicit amountCents settle exactly once", async () => {
+    const account = seedAccount({ id: "acct-1", outstandingCents: 10_000 });
+    const draw = seedDraw("acct-1", { amountCents: 10_000 });
+    // NO settlement_retry marker — simulates the silent persist failure.
+    const { db, store } = makeFakeDb({ accounts: [account], ledger: [draw] });
+    const results = await Promise.all([
+      retrySettlement(db, { accountId: "acct-1", reference: REF, amountCents: 4_000 }, NOW),
+      retrySettlement(db, { accountId: "acct-1", reference: REF, amountCents: 4_000 }, NOW),
+    ]);
+    const statuses = results.map((r) => r.status).sort();
+    expect(statuses).toEqual(["already_settled", "settled"]);
+    expect(results.every((r) => r.ok)).toBe(true);
+    // Exactly one repayment row; outstanding decremented exactly once.
+    expect(store.ledger.filter((l) => l.kind === "repayment" && l.ref === REF)).toHaveLength(1);
+    expect(store.accounts[0].outstandingCents).toBe(6_000);
+  });
+
+  it("a retry losing the insert race reports already_settled and cleans no marker that isn't there", async () => {
+    const account = seedAccount({ id: "acct-1", outstandingCents: 10_000 });
+    const draw = seedDraw("acct-1", { amountCents: 10_000 });
+    const { db, store } = makeFakeDb({ accounts: [account], ledger: [draw] });
+    const first = await retrySettlement(db, { accountId: "acct-1", reference: REF, amountCents: 4_000 }, NOW);
+    expect(first.status).toBe("settled");
+    // Sequential second call hits the step-1 read guard (same end state).
+    const second = await retrySettlement(db, { accountId: "acct-1", reference: REF, amountCents: 4_000 }, NOW);
+    expect(second).toMatchObject({ ok: true, status: "already_settled" });
+    expect(store.ledger.filter((l) => l.kind === "repayment" && l.ref === REF)).toHaveLength(1);
+    expect(store.accounts[0].outstandingCents).toBe(6_000);
+  });
+});

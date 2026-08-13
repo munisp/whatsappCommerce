@@ -455,6 +455,20 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       return { ...row };
     }
     if (t === "credit_ledger") {
+      // 0052 unique index credit_ledger_repayment_ref_uniq: exactly one
+      // repayment row per (account, ref). Emulate PG's 23505 so the
+      // exactly-once translation in applyRepaymentTx is testable.
+      if (values.kind === "repayment" && values.ref != null) {
+        const dupe = store.ledger.some((r) =>
+          r.kind === "repayment" && r.ref === values.ref && r.creditAccountId === values.creditAccountId);
+        if (dupe) {
+          const err: any = new Error(
+            `duplicate key value violates unique constraint "credit_ledger_repayment_ref_uniq"`);
+          err.code = "23505";
+          err.constraint = "credit_ledger_repayment_ref_uniq";
+          throw err;
+        }
+      }
       const row: LedgerRow = {
         id: values.id ?? randomUUID(),
         creditAccountId: values.creditAccountId,
@@ -625,6 +639,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     return self;
   };
 
+  let txQueue: Promise<unknown> = Promise.resolve();
   const db: any = {
     select(fields?: Record<string, unknown>) {
       return {
@@ -720,8 +735,23 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     },
     transaction(fn: (tx: any) => Promise<any>) {
       // Single synchronous store ⇒ check-and-apply is atomic (PG row-lock
-      // semantics); no rollback needed because guard failures mutate nothing.
-      return fn(db);
+      // semantics). Transactions touching the store are SERIALIZED (as PG
+      // row locks would force for same-row claims), and a mid-transaction
+      // failure (e.g. the 23505 unique-violation insert above) rolls back
+      // via a snapshot taken at transaction START — never wiping another
+      // transaction's committed writes.
+      const run = txQueue.then(async () => {
+        const keys = Object.keys(store) as Array<keyof FakeStore>;
+        const snapshot = keys.map((k) => [k, (store[k] as any[]).map((r) => ({ ...r }))] as const);
+        try {
+          return await fn(db);
+        } catch (err) {
+          for (const [k, rows] of snapshot) (store as any)[k] = rows;
+          throw err;
+        }
+      });
+      txQueue = run.catch(() => {});
+      return run;
     },
     execute: async () => [],
   };
