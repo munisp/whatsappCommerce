@@ -24,6 +24,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { creditAccounts, creditLedger } from "../../../drizzle/schema";
 import { getCreditAccountByIdTx, type TxHandle } from "./accounts";
+import { reportEvent } from "../compliance/bureau";
 
 export interface RepaymentArgs {
   accountId: string;
@@ -47,7 +48,7 @@ export async function applyRepaymentTx(
     return { ok: false, outstandingAfter: account?.outstandingCents ?? 0 };
   }
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     // ── ATOMIC CLAIM: refuse over-repayment inside the guard ──────────────
     const [claimed] = await tx
       .update(creditAccounts)
@@ -126,4 +127,34 @@ export async function applyRepaymentTx(
 
     return { ok: true, outstandingAfter: claimed.outstandingCents };
   });
+
+  // W14: bureau events AFTER the money-path transaction commits — never
+  // blocking, never throwing (reportEvent skips non-consented accounts).
+  if (result.ok) {
+    await reportEvent(db, {
+      accountId: args.accountId,
+      eventType: "repayment",
+      payload: {
+        amountCents,
+        currency: "NGN",
+        ref: args.ref.slice(0, 128),
+        outstandingAfter: result.outstandingAfter,
+        occurredAt: now.toISOString(),
+      },
+    });
+    // Repayment-to-zero: the facility is current again → 'cure' event
+    // (clears any prior delinquency at the bureau).
+    if (result.outstandingAfter === 0) {
+      await reportEvent(db, {
+        accountId: args.accountId,
+        eventType: "cure",
+        payload: {
+          amountCents,
+          outstandingAfter: 0,
+          occurredAt: now.toISOString(),
+        },
+      });
+    }
+  }
+  return result;
 }

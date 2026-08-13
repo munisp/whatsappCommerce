@@ -18,6 +18,7 @@ import {
   type CreditAccount,
   type CreditLedgerEntry,
 } from "../../../drizzle/schema";
+import { reportEvent } from "../compliance/bureau";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 /** Any handle exposing the drizzle mutation/query surface (db or tx). */
@@ -25,6 +26,15 @@ export type TxHandle = Pick<DbHandle, "select" | "insert" | "update" | "execute"
 
 export type CreditAccountStatus = "pending" | "active" | "frozen" | "closed";
 export type CreditLedgerKind = "invoice_draw" | "repayment" | "fee" | "adjustment";
+
+/**
+ * W14: deterministic bureau-consent reference for an account (≤64 chars).
+ * Stamped alongside bureau_consent_at when the buyer accepts the
+ * bureau-reporting terms (see services/i18n BUREAU_CONSENT_TEXT).
+ */
+export function bureauConsentRef(accountId: string): string {
+  return `bcr:${accountId}`.slice(0, 64);
+}
 
 export class CreditAccountExistsError extends Error {
   constructor(supplierTenantId: string, buyerTenantId: string) {
@@ -111,6 +121,8 @@ export async function requestCreditAccountTx(
   args: {
     supplierTenantId: string;
     buyerTenantId: string;
+    /** W14: buyer accepted the bureau-reporting terms at request time. */
+    bureauConsent?: boolean;
   },
 ): Promise<CreditAccount> {
   const existing = await getCreditAccountTx(db, args.supplierTenantId, args.buyerTenantId);
@@ -124,6 +136,16 @@ export async function requestCreditAccountTx(
       status: "pending",
     })
     .returning();
+  // W14: stamp consent post-insert (id derived only after insert). Plain
+  // claim-first UPDATE on the row we just created — no race possible.
+  if (args.bureauConsent === true && row) {
+    const [stamped] = await db
+      .update(creditAccounts)
+      .set({ bureauConsentAt: new Date(), bureauConsentRef: bureauConsentRef(row.id), updatedAt: new Date() })
+      .where(eq(creditAccounts.id, row.id))
+      .returning();
+    return stamped ?? row;
+  }
   return row;
 }
 
@@ -140,11 +162,23 @@ export async function approveCreditAccountTx(
     supplierTenantId: string;
     limitCents?: number;
     termsDays?: number;
+    /**
+     * W14: the buyer accepted the bureau-reporting terms
+     * (BUREAU_CONSENT_TEXT). Stamps bureau_consent_at/ref on approval.
+     * NOT a hard gate — approval proceeds without it (Nigeria legal review
+     * pending), but non-consented accounts are excluded from bureau
+     * reporting (compliance/bureau.ts) and the router logs consent_missing.
+     */
+    bureauConsent?: boolean;
   },
 ): Promise<CreditAccount | null> {
   const set: Record<string, unknown> = { status: "active", updatedAt: new Date() };
   if (args.limitCents !== undefined) set.limitCents = Math.max(0, Math.round(args.limitCents));
   if (args.termsDays !== undefined) set.termsDays = args.termsDays;
+  if (args.bureauConsent === true) {
+    set.bureauConsentAt = new Date();
+    set.bureauConsentRef = bureauConsentRef(args.accountId);
+  }
   const [row] = await db
     .update(creditAccounts)
     .set(set)
@@ -214,6 +248,19 @@ export async function setCreditAccountStatusTx(
       ),
     )
     .returning();
+  // W14: bureau 'closure' event (fire-and-forget; reportEvent never throws
+  // and skips non-consented accounts internally).
+  if (row && args.status === "closed") {
+    await reportEvent(db, {
+      accountId: row.id,
+      eventType: "closure",
+      payload: {
+        outstandingCents: row.outstandingCents,
+        reason: "supplier_close",
+        occurredAt: new Date().toISOString(),
+      },
+    });
+  }
   return row ?? null;
 }
 

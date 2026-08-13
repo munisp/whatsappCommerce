@@ -27,6 +27,7 @@ import {
   processedWebhookEvents,
   purchaseOrders,
   tenants,
+  bureauReportLog,
 } from "../../../drizzle/schema";
 
 // ── Row types (JS camelCase props, mirroring drizzle $inferSelect) ──────────
@@ -44,6 +45,22 @@ export interface AccountRow {
   suspended: boolean;
   suspendedAt: Date | null;
   suspensionReason: string | null;
+  // W14: bureau consent (optional in seeds — absent means NOT consented).
+  bureauConsentAt?: Date | null;
+  bureauConsentRef?: string | null;
+  facilityId?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+/** W14: bureau_report_log row. */
+export interface BureauLogRow {
+  id: string;
+  accountId: string;
+  eventType: string;
+  bureau: string;
+  status: string;
+  payload: unknown;
+  response: unknown;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -116,6 +133,7 @@ export interface FakeStore {
   limitHistory: LimitHistoryRow[];
   purchaseOrders: PoRow[];
   webhookEvents: WebhookEventRow[];
+  bureauReportLog: BureauLogRow[];
 }
 
 // ── drizzle condition decoding ───────────────────────────────────────────────
@@ -173,6 +191,13 @@ const PROP: Record<string, Record<string, string>> = {
     id: "id", supplier_tenant_id: "supplierTenantId", buyer_tenant_id: "buyerTenantId",
     limit_cents: "limitCents", outstanding_cents: "outstandingCents", terms_days: "termsDays",
     status: "status", score: "score", score_reasons: "scoreReasons",
+    bureau_consent_at: "bureauConsentAt", bureau_consent_ref: "bureauConsentRef",
+    facility_id: "facilityId",
+    created_at: "createdAt", updated_at: "updatedAt",
+  },
+  bureau_report_log: {
+    id: "id", account_id: "accountId", event_type: "eventType", bureau: "bureau",
+    status: "status", payload: "payload", response: "response",
     created_at: "createdAt", updated_at: "updatedAt",
   },
   credit_ledger: {
@@ -232,6 +257,7 @@ function tableName(table: unknown): string {
     credit_limit_history: creditLimitHistory,
     purchase_orders: purchaseOrders,
     processed_webhook_events: processedWebhookEvents,
+    bureau_report_log: bureauReportLog,
   })) {
     if (t === table) return name;
   }
@@ -250,6 +276,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     limitHistory: (seed?.limitHistory ?? []).map((r) => ({ ...r })),
     purchaseOrders: (seed?.purchaseOrders ?? []).map((r) => ({ ...r })),
     webhookEvents: (seed?.webhookEvents ?? []).map((r) => ({ ...r })),
+    bureauReportLog: (seed?.bureauReportLog ?? []).map((r) => ({ ...r })),
   };
   const rowsOf = (t: string): any[] =>
     t === "credit_accounts" ? store.accounts
@@ -261,6 +288,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     : t === "credit_limit_history" ? store.limitHistory
     : t === "purchase_orders" ? store.purchaseOrders
     : t === "processed_webhook_events" ? store.webhookEvents
+    : t === "bureau_report_log" ? store.bureauReportLog
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────
@@ -331,6 +359,16 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       if (sig === "id") {
         rows = rows.filter((r) => r.id === values[0]);
       } else throw new Error(`fakeDb select processed_webhook_events: unhandled ${sig}`);
+    } else if (t === "bureau_report_log") {
+      if (sig === "status") {
+        // inArray(status, [...]) — values may arrive nested
+        const statuses = (values as unknown[]).flat();
+        rows = rows.filter((r) => statuses.includes(r.status));
+      } else if (sig === "account_id") {
+        rows = rows.filter((r) => r.accountId === values[0]);
+      } else if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else throw new Error(`fakeDb select bureau_report_log: unhandled ${sig}`);
     }
     // orderBy
     for (const { prop, desc } of decodeOrder(orderExprs).reverse()) {
@@ -369,6 +407,9 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         suspended: values.suspended ?? false,
         suspendedAt: values.suspendedAt ?? null,
         suspensionReason: values.suspensionReason ?? null,
+        bureauConsentAt: values.bureauConsentAt ?? null,
+        bureauConsentRef: values.bureauConsentRef ?? null,
+        facilityId: values.facilityId ?? null,
         createdAt: values.createdAt ?? new Date(),
         updatedAt: values.updatedAt ?? new Date(),
       };
@@ -429,6 +470,21 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       store.ledger.push(row);
       return { ...row };
     }
+    if (t === "bureau_report_log") {
+      const row: BureauLogRow = {
+        id: values.id ?? randomUUID(),
+        accountId: values.accountId,
+        eventType: values.eventType,
+        bureau: values.bureau,
+        status: values.status ?? "pending",
+        payload: values.payload ?? null,
+        response: values.response ?? null,
+        createdAt: values.createdAt ?? new Date(),
+        updatedAt: values.updatedAt ?? new Date(),
+      };
+      store.bureauReportLog.push(row);
+      return { ...row };
+    }
     throw new Error(`fakeDb insert: unhandled ${t}`);
   }
 
@@ -468,6 +524,9 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         } else if (sig === "buyer_tenant_id,mandate_id") {
           // mandate revoke detach: buyer + linked mandate
           ok = r.buyerTenantId === values[0] && r.mandateId === values[1];
+        } else if (sig === "id") {
+          // bureau-consent stamp post-insert / plain id-scoped update
+          ok = r.id === values[0];
         } else throw new Error(`fakeDb update credit_accounts: unhandled ${sig}`);
         if (!ok) continue;
         for (const [k, v] of Object.entries(set)) {
@@ -536,6 +595,18 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
           // settleDrawToSupplier claim: id + status='invoiced'
           ok = r.id === values[0] && r.status === values[1];
         } else throw new Error(`fakeDb update purchase_orders: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
+    if (t === "bureau_report_log") {
+      for (const r of store.bureauReportLog) {
+        let ok = false;
+        if (sig === "id") {
+          ok = r.id === values[0];
+        } else throw new Error(`fakeDb update bureau_report_log: unhandled ${sig}`);
         if (!ok) continue;
         for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
         matched.push({ ...r });

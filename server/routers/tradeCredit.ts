@@ -160,6 +160,14 @@ export const tradeCreditRouter = router({
       accountId: z.string().min(1),
       limitCents: z.number().int().min(0).optional(),
       termsDays: z.number().int().min(1).max(365).optional(),
+      /**
+       * W14: the buyer accepted the bureau-reporting terms
+       * (BUREAU_CONSENT_TEXT in services/i18n). NOT a hard approval gate
+       * (Nigeria legal review pending) — but non-consented accounts are
+       * excluded from bureau reporting and a consent_missing warning is
+       * emitted so ops can chase consent capture.
+       */
+      bureauConsent: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       assertTenantAccess(ctx.user, input.supplierTenantId);
@@ -189,6 +197,21 @@ export const tradeCreditRouter = router({
       const row = await approveCreditAccountTx(db, input);
       if (!row) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Pending credit account not found" });
+      }
+      // W14: consent is advisory (not a gate) but MUST be visible — a
+      // facility activated without bureau consent is excluded from bureau
+      // reporting until the buyer accepts the terms.
+      if (!row.bureauConsentAt) {
+        console.warn(
+          JSON.stringify({
+            level: "warn",
+            metric: "consent_missing",
+            accountId: row.id,
+            supplierTenantId: row.supplierTenantId,
+            buyerTenantId: row.buyerTenantId,
+            reason: "credit account activated without bureau-reporting consent",
+          }),
+        );
       }
       return row;
     }),
@@ -267,6 +290,8 @@ export const tradeCreditRouter = router({
       buyerTenantId: z.string().min(1),
       supplierTenantId: z.string().min(1),
       note: z.string().max(500).optional(),
+      /** W14: buyer accepted the bureau-reporting terms (BUREAU_CONSENT_TEXT). */
+      bureauConsent: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       assertTenantAccess(ctx.user, input.buyerTenantId);

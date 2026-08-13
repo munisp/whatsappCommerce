@@ -109,6 +109,18 @@ export const ENV = {
   flwSecretKey: process.env.FLW_SECRET_KEY ?? "",
   paystackWebhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET ?? "",
   flwWebhookSecret: process.env.FLW_WEBHOOK_SECRET ?? "",
+  // ── W14: credit-bureau reporting (roadmap F3). ALL OPTIONAL — unset means
+  // the 'disabled' adapter: events are still logged to bureau_report_log as
+  // 'pending' for later backfill, no network is touched. NOT prod-required:
+  // bureau reporting is additive and never gates the money path.
+  //   BUREAU_PROVIDER   'disabled' (default) | 'crc' | 'creditregistry' | 'customHttp'
+  //   BUREAU_API_BASE   bureau endpoint base URL (full URL for customHttp)
+  //   BUREAU_API_KEY    bureau credential (never logged; redacted from payloads)
+  //   BUREAU_TIMEOUT_MS per-send timeout (default 8000)
+  bureauProvider: process.env.BUREAU_PROVIDER ?? "disabled",
+  bureauApiBase: process.env.BUREAU_API_BASE ?? "",
+  bureauApiKey: process.env.BUREAU_API_KEY ?? "",
+  bureauTimeoutMs: parseInt(process.env.BUREAU_TIMEOUT_MS ?? "8000"),
 };
 
 // ─── Fail-closed startup checks (production-like envs — see isProd) ─────────

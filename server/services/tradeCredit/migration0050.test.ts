@@ -59,7 +59,8 @@ describe("0050_credit_mandates.sql", () => {
 
 describe("drizzle meta", () => {
   it("journal registers idx 50 as 0050_credit_mandates", () => {
-    const entry = journal.entries[journal.entries.length - 1];
+    // idx 50 registered (newer waves append after it — find by idx, not position).
+    const entry = journal.entries.find((e: any) => e.idx === 50);
     expect(entry).toMatchObject({ idx: 50, tag: "0050_credit_mandates", breakpoints: true });
     // Monotonic idx chain.
     expect(journal.entries.map((e: any) => e.idx)).toEqual(
