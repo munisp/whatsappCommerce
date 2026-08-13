@@ -23,78 +23,31 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { paymentMandates, type PaymentMandate } from "../../../drizzle/schema";
 import { isProd } from "../../_core/env";
-import * as registry from "./providers/registry";
+import { getMandateCapableProviders as registryMandateCapable } from "./providers/registry";
+import type { TenantProviderEntry } from "./providers/registry";
 import type { PaymentProvider } from "./providers/types";
 
-// ── Mandate-capable provider contract (structural — additive optional
-// members the payments wave attaches to PaymentProvider). Defined locally so
-// this module compiles/type-checks before the provider-side merge lands; the
-// shapes are exactly the agreed contract.
-export interface MandateCreateCtx {
-  tenantId: string;
-  customerRef?: string;
-  amountLimitCents?: number;
-  currency: string;
-  email?: string;
-  phone?: string;
-  metadata?: Record<string, unknown>;
-}
-export interface MandateCreateResult {
-  ok: boolean;
-  mandateRef?: string;
-  authorizationUrl?: string;
-  instructions?: string;
-  provider: string;
-  error?: string;
-}
-export interface MandateChargeCtx {
-  mandateRef: string;
-  amountCents: number;
-  currency: string;
-  reference: string;
-  metadata?: Record<string, unknown>;
-}
-export interface MandateChargeResult {
-  ok: boolean;
-  reference: string;
-  status: "success" | "pending" | "failed";
-  provider: string;
-  error?: string;
-}
-export type MandateCapableProvider = PaymentProvider & {
-  supportsMandates?: boolean;
-  createMandate?(ctx: MandateCreateCtx, creds: unknown): Promise<MandateCreateResult>;
-  chargeMandate?(ctx: MandateChargeCtx, creds: unknown): Promise<MandateChargeResult>;
-  revokeMandate?(mandateRef: string, creds: unknown): Promise<{ ok: boolean }>;
-};
+export type {
+  MandateChargeCtx,
+  MandateChargeResult,
+  MandateCreateCtx,
+  MandateCreateResult,
+} from "./providers/types";
 
-export interface MandateProviderEntry {
-  provider: MandateCapableProvider;
-  creds: unknown;
-  config: { priority: number };
-}
+/** PaymentProvider with the (optional) mandate capability present. */
+export type MandateCapableProvider = PaymentProvider;
+
+export type MandateProviderEntry = TenantProviderEntry;
 
 /**
- * Resolve mandate-capable providers for a tenant. Prefers the registry's
- * getMandateCapableProviders helper once the provider-side wave lands;
- * until then (or when it is absent) falls back to filtering the tenant's
- * fallback chain by the optional supportsMandates capability. Fail-closed:
- * any registry error resolves to an empty list.
+ * Resolve mandate-capable providers for a tenant via the registry helper
+ * (provider-side wave). Fail-closed: any registry error resolves to an
+ * empty list.
  */
 export async function getMandateCapableProviders(tenantId: string): Promise<MandateProviderEntry[]> {
   try {
-    const reg = registry as unknown as {
-      getMandateCapableProviders?: (tenantId: string) => Promise<MandateProviderEntry[]>;
-      getProviderForTenant: (tenantId: string) => Promise<MandateProviderEntry[]>;
-    };
-    if (typeof reg.getMandateCapableProviders === "function") {
-      const entries = await reg.getMandateCapableProviders(tenantId);
-      return (entries ?? []).filter(
-        (e) => e?.provider?.supportsMandates === true && typeof e.provider.createMandate === "function",
-      );
-    }
-    const chain = await reg.getProviderForTenant(tenantId);
-    return (chain ?? []).filter(
+    const entries = await registryMandateCapable(tenantId);
+    return (entries ?? []).filter(
       (e) => e?.provider?.supportsMandates === true && typeof e.provider.createMandate === "function",
     );
   } catch (err: any) {
@@ -212,7 +165,7 @@ export async function createMandateForTenant(
     const res = await entry.provider.createMandate(
       {
         tenantId: args.tenantId,
-        customerRef: args.customerRef,
+        customerRef: args.customerRef ?? args.tenantId,
         amountLimitCents: args.amountLimitCents,
         currency,
         email: args.email,
