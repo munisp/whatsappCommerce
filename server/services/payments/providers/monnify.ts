@@ -70,6 +70,8 @@ async function getToken(c: MonnifyCreds, baseUrl: string): Promise<string> {
 export const monnifyProvider: PaymentProvider = {
   id: 'monnify',
   displayName: 'Monnify',
+  // No recurring/auto-debit mandate support (w13).
+  supportsMandates: false,
 
   async initiate(ctx: PaymentInitiateCtx, creds: unknown): Promise<PaymentInitiateResult> {
     const c = creds as MonnifyCreds;

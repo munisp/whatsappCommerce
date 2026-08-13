@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type {
+  MandateChargeCtx,
+  MandateChargeResult,
+  MandateCreateCtx,
+  MandateCreateResult,
   PaymentInitiateCtx,
   PaymentInitiateResult,
   PaymentProvider,
@@ -150,6 +154,161 @@ export const stripeProvider: PaymentProvider = {
       return { ok: true };
     } catch {
       return { ok: false, detail: 'connection failed' };
+    }
+  },
+
+  /* -------- mandate (recurring/auto-debit) ops — w13 -------- */
+  supportsMandates: true,
+
+  /**
+   * Stripe mandate = a saved off-session payment method. We create a
+   * Checkout Session in mode=setup (SetupIntent-consistent): the customer
+   * opens the session URL once to authorize and save their card; the
+   * resulting customer/payment_method pair (surfaced via webhook) becomes
+   * the mandateRef ("cus_...:pm_...").
+   */
+  async createMandate(ctx: MandateCreateCtx, creds: unknown): Promise<MandateCreateResult> {
+    const c = creds as StripeCreds;
+    try {
+      const params = new URLSearchParams();
+      params.set('mode', 'setup');
+      params.set('client_reference_id', ctx.customerRef);
+      params.set('currency', ctx.currency.toLowerCase());
+      if (ctx.email) params.set('customer_email', ctx.email);
+      params.set('success_url', 'https://wa.commerce/mandate/success');
+      params.set('cancel_url', 'https://wa.commerce/mandate/cancel');
+      params.set('metadata[mandate]', 'true');
+      params.set('metadata[customerRef]', ctx.customerRef);
+      params.set('metadata[tenantId]', ctx.tenantId);
+      for (const [k, v] of Object.entries(ctx.metadata ?? {})) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          params.set(`metadata[${k}]`, String(v));
+        }
+      }
+      const body = await stripeFetch(
+        '/v1/checkout/sessions',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+        },
+        c.secretKey,
+      );
+      const url = body?.url;
+      if (typeof url !== 'string' || !url) {
+        return { ok: false, provider: 'stripe', error: 'no checkout session url' };
+      }
+      return {
+        ok: true,
+        mandateRef: typeof body?.id === 'string' ? body.id : undefined,
+        authorizationUrl: url,
+        instructions: 'Customer must open the authorization URL once to save their card for future debits.',
+        provider: 'stripe',
+      };
+    } catch (e) {
+      return { ok: false, provider: 'stripe', error: e instanceof Error ? e.message : 'error' };
+    }
+  },
+
+  /**
+   * Charge a saved payment method off-session. mandateRef encodes
+   * "customerId:paymentMethodId". ctx.reference passes through verbatim as
+   * metadata.reference. HTTP 402 (card declined) maps to status 'failed',
+   * never throws.
+   */
+  async chargeMandate(ctx: MandateChargeCtx, creds: unknown): Promise<MandateChargeResult> {
+    const c = creds as StripeCreds;
+    const [customer, paymentMethod] = ctx.mandateRef.split(':');
+    if (!customer || !paymentMethod) {
+      return {
+        ok: false,
+        reference: ctx.reference,
+        status: 'failed',
+        provider: 'stripe',
+        error: 'mandateRef must be "customerId:paymentMethodId"',
+      };
+    }
+    try {
+      const params = new URLSearchParams();
+      params.set('amount', String(Math.round(ctx.amountCents)));
+      params.set('currency', ctx.currency.toLowerCase());
+      params.set('customer', customer);
+      params.set('payment_method', paymentMethod);
+      params.set('off_session', 'true');
+      params.set('confirm', 'true');
+      params.set('metadata[reference]', ctx.reference);
+      for (const [k, v] of Object.entries(ctx.metadata ?? {})) {
+        if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+          params.set(`metadata[${k}]`, String(v));
+        }
+      }
+      const res = await fetch(`${BASE}/v1/payment_intents`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+        headers: {
+          Authorization: `Bearer ${c.secretKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: params.toString(),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 402) {
+        // Card declined / requires action off-session — a clean failure.
+        return {
+          ok: false,
+          reference: ctx.reference,
+          status: 'failed',
+          provider: 'stripe',
+          error: body?.error?.message ?? 'card declined',
+        };
+      }
+      if (!res.ok) {
+        return {
+          ok: false,
+          reference: ctx.reference,
+          status: 'failed',
+          provider: 'stripe',
+          error: body?.error?.message ?? `HTTP ${res.status}`,
+        };
+      }
+      const s = String(body?.status ?? '').toLowerCase();
+      const status: 'success' | 'pending' | 'failed' =
+        s === 'succeeded' ? 'success' : s === 'canceled' ? 'failed' : 'pending';
+      return {
+        ok: status !== 'failed',
+        reference: ctx.reference,
+        status,
+        provider: 'stripe',
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        reference: ctx.reference,
+        status: 'failed',
+        provider: 'stripe',
+        error: e instanceof Error ? e.message : 'error',
+      };
+    }
+  },
+
+  /**
+   * Best-effort revoke: detach the payment method so it can no longer be
+   * charged. Failures are swallowed — callers mark the mandate revoked
+   * locally regardless.
+   */
+  async revokeMandate(mandateRef: string, creds: unknown): Promise<{ ok: boolean }> {
+    const c = creds as StripeCreds;
+    const [, paymentMethod] = mandateRef.split(':');
+    if (!paymentMethod) return { ok: false };
+    try {
+      await stripeFetch(
+        `/v1/payment_methods/${encodeURIComponent(paymentMethod)}/detach`,
+        { method: 'POST' },
+        c.secretKey,
+      );
+      return { ok: true };
+    } catch {
+      return { ok: false };
     }
   },
 };
