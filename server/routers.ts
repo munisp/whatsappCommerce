@@ -91,6 +91,7 @@ import { creditFacilitiesRouter } from "./routers/creditFacilities";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
+import { erpProvisionRouter } from "./routers/erpProvision";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -217,6 +218,7 @@ export const appRouter = router({
   creditRepay: creditRepayRouter,
   procurement: procurementRouter,
   onboardingCopilot: onboardingCopilotRouter,
+  erpProvision: erpProvisionRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
