@@ -2976,6 +2976,13 @@ export const creditAccounts = pgTable("credit_accounts", {
   suspended: boolean("suspended").notNull().default(false),
   suspendedAt: timestamp("suspended_at"),
   suspensionReason: varchar("suspension_reason", { length: 255 }),
+  // W14: credit-bureau consent capture (roadmap F3). bureauConsentAt is the
+  // buyer's acceptance timestamp of the bureau-reporting terms; accounts
+  // without it are EXCLUDED from bureau reporting (compliance/bureau.ts).
+  bureauConsentAt: timestamp("bureau_consent_at"),
+  bureauConsentRef: varchar("bureau_consent_ref", { length: 64 }),
+  // W14: link to the wholesale credit_facilities row funding this facility.
+  facilityId: varchar("facility_id", { length: 36 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -3025,6 +3032,49 @@ export const creditLimitHistory = pgTable("credit_limit_history", {
 ]);
 export type CreditLimitHistoryEntry = typeof creditLimitHistory.$inferSelect;
 export type NewCreditLimitHistoryEntry = typeof creditLimitHistory.$inferInsert;
+
+// ── W14: credit-bureau reporting + wholesale facilities (roadmap F3) ───────
+// bureau_report_log: one row per attempted bureau report. Status machine:
+// pending (never sent / send failed — retryable via retryFailedReports) →
+// sent | disputed (buyer disputes the reported datum). payload is the
+// REDACTED event body (secrets stripped before persist — compliance/bureau.ts).
+export const bureauReportLog = pgTable("bureau_report_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: varchar("account_id", { length: 36 }).notNull(),
+  eventType: varchar("event_type", { length: 30 }).notNull(), // 'disbursement' | 'repayment' | 'delinquency' | 'cure' | 'closure'
+  bureau: varchar("bureau", { length: 20 }).notNull(), // 'crc' | 'creditregistry' | 'customHttp' | 'disabled'
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // 'pending' | 'sent' | 'failed' | 'disputed'
+  payload: jsonb("payload"),
+  response: jsonb("response"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("bureau_report_log_account_idx").on(t.accountId),
+  index("bureau_report_log_status_idx").on(t.status),
+]);
+export type BureauReportLogEntry = typeof bureauReportLog.$inferSelect;
+export type NewBureauReportLogEntry = typeof bureauReportLog.$inferInsert;
+
+// credit_facilities: lender-side wholesale facilities that fund the
+// trade-credit book. commitment_cents is the lender's total commitment;
+// advance_rate_bps (default 8000 = 80%) caps the eligible collateral advance.
+// CONTRACT for W14-C2: keep column names/types exactly as written.
+export const creditFacilities = pgTable("credit_facilities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  lenderName: varchar("lender_name", { length: 255 }).notNull(),
+  facilityRef: varchar("facility_ref", { length: 64 }).notNull(),
+  commitmentCents: bigint("commitment_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  advanceRateBps: integer("advance_rate_bps").notNull().default(8000),
+  covenants: jsonb("covenants"),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("credit_facilities_ref_uniq").on(t.facilityRef),
+]);
+export type CreditFacility = typeof creditFacilities.$inferSelect;
+export type NewCreditFacility = typeof creditFacilities.$inferInsert;
 
 // Append-only credit ledger. amount_cents is always non-negative; direction
 // is encoded by kind: 'invoice_draw' + 'fee' raise exposure, 'repayment'

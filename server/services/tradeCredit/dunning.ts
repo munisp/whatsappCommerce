@@ -36,6 +36,7 @@ import { sendWhatsAppTemplate, sendWhatsAppText } from "../waSender";
 import { formatNairaCompact } from "./scoring";
 import { suspendOrderAccessTx } from "./enforcement";
 import { captureException } from "../observability";
+import { reportEvent } from "../compliance/bureau";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Late fee: 2% of the overdue draw amount, applied once at +3d. */
@@ -218,6 +219,20 @@ export async function runDunningCheckTx(
         if (frozenRow) {
           result.frozen += 1;
           justFroze = true;
+          // W14: bureau 'delinquency' event at the +7d freeze milestone
+          // (highest severity). Fire-and-forget; never throws.
+          await reportEvent(db, {
+            accountId: draw.creditAccountId,
+            eventType: "delinquency",
+            payload: {
+              drawId: draw.id,
+              amountCents: draw.amountCents,
+              currency: "NGN",
+              daysOverdue: offsetDays,
+              severity: "freeze",
+              occurredAt: now.toISOString(),
+            },
+          });
           // W13 credit control plane: the +7d freeze ALSO suspends the
           // buyer's order access with this supplier (claim-first; lifted
           // automatically when outstanding returns to 0 — repayment.ts).
@@ -241,6 +256,21 @@ export async function runDunningCheckTx(
             note: `Late fee ${LATE_FEE_RATE * 100}% of draw ${draw.id} at +${offsetDays}d overdue`,
           });
           result.feesApplied += 1;
+          // W14: bureau 'delinquency' event at the +3d late-fee milestone.
+          // Fire-and-forget; never throws. (The +7d freeze escalates with a
+          // second delinquency event, severity 'freeze'.)
+          await reportEvent(db, {
+            accountId: draw.creditAccountId,
+            eventType: "delinquency",
+            payload: {
+              drawId: draw.id,
+              amountCents: draw.amountCents,
+              currency: "NGN",
+              daysOverdue: offsetDays,
+              severity: "late_fee",
+              occurredAt: now.toISOString(),
+            },
+          });
         }
       }
 

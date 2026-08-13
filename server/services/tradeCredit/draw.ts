@@ -22,6 +22,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { creditAccounts, creditLedger } from "../../../drizzle/schema";
 import { getCreditAccountTx, type TxHandle } from "./accounts";
+import { reportEvent } from "../compliance/bureau";
 
 export interface DrawArgs {
   supplierTenantId: string;
@@ -97,7 +98,7 @@ export async function drawOnCreditTx(
   const termsDays = args.termsDays ?? account.termsDays;
   const dueDate = new Date(now.getTime() + termsDays * 24 * 60 * 60 * 1000);
 
-  return db.transaction(async (tx) => {
+  const result: DrawResult = await db.transaction(async (tx): Promise<DrawResult> => {
     // ── ATOMIC CLAIM: guard + increment in one statement ──────────────────
     const [claimed] = await tx
       .update(creditAccounts)
@@ -143,4 +144,25 @@ export async function drawOnCreditTx(
 
     return { ok: true, ledgerId: entry.id, outstandingAfter: claimed.outstandingCents };
   });
+
+  // W14: bureau 'disbursement' event on a successful draw. Fire-and-forget:
+  // reportEvent never throws and skips non-consented accounts internally.
+  // Runs AFTER the money-path transaction commits — bureau reporting can
+  // never block or roll back a draw.
+  if (result.ok) {
+    await reportEvent(db, {
+      accountId: account.id,
+      eventType: "disbursement",
+      payload: {
+        amountCents,
+        currency: "NGN",
+        ledgerId: result.ledgerId,
+        poId: args.poId,
+        dueDate: dueDate.toISOString(),
+        outstandingAfter: result.outstandingAfter,
+        occurredAt: now.toISOString(),
+      },
+    });
+  }
+  return result;
 }

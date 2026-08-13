@@ -48,6 +48,36 @@ export interface LocalePack {
   paidViaCredit: string;
 }
 
+/**
+ * W14: credit-bureau reporting consent text (roadmap F3), shown to the buyer
+ * before they accept trade-credit terms (tradeCredit.requestAccount /
+ * approveAccount bureauConsent flag). NDPR-aligned: explicit, specific,
+ * revocable via the dispute flow (compliance/bureau markDisputed).
+ */
+export const BUREAU_CONSENT_TEXT: Record<Locale, string> = {
+  en:
+    "Credit bureau reporting: by accepting, you agree that we may report your trade-credit " +
+    "facility activity (draws, repayments, delinquencies and cures) to licensed Nigerian credit " +
+    "bureaus (CRC Credit Bureau / CreditRegistry). You may dispute a report at any time.",
+  fr:
+    "Déclaration aux bureaux de crédit : en acceptant, vous autorisez la déclaration de " +
+    "l'activité de votre facilité de crédit (tirages, remboursements, retards et régularisations) " +
+    "aux bureaux de crédit nigérians agréés (CRC Credit Bureau / CreditRegistry). " +
+    "Vous pouvez contester un rapport à tout moment.",
+  ha:
+    "Bayar da rahoto ga hukumar bashi: ta amincewa, kun yarda mu bayar da rahoton ayyukan " +
+    "bashin kasuwanci (jayayya, biya, makara da gyara) ga hukumomin bashi da aka lasisata a " +
+    "Najeriya (CRC Credit Bureau / CreditRegistry). Kuna iya ƙalubalantar rahoto a kowane lokaci.",
+  yo:
+    "Ijabọ si ile-iṣẹ gbese: nipa gbigba gba, o gba pe a le jabọ awọn iṣẹ awin rẹ " +
+    "(awọn yiyọ, awọn sanwo, awọn idaduro ati awọn atunṣe) si awọn ile-iṣẹ gbese ti o gba " +
+    "iwe-aṣẹ ni Naijiria (CRC Credit Bureau / CreditRegistry). O le tako ijabọ kankan nigbakugba.",
+  ig:
+    "Akụkọ ụlọ ọrụ ịgba alaghachi: site na ịnakwere, ị kwenyere na anyị nwere ike ịkpesa " +
+    "ọrụ akwụmụgwọ gị (ịdọrọ, ịkwụghachi, ịgbaghara na ndozi) n'ụlọ ọrụ akwụmụgwọ " +
+    "Naịjirịa (CRC Credit Bureau / CreditRegistry). Ị nwere ike ịrụju akụkọ ọ bụla oge ọ bụla.",
+};
+
 export const LOCALE_PACKS: Record<Locale, LocalePack> = {
   en: {
     // Match keys for localizeMenuConfig — must mirror shared/waMenu.ts
