@@ -16,6 +16,7 @@ import {
   bigint,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { uuid } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -3095,6 +3096,15 @@ export const creditLedger = pgTable("credit_ledger", {
 }, (t) => [
   index("credit_ledger_account_idx").on(t.creditAccountId),
   index("credit_ledger_due_idx").on(t.dueDate),
+  // W14.1: exactly-once repayment per (account, ref). Scoped to repayment
+  // rows only — settlement_retry markers share the table with kind
+  // 'adjustment' and the SAME ref, so a full-table index would collide.
+  // Two concurrent retrySettlement calls now resolve to one insert; the
+  // loser sees 23505 and applyRepaymentTx translates it to an idempotent
+  // already_settled-style no-op.
+  uniqueIndex("credit_ledger_repayment_ref_uniq")
+    .on(t.creditAccountId, t.ref)
+    .where(sql`kind = 'repayment' AND ref IS NOT NULL`),
 ]);
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type NewCreditLedgerEntry = typeof creditLedger.$inferInsert;

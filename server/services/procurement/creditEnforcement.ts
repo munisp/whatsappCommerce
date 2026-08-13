@@ -22,6 +22,7 @@
  */
 import * as tradeCredit from "../tradeCredit";
 import { isCreditEnforcementStrict } from "../../_core/env";
+import { tr } from "../i18n";
 
 export interface OrderSuspension {
   suspended: boolean;
@@ -141,8 +142,21 @@ export async function settleCreditDrawToSupplier(args: {
 /**
  * Buyer-facing suspension message, e.g. used by the submit gate and the
  * WhatsApp flow: reason + "repay to restore ordering" guidance.
+ *
+ * W14.1: a fail-closed TRANSIENT outage verdict (unavailable: true — the
+ * suspension lookup itself failed, strict mode) renders neutral try-again
+ * copy (i18n `orderingUnavailable`), NEVER the dunning guidance — the buyer
+ * may owe nothing; "Repay your outstanding balance" would be a false
+ * accusation.
  */
-export function suspensionMessage(s: OrderSuspension, formatAmount: (cents: number) => string): string {
+export function suspensionMessage(
+  s: OrderSuspension,
+  formatAmount: (cents: number) => string,
+  locale?: string | null,
+): string {
+  if (s.unavailable) {
+    return tr(locale, "orderingUnavailable");
+  }
   const parts = ["Ordering is suspended with this supplier"];
   if (s.reason) parts.push(`— ${s.reason}`);
   const guidance = s.outstandingCents != null && s.outstandingCents > 0

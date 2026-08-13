@@ -35,6 +35,30 @@ export interface RepaymentArgs {
 export interface RepaymentResult {
   ok: boolean;
   outstandingAfter: number;
+  /**
+   * W14.1: true when the repayment was NOT applied because a repayment row
+   * with this ref already exists (unique index credit_ledger_repayment_ref_uniq,
+   * migration 0052). Idempotent exactly-once guarantee for concurrent
+   * retrySettlement calls: the loser of the race reports already-settled
+   * instead of double-settling or throwing.
+   */
+  alreadySettled?: boolean;
+}
+
+/** Postgres unique-violation on the repayment ref index (0052)? */
+function isRepaymentRefUniqueViolation(err: any): boolean {
+  const seen = new Set<any>();
+  let cur: any = err;
+  // node-postgres may nest the driver error under .cause — walk the chain.
+  while (cur && typeof cur === "object" && !seen.has(cur)) {
+    seen.add(cur);
+    if (String(cur.code ?? "") === "23505") {
+      const where = `${cur.constraint ?? ""} ${cur.constraint_name ?? ""} ${cur.message ?? ""}`;
+      if (where.includes("credit_ledger_repayment_ref_uniq")) return true;
+    }
+    cur = cur.cause;
+  }
+  return false;
 }
 
 export async function applyRepaymentTx(
@@ -48,7 +72,9 @@ export async function applyRepaymentTx(
     return { ok: false, outstandingAfter: account?.outstandingCents ?? 0 };
   }
 
-  const result = await db.transaction(async (tx) => {
+  let result: RepaymentResult;
+  try {
+    result = await db.transaction(async (tx) => {
     // ── ATOMIC CLAIM: refuse over-repayment inside the guard ──────────────
     const [claimed] = await tx
       .update(creditAccounts)
@@ -126,11 +152,24 @@ export async function applyRepaymentTx(
     }
 
     return { ok: true, outstandingAfter: claimed.outstandingCents };
-  });
+    });
+  } catch (err: any) {
+    // W14.1: a concurrent applyRepaymentTx/retrySettlement with the SAME ref
+    // won the insert race — the unique index (0052) rejected our repayment
+    // row and the transaction rolled back (no decrement, no ledger row, no
+    // FIFO flip). Translate to an idempotent already-settled no-op instead
+    // of throwing into the caller.
+    if (isRepaymentRefUniqueViolation(err)) {
+      const account = await getCreditAccountByIdTx(db, args.accountId);
+      return { ok: true, outstandingAfter: account?.outstandingCents ?? 0, alreadySettled: true };
+    }
+    throw err;
+  }
 
   // W14: bureau events AFTER the money-path transaction commits — never
   // blocking, never throwing (reportEvent skips non-consented accounts).
-  if (result.ok) {
+  // alreadySettled no-ops skip re-reporting: the winner already reported.
+  if (result.ok && !result.alreadySettled) {
     await reportEvent(db, {
       accountId: args.accountId,
       eventType: "repayment",

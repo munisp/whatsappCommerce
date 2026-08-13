@@ -67,7 +67,7 @@ describe("drizzle meta (idx 51)", () => {
     expect(e50?.tag).toBe("0050_credit_mandates");
     expect(e51?.tag).toBe("0051_bureau_facilities");
     expect(e51.when).toBeGreaterThan(e50.when);
-    expect(journal.entries[journal.entries.length - 1].idx).toBe(51);
+    expect(journal.entries[journal.entries.length - 1].idx).toBeGreaterThanOrEqual(51); // 0052+ may follow
   });
 
   it("snapshot 0051 prevId chains to snapshot 0050 id", () => {

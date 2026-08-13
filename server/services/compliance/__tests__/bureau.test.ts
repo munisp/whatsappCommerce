@@ -185,6 +185,44 @@ describe("redaction", () => {
     expect(body.token).toBe("[redacted]");
     expect(body.amountCents).toBe(1);
   });
+
+  // W14.1 — success-path response redaction (previously persisted raw).
+  it("secret-ish keys in the SUCCESS response are redacted before persist; provenance intact", async () => {
+    const { account, db, store } = consentedSeed();
+    const http = makeFakeHttp({
+      routes: {
+        "https://crc.example.test": {
+          status: 200,
+          body: { ack: "a1", ref: "crc-99", sessionToken: "abc123", nested: { password: "pw", note: "ok" } },
+        },
+      },
+    });
+    const res = await reportEvent(
+      db,
+      { accountId: account.id, eventType: "repayment", payload: { amountCents: 5 } },
+      { env: ENV_CRC, http },
+    );
+    expect(res).toMatchObject({ reported: true, status: "sent" });
+    const row = store.bureauReportLog[0];
+    expect(row.status).toBe("sent");
+    expect(row.response).toEqual({ ack: "a1", ref: "crc-99", sessionToken: "[redacted]", nested: { password: "[redacted]", note: "ok" } });
+  });
+
+  it("an api-key value echoed in the SUCCESS response body is redacted before persist", async () => {
+    const { account, db, store } = consentedSeed();
+    const http = makeFakeHttp({
+      routes: { "https://crc.example.test": { status: 200, body: { ack: "a1", echo: "key=sekret-key-123 ok" } } },
+    });
+    await reportEvent(
+      db,
+      { accountId: account.id, eventType: "repayment", payload: { amountCents: 5 } },
+      { env: ENV_CRC, http },
+    );
+    const stored = JSON.stringify(store.bureauReportLog[0].response);
+    expect(stored).not.toContain("sekret-key-123");
+    expect(stored).toContain("[REDACTED]");
+    expect(stored).toContain("a1"); // provenance intact
+  });
 });
 
 // ── reportEvent ─────────────────────────────────────────────────────────────

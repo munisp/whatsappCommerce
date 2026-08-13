@@ -365,7 +365,8 @@ describe("createPo router gate", () => {
         }),
       ).rejects.toMatchObject({
         code: "FORBIDDEN",
-        message: expect.stringContaining("credit status unavailable, try again"),
+        // W14.1: transient outage → neutral try-again copy, never dunning.
+        message: expect.stringContaining("couldn't confirm your credit status"),
       });
     } finally {
       delete process.env.CREDIT_ENFORCEMENT_STRICT;

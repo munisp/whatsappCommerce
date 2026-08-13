@@ -7,8 +7,6 @@
  * and reports every breach. All comparisons are percentage points (0-100),
  * computed from integer cents.
  */
-import { eq } from "drizzle-orm";
-import { creditAccountsExt } from "./tables";
 import { FacilityNotFoundError, getFacilityById, getFacilityUtilization, type TxHandle } from "./facilities";
 import { generateLoanBookTape } from "./tape";
 
@@ -79,10 +77,14 @@ export async function checkFacilityCovenants(
   const utilization = await getFacilityUtilization(db, facilityId);
   const tape = await generateLoanBookTape(db, { facilityId, asOf: args.asOf });
 
-  const accounts = await db.select().from(creditAccountsExt).where(eq(creditAccountsExt.facilityId, facilityId));
+  // W14.1: derive the singleBuyer numerator from the SAME asOf snapshot as
+  // the denominator (tape rows). Previously the numerator came from a
+  // current-state credit_accounts_ext query while the denominator was
+  // asOf-sensitive — a backdated check mixed two points in time and could
+  // over/under-state concentration.
   const outstandingByBuyer = new Map<string, number>();
-  for (const a of accounts) {
-    outstandingByBuyer.set(a.buyerTenantId, (outstandingByBuyer.get(a.buyerTenantId) ?? 0) + a.outstandingCents);
+  for (const r of tape.rows) {
+    outstandingByBuyer.set(r.buyerTenantId, (outstandingByBuyer.get(r.buyerTenantId) ?? 0) + r.outstandingCents);
   }
 
   const metrics: CovenantMetrics = {
