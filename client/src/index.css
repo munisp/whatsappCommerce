@@ -1,6 +1,18 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/*
+ * Tailwind v4's automatic content detection scans relative to each Vite
+ * app's `root`, not relative to this file. That's fine for the original
+ * client/ app (root = client/, same directory as this file) but the two
+ * standalone apps under ui/ have their own root and alias `@` back into
+ * this directory — without an explicit @source pointing here, their build
+ * never sees the classes actually used in these components and ships a
+ * near-empty stylesheet. @source paths are always resolved relative to
+ * this file, so this is a no-op for the main app and the fix for the rest.
+ */
+@source "./";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

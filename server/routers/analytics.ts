@@ -1,17 +1,16 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
-
-const adminProcedure = protectedProcedure;
 
 export const analyticsRouter = router({
   platformOverview: adminProcedure.query(async () => {
     return db.getPlatformOverview();
   }),
 
-  tenantDashboard: adminProcedure
+  tenantDashboard: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const [convStats, orderStats, productStats, agentStats, customerCount] = await Promise.all([
         db.getConversationStats(input.tenantId),
         db.getOrderStats(input.tenantId),

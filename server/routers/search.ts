@@ -16,7 +16,7 @@ export const searchRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
-      return osSearch("wa_messages", input.query, input.limit);
+      return osSearch("wa_messages", input.query, input.tenantId, input.limit);
     }),
 
   /** Index a WhatsApp message into OpenSearch */
@@ -50,7 +50,7 @@ export const searchRouter = router({
     }))
     .query(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
-      return osSearch("wa_orders", input.query, input.limit);
+      return osSearch("wa_orders", input.query, input.tenantId, input.limit);
     }),
 });
 

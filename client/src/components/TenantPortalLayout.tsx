@@ -30,7 +30,13 @@ const NAV = [
 export function TenantPortalLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { user } = useAuth();
-  const logoutMutation = trpc.auth.logout.useMutation({ onSuccess: () => window.location.href = "/portal" });
+  // BASE_URL reflects the Vite `base` this component was built under — "/"
+  // for the legacy combined client, "/tenant-portal/" when built into the
+  // standalone ui/tenant-portal app — so the redirect stays inside whichever
+  // app the user is actually in instead of hard-navigating to root.
+  const logoutMutation = trpc.auth.logout.useMutation({
+    onSuccess: () => { window.location.href = `${import.meta.env.BASE_URL}portal`; },
+  });
   const [tenantId, setTenantId] = useState("");
   const [ssoLoading, setSsoLoading] = useState(false);
 
@@ -115,7 +121,7 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
           </div>
           <p className="mt-6 text-xs text-slate-500">
             Not a merchant yet?{" "}
-            <Link href="/onboarding" className="text-emerald-400 hover:underline">
+            <Link href="/onboarding-wizard" className="text-emerald-400 hover:underline">
               Start onboarding
             </Link>
           </p>

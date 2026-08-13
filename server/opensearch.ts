@@ -50,15 +50,24 @@ export async function osIndex(index: string, id: string, body: Record<string, un
   }
 }
 
-/** Search documents with a query string. */
-export async function osSearch(index: string, query: string, size = 20): Promise<unknown[]> {
+/**
+ * Search documents with a query string, scoped to a single tenant.
+ * tenantId is required — every indexed document here carries a tenantId
+ * field, and results must never cross tenant boundaries.
+ */
+export async function osSearch(index: string, query: string, tenantId: string, size = 20): Promise<unknown[]> {
   const client = await getClient();
   if (!client) return [];
   try {
     const resp = await client.search({
       index,
       body: {
-        query: { multi_match: { query, fields: ["*"], fuzziness: "AUTO" } },
+        query: {
+          bool: {
+            must: { multi_match: { query, fields: ["*"], fuzziness: "AUTO" } },
+            filter: { term: { tenantId } },
+          },
+        },
         size,
       },
     });

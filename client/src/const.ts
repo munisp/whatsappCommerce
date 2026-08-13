@@ -14,7 +14,12 @@ export const startLogin = () => {
   const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL ?? "http://localhost:8080";
   const keycloakRealm = import.meta.env.VITE_KEYCLOAK_REALM ?? "wacommerce";
   const clientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? "wacommerce-app";
-  const redirectUri = `${window.location.origin}/api/oauth/callback`;
+  const redirectUri = `${window.location.origin}/api/auth/callback`;
+  // Land back on whichever app/page the user actually started from — the
+  // callback previously always defaulted to "/", which stranded logins
+  // initiated from ui/platform-admin or ui/tenant-portal on the legacy
+  // combined client instead of returning to the app they were in.
+  const returnTo = `${window.location.pathname}${window.location.search}`;
 
   // Generate PKCE code verifier and challenge
   const nonce = crypto.randomUUID();
@@ -25,7 +30,7 @@ export const startLogin = () => {
   sessionStorage.setItem("oauth_nonce", nonce);
 
   // Write state cookie for CSRF protection
-  const state = encodeOAuthState({ redirectUri, nonce });
+  const state = encodeOAuthState({ redirectUri, nonce, returnTo });
   document.cookie = `${OAUTH_STATE_COOKIE}=${nonce}; Path=/; Max-Age=600; SameSite=Lax`;
 
   // Build Keycloak authorization URL

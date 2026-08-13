@@ -29,23 +29,23 @@ ON CONFLICT DO NOTHING;
 
 -- Orders (paymentStatus enum: unpaid/pending/paid/refunded/failed)
 INSERT INTO orders (id, "tenantId", "customerId", "conversationId", "orderNumber", status, "totalAmount", currency, "paymentStatus", items) VALUES
-('ord-001', 'tenant-001', 'cust-001', 'conv-001', 'ORD-2026-001', 'confirmed', 4250.00, 'NGN', 'paid', '[{"sku":"FRU-001","name":"Fresh Tomatoes","qty":3,"price":850},{"sku":"FRU-002","name":"Plantain Bunch","qty":1,"price":1200}]'),
-('ord-002', 'tenant-001', 'cust-002', 'conv-002', 'ORD-2026-002', 'shipped', 2500.00, 'NGN', 'paid', '[{"sku":"GRN-001","name":"Ugu Leaves","qty":5,"price":500}]'),
-('ord-003', 'tenant-002', 'cust-003', 'conv-003', 'ORD-2026-003', 'delivered', 86500.00, 'KES', 'paid', '[{"sku":"TECH-001","name":"Samsung Galaxy A55","qty":1,"price":58000},{"sku":"ACC-001","name":"USB-C Charger","qty":2,"price":3200}]'),
+('ord-001', 'tenant-001', 'cust-001', 'conv-001', 'ORD-2026-001', 'confirmed', 4250.00, 'NGN', 'completed', '[{"sku":"FRU-001","name":"Fresh Tomatoes","qty":3,"price":850},{"sku":"FRU-002","name":"Plantain Bunch","qty":1,"price":1200}]'),
+('ord-002', 'tenant-001', 'cust-002', 'conv-002', 'ORD-2026-002', 'shipped', 2500.00, 'NGN', 'completed', '[{"sku":"GRN-001","name":"Ugu Leaves","qty":5,"price":500}]'),
+('ord-003', 'tenant-002', 'cust-003', 'conv-003', 'ORD-2026-003', 'delivered', 86500.00, 'KES', 'completed', '[{"sku":"TECH-001","name":"Samsung Galaxy A55","qty":1,"price":58000},{"sku":"ACC-001","name":"USB-C Charger","qty":2,"price":3200}]'),
 ('ord-004', 'tenant-002', 'cust-004', 'conv-004', 'ORD-2026-004', 'pending', 28500.00, 'KES', 'unpaid', '[{"sku":"TECH-002","name":"Infinix Hot 40 Pro","qty":1,"price":28500}]'),
-('ord-005', 'tenant-003', 'cust-005', 'conv-005', 'ORD-2026-005', 'confirmed', 3300.00, 'ZAR', 'paid', '[{"sku":"BTQ-001","name":"Ankara Dress","qty":1,"price":1200},{"sku":"BTQ-002","name":"Beaded Necklace","qty":2,"price":450}]'),
-('ord-006', 'tenant-004', 'cust-007', 'conv-006', 'ORD-2026-006', 'delivered', 840.00, 'GHS', 'paid', '[{"sku":"FSH-001","name":"Kente Shirt","qty":3,"price":280}]'),
-('ord-007', 'tenant-005', 'cust-008', 'conv-007', 'ORD-2026-007', 'confirmed', 28000.00, 'EGP', 'pending', '[{"sku":"ELC-001","name":"HP Laptop","qty":1,"price":28000}]')
+('ord-005', 'tenant-003', 'cust-005', 'conv-005', 'ORD-2026-005', 'confirmed', 3300.00, 'ZAR', 'completed', '[{"sku":"BTQ-001","name":"Ankara Dress","qty":1,"price":1200},{"sku":"BTQ-002","name":"Beaded Necklace","qty":2,"price":450}]'),
+('ord-006', 'tenant-004', 'cust-007', 'conv-006', 'ORD-2026-006', 'delivered', 840.00, 'GHS', 'completed', '[{"sku":"FSH-001","name":"Kente Shirt","qty":3,"price":280}]'),
+('ord-007', 'tenant-005', 'cust-008', 'conv-007', 'ORD-2026-007', 'confirmed', 28000.00, 'EGP', 'initiated', '[{"sku":"ELC-001","name":"HP Laptop","qty":1,"price":28000}]')
 ON CONFLICT DO NOTHING;
 
 -- Payment Intents (correct column: providerPaymentId not providerRef; status enum: initiated/pending/succeeded/failed/cancelled/refunded)
 INSERT INTO payment_intents (id, "tenantId", "orderId", "customerId", amount, currency, status, provider, "idempotencyKey", "providerPaymentId") VALUES
-('pi-001', 'tenant-001', 'ord-001', 'cust-001', 4250.00, 'NGN', 'succeeded', 'paystack', 'idem-001', 'PAY-001-NG'),
-('pi-002', 'tenant-001', 'ord-002', 'cust-002', 2500.00, 'NGN', 'succeeded', 'paystack', 'idem-002', 'PAY-002-NG'),
-('pi-003', 'tenant-002', 'ord-003', 'cust-003', 86500.00, 'KES', 'succeeded', 'stripe', 'idem-003', 'pi_stripe_003'),
+('pi-001', 'tenant-001', 'ord-001', 'cust-001', 4250.00, 'NGN', 'completed', 'paystack', 'idem-001', 'PAY-001-NG'),
+('pi-002', 'tenant-001', 'ord-002', 'cust-002', 2500.00, 'NGN', 'completed', 'paystack', 'idem-002', 'PAY-002-NG'),
+('pi-003', 'tenant-002', 'ord-003', 'cust-003', 86500.00, 'KES', 'completed', 'stripe', 'idem-003', 'pi_stripe_003'),
 ('pi-004', 'tenant-002', 'ord-004', 'cust-004', 28500.00, 'KES', 'pending', 'stripe', 'idem-004', NULL),
-('pi-005', 'tenant-003', 'ord-005', 'cust-005', 3300.00, 'ZAR', 'succeeded', 'stripe', 'idem-005', 'pi_stripe_005'),
-('pi-006', 'tenant-004', 'ord-006', 'cust-007', 840.00, 'GHS', 'succeeded', 'paystack', 'idem-006', 'PAY-006-GH'),
+('pi-005', 'tenant-003', 'ord-005', 'cust-005', 3300.00, 'ZAR', 'completed', 'stripe', 'idem-005', 'pi_stripe_005'),
+('pi-006', 'tenant-004', 'ord-006', 'cust-007', 840.00, 'GHS', 'completed', 'paystack', 'idem-006', 'PAY-006-GH'),
 ('pi-007', 'tenant-005', 'ord-007', 'cust-008', 28000.00, 'EGP', 'pending', 'stripe', 'idem-007', NULL)
 ON CONFLICT DO NOTHING;
 
@@ -72,11 +72,11 @@ ON CONFLICT DO NOTHING;
 
 -- WhatsApp Templates (no status column — use isActive boolean)
 INSERT INTO whatsapp_templates (id, "tenantId", name, category, language, "headerText", "bodyText", "footerText", variables, "usageCount", "isActive") VALUES
-('tpl-001', 'tenant-001', 'Order Confirmation', 'TRANSACTIONAL', 'en', 'Order Confirmed ✅', 'Hi {{customer_name}}, your order #{{order_number}} for {{total_amount}} has been confirmed! Expected delivery: {{delivery_date}}.', 'Lagos Fresh Market', '["customer_name","order_number","total_amount","delivery_date"]', 142, true),
-('tpl-002', 'tenant-001', 'Shipping Update', 'TRANSACTIONAL', 'en', 'Your Order is on the Way 🚚', 'Hi {{customer_name}}, order #{{order_number}} is now with our delivery partner. Track here: {{tracking_link}}', 'Lagos Fresh Market', '["customer_name","order_number","tracking_link"]', 98, true),
-('tpl-003', 'tenant-002', 'Payment Reminder', 'TRANSACTIONAL', 'en', 'Payment Pending ⏰', 'Hi {{customer_name}}, your order #{{order_number}} worth {{amount}} is awaiting payment. Pay now: {{payment_link}}', 'Nairobi Tech Store', '["customer_name","order_number","amount","payment_link"]', 67, true),
-('tpl-004', 'tenant-002', 'Welcome Message', 'MARKETING', 'en', 'Welcome to Nairobi Tech Store! 🎉', 'Hi {{customer_name}}! Welcome to Nairobi Tech Store. Browse our latest phones and accessories. Type MENU to get started.', 'Nairobi Tech Store', '["customer_name"]', 312, true),
-('tpl-005', 'tenant-003', 'Flash Sale Alert', 'MARKETING', 'en', '🔥 Flash Sale — {{discount}}% OFF Today Only!', 'Hi {{customer_name}}, our {{sale_name}} is LIVE! Get {{discount}}% off all items. Use code {{promo_code}} at checkout. Valid until {{expiry_time}}.', 'Cape Town Boutique', '["customer_name","sale_name","discount","promo_code","expiry_time"]', 0, false)
+('tpl-001', 'tenant-001', 'Order Confirmation', 'order_confirmation', 'en', 'Order Confirmed ✅', 'Hi {{customer_name}}, your order #{{order_number}} for {{total_amount}} has been confirmed! Expected delivery: {{delivery_date}}.', 'Lagos Fresh Market', '["customer_name","order_number","total_amount","delivery_date"]', 142, true),
+('tpl-002', 'tenant-001', 'Shipping Update', 'shipping_update', 'en', 'Your Order is on the Way 🚚', 'Hi {{customer_name}}, order #{{order_number}} is now with our delivery partner. Track here: {{tracking_link}}', 'Lagos Fresh Market', '["customer_name","order_number","tracking_link"]', 98, true),
+('tpl-003', 'tenant-002', 'Payment Reminder', 'payment_reminder', 'en', 'Payment Pending ⏰', 'Hi {{customer_name}}, your order #{{order_number}} worth {{amount}} is awaiting payment. Pay now: {{payment_link}}', 'Nairobi Tech Store', '["customer_name","order_number","amount","payment_link"]', 67, true),
+('tpl-004', 'tenant-002', 'Welcome Message', 'welcome', 'en', 'Welcome to Nairobi Tech Store! 🎉', 'Hi {{customer_name}}! Welcome to Nairobi Tech Store. Browse our latest phones and accessories. Type MENU to get started.', 'Nairobi Tech Store', '["customer_name"]', 312, true),
+('tpl-005', 'tenant-003', 'Flash Sale Alert', 'promotion', 'en', '🔥 Flash Sale — {{discount}}% OFF Today Only!', 'Hi {{customer_name}}, our {{sale_name}} is LIVE! Get {{discount}}% off all items. Use code {{promo_code}} at checkout. Valid until {{expiry_time}}.', 'Cape Town Boutique', '["customer_name","sale_name","discount","promo_code","expiry_time"]', 0, false)
 ON CONFLICT DO NOTHING;
 
 -- Template Versions (correct columns: changedBy not createdBy)

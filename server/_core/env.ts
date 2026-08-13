@@ -67,6 +67,8 @@ export const ENV = {
   // Fluvio
   fluvioEndpoint: process.env.FLUVIO_ENDPOINT ?? "http://fluvio-sc:9003",
   fluvioConsumerUrl: process.env.FLUVIO_CONSUMER_URL ?? "http://fluvio-consumer:8098",
+  mlStackUrl: process.env.ML_STACK_URL ?? "http://localhost:8099",
+  reconWorkerUrl: process.env.RECON_WORKER_URL ?? "http://localhost:8096",
   // OpenAppSec WAF
   openappsecUrl: process.env.OPENAPPSEC_MGMT_URL ?? "",
   openappsecToken: process.env.OPENAPPSEC_TOKEN ?? "",

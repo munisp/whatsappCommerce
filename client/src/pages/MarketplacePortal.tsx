@@ -17,7 +17,7 @@ export default function MarketplacePortal() {
   const [form, setForm] = useState({ businessName: "", ownerPhone: "", ownerName: "", email: "", category: "", commissionRate: "10.00" });
 
   const { data: sellers, refetch } = trpc.marketplace.listSellers.useQuery({ tenantId: TENANT_ID });
-  const { data: commissions } = trpc.marketplace.listCommissions.useQuery({ tenantId: undefined });
+  const { data: commissions } = trpc.marketplace.listCommissions.useQuery({ tenantId: TENANT_ID });
   const { data: stats } = trpc.marketplace.marketplaceStats.useQuery({ tenantId: TENANT_ID });
 
   const register = trpc.marketplace.registerSeller.useMutation({

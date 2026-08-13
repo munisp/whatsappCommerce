@@ -96,7 +96,10 @@ export const tenants = pgTable("tenants", {
   index("tenants_status_idx").on(t.status),
   index("tenants_plan_idx").on(t.plan),
 ]);
-// ─── Tenant SSO Provisioning ──────────────────────────────────────────────────
+// ─── Tenant SSO Provisioning (legacy — see W12 tenantMemberships below) ───────
+// One row per TENANT (not per user) — a single linked SSO identity + role.
+// Superseded by tenantMemberships for real multi-user tenant membership;
+// kept for backward compat with server/routers/keycloak.ts's portal flow.
 // These columns are populated/updated on each successful Keycloak SSO login.
 // Stored separately from the main tenants table to keep schema migrations minimal.
 export const tenantSsoProfiles = pgTable("tenant_sso_profiles", {
