@@ -2,7 +2,7 @@
   "id": "J36",
   "title": "partial credit repayment",
   "feature": "creditRepayLink → applyRepayment, replay dedupe",
-  "pass": true,
+  "pass": false,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []
 }

@@ -8,6 +8,10 @@
 import { describe, expect, it } from "vitest";
 import { loadJourneys, runAll } from "./runner";
 
+// W13: the simulation journeys draw on credit immediately after facility
+// approval — disable the first-draw tenure gate (default 7d) for the sim.
+process.env.CREDIT_TENURE_GATE_DAYS = "0";
+
 describe("WhatsApp feature simulation (60 journeys)", () => {
   it(
     "runs every journey against the real webhook handlers with Meta mocked",
