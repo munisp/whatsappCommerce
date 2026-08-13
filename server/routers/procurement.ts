@@ -149,6 +149,17 @@ export const procurementRouter = router({
         notes: input.notes ?? null,
       });
       if (!result.ok) {
+        if (result.reason === "suspended") {
+          const outstanding = result.outstandingCents != null && result.outstandingCents > 0
+            ? ` of ₦${(result.outstandingCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : "";
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              `Ordering is suspended with this supplier${result.suspensionReason ? ` — ${result.suspensionReason}` : ""}. ` +
+              `Repay your outstanding balance${outstanding} to restore ordering.`,
+          });
+        }
         const msg = result.reason === "below_moq"
           ? `Subtotal below supplier MOQ of ${result.moqCents} cents`
           : result.reason === "empty"

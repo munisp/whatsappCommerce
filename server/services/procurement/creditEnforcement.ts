@@ -1,0 +1,120 @@
+/**
+ * procurement/creditEnforcement.ts — adapter over the trade-credit
+ * enforcement + supplier-direct settlement contracts (owned by the
+ * tradeCredit module).
+ *
+ * Frozen contracts (implemented in services/tradeCredit):
+ *
+ *   isOrderAccessSuspended(buyerTenantId, supplierTenantId) → Promise<boolean>
+ *       false when the buyer has no credit account with the supplier.
+ *   settleDrawToSupplier({ poId, drawResult: { ledgerId } }) → Promise<{ ok }>
+ *       marks the PO paid-via-credit once the credit draw has landed.
+ *
+ * The credit account row also gains (informational) `suspended` and
+ * `suspension_reason` columns used for UX copy.
+ *
+ * These helpers resolve the contract functions at call time and degrade
+ * safely when the enforcement module has not landed yet (fail-open for
+ * suspension checks so existing ordering is never broken; the settle call is
+ * a no-op `{ ok: true }` because the PO already transitions to the
+ * credit-settled 'invoiced' state through the existing approval path). Call
+ * sites stay a single line.
+ */
+import * as tradeCredit from "../tradeCredit";
+
+export interface OrderSuspension {
+  suspended: boolean;
+  /** Supplier-recorded reason for the suspension (UX copy), when known. */
+  reason: string | null;
+  /** Outstanding balance in cents, when an account exists. */
+  outstandingCents: number | null;
+}
+
+const NOT_SUSPENDED: OrderSuspension = { suspended: false, reason: null, outstandingCents: null };
+
+/**
+ * Safe lookup of an optionally-present tradeCredit export (undefined before
+ * the enforcement module merges). Guarded because module-namespace access
+ * can throw under mocked/stubbed module registries.
+ */
+function contractFn(name: string): ((...args: any[]) => any) | undefined {
+  try {
+    const fn = (tradeCredit as any)[name];
+    return typeof fn === "function" ? fn : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Is the buyer barred from submitting new POs to this supplier? Combines the
+ * enforcement contract with the account row for reason/outstanding UX copy.
+ * Never throws — failures fail OPEN (ordering stays available) and are logged.
+ */
+export async function checkOrderSuspension(
+  buyerTenantId: string,
+  supplierTenantId: string,
+): Promise<OrderSuspension> {
+  try {
+    const check = contractFn("isOrderAccessSuspended");
+    if (!check) return NOT_SUSPENDED; // contract not merged yet
+    const suspended = !!(await check(buyerTenantId, supplierTenantId));
+    if (!suspended) return NOT_SUSPENDED;
+    // Best-effort enrichment for message copy (suspension_reason, outstanding).
+    let reason: string | null = null;
+    let outstandingCents: number | null = null;
+    try {
+      const account = await (tradeCredit as any).getCreditAccount?.(supplierTenantId, buyerTenantId);
+      if (account) {
+        reason = typeof account.suspensionReason === "string" && account.suspensionReason.trim()
+          ? account.suspensionReason.trim()
+          : typeof account.suspension_reason === "string" && account.suspension_reason.trim()
+            ? account.suspension_reason.trim()
+            : null;
+        const oc = Number(account.outstandingCents ?? account.outstanding_cents);
+        outstandingCents = Number.isFinite(oc) ? oc : null;
+      }
+    } catch {
+      /* enrichment is best-effort */
+    }
+    return { suspended: true, reason, outstandingCents };
+  } catch (e: any) {
+    console.warn("[procurement] suspension check failed (fail-open):", e?.message);
+    return NOT_SUSPENDED;
+  }
+}
+
+/**
+ * Settle a successful credit draw directly to the supplier: the PO moves to
+ * its paid-via-credit state with no payment link. Single-line call sites;
+ * safe no-op until the tradeCredit enforcement module lands.
+ */
+export async function settleCreditDrawToSupplier(args: {
+  poId: string;
+  drawResult: { ledgerId: string };
+}): Promise<{ ok: boolean }> {
+  const settle = contractFn("settleDrawToSupplier");
+  if (!settle) return { ok: true }; // contract not merged yet
+  try {
+    const result = await settle({ poId: args.poId, drawResult: { ledgerId: args.drawResult.ledgerId } });
+    return { ok: !!result?.ok };
+  } catch (e: any) {
+    // Settlement bookkeeping must not roll back an already-successful draw;
+    // the PO is credit-settled ('invoiced') either way.
+    console.warn("[procurement] settleDrawToSupplier failed:", e?.message);
+    return { ok: false };
+  }
+}
+
+/**
+ * Buyer-facing suspension message, e.g. used by the submit gate and the
+ * WhatsApp flow: reason + "repay to restore ordering" guidance.
+ */
+export function suspensionMessage(s: OrderSuspension, formatAmount: (cents: number) => string): string {
+  const parts = ["Ordering is suspended with this supplier"];
+  if (s.reason) parts.push(`— ${s.reason}`);
+  const guidance = s.outstandingCents != null && s.outstandingCents > 0
+    ? `Repay your outstanding balance of ${formatAmount(s.outstandingCents)} to restore ordering.`
+    : "Repay your outstanding balance to restore ordering.";
+  return `${parts.join(" ")}. ${guidance}`;
+}

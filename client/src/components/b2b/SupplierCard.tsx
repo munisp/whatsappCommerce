@@ -7,8 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LimitGauge } from "@/components/b2b/LimitGauge";
-import { formatNaira, type SupplierSummary } from "@/lib/b2bLogic";
-import { Building2, Clock, HandCoins, ShoppingCart } from "lucide-react";
+import { formatNaira, suspensionBadge, suspensionBlockReason, type SupplierSummary } from "@/lib/b2bLogic";
+import { Ban, Building2, Clock, HandCoins, ShoppingCart } from "lucide-react";
 
 export function SupplierCard({
   supplier,
@@ -22,6 +22,8 @@ export function SupplierCard({
   requestingCredit?: boolean;
 }) {
   const account = supplier.myAccount ?? null;
+  const suspendedBadge = suspensionBadge(account);
+  const blockReason = suspensionBlockReason(account);
   return (
     <Card className="flex flex-col">
       <CardHeader className="pb-3">
@@ -66,14 +68,24 @@ export function SupplierCard({
           <div className="rounded-lg border border-border p-2.5 space-y-1.5">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Your credit</span>
-              <Badge
-                variant="outline"
-                className={`text-[10px] font-normal ${account.status === "active" ? "border-emerald-500/40 text-emerald-400" : "border-red-500/40 text-red-400"}`}
-              >
-                {account.status}
-              </Badge>
+              <div className="flex items-center gap-1">
+                {suspendedBadge && (
+                  <Badge variant="outline" className={`text-[10px] font-normal gap-1 ${suspendedBadge.className}`}>
+                    <Ban className="w-3 h-3" /> {suspendedBadge.label}
+                  </Badge>
+                )}
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] font-normal ${account.status === "active" ? "border-emerald-500/40 text-emerald-400" : "border-red-500/40 text-red-400"}`}
+                >
+                  {account.status}
+                </Badge>
+              </div>
             </div>
             <LimitGauge used={account.outstanding} limit={account.limit} compact />
+            {blockReason && (
+              <p className="text-[11px] text-red-400/90 leading-snug">{blockReason}</p>
+            )}
           </div>
         )}
 
@@ -89,8 +101,15 @@ export function SupplierCard({
               <HandCoins className="w-3.5 h-3.5" /> Request credit
             </Button>
           )}
-          <Button size="sm" className="flex-1 gap-1.5" onClick={() => onStartPo(supplier)}>
-            <ShoppingCart className="w-3.5 h-3.5" /> Start PO
+          <Button
+            size="sm"
+            className="flex-1 gap-1.5"
+            disabled={!!blockReason}
+            title={blockReason ?? undefined}
+            onClick={() => onStartPo(supplier)}
+          >
+            {blockReason ? <Ban className="w-3.5 h-3.5" /> : <ShoppingCart className="w-3.5 h-3.5" />}
+            {blockReason ? "Ordering suspended" : "Start PO"}
           </Button>
         </div>
       </CardContent>
