@@ -42,6 +42,7 @@ import {
   type Proposal,
   type ProposalKind,
 } from "./session";
+import { sessionLanguage, t } from "./language";
 
 // ─── Zod payloads ────────────────────────────────────────────────────────────
 
@@ -333,14 +334,14 @@ export interface ToolResult {
   replies?: CopilotReply[];
 }
 
-function proposalCard(p: Proposal): CopilotReply {
+function proposalCard(p: Proposal, lang?: string): CopilotReply {
   return {
     type: "card",
     text: `${p.summary}\n\n${JSON.stringify(p.payload, null, 2)}`,
     actions: [
-      { id: `approve:${p.id}`, label: "Approve" },
-      { id: `edit:${p.id}`, label: "Edit" },
-      { id: `reject:${p.id}`, label: "Reject" },
+      { id: `approve:${p.id}`, label: t(lang, "actionApprove") },
+      { id: `edit:${p.id}`, label: t(lang, "actionEdit") },
+      { id: `reject:${p.id}`, label: t(lang, "actionReject") },
     ],
   };
 }
@@ -374,7 +375,7 @@ const handlers: Record<
       payload: parsed.menu,
     });
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeWaMenu", { proposalId: p.id });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p)] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
   },
 
   async proposeUseCases(args, session) {
@@ -388,7 +389,7 @@ const handlers: Record<
       payload: { ranked: parsed.data.ranked },
     });
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeUseCases", { proposalId: p.id });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p)] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
   },
 
   async proposeBranding(args, session) {
@@ -410,7 +411,7 @@ const handlers: Record<
       payload: kit,
     });
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeBranding", { proposalId: p.id });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p)] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
   },
 
   async proposeIntegrations(args, session) {
@@ -428,7 +429,7 @@ const handlers: Record<
     await auditCopilot(session, "onboarding_copilot.tool", "tool proposeIntegrations", {
       proposalId: p.id,
     });
-    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p)] };
+    return { ok: true, result: { proposalId: p.id }, replies: [proposalCard(p, sessionLanguage(session))] };
   },
 
   async applyProposal(args, session) {
@@ -445,7 +446,12 @@ const handlers: Record<
     return {
       ok: true,
       result: { applied: proposal.id, kind: proposal.kind, tenantId },
-      replies: [{ type: "text", text: `Applied: ${proposal.summary}` }],
+      replies: [
+        {
+          type: "text",
+          text: t(sessionLanguage(session), "appliedSummary", { summary: proposal.summary }),
+        },
+      ],
     };
   },
 
@@ -487,8 +493,8 @@ const handlers: Record<
         {
           type: "text",
           text: res.ok
-            ? `WhatsApp profile updated (${res.pushed.join(", ") || "nothing to push"}).`
-            : `Could not update the WhatsApp profile: ${res.failed.join(", ") || "unknown error"}.`,
+            ? t(sessionLanguage(session), "pushOk", { pushed: res.pushed.join(", ") || "nothing to push" })
+            : t(sessionLanguage(session), "pushFail", { failed: res.failed.join(", ") || "unknown error" }),
         },
       ],
     };
