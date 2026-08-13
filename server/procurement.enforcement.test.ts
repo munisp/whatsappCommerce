@@ -236,7 +236,9 @@ describe("supplier-direct settlement", () => {
     } else {
       throw new Error("expected invoiced");
     }
-    expect(credit.settleDrawToSupplier).toHaveBeenCalledWith({ poId: "po-1", drawResult: { ledgerId: "led-1" } });
+    // The adapter reconstructs the successful-draw shape the tradeCredit
+    // contract requires (ok: true) — a bare { ledgerId } silently no-ops.
+    expect(credit.settleDrawToSupplier).toHaveBeenCalledWith({ poId: "po-1", drawResult: { ok: true, ledgerId: "led-1" } });
     expect(store.purchaseOrders[0].status).toBe("invoiced"); // paid-via-credit, fulfillable
     expect(store.purchaseOrders[0].dueDate).toBeTruthy();
   });

@@ -286,6 +286,10 @@ export async function bootWorld(): Promise<World> {
     // payment.initiate + creditRepayLink need a Paystack secret (intercepted
     // by the fetch mock — never a real network call).
     setEnv("PAYSTACK_SECRET_KEY", "sk_sim_test");
+    // W13: sim journeys draw on credit immediately after facility approval —
+    // disable the first-draw tenure gate by default (J65 re-enables it
+    // explicitly to test the gate itself). Mirrors simulation.test.ts.
+    setEnv("CREDIT_TENURE_GATE_DAYS", "0");
     // Wave 9: platform onboarding intake number (waOnboarding) + resumable
     // upload app id (brand-studio profile photo push, intercepted by metaMock).
     setEnv("ONBOARDING_PHONE_NUMBER_ID", ONBOARDING_PHONE_NUMBER_ID);
@@ -488,8 +492,10 @@ export async function bootWorld(): Promise<World> {
               outstandingCents: 0,
               termsDays: CREDIT_TERMS_DAYS,
               status: "active",
-              // W13: order-access suspension must not leak between journeys
-              // (dunning journeys suspend the seed account at the +7d freeze).
+              // W13: order-access suspension + linked mandate must not leak
+              // between journeys (dunning journeys suspend the seed account
+              // at the +7d freeze; mandate journeys link payment_mandates).
+              mandateId: null,
               suspended: false,
               suspendedAt: null,
               suspensionReason: null,
@@ -558,6 +564,9 @@ export async function bootWorld(): Promise<World> {
         delete process.env.ERROR_WEBHOOK_URL;
         delete process.env.TEMPORAL_ADDRESS;
         delete process.env.KYC_GATE_DISABLED;
+        // W13: journeys may re-enable the first-draw tenure gate (J65) —
+        // restore the sim default (gate disabled) between journeys.
+        process.env.CREDIT_TENURE_GATE_DAYS = "0";
         outbound.reset();
         llmMock.reset();
         openaiMock.reset();

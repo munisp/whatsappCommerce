@@ -338,6 +338,62 @@ export async function creditLedgerRows(world: World, kind?: string) {
 
 export { SUPPLIER_TENANT_ID, CREDIT_ACCOUNT_ID };
 
+// ── Wave 13: repayment-at-source mandates ───────────────────────────────────
+
+export interface LinkedMandate {
+  mandateId: string;
+  mandateRef: string;
+  authorizationUrl: string;
+}
+
+/**
+ * W13: drive the REAL mandate lifecycle for a buyer's facility via the tRPC
+ * router — requestMandate (paystack createMandate → mock authorization URL,
+ * payment_mandates row PENDING + linked to the account) → confirmMandate
+ * (claim-first pending → active). Returns the active mandate ids.
+ */
+export async function linkActiveMandate(
+  world: World,
+  opts: { buyerTenantId: string; accountId: string; userId?: number; amountLimitCents?: number },
+): Promise<LinkedMandate> {
+  const schema = await import("../../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const buyer = await tenantCaller(opts.buyerTenantId, { userId: opts.userId ?? 77 });
+
+  const res = await buyer.tradeCredit.requestMandate({
+    buyerTenantId: opts.buyerTenantId,
+    accountId: opts.accountId,
+    amountLimitCents: opts.amountLimitCents,
+  });
+  assert(res.ok === true, `requestMandate succeeded (${JSON.stringify(res)})`);
+  assert(res.status === "pending", `mandate starts pending (got ${res.status})`);
+  assert(typeof res.authorizationUrl === "string" && res.authorizationUrl.includes("checkout.paystack.com/sim/"),
+    `provider authorization URL issued (got ${res.authorizationUrl})`);
+  assert(typeof res.mandateId === "string" && res.mandateId, "mandate id returned");
+
+  const [pendingRow] = await world.db
+    .select()
+    .from(schema.paymentMandates)
+    .where(eq(schema.paymentMandates.id, res.mandateId))
+    .limit(1);
+  assert(pendingRow && pendingRow.status === "pending", "payment_mandates row pending");
+  assert(pendingRow.provider === "paystack", "mandate via the paystack adapter");
+
+  const confirmed = await buyer.tradeCredit.confirmMandate({
+    buyerTenantId: opts.buyerTenantId,
+    mandateId: res.mandateId,
+  });
+  assert(confirmed.status === "active", `mandate active after confirm (got ${confirmed.status})`);
+
+  const [account] = await world.db
+    .select()
+    .from(schema.creditAccounts)
+    .where(eq(schema.creditAccounts.id, opts.accountId))
+    .limit(1);
+  assert(account?.mandateId === res.mandateId, "mandate linked to the credit account");
+  return { mandateId: res.mandateId, mandateRef: pendingRow.mandateRef, authorizationUrl: res.authorizationUrl! };
+}
+
 // ── Wave 9: agentic onboarding copilot helpers ───────────────────────────────
 // Journeys drive the REAL copilot module (server/services/onboardingCopilot)
 // — the LLM is scripted by metaMock's copilot tool-call handler, so the full

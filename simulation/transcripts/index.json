@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T12:32:40.705Z",
+  "generatedAt": "2026-08-13T14:16:32.069Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -481,6 +481,54 @@
       "pass": true,
       "file": "J60.json",
       "messageCount": 0
+    },
+    {
+      "id": "J61",
+      "title": "mandate-gated approval",
+      "feature": "approveAccount mandate gate (₦50k floor)",
+      "pass": true,
+      "file": "J61.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J62",
+      "title": "charge-first repayment",
+      "feature": "initiateRepayment → mandate charge → FIFO settle, exactly-once",
+      "pass": true,
+      "file": "J62.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J63",
+      "title": "mandate charge failure fallback",
+      "feature": "declined mandate charge → dunning + payment-link fallback",
+      "pass": true,
+      "file": "J63.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J64",
+      "title": "downward limit revision",
+      "feature": "reviseLimits: auto_revision + limit_clamped + upward restore",
+      "pass": true,
+      "file": "J64.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J65",
+      "title": "tenure gate + suspension",
+      "feature": "first-draw tenure gate; dunning freeze → PO-submit suspension",
+      "pass": true,
+      "file": "J65.json",
+      "messageCount": 62
+    },
+    {
+      "id": "J66",
+      "title": "supplier-direct settlement",
+      "feature": "credit PO → paid-via-credit, zero payment-link outbounds",
+      "pass": true,
+      "file": "J66.json",
+      "messageCount": 35
     }
   ]
 }
