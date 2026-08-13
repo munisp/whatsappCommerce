@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-13T12:46:24.393Z",
+  "generatedAt": "2026-08-13T13:03:25.822Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -262,7 +262,7 @@
       "id": "J33",
       "title": "approve → credit draw",
       "feature": "po_approve → drawOnCredit → invoiced + ledger",
-      "pass": false,
+      "pass": true,
       "file": "J33.json",
       "messageCount": 35
     },
@@ -270,7 +270,7 @@
       "id": "J34",
       "title": "overdraw refusal",
       "feature": "drawOnCredit over_limit → buyer fallback, no ledger write",
-      "pass": false,
+      "pass": true,
       "file": "J34.json",
       "messageCount": 35
     },
@@ -286,7 +286,7 @@
       "id": "J36",
       "title": "partial credit repayment",
       "feature": "creditRepayLink → applyRepayment, replay dedupe",
-      "pass": false,
+      "pass": true,
       "file": "J36.json",
       "messageCount": 0
     },
@@ -294,17 +294,17 @@
       "id": "J37",
       "title": "dunning reminders + late fee",
       "feature": "runDunningCheck milestones, idempotent markers",
-      "pass": false,
+      "pass": true,
       "file": "J37.json",
-      "messageCount": 0
+      "messageCount": 2
     },
     {
       "id": "J38",
       "title": "default freeze",
       "feature": "dunning +7d → account frozen, new draws refused",
-      "pass": false,
+      "pass": true,
       "file": "J38.json",
-      "messageCount": 0
+      "messageCount": 1
     },
     {
       "id": "J39",
@@ -406,7 +406,7 @@
       "id": "J51",
       "title": "credit repayment via flutterwave",
       "feature": "creditRepayLink → registry chain → applyRepayment",
-      "pass": false,
+      "pass": true,
       "file": "J51.json",
       "messageCount": 0
     },
@@ -462,7 +462,7 @@
       "id": "J58",
       "title": "KYB-gated credit",
       "feature": "tradeCredit.approveAccount dual-KYB gate",
-      "pass": false,
+      "pass": true,
       "file": "J58.json",
       "messageCount": 0
     },
