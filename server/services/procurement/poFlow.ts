@@ -917,7 +917,7 @@ export async function handlePoAction(opts: {
     await notifyBuyer(
       db,
       fresh,
-      `✅ ${po.poNumber} approved — Paid via credit, due ${result.dueDate.toDateString()} (net ${fresh.termsDays}d). Outstanding on your account: ${formatNaira(result.outstandingAfter)}. Repay by the due date to keep ordering.`,
+      `✅ ${po.poNumber} approved on credit — Paid via credit, due ${result.dueDate.toDateString()} (net ${fresh.termsDays}d). Outstanding on your account: ${formatNaira(result.outstandingAfter)}. Repay by the due date to keep ordering.`,
     );
     return {
       reply: `✅ ${po.poNumber} approved on credit — due ${result.dueDate.toDateString()}. Buyer outstanding: ${formatNaira(result.outstandingAfter)}.`,
