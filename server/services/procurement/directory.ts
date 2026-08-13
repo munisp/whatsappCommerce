@@ -22,6 +22,9 @@ export interface DirectoryCreditSummary {
   limitCents: number;
   outstandingCents: number;
   termsDays: number;
+  /** Trade-credit enforcement (credit_accounts.suspended) — drives UX badges. */
+  suspended: boolean;
+  suspensionReason: string | null;
 }
 
 export interface SupplierDirectoryEntry {
@@ -68,6 +71,13 @@ function creditSummaryOf(account: any): DirectoryCreditSummary | null {
     limitCents: Number(account.limitCents ?? 0),
     outstandingCents: Number(account.outstandingCents ?? 0),
     termsDays: Number(account.termsDays ?? 0),
+    suspended: account.suspended === true,
+    suspensionReason:
+      typeof account.suspensionReason === "string" && account.suspensionReason.trim()
+        ? account.suspensionReason.trim()
+        : typeof account.suspension_reason === "string" && account.suspension_reason.trim()
+          ? account.suspension_reason.trim()
+          : null,
   };
 }
 

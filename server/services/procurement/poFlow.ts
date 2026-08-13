@@ -25,6 +25,7 @@ import {
 } from "../../../drizzle/schema";
 import { sendWhatsAppInteractive, sendWhatsAppText, type SendInteractiveInput } from "../waSender";
 import { drawOnCredit, getCreditAccount, suggestLimit } from "../tradeCredit";
+import { checkOrderSuspension, settleCreditDrawToSupplier, suspensionMessage } from "./creditEnforcement";
 import { getActiveSupplierProfile, type DbHandle } from "./directory";
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
@@ -212,8 +213,11 @@ export interface PoLineInput {
 
 export interface SubmitPoResult {
   ok: boolean;
-  reason?: "supplier_inactive" | "empty" | "below_moq";
+  reason?: "supplier_inactive" | "empty" | "below_moq" | "suspended";
   moqCents?: number;
+  /** Present when reason === "suspended": UX copy for the block. */
+  suspensionReason?: string | null;
+  outstandingCents?: number | null;
   po?: PurchaseOrder;
   autoApproved?: boolean;
 }
@@ -238,6 +242,19 @@ export async function submitPurchaseOrder(
 ): Promise<SubmitPoResult> {
   const profile = await getActiveSupplierProfile(db, opts.supplierTenantId);
   if (!profile) return { ok: false, reason: "supplier_inactive" };
+  // Enforcement gate: a buyer whose credit access is suspended may keep
+  // drafting but may not SUBMIT — this blocks both the manual path and the
+  // auto-approve-below-threshold path below (which only runs post-submit).
+  const suspension = await checkOrderSuspension(opts.buyerTenantId, opts.supplierTenantId);
+  if (suspension.suspended) {
+    console.info(`[procurement] PO submit blocked: buyer ${opts.buyerTenantId} suspended with supplier ${opts.supplierTenantId}`);
+    return {
+      ok: false,
+      reason: "suspended",
+      suspensionReason: suspension.reason,
+      outstandingCents: suspension.outstandingCents,
+    };
+  }
   const lines = (opts.lines ?? []).filter((l) => l.qty > 0 && l.unitPriceCents >= 0 && l.name.trim());
   if (lines.length === 0) return { ok: false, reason: "empty" };
   const subtotalCents = lines.reduce((s, l) => s + l.qty * l.unitPriceCents, 0);
@@ -286,7 +303,7 @@ export async function submitPurchaseOrder(
     await notifyBuyer(
       db,
       (await getPoById(db, poId)) ?? po,
-      `✅ ${poNumber} was auto-approved by the supplier${result.status === "invoiced" ? ` on credit — due ${result.dueDate?.toDateString()}` : ""}.`,
+      `✅ ${poNumber} was auto-approved by the supplier${result.status === "invoiced" ? ` — Paid via credit, due ${result.dueDate?.toDateString()}` : ""}.`,
     );
     return { ok: true, po: (await getPoById(db, poId)) ?? po, autoApproved: true };
     }
@@ -346,6 +363,10 @@ export async function approvePurchaseOrder(
       dueDate,
       updatedAt: now,
     }).where(eq(purchaseOrders.id, po.id));
+    // Supplier-direct settlement: the draw settles straight to the supplier,
+    // so the PO is paid-via-credit ('invoiced' — fulfillable) with NO
+    // payment link. Bookkeeping lives behind the tradeCredit contract.
+    await settleCreditDrawToSupplier({ poId: po.id, drawResult: { ledgerId: draw.ledgerId } });
     return { ok: true, status: "invoiced", dueDate, outstandingAfter: draw.outstandingAfter };
   }
 
@@ -835,6 +856,15 @@ export async function handleProcurementChat(
         nextState: null,
       };
     }
+    if (result.reason === "suspended") {
+      return {
+        reply: `🚫 ${suspensionMessage(
+          { suspended: true, reason: result.suspensionReason ?? null, outstandingCents: result.outstandingCents ?? null },
+          formatNaira,
+        )} Your draft cart is unchanged — message us once your repayment lands.`,
+        nextState: null,
+      };
+    }
     return { reply: "Sorry, that supplier isn't available for procurement right now.", nextState: null };
   }
   const po = result.po!;
@@ -887,7 +917,7 @@ export async function handlePoAction(opts: {
     await notifyBuyer(
       db,
       fresh,
-      `✅ ${po.poNumber} approved on credit — ${formatNaira(Number(po.subtotalCents))}, due ${result.dueDate.toDateString()} (net ${fresh.termsDays}d). Outstanding on your account: ${formatNaira(result.outstandingAfter)}.`,
+      `✅ ${po.poNumber} approved — Paid via credit, due ${result.dueDate.toDateString()} (net ${fresh.termsDays}d). Outstanding on your account: ${formatNaira(result.outstandingAfter)}. Repay by the due date to keep ordering.`,
     );
     return {
       reply: `✅ ${po.poNumber} approved on credit — due ${result.dueDate.toDateString()}. Buyer outstanding: ${formatNaira(result.outstandingAfter)}.`,

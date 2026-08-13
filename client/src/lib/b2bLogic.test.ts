@@ -15,8 +15,11 @@ import {
   ledgerKindMeta,
   limitGauge,
   nextDueFromLedger,
+  paidViaCreditLabel,
   poPaymentModes,
   poStatusMeta,
+  suspensionBadge,
+  suspensionBlockReason,
   poSubtotal,
   summarizeCreditAccounts,
   validateLimitForm,
@@ -258,5 +261,68 @@ describe("dashboard derivations", () => {
       { status: "submitted" },
     ])).toBe(2);
     expect(countPendingApprovals([])).toBe(0);
+  });
+});
+
+// ─── Credit-access suspension (W13 enforcement) ─────────────────────────────
+
+describe("suspensionBadge", () => {
+  it("returns a muted red badge when the account is suspended", () => {
+    const meta = suspensionBadge({ id: "a1", limit: 100, outstanding: 40, status: "active", suspended: true });
+    expect(meta).not.toBeNull();
+    expect(meta!.label).toBe("Ordering suspended");
+    expect(meta!.className).toContain("red");
+  });
+
+  it("returns null for accounts in good standing", () => {
+    expect(suspensionBadge({ id: "a1", limit: 100, outstanding: 0, status: "active", suspended: false })).toBeNull();
+    expect(suspensionBadge({ id: "a1", limit: 100, outstanding: 0, status: "active" })).toBeNull();
+  });
+
+  it("returns null when there is no account at all", () => {
+    expect(suspensionBadge(null)).toBeNull();
+    expect(suspensionBadge(undefined)).toBeNull();
+  });
+});
+
+describe("suspensionBlockReason", () => {
+  it("includes the supplier-recorded reason and repay-to-restore guidance", () => {
+    const msg = suspensionBlockReason({
+      id: "a1", limit: 100_000, outstanding: 2_500, status: "active",
+      suspended: true, suspensionReason: "Overdue balance past 30 days",
+    });
+    expect(msg).toContain("Ordering is suspended");
+    expect(msg).toContain("Overdue balance past 30 days");
+    expect(msg).toContain(formatNaira(2_500));
+    expect(msg!.toLowerCase()).toContain("repay");
+    expect(msg!.toLowerCase()).toContain("restore ordering");
+  });
+
+  it("omits the amount when outstanding is zero/unknown but keeps guidance", () => {
+    const msg = suspensionBlockReason({ id: "a1", limit: 100, outstanding: 0, status: "active", suspended: true });
+    expect(msg).toContain("Repay your outstanding balance to restore ordering.");
+    expect(msg).not.toContain("₦0");
+  });
+
+  it("tolerates a blank suspension reason", () => {
+    const msg = suspensionBlockReason({ id: "a1", limit: 100, outstanding: 50, status: "active", suspended: true, suspensionReason: "   " });
+    expect(msg).toBe(`Ordering is suspended with this supplier. Repay your outstanding balance of ${formatNaira(50)} to restore ordering.`);
+  });
+
+  it("returns null when not suspended (submit stays open)", () => {
+    expect(suspensionBlockReason({ id: "a1", limit: 100, outstanding: 50, status: "active", suspended: false })).toBeNull();
+    expect(suspensionBlockReason(null)).toBeNull();
+    expect(suspensionBlockReason(undefined)).toBeNull();
+  });
+});
+
+describe("paidViaCreditLabel", () => {
+  it("renders 'Paid via credit — due {date}' for a credit-settled PO", () => {
+    expect(paidViaCreditLabel("2026-03-12T00:00:00.000Z")).toBe("Paid via credit — due 12 Mar 2026");
+  });
+
+  it("degrades to 'Paid via credit' without a due date", () => {
+    expect(paidViaCreditLabel(null)).toBe("Paid via credit");
+    expect(paidViaCreditLabel("not-a-date")).toBe("Paid via credit");
   });
 });

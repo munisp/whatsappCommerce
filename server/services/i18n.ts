@@ -42,6 +42,10 @@ export interface LocalePack {
   voiceNotEnabled: string;
   reorderNoPriorOrder: string;
   disputeConfirm: string;
+  /** B2B enforcement: buyer's credit access is suspended ({reason}, {outstanding}). */
+  orderingSuspended: string;
+  /** B2B settlement notice: PO settled straight to the supplier via credit ({poNumber}, {dueDate}). */
+  paidViaCredit: string;
 }
 
 export const LOCALE_PACKS: Record<Locale, LocalePack> = {
@@ -71,6 +75,8 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Sorry, voice notes aren't enabled right now — please type your message instead. 🎤❌",
     reorderNoPriorOrder: "I couldn't find a previous paid order for this number — tell me what you'd like and I'll add it to your cart.",
     disputeConfirm: "Your complaint has been logged and our team has been notified. We'll get back to you shortly. 🙏",
+    orderingSuspended: "Ordering is suspended with this supplier{reason}. Repay your outstanding balance{outstanding} to restore ordering.",
+    paidViaCredit: "Paid via credit — due {dueDate}. Repay by the due date to keep ordering.",
   },
   fr: {
     greeting: "Bonjour ! Bienvenue chez {businessName}. Comment pouvons-nous vous aider ?",
@@ -95,6 +101,8 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Désolé, les notes vocales ne sont pas activées — veuillez taper votre message. 🎤❌",
     reorderNoPriorOrder: "Je n'ai trouvé aucune commande payée précédente pour ce numéro — dites-moi ce que vous voulez et je l'ajoute au panier.",
     disputeConfirm: "Votre réclamation a été enregistrée et notre équipe a été informée. Nous revenons vers vous rapidement. 🙏",
+    orderingSuspended: "Les commandes sont suspendues auprès de ce fournisseur{reason}. Remboursez votre solde impayé{outstanding} pour rétablir les commandes.",
+    paidViaCredit: "Payé à crédit — échéance {dueDate}. Remboursez avant l'échéance pour continuer à commander.",
   },
   ha: {
     greeting: "Sannu da zuwa {businessName}! Yaya za mu iya taimaka maka yau?",
@@ -117,6 +125,8 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Yi haƙuri, ba a kunna saƙon murya ba yanzu — don Allah rubuta saƙonka. 🎤❌",
     reorderNoPriorOrder: "Ban sami tsohon oda da ka biya ba — faɗa min abin da kake so in saka maka a kwando.",
     disputeConfirm: "An rubuta kōƙarinka kuma an sanar da tawagarmu. Za mu dawo gare ka nan ba da jimawa ba. 🙏",
+    orderingSuspended: "An dakatar da oda a wannan mai sayarwa{reason}. Biya bashin da ka ke dasu{outstanding} don a sake buɗe oda.",
+    paidViaCredit: "An biya ta bashi — ranar biya {dueDate}. Biya kafin ranar don ci gaba da oda.",
   },
   yo: {
     greeting: "Ẹ káàbọ̀ sí {businessName}! Báwo la ṣe lè ràn wọ́ lọ́wọ́ lónìí?",
@@ -139,6 +149,8 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Ẹ pèlẹ́, a kò tíì ṣí Ìfiranṣẹ́ ohùn ṣíṣe — jọ̀wọ́ kọ ìfiranṣẹ́ rẹ. 🎤❌",
     reorderNoPriorOrder: "N kò rí àṣẹ àtijọ́ tí o ti sanwó fún nọ́ńbà yìí — sọ ohun tí o fẹ́ kí n sì í sínú àpò.",
     disputeConfirm: "A ti kọ ẹ̀jọ́ rẹ sílẹ̀, a sì ti jẹ́ kí àwọn ọmọ ẹgbẹ́ wa mọ̀. A ó padà sọ́dọ̀ rẹ láìpẹ́. 🙏",
+    orderingSuspended: "A ti dáwọ́ ìbéèrè lọ́dọ̀ olùtà yìí dúró{reason}. San gbèsè tó kù{outstanding} láti tún bẹ̀rẹ̀ ìbéèrè.",
+    paidViaCredit: "A sanwó ní gbèsè — ojọ́ ìsanwó {dueDate}. San ṣáájú ojọ́ náà láti tẹ̀síwájú pẹ̀lú ìbéèrè.",
   },
   ig: {
     greeting: "Nnọọ na {businessName}! Kedu ka anyị ga-esi nyere gị aka taa?",
@@ -161,6 +173,8 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Ndo, anọgideghị ozi olu ugbu a — biko dee ozi gị. 🎤❌",
     reorderNoPriorOrder: "Achọtaghị m ihe ọ bụla ị zụrụ ma kwụọ ụgwọ maka nọmba a — gwa m ihe ị chọrọ ka m tinye na ngọdo.",
     disputeConfirm: "Edebela mkpesa gị, ọzụzụkwa anyị amataala ya. Anyị ga-azaghachi gị n'oge na-adịghị anya. 🙏",
+    orderingSuspended: "A kwụsịtụru ịtụ ihe ndazị na onye na-ere a{reason}. Kwụọ ụgwọ fọdụrụ{outstanding} ka e weghachi ike ịtụ ihe.",
+    paidViaCredit: "A kwụrụ site na kredit — ụbọchị akwụ ụgwọ {dueDate}. Kwụọ tupu ụbọchị ahụ ka ị gaa n'ihu ịtụ ihe.",
   },
 };
 
