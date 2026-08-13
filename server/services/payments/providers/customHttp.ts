@@ -114,6 +114,8 @@ export function createCustomProvider(rawConfig: unknown): PaymentProvider {
   return {
     id: config.id,
     displayName: config.displayName,
+    // Declarative zero-code gateway: no mandate operation mapping (w13).
+    supportsMandates: false,
 
     async initiate(ctx: PaymentInitiateCtx, creds: unknown): Promise<PaymentInitiateResult> {
       try {

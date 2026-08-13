@@ -14,6 +14,10 @@
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
+  MandateChargeCtx,
+  MandateChargeResult,
+  MandateCreateCtx,
+  MandateCreateResult,
   PaymentInitiateCtx,
   PaymentInitiateResult,
   PaymentProvider,
@@ -153,5 +157,126 @@ export const paystackProvider: PaymentProvider = {
     } catch (err: any) {
       return { ok: false, detail: String(err?.message ?? err) };
     }
+  },
+
+  /* -------- mandate (recurring/auto-debit) ops — w13 -------- */
+  supportsMandates: true,
+
+  /**
+   * Paystack "mandate" = a reusable authorization_code obtained after the
+   * customer authorizes their card once. We initialize a transaction with
+   * metadata.mandate=true so downstream webhook handling can capture the
+   * authorization code; the customer completes authorization at the
+   * returned URL.
+   */
+  async createMandate(ctx: MandateCreateCtx, creds: unknown): Promise<MandateCreateResult> {
+    const c = asCreds(creds);
+    if (!c.secretKey) {
+      return { ok: false, provider: "paystack", error: "missing secretKey" };
+    }
+    const email =
+      ctx.email ?? `${(ctx.phone ?? "").replace(/\D/g, "") || "customer"}@wa.commerce`;
+    try {
+      const res = await fetch(`${PAYSTACK_BASE}/transaction/initialize`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${c.secretKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          // Paystack requires an amount on initialize; use the limit (or a
+          // nominal 100 kobo) — this first charge establishes the reusable
+          // authorization_code.
+          amount: Math.round(ctx.amountLimitCents ?? 100),
+          currency: ctx.currency,
+          metadata: {
+            ...(ctx.metadata ?? {}),
+            mandate: true,
+            customerRef: ctx.customerRef,
+          },
+          ...(c.callbackUrl ? { callback_url: c.callbackUrl } : {}),
+        }),
+        signal: AbortSignal.timeout(INITIATE_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        return { ok: false, provider: "paystack", error: `HTTP ${res.status}` };
+      }
+      const data = (await res.json()) as {
+        status: boolean;
+        data?: { authorization_url?: string; reference?: string };
+      };
+      if (!data.status || !data.data?.authorization_url) {
+        return { ok: false, provider: "paystack", error: "no authorization_url" };
+      }
+      return {
+        ok: true,
+        mandateRef: data.data.reference,
+        authorizationUrl: data.data.authorization_url,
+        instructions: "Customer must open the authorization URL once to authorize future debits.",
+        provider: "paystack",
+      };
+    } catch (err: any) {
+      return { ok: false, provider: "paystack", error: String(err?.message ?? err) };
+    }
+  },
+
+  /**
+   * Charge a previously captured authorization_code (mandateRef) off-session.
+   * ctx.reference passes through verbatim as the transaction reference.
+   */
+  async chargeMandate(ctx: MandateChargeCtx, creds: unknown): Promise<MandateChargeResult> {
+    const c = asCreds(creds);
+    if (!c.secretKey) {
+      return { ok: false, reference: ctx.reference, status: "failed", provider: "paystack", error: "missing secretKey" };
+    }
+    const metaEmail = ctx.metadata?.email;
+    const email = typeof metaEmail === "string" && metaEmail ? metaEmail : "customer@wa.commerce";
+    try {
+      const res = await fetch(`${PAYSTACK_BASE}/transaction/charge_authorization`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${c.secretKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          authorization_code: ctx.mandateRef,
+          email,
+          amount: Math.round(ctx.amountCents),
+          currency: ctx.currency,
+          reference: ctx.reference,
+          metadata: ctx.metadata ?? {},
+        }),
+        signal: AbortSignal.timeout(INITIATE_TIMEOUT_MS),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        status?: boolean;
+        message?: string;
+        data?: { status?: string; reference?: string };
+      };
+      if (!res.ok || data.status === false) {
+        return {
+          ok: false,
+          reference: ctx.reference,
+          status: "failed",
+          provider: "paystack",
+          error: typeof data.message === "string" ? data.message : `HTTP ${res.status}`,
+        };
+      }
+      const raw = data.data?.status ?? "";
+      const status = raw === "success" ? "success" : raw === "failed" ? "failed" : "pending";
+      return {
+        ok: status !== "failed",
+        reference: data.data?.reference ?? ctx.reference,
+        status,
+        provider: "paystack",
+      };
+    } catch (err: any) {
+      return { ok: false, reference: ctx.reference, status: "failed", provider: "paystack", error: String(err?.message ?? err) };
+    }
+  },
+
+  /**
+   * Paystack has no true authorization-revoke endpoint (and
+   * /customer/deactivate would disable the whole customer record — WRONG).
+   * Revocation is therefore local-status-only: callers mark the mandate
+   * revoked in their own store; we report success so the flow completes.
+   */
+  async revokeMandate(_mandateRef: string, _creds: unknown): Promise<{ ok: boolean }> {
+    return { ok: true };
   },
 };
