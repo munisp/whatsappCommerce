@@ -19,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useB2bUtils, useCreatePo, useWholesaleCatalog } from "@/lib/b2b";
 import {
-  formatNaira, poPaymentModes, poSubtotal, validateMoq, validatePoLines,
+  formatNaira, poPaymentModes, poSubtotal, suspensionBlockReason, validateMoq, validatePoLines,
   type PoLine, type PoPaymentMode, type SupplierSummary,
 } from "@/lib/b2bLogic";
 import { AlertTriangle, Loader2, Plus, ShoppingCart, Trash2 } from "lucide-react";
@@ -104,7 +104,10 @@ export function PoBuilderDrawer({
   };
 
   const belowMinQty = lines.some((l) => l.quantity < minQtyFor(l.catalogItemId));
-  const canSubmit = !lineError && !belowMinQty && moq.ok && !createPo.isPending && (paymentMode === "paynow" || creditMode?.enabled === true);
+  // Enforcement gate (mirrors server): a suspended buyer may compose the
+  // draft but cannot submit — the button is disabled with the reason shown.
+  const submitBlock = suspensionBlockReason(supplier?.myAccount);
+  const canSubmit = !submitBlock && !lineError && !belowMinQty && moq.ok && !createPo.isPending && (paymentMode === "paynow" || creditMode?.enabled === true);
 
   const submit = () => {
     if (!supplier) return;
@@ -273,6 +276,11 @@ export function PoBuilderDrawer({
               />
             </div>
 
+            {submitBlock && (
+              <Alert variant="destructive">
+                <AlertDescription>{submitBlock}</AlertDescription>
+              </Alert>
+            )}
             {lineError && lines.length > 0 && (
               <p className="text-xs text-destructive">{lineError}</p>
             )}
