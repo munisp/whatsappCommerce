@@ -28,6 +28,7 @@ import { onboardingRouter } from "./routers/onboarding";
 import { kycRouter } from "./routers/kyc";
 import { heartbeatRouter } from "./routers/heartbeat";
 import { nlpRouter } from "./routers/nlp";
+import { catalogBootstrapRouter } from "./routers/catalogBootstrap";
 import { orderCrudRouter } from "./routers/orderCrud";
 import { promosRouter } from "./routers/promos";
 import { customersRouter } from "./routers/customers";
@@ -148,6 +149,7 @@ export const appRouter = router({
   kyc: kycRouter,
   heartbeat: heartbeatRouter,
   nlp: nlpRouter,
+  catalogBootstrap: catalogBootstrapRouter,
   orderCrud: orderCrudRouter,
   promos: promosRouter,
   customers: customersRouter,
