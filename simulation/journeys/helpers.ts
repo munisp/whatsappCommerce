@@ -568,6 +568,60 @@ export async function monnifyPaymentSuccess(
   return postProviderWebhook(world, "monnify", raw, { "monnify-signature": sig });
 }
 
+// ── Wave 14: bureau consent + lender facilities ─────────────────────────────
+
+export interface CreditPair {
+  sup: string;
+  buy: string;
+  supCaller: Awaited<ReturnType<typeof tenantCaller>>;
+  buyCaller: Awaited<ReturnType<typeof tenantCaller>>;
+  accountId: string;
+}
+
+/**
+ * W14: provision a supplier/buyer tenant pair with dual-KYB approved and a
+ * PENDING credit account (limit 0). Approvals go through the real KYB gate so
+ * tradeCredit.approveAccount can run (use limits ≤ ₦50,000 floor to skip the
+ * W13 mandate requirement, or link a mandate first).
+ */
+export async function provisionCreditPair(
+  world: World,
+  opts: { userIdBase: number; name: string },
+): Promise<CreditPair> {
+  const schema = await import("../../drizzle/schema");
+  const admin = await adminCaller();
+  const sup = (await admin.onboarding.start({ name: `${opts.name} Supplier` })).tenantId;
+  const buy = (await admin.onboarding.start({ name: `${opts.name} Buyer` })).tenantId;
+  const supCaller = await tenantCaller(sup, { userId: opts.userIdBase });
+  const buyCaller = await tenantCaller(buy, { userId: opts.userIdBase + 1 });
+  const supApp = await supCaller.kyc.getOrCreateApplication({ tenantId: sup, type: "kyb" });
+  await admin.kyc.review({ applicationId: supApp.id, decision: "approved" });
+  const buyApp = await buyCaller.kyc.getOrCreateApplication({ tenantId: buy, type: "kyb" });
+  await admin.kyc.review({ applicationId: buyApp.id, decision: "approved" });
+  const accountId = crypto.randomUUID();
+  await world.db.insert(schema.creditAccounts).values({
+    id: accountId,
+    supplierTenantId: sup,
+    buyerTenantId: buy,
+    limitCents: 0,
+    outstandingCents: 0,
+    termsDays: 14,
+    status: "pending",
+  });
+  return { sup, buy, supCaller, buyCaller, accountId };
+}
+
+/** W14: bureau_report_log rows for one account, oldest first. */
+export async function bureauLogRows(world: World, accountId: string) {
+  const schema = await import("../../drizzle/schema");
+  const { asc, eq } = await import("drizzle-orm");
+  return world.db
+    .select()
+    .from(schema.bureauReportLog)
+    .where(eq(schema.bureauReportLog.accountId, accountId))
+    .orderBy(asc(schema.bureauReportLog.createdAt), asc(schema.bureauReportLog.id));
+}
+
 /** Declarative custom gateway (customHttp config): configurable header/algo/encoding. */
 export async function customGatewayWebhook(
   world: World,

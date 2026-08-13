@@ -561,6 +561,23 @@ export async function bootWorld(): Promise<World> {
           clearSessionCaches();
           keycloakMock.reset();
         } catch { /* w12 tables not migrated yet */ }
+        // Wave 14 isolation: bureau outbox rows, lender facilities and
+        // provider/enforcement env created by J67–J72 never leak between
+        // journeys. (Bureau rows reference account ids, not FKs, so order is
+        // unconstrained; facilities are dropped after the W12 account wipe.)
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.bureauReportLog);
+        } catch { /* w14 tables not migrated yet */ }
+        try {
+          const { creditFacilities } = await import("../server/services/creditFacilities/tables");
+          await world.db.delete(creditFacilities);
+        } catch { /* w14 tables not migrated yet */ }
+        delete process.env.BUREAU_PROVIDER;
+        delete process.env.BUREAU_API_BASE;
+        delete process.env.BUREAU_API_KEY;
+        delete process.env.BUREAU_TIMEOUT_MS;
+        delete process.env.CREDIT_ENFORCEMENT_STRICT;
         delete process.env.ERROR_WEBHOOK_URL;
         delete process.env.TEMPORAL_ADDRESS;
         delete process.env.KYC_GATE_DISABLED;

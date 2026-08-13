@@ -94,6 +94,12 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j64-downward-limit-revision"),
     import("./journeys/j65-tenure-suspension"),
     import("./journeys/j66-supplier-direct-settlement"),
+    import("./journeys/j67-bureau-consent-gating"),
+    import("./journeys/j68-bureau-event-lifecycle"),
+    import("./journeys/j69-bureau-retry-dispute"),
+    import("./journeys/j70-loan-book-tape"),
+    import("./journeys/j71-facility-utilization-covenants"),
+    import("./journeys/j72-credit-hardening-e2e"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }
