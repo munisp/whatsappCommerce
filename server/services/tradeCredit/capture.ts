@@ -53,6 +53,7 @@ export type MandateRepaymentResult =
         | "no_active_mandate"
         | "duplicate"
         | "invalid_amount"
+        | "exceeds_outstanding"
         | "charge_failed"
         | "settlement_failed";
       reference?: string;
@@ -120,6 +121,15 @@ export async function applyMandateRepaymentTx(
     if (!account) return { ok: false, mode: "none", reason: "no_account", outstandingAfter: 0 };
     if (!Number.isFinite(amountCents) || amountCents <= 0) {
       return { ok: false, mode: "none", reason: "invalid_amount", outstandingAfter: account.outstandingCents };
+    }
+    // Over-repayment guard BEFORE any provider charge: without it a
+    // double-submitted repayment (fresh random reference each call, so the
+    // exactly-once claim cannot catch it) would charge the mandate and only
+    // THEN be refused by applyRepaymentTx's claim-first guard — money moved
+    // with no settlement. Refuse up front instead; the provider is never
+    // called (no charge, no dunning notice).
+    if (amountCents > account.outstandingCents) {
+      return { ok: false, mode: "none", reason: "exceeds_outstanding", outstandingAfter: account.outstandingCents };
     }
     if (!account.mandateId) {
       return { ok: false, mode: "fallback", reason: "no_active_mandate", outstandingAfter: account.outstandingCents };

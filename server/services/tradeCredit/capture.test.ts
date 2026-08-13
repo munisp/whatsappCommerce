@@ -158,11 +158,15 @@ describe("applyMandateRepaymentTx — charge-first", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("refuses over-repayment at settlement even after a successful charge", async () => {
+  it("refuses over-repayment BEFORE any provider charge (double-submit guard)", async () => {
     const { db, store } = seedWithMandate();
-    __setMandateProvidersForTests(async () => [mandateProvider()] as any);
+    const entry = mandateProvider();
+    __setMandateProvidersForTests(async () => [entry] as any);
     const res = await applyMandateRepaymentTx(db, { accountId: "acct-1", amountCents: 20_000 }, NOW);
-    expect(res).toMatchObject({ ok: false, reason: "settlement_failed" });
+    expect(res).toMatchObject({ ok: false, mode: "none", reason: "exceeds_outstanding", outstandingAfter: 10_000 });
+    // The provider is never called — money cannot move without settlement.
+    expect(entry.provider.chargeMandate).not.toHaveBeenCalled();
     expect(store.accounts[0].outstandingCents).toBe(10_000);
+    expect(store.ledger.filter((r: any) => r.kind === "repayment")).toHaveLength(0);
   });
 });

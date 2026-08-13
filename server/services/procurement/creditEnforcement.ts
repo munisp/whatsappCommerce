@@ -96,7 +96,15 @@ export async function settleCreditDrawToSupplier(args: {
   const settle = contractFn("settleDrawToSupplier");
   if (!settle) return { ok: true }; // contract not merged yet
   try {
-    const result = await settle({ poId: args.poId, drawResult: { ledgerId: args.drawResult.ledgerId } });
+    // The tradeCredit contract keys on a SUCCESSFUL draw result
+    // (Extract<DrawResult, { ok: true }>) — passing a bare { ledgerId }
+    // silently no-ops with action 'no_draw' and the PO never reaches its
+    // paid-via-credit state. Reconstruct the success shape here (the caller
+    // only invokes us after draw.ok === true).
+    const result = await settle({
+      poId: args.poId,
+      drawResult: { ok: true, ledgerId: args.drawResult.ledgerId },
+    });
     return { ok: !!result?.ok };
   } catch (e: any) {
     // Settlement bookkeeping must not roll back an already-successful draw;
