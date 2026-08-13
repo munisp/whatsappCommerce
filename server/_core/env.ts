@@ -214,3 +214,19 @@ if (isProd && process.env.SECRETS_MASTER_KEY) {
     );
   }
 }
+
+// ─── Credit-enforcement suspension-check posture (W14; additive) ───────────
+// The PO submit gate's trade-credit suspension lookup historically failed
+// OPEN on error (a delinquent buyer could order during a lookup outage).
+// CREDIT_ENFORCEMENT_STRICT=true forces fail-CLOSED (the lookup error blocks
+// submission with a "credit status unavailable, try again" message);
+// =false forces fail-open. Unset, the safe default applies: fail-CLOSED in
+// production-like environments (see isProd), fail-open in development/test
+// so local runs without the credit stack stay usable. Read lazily (function,
+// not a load-time const) so tests and runtime toggles see the live value.
+export function isCreditEnforcementStrict(): boolean {
+  const raw = (process.env.CREDIT_ENFORCEMENT_STRICT ?? "").trim().toLowerCase();
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return isProd;
+}

@@ -172,6 +172,41 @@ describe("PO submission gate", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("W14 strict mode: lookup error fails CLOSED — submit blocked with try-again copy", async () => {
+    process.env.CREDIT_ENFORCEMENT_STRICT = "true";
+    try {
+      credit.isOrderAccessSuspended.mockRejectedValue(new Error("db down"));
+      const { db } = makeDb();
+      const result = await submitPurchaseOrder(db, {
+        buyerTenantId: "buyer-1", supplierTenantId: "supplier-1", lines: LINES, paymentMode: "credit",
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("suspended");
+        expect(result.suspensionReason).toBe("credit status unavailable, try again");
+        expect(result.outstandingCents).toBeNull();
+      }
+      // No PO was persisted — the gate blocked BEFORE insert.
+      expect(db === null).toBe(false);
+    } finally {
+      delete process.env.CREDIT_ENFORCEMENT_STRICT;
+    }
+  });
+
+  it("W14 strict mode: explicit CREDIT_ENFORCEMENT_STRICT=false restores fail-open", async () => {
+    process.env.CREDIT_ENFORCEMENT_STRICT = "false";
+    try {
+      credit.isOrderAccessSuspended.mockRejectedValue(new Error("db down"));
+      const { db } = makeDb();
+      const result = await submitPurchaseOrder(db, {
+        buyerTenantId: "buyer-1", supplierTenantId: "supplier-1", lines: LINES, paymentMode: "credit",
+      });
+      expect(result.ok).toBe(true);
+    } finally {
+      delete process.env.CREDIT_ENFORCEMENT_STRICT;
+    }
+  });
+
   it("fails OPEN when the contract is not merged yet (function missing)", async () => {
     const orig = credit.isOrderAccessSuspended;
     // @ts-expect-error simulate pre-merge module shape
@@ -315,6 +350,26 @@ describe("createPo router gate", () => {
     expect(err.message).toContain("₦2,500.00");
     expect(err.message.toLowerCase()).toContain("repay");
     expect(err.message.toLowerCase()).toContain("restore ordering");
+  });
+
+  it("W14 strict mode: lookup outage → createPo FORBIDDEN with try-again copy", async () => {
+    process.env.CREDIT_ENFORCEMENT_STRICT = "true";
+    try {
+      credit.isOrderAccessSuspended.mockRejectedValue(new Error("db down"));
+      dbHolder.db = makeDb().db;
+      const caller = appRouter.createCaller(makeCtx("buyer-1"));
+      await expect(
+        caller.procurement.createPo({
+          buyerTenantId: "buyer-1", supplierTenantId: "supplier-1", paymentMode: "credit",
+          lines: [{ name: "Rice 50kg", qty: 2, unitPriceCents: 25_000 }],
+        }),
+      ).rejects.toMatchObject({
+        code: "FORBIDDEN",
+        message: expect.stringContaining("credit status unavailable, try again"),
+      });
+    } finally {
+      delete process.env.CREDIT_ENFORCEMENT_STRICT;
+    }
   });
 
   it("unsuspended buyer → createPo succeeds via the router", async () => {

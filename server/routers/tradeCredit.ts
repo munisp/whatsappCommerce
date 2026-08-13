@@ -12,7 +12,7 @@
  */
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   approveCreditAccountTx,
@@ -39,6 +39,7 @@ import {
   revokeMandate,
 } from "../services/payments/mandates";
 import { createRepaymentLink, CreditRepayError } from "../services/creditRepayLink";
+import { retrySettlement } from "../services/tradeCredit/capture";
 import { creditAccounts } from "../../drizzle/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { requireApprovedKyb } from "../services/kycGate";
@@ -480,5 +481,26 @@ export const tradeCreditRouter = router({
         }
         throw err;
       }
+    }),
+
+  // ── W14: platform ops ────────────────────────────────────────────────────
+
+  /**
+   * Admin (platform-ops): re-attempt settlement for a repayment whose mandate
+   * charge SUCCEEDED but whose FIFO settlement failed (money moved, no
+   * settlement — surfaced as a CRITICAL capture + a durable settlement_retry
+   * ledger marker). Exactly-once: a reference that already has a repayment
+   * ledger row is a no-op ('already_settled'); the pending marker is claimed
+   * first so concurrent retries cannot settle twice.
+   */
+  retrySettlement: adminProcedure
+    .input(z.object({
+      accountId: z.string().min(1),
+      reference: z.string().min(1).max(128),
+      amountCents: z.number().int().positive().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      return retrySettlement(db, input);
     }),
 });

@@ -614,6 +614,16 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
               if (idx >= 0) return store.webhookEvents.splice(idx, 1).map((r) => ({ ...r }));
               return [];
             }
+            if (t === "credit_ledger" && sig === "credit_account_id,ref,kind,note") {
+              // settlement_retry marker claim: account + ref + kind + note LIKE prefix%
+              const [accountId, ref, kind, pattern] = values as [string, string, string, string];
+              const prefix = pattern.replace(/%+$/, "");
+              const matched = store.ledger.filter((r) =>
+                r.creditAccountId === accountId && r.ref === ref && r.kind === kind &&
+                (r.note ?? "").startsWith(prefix));
+              store.ledger = store.ledger.filter((r) => !matched.includes(r));
+              return matched.map((r) => ({ ...r }));
+            }
             throw new Error(`fakeDb delete: unhandled ${t} ${sig}`);
           };
           const chain: any = thenable(get);
