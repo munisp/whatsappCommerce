@@ -10,6 +10,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import { makeFakeDb, seedAccount, seedDraw, seedKycApplication } from "./services/tradeCredit/fakeDb";
 
+// W13: these lifecycle tests draw immediately after approval — disable the
+// first-draw tenure gate (default 7d) so they keep exercising the pre-W13
+// state machine. The gate itself is covered in services/tradeCredit/tenure.test.ts.
+process.env.CREDIT_TENURE_GATE_DAYS = "0";
+
 const fake = makeFakeDb({
   accounts: [
     seedAccount({ id: "acc-A", supplierTenantId: "supplier-A", buyerTenantId: "buyer-A", limitCents: 100_000, outstandingCents: 20_000 }),

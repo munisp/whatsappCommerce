@@ -54,6 +54,15 @@ export const journey: Journey = {
     // ── 3. Both verified → approved ────────────────────────────────────────
     const supApp = await supCaller.kyc.getOrCreateApplication({ tenantId: sup, type: "kyb" });
     await admin.kyc.review({ applicationId: supApp.id, decision: "approved" });
+    // W13: the ₦250k facility is above the ₦50k micro-credit floor, so the
+    // buyer needs an active repayment mandate before approval (dev fake).
+    await world.db.insert(schema.paymentMandates).values({
+      tenantId: buy,
+      provider: "fake",
+      mandateRef: `fake-j58-${accountId.slice(0, 8)}`,
+      status: "active",
+      metadata: { devFakeMandate: true },
+    });
     const approved = await approve();
     assert(approved.status === "active", `facility approved → active (got ${approved.status})`);
     const [acct] = await world.db.select().from(schema.creditAccounts).where(eq(schema.creditAccounts.id, accountId)).limit(1);

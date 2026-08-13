@@ -2968,6 +2968,14 @@ export const creditAccounts = pgTable("credit_accounts", {
   status: varchar("status", { length: 20 }).notNull().default("active"), // 'pending' | 'active' | 'frozen' | 'closed'
   score: integer("score"),
   scoreReasons: jsonb("score_reasons"), // string[] human-readable scoring rationale
+  // W13: repayment-at-source mandate linked to this facility (payment_mandates.id).
+  mandateId: varchar("mandate_id", { length: 36 }),
+  // W13: order-access suspension (credit control plane). suspended=true blocks
+  // new credit-backed orders for this (buyer, supplier) pair while leaving the
+  // ledger intact; lifted automatically when outstanding returns to 0.
+  suspended: boolean("suspended").notNull().default(false),
+  suspendedAt: timestamp("suspended_at"),
+  suspensionReason: varchar("suspension_reason", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -2976,6 +2984,47 @@ export const creditAccounts = pgTable("credit_accounts", {
 ]);
 export type CreditAccount = typeof creditAccounts.$inferSelect;
 export type NewCreditAccount = typeof creditAccounts.$inferInsert;
+
+// ── W13: repayment-at-source mandates + credit limit history ───────────────
+// payment_mandates: a buyer-tenant authorization letting the platform debit
+// them at source (direct-debit / tokenized bank auth) for credit repayments.
+// Status machine: pending → active (authorization confirmed) → revoked |
+// failed. Provider interactions live in server/services/payments/mandates.ts;
+// the mandate-capable provider contract is implemented by the payments wave
+// (createMandate/chargeMandate/revokeMandate on PaymentProvider).
+export const paymentMandates = pgTable("payment_mandates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().references(() => tenants.id),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  mandateRef: varchar("mandateRef", { length: 128 }).notNull(),
+  customerRef: varchar("customerRef", { length: 128 }),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // 'pending' | 'active' | 'revoked' | 'failed'
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("payment_mandates_tenant_status_idx").on(t.tenantId, t.status),
+  uniqueIndex("payment_mandates_tenant_provider_ref_uniq").on(t.tenantId, t.provider, t.mandateRef),
+]);
+export type PaymentMandate = typeof paymentMandates.$inferSelect;
+export type NewPaymentMandate = typeof paymentMandates.$inferInsert;
+
+// credit_limit_history: append-only audit of limit revisions (auto or
+// manual). reason 'auto_revision' for scorer-driven changes, 'limit_clamped'
+// when a downward revision was clamped at the outstanding balance.
+export const creditLimitHistory = pgTable("credit_limit_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: uuid("accountId").notNull().references(() => creditAccounts.id),
+  oldLimitCents: bigint("oldLimitCents", { mode: "number" }).notNull(),
+  newLimitCents: bigint("newLimitCents", { mode: "number" }).notNull(),
+  score: integer("score"),
+  reason: varchar("reason", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("credit_limit_history_account_idx").on(t.accountId),
+]);
+export type CreditLimitHistoryEntry = typeof creditLimitHistory.$inferSelect;
+export type NewCreditLimitHistoryEntry = typeof creditLimitHistory.$inferInsert;
 
 // Append-only credit ledger. amount_cents is always non-negative; direction
 // is encoded by kind: 'invoice_draw' + 'fee' raise exposure, 'repayment'

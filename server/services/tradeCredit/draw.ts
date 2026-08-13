@@ -29,11 +29,35 @@ export interface DrawArgs {
   amountCents: number;
   poId: string;
   termsDays?: number;
+  /**
+   * W13 tenure-gate override: an explicit supplier decision (recorded
+   * upstream) may bypass the first-draw account-age requirement.
+   */
+  tenureOverride?: boolean;
 }
 
 export type DrawResult =
   | { ok: true; ledgerId: string; outstandingAfter: number }
-  | { ok: false; reason: "over_limit" | "no_account" | "frozen" | "closed" };
+  | {
+      ok: false;
+      // Kept byte-compatible with the pre-W13 union: procurement/poFlow.ts
+      // (owned by the procurement wave) assigns draw.reason into its own
+      // ApprovePoResult union, so new W13 refusals map onto 'frozen' with the
+      // precise cause carried in `blockedBy`.
+      reason: "over_limit" | "no_account" | "frozen" | "closed";
+      /** W13 precision: 'suspended' (credit control plane) | 'tenure' (first-draw age gate). */
+      blockedBy?: "suspended" | "tenure";
+    };
+
+/** W13: days a facility must be aged before its FIRST draw (env override). */
+export function tenureGateDays(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.CREDIT_TENURE_GATE_DAYS;
+  if (raw === undefined || raw === "") return 7;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7;
+}
+
+const TENURE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function drawOnCreditTx(
   db: TxHandle,
@@ -52,6 +76,23 @@ export async function drawOnCreditTx(
   if (!account) return { ok: false, reason: "no_account" };
   if (account.status === "frozen") return { ok: false, reason: "frozen" };
   if (account.status === "closed") return { ok: false, reason: "closed" };
+  if (account.suspended === true) return { ok: false, reason: "frozen", blockedBy: "suspended" };
+
+  // ── W13 tenure gate: the FIRST draw on a facility requires the account to
+  // be aged ≥ CREDIT_TENURE_GATE_DAYS (default 7), unless the supplier
+  // explicitly overrode. "First draw" = no invoice_draw ledger rows yet.
+  const gateDays = tenureGateDays();
+  if (gateDays > 0 && args.tenureOverride !== true) {
+    const ageMs = now.getTime() - new Date(account.createdAt).getTime();
+    if (ageMs < gateDays * TENURE_DAY_MS) {
+      const priorDraws = await db
+        .select({ id: creditLedger.id })
+        .from(creditLedger)
+        .where(and(eq(creditLedger.creditAccountId, account.id), eq(creditLedger.kind, "invoice_draw")))
+        .limit(1);
+      if (priorDraws.length === 0) return { ok: false, reason: "frozen", blockedBy: "tenure" };
+    }
+  }
 
   const termsDays = args.termsDays ?? account.termsDays;
   const dueDate = new Date(now.getTime() + termsDays * 24 * 60 * 60 * 1000);

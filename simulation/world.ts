@@ -488,6 +488,11 @@ export async function bootWorld(): Promise<World> {
               outstandingCents: 0,
               termsDays: CREDIT_TERMS_DAYS,
               status: "active",
+              // W13: order-access suspension must not leak between journeys
+              // (dunning journeys suspend the seed account at the +7d freeze).
+              suspended: false,
+              suspendedAt: null,
+              suspensionReason: null,
               updatedAt: new Date(),
             })
             .where(eq(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
@@ -532,6 +537,10 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.churnPredictions);
           await world.db.delete(schema.cohortSnapshots);
           await world.db.delete(schema.temporalWorkflowRuns);
+          // W13 isolation: mandate rows (FK → tenants) are cleared before
+          // non-seed tenants are dropped.
+          await world.db.delete(schema.paymentMandates);
+          await world.db.delete(schema.creditLimitHistory);
           await world.db.delete(schema.creditAccounts).where(ne(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
           // Non-seed tenants (onboarding.start / KYB journeys) and their
           // supplier profiles are dropped; the two seeded tenants stay.

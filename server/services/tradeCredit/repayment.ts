@@ -114,6 +114,16 @@ export async function applyRepaymentTx(
         .where(and(inArray(creditLedger.id, settleIds), eq(creditLedger.status, "posted")));
     }
 
+    // ── W13: order-access auto-lift — a fully repaid facility is in good
+    // standing again, so any credit-control suspension lifts in the SAME
+    // transaction (claim-first on suspended=true; no-op otherwise).
+    if (claimed.outstandingCents === 0 && claimed.suspended === true) {
+      await tx
+        .update(creditAccounts)
+        .set({ suspended: false, suspendedAt: null, suspensionReason: null, updatedAt: now })
+        .where(and(eq(creditAccounts.id, args.accountId), eq(creditAccounts.suspended, true)));
+    }
+
     return { ok: true, outstandingAfter: claimed.outstandingCents };
   });
 }
