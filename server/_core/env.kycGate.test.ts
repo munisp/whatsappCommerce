@@ -24,6 +24,8 @@ function prodEnv(overrides: Record<string, string | undefined> = {}) {
     REDIS_URL: "redis://redis:6379",
     SECRETS_MASTER_KEY: VALID_MASTER_KEY,
     KYC_SERVICE_API_KEY: "kyc-live-key-0123456789abcdef",
+    // A4-04: prod boot gate requires a non-default WhatsApp verify token.
+    WHATSAPP_VERIFY_TOKEN: "wa-verify-test-token-0123456789",
     VLM_MOCK_MODE: undefined,
     KYC_INTERNAL_API_KEY: undefined,
     ...overrides,

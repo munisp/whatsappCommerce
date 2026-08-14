@@ -18,6 +18,8 @@ const PROD_BOOT_ENV: Record<string, string> = {
   REDIS_URL: "redis://localhost:6379",
   SECRETS_MASTER_KEY: Buffer.alloc(32, 7).toString("base64"),
   KYC_SERVICE_API_KEY: "w14-test-kyc-key",
+  // A4-04: prod boot gate requires a non-default WhatsApp verify token.
+  WHATSAPP_VERIFY_TOKEN: "wa-verify-test-token-0123456789",
 };
 
 async function importFreshEnv(overrides: Record<string, string | undefined>) {
