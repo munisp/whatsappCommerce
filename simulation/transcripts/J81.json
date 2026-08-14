@@ -1,0 +1,20 @@
+{
+  "id": "J81",
+  "title": "embedded signup e2e",
+  "feature": "code exchange + discovery → idempotent replay → error taxonomy → waSender credential seam → coexistence",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348015658714",
+      "wamid": "wamid.sim.000001",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786700613626,
+      "kind": "text",
+      "body": "J81 credential-path probe"
+    }
+  ]
+}

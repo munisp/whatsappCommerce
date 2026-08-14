@@ -106,6 +106,12 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j76-erp-provisioning-e2e"),
     import("./journeys/j77-copilot-config-intents"),
     import("./journeys/j78-w141-credit-regression"),
+    import("./journeys/j79-shopify-oauth-catalog-sync"),
+    import("./journeys/j80-shopify-order-bridge"),
+    import("./journeys/j81-embedded-signup-e2e"),
+    import("./journeys/j82-template-library-lifecycle"),
+    import("./journeys/j83-marketplace-lifecycle"),
+    import("./journeys/j84-new-tenant-distribution-e2e"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }
