@@ -94,6 +94,7 @@ import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
 import { erpProvisionRouter } from "./routers/erpProvision";
 import { embeddedSignupRouter } from "./routers/embeddedSignup";
+import { shopifyIntegrationRouter } from "./routers/shopifyIntegration";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -223,6 +224,7 @@ export const appRouter = router({
   onboardingCopilot: onboardingCopilotRouter,
   erpProvision: erpProvisionRouter,
   embeddedSignup: embeddedSignupRouter,
+  shopifyIntegration: shopifyIntegrationRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
