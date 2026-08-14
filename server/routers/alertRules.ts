@@ -48,6 +48,7 @@ export const alertRulesRouter = router({
 
   // ── Create a new rule ───────────────────────────────────────────────────────
   create: protectedProcedure
+    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
     .input(
       z.object({
         name: z.string().min(1).max(128),
@@ -85,6 +86,7 @@ export const alertRulesRouter = router({
 
   // ── Update an existing rule ─────────────────────────────────────────────────
   update: protectedProcedure
+    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
     .input(
       z.object({
         id: z.string().uuid(),
@@ -114,6 +116,7 @@ export const alertRulesRouter = router({
 
   // ── Toggle enabled/disabled ─────────────────────────────────────────────────
   toggle: protectedProcedure
+    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
     .input(z.object({ id: z.string().uuid(), isEnabled: z.boolean() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -127,6 +130,7 @@ export const alertRulesRouter = router({
 
   // ── Delete a rule ───────────────────────────────────────────────────────────
   delete: protectedProcedure
+    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -228,6 +232,7 @@ export const alertRulesRouter = router({
 
   // ── List trigger events (last 30 days by default) ───────────────────────────
   listEvents: protectedProcedure
+    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
     .input(
       z.object({
         ruleId: z.string().uuid().optional(),

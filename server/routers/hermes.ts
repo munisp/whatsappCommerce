@@ -222,6 +222,7 @@ export const hermesRouter = router({
 
   // Approve a PO draft
   approvePO: protectedProcedure
+    // authz:exempt capability-token PO approval link: lookup requires matching approvalToken (bearer capability)
     .input(z.object({
       poId: z.string(),
       approvalToken: z.string(),
@@ -277,6 +278,7 @@ export const hermesRouter = router({
 
   // Reject a PO draft
   rejectPO: protectedProcedure
+    // authz:exempt capability-token PO approval link: lookup requires matching approvalToken (bearer capability)
     .input(z.object({
       poId: z.string(),
       approvalToken: z.string(),

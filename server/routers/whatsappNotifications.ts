@@ -562,7 +562,7 @@ export const whatsappNotificationsRouter = router({
       }).optional(),
       tone: z.enum(["professional", "friendly", "empathetic", "concise"]).default("professional"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { invokeLLM } = await import("../_core/llm");
       const messageHistory = input.recentReplies
         .slice()
@@ -577,6 +577,7 @@ export const whatsappNotificationsRouter = router({
         if (db) {
           const [ord] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
           if (ord) {
+            assertTenantAccess(ctx.user, ord.tenantId);
             const totalDisplay = ord.totalAmount != null
               ? `${ord.currency ?? ""} ${Number(ord.totalAmount).toFixed(2)}`
               : "?";

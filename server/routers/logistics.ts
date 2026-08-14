@@ -323,12 +323,14 @@ export const logisticsRouter = router({
   // Get single shipment
   getShipment: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
       const [shipment] = await db.select().from(logisticsShipments)
         .where(eq(logisticsShipments.id, input.id));
-      return shipment ?? null;
+      if (!shipment) return null;
+      assertTenantAccess(ctx.user, shipment.tenantId);
+      return shipment;
     }),
 
   // List shipments

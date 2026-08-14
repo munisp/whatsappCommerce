@@ -7,6 +7,38 @@ import type { KycApplication } from "../../drizzle/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { storagePut } from "../storage";
+import { runKybChecks, type KybCheckResult } from "../services/compliance";
+
+// ── A3-F01: KYB screening wiring ─────────────────────────────────────────────
+// runKybChecks (registry verification + sanctions) was dead code; it is now
+// wired into the KYB lifecycle below. Screening is SKIPPED (legacy behavior)
+// only when the registry provider is disabled AND no SANCTIONS_LIST_URL is
+// configured. When screening runs, review approval fails closed on `reject`
+// or on a degraded sanctions result.
+const KYB_NOTE_RE = /\[kyb-screen\] recommendation=(auto_approve|manual_review|reject)/;
+
+function kybScreeningEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const provider = (env.COMPLIANCE_REGISTRY_PROVIDER ?? "disabled").trim();
+  return provider !== "disabled" || Boolean(env.SANCTIONS_LIST_URL);
+}
+
+async function runKybScreenFor(app: {
+  businessName?: string | null;
+  businessRegistrationNumber?: string | null;
+  businessCountry?: string | null;
+}): Promise<KybCheckResult | null> {
+  if (!kybScreeningEnabled()) return null;
+  if (!app.businessName || !app.businessRegistrationNumber || !app.businessCountry) return null;
+  return runKybChecks({
+    businessName: app.businessName,
+    registrationNumber: app.businessRegistrationNumber,
+    country: app.businessCountry,
+  });
+}
+
+function kybNote(result: KybCheckResult): string {
+  return `[kyb-screen] recommendation=${result.recommendation} at ${new Date().toISOString()} — ${result.reasons.join("; ")}`;
+}
 
 const KYC_SERVICE_URL = process.env.KYC_SERVICE_URL ?? "http://localhost:8001";
 const KYC_API_KEY = process.env.KYC_INTERNAL_API_KEY ?? "dev-kyc-key";
@@ -101,7 +133,25 @@ export const kycRouter = router({
       await db.update(kycApplications)
         .set({ ...data, updatedAt: new Date() })
         .where(eq(kycApplications.id, applicationId));
-      return { ok: true };
+
+      // A3-F01: re-run KYB screening when business identity fields change and
+      // persist the advisory recommendation into reviewNotes for reviewers.
+      const merged = { ...app, ...data };
+      let screenNote: string | null = null;
+      try {
+        const kyb = await runKybScreenFor(merged);
+        if (kyb) {
+          screenNote = kybNote(kyb);
+          const prior = (app.reviewNotes ?? "").split("\n").filter((l) => !KYB_NOTE_RE.test(l));
+          await db.update(kycApplications)
+            .set({ reviewNotes: [...prior, screenNote].filter(Boolean).join("\n"), updatedAt: new Date() })
+            .where(eq(kycApplications.id, applicationId));
+        }
+      } catch (err) {
+        // Advisory pre-fill only; never block the merchant's draft save.
+        console.error("[kyc.updateApplication] KYB screening failed:", err);
+      }
+      return { ok: true, kybScreen: screenNote };
     }),
 
   // Submit application for review
@@ -114,6 +164,14 @@ export const kycRouter = router({
         .where(eq(kycApplications.id, input.applicationId)).limit(1);
       if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "KYC application not found" });
       assertTenantAccess(ctx.user, app.tenantId);
+      // A3-F01: a persisted reject recommendation blocks submission.
+      const kybRec = KYB_NOTE_RE.exec(app.reviewNotes ?? "")?.[1];
+      if (kybRec === "reject") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Cannot submit: KYB screening returned a reject recommendation. Contact support.",
+        });
+      }
       await db.update(kycApplications)
         .set({ status: "pending", submittedAt: new Date(), updatedAt: new Date() })
         .where(eq(kycApplications.id, input.applicationId));
@@ -222,6 +280,34 @@ export const kycRouter = router({
       // which is recorded per document.
       let reviewNotes = input.notes;
       if (input.decision === "approved") {
+        // ── KYB screening gate (A3-F01, fail closed) ──────────────────────
+        // Approval is blocked when screening says reject, when the sanctions
+        // list is degraded, or when screening errors — never auto-pass.
+        const [app] = await db.select().from(kycApplications)
+          .where(eq(kycApplications.id, input.applicationId)).limit(1);
+        if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "KYC application not found" });
+        if (KYB_NOTE_RE.exec(app.reviewNotes ?? "")?.[1] === "reject") {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Cannot approve: KYB screening recommendation is reject.",
+          });
+        }
+        if (kybScreeningEnabled()) {
+          let kyb: KybCheckResult | null = null;
+          try {
+            kyb = await runKybScreenFor(app);
+          } catch (err) {
+            console.error("[kyc.review] KYB screening error (fail-closed):", err);
+          }
+          if (!kyb || kyb.recommendation === "reject" || kyb.sanctions.degraded) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: kyb
+                ? `Cannot approve: KYB screening requires manual resolution (${kyb.reasons.join("; ")})`
+                : "Cannot approve: KYB screening unavailable (fail-closed).",
+            });
+          }
+        }
         const docs = await db.select().from(kycDocuments)
           .where(eq(kycDocuments.applicationId, input.applicationId));
         const pendingDocs = docs.filter((d) => !d.processedAt);

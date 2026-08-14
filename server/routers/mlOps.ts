@@ -139,6 +139,7 @@ export const mlOpsRouter = router({
 
   // Get all runs for a specific experiment
   getMlflowRuns: protectedProcedure
+    // authz:exempt platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data
     .input(z.object({ experimentId: z.string() }))
     .query(async ({ input }) => {
       assertSafeExperimentId(input.experimentId);
@@ -313,6 +314,7 @@ export const mlOpsRouter = router({
 
   // Per-step metric history for all runs in an experiment — powers time-series charts
   getMetricHistory: protectedProcedure
+    // authz:exempt platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data
     .input(z.object({ experimentId: z.string() }))
     .query(async ({ input }) => {
       assertSafeExperimentId(input.experimentId);
@@ -492,6 +494,7 @@ export const mlAbTestRouter = router({
       return test;
     }),
   conclude: protectedProcedure
+    // authz:exempt platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data
     .input(z.object({
       id: z.string(),
       winner: z.enum(["champion", "challenger"]),

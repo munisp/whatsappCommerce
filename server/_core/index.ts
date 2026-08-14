@@ -24,6 +24,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
 import { getDb } from "../db";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
+import { runInventorySyncHeartbeat } from "../services/inventorySync";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { paymentTransactions, paymentIntents, walletTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
@@ -342,10 +343,8 @@ async function startServer() {
       if (!user.isCron) return res.status(403).json({ error: "cron-only" });
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "db-unavailable" });
-      // Update lastSyncedAt for all snapshots (production: replace with Odoo XML-RPC call)
-      await db.update(inventorySnapshots)
-        .set({ lastSyncedAt: new Date(), syncSource: "heartbeat" })
-        .execute();
+      // A3-F03: run the real per-tenant Odoo inventory sync (never throws).
+      const syncSummary = await runInventorySyncHeartbeat();
       // Count low-stock items using per-product threshold via JOIN
       const lowStockRows = await db.execute(sql`
         SELECT COUNT(*) AS cnt
@@ -361,7 +360,8 @@ async function startServer() {
       const lowStockCount = Number((lowStockRows as any[])[0]?.cnt ?? 0);
       const outOfStockCount = Number((outOfStockRows as any[])[0]?.cnt ?? 0);
       return res.json({
-        ok: true,
+        ok: syncSummary.failed.length === 0,
+        sync: syncSummary,
         syncedAt: new Date().toISOString(),
         lowStockCount,
         outOfStockCount,

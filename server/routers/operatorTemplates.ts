@@ -58,6 +58,7 @@ export const operatorTemplatesRouter = router({
 
   // Get a single template by ID
   getById: protectedProcedure
+    // authz:exempt platform-shared operator templates readable by id; template library is cross-tenant by design
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
       const db = await getDb();

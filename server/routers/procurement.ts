@@ -190,6 +190,7 @@ export const procurementRouter = router({
     }),
 
   getPo: protectedProcedure
+    // authz:exempt object-level check inside getPoForEitherSide (buyer-side or supplier-side access)
     .input(z.object({ poId: z.string() }))
     .query(async ({ input, ctx }) => {
       const db = await requireDb();

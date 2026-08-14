@@ -1508,6 +1508,115 @@ export const walletRouter = router({
       return { success: true, reference: ref, amount: input.amount, status: "pending" as const, duplicate: false };
     }),
 
+  /**
+   * R3: reject a PENDING withdrawal and refund the merchant atomically.
+   * The pending→rejected claim is a single conditional UPDATE (exactly one
+   * rejecter wins); the compensating escrow_refund ledger entry is written
+   * at `${reference}:reversal` and is protected by the 0053
+   * wallet_tx_wallet_ref_uniq partial unique index — a concurrent or repeated
+   * reject hits 23505 and becomes an idempotent no-op. Paid withdrawals are
+   * never touched.
+   */
+  rejectWithdrawal: adminProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      reference: z.string().min(1).max(118),
+      reason: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const [wallet] = await db.select().from(merchantWallets)
+        .where(eq(merchantWallets.tenantId, input.tenantId));
+      if (!wallet) throw new TRPCError({ code: "NOT_FOUND", message: "Wallet not found" });
+
+      const [wd] = await db.select().from(walletTransactions)
+        .where(and(
+          eq(walletTransactions.walletId, wallet.id),
+          eq(walletTransactions.reference, input.reference),
+          eq(walletTransactions.type, "withdrawal"),
+        ));
+      if (!wd) throw new TRPCError({ code: "NOT_FOUND", message: "Withdrawal not found" });
+      const status = ((wd.metadata as Record<string, unknown> | null)?.status as string) ?? "pending";
+      if (status === "paid") {
+        throw new TRPCError({ code: "CONFLICT", message: "Withdrawal already paid — cannot reject or refund" });
+      }
+      if (status === "rejected") {
+        // Idempotent no-op: funds were already restored exactly once.
+        return { success: true, reference: input.reference, status: "rejected" as const, refunded: false, duplicate: true };
+      }
+
+      const amount = parseFloat(wd.amount);
+      const reversalRef = `${input.reference}:reversal`;
+      try {
+        await db.transaction(async (tx) => {
+          // Atomic pending→rejected claim — only one concurrent reject wins
+          // (the status='pending' predicate is part of the WHERE, so the
+          // loser's UPDATE matches zero rows even under READ COMMITTED).
+          const claimed = await tx
+            .update(walletTransactions)
+            .set({
+              metadata: {
+                ...((wd.metadata as Record<string, unknown> | null) ?? {}),
+                status: "rejected",
+                rejectedBy: String(ctx.user.id),
+                rejectedAt: new Date().toISOString(),
+                rejectionReason: input.reason ?? null,
+              },
+            })
+            .where(and(
+              eq(walletTransactions.id, wd.id),
+              eq(walletTransactions.type, "withdrawal"),
+              sql`${walletTransactions.metadata}->>'status' = 'pending'`,
+            ))
+            .returning({ id: walletTransactions.id });
+          if (claimed.length === 0) throw new WalletWithdrawalDuplicateError();
+
+          // Compensating refund entry — idempotent via wallet_tx_wallet_ref_uniq.
+          const bal = await lockWalletRow(tx, wallet.id);
+          await tx.insert(walletTransactions).values({
+            id: crypto.randomUUID(),
+            walletId: wallet.id,
+            tenantId: input.tenantId,
+            type: "escrow_refund",
+            amount: amount.toFixed(2),
+            balanceBefore: bal.availableBalance.toFixed(2),
+            balanceAfter: (bal.availableBalance + amount).toFixed(2),
+            currency: bal.currency,
+            description: `Withdrawal ${input.reference} rejected — funds restored${input.reason ? `: ${input.reason}` : ""}`,
+            reference: reversalRef,
+            metadata: { status: "reversed", reversalOf: input.reference },
+            createdAt: new Date(),
+          });
+          // Wallet row is locked (FOR UPDATE above) — plain read-modify-write.
+          await tx.update(merchantWallets).set({
+            availableBalance: (bal.availableBalance + amount).toFixed(2),
+            totalWithdrawn: Math.max(0, parseFloat(String(wallet.totalWithdrawn ?? "0")) - amount).toFixed(2),
+            updatedAt: new Date(),
+          }).where(eq(merchantWallets.id, wallet.id));
+        });
+      } catch (err: any) {
+        if (err instanceof WalletWithdrawalDuplicateError || isWalletRefUniqueViolation(err)) {
+          // Lost the race (or replay): the reversal already happened once.
+          return { success: true, reference: input.reference, status: "rejected" as const, refunded: false, duplicate: true };
+        }
+        throw err;
+      }
+
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "wallet.withdrawal_rejected",
+        entityType: "merchant_wallet",
+        entityId: wallet.id,
+        tenantId: input.tenantId,
+        summary: `Withdrawal ${input.reference} rejected; ₦${amount.toFixed(2)} restored to available balance`,
+        after: { reference: input.reference, amount, status: "rejected", reason: input.reason ?? null },
+      });
+
+      return { success: true, reference: input.reference, status: "rejected" as const, refunded: true, duplicate: false };
+    }),
+
   // Platform-wide wallet stats (aggregates across ALL tenants — admin only)
   getStats: adminProcedure.query(async () => {
     const db = await getDb();
