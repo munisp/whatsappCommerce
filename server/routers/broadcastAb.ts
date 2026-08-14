@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
+import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { broadcastAbTests, broadcastCampaigns } from "../../drizzle/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export const broadcastAbRouter = router({
@@ -47,9 +48,9 @@ export const broadcastAbRouter = router({
     }),
 
   // ── Get A/B test results ────────────────────────────────────────────────────
-  getAbResults: publicProcedure
+  getAbResults: protectedProcedure
     .input(z.object({ campaignId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
       const rows = await db.select().from(broadcastAbTests)
@@ -57,6 +58,8 @@ export const broadcastAbRouter = router({
         .limit(1);
       if (!rows[0]) return null;
       const t = rows[0];
+      // A2-04: results are tenant-confidential — scope to the owning tenant.
+      assertTenantAccess(ctx.user, t.tenantId);
       const aReadRate = t.variantASent > 0 ? (t.variantARead / t.variantASent) * 100 : 0;
       const bReadRate = t.variantBSent > 0 ? (t.variantBRead / t.variantBSent) * 100 : 0;
       const aDeliveryRate = t.variantASent > 0 ? (t.variantADelivered / t.variantASent) * 100 : 0;
@@ -78,9 +81,14 @@ export const broadcastAbRouter = router({
       abTestId: z.string(),
       winnerVariant: z.enum(["A", "B"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // A2-03: load-then-assert — the A/B test belongs to the caller's tenant.
+      const rows = await db.select().from(broadcastAbTests)
+        .where(eq(broadcastAbTests.id, input.abTestId)).limit(1);
+      if (!rows[0]) throw new TRPCError({ code: "NOT_FOUND", message: "A/B test not found" });
+      assertTenantAccess(ctx.user, rows[0].tenantId);
       await db.update(broadcastAbTests)
         .set({ winnerVariant: input.winnerVariant, updatedAt: new Date() })
         .where(eq(broadcastAbTests.id, input.abTestId));
@@ -90,13 +98,15 @@ export const broadcastAbRouter = router({
   // ── Auto-select winner based on criteria ───────────────────────────────────
   autoSelectWinner: protectedProcedure
     .input(z.object({ abTestId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const rows = await db.select().from(broadcastAbTests)
         .where(eq(broadcastAbTests.id, input.abTestId)).limit(1);
       const t = rows[0];
-      if (!t) throw new Error("A/B test not found");
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "A/B test not found" });
+      // A2-03: load-then-assert — the A/B test belongs to the caller's tenant.
+      assertTenantAccess(ctx.user, t.tenantId);
       let winner: "A" | "B";
       if (t.winnerCriteria === "read_rate") {
         const aRate = t.variantASent > 0 ? t.variantARead / t.variantASent : 0;
@@ -114,9 +124,11 @@ export const broadcastAbRouter = router({
     }),
 
   // ── List all A/B tests for a tenant ────────────────────────────────────────
-  listAbTests: publicProcedure
+  listAbTests: protectedProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      // A2-04: unauthenticated cross-tenant enumeration hole — require auth + tenant access.
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return [];
       return db.select().from(broadcastAbTests)
