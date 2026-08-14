@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
-import { assertTenantAccess, protectedProcedure, router } from "../_core/trpc";
+import { assertTenantAccess, operatorProcedure, protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
 import {
@@ -20,6 +20,16 @@ import {
   syncWaTemplates,
   type WaTemplateCache,
 } from "../services/waTemplates";
+import {
+  parseSubmissionState,
+  submitTemplate,
+  syncTemplateStatuses,
+} from "../services/waTemplates/preApproval";
+import {
+  WA_TEMPLATE_LIBRARY,
+  WA_TEMPLATE_LOCALES,
+} from "../services/waTemplates/library";
+import { ENV } from "../_core/env";
 
 const tenantInput = z.object({ tenantId: z.string().min(1).max(36) });
 
@@ -101,6 +111,87 @@ export const waTemplatesRouter = router({
       // Best-effort cache refresh so the new template shows up immediately.
       const cache = await syncWaTemplates(db, input.tenantId).catch(() => null);
       return { ...created, syncedAt: cache?.syncedAt ?? null };
+    }),
+
+  /**
+   * W16: curated pre-approval template library (per use case, en/ha/yo/ig/pcm)
+   * merged with this tenant's submission status per (key, language).
+   */
+  listLibrary: protectedProcedure
+    .input(tenantInput)
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      if (!ENV.waTemplateLibraryEnabled) return { enabled: false as const, templates: [] };
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [tenant] = await db
+        .select({ settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const { submissions } = parseSubmissionState(tenant.settings);
+      const templates = WA_TEMPLATE_LIBRARY.map((entry) => ({
+        key: entry.key,
+        name: entry.name,
+        category: entry.category,
+        useCase: entry.useCase,
+        variables: entry.variables,
+        languages: WA_TEMPLATE_LOCALES.map((locale) => {
+          const sub = submissions.find(
+            (s) => s.templateKey === entry.key && s.language === locale,
+          );
+          return {
+            language: locale,
+            status: sub?.status ?? ("draft" as const),
+            rejectionReason: sub?.rejectionReason ?? null,
+            submittedAt: sub?.submittedAt ?? null,
+          };
+        }),
+      }));
+      return { enabled: true as const, templates };
+    }),
+
+  /**
+   * W16: submit a library template (key + language) to the tenant's WABA for
+   * pre-approval. Idempotent per (tenant, key, language).
+   */
+  submit: operatorProcedure
+    .input(
+      tenantInput.extend({
+        templateKey: z.string().trim().min(1).max(128),
+        language: z.enum(WA_TEMPLATE_LOCALES),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const result = await submitTemplate(db, input.tenantId, input.templateKey, input.language);
+      if (!result.ok) {
+        throw new TRPCError({
+          code: result.error === "unknown_template" || result.error === "unsupported_language"
+            ? "BAD_REQUEST"
+            : "PRECONDITION_FAILED",
+          message: `${result.error}: ${result.message}`,
+        });
+      }
+      return result;
+    }),
+
+  /**
+   * W16: poll Meta for review decisions and advance tracked submissions
+   * (submitted → approved | rejected with the rejection reason captured).
+   */
+  syncStatus: operatorProcedure
+    .input(tenantInput)
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      try {
+        return await syncTemplateStatuses(db, input.tenantId);
+      } catch (err: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: String(err?.message ?? err).slice(0, 300) });
+      }
     }),
 
   /** Force a remote status re-sync into the cache. */
