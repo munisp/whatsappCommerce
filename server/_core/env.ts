@@ -121,6 +121,22 @@ export const ENV = {
   bureauApiBase: process.env.BUREAU_API_BASE ?? "",
   bureauApiKey: process.env.BUREAU_API_KEY ?? "",
   bureauTimeoutMs: parseInt(process.env.BUREAU_TIMEOUT_MS ?? "8000"),
+  // ── W16: Shopify app connector (roadmap F7). ALL OPTIONAL — unset means the
+  // connector simply reports not-configured; never prod-required, never gates
+  // the money path. Secrets are never logged (services/shopifyIntegration
+  // redacts before any log/audit write).
+  //   SHOPIFY_API_KEY      app client id from the Shopify Partners dashboard
+  //   SHOPIFY_API_SECRET   app client secret (OAuth exchange + webhook HMAC)
+  //   SHOPIFY_APP_URL      public base URL of this app (OAuth redirect target)
+  //   SHOPIFY_SCOPES       comma-separated scopes (default below)
+  //   SHOPIFY_API_VERSION  Admin REST API version (default 2024-01)
+  //   SHOPIFY_TIMEOUT_MS   per-request timeout to Shopify (default 8000)
+  shopifyApiKey: process.env.SHOPIFY_API_KEY ?? "",
+  shopifyApiSecret: process.env.SHOPIFY_API_SECRET ?? "",
+  shopifyAppUrl: process.env.SHOPIFY_APP_URL ?? process.env.APP_URL ?? "",
+  shopifyScopes: process.env.SHOPIFY_SCOPES ?? "read_products,write_products,read_orders",
+  shopifyApiVersion: process.env.SHOPIFY_API_VERSION ?? "2024-01",
+  shopifyTimeoutMs: parseInt(process.env.SHOPIFY_TIMEOUT_MS ?? "8000"),
 };
 
 // ─── Fail-closed startup checks (production-like envs — see isProd) ─────────

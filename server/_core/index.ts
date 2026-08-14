@@ -836,6 +836,29 @@ async function startServer() {
     }
   });
 
+  // ── Shopify app connector (W16, roadmap F7) — ADDITIVE ────────────────────
+  // OAuth redirect callback (GET) and HMAC-verified webhooks (POST
+  // /api/webhooks/shopify?t=<tenantId>). Verification + processing live in
+  // server/services/shopifyIntegration/webhook.ts.
+  app.get("/api/shopify/callback", async (req, res) => {
+    try {
+      const { handleShopifyOAuthCallbackExpress } = await import("../services/shopifyIntegration/webhook");
+      await handleShopifyOAuthCallbackExpress(req, res);
+    } catch (err: any) {
+      console.error("[shopify-oauth-callback]", err);
+      res.status(500).json({ error: err?.message });
+    }
+  });
+  app.post("/api/webhooks/shopify", express.raw({ type: "*/*" }), async (req, res) => {
+    try {
+      const { handleShopifyWebhookExpress } = await import("../services/shopifyIntegration/webhook");
+      await handleShopifyWebhookExpress(req, res);
+    } catch (err: any) {
+      console.error("[shopify-webhook]", err);
+      res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── WhatsApp Business API webhook (Meta) ──────────────────────────────────
   // GET: verification challenge from Meta
   app.get("/api/webhooks/whatsapp", (req, res) => {
