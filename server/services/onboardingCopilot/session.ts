@@ -267,6 +267,12 @@ export function findProposal(session: OnboardingSession, proposalId: string): Pr
   return session.proposals.find((p) => p.id === proposalId) ?? null;
 }
 
+// ─── Multilingual helper (wave 15) ───────────────────────────────────────────
+// Localized copilot string for this session; English is byte-identical to the
+// wave-9 strings. See language.ts.
+
+export { t as copilotText, sessionLanguage } from "./language";
+
 /**
  * CHECKPOINT INVARIANT — the single gate every mutating tool goes through.
  * A proposal may only be applied when a human has flipped it to 'approved',

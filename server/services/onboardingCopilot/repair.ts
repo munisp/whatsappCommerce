@@ -15,32 +15,28 @@ import {
   type CopilotReply,
   type OnboardingSession,
 } from "./session";
+import { sessionLanguage, t, type CopilotLanguage } from "./language";
 
-/** Map a validation failure reason ("check: detail") to a targeted question. */
-export function repairQuestionFor(reason: string): string {
+/**
+ * Map a validation failure reason ("check: detail") to a targeted question.
+ * Wave 15: optional `lang` renders the question in the session language;
+ * English (default) is byte-identical to the wave-9 strings.
+ */
+export function repairQuestionFor(reason: string, lang?: CopilotLanguage): string {
   // Reasons look like "whatsapp:waba: Graph API returned 403…" — the check id
   // is everything before the FIRST ": " (check ids themselves contain colons).
   const check = reason.split(": ")[0]?.trim() ?? "";
   if (check === "whatsapp") {
-    return (
-      "I couldn't reach your WhatsApp phone number with the token on file. " +
-        "Please re-paste your WhatsApp access token and phone number ID from Meta Business Settings → WhatsApp → API Setup."
-    );
+    return t(lang, "repairWhatsapp");
   }
   if (check === "whatsapp:waba") {
-    return (
-      "Your WhatsApp token can't read the WhatsApp Business Account (WABA) — " +
-        "please re-paste the token from Meta Business Settings and make sure it has the whatsapp_business_management permission."
-    );
+    return t(lang, "repairWaba");
   }
   if (check.startsWith("integration:")) {
     const provider = check.slice("integration:".length);
-    return (
-      `The ${provider} connection test failed. Please check the ${provider} URL and API key ` +
-        `in Settings → Integrations (or paste them here) and I'll try again.`
-    );
+    return t(lang, "repairIntegration", { provider });
   }
-  return `A validation check failed (${reason}). Please review the setting and I'll re-run the checks.`;
+  return t(lang, "repairGeneric", { reason });
 }
 
 export interface RepairOutcome {
@@ -68,13 +64,11 @@ export async function runRepairRound(
 
   appendTranscript(session, "system", `validation failed (round ${round}): ${reasons.join(" | ")}`);
 
+  const lang = sessionLanguage(session);
   if (round >= MAX_REPAIR_ROUNDS) {
     session.state = "failed";
     session.error = reasons.join(" | ");
-    const text =
-      "I've tried to validate your setup a few times and some checks are still failing: " +
-      reasons.map((r) => `• ${r}`).join(" ") +
-      " Please contact support to finish onboarding.";
+    const text = t(lang, "repairCap", { reasons: reasons.map((r) => `• ${r}`).join(" ") });
     appendTranscript(session, "agent", text);
     await writeAuditLog({
       actorId: `copilot:${session.id}`,
@@ -91,7 +85,7 @@ export async function runRepairRound(
 
   session.state = "configuring";
   const replies: CopilotReply[] = reasons.map((r) => {
-    const text = repairQuestionFor(r);
+    const text = repairQuestionFor(r, lang);
     appendTranscript(session, "agent", text);
     return { type: "text" as const, text };
   });

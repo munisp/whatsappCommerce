@@ -30,6 +30,13 @@ import {
 } from "./tools";
 import { runRepairRound } from "./repair";
 import {
+  LANGUAGE_NAMES,
+  resolveTurnLanguage,
+  sessionLanguage,
+  t,
+  parseExplicitLanguageChoice,
+} from "./language";
+import {
   addProposal,
   appendTranscript,
   findProposal,
@@ -75,6 +82,7 @@ export async function runToolLoop(
     .slice(-8)
     .map((t) => `${t.role}: ${t.text}`)
     .join("\n");
+  const lang = sessionLanguage(session);
   const messages: Message[] = [
     {
       role: "system",
@@ -83,7 +91,10 @@ export async function runToolLoop(
         "Help set up the tenant's business by calling the provided tools. " +
         "You may CREATE proposals freely, but NEVER try to apply, push or go live " +
         "before a human approves — the service layer will refuse. " +
-        "Keep replies short and friendly.",
+        "Keep replies short and friendly." +
+        (lang !== "en"
+          ? ` The merchant's language is ${LANGUAGE_NAMES[lang]} — phrase every reply in ${LANGUAGE_NAMES[lang]}.`
+          : ""),
     },
     {
       role: "user",
@@ -210,10 +221,7 @@ async function handleIntake(session: OnboardingSession, text: string): Promise<C
   if (!facts.businessName) {
     const reply: CopilotReply = {
       type: "text",
-      text:
-        loop.assistantText ??
-        "Great to meet you! What's your business called, and what do you sell? " +
-          "A city and how you handle delivery helps too.",
+      text: loop.assistantText ?? t(sessionLanguage(session), "askBusiness"),
     };
     appendTranscript(session, "agent", reply.text);
     return [reply];
@@ -241,11 +249,12 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
   }
 
   // Template fallback for anything the LLM didn't propose — never dead-end.
+  const lang = sessionLanguage(session);
   const proposedKinds = new Set(session.proposals.map((p) => p.kind));
   if (!proposedKinds.has("waMenu")) {
     const p = addProposal(session, {
       kind: "waMenu",
-      summary: "WhatsApp menu (template): greeting + top use cases",
+      summary: t(lang, "summaryWaMenu"),
       payload: buildTemplateWaMenu(session.intake.facts),
     });
     replies.push(cardFor(p.id, session));
@@ -254,7 +263,7 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
     const ranked = buildRankedUseCases(session.intake.facts);
     const p = addProposal(session, {
       kind: "useCases",
-      summary: `Suggested use cases: ${ranked.slice(0, 3).join(", ")}`,
+      summary: t(lang, "summaryUseCases", { list: ranked.slice(0, 3).join(", ") }),
       payload: { ranked },
     });
     replies.push(cardFor(p.id, session));
@@ -271,7 +280,7 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
     const providers = buildIntegrationSuggestions(session.intake.facts);
     const p = addProposal(session, {
       kind: "integrations",
-      summary: `Suggested integrations: ${providers.map((x) => x.provider).join(", ")}`,
+      summary: t(lang, "summaryIntegrations", { list: providers.map((x) => x.provider).join(", ") }),
       payload: { providers },
     });
     replies.push(cardFor(p.id, session));
@@ -280,9 +289,7 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
   await transition(session, "approving");
   const intro: CopilotReply = {
     type: "text",
-    text:
-      `Here's the setup I propose for ${session.intake.facts.businessName}. ` +
-      `Review each card — approve, edit or reject. Nothing is applied until you approve it.`,
+    text: t(lang, "proposalIntro", { businessName: String(session.intake.facts.businessName ?? "") }),
   };
   appendTranscript(session, "agent", intro.text);
   for (const r of replies) appendTranscript(session, "agent", r.text);
@@ -291,13 +298,14 @@ async function generateProposals(session: OnboardingSession, llmAvailable: boole
 
 function cardFor(proposalId: string, session: OnboardingSession): CopilotReply {
   const p = findProposal(session, proposalId)!;
+  const lang = sessionLanguage(session);
   return {
     type: "card",
     text: `${p.summary}\n\n${JSON.stringify(p.payload, null, 2)}`,
     actions: [
-      { id: `approve:${p.id}`, label: "Approve" },
-      { id: `edit:${p.id}`, label: "Edit" },
-      { id: `reject:${p.id}`, label: "Reject" },
+      { id: `approve:${p.id}`, label: t(lang, "actionApprove") },
+      { id: `edit:${p.id}`, label: t(lang, "actionEdit") },
+      { id: `reject:${p.id}`, label: t(lang, "actionReject") },
     ],
   };
 }
@@ -315,11 +323,11 @@ async function handleApproving(session: OnboardingSession, text: string): Promis
         : pending.filter((p) => p.id === target || p.kind.toLowerCase() === target);
     if (matches.length === 0) return null;
     for (const p of matches) p.status = approve ? "approved" : "rejected";
+    const lang = sessionLanguage(session);
+    const kinds = matches.map((p) => p.kind).join(", ");
     return {
       type: "text",
-      text: approve
-        ? `Approved: ${matches.map((p) => p.kind).join(", ")}.`
-        : `Rejected: ${matches.map((p) => p.kind).join(", ")}.`,
+      text: t(lang, approve ? "approved" : "rejected", { kinds }),
     };
   };
 
@@ -378,6 +386,7 @@ async function redraftKind(
   kind: ProposalKind,
   feedback: string,
 ): Promise<CopilotReply | null> {
+  const lang = sessionLanguage(session);
   if (kind === "waMenu") {
     const menu = buildTemplateWaMenu(session.intake.facts);
     if (/greet|welcome|warm|friendl/.test(feedback.toLowerCase())) {
@@ -385,7 +394,7 @@ async function redraftKind(
     }
     const p = addProposal(session, {
       kind: "waMenu",
-      summary: "WhatsApp menu (revised): greeting + top use cases",
+      summary: t(lang, "summaryWaMenuRevised"),
       payload: menu,
     });
     return cardFor(p.id, session);
@@ -394,7 +403,7 @@ async function redraftKind(
     const ranked = buildRankedUseCases(session.intake.facts);
     const p = addProposal(session, {
       kind: "useCases",
-      summary: `Suggested use cases (revised): ${ranked.slice(0, 3).join(", ")}`,
+      summary: t(lang, "summaryUseCasesRevised", { list: ranked.slice(0, 3).join(", ") }),
       payload: { ranked },
     });
     return cardFor(p.id, session);
@@ -411,7 +420,9 @@ async function redraftKind(
     const providers = buildIntegrationSuggestions(session.intake.facts);
     const p = addProposal(session, {
       kind: "integrations",
-      summary: `Suggested integrations (revised): ${providers.map((x) => x.provider).join(", ")}`,
+      summary: t(lang, "summaryIntegrationsRevised", {
+        list: providers.map((x) => x.provider).join(", "),
+      }),
       payload: { providers },
     });
     return cardFor(p.id, session);
@@ -452,9 +463,7 @@ async function handleRevision(session: OnboardingSession, text: string): Promise
   if (replies.length === 0) {
     const reply: CopilotReply = {
       type: "text",
-      text:
-        "Please review the proposal cards above — reply \"approve all\", \"approve waMenu\", " +
-        "or \"reject …\", or use the Approve/Edit buttons.",
+      text: t(sessionLanguage(session), "reviewPrompt"),
     };
     appendTranscript(session, "agent", reply.text);
     return [reply];
@@ -463,7 +472,7 @@ async function handleRevision(session: OnboardingSession, text: string): Promise
   await transition(session, "approving");
   const intro: CopilotReply = {
     type: "text",
-    text: "I've reworked the proposal(s) with your changes — take another look and approve when ready.",
+    text: t(sessionLanguage(session), "reworkedIntro"),
   };
   appendTranscript(session, "agent", intro.text);
   for (const r of replies) appendTranscript(session, "agent", r.text);
@@ -490,7 +499,10 @@ export async function runConfigurationPhase(session: OnboardingSession): Promise
         const out = await executeCopilotTool("applyProposal", { proposalId: p.id }, session);
         if (out.replies) replies.push(...out.replies);
       } catch (e: any) {
-        replies.push({ type: "text", text: `Couldn't apply ${p.kind}: ${e?.message ?? e}` });
+        replies.push({
+          type: "text",
+          text: t(sessionLanguage(session), "couldNotApply", { kind: p.kind, error: String(e?.message ?? e) }),
+        });
       }
     }
   }
@@ -504,14 +516,17 @@ export async function runConfigurationPhase(session: OnboardingSession): Promise
       const out = await executeCopilotTool("pushProfile", {}, session);
       if (out.replies) replies.push(...out.replies);
     } catch (e: any) {
-      replies.push({ type: "text", text: `Profile push skipped: ${e?.message ?? e}` });
+      replies.push({
+        type: "text",
+        text: t(sessionLanguage(session), "profilePushSkipped", { error: String(e?.message ?? e) }),
+      });
     }
   }
 
   if (!session.tenantId) {
     const r: CopilotReply = {
       type: "text",
-      text: "No proposals were approved, so there's nothing to set up yet. Tell me what you'd like to change!",
+      text: t(sessionLanguage(session), "nothingApproved"),
     };
     await transition(session, "intake");
     replies.push(r);
@@ -557,9 +572,7 @@ export async function emitGoLiveProposal(
       payload: { checks: report.checks, validatedAt: new Date().toISOString() },
     });
   }
-  const text =
-    "🎉 All validation checks passed! One last step: approve go-live to switch your " +
-    "WhatsApp assistant on for customers (or reply \"go live\").";
+  const text = t(sessionLanguage(session), "goLiveReady");
   appendTranscript(session, "agent", text);
   return [{ type: "text", text }, cardFor(proposal.id, session)];
 }
@@ -592,13 +605,11 @@ async function handleConfiguring(session: OnboardingSession, text: string): Prom
       });
     }
     appendTranscript(session, "system", "operator supplied updated WhatsApp credentials");
-    replies.push({ type: "text", text: "Got it — credentials updated. Re-running the checks…" });
+    replies.push({ type: "text", text: t(sessionLanguage(session), "credsUpdated") });
   } else if (!token && !phoneId) {
     const note: CopilotReply = {
       type: "text",
-      text:
-        "Thanks — once you've updated the setting, paste the new value here (e.g. \"token is EAA…\" " +
-        "or \"phone number id is 123456\") and I'll re-run the validation.",
+      text: t(sessionLanguage(session), "credsNote"),
     };
     replies.push(note);
   }
@@ -631,9 +642,6 @@ async function handleConfiguring(session: OnboardingSession, text: string): Prom
 
 // ─── Literal "go live" command (C4 contract) ─────────────────────────────────
 
-const LIVE_REPLY =
-  "🎉 You're LIVE! Your customers can now message your business on WhatsApp.";
-
 /**
  * Shared go-live advance used by BOTH the literal "go live" command and the
  * goLive proposal approval path. Requires the tenant-side validation to have
@@ -644,8 +652,9 @@ export async function advanceToLive(session: OnboardingSession): Promise<Copilot
   const pending = session.proposals.find((p) => p.kind === "goLive" && p.status === "pending");
   if (pending) pending.status = "approved";
   await transition(session, "live");
-  appendTranscript(session, "agent", LIVE_REPLY);
-  return [{ type: "text", text: LIVE_REPLY }];
+  const liveReply = t(sessionLanguage(session), "live");
+  appendTranscript(session, "agent", liveReply);
+  return [{ type: "text", text: liveReply }];
 }
 
 /**
@@ -654,8 +663,9 @@ export async function advanceToLive(session: OnboardingSession): Promise<Copilot
  * explaining exactly what's missing.
  */
 async function handleGoLiveCommand(session: OnboardingSession): Promise<CopilotReply[]> {
+  const lang = sessionLanguage(session);
   if (session.state === "live") {
-    const r: CopilotReply = { type: "text", text: "You're already live! 🎉" };
+    const r: CopilotReply = { type: "text", text: t(lang, "alreadyLive") };
     appendTranscript(session, "agent", r.text);
     return [r];
   }
@@ -665,7 +675,7 @@ async function handleGoLiveCommand(session: OnboardingSession): Promise<CopilotR
     } catch (e: any) {
       const r: CopilotReply = {
         type: "text",
-        text: `Not yet — ${e?.message ?? "validation has not passed"}.`,
+        text: t(lang, "notYet", { reason: String(e?.message ?? "validation has not passed") }),
       };
       appendTranscript(session, "agent", r.text);
       return [r];
@@ -673,13 +683,15 @@ async function handleGoLiveCommand(session: OnboardingSession): Promise<CopilotR
   }
   const missing =
     session.state === "intake"
-      ? "we haven't finished intake — tell me about your business first."
+      ? t(lang, "missingIntake")
       : session.state === "proposing" || session.state === "approving"
-        ? `there are ${session.proposals.filter((p) => p.status === "pending").length} proposal(s) waiting for your approval — approve them first.`
+        ? t(lang, "missingProposals", {
+            count: session.proposals.filter((p) => p.status === "pending").length,
+          })
         : session.state === "configuring"
-          ? "validation hasn't passed yet — fix the failing checks above and I'll re-run them."
-          : `this session is ${session.state} — start a new session to onboard.`;
-  const r: CopilotReply = { type: "text", text: `Not ready to go live: ${missing}` };
+          ? t(lang, "missingConfiguring")
+          : t(lang, "missingState", { state: session.state });
+  const r: CopilotReply = { type: "text", text: t(lang, "notReady", { missing }) };
   appendTranscript(session, "agent", r.text);
   return [r];
 }
@@ -690,7 +702,29 @@ async function handleGoLiveCommand(session: OnboardingSession): Promise<CopilotR
  * Run one conversation turn. Mutates the session in-memory; the caller
  * (index.ts) persists and audits.
  */
+/**
+ * A message that is ONLY a language request ("speak Yoruba", "Hausa please")
+ * should just confirm the switch — it carries no intake content.
+ */
+function isPureLanguageRequest(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length <= 50 && parseExplicitLanguageChoice(trimmed) !== null;
+}
+
 export async function runAgentTurn(session: OnboardingSession, text: string): Promise<CopilotReply[]> {
+  // Wave 15 (F5): resolve the thread language from this message — explicit
+  // choice wins, high-confidence detection switches, low confidence sticks.
+  const langRes = resolveTurnLanguage(session, text);
+  if (langRes.explicit && isPureLanguageRequest(text)) {
+    const r: CopilotReply = {
+      type: "text",
+      text: t(langRes.language, "languageSwitched", { language: LANGUAGE_NAMES[langRes.language] }),
+    };
+    appendTranscript(session, "agent", r.text);
+    return [r];
+  }
+  const lang = sessionLanguage(session);
+
   // C4: literal "go live" is a command in any state.
   if (text.trim().toLowerCase() === "go live") {
     return handleGoLiveCommand(session);
@@ -707,7 +741,7 @@ export async function runAgentTurn(session: OnboardingSession, text: string): Pr
     case "live": {
       const r: CopilotReply = {
         type: "text",
-        text: "You're already live! Use the admin dashboard to tweak menus, branding or integrations.",
+        text: t(lang, "liveHint"),
       };
       appendTranscript(session, "agent", r.text);
       return [r];
@@ -715,16 +749,13 @@ export async function runAgentTurn(session: OnboardingSession, text: string): Pr
     case "failed": {
       const r: CopilotReply = {
         type: "text",
-        text:
-          "This onboarding run hit its retry limit" +
-          (session.error ? ` (${session.error})` : "") +
-          ". Please contact support, or start a new session.",
+        text: t(lang, "failedState", { errPart: session.error ? ` (${session.error})` : "" }),
       };
       appendTranscript(session, "agent", r.text);
       return [r];
     }
     default: {
-      const r: CopilotReply = { type: "text", text: "This session was abandoned. Start a new one to continue." };
+      const r: CopilotReply = { type: "text", text: t(lang, "abandoned") };
       appendTranscript(session, "agent", r.text);
       return [r];
     }

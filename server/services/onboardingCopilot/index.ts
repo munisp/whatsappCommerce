@@ -26,6 +26,23 @@ import {
   type OnboardingSession,
 } from "./session";
 import { advanceToLive, runAgentTurn, runConfigurationPhase } from "./agent";
+import { sessionLanguage, t, isCopilotLanguage, type CopilotLanguage } from "./language";
+
+export {
+  COPILOT_LANGUAGES,
+  DEFAULT_COPILOT_LANGUAGE,
+  LANGUAGE_NAMES,
+  COPILOT_TEXT_PACKS,
+  detectMessageLanguage,
+  parseExplicitLanguageChoice,
+  resolveTurnLanguage,
+  sessionLanguage,
+  isCopilotLanguage,
+  t,
+  type CopilotLanguage,
+  type CopilotTextPack,
+  type LanguageDetection,
+} from "./language";
 
 export {
   COPILOT_STATES,
@@ -83,15 +100,12 @@ function validateEditedPayload(kind: string, payload: unknown): unknown {
 
 // ─── Service API ─────────────────────────────────────────────────────────────
 
-const GREETING =
-  "Hi! I'm your onboarding assistant. Tell me about your business — " +
-  "the name, what you sell, and your city — and I'll draft your WhatsApp " +
-  "menu, branding and integrations for you to approve.";
-
 export async function startSession(args: {
   channel: CopilotChannel;
   tenantId?: string;
   phone?: string;
+  /** Wave 15 (F5): caller-known language (sticky locale / menu selection). */
+  language?: CopilotLanguage;
 }): Promise<{ sessionId: string; greeting: string }> {
   // C3 contract ("restart" = startSession again for the same phone): supersede
   // any prior ACTIVE whatsapp session for this phone so
@@ -114,7 +128,11 @@ export async function startSession(args: {
     tenantId: args.tenantId ?? null,
     phone: args.phone ?? null,
   });
-  appendTranscript(session, "agent", GREETING);
+  if (isCopilotLanguage(args.language)) {
+    session.intake.language = args.language;
+  }
+  const greeting = t(sessionLanguage(session), "greeting");
+  appendTranscript(session, "agent", greeting);
   await saveSession(session);
   await writeAuditLog({
     actorId: `copilot:${session.id}`,
@@ -124,9 +142,9 @@ export async function startSession(args: {
     entityId: session.id,
     tenantId: session.tenantId ?? undefined,
     summary: `session started on ${args.channel} channel`,
-    after: { channel: args.channel, phone: args.phone ?? null },
+    after: { channel: args.channel, phone: args.phone ?? null, language: sessionLanguage(session) },
   });
-  return { sessionId: session.id, greeting: GREETING };
+  return { sessionId: session.id, greeting };
 }
 
 export async function postMessage(args: {
@@ -167,22 +185,23 @@ export async function decideProposal(args: {
     throw new Error(`Proposal "${args.proposalId}" is already ${proposal.status}`);
   }
 
+  const lang = sessionLanguage(session);
   const replies: CopilotReply[] = [];
   if (!args.approve) {
     proposal.status = "rejected";
-    const text = `Discarded the ${proposal.kind} proposal. Tell me what you'd prefer and I'll draft another.`;
+    const text = t(lang, "decideDiscarded", { kind: proposal.kind });
     appendTranscript(session, "agent", text);
     replies.push({ type: "text", text });
   } else if (args.editedPayload !== undefined) {
     // 'edited' carries the caller-supplied payload — validated before storing.
     proposal.payload = validateEditedPayload(proposal.kind, args.editedPayload);
     proposal.status = "edited";
-    const text = `Updated the ${proposal.kind} proposal with your edits.`;
+    const text = t(lang, "decideEdited", { kind: proposal.kind });
     appendTranscript(session, "agent", text);
     replies.push({ type: "text", text });
   } else {
     proposal.status = "approved";
-    const text = `Approved the ${proposal.kind} proposal.`;
+    const text = t(lang, "decideApproved", { kind: proposal.kind });
     appendTranscript(session, "agent", text);
     replies.push({ type: "text", text });
   }
@@ -205,7 +224,7 @@ export async function decideProposal(args: {
       try {
         replies.push(...(await advanceToLive(session)));
       } catch (e: any) {
-        const text = `Couldn't go live yet: ${e?.message ?? e}`;
+        const text = t(lang, "couldNotGoLive", { error: String(e?.message ?? e) });
         appendTranscript(session, "agent", text);
         replies.push({ type: "text", text });
       }
