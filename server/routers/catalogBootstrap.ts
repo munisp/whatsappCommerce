@@ -28,6 +28,8 @@ function toTrpcError(error: string): TRPCError {
   if (error === "draft_not_found") return new TRPCError({ code: "NOT_FOUND", message: error });
   if (error === "extraction_disabled")
     return new TRPCError({ code: "PRECONDITION_FAILED", message: error });
+  // W15.1: a concurrent confirm holds the claim — caller should retry/poll.
+  if (error === "confirm_in_progress") return new TRPCError({ code: "CONFLICT", message: error });
   return new TRPCError({ code: "BAD_REQUEST", message: error });
 }
 
@@ -69,7 +71,9 @@ export const catalogBootstrapRouter = router({
             z.string(),
             z.object({
               name: z.string().max(255).optional(),
-              priceCents: z.number().int().min(50).optional(),
+              // W15.1: same upper bound as extraction (1e9 cents; literal so
+              // router tests that mock the service module keep working).
+              priceCents: z.number().int().min(50).max(1_000_000_000).optional(),
               sku: z.string().max(100).optional(),
               unit: z.string().max(30).optional(),
             }),

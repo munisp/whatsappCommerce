@@ -1,6 +1,11 @@
 /**
  * J76 — ERP provisioning e2e (W15 F5).
  *
+ * NOTE (W15.1): this journey calls the ERP provisioning services/router
+ * directly (scripted connector endpoints, no WhatsApp traffic), so the
+ * transcript recorder captures no messages and transcripts/J76.json is
+ * intentionally a header-only stub (messages: []).
+ *
  * A tenant with Odoo + Twenty configured provisions its standard objects via
  * provisionErpTenantObjects against scripted connector endpoints (the REAL
  * integrationSync fetch path — metaMock's W15 per-host ERP handlers):
