@@ -38,7 +38,19 @@ export interface DrawArgs {
 }
 
 export type DrawResult =
-  | { ok: true; ledgerId: string; outstandingAfter: number }
+  | {
+      ok: true;
+      ledgerId: string;
+      outstandingAfter: number;
+      /**
+       * A1-04/F-01: the insert lost the race against a concurrent draw with
+       * the same ref (unique index credit_ledger_draw_ref_uniq, 0053) or a
+       * crash-retry found the draw already persisted. No second draw row,
+       * no second outstanding increment — this is an idempotent replay of
+       * the original draw.
+       */
+      alreadyDrawn?: true;
+    }
   | {
       ok: false;
       // Kept byte-compatible with the pre-W13 union: procurement/poFlow.ts
@@ -59,6 +71,14 @@ export function tenureGateDays(env: NodeJS.ProcessEnv = process.env): number {
 }
 
 const TENURE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/** SQLSTATE 23505 on credit_ledger_draw_ref_uniq (0053) — mirrors repayment.ts. */
+function isDrawRefUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string; message?: string };
+  if (e?.code !== "23505") return false;
+  const hay = `${e.constraint ?? ""} ${e.message ?? ""}`;
+  return hay.includes("credit_ledger_draw_ref_uniq");
+}
 
 export async function drawOnCreditTx(
   db: TxHandle,
@@ -98,7 +118,9 @@ export async function drawOnCreditTx(
   const termsDays = args.termsDays ?? account.termsDays;
   const dueDate = new Date(now.getTime() + termsDays * 24 * 60 * 60 * 1000);
 
-  const result: DrawResult = await db.transaction(async (tx): Promise<DrawResult> => {
+  let result: DrawResult;
+  try {
+  result = await db.transaction(async (tx): Promise<DrawResult> => {
     // ── ATOMIC CLAIM: guard + increment in one statement ──────────────────
     const [claimed] = await tx
       .update(creditAccounts)
@@ -144,12 +166,41 @@ export async function drawOnCreditTx(
 
     return { ok: true, ledgerId: entry.id, outstandingAfter: claimed.outstandingCents };
   });
+  } catch (err: any) {
+    // A1-04/F-01: a concurrent approval (or a crash-retry after the original
+    // draw committed) with the SAME ref lost the insert race — the unique
+    // index credit_ledger_draw_ref_uniq (0053) rejected our draw row and the
+    // transaction rolled back (no outstanding increment, no ledger row).
+    // Translate to an idempotent already-drawn success returning the
+    // existing row, mirroring the W14.1 repayment pattern.
+    if (isDrawRefUniqueViolation(err)) {
+      const ref = `draw:${args.poId}`.slice(0, 128);
+      const [existing] = await db
+        .select()
+        .from(creditLedger)
+        .where(and(eq(creditLedger.creditAccountId, account.id), eq(creditLedger.ref, ref)))
+        .limit(1);
+      const fresh = await getCreditAccountTx(db, args.supplierTenantId, args.buyerTenantId);
+      if (existing) {
+        return {
+          ok: true,
+          ledgerId: existing.id,
+          outstandingAfter: fresh?.outstandingCents ?? account.outstandingCents,
+          alreadyDrawn: true,
+        };
+      }
+      // Index fired but the row is not visible (winner rolled back) — let the
+      // caller classify as a transient failure instead of inventing a draw.
+      return { ok: false, reason: "over_limit" };
+    }
+    throw err;
+  }
 
   // W14: bureau 'disbursement' event on a successful draw. Fire-and-forget:
   // reportEvent never throws and skips non-consented accounts internally.
   // Runs AFTER the money-path transaction commits — bureau reporting can
   // never block or roll back a draw.
-  if (result.ok) {
+  if (result.ok && !result.alreadyDrawn) {
     await reportEvent(db, {
       accountId: account.id,
       eventType: "disbursement",

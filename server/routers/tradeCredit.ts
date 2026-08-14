@@ -39,7 +39,7 @@ import {
   revokeMandate,
 } from "../services/payments/mandates";
 import { createRepaymentLink, CreditRepayError } from "../services/creditRepayLink";
-import { retrySettlement } from "../services/tradeCredit/capture";
+import { retrySettlement, reconcilePendingMandateCharges } from "../services/tradeCredit/capture";
 import { creditAccounts } from "../../drizzle/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { requireApprovedKyb } from "../services/kycGate";
@@ -527,5 +527,20 @@ export const tradeCreditRouter = router({
     .mutation(async ({ input }) => {
       const db = await requireDb();
       return retrySettlement(db, input);
+    }),
+
+  /**
+   * Admin (platform-ops): sweep pending mandate charges (A1-02/F-03). For
+   * each pending mandate_charges row the provider's READ-ONLY fetchStatus is
+   * probed — success settles exactly once via the claim-first FIFO path
+   * (0052 backstop), failure releases the exactly-once claim and notifies
+   * the buyer, unknown/pending is left for the next sweep. The charge is
+   * NEVER blind-retried. Scheduler wiring is owned separately (R4).
+   */
+  reconcileMandateCharges: adminProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(500).optional() }).optional())
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      return reconcilePendingMandateCharges(db, { limit: input?.limit });
     }),
 });

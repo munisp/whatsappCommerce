@@ -286,6 +286,41 @@ export async function chargeOnMandate(db: any, args: ChargeMandateArgs): Promise
   }
 }
 
+// ── Charge status probe (A1-02/F-03) ─────────────────────────────────────────
+/**
+ * Read-only status lookup for a previously attempted mandate charge. Used by
+ * the pending-charge reconciler (tradeCredit/capture.reconcilePendingMandateCharges)
+ * — the ONLY production caller of provider fetchStatus. NEVER re-charges.
+ * Returns 'unknown' on any failure (provider missing, not mandate-capable,
+ * timeout, network error) so the reconciler leaves the row for the next
+ * sweep instead of guessing.
+ */
+export async function fetchMandateChargeStatus(
+  tenantId: string,
+  args: { provider: string; reference: string; timeoutMs?: number },
+): Promise<{ status: "pending" | "success" | "failed" | "unknown"; amountCents?: number }> {
+  const timeoutMs = args.timeoutMs ?? 10_000;
+  try {
+    const chain = await resolveProviders(tenantId);
+    const entry = chain.find((e) => e.provider.id === args.provider);
+    if (!entry || typeof entry.provider.fetchStatus !== "function") {
+      return { status: "unknown" };
+    }
+    const res = await Promise.race([
+      entry.provider.fetchStatus(args.reference, entry.creds),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("fetch_status_timeout")), timeoutMs)),
+    ]);
+    if (!res || (res.status !== "success" && res.status !== "failed" && res.status !== "pending")) {
+      return { status: "unknown" };
+    }
+    return { status: res.status, amountCents: res.amountCents };
+  } catch (err: any) {
+    console.warn(`[payments/mandates] fetchMandateChargeStatus ${args.reference}: ${err?.message}`);
+    return { status: "unknown" };
+  }
+}
+
 // ── Revoke ───────────────────────────────────────────────────────────────────
 /**
  * Revoke a mandate: best-effort provider revoke, then claim-first local

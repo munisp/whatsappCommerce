@@ -85,6 +85,37 @@ describe("runDunningCheckTx", () => {
     expect(store.ledger.filter((l) => l.kind === "fee")).toHaveLength(1);
   });
 
+  it("A1-08(b): the late fee INCREASES outstanding (collectible debt), exactly once", async () => {
+    const { db, store } = seed({
+      account: { outstandingCents: 50_000 },
+      draw: { dueDate: dueOn("2025-06-07"), amountCents: 50_000 }, // offset +3
+    });
+    const first = await runDunningCheckTx(db, NOW);
+    expect(first.feesApplied).toBe(1);
+    // Fee = 2% of 50_000 = 1_000 — outstanding grows by the fee, making the
+    // fee collectible through the normal repayment path.
+    expect(store.accounts[0].outstandingCents).toBe(51_000);
+    // Idempotent across sweeps: no second increment.
+    await runDunningCheckTx(db, NOW);
+    expect(store.accounts[0].outstandingCents).toBe(51_000);
+    expect(store.ledger.filter((l) => l.kind === "fee")).toHaveLength(1);
+  });
+
+  it("A1-08(b): a fee-bearing outstanding is repaid through applyRepaymentTx", async () => {
+    const { db, store } = seed({
+      account: { outstandingCents: 50_000 },
+      draw: { dueDate: dueOn("2025-06-07"), amountCents: 50_000 },
+    });
+    await runDunningCheckTx(db, NOW);
+    expect(store.accounts[0].outstandingCents).toBe(51_000);
+    const { applyRepaymentTx } = await import("./repayment");
+    const rep = await applyRepaymentTx(db, { accountId: store.accounts[0].id, amountCents: 51_000, ref: "r-fee-1" }, NOW);
+    expect(rep.ok).toBe(true);
+    expect(store.accounts[0].outstandingCents).toBe(0);
+    // The draw row settles FIFO; the fee was collected as outstanding.
+    expect(store.ledger.find((l) => l.kind === "invoice_draw")?.status).toBe("settled");
+  });
+
   it("+7d overdue: freezes the account (claim-first), reports frozen once", async () => {
     const { db, store } = seed({ draw: { dueDate: dueOn("2025-06-03") } }); // offset +7
     const first = await runDunningCheckTx(db, NOW);

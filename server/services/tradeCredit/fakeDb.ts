@@ -21,6 +21,7 @@ import {
   creditLedger,
   creditLimitHistory,
   kycApplications,
+  mandateCharges,
   orders,
   paymentMandates,
   paymentTransactions,
@@ -118,6 +119,22 @@ export interface LedgerRow {
   note: string | null;
   createdAt: Date;
 }
+/** A1-02: mandate_charges row. */
+export interface MandateChargeRow {
+  id: string;
+  accountId: string;
+  mandateId: string | null;
+  mandateRef: string | null;
+  provider: string;
+  reference: string;
+  amountCents: number;
+  currency: string;
+  status: string;
+  providerStatus: string | null;
+  rawResponse: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
 export interface OrderRow { tenantId: string; totalAmount: string; createdAt: Date }
 export interface PaymentRow { tenantId: string; status: string; createdAt: Date; paidAt: Date | null }
 export interface TenantRow { id: string; settings: unknown }
@@ -134,6 +151,7 @@ export interface FakeStore {
   purchaseOrders: PoRow[];
   webhookEvents: WebhookEventRow[];
   bureauReportLog: BureauLogRow[];
+  mandateCharges: MandateChargeRow[];
 }
 
 // ── drizzle condition decoding ───────────────────────────────────────────────
@@ -224,6 +242,12 @@ const PROP: Record<string, Record<string, string>> = {
     buyer_phone: "buyerPhone", notes: "notes", created_at: "createdAt", updated_at: "updatedAt",
   },
   processed_webhook_events: { id: "id", tenantId: "tenantId", type: "type", processedAt: "processedAt" },
+  mandate_charges: {
+    id: "id", account_id: "accountId", mandate_id: "mandateId", mandate_ref: "mandateRef",
+    provider: "provider", reference: "reference", amount_cents: "amountCents", currency: "currency",
+    status: "status", provider_status: "providerStatus", raw_response: "rawResponse",
+    created_at: "createdAt", updated_at: "updatedAt",
+  },
 };
 
 /** Extract { delta } from an arithmetic SQL set value, honoring +/-. */
@@ -258,6 +282,7 @@ function tableName(table: unknown): string {
     purchase_orders: purchaseOrders,
     processed_webhook_events: processedWebhookEvents,
     bureau_report_log: bureauReportLog,
+    mandate_charges: mandateCharges,
   })) {
     if (t === table) return name;
   }
@@ -277,6 +302,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     purchaseOrders: (seed?.purchaseOrders ?? []).map((r) => ({ ...r })),
     webhookEvents: (seed?.webhookEvents ?? []).map((r) => ({ ...r })),
     bureauReportLog: (seed?.bureauReportLog ?? []).map((r) => ({ ...r })),
+    mandateCharges: (seed?.mandateCharges ?? []).map((r) => ({ ...r })),
   };
   const rowsOf = (t: string): any[] =>
     t === "credit_accounts" ? store.accounts
@@ -289,6 +315,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     : t === "purchase_orders" ? store.purchaseOrders
     : t === "processed_webhook_events" ? store.webhookEvents
     : t === "bureau_report_log" ? store.bureauReportLog
+    : t === "mandate_charges" ? store.mandateCharges
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────
@@ -315,6 +342,8 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         rows = rows.filter((r) => r.creditAccountId === values[0] && kinds.includes(r.kind));
       } else if (sig === "credit_account_id") {
         rows = rows.filter((r) => r.creditAccountId === values[0]);
+      } else if (sig === "credit_account_id,ref") {
+        rows = rows.filter((r) => r.creditAccountId === values[0] && r.ref === values[1]);
       } else if (sig === "kind,status,due_date,due_date") {
         const horizon = values[2] as Date;
         rows = rows.filter((r) => r.kind === values[0] && r.status === values[1] && r.dueDate != null && new Date(r.dueDate).getTime() <= horizon.getTime());
@@ -369,6 +398,18 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       } else if (sig === "id") {
         rows = rows.filter((r) => r.id === values[0]);
       } else throw new Error(`fakeDb select bureau_report_log: unhandled ${sig}`);
+    } else if (t === "mandate_charges") {
+      if (sig === "status") {
+        rows = rows.filter((r) => r.status === values[0]);
+      } else if (sig === "reference") {
+        rows = rows.filter((r) => r.reference === values[0]);
+      } else if (sig === "account_id") {
+        rows = rows.filter((r) => r.accountId === values[0]);
+      } else if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else if (sig === "id,status") {
+        rows = rows.filter((r) => r.id === values[0] && r.status === values[1]);
+      } else throw new Error(`fakeDb select mandate_charges: unhandled ${sig}`);
     }
     // orderBy
     for (const { prop, desc } of decodeOrder(orderExprs).reverse()) {
@@ -469,6 +510,20 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
           throw err;
         }
       }
+      // 0053 unique index credit_ledger_draw_ref_uniq: exactly one invoice
+      // draw per (account, ref). Emulates PG's 23505 so the idempotent
+      // already-drawn translation in drawOnCreditTx is testable.
+      if (values.kind === "invoice_draw" && values.ref != null) {
+        const dupe = store.ledger.some((r) =>
+          r.kind === "invoice_draw" && r.ref === values.ref && r.creditAccountId === values.creditAccountId);
+        if (dupe) {
+          const err: any = new Error(
+            `duplicate key value violates unique constraint "credit_ledger_draw_ref_uniq"`);
+          err.code = "23505";
+          err.constraint = "credit_ledger_draw_ref_uniq";
+          throw err;
+        }
+      }
       const row: LedgerRow = {
         id: values.id ?? randomUUID(),
         creditAccountId: values.creditAccountId,
@@ -497,6 +552,36 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         updatedAt: values.updatedAt ?? new Date(),
       };
       store.bureauReportLog.push(row);
+      return { ...row };
+    }
+    if (t === "mandate_charges") {
+      // 0053 unique index mandate_charges_reference_uniq: one charge row per
+      // repayment reference. Emulate PG's 23505 for the idempotent-replay
+      // translation in capture.ts.
+      if (values.reference != null &&
+          store.mandateCharges.some((r) => r.reference === values.reference)) {
+        const err: any = new Error(
+          `duplicate key value violates unique constraint "mandate_charges_reference_uniq"`);
+        err.code = "23505";
+        err.constraint = "mandate_charges_reference_uniq";
+        throw err;
+      }
+      const row: MandateChargeRow = {
+        id: values.id ?? randomUUID(),
+        accountId: values.accountId,
+        mandateId: values.mandateId ?? null,
+        mandateRef: values.mandateRef ?? null,
+        provider: values.provider,
+        reference: values.reference,
+        amountCents: values.amountCents,
+        currency: values.currency ?? "NGN",
+        status: values.status ?? "pending",
+        providerStatus: values.providerStatus ?? null,
+        rawResponse: values.rawResponse ?? null,
+        createdAt: values.createdAt ?? new Date(),
+        updatedAt: values.updatedAt ?? new Date(),
+      };
+      store.mandateCharges.push(row);
       return { ...row };
     }
     throw new Error(`fakeDb insert: unhandled ${t}`);
@@ -609,6 +694,21 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
           // settleDrawToSupplier claim: id + status='invoiced'
           ok = r.id === values[0] && r.status === values[1];
         } else throw new Error(`fakeDb update purchase_orders: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
+    if (t === "mandate_charges") {
+      for (const r of store.mandateCharges) {
+        let ok = false;
+        if (sig === "id,status") {
+          // claim-first status flip: id + status=<expected>
+          ok = r.id === values[0] && r.status === values[1];
+        } else if (sig === "id") {
+          ok = r.id === values[0];
+        } else throw new Error(`fakeDb update mandate_charges: unhandled ${sig}`);
         if (!ok) continue;
         for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
         matched.push({ ...r });
@@ -827,6 +927,26 @@ export function seedDraw(accountId: string, over: Partial<LedgerRow> = {}): Ledg
     ref: "draw:po-1",
     note: null,
     createdAt: new Date("2025-01-02T00:00:00Z"),
+    ...over,
+  };
+}
+
+/** A1-02: pending-by-default mandate charge row for reconcile tests. */
+export function seedMandateCharge(over: Partial<MandateChargeRow> = {}): MandateChargeRow {
+  return {
+    id: over.id ?? randomUUID(),
+    accountId: "acct-1",
+    mandateId: "m-1",
+    mandateRef: "fake-mandate-ref",
+    provider: "paystack",
+    reference: `cr-acct-1-20250310-${Math.floor(Math.random() * 1e6).toString().padStart(6, "0")}`,
+    amountCents: 4_000,
+    currency: "NGN",
+    status: "pending",
+    providerStatus: "pending",
+    rawResponse: null,
+    createdAt: new Date("2025-03-10T12:00:00Z"),
+    updatedAt: new Date("2025-03-10T12:00:00Z"),
     ...over,
   };
 }

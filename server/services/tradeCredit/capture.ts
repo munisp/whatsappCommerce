@@ -23,12 +23,13 @@
  */
 import { randomInt } from "node:crypto";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
-import { creditLedger, processedWebhookEvents } from "../../../drizzle/schema";
+import { creditLedger, mandateCharges, paymentMandates, processedWebhookEvents } from "../../../drizzle/schema";
 import { getCreditAccountByIdTx, type TxHandle } from "./accounts";
 import { applyRepaymentTx } from "./repayment";
-import { chargeOnMandate } from "../payments/mandates";
+import { chargeOnMandate, fetchMandateChargeStatus } from "../payments/mandates";
 import { claimWebhookEvent } from "../webhookDedupe";
 import { captureException } from "../observability";
+import { redactPayload } from "../compliance/bureau";
 
 export function repaymentReference(accountId: string, now: Date = new Date()): string {
   const ymd = now.toISOString().slice(0, 10).replace(/-/g, "");
@@ -110,6 +111,78 @@ async function releaseClaim(db: TxHandle, reference: string): Promise<void> {
   }
 }
 
+/** Resolve the provider id for a mandate (charge errors omit it). */
+async function mandateProviderId(db: TxHandle, mandateId: string | null): Promise<string | null> {
+  if (!mandateId) return null;
+  try {
+    const [m] = await (db as any)
+      .select({ provider: paymentMandates.provider })
+      .from(paymentMandates)
+      .where(eq(paymentMandates.id, mandateId))
+      .limit(1);
+    return m?.provider ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── A1-02/F-03: durable mandate-charge ledger ────────────────────────────────
+// Every mandate charge attempt is persisted in mandate_charges (0053), keyed
+// by the exactly-once repayment reference. 'pending' rows are reconciled via
+// the provider's fetchStatus() — a charge is NEVER blind-retried.
+async function persistMandateCharge(
+  db: TxHandle,
+  row: {
+    accountId: string;
+    mandateId: string | null;
+    mandateRef?: string | null;
+    provider: string;
+    reference: string;
+    amountCents: number;
+    currency: string;
+    status: "pending" | "success" | "failed";
+    providerStatus?: string | null;
+    rawResponse?: unknown;
+  },
+  now: Date = new Date(),
+): Promise<void> {
+  try {
+    await (db as any).insert(mandateCharges).values({
+      accountId: row.accountId,
+      mandateId: row.mandateId,
+      mandateRef: row.mandateRef ?? null,
+      provider: row.provider,
+      reference: row.reference,
+      amountCents: row.amountCents,
+      currency: row.currency,
+      status: row.status,
+      providerStatus: row.providerStatus ?? null,
+      rawResponse: row.rawResponse === undefined ? null : redactPayload(row.rawResponse),
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (err: any) {
+    // A duplicate reference means the charge row is already persisted (e.g.
+    // a replay) — exactly-once by constraint, not an error.
+    const e = err as { code?: string; constraint?: string; message?: string };
+    if (e?.code === "23505" && `${e.constraint ?? ""} ${e.message ?? ""}`.includes("mandate_charges_reference_uniq")) {
+      return;
+    }
+    // Persistence of the charge row must not throw into the money path, but
+    // a lost PENDING row means the charge can never be reconciled — surface.
+    console.warn(`[tradeCredit/capture] mandate charge persist failed for ${row.reference}:`, err?.message);
+    if (row.status === "pending") {
+      captureException(err, {
+        service: "tradeCredit/capture",
+        operation: "persistMandateCharge",
+        tenantId: undefined,
+        severity: "critical",
+        extra: { accountId: row.accountId, reference: row.reference },
+      });
+    }
+  }
+}
+
 export async function applyMandateRepaymentTx(
   db: TxHandle,
   args: { accountId: string; amountCents: number; currency?: string },
@@ -157,6 +230,57 @@ export async function applyMandateRepaymentTx(
     });
 
     if (!charge.ok || charge.status === "failed") {
+      // F-03: distinguish a DEFINITIVE provider failure (status 'failed')
+      // from an UNKNOWN outcome (timeout-after-send / transport error —
+      // chargeOnMandate returns ok:false with no status). An unknown outcome
+      // may mean the charge actually succeeded provider-side; releasing the
+      // claim and falling back to the payment link would double-collect.
+      // Probe the provider's READ-ONLY fetchStatus before concluding; an
+      // inconclusive probe stays pending (claim KEPT) for the reconciler.
+      if (charge.status !== "failed") {
+        const providerId = charge.provider ?? await mandateProviderId(db, account.mandateId);
+        const probe = providerId
+          ? await fetchMandateChargeStatus(account.buyerTenantId, { provider: providerId, reference })
+          : { status: "unknown" as const };
+        if (probe.status === "success" || probe.status === "pending" || probe.status === "unknown") {
+          // success-after-timeout is reconciled by the sweep (settle exactly
+          // once via fetchStatus verdicts) — persist a durable pending row
+          // either way and report the truthful 'pending' state.
+          await persistMandateCharge(db, {
+            accountId: account.id,
+            mandateId: account.mandateId,
+            provider: providerId ?? "unknown",
+            reference,
+            amountCents,
+            currency: args.currency ?? "NGN",
+            status: "pending",
+            providerStatus: probe.status === "success" ? "success" : "pending",
+            rawResponse: { chargeError: charge.error ?? "unknown_outcome", probe: probe.status },
+          }, now);
+          return {
+            ok: true,
+            mode: "mandate",
+            reference,
+            provider: providerId ?? undefined,
+            status: "pending",
+            outstandingAfter: account.outstandingCents, // unchanged until reconciled
+          };
+        }
+        // probe.status === 'failed' → definitive: fall through to the
+        // failure path below (claim released + dunning + fallback).
+      }
+      // Durable record of the failed attempt (best-effort bookkeeping).
+      await persistMandateCharge(db, {
+        accountId: account.id,
+        mandateId: account.mandateId,
+        provider: charge.provider ?? "unknown",
+        reference,
+        amountCents,
+        currency: args.currency ?? "NGN",
+        status: "failed",
+        providerStatus: "failed",
+        rawResponse: { error: charge.error ?? "charge_failed" },
+      }, now);
       await releaseClaim(db, reference);
       await (noticeOverride ?? defaultDunningNotice)({
         buyerTenantId: account.buyerTenantId,
@@ -175,7 +299,35 @@ export async function applyMandateRepaymentTx(
       };
     }
 
-    // Money moved (or is pending at the provider) — settle via the existing
+    // A1-02/F-03: 'pending' means the provider ACCEPTED the charge but money
+    // has NOT moved. Do NOT settle (pre-fix: outstanding was reduced
+    // immediately — a pending-then-failed charge left the book permanently
+    // under-collected). Persist a durable pending row; the
+    // reconcilePendingMandateCharges sweep settles exactly once via the
+    // provider's fetchStatus, or releases the claim on definitive failure.
+    if (charge.status === "pending") {
+      await persistMandateCharge(db, {
+        accountId: account.id,
+        mandateId: account.mandateId,
+        provider: charge.provider ?? "unknown",
+        reference,
+        amountCents,
+        currency: args.currency ?? "NGN",
+        status: "pending",
+        providerStatus: "pending",
+        rawResponse: { status: "pending" },
+      }, now);
+      return {
+        ok: true,
+        mode: "mandate",
+        reference,
+        provider: charge.provider,
+        status: "pending",
+        outstandingAfter: account.outstandingCents, // unchanged — truthfully pending
+      };
+    }
+
+    // Money moved — settle via the existing
     // claim-first FIFO path.
     const settled = await applyRepaymentTx(db, {
       accountId: account.id,
@@ -205,6 +357,17 @@ export async function applyMandateRepaymentTx(
           providerStatus: charge.status,
         },
       });
+      await persistMandateCharge(db, {
+        accountId: account.id,
+        mandateId: account.mandateId,
+        provider: charge.provider ?? "unknown",
+        reference,
+        amountCents,
+        currency: args.currency ?? "NGN",
+        status: "success", // the CHARGE succeeded; settlement rides the retry marker
+        providerStatus: "success",
+        rawResponse: { status: "success", settlement: "refused" },
+      }, now);
       await persistSettlementRetryMarker(db, account.id, reference, amountCents, now);
       return {
         ok: false,
@@ -214,12 +377,25 @@ export async function applyMandateRepaymentTx(
         outstandingAfter: settled.outstandingAfter,
       };
     }
+    // Durable record of the successful charge (complete ledger; the
+    // settlement itself is keyed by the same reference via 0052).
+    await persistMandateCharge(db, {
+      accountId: account.id,
+      mandateId: account.mandateId,
+      provider: charge.provider ?? "unknown",
+      reference,
+      amountCents,
+      currency: args.currency ?? "NGN",
+      status: "success",
+      providerStatus: "success",
+      rawResponse: { status: "success" },
+    }, now);
     return {
       ok: true,
       mode: "mandate",
       reference,
       provider: charge.provider,
-      status: charge.status === "pending" ? "pending" : "success",
+      status: "success",
       outstandingAfter: settled.outstandingAfter,
     };
   } catch (err: any) {
@@ -398,4 +574,144 @@ async function claimSettlementRetryMarker(
     .returning();
   const rows = Array.isArray(deleted) ? deleted : [];
   return rows.length > 0 ? { note: (rows[0] as any).note ?? null } : null;
+}
+
+// ── A1-02/F-03: pending mandate-charge reconciler ────────────────────────────
+/**
+ * Sweep pending mandate_charges rows and converge them via the provider's
+ * READ-ONLY fetchStatus(reference) — NEVER a blind re-charge:
+ *
+ *   success → settle exactly once via the existing claim-first FIFO path
+ *             (applyRepaymentTx with the SAME reference; the 0052 unique
+ *             index + already-settled translation make a double sweep /
+ *             double settle impossible), then claim-first flip the row to
+ *             'success'.
+ *   failed  → claim-first flip to 'failed', release the exactly-once
+ *             processed_webhook_events claim (so the caller can fall back
+ *             to the payment-link flow) and send the dunning notice.
+ *   pending/unknown (incl. probe timeout/error) → leave for the next sweep.
+ *
+ * Settlement refusal after a confirmed success (e.g. a concurrent repayment
+ * drained outstanding first) keeps the row 'pending' and persists a
+ * settlement_retry marker + CRITICAL capture — same semantics as the
+ * initial capture path.
+ *
+ * The status probe is injectable for tests; the default resolves the
+ * provider chain and applies a timeout. Never throws into the caller.
+ */
+export interface ReconcileMandateChargesResult {
+  checked: number;
+  settled: number;
+  failed: number;
+  stillPending: number;
+}
+
+export type MandateChargeStatusProbe = (args: {
+  tenantId: string;
+  provider: string;
+  reference: string;
+}) => Promise<{ status: "pending" | "success" | "failed" | "unknown"; amountCents?: number }>;
+
+const defaultProbe: MandateChargeStatusProbe = ({ tenantId, provider, reference }) =>
+  fetchMandateChargeStatus(tenantId, { provider, reference });
+
+export async function reconcilePendingMandateCharges(
+  db: TxHandle,
+  opts: { limit?: number; probe?: MandateChargeStatusProbe } = {},
+  now: Date = new Date(),
+): Promise<ReconcileMandateChargesResult> {
+  const probe = opts.probe ?? defaultProbe;
+  const result: ReconcileMandateChargesResult = { checked: 0, settled: 0, failed: 0, stillPending: 0 };
+  try {
+    const pending = (await (db as any)
+      .select()
+      .from(mandateCharges)
+      .where(eq(mandateCharges.status, "pending"))
+      .orderBy(asc(mandateCharges.createdAt))
+      .limit(Math.max(1, Math.min(opts.limit ?? 100, 500)))) as Array<{
+        id: string; accountId: string; provider: string; reference: string;
+        amountCents: number; status: string;
+      }>;
+
+    for (const row of pending) {
+      result.checked += 1;
+      try {
+        const account = await getCreditAccountByIdTx(db, row.accountId);
+        if (!account) {
+          // No account to settle against — leave for ops review.
+          result.stillPending += 1;
+          continue;
+        }
+        const verdict = await probe({
+          tenantId: account.buyerTenantId,
+          provider: row.provider,
+          reference: row.reference,
+        });
+
+        if (verdict.status === "success") {
+          // Settle exactly once with the SAME reference.
+          const settled = await applyRepaymentTx(db, {
+            accountId: row.accountId,
+            amountCents: row.amountCents,
+            ref: row.reference,
+          }, now);
+          if (settled.ok) {
+            // Claim-first flip: only the sweeper that actually settled (or
+            // observed already_settled) marks the row success; a concurrent
+            // sweep that lost the flip changed nothing anyway (0052).
+            await (db as any)
+              .update(mandateCharges)
+              .set({ status: "success", providerStatus: "success", updatedAt: now })
+              .where(and(eq(mandateCharges.id, row.id), eq(mandateCharges.status, "pending")));
+            result.settled += 1;
+          } else {
+            // Money confirmed at the provider but settlement refused —
+            // durable retry marker + CRITICAL capture, row stays pending.
+            captureException(new Error(`reconcile: settlement refused for confirmed mandate charge ${row.reference}`), {
+              service: "tradeCredit/capture",
+              operation: "reconcilePendingMandateCharges",
+              tenantId: account.buyerTenantId,
+              severity: "critical",
+              extra: { accountId: row.accountId, reference: row.reference, amountCents: row.amountCents },
+            });
+            await persistSettlementRetryMarker(db, row.accountId, row.reference, row.amountCents, now);
+            result.stillPending += 1;
+          }
+        } else if (verdict.status === "failed") {
+          // Definitive failure: claim-first flip, release the exactly-once
+          // claim (fallback payment-link flow can re-claim), notify buyer.
+          const [flipped] = await (db as any)
+            .update(mandateCharges)
+            .set({ status: "failed", providerStatus: "failed", updatedAt: now })
+            .where(and(eq(mandateCharges.id, row.id), eq(mandateCharges.status, "pending")))
+            .returning();
+          if (flipped) {
+            await releaseClaim(db, row.reference);
+            await (noticeOverride ?? defaultDunningNotice)({
+              buyerTenantId: account.buyerTenantId,
+              accountId: row.accountId,
+              amountCents: row.amountCents,
+              reference: row.reference,
+              error: "mandate_charge_failed",
+            });
+          }
+          result.failed += 1;
+        } else {
+          // 'pending' or 'unknown' (timeout/error) — next sweep retries the
+          // READ-ONLY probe; the charge itself is never re-sent.
+          result.stillPending += 1;
+        }
+      } catch (err: any) {
+        result.stillPending += 1;
+        console.warn(`[tradeCredit/capture] reconcile row ${row.id} failed:`, err?.message);
+      }
+    }
+  } catch (err: any) {
+    captureException(err, {
+      service: "tradeCredit/capture",
+      operation: "reconcilePendingMandateCharges",
+      severity: "error",
+    });
+  }
+  return result;
 }
