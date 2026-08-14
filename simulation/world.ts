@@ -573,6 +573,38 @@ export async function bootWorld(): Promise<World> {
           const { creditFacilities } = await import("../server/services/creditFacilities/tables");
           await world.db.delete(creditFacilities);
         } catch { /* w14 tables not migrated yet */ }
+        // Wave 15 isolation: catalog-bootstrap drafts + ERP provisioning state
+        // live in tenants.settings jsonb — strip them from the seed tenants;
+        // drop ERP integration rows + memberships J76/J77 create (memberships
+        // already wiped above; odoo/twenty rows are journey-owned).
+        try {
+          const schema = await import("../drizzle/schema");
+          for (const tid of [TENANT_ID, SUPPLIER_TENANT_ID]) {
+            const [t] = await world.db
+              .select({ settings: schema.tenants.settings })
+              .from(schema.tenants)
+              .where(eq(schema.tenants.id, tid))
+              .limit(1);
+            const s = { ...((t?.settings ?? {}) as Record<string, any>) };
+            if ("catalogDrafts" in s || "erpProvision" in s) {
+              delete s.catalogDrafts;
+              delete s.erpProvision;
+              await world.db
+                .update(schema.tenants)
+                .set({ settings: s, updatedAt: new Date() })
+                .where(eq(schema.tenants.id, tid));
+            }
+          }
+        } catch { /* w15 settings keys absent */ }
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.odooIntegrations);
+          await world.db.delete(schema.twentyIntegrations);
+        } catch { /* integration tables not present */ }
+        delete process.env.CATALOG_EXTRACTION_PROVIDER;
+        delete process.env.CATALOG_EXTRACTION_ENDPOINT;
+        delete process.env.CATALOG_EXTRACTION_API_KEY;
+        delete process.env.CATALOG_EXTRACTION_TIMEOUT_MS;
         delete process.env.BUREAU_PROVIDER;
         delete process.env.BUREAU_API_BASE;
         delete process.env.BUREAU_API_KEY;
