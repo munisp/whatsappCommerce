@@ -691,13 +691,18 @@ export function detectMessageLanguage(text: string): LanguageDetection {
  * Aliases: language names in English plus common self-names / misspellings.
  * Longer aliases first so "nigerian pidgin" wins over "pidgin".
  */
+// W15.1 bugfix: \b is ASCII-only in JS regex, so diacritic aliases like
+// "yorùbá" never matched ("ka sọ̀rọ̀ ní yorùbá" — the docblock example —
+// silently failed). Use Unicode-aware boundaries instead.
+const WB_L = "(?<![a-zà-ỹ])";
+const WB_R = "(?![a-zà-ỹ])";
 const LANGUAGE_ALIASES: Array<[RegExp, CopilotLanguage]> = [
-  [/\b(?:hausa|harshen hausa|bahaushe)\b/i, "ha"],
-  [/\b(?:yoruba|yorùbá|ede yoruba)\b/i, "yo"],
-  [/\b(?:igbo|asusu igbo|ndigbo)\b/i, "ig"],
-  [/\b(?:nigerian pidgin|pidgin|najia pidgin|naija(?: pidgin)?|broken(?: english)?|pcm)\b/i, "pcm"],
-  [/\b(?:french|français|francais)\b/i, "fr"],
-  [/\benglish\b/i, "en"],
+  [new RegExp(`${WB_L}(?:hausa|harshen hausa|bahaushe)${WB_R}`, "i"), "ha"],
+  [new RegExp(`${WB_L}(?:yoruba|yorùbá|ede yoruba)${WB_R}`, "i"), "yo"],
+  [new RegExp(`${WB_L}(?:igbo|asusu igbo|ndigbo)${WB_R}`, "i"), "ig"],
+  [new RegExp(`${WB_L}(?:nigerian pidgin|pidgin|najia pidgin|naija(?: pidgin)?|broken(?: english)?|pcm)${WB_R}`, "i"), "pcm"],
+  [new RegExp(`${WB_L}(?:french|français|francais)${WB_R}`, "i"), "fr"],
+  [new RegExp(`${WB_L}english${WB_R}`, "i"), "en"],
 ];
 
 const EXPLICIT_VERB_RE =

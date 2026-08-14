@@ -100,6 +100,12 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j70-loan-book-tape"),
     import("./journeys/j71-facility-utilization-covenants"),
     import("./journeys/j72-credit-hardening-e2e"),
+    import("./journeys/j73-multilingual-onboarding-e2e"),
+    import("./journeys/j74-language-detection-edge-cases"),
+    import("./journeys/j75-photo-catalog-bootstrap"),
+    import("./journeys/j76-erp-provisioning-e2e"),
+    import("./journeys/j77-copilot-config-intents"),
+    import("./journeys/j78-w141-credit-regression"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

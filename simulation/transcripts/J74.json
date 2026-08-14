@@ -1,0 +1,149 @@
+{
+  "id": "J74",
+  "title": "language detection edge cases",
+  "feature": "sticky low-confidence + latest-message wins + C1 stopword regression",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348016471796",
+      "profileName": "A",
+      "inboundId": "wamid.sim.in.text.00252",
+      "at": 1786669446657,
+      "kind": "text",
+      "text": "hello"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016471796",
+      "wamid": "wamid.sim.000403",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786669446661,
+      "kind": "text",
+      "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016471796",
+      "profileName": "Sim User 1796",
+      "inboundId": "wamid.sim.in.text.00253",
+      "at": 1786669447201,
+      "kind": "text",
+      "text": "I don't know where to start honestly"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016471796",
+      "wamid": "wamid.sim.000404",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786669447206,
+      "kind": "text",
+      "body": "Done — take a look and let me know what you think."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017644550",
+      "profileName": "B",
+      "inboundId": "wamid.sim.in.text.00254",
+      "at": 1786669447752,
+      "kind": "text",
+      "text": "hi"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017644550",
+      "wamid": "wamid.sim.000405",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786669447759,
+      "kind": "text",
+      "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017644550",
+      "profileName": "Sim User 4550",
+      "inboundId": "wamid.sim.in.text.00255",
+      "at": 1786669448298,
+      "kind": "text",
+      "text": "Ẹ káàbọ̀, mo fẹ́ ṣe ìforúkọsílẹ̀ iṣòwò mi"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017644550",
+      "wamid": "wamid.sim.000406",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786669448304,
+      "kind": "text",
+      "body": "Done — take a look and let me know what you think."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017644550",
+      "profileName": "Sim User 4550",
+      "inboundId": "wamid.sim.in.text.00256",
+      "at": 1786669448845,
+      "kind": "text",
+      "text": "okay then"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017644550",
+      "wamid": "wamid.sim.000407",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786669448850,
+      "kind": "text",
+      "body": "Done — take a look and let me know what you think."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017644550",
+      "profileName": "Sim User 4550",
+      "inboundId": "wamid.sim.in.text.00257",
+      "at": 1786669449391,
+      "kind": "text",
+      "text": "Sannu! Ina son in gaya maka kasuwancina, nawa kudin rajista?"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017644550",
+      "wamid": "wamid.sim.000408",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786669449396,
+      "kind": "text",
+      "body": "Done — take a look and let me know what you think."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017644550",
+      "profileName": "Sim User 4550",
+      "inboundId": "wamid.sim.in.text.00258",
+      "at": 1786669449939,
+      "kind": "text",
+      "text": "fine"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017644550",
+      "wamid": "wamid.sim.000409",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786669449943,
+      "kind": "text",
+      "body": "Done — take a look and let me know what you think."
+    }
+  ]
+}
