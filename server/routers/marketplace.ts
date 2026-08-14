@@ -44,10 +44,12 @@ export const marketplaceRouter = router({
 
   getSeller: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [seller] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, input.id));
-      return seller ?? null;
+      if (!seller) return null;
+      assertTenantAccess(ctx.user, seller.tenantId);
+      return seller;
     }),
 
   updateSellerStatus: adminProcedure
@@ -122,8 +124,14 @@ export const marketplaceRouter = router({
 
   settleCommission: protectedProcedure
     .input(z.object({ id: z.string(), paidAt: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [commission] = await db.select().from(marketplaceCommissions).where(eq(marketplaceCommissions.id, input.id)).limit(1);
+      if (!commission) throw new TRPCError({ code: "NOT_FOUND", message: "Commission not found" });
+      // Commissions are keyed by sellerId — assert via the seller's tenant.
+      const [seller] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, commission.sellerId)).limit(1);
+      if (!seller) throw new TRPCError({ code: "NOT_FOUND", message: "Seller not found" });
+      assertTenantAccess(ctx.user, seller.tenantId);
       await db.update(marketplaceCommissions).set({ status: "paid", settledAt: new Date(input.paidAt ?? Date.now()) })
         .where(eq(marketplaceCommissions.id, input.id));
       return { ok: true };

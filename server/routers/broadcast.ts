@@ -470,7 +470,7 @@ export const broadcastRouter = router({
   // Get a single campaign with recipient stats
   get: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return null;
       const [campaign] = await db
@@ -479,6 +479,7 @@ export const broadcastRouter = router({
         .where(eq(broadcastCampaigns.id, input.id))
         .limit(1);
       if (!campaign) return null;
+      assertTenantAccess(ctx.user, campaign.tenantId);
 
       const recipients = await db
         .select()

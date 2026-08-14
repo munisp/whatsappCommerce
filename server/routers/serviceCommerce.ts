@@ -4,6 +4,7 @@ import { router, protectedProcedure, publicProcedure, assertTenantAccess } from 
 import { getDb } from "../db";
 import { serviceCatalog, appointments, digitalProducts, digitalProductPurchases, subscriptions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
+import { TRPCError } from "@trpc/server";
 
 export const serviceCommerceRouter = router({
   // ── Service Catalog ──────────────────────────────────────────────────────
@@ -73,8 +74,11 @@ export const serviceCommerceRouter = router({
 
   updateAppointmentStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(["confirmed", "completed", "cancelled", "no_show"]) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [appt] = await db.select().from(appointments).where(eq(appointments.id, input.id)).limit(1);
+      if (!appt) throw new TRPCError({ code: "NOT_FOUND", message: "Appointment not found" });
+      assertTenantAccess(ctx.user, appt.tenantId);
       await db.update(appointments).set({ status: input.status, updatedAt: new Date() }).where(eq(appointments.id, input.id));
       return { ok: true };
     }),
@@ -143,8 +147,11 @@ export const serviceCommerceRouter = router({
 
   cancelSubscription: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [sub] = await db.select().from(subscriptions).where(eq(subscriptions.id, input.id)).limit(1);
+      if (!sub) throw new TRPCError({ code: "NOT_FOUND", message: "Subscription not found" });
+      assertTenantAccess(ctx.user, sub.tenantId);
       await db.update(subscriptions).set({ status: "cancelled", cancelledAt: new Date(), updatedAt: new Date() }).where(eq(subscriptions.id, input.id));
       return { ok: true };
     }),

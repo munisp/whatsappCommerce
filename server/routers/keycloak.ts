@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, operatorProcedure, assertTenantAccess } from "../_core/trpc";
 import { publicProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
@@ -97,7 +97,7 @@ export const keycloakRouter = router({
     }),
 
   // Test Keycloak connectivity by calling the well-known OIDC endpoint
-  testConnection: protectedProcedure
+  testConnection: operatorProcedure
     .input(z.object({
       serverUrl: z.string().url(),
       realm: z.string().min(1),

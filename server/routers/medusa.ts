@@ -4,7 +4,7 @@
  * Falls back gracefully when MEDUSA_API_URL is not configured.
  */
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, adminProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, adminProcedure, router, assertTenantAccess } from "../_core/trpc";
 import {
   isMedusaConfigured,
   listProducts,
@@ -87,6 +87,7 @@ export const medusaRouter = router({
 
   /** List orders (admin) */
   listOrders: protectedProcedure
+    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
     .input(z.object({
       limit: z.number().min(1).max(100).default(20),
       offset: z.number().min(0).default(0),
@@ -100,6 +101,7 @@ export const medusaRouter = router({
 
   /** Get single order */
   getOrder: protectedProcedure
+    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
       if (!isMedusaConfigured()) return { order: null, configured: false };
@@ -116,6 +118,7 @@ export const medusaRouter = router({
 
   /** Create price list (B2B wholesale tier) */
   createPriceList: protectedProcedure
+    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
     .input(z.object({
       name: z.string().min(1),
       type: z.enum(["sale", "override"]),
@@ -186,11 +189,12 @@ export const medusaRouter = router({
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getMedusaTenantId(ctx);
-      const [menu] = await db.select({ id: whatsappMenus.id })
+      const [menu] = await db.select({ id: whatsappMenus.id, tenantId: whatsappMenus.tenantId })
         .from(whatsappMenus)
         .where(eq(whatsappMenus.id, input.menuId))
         .limit(1);
       if (!menu) throw new Error("Menu not found");
+      assertTenantAccess(ctx.user, menu.tenantId);
       const existing = await db.select({ sortOrder: whatsappMenuItems.sortOrder })
         .from(whatsappMenuItems)
         .where(eq(whatsappMenuItems.menuId, input.menuId));

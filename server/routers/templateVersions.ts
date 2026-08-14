@@ -96,6 +96,7 @@ export const templateVersionsRouter = router({
         .limit(1);
 
       if (!version) throw new Error("Version not found");
+      await assertTemplateAccess(ctx.user, version.templateId);
 
       // Mark this version as published
       await db
@@ -150,6 +151,7 @@ export const templateVersionsRouter = router({
         .limit(1);
 
       if (!source) throw new Error("Version not found");
+      await assertTemplateAccess(ctx.user, source.templateId);
 
       const existing = await db
         .select()
@@ -181,9 +183,16 @@ export const templateVersionsRouter = router({
   // Archive a version
   archive: protectedProcedure
     .input(z.object({ versionId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      const [version] = await db
+        .select()
+        .from(templateVersions)
+        .where(eq(templateVersions.id, input.versionId))
+        .limit(1);
+      if (!version) throw new Error("Version not found");
+      await assertTemplateAccess(ctx.user, version.templateId);
       await db
         .update(templateVersions)
         .set({ status: "archived" })
