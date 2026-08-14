@@ -52,15 +52,20 @@ function erpBackedDescriptor(
 
 const SHOPIFY_MODULE_PATH = "../shopifyIntegration";
 
-interface ShopifyModuleShape {
-  testConnection?: (tenantId: string) => Promise<string | null>;
-  isConfigured?: (tenantId: string) => Promise<boolean>;
-  getInstallUrl?: (tenantId: string) => Promise<string | null>;
+interface ShopifyConnectorShape {
+  isConfigured: (tenantId: string) => Promise<boolean>;
+  healthCheck: (tenantId: string) => Promise<{ ok: boolean; detail?: string }>;
+  installUrl?: (tenantId: string) => Promise<string | null>;
 }
 
-async function loadShopifyModule(): Promise<ShopifyModuleShape | null> {
+interface ShopifyModuleShape {
+  shopifyConnector?: ShopifyConnectorShape;
+}
+
+async function loadShopifyConnector(): Promise<ShopifyConnectorShape | null> {
   try {
-    return (await import(/* @vite-ignore */ SHOPIFY_MODULE_PATH)) as ShopifyModuleShape;
+    const mod = (await import(/* @vite-ignore */ SHOPIFY_MODULE_PATH)) as ShopifyModuleShape;
+    return mod?.shopifyConnector ?? null;
   } catch {
     return null; // connector module not landed yet — descriptor still works
   }
@@ -92,10 +97,10 @@ const shopifyDescriptor: ConnectorDescriptor = {
   logoKey: "shopify",
   capabilities: ["catalog-sync", "orders-sync", "webhooks"],
   async isConfigured(tenantId) {
-    const mod = await loadShopifyModule();
-    if (mod?.isConfigured) {
+    const connector = await loadShopifyConnector();
+    if (connector) {
       try {
-        return await mod.isConfigured(tenantId);
+        return await connector.isConfigured(tenantId);
       } catch {
         /* fall through to settings read */
       }
@@ -104,11 +109,10 @@ const shopifyDescriptor: ConnectorDescriptor = {
     return Boolean(s?.enabled && s.url && s.apiKey);
   },
   async healthCheck(tenantId) {
-    const mod = await loadShopifyModule();
-    if (mod?.testConnection) {
+    const connector = await loadShopifyConnector();
+    if (connector) {
       try {
-        const err = await mod.testConnection(tenantId);
-        return err ? { ok: false, detail: err } : { ok: true };
+        return await connector.healthCheck(tenantId);
       } catch (err: any) {
         return { ok: false, detail: `shopify health check failed: ${err?.message ?? err}` };
       }
@@ -122,10 +126,10 @@ const shopifyDescriptor: ConnectorDescriptor = {
       : { ok: false, detail: "shopify not configured" };
   },
   async installUrl(tenantId) {
-    const mod = await loadShopifyModule();
-    if (mod?.getInstallUrl) {
+    const connector = await loadShopifyConnector();
+    if (connector?.installUrl) {
       try {
-        return await mod.getInstallUrl(tenantId);
+        return await connector.installUrl(tenantId);
       } catch {
         return null;
       }

@@ -249,8 +249,14 @@ async function startServer() {
     next();
   });
 
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
+  // Configure body parser with larger size limit for file uploads.
+  // The Shopify webhook is exempt: its HMAC must be verified over the exact
+  // received bytes, so the route-level express.raw below must see the raw
+  // body — the global JSON parser would consume and re-serialize it first.
+  app.use((req, res, next) => {
+    if (req.path === "/api/webhooks/shopify") return next();
+    return express.json({ limit: "50mb" })(req, res, next);
+  });
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
   // ── Edge rate limiting (wave 10, additive) ────────────────────────────────

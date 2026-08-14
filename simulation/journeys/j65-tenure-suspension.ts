@@ -153,7 +153,7 @@ export const journey: Journey = {
     const refusal = bodyText(world.outbound.lastOfType("text", phone));
     assertIncludes(refusal, "Ordering is suspended with this supplier", "PO submit rejected as suspended");
     assertIncludes(refusal, "Repay your outstanding balance", "repay-guidance copy");
-    assertIncludes(refusal, "₦50,000", "guidance carries the outstanding amount");
+    assertIncludes(refusal, "₦51,000", "guidance carries the fee-inclusive outstanding amount (Fix 4: late fee is collectible)");
     const posWhileSuspended = await world.db
       .select()
       .from(schema.purchaseOrders)
@@ -165,10 +165,10 @@ export const journey: Journey = {
     const link = await createRepaymentLink(world.db, {
       buyerTenantId: TENANT_ID,
       accountId: CREDIT_ACCOUNT_ID,
-      amountCents: 5_000_000,
+      amountCents: 5_100_000,
       customerPhone: phone,
     });
-    const pay = await paystackChargeSuccess(world, { reference: link.reference, amountMajor: 50_000 });
+    const pay = await paystackChargeSuccess(world, { reference: link.reference, amountMajor: 51_000 });
     assert(pay.status === 200, "full repayment confirmed");
     account = await creditAccount(world);
     assert(Number(account.outstandingCents) === 0, "outstanding fully repaid");

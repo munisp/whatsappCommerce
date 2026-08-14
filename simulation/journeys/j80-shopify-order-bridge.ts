@@ -8,8 +8,11 @@
  *
  * Flow:
  *   1. Invalid-HMAC delivery is rejected 401 BEFORE any payload processing
- *      (a malformed body is additionally 400'd by the global JSON parser
- *      before the route ever runs — either way, nothing is bridged).
+ *      (a malformed body is 400'd by the route's own parse guard — either
+ *      way, nothing is bridged).
+ *   1b. Raw-body ordering: a body with NON-CANONICAL whitespace, signed over
+ *      its exact bytes, verifies correctly (the route sees raw bytes — the
+ *      global JSON parser no longer runs first).
  *   2. Valid-HMAC orders/create → platform order with integer-KOBO totals,
  *      paid → confirmed/completed, known SKU linked to the product row,
  *      unknown SKU captured-but-unmatched (flagged in metadata, NOT inserted
@@ -70,11 +73,26 @@ export const journey: Journey = {
       body: rawOther,
     });
     assert(otherRes.status === 401, "wrong-secret signature → 401");
-    // Malformed JSON never reaches the bridge either (the global JSON parser
-    // 400s it before the route handler runs — see journey header/PR notes).
+    // Malformed JSON never reaches the bridge either (the route's own parse
+    // guard 400s it — the global JSON parser no longer runs on this path).
     const garbage = await shopifyPost(world, "{not-json");
     assert(garbage.status === 400 || garbage.status === 401, `malformed body rejected pre-bridge (got ${garbage.status})`);
     assert((await orderRows()).length === 0, "no order created from rejected deliveries");
+
+    // ── 1b. Non-canonical bytes signed over EXACTLY what was sent ─────────
+    // Regression guard for the raw-body ordering fix: the HMAC is computed
+    // over the exact received bytes (whitespace and all), not a re-serialized
+    // parse. Before the fix this delivery failed verification.
+    const rawSpaced = `{  "id": 77003,\n  "order_number": 1003,\n  "currency": "NGN",\n  "financial_status": "paid",\n  "customer": { "phone": "+${phone}" },\n  "line_items": [ { "id": 9, "sku": "SIM-JOLLOF", "title": "Jollof Rice", "quantity": 1, "price": "10.00" } ]\n}`;
+    const resSpaced = await shopifyPost(world, rawSpaced);
+    const bodySpaced = await resSpaced.json();
+    assert(resSpaced.status === 200 && bodySpaced?.action === "created",
+      `whitespace-padded body with byte-accurate HMAC verified (got ${resSpaced.status}: ${JSON.stringify(bodySpaced)})`);
+    const [order3] = await world.db
+      .select()
+      .from(schema.orders)
+      .where(eq(schema.orders.orderNumber, "SHOPIFY-1003"));
+    assert(order3, "order from the non-canonical delivery persisted");
 
     // ── 2. Valid order bridges with kobo math + unknown SKU ───────────────
     const payload1 = {
@@ -167,6 +185,6 @@ export const journey: Journey = {
       .select()
       .from(schema.auditLogs)
       .where(eq(schema.auditLogs.action, "shopify.order.bridged"));
-    assert(audit.length === 2, "exactly two bridge audit rows (duplicate not re-audited)");
+    assert(audit.length === 3, "exactly three bridge audit rows (duplicate not re-audited)");
   },
 };

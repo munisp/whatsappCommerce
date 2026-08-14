@@ -10,15 +10,12 @@
  *   1. listConnectors enriches the 4-connector catalog with per-tenant
  *      status (all not_installed).
  *   2. installConnector('shopify') without credentials → awaiting_config
- *      with required fields (fail-closed: nothing activates).
- *      KNOWN PRODUCT BUG (reported, not fixed): the marketplace shopify
- *      descriptor (marketplace/connectors.ts) probes the shopifyIntegration
- *      module for `isConfigured`/`testConnection`/`getInstallUrl` exports
- *      that the module never provides (it exports `shopifyConnector`
- *      instead), so installUrl is always null and isConfigured falls back
- *      to a settings.integrations.shopify block the OAuth flow never
- *      writes — a fully-OAuth-connected tenant STILL shows awaiting_config.
- *      This journey pins the observed behavior as evidence.
+ *      with required fields (fail-closed: nothing activates). The
+ *      marketplace shopify descriptor (marketplace/connectors.ts) consumes
+ *      the shopifyIntegration module's `shopifyConnector` export, so a
+ *      tenant with a real persisted OAuth connection IS treated as
+ *      configured: installUrl is the live OAuth URL and install passes the
+ *      health gate (scripted shop fetch) to 'active'.
  *   3. Odoo configured but UNHEALTHY → install fails closed
  *      (status 'failed', audit 'marketplace.connector.install_failed', no
  *      active state); flips healthy → install activates ('active',
@@ -68,9 +65,10 @@ export const journey: Journey = {
       assert(list0.map((c) => c.key).join(",") === "odoo,twenty,medusa,shopify", "catalog order stable");
       assert(list0.every((c) => c.status === "not_installed"), "everything not_installed initially");
       const shopify0 = list0.find((c) => c.key === "shopify")!;
-      // KNOWN PRODUCT BUG (see header): descriptor↔module export mismatch —
-      // installUrl is null even though app credentials are configured.
-      assert(shopify0.installUrl === null, "observed: shopify installUrl null (descriptor seam mismatch)");
+      // Descriptor seam fixed (see header): installUrl is the live OAuth
+      // authorize URL built by shopifyIntegration.
+      assert(typeof shopify0.installUrl === "string" && shopify0.installUrl.includes("client_id="),
+        `shopify installUrl enriched from shopifyConnector (got ${shopify0.installUrl})`);
 
       // ── 2. Install without config → awaiting_config ─────────────────────
       const aw = await mk.installConnector({ tenantId: TENANT_ID, key: "shopify", actorId: "j83", actorRole: "admin" });
@@ -78,11 +76,12 @@ export const journey: Journey = {
       assert((aw as any).requiredFields?.join(",") === "shopDomain,accessToken", "required fields surfaced");
       assert(Object.keys(await marketplaceState()).length === 0, "awaiting_config persists no active state");
 
-      // Bug evidence: even with a REAL OAuth connection persisted by the
-      // shopifyIntegration flow, the marketplace still reports
-      // awaiting_config (isConfigured reads settings.integrations.shopify,
-      // which the OAuth flow never writes).
+      // Seam-fix evidence: with a REAL OAuth connection persisted by the
+      // shopifyIntegration flow, the marketplace now treats shopify as
+      // configured — the install passes the live health gate (scripted shop
+      // fetch) and activates.
       const { encryptToken, updateShopifyState, getShopifyConnection } = await import("../../server/services/shopifyIntegration/state");
+      const { setShopifyFetch, resetShopifyFetch } = await import("../../server/services/shopifyIntegration/client");
       await updateShopifyState(TENANT_ID, (s) => {
         s.connection = {
           shop: "shop-j83.myshopify.com",
@@ -92,12 +91,32 @@ export const journey: Journey = {
         };
       });
       assert((await getShopifyConnection(TENANT_ID))?.shop === "shop-j83.myshopify.com", "real connection persisted");
+      setShopifyFetch((async () =>
+        new Response(JSON.stringify({ shop: { id: 1, name: "shop-j83", myshopify_domain: "shop-j83.myshopify.com" } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as any);
       const aw2 = await mk.installConnector({ tenantId: TENANT_ID, key: "shopify", actorId: "j83", actorRole: "admin" });
-      assert(aw2.status === "awaiting_config", "BUG pinned: connected shopify still awaiting_config in marketplace");
-      // wipe the connection again so the rest of the journey is unaffected
+      assert(aw2.status === "active" && aw2.health?.ok === true,
+        `connected shopify activates in the marketplace (got ${JSON.stringify(aw2)})`);
+      // Restore pre-step state so the rest of the journey is unaffected:
+      // wipe the connection, the marketplace install record, and its audit.
+      resetShopifyFetch();
       await updateShopifyState(TENANT_ID, (s) => {
         s.connection = null;
       });
+      const { and } = await import("drizzle-orm");
+      await world.db
+        .delete(schema.auditLogs)
+        .where(and(eq(schema.auditLogs.action, "marketplace.connector.install"), eq(schema.auditLogs.entityId, "shopify")))
+        .catch(() => {});
+      {
+        const s = { ...(await world.tenantSettings()) } as Record<string, any>;
+        if (s.marketplace?.connectors?.shopify) {
+          delete s.marketplace.connectors.shopify;
+          await world.db.update(schema.tenants).set({ settings: s, updatedAt: new Date() }).where(eq(schema.tenants.id, TENANT_ID));
+        }
+      }
 
       // ── 3. Fail-closed health gate, then healthy activation ─────────────
       await world.db.insert(schema.odooIntegrations).values({
