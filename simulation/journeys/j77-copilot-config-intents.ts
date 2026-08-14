@@ -1,6 +1,11 @@
 /**
  * J77 — Ongoing copilot configuration intents (W15 F5).
  *
+ * NOTE (W15.1): this journey exercises the erpProvision router directly
+ * (no WhatsApp message flow), so the transcript recorder captures no
+ * messages and transcripts/J77.json is intentionally a header-only stub
+ * (messages: []).
+ *
  * applyCopilotConfig via the REAL erpProvision router (operatorProcedure):
  *   1. Without confirm → dry-run preview only; tenant settings untouched.
  *   2. With confirm → settings applied + audit entries

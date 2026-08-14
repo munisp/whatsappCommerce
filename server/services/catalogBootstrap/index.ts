@@ -54,7 +54,13 @@ export interface DraftCatalogItem {
 }
 
 export type BootstrapResult =
-  | { ok: true; draftId: string; items: DraftCatalogItem[] }
+  | {
+      ok: true;
+      draftId: string;
+      items: DraftCatalogItem[];
+      /** W15.1: true when the extraction exceeded MAX_DRAFT_ITEMS and was capped. */
+      truncated?: boolean;
+    }
   | { ok: false; error: string };
 
 export type ConfirmResult =
@@ -78,6 +84,12 @@ export interface CatalogBootstrapDeps extends ExtractionDeps {
 
 export const DRAFT_TTL_MS = 72 * 60 * 60 * 1000; // 72h review window
 
+/** W15.1: hard cap on parsed extraction items per draft (abuse/size guard). */
+export const MAX_DRAFT_ITEMS = 500;
+
+/** W15.1: shared price bound (cents) — matches the extraction-time guard. */
+export const MAX_PRICE_CENTS = 1_000_000_000;
+
 // ── Normalization ───────────────────────────────────────────────────────────
 
 function normalizeRawItems(
@@ -94,7 +106,7 @@ function normalizeRawItems(
     let currency = currencyDefault;
     let unit: string | undefined;
     let fromRange = false;
-    if (typeof r?.priceCents === "number" && Number.isFinite(r.priceCents) && r.priceCents >= 50 && r.priceCents <= 1_000_000_000) {
+    if (typeof r?.priceCents === "number" && Number.isFinite(r.priceCents) && r.priceCents >= 50 && r.priceCents <= MAX_PRICE_CENTS) {
       priceCents = Math.round(r.priceCents);
       if (typeof r.currency === "string" && /^[A-Z]{3}$/i.test(r.currency)) currency = r.currency.toUpperCase();
     } else {
@@ -158,8 +170,11 @@ export async function bootstrapCatalogFromImage(
   }
 
   const store = deps.store ?? makeDefaultStore();
-  const items = normalizeRawItems(extracted.items ?? [], currencyDefault);
-  if (items.length === 0) return { ok: false, error: "no_items_extracted" };
+  const normalized = normalizeRawItems(extracted.items ?? [], currencyDefault);
+  if (normalized.length === 0) return { ok: false, error: "no_items_extracted" };
+  // W15.1: cap runaway extractions; the flag lets callers surface truncation.
+  const truncated = normalized.length > MAX_DRAFT_ITEMS;
+  const items = truncated ? normalized.slice(0, MAX_DRAFT_ITEMS) : normalized;
 
   // Dedupe against the existing catalog (normalized-name match).
   const existing = await store.listCatalogNames(ctx.tenantId);
@@ -185,7 +200,7 @@ export async function bootstrapCatalogFromImage(
     expiresAt: new Date(now.getTime() + DRAFT_TTL_MS).toISOString(),
   };
   await store.saveDraft(draft);
-  return { ok: true, draftId: draft.id, items };
+  return { ok: true, draftId: draft.id, items, ...(truncated ? { truncated: true } : {}) };
 }
 
 // ── Seam: read ──────────────────────────────────────────────────────────────
@@ -212,6 +227,49 @@ export interface ConfirmInput {
   edits?: Record<string, { name?: string; priceCents?: number; sku?: string; unit?: string }>;
 }
 
+/**
+ * W15.1: after a product-insert failure, check whether the planned SKUs
+ * already exist as products created by THIS draft (concurrent confirm won the
+ * race). Returns the existing product ids in plan order, or null when the
+ * collision is foreign (genuinely different products own those SKUs).
+ */
+async function tryHealSkuCollision(
+  store: CatalogDraftStore,
+  draft: StoredCatalogDraft,
+  planned: Array<{ item: StoredCatalogItem; sku: string; price: string }>,
+  now: Date,
+): Promise<string[] | null> {
+  if (!store.findProductsBySkus || planned.length === 0) return null;
+  let rows: Array<{ id: string; sku: string; price: string; metadata?: Record<string, unknown> | null }>;
+  try {
+    rows = await store.findProductsBySkus(draft.tenantId, planned.map((p) => p.sku));
+  } catch {
+    return null;
+  }
+  const bySku = new Map(rows.map((r) => [r.sku, r]));
+  const ids: string[] = [];
+  for (const p of planned) {
+    const row = bySku.get(p.sku);
+    if (!row) return null; // not all rows exist → not a clean re-run collision
+    const meta = row.metadata as { source?: unknown; draftId?: unknown; itemId?: unknown } | null | undefined;
+    const provenanceMatch =
+      meta?.source === "catalogBootstrap" && meta?.draftId === draft.id && meta?.itemId === p.item.id;
+    // Fallback for rows that lack provenance: same tenant+sku (the lookup is
+    // already tenant-scoped) and an identical price.
+    const priceMatch = String(row.price) === p.price;
+    if (!provenanceMatch && !priceMatch) return null;
+    ids.push(row.id);
+  }
+  await store.updateDraft({
+    ...draft,
+    status: "confirmed",
+    confirmedAt: now.toISOString(),
+    updatedAt: now.toISOString(),
+    confirmedProductIds: ids,
+  });
+  return ids;
+}
+
 export async function confirmCatalogDraft(
   input: ConfirmInput,
   deps: CatalogBootstrapDeps = {},
@@ -229,7 +287,13 @@ export async function confirmCatalogDraft(
       await store.updateDraft(existing);
       return { ok: false, error: "draft_expired" };
     }
-    if (existing?.status === "confirmed" || existing?.status === "confirming") {
+    // W15.1: distinguish a finished confirm from an in-flight one. Returning
+    // alreadyConfirmed:true with empty productIds for a 'confirming' draft
+    // made callers believe the publish succeeded with zero products.
+    if (existing?.status === "confirming") {
+      return { ok: false, error: "confirm_in_progress" };
+    }
+    if (existing?.status === "confirmed") {
       return {
         ok: true,
         draftId: input.draftId,
@@ -260,7 +324,14 @@ export async function confirmCatalogDraft(
       const cleaned = cleanName(edit.name);
       if (cleaned) merged.name = cleaned;
     }
-    if (typeof edit?.priceCents === "number" && Number.isFinite(edit.priceCents) && edit.priceCents >= 50) {
+    // W15.1: same upper bound as extraction (MAX_PRICE_CENTS) — an over-bound
+    // edit is ignored (the drafted price stands), matching the min-bound path.
+    if (
+      typeof edit?.priceCents === "number" &&
+      Number.isFinite(edit.priceCents) &&
+      edit.priceCents >= 50 &&
+      edit.priceCents <= MAX_PRICE_CENTS
+    ) {
       merged.priceCents = Math.round(edit.priceCents);
     }
     if (edit?.sku) merged.sku = edit.sku.slice(0, 100);
@@ -268,16 +339,22 @@ export async function confirmCatalogDraft(
     toCreate.push(merged);
   }
 
+  // Pre-compute the SKU for every item so a collision self-heal can find the
+  // rows a concurrent confirm already created.
+  const planned = toCreate.map((item, i) => ({
+    item,
+    sku: item.sku ?? `CB-${claimed.id.slice(3, 9).toUpperCase()}-${String(i + 1).padStart(3, "0")}`,
+    price: (item.priceCents / 100).toFixed(2),
+  }));
+
   const productIds: string[] = [];
   try {
-    for (let i = 0; i < toCreate.length; i++) {
-      const item = toCreate[i];
-      const sku = item.sku ?? `CB-${claimed.id.slice(3, 9).toUpperCase()}-${String(i + 1).padStart(3, "0")}`;
+    for (const { item, sku, price } of planned) {
       const id = await store.createProduct({
         tenantId: input.tenantId,
         sku,
         name: item.name,
-        price: (item.priceCents / 100).toFixed(2),
+        price,
         currency: item.currency || claimed.currency,
         description: item.unit ? `Sold per ${item.unit}` : undefined,
         metadata: { source: "catalogBootstrap", draftId: claimed.id, itemId: item.id, confidence: item.confidence },
@@ -285,6 +362,17 @@ export async function confirmCatalogDraft(
       productIds.push(id);
     }
   } catch (e) {
+    // W15.1 self-heal: the claim flip is a read-modify-write on a jsonb blob,
+    // so a true concurrent confirm can slip through and hit the
+    // products_tenant_sku_idx unique backstop. When that happens the products
+    // already exist and every later confirm would fail the same way, wedging
+    // the draft forever. If the colliding rows were created by THIS draft
+    // (metadata provenance draftId+itemId, or — for rows without provenance —
+    // an exact tenantId+sku+price match), adopt them and finish the confirm.
+    const healed = await tryHealSkuCollision(store, claimed, planned, now);
+    if (healed) {
+      return { ok: true, draftId: claimed.id, productIds: healed, alreadyConfirmed: true };
+    }
     // Roll the claim back to pending so the merchant can retry.
     await store.updateDraft({ ...claimed, status: "pending", updatedAt: new Date().toISOString() });
     return { ok: false, error: "product_create_failed" };

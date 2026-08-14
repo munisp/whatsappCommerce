@@ -1,6 +1,12 @@
 /**
  * J75 — Photo → catalog bootstrap e2e (W15 F5).
  *
+ * NOTE (W15.1): this journey drives catalogBootstrap services DIRECTLY against
+ * the DB (extraction via a fake http client) — it never sends WhatsApp
+ * messages through the metaMock seam, so the transcript recorder has nothing
+ * to capture and transcripts/J75.json is intentionally a header-only stub
+ * (messages: []). Same for J67–J71/J76/J77 (service-level journeys).
+ *
  * A merchant photographs a handwritten price list during onboarding. The
  * customHttp extraction adapter (fake http client — no network) returns a
  * realistic ₦ price list (plain prices, a "1,200-1,500" range, a per-dozen

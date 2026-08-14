@@ -13,7 +13,7 @@
  * created product ids.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "../../db";
 import { products, tenants } from "../../../drizzle/schema";
@@ -78,6 +78,17 @@ export interface CatalogDraftStore {
   listCatalogNames(tenantId: string): Promise<Array<{ id: string; name: string }>>;
   /** Insert one product row; returns the new id. */
   createProduct(input: CreatedProductInput): Promise<string>;
+  /**
+   * W15.1: look up existing product rows by (tenantId, sku) — used to
+   * self-heal a wedged draft after a SKU-unique collision (a concurrent
+   * confirm already created the rows). Rows carry the confirm-time metadata
+   * provenance ({ source, draftId, itemId }), so callers can tell "this
+   * draft's own products" apart from genuinely foreign SKU clashes.
+   */
+  findProductsBySkus?(
+    tenantId: string,
+    skus: string[],
+  ): Promise<Array<{ id: string; sku: string; price: string; metadata?: Record<string, unknown> | null }>>;
 }
 
 const DRAFTS_KEY = "catalogDrafts";
@@ -180,6 +191,24 @@ export function makeDefaultStore(): CatalogDraftStore {
         metadata: input.metadata ?? null,
       });
       return id;
+    },
+
+    async findProductsBySkus(tenantId, skus) {
+      const db = await getDb();
+      if (!db || skus.length === 0) return [];
+      const rows = await db
+        .select({
+          id: products.id,
+          sku: products.sku,
+          price: products.price,
+          metadata: products.metadata,
+        })
+        .from(products)
+        .where(and(eq(products.tenantId, tenantId), inArray(products.sku, skus)));
+      return rows.map((r) => ({
+        ...r,
+        metadata: (r.metadata ?? null) as Record<string, unknown> | null,
+      }));
     },
   };
 }

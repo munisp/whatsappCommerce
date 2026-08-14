@@ -286,7 +286,12 @@ export function detectLocale(text: string): Locale {
   const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0 };
   for (const [lang, words] of Object.entries(STOPWORDS) as Array<[Exclude<Locale, "en">, string[]]>) {
     for (const w of words) {
-      const re = new RegExp(`(^|[^a-zà-ỹ])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ]|$)`, "i");
+      // W15.1 bugfix: apostrophe is NOT a word boundary — otherwise the Hausa
+      // stopword "don" matches inside English "I don't …" (the apostrophe used
+      // to terminate the token), misdetecting a customer's FIRST message as
+      // Hausa and persisting the wrong locale for 30 days. Mirrors the copilot
+      // detector (services/onboardingCopilot/language.ts).
+      const re = new RegExp(`(^|[^a-zà-ỹ'])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ']|$)`, "i");
       if (re.test(lower)) scores[lang] += w.includes(" ") ? 2 : 1.5;
     }
   }
