@@ -1,0 +1,53 @@
+# CI (assurance A4-18) — install → typecheck → unit tests → prod audit gate.
+#
+# Notes:
+# - `--legacy-peer-deps` is REQUIRED (repo reality): @builder.io/vite-plugin-jsx-loc
+#   declares vite ^4/^5 while the repo pins vite ^7, so plain `npm ci` fails
+#   ERESOLVE. The Dockerfile uses the same flag.
+# - The audit gate is BLOCKING at --audit-level=high on production deps only.
+#   After the drizzle-orm ^0.45.2 bump (A4-01) `npm audit --omit=dev`
+#   reports 0 vulnerabilities. Remaining advisories are dev-scope only
+#   (vitest ≤3.2.5 critical UI file-read, transitive vite/esbuild moderate —
+#   dev/CI-host impact, not shipped runtime) and are tracked separately;
+#   they do not affect `npm audit --omit=dev`.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Production dependency audit (blocking at high)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## CI result"
+            echo ""
+            echo "- typecheck + vitest + prod audit: see step outcomes above"
+            echo "- audit scope: production deps only (\`--omit=dev\`), blocking at high"
+            echo "- drizzle-orm pinned ≥0.45.2 (A4-01 SQLi fix)"
+          } >> "$GITHUB_STEP_SUMMARY"

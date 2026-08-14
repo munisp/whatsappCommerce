@@ -273,6 +273,7 @@ describe("SECRETS_MASTER_KEY production boot gate", () => {
     process.env.APP_URL = "https://app.example";
     process.env.REDIS_URL = "redis://localhost:6379";
     process.env.KYC_SERVICE_API_KEY = "kyc-live-test-key";
+    process.env.WHATSAPP_VERIFY_TOKEN = "wa-verify-test-token-0123456789"; // A4-04 prod boot gate
   }
 
   it("refuses to boot in production without SECRETS_MASTER_KEY", async () => {

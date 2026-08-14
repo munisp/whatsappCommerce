@@ -18,6 +18,8 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { isProd, isDev } from "./env";
+import { runRecoverySweeps, sweepEndpointAuth, sweepIntervalMinutes } from "./recoverySweeps";
+import { registerGracefulShutdown } from "./gracefulShutdown";
 import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
 import { getDb } from "../db";
@@ -864,13 +866,48 @@ async function startServer() {
       res.status(500).json({ error: err?.message });
     }
   });
+  // ── Internal recovery sweeps (assurance F-02) ─────────────────────────────
+  // Runs the recovery/reconciliation sweeps that previously had no invoker:
+  // settlement_retry markers, mandate-charge reconcile, bureau outbox retry,
+  // dunning, and webhook-dedupe retention. See _core/recoverySweeps.ts.
+  //
+  // Auth: shared-secret header `x-sweep-secret` compared (timing-safe) against
+  // SWEEP_SECRET. FAIL-CLOSED: when SWEEP_SECRET is unset the endpoint is
+  // disabled (503) — there is no default secret. Wrong/missing secret → 401.
+  //
+  // External scheduler example (any cron runner / k8s CronJob):
+  //   curl -XPOST -H "x-sweep-secret: $SWEEP_SECRET" https://app/api/internal/sweeps
+  app.post("/api/internal/sweeps", async (req, res) => {
+    const auth = sweepEndpointAuth(req.headers as any);
+    if (auth === "disabled") {
+      // Fail closed: never run recovery sweeps on an unauthenticated endpoint.
+      return res.status(503).json({ error: "sweeps disabled — SWEEP_SECRET is not configured" });
+    }
+    if (auth === "unauthorized") {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+    try {
+      const report = await runRecoverySweeps();
+      console.log(`[sweeps] completed ok=${report.ok} in ${report.durationMs}ms: ${JSON.stringify(report.results)}`);
+      return res.status(report.ok ? 200 : 207).json(report);
+    } catch (err: any) {
+      return res.status(503).json({ error: String(err?.message ?? err) });
+    }
+  });
+
   // ── WhatsApp Business API webhook (Meta) ──────────────────────────────────
   // GET: verification challenge from Meta
   app.get("/api/webhooks/whatsapp", (req, res) => {
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN ?? "whatsapp_verify_token_demo";
+    // A4-04: never fall back to the public static token in production — the
+    // env.ts boot gate already refuses to boot in prod when the var is unset
+    // or still the demo value; this is defense-in-depth at request time.
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN ?? (isProd ? "" : "whatsapp_verify_token_demo");
+    if (!verifyToken) {
+      return res.status(503).json({ error: "Webhook verification not configured" });
+    }
     if (mode === "subscribe" && token === verifyToken) {
       console.log("[whatsapp-webhook] Verification successful");
       return res.status(200).send(challenge);
@@ -3340,9 +3377,44 @@ function drawBbox(img,id){
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // ── Graceful shutdown (A4-11): SIGTERM/SIGINT drain + process-level fault
+  // handlers (unhandledRejection/uncaughtException). See _core/gracefulShutdown.ts.
+  registerGracefulShutdown(server, { drainMs: 10_000 });
+
+  // ── Optional in-process sweep scheduler (F-02; DEFAULT OFF) ──────────────
+  // Single-node deployments without an external cron runner can set
+  // SWEEP_INTERVAL_MINUTES=N to run the recovery sweeps every N minutes.
+  // Multi-replica deployments should leave this unset and drive
+  // POST /api/internal/sweeps from ONE external scheduler instead (the sweeps
+  // are claim-first/idempotent, so overlap is safe, but a single scheduler
+  // avoids duplicate work). An in-flight run is never overlapped.
+  const sweepIntervalMin = sweepIntervalMinutes();
+  if (sweepIntervalMin !== null) {
+    let sweepInFlight = false;
+    const timer = setInterval(async () => {
+      if (sweepInFlight) return;
+      sweepInFlight = true;
+      try {
+        const report = await runRecoverySweeps();
+        console.log(`[sweeps] interval run ok=${report.ok} in ${report.durationMs}ms`);
+      } catch (err: any) {
+        console.error(`[sweeps] interval run failed: ${err?.message ?? err}`);
+      } finally {
+        sweepInFlight = false;
+      }
+    }, sweepIntervalMin * 60 * 1000);
+    timer.unref?.();
+    console.log(`[sweeps] in-process scheduler enabled (every ${sweepIntervalMin}m)`);
+  }
 }
 
-startServer().catch(console.error);
+startServer().catch((err) => {
+  // Fatal boot error: log with an explicit non-zero exit so supervisors
+  // (k8s/systemd) see a crashed pod instead of a silently-dead process.
+  console.error("[boot] fatal startup error:", err);
+  process.exit(1);
+});
 import { notifyOwner } from "./notification";
 import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents, waMessageDeliveryReceipts, whatsappNotificationLog, whatsappCustomerReplies, users } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";

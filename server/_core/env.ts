@@ -257,6 +257,69 @@ if (isProd && process.env.SECRETS_MASTER_KEY) {
   }
 }
 
+// ─── Weak-default boot gates (assurance A4-04 / A4-05 / A4-12) ─────────────
+// Production-only, fail-closed, following the REQUIRED_BY_ENV pattern above.
+// Development/test are warn-only so local runs stay usable.
+if (isProd) {
+  // A4-04: the WhatsApp webhook verification token must never fall back to
+  // the public static demo string (previously hard-coded as the default in
+  // _core/index.ts). Anyone could complete Meta's verification challenge
+  // against a deploy that forgot the var.
+  const waVerify = (process.env.WHATSAPP_VERIFY_TOKEN ?? "").trim();
+  if (!waVerify || waVerify === "whatsapp_verify_token_demo") {
+    throw new Error(
+      "[ENV] FATAL: WHATSAPP_VERIFY_TOKEN is unset or still the public demo " +
+        'value "whatsapp_verify_token_demo". Set a strong, unique token before ' +
+        "starting — refusing to boot.",
+    );
+  }
+
+  // A4-05: refuse to boot when the APISIX admin API would run with the
+  // published vendor-default key. APISIX counts as "configured" when either
+  // APISIX_ADMIN_URL or APISIX_ADMIN_KEY is explicitly set in the env.
+  const APISIX_VENDOR_DEFAULT_KEY = "edd1c9f034335f136f87ad84b625c8f1";
+  const apisixKey = (process.env.APISIX_ADMIN_KEY ?? "").trim();
+  const apisixConfigured =
+    !!(process.env.APISIX_ADMIN_URL ?? "").trim() || !!apisixKey;
+  if (apisixKey === APISIX_VENDOR_DEFAULT_KEY) {
+    throw new Error(
+      "[ENV] FATAL: APISIX_ADMIN_KEY is the published APISIX vendor-default " +
+        "key — anyone can administer the gateway. Set a strong, unique key " +
+        "before starting — refusing to boot.",
+    );
+  }
+  if (apisixConfigured && !apisixKey) {
+    throw new Error(
+      "[ENV] FATAL: APISIX is configured (APISIX_ADMIN_URL set) but " +
+        "APISIX_ADMIN_KEY is unset — the gateway admin API would run without " +
+        "an explicit credential. Set it before starting — refusing to boot.",
+    );
+  }
+
+  // A4-12: OpenSearch / MinIO compose defaults. These are compose-level
+  // service credentials (the Node app is only one consumer), so we WARN and
+  // document rather than block — blocking would break deploys that front
+  // those services with network policy and never expose them. Rotate them
+  // for any environment where the services are reachable beyond localhost.
+  if ((process.env.OPENSEARCH_PASS ?? "admin") === "admin") {
+    console.warn(
+      "[ENV] WARNING: OPENSEARCH_PASS is the compose default \"admin\". " +
+        "Set a strong password (and OPENSEARCH_USER) for production deploys " +
+        "where OpenSearch is network-reachable.",
+    );
+  }
+  if (
+    (process.env.S3_ACCESS_KEY ?? "minioadmin") === "minioadmin" ||
+    (process.env.S3_SECRET_KEY ?? "minioadmin") === "minioadmin"
+  ) {
+    console.warn(
+      "[ENV] WARNING: S3_ACCESS_KEY/S3_SECRET_KEY are the MinIO compose " +
+        "defaults (minioadmin). Set unique credentials for production deploys " +
+        "where the object store is network-reachable.",
+    );
+  }
+}
+
 // ─── Credit-enforcement suspension-check posture (W14; additive) ───────────
 // The PO submit gate's trade-credit suspension lookup historically failed
 // OPEN on error (a delinquent buyer could order during a lookup outage).
