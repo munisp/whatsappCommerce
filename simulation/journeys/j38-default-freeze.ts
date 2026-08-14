@@ -53,11 +53,11 @@ export const journey: Journey = {
     });
     assert(attempt.ok === false && attempt.reason === "frozen", `draw refused as frozen (got ${JSON.stringify(attempt)})`);
 
-    // Outstanding untouched by the refused draw; account stays frozen. (The
-    // +7d sweep's late fee is a ledger 'fee' row — outstanding_cents only
-    // ever moves via the draw/repayment claim-first statements.)
+    // Outstanding untouched by the refused draw; account stays frozen. Since
+    // assurance Fix 4 (A1-08b) the late fee is collectible: outstanding_cents
+    // now includes the ₦1,000 late fee posted by the +7d sweep.
     const after = await creditAccount(world);
-    assert(Number(after.outstandingCents) === 5_000_000, `outstanding = the draw only (got ${after.outstandingCents})`);
+    assert(Number(after.outstandingCents) === 5_100_000, `outstanding = draw + late fee (got ${after.outstandingCents})`);
     assert(after.status === "frozen", "still frozen after the refused draw");
     const { creditLedgerRows } = await import("./helpers");
     const fees = await creditLedgerRows(world, "fee");

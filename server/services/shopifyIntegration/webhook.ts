@@ -78,7 +78,13 @@ export async function handleShopifyWebhookExpress(req: Request, res: Response): 
     }
     const topicHeader = req.headers["x-shopify-topic"];
     const topic = Array.isArray(topicHeader) ? topicHeader[0] : topicHeader ?? "";
-    const payload = JSON.parse(rawBody.toString());
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawBody.toString());
+    } catch {
+      res.status(400).json({ error: "malformed-json" });
+      return;
+    }
 
     if (topic === "orders/create") {
       const result = await bridgeShopifyOrder(tenantId, payload as ShopifyOrderPayload);

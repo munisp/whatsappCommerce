@@ -84,7 +84,9 @@ export const journey: Journey = {
     assert(d2.severity === "freeze" && d2.daysOverdue >= 7, "freeze delinquency payload");
 
     // ── Cure: repay to zero → repayment + cure, suspension lifted ────────
-    const cured = await applyRepayment({ accountId: p.accountId, amountCents: 1_500_000, ref: "repay:j68-cure" });
+    // Since assurance Fix 4 (A1-08b) the +3d late fee (2% of ₦20,000 = ₦400)
+    // is added to outstanding_cents, so cure = draw remainder + fee.
+    const cured = await applyRepayment({ accountId: p.accountId, amountCents: 1_540_000, ref: "repay:j68-cure" });
     assert(cured.ok === true && cured.outstandingAfter === 0, "cure repayment lands");
     const [curedRow] = await world.db.select().from(schema.creditAccounts).where(eq(schema.creditAccounts.id, p.accountId)).limit(1);
     assert(curedRow.suspended === false, "order-access suspension lifted on cure");

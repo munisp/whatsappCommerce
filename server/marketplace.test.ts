@@ -131,6 +131,13 @@ vi.mock("./db", () => ({
   getDb: vi.fn().mockImplementation(() => Promise.resolve(makeMockDb())),
 }));
 
+// The shopify descriptor resolves shopifyIntegration dynamically. Mock it as
+// ABSENT so these tests exercise the tolerant fallback seam (settings read +
+// config-presence health probe) exactly as when the module has not landed.
+vi.mock("./services/shopifyIntegration", () => {
+  throw new Error("simulated absent module");
+});
+
 // ─── External HTTP stub ──────────────────────────────────────────────────────
 
 function jsonResponse(data: unknown, status = 200): Response {
