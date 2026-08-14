@@ -1,0 +1,8 @@
+{
+  "id": "J82",
+  "title": "template library lifecycle",
+  "feature": "validate → submit ×2 → sync approved/rejected-with-reason → resubmit → idempotent double-submit",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

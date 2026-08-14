@@ -1,0 +1,8 @@
+{
+  "id": "J83",
+  "title": "marketplace lifecycle",
+  "feature": "catalog enrichment → awaiting_config → fail-closed health gate → cache → audited uninstall → FORBIDDEN",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

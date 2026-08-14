@@ -78,6 +78,15 @@ export const CREDIT_LIMIT_CENTS = 50_000_000;
 export const CREDIT_TERMS_DAYS = 14;
 
 export const SUPPLIER_MOQ_CENTS = 100_000; // ₦1,000
+// ── Wave 16: Shopify connector + Meta embedded signup app credentials ───────
+// Set at boot so ENV (module-scope, read-once) sees them; journeys sign real
+// Shopify webhook HMACs with SHOPIFY_API_SECRET_VALUE and script the Meta
+// embedded-signup exchange with META_APP_ID_VALUE / META_APP_SECRET_VALUE.
+export const SHOPIFY_API_KEY_VALUE = "sim-shopify-api-key";
+export const SHOPIFY_API_SECRET_VALUE = "sim-shopify-app-secret-0123456789";
+export const META_APP_ID_VALUE = "sim-meta-app-id";
+export const META_APP_SECRET_VALUE = "sim-meta-app-secret-0123456789";
+
 export const SUPPLIER_PRODUCTS = {
   preforms: {
     id: "sp-preforms", sku: "SIM-PREFORM", name: "PET Preforms 500ml",
@@ -300,6 +309,13 @@ export async function bootWorld(): Promise<World> {
     // dev/test fallback exists, but journeys J45/J46 prove the real envelope
     // path against an env-provided key.
     setEnv("SECRETS_MASTER_KEY", crypto.createHash("sha256").update("w10-sim-secrets-master-key").digest("base64"));
+    // W16: Shopify app connector + Meta embedded-signup app credentials so
+    // the REAL OAuth/HMAC/exchange paths execute (ENV is read at import).
+    setEnv("SHOPIFY_API_KEY", SHOPIFY_API_KEY_VALUE);
+    setEnv("SHOPIFY_API_SECRET", SHOPIFY_API_SECRET_VALUE);
+    setEnv("SHOPIFY_APP_URL", `http://localhost:${port}`);
+    setEnv("META_APP_ID", META_APP_ID_VALUE);
+    setEnv("META_APP_SECRET", META_APP_SECRET_VALUE);
 
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
@@ -596,6 +612,66 @@ export async function bootWorld(): Promise<World> {
             }
           }
         } catch { /* w15 settings keys absent */ }
+        // Wave 16 isolation: Shopify connector / embedded signup / template
+        // library / marketplace state all live in tenants.settings jsonb —
+        // strip them from the seed tenants; drop Shopify-bridged orders and
+        // their placeholder customers so no money/order rows leak; restore
+        // the SHOPIFY_*/META_* env (and the read-once ENV mirror) plus the
+        // injectable Shopify fetch and the 60s marketplace health cache.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { like } = await import("drizzle-orm");
+          for (const tid of [TENANT_ID, SUPPLIER_TENANT_ID]) {
+            const [t] = await world.db
+              .select({ settings: schema.tenants.settings })
+              .from(schema.tenants)
+              .where(eq(schema.tenants.id, tid))
+              .limit(1);
+            const s = { ...((t?.settings ?? {}) as Record<string, any>) };
+            if ("shopifyIntegration" in s || "embeddedSignup" in s || "waTemplateLibrary" in s || "marketplace" in s) {
+              delete s.shopifyIntegration;
+              delete s.embeddedSignup;
+              delete s.waTemplateLibrary;
+              delete s.marketplace;
+              await world.db
+                .update(schema.tenants)
+                .set({ settings: s, updatedAt: new Date() })
+                .where(eq(schema.tenants.id, tid));
+            }
+          }
+          const bridged = await world.db
+            .select({ id: schema.orders.id })
+            .from(schema.orders)
+            .where(like(schema.orders.orderNumber, "SHOPIFY-%"))
+            .catch(() => [] as Array<{ id: string }>);
+          for (const o of bridged) {
+            await world.db.delete(schema.orderItems).where(eq(schema.orderItems.orderId, o.id)).catch(() => {});
+            await world.db.delete(schema.orders).where(eq(schema.orders.id, o.id)).catch(() => {});
+          }
+          await world.db
+            .delete(schema.customers)
+            .where(like(schema.customers.whatsappPhone, "shopify-%"))
+            .catch(() => {});
+        } catch { /* w16 tables/keys absent */ }
+        try {
+          process.env.SHOPIFY_API_KEY = SHOPIFY_API_KEY_VALUE;
+          process.env.SHOPIFY_API_SECRET = SHOPIFY_API_SECRET_VALUE;
+          process.env.META_APP_ID = META_APP_ID_VALUE;
+          process.env.META_APP_SECRET = META_APP_SECRET_VALUE;
+          const { ENV } = await import("../server/_core/env");
+          ENV.shopifyApiKey = SHOPIFY_API_KEY_VALUE;
+          ENV.shopifyApiSecret = SHOPIFY_API_SECRET_VALUE;
+          ENV.metaAppId = META_APP_ID_VALUE;
+          ENV.metaAppSecret = META_APP_SECRET_VALUE;
+        } catch { /* env module unavailable */ }
+        try {
+          const { resetShopifyFetch } = await import("../server/services/shopifyIntegration/client");
+          resetShopifyFetch();
+        } catch { /* shopify client unavailable */ }
+        try {
+          const { clearHealthCache } = await import("../server/services/marketplace");
+          clearHealthCache();
+        } catch { /* marketplace unavailable */ }
         try {
           const schema = await import("../drizzle/schema");
           await world.db.delete(schema.odooIntegrations);
