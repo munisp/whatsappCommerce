@@ -93,7 +93,17 @@ export const temporalRouter = router({
   // ── Query workflow status ───────────────────────────────────────────────────
   getStatus: protectedProcedure
     .input(z.object({ workflowId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      // A2-06: verify the run belongs to the caller's tenant before querying.
+      const db = await getDb();
+      if (db) {
+        const [run] = await db
+          .select({ tenantId: temporalWorkflowRuns.tenantId })
+          .from(temporalWorkflowRuns)
+          .where(eq(temporalWorkflowRuns.workflowId, input.workflowId))
+          .limit(1);
+        if (run?.tenantId) assertTenantAccess(ctx.user, run.tenantId);
+      }
       const { queryWorkflowStatus } = await import("../temporal");
       return queryWorkflowStatus(input.workflowId);
     }),
@@ -127,7 +137,7 @@ export const temporalRouter = router({
   // ── Get a specific run ──────────────────────────────────────────────────────
   getRun: protectedProcedure
     .input(z.object({ runId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [run] = await db
@@ -136,6 +146,8 @@ export const temporalRouter = router({
         .where(eq(temporalWorkflowRuns.runId, input.runId))
         .limit(1);
       if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "Workflow run not found" });
+      // A2-06: run metadata is tenant-confidential.
+      if (run.tenantId) assertTenantAccess(ctx.user, run.tenantId);
       return run;
     }),
 

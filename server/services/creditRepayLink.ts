@@ -30,7 +30,7 @@
 
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import { paymentIntents, processedWebhookEvents } from "../../drizzle/schema";
+import { creditLedger, paymentIntents, processedWebhookEvents } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 import { claimWebhookEvent } from "./webhookDedupe";
 import { recordUsage } from "./metering";
@@ -286,6 +286,33 @@ export async function runCreditRepaymentHook(
     const applyRepayment = await loadApplyRepayment();
     const amountCents = Math.round(input.amountMajor * 100);
     const res = await applyRepayment({ accountId, amountCents, ref: input.reference });
+    if (!res.ok) {
+      // A1-01: applyRepaymentTx REFUSED (e.g. the over-repayment guard) instead
+      // of throwing. The payment is confirmed money, so this must never be
+      // silent: (a) release the dedupe claim so a webhook replay / recon sweep
+      // can retry the apply exactly-once, (b) persist a durable
+      // settlement_retry marker on the credit ledger (same convention as
+      // tradeCredit/capture.ts — its retrySettlement can re-drive the apply),
+      // (c) fire a CRITICAL captureException, (d) report a truthful failure.
+      await db
+        .delete(processedWebhookEvents)
+        .where(eq(processedWebhookEvents.id, claimId))
+        .catch((delErr: any) => console.error("[credit-repay] claim rollback failed:", delErr?.message));
+      await persistSettlementRetryMarker(db, accountId, input.reference, amountCents);
+      console.error(
+        `[credit-repay] applyRepayment REFUSED ${amountCents}¢ for account ${accountId} (ref=${input.reference}); claim released, settlement_retry marker persisted`,
+      );
+      captureException(new Error(`credit repayment settlement refused after confirmed payment ${input.reference}`), {
+        service: "creditRepayLink",
+        operation: "applyRepayment",
+        tenantId: input.tenantId,
+        severity: "critical",
+        extra: { reference: input.reference, accountId, amountCents, outstandingAfter: res.outstandingAfter },
+      });
+      return { applied: false, reason: "apply-refused", outstandingAfter: res.outstandingAfter };
+    }
+    // alreadySettled: the money is already on the ledger (unique-index no-op) —
+    // keep the claim, treat as applied.
     await recordUsage(db, input.tenantId, METRIC_CREDIT_REPAYMENTS_APPLIED);
     console.log(
       `[credit-repay] applied ${amountCents}¢ to account ${accountId} (ref=${input.reference}); outstanding after=${res.outstandingAfter}`,
@@ -313,5 +340,31 @@ export async function runCreditRepaymentHook(
     // webhook because of a post-confirm side-effect. Report the failure as a
     // typed result instead; the claim rollback above lets a replay retry.
     return { applied: false, reason: `apply-failed: ${String(err?.message ?? err).slice(0, 200)}` };
+  }
+}
+
+// ── Durable settlement_retry marker (same convention as tradeCredit/capture) ─
+// Rides the append-only credit_ledger as a zero-amount 'adjustment' note with
+// the [settlement_retry] prefix that capture.ts's retrySettlement parses, so an
+// admin retry can re-drive the refused apply exactly-once. Best-effort.
+const SETTLEMENT_RETRY_PREFIX = "[settlement_retry] ";
+
+async function persistSettlementRetryMarker(
+  db: any,
+  accountId: string,
+  reference: string,
+  amountCents: number,
+): Promise<void> {
+  try {
+    await db.insert(creditLedger).values({
+      creditAccountId: accountId,
+      kind: "adjustment",
+      amountCents: 0,
+      ref: reference.slice(0, 128),
+      note: `${SETTLEMENT_RETRY_PREFIX}${JSON.stringify({ amountCents })}`,
+      createdAt: new Date(),
+    });
+  } catch (err: any) {
+    console.warn(`[credit-repay] settlement_retry marker persist failed for ${reference}:`, err?.message);
   }
 }

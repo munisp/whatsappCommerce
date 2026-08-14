@@ -12,7 +12,7 @@
  */
 
 import { z } from "zod";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, operatorProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { hermesConfigs, hermesEventLog, hermesPODrafts, hermesHealthLog } from "../../drizzle/schema";
 import { eq, desc, and, sql, gte, asc } from "drizzle-orm";
@@ -62,9 +62,13 @@ export const hermesRouter = router({
     }),
 
   // Upsert Hermes config for a tenant
-  saveConfig: protectedProcedure
+  saveConfig: operatorProcedure
     .input(HermesConfigInput)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // A2-01: config mutation is owner/operator-only (operatorProcedure
+      // enforces membership role on input.tenantId); assertTenantAccess is
+      // defense-in-depth against cross-tenant upsert keyed by caller input.
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
