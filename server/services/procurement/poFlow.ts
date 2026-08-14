@@ -348,10 +348,41 @@ export async function approvePurchaseOrder(
 ): Promise<ApprovePoResult> {
   const po = await getPoById(db, opts.poId);
   if (!po) return { ok: false, reason: "not_found" };
-  if (po.status !== "submitted") return { ok: false, reason: "wrong_status" };
   const now = new Date();
 
   if (po.paymentMode === "credit") {
+    // 'invoiced' is allowed through to the claim/replay logic below: an
+    // approval that crashed after claiming but before completing (or an
+    // idempotent retry of a completed approval) must converge instead of
+    // being refused — the draw is exactly-once per PO.
+    if (po.status !== "submitted" && po.status !== "invoiced") {
+      return { ok: false, reason: "wrong_status" };
+    }
+    // A1-04/F-01: CLAIM-FIRST approval. The status transition is a single
+    // atomic UPDATE guarded on status='submitted' — only ONE concurrent
+    // approval can win it, so only one credit draw is ever attempted per PO.
+    // (Pre-fix this was a plain read of po.status followed by an
+    // unconditional UPDATE ... WHERE id, and two concurrent approvals both
+    // drew — reproduced in the assurance audit.) The draw itself carries a
+    // second backstop: credit_ledger_draw_ref_uniq (0053) makes the draw
+    // insert exactly-once per (account, ref=draw:{poId}).
+    const [claimed] = await db.update(purchaseOrders)
+      .set({ status: "invoiced", updatedAt: now })
+      .where(and(eq(purchaseOrders.id, po.id), eq(purchaseOrders.status, "submitted")))
+      .returning();
+    const ownClaim = !!claimed;
+    if (!ownClaim) {
+      // Lost the claim race. Re-read: 'invoiced' means the winner completed
+      // OR a previous approval crashed between the claim and the draw/field
+      // update. Only the CRASHED state (claimed but never completed — no
+      // due_date written yet) is converged here via the exactly-once draw
+      // below; a fully-completed approval stays a wrong_status refusal so
+      // the router keeps surfacing CONFLICT on a true double-approve.
+      const fresh = await getPoById(db, po.id);
+      if (!fresh) return { ok: false, reason: "not_found" };
+      if (fresh.status !== "invoiced") return { ok: false, reason: "wrong_status" };
+      if (fresh.dueDate != null) return { ok: false, reason: "wrong_status" }; // completed
+    }
     const account = await getCreditAccount(po.supplierTenantId, po.buyerTenantId).catch(() => null);
     const termsDays = opts.termsDays ?? po.termsDays ?? Number((account as any)?.termsDays ?? 14);
     const draw = await drawOnCredit({
@@ -361,7 +392,21 @@ export async function approvePurchaseOrder(
       poId: po.id,
       termsDays,
     });
-    if (!draw.ok) return { ok: false, reason: draw.reason };
+    if (!draw.ok) {
+      // Compensate the claim ONLY when we own it: revert to 'submitted' so a
+      // later approval can retry. Guarded on the exact claimed state — a
+      // concurrent writer that moved the PO forward is never clobbered. (A
+      // replay caller that lost the claim race must NOT revert the winner's
+      // state; draw.ok with alreadyDrawn is not a failure.)
+      if (ownClaim) {
+        await db.update(purchaseOrders)
+          .set({ status: "submitted", updatedAt: new Date() })
+          .where(and(eq(purchaseOrders.id, po.id), eq(purchaseOrders.status, "invoiced")));
+      }
+      return { ok: false, reason: draw.reason };
+    }
+    // A crash-replay that finds the draw already persisted (alreadyDrawn)
+    // simply completes the bookkeeping — it never drew twice.
     const dueDate = new Date(now.getTime() + termsDays * 24 * 60 * 60 * 1000);
     await db.update(purchaseOrders).set({
       status: "invoiced",
@@ -378,6 +423,7 @@ export async function approvePurchaseOrder(
   }
 
   // paynow — approved pending payment; create the payment link for the buyer.
+  if (po.status !== "submitted") return { ok: false, reason: "wrong_status" };
   await db.update(purchaseOrders).set({ status: "approved", updatedAt: now })
     .where(eq(purchaseOrders.id, po.id));
   const link = await createPoPaymentLink(db, po).catch((e: any) => {

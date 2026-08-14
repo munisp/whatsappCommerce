@@ -65,6 +65,19 @@ async function assertBuyerOrAdmin(db: DbOrTx, user: SessionUser, escrow: EscrowT
   }
 }
 
+/** Internal control-flow signal: a same-reference withdrawal already exists. */
+class WalletWithdrawalDuplicateError extends Error {
+  constructor() { super("wallet_withdrawal_duplicate_reference"); }
+}
+
+/** SQLSTATE 23505 on wallet_tx_wallet_ref_uniq (0053). */
+function isWalletRefUniqueViolation(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string; message?: string };
+  if (e?.code !== "23505") return false;
+  const hay = `${e.constraint ?? ""} ${e.message ?? ""}`;
+  return hay.includes("wallet_tx_wallet_ref_uniq");
+}
+
 // ─── Helper: get or create merchant wallet ────────────────────────────────────
 async function getOrCreateWallet(db: DbOrTx, tenantId: string, custodyMode: "pssp" | "psp" = "pssp") {
   const [existing] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, tenantId));
@@ -1407,47 +1420,79 @@ export const walletRouter = router({
         }).where(eq(merchantWallets.id, wallet.id));
       }
 
-      await db.transaction(async (tx) => {
-        // Atomic conditional debit — the balance check and the debit are a
-        // single UPDATE, so concurrent withdrawals can never double-spend and
-        // the balance can never go negative (no GREATEST masking).
-        const debited = await tx.execute(sql`
-          UPDATE merchant_wallets
-          SET available_balance = available_balance - ${input.amount.toFixed(2)}::numeric,
-              total_withdrawn = total_withdrawn + ${input.amount.toFixed(2)}::numeric,
-              updated_at = now()
-          WHERE id = ${wallet.id}
-            AND available_balance >= ${input.amount.toFixed(2)}::numeric
-          RETURNING available_balance
-        `);
-        const row = (debited as unknown as Record<string, unknown>[])[0];
-        if (!row) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "INSUFFICIENT_FUNDS: available balance is too low for this withdrawal" });
-        }
-        const after = parseFloat(String(row.available_balance));
-        const before = after + input.amount;
-        // The withdrawal is recorded as PENDING — it is only paid out after a
-        // separate admin approval / payout step (tracked via metadata.status).
-        await tx.insert(walletTransactions).values({
-          id: crypto.randomUUID(),
-          walletId: wallet.id,
-          tenantId: input.tenantId,
-          type: "withdrawal",
-          amount: input.amount.toFixed(2),
-          balanceBefore: before.toFixed(2),
-          balanceAfter: after.toFixed(2),
-          currency: wallet.currency,
-          description: `Withdrawal to ${input.bankAccountNumber ?? "bank account"} (pending approval)`,
-          reference: ref,
-          metadata: {
-            status: "pending",
-            bankAccountName: input.bankAccountName ?? null,
-            bankAccountNumber: input.bankAccountNumber ?? null,
-            bankCode: input.bankCode ?? null,
-          },
-          createdAt: new Date(),
+      // A1-03: the reference-existence check above runs OUTSIDE the debit
+      // transaction, so two concurrent same-reference calls can both pass it.
+      // The durable backstop is the partial unique index
+      // wallet_tx_wallet_ref_uniq (0053) on (wallet_id, reference): the
+      // loser's insert fails 23505, its transaction (and debit) rolls back,
+      // and we translate the violation into an idempotent replay of the
+      // original pending withdrawal — exactly one debit per reference.
+      try {
+        await db.transaction(async (tx) => {
+          // Re-check INSIDE the transaction as well: cheap no-op in the
+          // common case, and short-circuits before the debit when the
+          // sibling transaction has already committed.
+          const [dupInTx] = await tx.select({ id: walletTransactions.id }).from(walletTransactions)
+            .where(and(eq(walletTransactions.walletId, wallet.id), eq(walletTransactions.reference, ref)));
+          if (dupInTx) throw new WalletWithdrawalDuplicateError();
+          // Atomic conditional debit — the balance check and the debit are a
+          // single UPDATE, so concurrent withdrawals can never double-spend and
+          // the balance can never go negative (no GREATEST masking).
+          const debited = await tx.execute(sql`
+            UPDATE merchant_wallets
+            SET available_balance = available_balance - ${input.amount.toFixed(2)}::numeric,
+                total_withdrawn = total_withdrawn + ${input.amount.toFixed(2)}::numeric,
+                updated_at = now()
+            WHERE id = ${wallet.id}
+              AND available_balance >= ${input.amount.toFixed(2)}::numeric
+            RETURNING available_balance
+          `);
+          const row = (debited as unknown as Record<string, unknown>[])[0];
+          if (!row) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "INSUFFICIENT_FUNDS: available balance is too low for this withdrawal" });
+          }
+          const after = parseFloat(String(row.available_balance));
+          const before = after + input.amount;
+          // The withdrawal is recorded as PENDING — it is only paid out after a
+          // separate admin approval / payout step (tracked via metadata.status).
+          await tx.insert(walletTransactions).values({
+            id: crypto.randomUUID(),
+            walletId: wallet.id,
+            tenantId: input.tenantId,
+            type: "withdrawal",
+            amount: input.amount.toFixed(2),
+            balanceBefore: before.toFixed(2),
+            balanceAfter: after.toFixed(2),
+            currency: wallet.currency,
+            description: `Withdrawal to ${input.bankAccountNumber ?? "bank account"} (pending approval)`,
+            reference: ref,
+            metadata: {
+              status: "pending",
+              bankAccountName: input.bankAccountName ?? null,
+              bankAccountNumber: input.bankAccountNumber ?? null,
+              bankCode: input.bankCode ?? null,
+            },
+            createdAt: new Date(),
+          });
         });
-      });
+      } catch (err: any) {
+        if (err instanceof WalletWithdrawalDuplicateError || isWalletRefUniqueViolation(err)) {
+          // Idempotent replay: the original request already recorded the
+          // withdrawal; return it instead of double-debiting.
+          const [existing] = await db.select().from(walletTransactions)
+            .where(and(eq(walletTransactions.walletId, wallet.id), eq(walletTransactions.reference, ref)));
+          if (existing) {
+            return {
+              success: true,
+              reference: ref,
+              amount: parseFloat(existing.amount),
+              status: ((existing.metadata as Record<string, unknown> | null)?.status as string) ?? "pending",
+              duplicate: true,
+            };
+          }
+        }
+        throw err;
+      }
 
       await writeAuditLog({
         actorId: String(ctx.user.id),

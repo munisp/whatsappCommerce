@@ -1340,6 +1340,15 @@ export const walletTransactions = pgTable("wallet_transactions", {
   index("wallet_tx_tenant_idx").on(t.tenantId),
   index("wallet_tx_type_idx").on(t.type),
   index("wallet_tx_created_idx").on(t.createdAt),
+  // A1-03: exactly-once withdrawal per (wallet, reference). The client
+  // reference is the idempotency key for requestWithdrawal; without this
+  // index two concurrent same-reference withdrawals both pass the
+  // read-then-check and double-debit the available balance. The loser's
+  // insert fails 23505 and is translated into an idempotent replay of the
+  // original pending withdrawal.
+  uniqueIndex("wallet_tx_wallet_ref_uniq")
+    .on(t.walletId, t.reference)
+    .where(sql`reference IS NOT NULL`),
 ]);
 
 // ─── Logistics Shipments ──────────────────────────────────────────────────────
@@ -3017,6 +3026,37 @@ export const paymentMandates = pgTable("payment_mandates", {
 export type PaymentMandate = typeof paymentMandates.$inferSelect;
 export type NewPaymentMandate = typeof paymentMandates.$inferInsert;
 
+// mandate_charges (A1-02/F-03): durable record of every repayment-at-source
+// mandate charge. Previously mandate charges were persisted nowhere, so a
+// 'pending' provider charge was settled immediately (money had NOT moved)
+// and could never be reconciled. The sweeper
+// (tradeCredit/capture.reconcilePendingMandateCharges) re-checks pending
+// rows via the provider's fetchStatus() and settles exactly once on
+// success / releases the dedupe claim on failure. `reference` is the
+// exactly-once repayment reference (cr-…), shared with the
+// processed_webhook_events claim and the credit_ledger repayment ref.
+export const mandateCharges = pgTable("mandate_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: uuid("account_id").notNull().references(() => creditAccounts.id),
+  mandateId: uuid("mandate_id"),
+  mandateRef: varchar("mandate_ref", { length: 128 }),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  reference: varchar("reference", { length: 128 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // 'pending' | 'success' | 'failed'
+  providerStatus: varchar("provider_status", { length: 40 }),
+  rawResponse: jsonb("raw_response"), // redacted per compliance/bureau conventions
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("mandate_charges_reference_uniq").on(t.reference),
+  index("mandate_charges_account_idx").on(t.accountId),
+  index("mandate_charges_status_idx").on(t.status),
+]);
+export type MandateCharge = typeof mandateCharges.$inferSelect;
+export type NewMandateCharge = typeof mandateCharges.$inferInsert;
+
 // credit_limit_history: append-only audit of limit revisions (auto or
 // manual). reason 'auto_revision' for scorer-driven changes, 'limit_clamped'
 // when a downward revision was clamped at the outstanding balance.
@@ -3105,6 +3145,14 @@ export const creditLedger = pgTable("credit_ledger", {
   uniqueIndex("credit_ledger_repayment_ref_uniq")
     .on(t.creditAccountId, t.ref)
     .where(sql`kind = 'repayment' AND ref IS NOT NULL`),
+  // A1-04/F-01: exactly-once invoice draw per (account, ref). Draw refs are
+  // `draw:{poId}` — without this index two concurrent PO approvals (or a
+  // crash-retry) could insert two draw rows and increment outstanding twice
+  // for one PO. The loser sees 23505, which drawOnCreditTx translates into
+  // an idempotent already-drawn success returning the existing row.
+  uniqueIndex("credit_ledger_draw_ref_uniq")
+    .on(t.creditAccountId, t.ref)
+    .where(sql`kind = 'invoice_draw' AND ref IS NOT NULL`),
 ]);
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type NewCreditLedgerEntry = typeof creditLedger.$inferInsert;

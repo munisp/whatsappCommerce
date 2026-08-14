@@ -149,13 +149,24 @@ describe("applyMandateRepaymentTx — charge-first", () => {
       .toMatchObject({ ok: false, reason: "invalid_amount" });
   });
 
-  it("never throws when the charge path blows up", async () => {
-    const { db } = seedWithMandate();
+  it("never throws when the charge path blows up — unknown outcome stays pending (F-03)", async () => {
+    // Provider resolution itself blew up: the charge outcome is UNKNOWN
+    // (timeout-after-send class). Pre-fix this released the exactly-once
+    // claim and dunned the buyer to pay again — double collection when the
+    // charge had in fact succeeded provider-side. Post-fix the claim is
+    // KEPT, a durable pending row is persisted, and the reconciler resolves
+    // the charge via read-only fetchStatus.
+    const { db, store } = seedWithMandate();
     __setMandateProvidersForTests(async () => {
       throw new Error("boom");
     });
     const res = await applyMandateRepaymentTx(db, { accountId: "acct-1", amountCents: 1_000 }, NOW);
-    expect(res.ok).toBe(false);
+    expect(res).toMatchObject({ ok: true, mode: "mandate", status: "pending", outstandingAfter: 10_000 });
+    expect(store.accounts[0].outstandingCents).toBe(10_000); // NOT settled
+    expect(store.webhookEvents).toHaveLength(1); // claim kept — never blind-retried
+    const charge = store.mandateCharges.find((c) => c.status === "pending");
+    expect(charge).toBeDefined();
+    expect(charge?.amountCents).toBe(1_000);
   });
 
   it("refuses over-repayment BEFORE any provider charge (double-submit guard)", async () => {

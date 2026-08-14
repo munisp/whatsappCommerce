@@ -248,12 +248,32 @@ export async function runDunningCheckTx(
       if (offsetDays >= 3) {
         if (await claimMarker(db, draw.id, MARKERS.fee)) {
           const feeCents = Math.max(1, Math.round(draw.amountCents * LATE_FEE_RATE));
-          await db.insert(creditLedger).values({
-            creditAccountId: draw.creditAccountId,
-            kind: "fee",
-            amountCents: feeCents,
-            ref: `latefee:${draw.id}`.slice(0, 128),
-            note: `Late fee ${LATE_FEE_RATE * 100}% of draw ${draw.id} at +${offsetDays}d overdue`,
+          // A1-08(b): the fee is REAL debt — increment outstanding in the
+          // SAME transaction as the ledger row (pre-fix the fee was recorded
+          // but never owed: outstanding unchanged, fee rows excluded from
+          // the repayment FIFO, so the fee was uncollectible). The atomic
+          // increment cannot push outstanding below zero and needs no guard
+          // (it only grows the debt); the marker claim above keeps the whole
+          // block once-per-draw across overlapping sweeps. Repayments settle
+          // fee-bearing outstanding through the normal over-repayment guard:
+          // the buyer now owes draw + fee. Fee rows remain outside the FIFO
+          // settlement flip (they have no due_date/lifecycle) — they are
+          // collected as part of outstanding, documented here.
+          await db.transaction(async (tx) => {
+            await tx.insert(creditLedger).values({
+              creditAccountId: draw.creditAccountId,
+              kind: "fee",
+              amountCents: feeCents,
+              ref: `latefee:${draw.id}`.slice(0, 128),
+              note: `Late fee ${LATE_FEE_RATE * 100}% of draw ${draw.id} at +${offsetDays}d overdue`,
+            });
+            await tx
+              .update(creditAccounts)
+              .set({
+                outstandingCents: sql`${creditAccounts.outstandingCents} + ${feeCents}`,
+                updatedAt: now,
+              })
+              .where(eq(creditAccounts.id, draw.creditAccountId));
           });
           result.feesApplied += 1;
           // W14: bureau 'delinquency' event at the +3d late-fee milestone.
