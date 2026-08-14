@@ -117,6 +117,20 @@ export const ENV = {
   //   BUREAU_API_BASE   bureau endpoint base URL (full URL for customHttp)
   //   BUREAU_API_KEY    bureau credential (never logged; redacted from payloads)
   //   BUREAU_TIMEOUT_MS per-send timeout (default 8000)
+  // ── W16: Meta embedded signup + template pre-approval (roadmap F9). ALL
+  // OPTIONAL — unset means the embedded-signup exchange is disabled and
+  // surfaces a structured meta_api_error; nothing else changes. NOT added to
+  // REQUIRED_BY_ENV (additive feature, never gates boot).
+  //   META_APP_ID / META_APP_SECRET   Meta app credentials for the
+  //                                   embedded-signup code→token exchange
+  //   META_GRAPH_BASE_URL             Graph API base (default v21.0)
+  //   META_EMBEDDED_SIGNUP_TIMEOUT_MS per-call timeout (default 8000)
+  //   WA_TEMPLATE_LIBRARY_ENABLED     'false' hides the pre-approval library
+  metaAppId: process.env.META_APP_ID ?? "",
+  metaAppSecret: process.env.META_APP_SECRET ?? "",
+  metaGraphBaseUrl: process.env.META_GRAPH_BASE_URL ?? "https://graph.facebook.com/v21.0",
+  metaEmbeddedSignupTimeoutMs: parseInt(process.env.META_EMBEDDED_SIGNUP_TIMEOUT_MS ?? "8000"),
+  waTemplateLibraryEnabled: (process.env.WA_TEMPLATE_LIBRARY_ENABLED ?? "true").toLowerCase() !== "false",
   bureauProvider: process.env.BUREAU_PROVIDER ?? "disabled",
   bureauApiBase: process.env.BUREAU_API_BASE ?? "",
   bureauApiKey: process.env.BUREAU_API_KEY ?? "",
