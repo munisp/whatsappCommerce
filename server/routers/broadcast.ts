@@ -23,6 +23,7 @@ import {
   WA_WINDOW_MS as SESSION_WINDOW_MS,
 } from "../services/sessionWindow";
 import { applyQualityThrottle } from "../services/waQuality";
+import { nextAllowedSendAtForTenant } from "../services/frequencyCap";
 import { toMinorUnitsExact } from "../../shared/escrowAmounts";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -59,8 +60,10 @@ export function parseBroadcastSettings(settings: unknown): BroadcastSettings {
  */
 export async function getConsentedPhones(db: Db, tenantId: string): Promise<Set<string>> {
   try {
+    // W17 F8: withdrawn_at is a hard block (GDPR/NDPR withdrawal) even when a
+    // stale granted=true flag remains on the row.
     const res: any = await db.execute(
-      sql`SELECT phone FROM consents WHERE tenant_id = ${tenantId} AND channel = 'whatsapp' AND granted = true`,
+      sql`SELECT phone FROM consents WHERE tenant_id = ${tenantId} AND channel = 'whatsapp' AND granted = true AND withdrawn_at IS NULL`,
     );
     const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
     return new Set(
@@ -100,6 +103,8 @@ export interface SegmentFilter {
   /** Minimum lifetime spend in integer minor units (kobo/cents). */
   minSpendKobo?: number;
   lastOrderWithinDays?: number;
+  /** Customer has NOT ordered in ≥N days (win-back targeting). */
+  noOrderSinceDays?: number;
 }
 
 export const segmentFilterSchema = z.object({
@@ -107,6 +112,8 @@ export const segmentFilterSchema = z.object({
   minOrders: z.number().int().min(0).optional(),
   minSpendKobo: z.number().int().min(0).optional(),
   lastOrderWithinDays: z.number().int().min(1).max(3650).optional(),
+  /** W17 F11: win-back targeting — customer has NOT ordered in ≥N days. */
+  noOrderSinceDays: z.number().int().min(1).max(3650).optional(),
 });
 
 interface SegmentCustomerRow {
@@ -148,6 +155,12 @@ export function matchesSegment(
     const cutoff = now.getTime() - segment.lastOrderWithinDays * 24 * 60 * 60 * 1000;
     if (new Date(c.lastOrderAt).getTime() < cutoff) return false;
   }
+  if (segment.noOrderSinceDays != null) {
+    // Never-ordered customers are not "win-back" candidates — exclude.
+    if (!c.lastOrderAt) return false;
+    const cutoff = now.getTime() - segment.noOrderSinceDays * 24 * 60 * 60 * 1000;
+    if (new Date(c.lastOrderAt).getTime() > cutoff) return false;
+  }
   return true;
 }
 
@@ -157,7 +170,7 @@ export function normalizeSegmentFilter(raw: unknown): SegmentFilter | undefined 
   const parsed = segmentFilterSchema.safeParse(raw);
   if (!parsed.success) return undefined;
   const s = parsed.data;
-  if (!s.tags?.length && s.minOrders == null && s.minSpendKobo == null && s.lastOrderWithinDays == null) {
+  if (!s.tags?.length && s.minOrders == null && s.minSpendKobo == null && s.lastOrderWithinDays == null && s.noOrderSinceDays == null) {
     return undefined;
   }
   return s;
@@ -247,6 +260,8 @@ export interface CampaignSendResult {
   read: number;
   failed: number;
   simulated: number;
+  /** Recipients not sent because of the marketing frequency cap / quiet hours. */
+  deferred: number;
 }
 
 type CampaignRow = typeof broadcastCampaigns.$inferSelect;
@@ -303,6 +318,7 @@ export async function executeCampaignSend(
 
   let sent = 0;
   let failed = 0;
+  let deferred = 0;
   let simulatedCount = 0;
   const CHUNK_SIZE = 25;
   for (let i = 0; i < audience.length; i += CHUNK_SIZE) {
@@ -327,6 +343,20 @@ export async function executeCampaignSend(
           })
           .onConflictDoNothing();
         try {
+          // W17 F8: Meta marketing-frequency caps — when this customer is at
+          // the cap (or inside quiet hours) defer rather than send; the
+          // recipient stays pending with a deferral note for the next window.
+          const allowedAt = await nextAllowedSendAtForTenant(db, campaign.tenantId, member.phone, new Date());
+          if (allowedAt.getTime() > Date.now()) {
+            deferred++;
+            await db
+              .update(broadcastRecipients)
+              .set({
+                failureReason: `deferred by marketing frequency policy until ${allowedAt.toISOString()}`,
+              })
+              .where(eq(broadcastRecipients.id, recipientId));
+            return;
+          }
           let wamid: string | null = null;
           let simulated = false;
           if (member.inWindow && templateBody) {
@@ -407,7 +437,7 @@ export async function executeCampaignSend(
     })
     .where(eq(broadcastCampaigns.id, campaign.id));
 
-  return { total: audience.length, sent, delivered: 0, read: 0, failed, simulated: simulatedCount };
+  return { total: audience.length, sent, delivered: 0, read: 0, failed, simulated: simulatedCount, deferred };
 }
 
 /**

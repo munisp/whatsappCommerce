@@ -31,8 +31,15 @@ describe("0054_visual_stocktake_source.sql", () => {
     const entry = journal.entries.find((e: any) => e.tag === "0054_visual_stocktake_source");
     expect(entry).toBeDefined();
     expect(entry.idx).toBe(54);
-    // Last journal entry (no later migration may precede it).
-    expect(journal.entries[journal.entries.length - 1].tag).toBe("0054_visual_stocktake_source");
+    // Ordered among the journal entries (later waves append after it).
+    const tags = journal.entries.map((e: any) => e.tag);
+    expect(tags).toContain("0054_visual_stocktake_source");
+    expect(tags.indexOf("0054_visual_stocktake_source")).toBe(tags.lastIndexOf("0054_visual_stocktake_source"));
+    // Later migrations (0055+) may follow; none may precede it.
+    const pos54 = journal.entries.indexOf(entry);
+    for (const e of journal.entries) {
+      if (e.idx > 54) expect(journal.entries.indexOf(e)).toBeGreaterThan(pos54);
+    }
     expect(snapshot.prevId).toBe(prevSnapshot.id);
     expect(snapshot.id).not.toBe(prevSnapshot.id);
   });

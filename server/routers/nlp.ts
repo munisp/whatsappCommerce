@@ -125,6 +125,8 @@ function buildOrderSummary(opts: {
   total: number;
   currency: string;
   paymentUrl: string | null;
+  /** W17/F10: cash-on-delivery orders show a pay-on-receipt line instead. */
+  paymentMethod?: "online" | "cod";
   trackingUrl: string;
 }): string {
   const lines: string[] = [
@@ -144,7 +146,9 @@ function buildOrderSummary(opts: {
   lines.push(`*Total: ${fmtMoney(opts.total, opts.currency)}*`);
   if (opts.promoError) lines.push(`⚠️ Promo not applied — ${opts.promoError}.`);
   if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
-  if (opts.paymentUrl) {
+  if (opts.paymentMethod === "cod") {
+    lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmtMoney(opts.total, opts.currency)} ready for the rider.`);
+  } else if (opts.paymentUrl) {
     lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
     lines.push("📱 No data? Dial *712*amount# to pay via MTN MoMo");
   }
@@ -172,6 +176,8 @@ export interface ChatOrderResult {
   total?: number;
   currency?: string;
   paymentUrl?: string | null;
+  /** W17/F10: 'cod' when the order is cash-on-delivery (no payment link). */
+  paymentMethod?: "online" | "cod";
   /** Applied promo (code + discount in MAJOR units). */
   promo?: { code: string; discount: number } | null;
   /** Reject reason when a promo code was supplied but not applied. */
@@ -223,6 +229,9 @@ export async function createChatOrder(
     address: string | null;
     /** Optional promo/discount code extracted from the chat text. */
     promoCode?: string | null;
+    /** W17/F10: 'cod' creates a cash-on-delivery order (no payment link,
+     * codState = cod_pending) instead of an online-payment order. */
+    paymentMethod?: "online" | "cod";
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -319,6 +328,7 @@ export async function createChatOrder(
         totalAmount: total.toFixed(2),
         currency,
         paymentStatus: "unpaid",
+        codState: opts.paymentMethod === "cod" ? "cod_pending" : null,
         shippingAddress: opts.address ? { raw: opts.address } : null,
         items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
         metadata: {
@@ -327,6 +337,7 @@ export async function createChatOrder(
           deliveryFee: deliveryFee.toFixed(2),
           deliveryZone: quote?.zone ?? null,
           source: "whatsapp_chat",
+          paymentMethod: opts.paymentMethod === "cod" ? "cod" : "online",
           ...(promoMeta ? { promo: promoMeta } : {}),
         },
         createdAt: new Date(),
@@ -384,6 +395,39 @@ export async function createChatOrder(
       }
     } catch (_) { /* best-effort — never block NLP */ }
   })();
+
+  // ── COD: enter the COD flow instead of taking online payment ─────────
+  if (opts.paymentMethod === "cod") {
+    try {
+      const { codEvents } = await import("../../drizzle/schema");
+      await db.insert(codEvents).values({
+        id: crypto.randomUUID(),
+        tenantId: opts.tenantId,
+        orderId,
+        fromState: null,
+        toState: "cod_pending",
+        actor: `customer:${opts.waPhoneNumber}`,
+        note: "Chat order with cash on delivery",
+      });
+    } catch (e: unknown) {
+      console.error("[nlp] cod event insert failed (non-blocking):", (e as Error)?.message);
+    }
+    return {
+      created: true,
+      orderId,
+      orderNumber,
+      items,
+      subtotal,
+      deliveryFee,
+      deliveryZone: quote ? (quote.zone === "same_city" ? "same-city estimate" : "intercity estimate") : undefined,
+      total,
+      currency,
+      paymentUrl: null,
+      paymentMethod: "cod",
+      promo,
+      promoError,
+    };
+  }
 
   // ── Initiate payment via configured gateway (amount = total incl. fee) ──
   let paymentUrl: string | null = null;
@@ -631,6 +675,12 @@ export const nlpRouter = router({
           const mentionedPromo = extractPromoCode(text);
           if (mentionedPromo) stepCtx.promoCode = mentionedPromo;
 
+          // W17/F10: cash-on-delivery intent at any checkout step sticks to
+          // the session ("2 cash on delivery", "delivery, I go pay cash").
+          if (/\b(cod|c\.o\.d|cash on delivery|pay on delivery|pay cash|cash when (i|una) receive)\b/i.test(text)) {
+            stepCtx.paymentMethod = "cod";
+          }
+
           const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
             const order = await createChatOrder(db, {
               tenantId: input.tenantId,
@@ -640,6 +690,7 @@ export const nlpRouter = router({
               fulfillment,
               address,
               promoCode: typeof stepCtx.promoCode === "string" ? stepCtx.promoCode : null,
+              paymentMethod: stepCtx.paymentMethod === "cod" ? "cod" : "online",
             });
             if (order.fraudBlocked) {
               return `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
@@ -670,6 +721,7 @@ export const nlpRouter = router({
               total: order.total!,
               currency: order.currency!,
               paymentUrl: order.paymentUrl ?? null,
+              paymentMethod: order.paymentMethod ?? "online",
               trackingUrl: trackingUrlFor(order.orderId!),
             });
           };
@@ -1045,6 +1097,7 @@ export const nlpRouter = router({
               fulfillment,
               address,
               promoCode: typeof ctx.promoCode === "string" ? ctx.promoCode : null,
+              paymentMethod: ctx.paymentMethod === "cod" ? "cod" : "online",
             });
             if (order.fraudBlocked) {
               llmResult.reply = `\u26a0\ufe0f Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
@@ -1069,6 +1122,7 @@ export const nlpRouter = router({
                 total: order.total!,
                 currency: order.currency!,
                 paymentUrl: order.paymentUrl ?? null,
+                paymentMethod: order.paymentMethod ?? "online",
                 trackingUrl: trackingUrlFor(order.orderId!),
               });
             }
@@ -1385,6 +1439,25 @@ export const nlpRouter = router({
 
       timeline.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
+      // W17/F10: surface partial-payment summary + COD audit trail in the
+      // order detail response.
+      const { orderPaymentSummary, codEventsForOrder } = await import("../services/codFlow");
+      const paymentSummary = await orderPaymentSummary(db, order.tenantId, order.id).catch(() => null);
+      const codEventsList = order.codState
+        ? await codEventsForOrder(db, order.tenantId, order.id).catch(() => [])
+        : [];
+      for (const ev of codEventsList) {
+        timeline.push({
+          id: `cod-${ev.id}`,
+          timestamp: ev.createdAt,
+          system: "COD Flow",
+          event: `COD: ${ev.fromState ?? "start"} → ${ev.toState}`,
+          detail: ev.note ?? `by ${ev.actor}`,
+          status: "info",
+        });
+        timeline.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+      }
+
       return {
         order: {
           id: order.id,
@@ -1393,6 +1466,7 @@ export const nlpRouter = router({
           paymentStatus: order.paymentStatus,
           totalAmount: order.totalAmount,
           currency: order.currency,
+          codState: order.codState,
           createdAt: order.createdAt,
           updatedAt: order.updatedAt,
           shippingAddress: order.shippingAddress,
@@ -1401,6 +1475,8 @@ export const nlpRouter = router({
         },
         items,
         payments,
+        paymentSummary,
+        codEvents: codEventsList,
         timeline,
         integrations: { hasMedusa, hasOdoo, hasTwenty },
       };

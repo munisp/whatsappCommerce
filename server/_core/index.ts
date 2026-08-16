@@ -1225,6 +1225,24 @@ async function startServer() {
               console.error("[whatsapp-webhook] visual stocktake reply error:", e?.message);
             }
           }
+          // ── W17/F10: rider cash-collection confirmation ─────────────────
+          // "RIDER_CONFIRM <orderNumber> [amount]" from a registered rider
+          // phone (tenant settings.codRiderPhones). Non-riders / other texts
+          // fall through to the normal menu/NLP pipeline (handled=false).
+          if (/^\s*RIDER_CONFIRM\s+\S+/i.test(textBody)) {
+            try {
+              const { handleRiderConfirm } = await import("../services/codFlow");
+              const riderOutcome = await handleRiderConfirm({
+                db,
+                tenantId,
+                waPhoneNumber,
+                text: textBody,
+              });
+              if (riderOutcome.handled) continue; // Skip NLP processing for rider commands
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] rider confirm error:", e?.message);
+            }
+          }
           // Publish inbound message to Kafka for event streaming
           publishConversationEvent(
             msg.id ?? randomUUID(),
@@ -2029,6 +2047,26 @@ async function startServer() {
       return res.json({ ok: true, triggered });
     } catch (err: any) {
       console.error("[broadcast-scheduler]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Journey Tick Heartbeat (W17 F8) ───────────────────────────────────────
+  // Fires every minute; advances due broadcast_journey_runs (state='waiting',
+  // nextRunAt <= now) through their journey steps — consent-gated and
+  // frequency-cap/quiet-hours aware. Follows the runInventorySyncHeartbeat
+  // wiring pattern (service owns the logic, never throws).
+  app.post("/api/scheduled/journey-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runDueJourneySteps } = await import("../services/journeyBuilder");
+      const summary = await runDueJourneySteps(new Date(), db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[journey-tick]", err);
       return res.status(500).json({ error: err?.message });
     }
   });

@@ -1,0 +1,48 @@
+{
+  "id": "J91",
+  "title": "crm lead scoring + win-back",
+  "feature": "RFM+credit lead score → pipeline → at-risk win-back broadcast → reply lifts score",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348012103386",
+      "wamid": "wamid.sim.000449",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910299657,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J91 Quiet Buyer"
+    },
+    {
+      "dir": "in",
+      "phone": "2348012103386",
+      "profileName": "Sim User 3386",
+      "inboundId": "wamid.sim.in.text.00290",
+      "at": 1786910299663,
+      "kind": "text",
+      "text": "I'm interested!"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00290",
+      "at": 1786910299667
+    },
+    {
+      "dir": "out",
+      "phone": "2348012103386",
+      "wamid": "wamid.sim.000450",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910299681,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}

@@ -16,6 +16,12 @@ export const journey: Journey = {
     const schema = await import("../../drizzle/schema");
     const caller = await adminCaller();
 
+    // W17 F8: the send path now honours marketing quiet hours (default
+    // 21:00–08:00 Africa/Lagos) — disable them for this journey so the real
+    // send is wall-clock independent. Restored at the end.
+    const origSettings = await world.tenantSettings();
+    await world.patchTenantSettings({ marketingFrequency: { quietStart: "00:00", quietEnd: "00:00" } });
+
     // Audience: A consented + in-window, B consented + out-of-window, C NOT consented.
     const phoneA = world.newPhone("a");
     const phoneB = world.newPhone("b");
@@ -101,5 +107,7 @@ export const journey: Journey = {
     await world.patchTenantSettings({
       waQuality: { rating: "HIGH", tier: "TIER_10K", checkedAt: new Date().toISOString() },
     });
+    // Restore the frequency policy for later journeys.
+    await world.patchTenantSettings({ marketingFrequency: origSettings.marketingFrequency ?? null });
   },
 };

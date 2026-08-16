@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-16T17:29:30.560Z",
+  "generatedAt": "2026-08-16T19:58:20.910Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -681,6 +681,54 @@
       "pass": true,
       "file": "J85.json",
       "messageCount": 8
+    },
+    {
+      "id": "J86",
+      "title": "broadcast journey lifecycle",
+      "feature": "enroll → template → reply advances → done",
+      "pass": true,
+      "file": "J86.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J87",
+      "title": "journey frequency cap + withdrawal",
+      "feature": "cap defers send; withdrawal exits run",
+      "pass": true,
+      "file": "J87.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J88",
+      "title": "COD chat order → rider cash → settled",
+      "feature": "cod state machine + RIDER_CONFIRM reply",
+      "pass": true,
+      "file": "J88.json",
+      "messageCount": 20
+    },
+    {
+      "id": "J89",
+      "title": "COD delivery_failed → returned",
+      "feature": "failure branches + merchant alerts",
+      "pass": true,
+      "file": "J89.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J90",
+      "title": "COD partial cash → balance → completion",
+      "feature": "partial-payment tracking + reconciliation",
+      "pass": true,
+      "file": "J90.json",
+      "messageCount": 16
+    },
+    {
+      "id": "J91",
+      "title": "crm lead scoring + win-back",
+      "feature": "RFM+credit lead score → pipeline → at-risk win-back broadcast → reply lifts score",
+      "pass": true,
+      "file": "J91.json",
+      "messageCount": 4
     }
   ]
 }

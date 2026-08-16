@@ -1,0 +1,47 @@
+{
+  "id": "J86",
+  "title": "broadcast journey lifecycle",
+  "feature": "enroll → template → reply advances → done",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017403515",
+      "wamid": "wamid.sim.000426",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910287030,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017403515",
+      "profileName": "Sim User 3515",
+      "inboundId": "wamid.sim.in.text.00274",
+      "at": 1786910287463,
+      "kind": "text",
+      "text": "tell me more"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00274",
+      "at": 1786910287468
+    },
+    {
+      "dir": "out",
+      "phone": "2348017403515",
+      "wamid": "wamid.sim.000427",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910287489,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}
