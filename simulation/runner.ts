@@ -113,6 +113,12 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j83-marketplace-lifecycle"),
     import("./journeys/j84-new-tenant-distribution-e2e"),
     import("./journeys/j85-whatsapp-visual-stocktake"),
+    import("./journeys/j86-broadcast-journey-lifecycle"),
+    import("./journeys/j87-journey-frequency-cap-withdrawal"),
+    import("./journeys/j88-cod-chat-order"),
+    import("./journeys/j89-cod-delivery-failed"),
+    import("./journeys/j90-cod-partial-cash"),
+    import("./journeys/j91-crm-winback"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

@@ -237,14 +237,39 @@ export const orders = pgTable("orders", {
   metadata: jsonb("metadata"),
   notes: text("notes"),
   erpOrderId: varchar("erpOrderId", { length: 64 }),
+  // COD/offline-trade (W17/F10): current cash-on-delivery flow state. NULL for
+  // non-COD orders. See server/services/codFlow.ts for the state machine.
+  codState: varchar("codState", { length: 32 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("orders_tenant_idx").on(t.tenantId),
   index("orders_status_idx").on(t.status),
   index("orders_customer_idx").on(t.customerId),
+  index("orders_cod_state_idx").on(t.tenantId, t.codState),
   uniqueIndex("orders_number_idx").on(t.tenantId, t.orderNumber),
 ]);
+
+// ─── COD flow events (W17/F10) ───────────────────────────────────────────────
+// Append-only audit trail for the cash-on-delivery state machine. Settlement
+// idempotency is enforced by partial unique indexes (see 0056 SQL): at most
+// one 'cash_collected' and one 'settled' event per order.
+export const codEvents = pgTable("cod_events", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }).notNull(),
+  fromState: varchar("fromState", { length: 32 }),
+  toState: varchar("toState", { length: 32 }).notNull(),
+  actor: varchar("actor", { length: 128 }).notNull(),
+  note: text("note"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("cod_events_tenant_idx").on(t.tenantId),
+  index("cod_events_order_idx").on(t.orderId),
+]);
+
+export type CodEvent = typeof codEvents.$inferSelect;
+export type NewCodEvent = typeof codEvents.$inferInsert;
 
 // ─── Payment Intents ──────────────────────────────────────────────────────────
 export const paymentIntents = pgTable("payment_intents", {
@@ -803,6 +828,50 @@ export type BroadcastCampaign = typeof broadcastCampaigns.$inferSelect;
 export type InsertBroadcastCampaign = typeof broadcastCampaigns.$inferInsert;
 export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
 export type InsertBroadcastRecipient = typeof broadcastRecipients.$inferInsert;
+
+// ─── Broadcast Journeys (W17 F8) ─────────────────────────────────────────────
+// A journey is an ordered list of steps (send_template / wait / wait_for_reply
+// / condition / exit) over the existing broadcast/template infrastructure.
+// Definitions live here; per-customer progress lives in broadcast_journey_runs
+// and is advanced by runDueJourneySteps() (server/services/journeyBuilder.ts).
+export const journeyStatusEnum = pgEnum("journey_status", ["draft", "active", "paused", "archived"]);
+export const journeyRunStateEnum = pgEnum("journey_run_state", ["waiting", "done", "exited", "failed"]);
+
+export const broadcastJourneys = pgTable("broadcast_journeys", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  status: journeyStatusEnum("status").default("draft").notNull(),
+  steps: jsonb("steps").notNull(),
+  entryAudience: jsonb("entryAudience"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("broadcast_journeys_tenant_idx").on(t.tenantId),
+  index("broadcast_journeys_status_idx").on(t.status),
+]);
+
+export const broadcastJourneyRuns = pgTable("broadcast_journey_runs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  journeyId: varchar("journeyId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerId: varchar("customerId", { length: 36 }).notNull(),
+  currentStep: integer("currentStep").default(0).notNull(),
+  state: journeyRunStateEnum("state").default("waiting").notNull(),
+  context: jsonb("context"),
+  nextRunAt: timestamp("nextRunAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("broadcast_journey_runs_journey_idx").on(t.journeyId),
+  index("broadcast_journey_runs_tenant_idx").on(t.tenantId),
+  index("broadcast_journey_runs_due_idx").on(t.state, t.nextRunAt),
+]);
+
+export type BroadcastJourney = typeof broadcastJourneys.$inferSelect;
+export type InsertBroadcastJourney = typeof broadcastJourneys.$inferInsert;
+export type BroadcastJourneyRun = typeof broadcastJourneyRuns.$inferSelect;
+export type InsertBroadcastJourneyRun = typeof broadcastJourneyRuns.$inferInsert;
 export type InventorySnapshot = typeof inventorySnapshots.$inferSelect;
 export type InsertInventorySnapshot = typeof inventorySnapshots.$inferInsert;
 export type InventorySyncLog = typeof inventorySyncLog.$inferSelect;
@@ -1468,6 +1537,8 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "withdrawal_processed",
   "shipment_update",
   "system",
+  "cod_discrepancy",
+  "cod_delivery_failed",
 ]);
 
 export const merchantNotifications = pgTable("merchant_notifications", {
@@ -2896,6 +2967,11 @@ export const consents = pgTable("consents", {
   customerId: varchar("customer_id", { length: 36 }),
   channel:    varchar("channel", { length: 30 }).notNull().default("whatsapp"),
   granted:    boolean("granted").notNull().default(false),
+  // W17 F8: GDPR/NDPR-grade consent tooling (additive columns).
+  scope:      varchar("scope", { length: 40 }).notNull().default("marketing"),
+  source:     varchar("source", { length: 60 }),
+  grantedAt:  timestamp("granted_at"),
+  withdrawnAt: timestamp("withdrawn_at"),
   createdAt:  timestamp("created_at").notNull().defaultNow(),
   updatedAt:  timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -3273,3 +3349,25 @@ export const onboardingSessions = pgTable("onboarding_sessions", {
 ]);
 export type OnboardingSessionRow = typeof onboardingSessions.$inferSelect;
 export type NewOnboardingSessionRow = typeof onboardingSessions.$inferInsert;
+
+// ── W17 F11: CRM lead scoring (commerce-native, Twenty stays system of record)
+// customer_lead_scores: one row per (tenantId, customerId), recomputed by
+// server/services/leadScoring.refreshLeadScores. `factors` is the explainable
+// breakdown — every score delta the pure computeLeadScore function applied.
+export const customerLeadScores = pgTable("customer_lead_scores", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerId: varchar("customerId", { length: 36 }).notNull().references(() => customers.id),
+  score: integer("score").notNull().default(0),
+  band: varchar("band", { length: 10 }).notNull().default("cold"), // 'hot' | 'warm' | 'cold'
+  stage: varchar("stage", { length: 20 }).notNull().default("new_lead"), // derived pipeline stage
+  factors: jsonb("factors").notNull().default([]), // [{factor, delta}]
+  computedAt: timestamp("computed_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("customer_lead_scores_tenant_idx").on(t.tenantId),
+  uniqueIndex("customer_lead_scores_tenant_customer_uniq").on(t.tenantId, t.customerId),
+]);
+export type CustomerLeadScore = typeof customerLeadScores.$inferSelect;
+export type NewCustomerLeadScore = typeof customerLeadScores.$inferInsert;

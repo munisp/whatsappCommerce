@@ -1,0 +1,21 @@
+{
+  "id": "J87",
+  "title": "journey frequency cap + withdrawal",
+  "feature": "cap defers send; withdrawal exits run",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348011560032",
+      "wamid": "wamid.sim.000428",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910288802,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US"
+    }
+  ]
+}
