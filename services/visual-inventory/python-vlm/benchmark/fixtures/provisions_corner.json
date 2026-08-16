@@ -1,0 +1,22 @@
+{
+  "name": "provisions_corner",
+  "description": "Mixed provisions corner. YOLO sees generic 'box' detections VLM did not identify (YOLO-only path exercised).",
+  "ground_truth": [
+    {"label": "Maggi Cubes Pack", "true_count": 30},
+    {"label": "Dangote Sugar 1kg", "true_count": 9},
+    {"label": "Box", "true_count": 5}
+  ],
+  "mock_vlm": {
+    "scene_description": "Corner shelf with seasoning and sugar",
+    "inventory_notes": "Unbranded cartons at the back",
+    "items": [
+      {"label": "Maggi Cubes Pack", "count": 28, "confidence": 0.75, "location": "front", "notes": "dense grid"},
+      {"label": "Dangote Sugar 1kg", "count": 9, "confidence": 0.9, "location": "middle", "notes": ""}
+    ]
+  },
+  "mock_yolo": {
+    "counts": {"maggi": 30, "sugar": 9, "box": 5},
+    "detections": [],
+    "total_detected": 44
+  }
+}

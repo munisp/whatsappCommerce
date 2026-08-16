@@ -1,0 +1,21 @@
+{
+  "name": "shelf_noodles",
+  "description": "Noodle/pasta carton stack. VLM undercounts stacked Indomie; YOLO geometric count is exact.",
+  "ground_truth": [
+    {"label": "Indomie Noodles 70g", "true_count": 24},
+    {"label": "Golden Penny Pasta", "true_count": 10}
+  ],
+  "mock_vlm": {
+    "scene_description": "Stacked noodle cartons on a wooden shelf",
+    "inventory_notes": "Deep stacking makes rear cartons hard to count",
+    "items": [
+      {"label": "Indomie Noodles 70g", "count": 21, "confidence": 0.7, "location": "left", "notes": "stacked 3 deep"},
+      {"label": "Golden Penny Pasta", "count": 10, "confidence": 0.9, "location": "right", "notes": ""}
+    ]
+  },
+  "mock_yolo": {
+    "counts": {"indomie": 24, "pasta": 10},
+    "detections": [],
+    "total_detected": 34
+  }
+}

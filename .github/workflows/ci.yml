@@ -51,3 +51,64 @@ jobs:
             echo "- audit scope: production deps only (\`--omit=dev\`), blocking at high"
             echo "- drizzle-orm pinned ≥0.45.2 (A4-01 SQLi fix)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # CV stack gate: visual-inventory python tests (incl. accuracy benchmark),
+  # Go orchestrator build, Rust bbox post-processor check.
+  # Heavy ML deps (ultralytics/torch/transformers) stay lazy/optional — the
+  # test suite is importable with only the light deps installed.
+  cv-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect visual-inventory changes
+        id: cv_changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          else
+            CHANGED=$(git diff --name-only HEAD~1 HEAD || echo "")
+          fi
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -q '^services/visual-inventory/'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.cv_changed.outputs.run == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Install python test deps (light deps only; ML deps stay lazy)
+        if: steps.cv_changed.outputs.run == 'true'
+        working-directory: services/visual-inventory/python-vlm
+        run: pip install fastapi "uvicorn[standard]" python-multipart httpx Pillow numpy pydantic pydantic-settings structlog pytest
+
+      - name: Python pytest (merge contract, price utils, batch dedup, drift hook)
+        if: steps.cv_changed.outputs.run == 'true'
+        working-directory: services/visual-inventory/python-vlm
+        run: python -m pytest tests/ -q
+
+      - name: Python benchmark accuracy gate
+        if: steps.cv_changed.outputs.run == 'true'
+        working-directory: services/visual-inventory/python-vlm
+        run: python -m pytest benchmark/ -q && python benchmark/runner.py
+
+      - uses: actions/setup-go@v5
+        if: steps.cv_changed.outputs.run == 'true'
+        with:
+          go-version: "1.23"
+
+      - name: Go orchestrator build
+        if: steps.cv_changed.outputs.run == 'true'
+        working-directory: services/visual-inventory/go-orchestrator
+        run: go build ./...
+
+      - name: Rust bbox check
+        if: steps.cv_changed.outputs.run == 'true'
+        working-directory: services/visual-inventory/rust-bbox
+        run: cargo check

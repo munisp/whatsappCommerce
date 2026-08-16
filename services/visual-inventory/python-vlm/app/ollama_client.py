@@ -70,11 +70,21 @@ OUTPUT FORMAT (strict JSON):
   "inventory_notes": "Overall notes about stock condition, organisation, visible issues"
 }"""
 
+PRICE_EXTRACTION_PROMPT_ADDENDUM = """
+
+PRICE TAG EXTRACTION (additional requirement):
+For each item, if a shelf price tag is visible for that product, add a
+"price_tag" field to the item with the price EXACTLY as printed, e.g.
+"₦1,500" or "NGN 850.00". If no price tag is visible for an item, omit
+the field entirely (do NOT invent prices). The "price_tag" field is
+optional — all other fields remain required."""
+
 
 async def analyse_image_with_vlm(
     image_bytes: bytes,
     product_hints: list[str] | None = None,
     model: str | None = None,
+    extract_prices: bool = False,
 ) -> dict[str, Any]:
     """
     Send image to Ollama VLM for inventory analysis.
@@ -89,10 +99,15 @@ async def analyse_image_with_vlm(
 
     user_prompt = f"Analyse this inventory image and count all visible products.{hint_text}\n\nReturn the JSON inventory report."
 
+    system_prompt = INVENTORY_SYSTEM_PROMPT
+    if extract_prices:
+        system_prompt += PRICE_EXTRACTION_PROMPT_ADDENDUM
+        user_prompt += "\nAlso extract any visible shelf price tags into the optional price_tag field."
+
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": INVENTORY_SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": user_prompt,

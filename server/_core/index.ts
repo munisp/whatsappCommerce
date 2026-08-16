@@ -1205,6 +1205,26 @@ async function startServer() {
             }
             continue; // Skip NLP processing for PO commands
           }
+          // ── CV-1 / J85: visual stock-take APPLY / REVIEW replies ────────
+          // "APPLY" applies the calibrated auto-apply items from the latest
+          // WhatsApp shelf-photo stock-take; "REVIEW" parks it for the
+          // dashboard. Tenant opt-in only — the service returns handled=false
+          // when settings.visualInventoryWhatsAppEnabled is off and the text
+          // falls through to the normal menu/NLP pipeline.
+          const stocktakeMatch = textBody.trim().match(/^(APPLY|REVIEW)$/i);
+          if (stocktakeMatch) {
+            try {
+              const { handleStocktakeApplyReply } = await import("../services/visualStocktake");
+              const stOutcome = await handleStocktakeApplyReply({
+                tenantId,
+                waPhoneNumber,
+                command: stocktakeMatch[1].toUpperCase() as "APPLY" | "REVIEW",
+              });
+              if (stOutcome.handled) continue; // Skip NLP processing for stock-take commands
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] visual stocktake reply error:", e?.message);
+            }
+          }
           // Publish inbound message to Kafka for event streaming
           publishConversationEvent(
             msg.id ?? randomUUID(),
@@ -1410,8 +1430,26 @@ async function startServer() {
                 // order must never be double-handled as a product search.
                 return import("../services/visualSearch").then(({ shouldRunVisualSearchAfterReceipt, handleInboundProductImage }) =>
                   shouldRunVisualSearchAfterReceipt(outcome)
-                    ? handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
-                        .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message))
+                    // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
+                    // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
+                    // Runs BEFORE visual product search when enabled — a
+                    // stock-take tenant's shelf photos must not be mistaken
+                    // for customer product lookups. Outcome "disabled" falls
+                    // through to visual search unchanged.
+                    ? import("../services/visualStocktake")
+                        .then(({ handleInboundStocktakeImage }) =>
+                          handleInboundStocktakeImage({ tenantId, waPhoneNumber, mediaId })
+                            .catch((e: any) => {
+                              console.error("[whatsapp-webhook] visual stocktake error:", e?.message);
+                              return { handled: false } as { handled: boolean; outcome?: string };
+                            }),
+                        )
+                        .then((stOutcome) =>
+                          stOutcome?.handled && stOutcome.outcome !== "disabled"
+                            ? undefined
+                            : handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
+                                .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message)),
+                        )
                     : undefined,
                 );
               })

@@ -1,0 +1,44 @@
+{
+  "name": "florence2_toiletries",
+  "description": "Toiletries shelf via Florence-2 adapter; one class slightly under-detected (13/14) for realistic noise.",
+  "backend": "florence2",
+  "ground_truth": [
+    {"label": "Close-Up Toothpaste", "true_count": 11},
+    {"label": "Lux Soap Bar", "true_count": 14}
+  ],
+  "mock_florence2": {
+    "backend": "florence2-hf",
+    "detections": [
+      {"label": "close-up toothpaste", "bbox": [10, 10, 60, 40]},
+      {"label": "close-up toothpaste", "bbox": [70, 10, 120, 40]},
+      {"label": "close-up toothpaste", "bbox": [130, 10, 180, 40]},
+      {"label": "close-up toothpaste", "bbox": [190, 10, 240, 40]},
+      {"label": "close-up toothpaste", "bbox": [250, 10, 300, 40]},
+      {"label": "close-up toothpaste", "bbox": [310, 10, 360, 40]},
+      {"label": "close-up toothpaste", "bbox": [370, 10, 420, 40]},
+      {"label": "close-up toothpaste", "bbox": [430, 10, 480, 40]},
+      {"label": "close-up toothpaste", "bbox": [490, 10, 540, 40]},
+      {"label": "close-up toothpaste", "bbox": [550, 10, 600, 40]},
+      {"label": "close-up toothpaste", "bbox": [610, 10, 660, 40]},
+      {"label": "lux soap bar", "bbox": [10, 60, 60, 90]},
+      {"label": "lux soap bar", "bbox": [70, 60, 120, 90]},
+      {"label": "lux soap bar", "bbox": [130, 60, 180, 90]},
+      {"label": "lux soap bar", "bbox": [190, 60, 240, 90]},
+      {"label": "lux soap bar", "bbox": [250, 60, 300, 90]},
+      {"label": "lux soap bar", "bbox": [310, 60, 360, 90]},
+      {"label": "lux soap bar", "bbox": [370, 60, 420, 90]},
+      {"label": "lux soap bar", "bbox": [430, 60, 480, 90]},
+      {"label": "lux soap bar", "bbox": [490, 60, 540, 90]},
+      {"label": "lux soap bar", "bbox": [550, 60, 600, 90]},
+      {"label": "lux soap bar", "bbox": [610, 60, 660, 90]},
+      {"label": "lux soap bar", "bbox": [670, 60, 720, 90]},
+      {"label": "lux soap bar", "bbox": [730, 60, 780, 90]}
+    ]
+  },
+  "mock_vlm": null,
+  "mock_yolo": {
+    "counts": {},
+    "detections": [],
+    "total_detected": 0
+  }
+}

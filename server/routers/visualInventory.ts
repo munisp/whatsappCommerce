@@ -12,12 +12,17 @@ import { getDb } from "../db";
 import {
   visualInventorySessions,
   visualInventoryMappings,
-  products,
-  inventorySnapshots,
   visualInventoryCorrections,
+  merchantNotifications,
+  tenants,
 } from "../../drizzle/schema";
 import { eq, desc, and, gte } from "drizzle-orm";
 import { storagePut } from "../storage";
+import {
+  applyVisualCounts,
+  classifyDetectedItem,
+  getViPolicy,
+} from "../services/visualInventoryApply";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const GO_ORCHESTRATOR_URL =
@@ -224,6 +229,10 @@ export const visualInventoryRouter = router({
             detectedLabel: z.string(),
             confirmedCount: z.number().int().min(0),
             productId: z.string().optional(),
+            // CV-1: when supplied, the calibrated auto-apply policy decides
+            // whether this item may apply automatically (verified mapping +
+            // confidence >= autoApply threshold) or must queue for review.
+            confidence: z.number().min(0).max(1).optional(),
           }),
         ),
       }),
@@ -247,73 +256,96 @@ export const visualInventoryRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "Session not found" });
       }
 
-      let applied = 0;
-      const errors: string[] = [];
-      const inventoryUpdates: Array<{ productId: string; label: string; newQty: number }> = [];
+      // CV-1: tenant policy (calibration thresholds + variance alert %).
+      const [tenantRow] = await db
+        .select({ settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1)
+        .catch(() => [null as any]);
+      const policy = getViPolicy((tenantRow?.settings ?? null) as Record<string, unknown> | null);
+
+      // CV-1: calibrated auto-apply — items carrying a VLM confidence are
+      // gated by the policy; items without confidence are operator-confirmed
+      // in the dashboard and apply directly (operator review IS the check).
+      const mappingsRows = await db
+        .select()
+        .from(visualInventoryMappings)
+        .where(eq(visualInventoryMappings.tenantId, tenantId))
+        .catch(() => [] as any[]);
+      const mappings = new Map<string, { productId: string; isVerified: boolean }>(
+        (mappingsRows as any[]).map((r) => [
+          r.detectedLabel,
+          { productId: r.productId, isVerified: r.isVerified === true },
+        ]),
+      );
+
+      const toApply: typeof input.adjustments = [];
+      const reviewQueue: Array<{ detectedLabel: string; confirmedCount: number; confidence: number; reason: string }> = [];
+      const excluded: Array<{ detectedLabel: string; confirmedCount: number; confidence: number; reason: string }> = [];
 
       for (const adj of input.adjustments) {
-        try {
-          if (adj.productId) {
-            // Update existing product stock
-            await db
-              .update(products)
-              .set({ stockQuantity: adj.confirmedCount, updatedAt: new Date() })
-              .where(
-                and(
-                  eq(products.id, adj.productId),
-                  eq(products.tenantId, tenantId),
-                ),
-              );
-
-            // Also update inventory snapshot
-            await db
-              .insert(inventorySnapshots)
-              .values({
-                id: crypto.randomUUID(),
-                tenantId,
-                productId: adj.productId,
-                stockQty: String(adj.confirmedCount),
-                reservedQty: "0",
-                availableQty: String(adj.confirmedCount),
-                syncSource: "visual_inventory",
-              })
-              .onConflictDoUpdate({
-                target: [inventorySnapshots.tenantId, inventorySnapshots.productId],
-                set: {
-                  stockQty: String(adj.confirmedCount),
-                  availableQty: String(adj.confirmedCount),
-                  syncSource: "visual_inventory",
-                  lastSyncedAt: new Date(),
-                },
-              });
-
-            inventoryUpdates.push({
-              productId: adj.productId,
-              label: adj.detectedLabel,
-              newQty: adj.confirmedCount,
-            });
-            applied++;
-          }
-
-          // Upsert label→product mapping for future sessions
-          if (adj.productId) {
-            await db
-              .insert(visualInventoryMappings)
-              .values({
-                id: crypto.randomUUID(),
-                tenantId,
-                detectedLabel: adj.detectedLabel,
-                productId: adj.productId,
-                isVerified: true,
-              })
-              .onConflictDoUpdate({
-                target: [visualInventoryMappings.tenantId, visualInventoryMappings.detectedLabel],
-                set: { productId: adj.productId, isVerified: true },
-              });
-          }
-        } catch (err) {
-          errors.push(`${adj.detectedLabel}: ${String(err)}`);
+        if (adj.confidence == null) {
+          toApply.push(adj);
+          continue;
         }
+        const cls = classifyDetectedItem(
+          { label: adj.detectedLabel, confidence: adj.confidence },
+          mappings.get(adj.detectedLabel),
+          policy,
+        );
+        if (cls.decision === "auto_apply") {
+          toApply.push({ ...adj, productId: adj.productId ?? cls.productId ?? undefined });
+        } else if (cls.decision === "review") {
+          reviewQueue.push({
+            detectedLabel: adj.detectedLabel,
+            confirmedCount: adj.confirmedCount,
+            confidence: adj.confidence,
+            reason: cls.reason,
+          });
+        } else {
+          excluded.push({
+            detectedLabel: adj.detectedLabel,
+            confirmedCount: adj.confirmedCount,
+            confidence: adj.confidence,
+            reason: cls.reason,
+          });
+        }
+      }
+
+      // Shared apply core: product + snapshot updates AND shrinkage/variance
+      // anomaly alerts against the previous snapshot (never duplicated).
+      const result = await applyVisualCounts(db, {
+        tenantId,
+        sessionId: input.sessionId,
+        items: toApply,
+        policy,
+      });
+
+      // CV-1: any item held back → session requires review + operator note.
+      const needsReview = reviewQueue.length + excluded.length;
+      if (needsReview > 0) {
+        await db
+          .update(visualInventorySessions)
+          .set({ status: "review_needed" })
+          .where(eq(visualInventorySessions.id, input.sessionId));
+        console.warn(
+          `[visual-inventory] session ${input.sessionId} requires review: ${needsReview} item(s) held back`,
+        );
+        await db.insert(merchantNotifications).values({
+          id: crypto.randomUUID(),
+          tenantId,
+          type: "system",
+          title: "Visual stock-take needs review",
+          body: `${needsReview} item(s) from session ${input.sessionId} are below the auto-apply confidence threshold. Review them in the visual inventory dashboard.`,
+          metadata: {
+            kind: "visual_inventory_review_required",
+            sessionId: input.sessionId,
+            reviewCount: needsReview,
+            reviewQueue,
+            excluded,
+          },
+        }).catch((e: any) => console.warn("[visual-inventory] review notification failed:", e?.message));
       }
 
       // Mark session as applied
@@ -323,11 +355,19 @@ export const visualInventoryRouter = router({
           appliedToInventory: true,
           appliedAt: new Date(),
           appliedBy: String(ctx.user.id),
-          inventoryUpdates,
+          inventoryUpdates: result.inventoryUpdates,
         })
         .where(eq(visualInventorySessions.id, input.sessionId));
 
-      return { applied, errors, total: input.adjustments.length };
+      return {
+        applied: result.applied,
+        errors: result.errors,
+        total: input.adjustments.length,
+        alerts: result.alerts,
+        reviewQueue,
+        excluded,
+        status: needsReview > 0 ? "review_needed" : "completed",
+      };
     }),
 
   /**
