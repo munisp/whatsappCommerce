@@ -70,6 +70,7 @@ class DetectedItem(BaseModel):
     location: str = ""
     notes: str = ""
     bbox_count: int = 0  # from YOLO
+    price_tag: str | None = None  # optional visible shelf price, e.g. "₦1,500"
 
 
 class InventoryAnalysisResponse(BaseModel):
@@ -88,6 +89,8 @@ class InventoryAnalysisResponse(BaseModel):
     raw_vlm: dict[str, Any] = {}
     raw_yolo: dict[str, Any] = {}
     detector_backend: str = "yolo+vlm"
+    # Additive/optional: only populated when extract_prices=true
+    price_tags: list[dict[str, str]] = []
 
 
 
@@ -184,6 +187,7 @@ def merge_results(
             location=item.get("location", ""),
             notes=item.get("notes", ""),
             bbox_count=yolo_count,
+            price_tag=item.get("price_tag"),
         ))
 
     # Add YOLO-only detections not covered by VLM (generic objects)
@@ -207,6 +211,66 @@ def merge_results(
         overall_conf = 0.0
 
     return merged, round(overall_conf, 3)
+
+
+def extract_price_tags(merged_items: list[DetectedItem]) -> list[dict[str, str]]:
+    """Collect visible price tags from merged items (schema-tolerant)."""
+    return [
+        {"label": item.label, "price_tag": item.price_tag}
+        for item in merged_items
+        if item.price_tag
+    ]
+
+
+# ── Multi-angle batch aggregation ────────────────────────────────────────────
+def aggregate_batch_items(
+    per_image_items: list[list[dict[str, Any]]],
+    overlap_groups: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Aggregate per-image merged items into a single inventory view.
+
+    Heuristic for multi-angle stitching dedup:
+      - Each image belongs to an ``overlap_group``. Images sharing a group id
+        are assumed to be overlapping views of the SAME shelf region, so
+        summing their counts would double-count stock. For such groups the
+        per-label count is the MAX across the images in the group (the best
+        single view of that label).
+      - Images in different groups are assumed to show disjoint stock, so
+        their counts SUM as before.
+      - ``overlap_groups=None`` (or wrong length) → every image is its own
+        group → legacy behaviour: pure sum across images.
+
+    Confidence aggregation keeps the max confidence seen for a label.
+    """
+    n = len(per_image_items)
+    if not overlap_groups or len(overlap_groups) != n:
+        overlap_groups = [str(i) for i in range(n)]  # each image its own group
+
+    # group -> label -> best item dict (max count)
+    group_best: dict[str, dict[str, dict[str, Any]]] = {}
+    for img_idx, items in enumerate(per_image_items):
+        group = overlap_groups[img_idx]
+        slot = group_best.setdefault(group, {})
+        for item in items:
+            lbl = item["label"]
+            if lbl not in slot:
+                slot[lbl] = {**item}
+            else:
+                if item["count"] > slot[lbl]["count"]:
+                    slot[lbl]["count"] = item["count"]
+                slot[lbl]["confidence"] = max(slot[lbl]["confidence"], item["confidence"])
+
+    # Sum across disjoint groups
+    aggregated: dict[str, dict[str, Any]] = {}
+    for slot in group_best.values():
+        for lbl, item in slot.items():
+            if lbl not in aggregated:
+                aggregated[lbl] = {**item}
+            else:
+                aggregated[lbl]["count"] += item["count"]
+                aggregated[lbl]["confidence"] = max(aggregated[lbl]["confidence"], item["confidence"])
+    return list(aggregated.values())
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -239,6 +303,7 @@ async def analyse_inventory(
     product_hints: Annotated[str, Form(description="Comma-separated known product names")] = "",
     vlm_model: Annotated[str, Form(description="Override VLM model")] = "",
     detector: Annotated[str, Form(description="Detector: yolo+vlm | florence2 | yolo_only | vlm_only")] = "yolo+vlm",
+    extract_prices: Annotated[bool, Form(description="Also extract visible shelf price tags")] = False,
 ):
     """
     Main endpoint: analyse an inventory image.
@@ -303,7 +368,7 @@ async def analyse_inventory(
     yolo_task = asyncio.get_event_loop().run_in_executor(
         None, run_yolo_detection, resized_bytes
     )
-    vlm_task = analyse_image_with_vlm(resized_bytes, hints, model)
+    vlm_task = analyse_image_with_vlm(resized_bytes, hints, model, extract_prices=extract_prices)
 
     yolo_result, vlm_result = await asyncio.gather(yolo_task, vlm_task)
 
@@ -340,6 +405,29 @@ async def analyse_inventory(
         raw_vlm=vlm_result,
         raw_yolo={"counts": yolo_result.get("counts", {}), "total": yolo_result.get("total_detected", 0)},
         detector_backend="yolo+vlm",
+        price_tags=extract_price_tags(merged_items) if extract_prices else [],
+    )
+
+
+@app.post("/analyse/prices", response_model=InventoryAnalysisResponse)
+async def analyse_prices(
+    image: Annotated[UploadFile, File(description="Shelf/storage photo from mobile camera")],
+    session_id: Annotated[str, Form()] = "",
+    product_hints: Annotated[str, Form(description="Comma-separated known product names")] = "",
+    vlm_model: Annotated[str, Form(description="Override VLM model")] = "",
+):
+    """
+    Shelf price-tag OCR endpoint: identical to /analyse with
+    extract_prices=true forced on. The response's `price_tags` section is
+    a list of {label, price_tag} for every item with a visible price tag.
+    """
+    return await analyse_inventory(
+        image=image,
+        session_id=session_id,
+        product_hints=product_hints,
+        vlm_model=vlm_model,
+        detector="yolo+vlm",
+        extract_prices=True,
     )
 
 
@@ -348,9 +436,22 @@ async def analyse_batch(
     images: Annotated[list[UploadFile], File(description="Multiple shelf photos")],
     session_id: Annotated[str, Form()] = "",
     product_hints: Annotated[str, Form()] = "",
+    overlap_groups: Annotated[str, Form(
+        description="Optional comma-separated overlap-group id per image (in upload order). "
+                    "Images sharing a group id are overlapping views of the same shelf; "
+                    "their per-label counts are deduped by MAX instead of SUM."
+    )] = "",
 ):
-    """Analyse multiple images and aggregate counts (e.g. multiple shelf angles)."""
-    results = []
+    """
+    Analyse multiple images and aggregate counts (e.g. multiple shelf angles).
+
+    Multi-angle stitching dedup: naive summing double-counts stock when two
+    photos show the same shelf from different angles. Pass ``overlap_groups``
+    (e.g. "a,a,b" for 3 images) so images in the same group contribute their
+    per-label MAX (best single view) while disjoint groups still SUM.
+    Omitting ``overlap_groups`` preserves the legacy sum behaviour.
+    """
+    per_image_items: list[list[dict[str, Any]]] = []
     for img in images:
         img_bytes = await img.read()
         resized = resize_for_vlm(img_bytes)
@@ -358,25 +459,17 @@ async def analyse_batch(
         vlm = await analyse_image_with_vlm(resized, hints)
         yolo = run_yolo_detection(resized)
         bbox = await call_rust_bbox_processor(yolo.get("detections", []), *get_image_dimensions(resized))
-        items, conf = merge_results(vlm, yolo, bbox)
-        results.append({"items": [i.model_dump() for i in items], "confidence": conf})
+        items, _conf = merge_results(vlm, yolo, bbox)
+        per_image_items.append([i.model_dump() for i in items])
 
-    # Aggregate: sum counts across images for same label
-    aggregated: dict[str, dict] = {}
-    for r in results:
-        for item in r["items"]:
-            lbl = item["label"]
-            if lbl not in aggregated:
-                aggregated[lbl] = {**item}
-            else:
-                aggregated[lbl]["count"] += item["count"]
-                aggregated[lbl]["confidence"] = max(aggregated[lbl]["confidence"], item["confidence"])
+    groups = [g.strip() for g in overlap_groups.split(",") if g.strip()] if overlap_groups else None
+    aggregated = aggregate_batch_items(per_image_items, groups)
 
     return {
         "session_id": session_id,
         "images_processed": len(images),
-        "aggregated_items": list(aggregated.values()),
-        "total_items_counted": sum(v["count"] for v in aggregated.values()),
+        "aggregated_items": aggregated,
+        "total_items_counted": sum(v["count"] for v in aggregated),
     }
 
 

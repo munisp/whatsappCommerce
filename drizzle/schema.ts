@@ -2255,6 +2255,8 @@ export const visualInventorySessions = pgTable("visual_inventory_sessions", {
   inventoryUpdates: jsonb("inventoryUpdates").default([]),  // [{productId, oldQty, newQty}]
   notes: text("notes"),
   scanLocation: varchar("scanLocation", { length: 256 }),  // shelf/aisle/store location
+  // CV-1: capture channel — 'mobile' (dashboard upload) or 'whatsapp' (J85 stock-take).
+  source: varchar("source", { length: 32 }).default("mobile").notNull(),
   errorMessage: text("errorMessage"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),

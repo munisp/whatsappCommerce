@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { labelStudioConfigs, visualInventorySessions, visualInventoryCorrections } from "../../drizzle/schema";
+import { labelStudioConfigs, visualInventorySessions, visualInventoryCorrections, tenants } from "../../drizzle/schema";
 import { eq, and, isNull } from "drizzle-orm";
+import { computeExportPriority } from "../services/activeLearning";
+import { getViPolicy } from "../services/visualInventoryApply";
 
 // ── Label Studio Router ────────────────────────────────────────────────────────
 export const labelStudioRouter = router({
@@ -93,8 +95,35 @@ export const labelStudioRouter = router({
 
       if (toExport.length === 0) return { exported: 0, message: "No sessions to export" };
 
+      // ── CV-1: active-learning prioritization ─────────────────────────────
+      // Score each session (corrections-weighted + low-confidence bonus +
+      // recency decay) and export highest-priority samples first.
+      const [tenantRow] = await db.select({ settings: tenants.settings }).from(tenants)
+        .where(eq(tenants.id, tenantId)).limit(1).catch(() => [null as any]);
+      const policy = getViPolicy((tenantRow?.settings ?? null) as Record<string, unknown> | null);
+      const correctionRows = await db.select({ sessionId: visualInventoryCorrections.sessionId })
+        .from(visualInventoryCorrections)
+        .where(eq(visualInventoryCorrections.tenantId, tenantId))
+        .catch(() => [] as any[]);
+      const correctedSessionIds = new Set((correctionRows as any[]).map((r) => r.sessionId));
+      const priorityOf = (session: (typeof toExport)[number]): number => {
+        const items = (session.detectedItems ?? []) as Array<{ confidence?: number }>;
+        const minConfidence = items.length > 0
+          ? Math.min(...items.map((i) => Number(i.confidence ?? 1)))
+          : null;
+        return computeExportPriority({
+          hasCorrections: correctedSessionIds.has(session.id),
+          minConfidence,
+          reviewThreshold: policy.reviewConfidence,
+          createdAt: session.createdAt,
+        });
+      };
+      const scored = toExport
+        .map((session) => ({ session, priorityScore: priorityOf(session) }))
+        .sort((a, b) => b.priorityScore - a.priorityScore);
+
       // Build Label Studio tasks (COCO-compatible format)
-      const tasks = toExport.map(session => ({
+      const tasks = scored.map(({ session, priorityScore }) => ({
         data: {
           image: session.imageUrl,
           session_id: session.id,
@@ -103,10 +132,13 @@ export const labelStudioRouter = router({
           scanned_at: session.createdAt,
           detected_items: session.detectedItems,
           ai_model: session.modelUsed,
+          // CV-1: active-learning priority (higher = annotate first).
+          priority_score: priorityScore,
         },
         meta: {
           session_id: session.id,
           platform: "whatsapp-commerce-visual-inventory",
+          priorityScore,
           ...(input.groupByLocation ? {
             location_group: (session as any).scanLocation ?? session.notes ?? "unspecified",
           } : {}),

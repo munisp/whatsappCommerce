@@ -112,6 +112,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j82-template-library-lifecycle"),
     import("./journeys/j83-marketplace-lifecycle"),
     import("./journeys/j84-new-tenant-distribution-e2e"),
+    import("./journeys/j85-whatsapp-visual-stocktake"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

@@ -1,0 +1,21 @@
+{
+  "name": "dairy_fridge",
+  "description": "Open fridge with milk and yoghurt. Both detectors near-perfect; small YOLO overcount on yoghurt cups.",
+  "ground_truth": [
+    {"label": "Peak Milk Tin", "true_count": 6},
+    {"label": "Hollandia Yoghurt Cup", "true_count": 15}
+  ],
+  "mock_vlm": {
+    "scene_description": "Open display fridge with dairy products",
+    "inventory_notes": "Good lighting, labels clearly visible",
+    "items": [
+      {"label": "Peak Milk Tin", "count": 6, "confidence": 0.95, "location": "top shelf", "notes": ""},
+      {"label": "Hollandia Yoghurt Cup", "count": 14, "confidence": 0.85, "location": "bottom shelf", "notes": ""}
+    ]
+  },
+  "mock_yolo": {
+    "counts": {"peak milk": 6, "yoghurt": 15},
+    "detections": [],
+    "total_detected": 21
+  }
+}

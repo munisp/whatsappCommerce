@@ -358,6 +358,13 @@
       "when": 1786600012000,
       "tag": "0053_funds_flow_integrity",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1786600100000,
+      "tag": "0054_visual_stocktake_source",
+      "breakpoints": true
     }
   ]
 }
