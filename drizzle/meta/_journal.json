@@ -386,6 +386,20 @@
       "when": 1786600400000,
       "tag": "0057_customer_lead_scores",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1786600500000,
+      "tag": "0058_credit_terms_fee_bps",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1786988353871,
+      "tag": "0059_manufacturer_credit_programs",
+      "breakpoints": true
     }
   ]
 }

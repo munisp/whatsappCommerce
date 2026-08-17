@@ -4,37 +4,64 @@
  * Inputs (platform history, buyer side):
  *   - 30-day order volume: the buyer tenant's own order GMV over the
  *     trailing 30 days (orders.totalAmount, decimal major units → cents) —
- *     a proxy for repayment capacity.
+ *     a proxy for repayment capacity. W18: adjusted by the anti-gaming
+ *     detector (antiGaming.adjustVolumeTx) so self-dealing / wash volume
+ *     does not inflate the suggestion.
  *   - Tenure: whole months since the buyer tenant's first order (0 when no
  *     orders yet).
  *   - Payment timeliness: share of the buyer's completed payment_transactions
  *     paid within 24h of initiation (paidAt - createdAt <= 24h).
+ *   - W18 CREDIT HISTORY: the buyer's credit outcomes on this platform
+ *     (creditAccounts + creditLedger across ALL suppliers — platform-wide
+ *     behavior, documented). Signals:
+ *       · facilities repaid on time            (+0.10 each, cap 3)
+ *       · late repayments (dunning fee/freeze  (−0.15 each, cap 3)
+ *         markers on the draw)
+ *       · active default / frozen account      (−0.40, heavy)
+ *       · cure-at-zero recovery (late markers  (+0.10, partial; only when not
+ *         but outstanding back to 0)            in active default)
+ *       · utilization in the healthy band      (+0.05)
+ *         (0 < outstanding/limit ≤ 70%)
  *
  * Formula (deterministic — no randomness, no external calls):
  *   onTime       = on-time rate of completed payments; 0.5 when no completed
  *                  payments exist (neutral prior).
- *   volumeFactor = min(1, vol30dCents / VOLUME_TARGET_CENTS)   // ₦5M target
+ *   creditFactor = 0.5 neutral base adjusted by the signals above, clamped
+ *                  to 0..1.
+ *   volumeFactor = min(1, adjustedVol30dCents / VOLUME_TARGET_CENTS)
+ *                  scaled by (1 - antiGaming.confidencePenalty)
  *   tenureFactor = min(1, tenureMonths / 12)                   // 1y = full
- *   score        = round(100 * (0.5*onTime + 0.3*volumeFactor + 0.2*tenureFactor))
- *                  clamped to 0..100.
  *
- *   Cold start (no orders AND no payments): score = COLD_START_SCORE (10),
- *   suggestedLimitCents = FLOOR_LIMIT_CENTS (₦50k) — conservative floor.
+ *   Weights (exported as SCORING_WEIGHTS): with NO credit history the legacy
+ *   weights apply (behavior unchanged for new-to-credit buyers):
+ *       score = 100 * (0.5*onTime + 0.3*volume + 0.2*tenure)
+ *   With credit history, credit history is the DOMINANT signal:
+ *       score = 100 * (0.5*credit + 0.25*onTime + 0.15*volume + 0.1*tenure)
+ *   score is rounded and clamped to 0..100.
+ *
+ *   Cold start (no orders AND no payments AND no credit history):
+ *   score = COLD_START_SCORE (10), suggestedLimitCents = FLOOR_LIMIT_CENTS
+ *   (₦50k) — conservative floor.
  *
  *   Otherwise:
  *   suggestedLimitCents = clamp(
- *       round(vol30dCents * (0.2 + 0.8 * score/100) / 1000) * 1000,
+ *       round(adjustedVol30dCents * (0.2 + 0.8 * score/100) / 1000) * 1000,
  *       FLOOR_LIMIT_CENTS, CAP_LIMIT_CENTS)                    // ₦50k..₦50M
  *   i.e. a facility sized between 20% and 100% of a month's volume, scaled
  *   by trust (score), rounded to whole ₦10 (1000 cents).
+ *
+ * W18: the result also carries `terms` — the risk-based tenor/fee band for
+ * the score (terms.termsForScore); score < 20 yields terms.decline = true.
  *
  * `supplierTenantId` is part of the signature for future per-supplier
  * weighting; scoring today is platform-wide (documented so callers do not
  * assume otherwise).
  */
 import { and, asc, desc, eq, gte } from "drizzle-orm";
-import { orders, paymentTransactions } from "../../../drizzle/schema";
+import { creditAccounts, creditLedger, orders, paymentTransactions } from "../../../drizzle/schema";
 import type { TxHandle } from "./accounts";
+import { adjustVolumeTx, FLAG_UNAVAILABLE, type AntiGamingResult } from "./antiGaming";
+import { termsForScore, type CreditTerms } from "./terms";
 
 export const VOLUME_TARGET_CENTS = 500_000_000; // ₦5,000,000
 export const FLOOR_LIMIT_CENTS = 5_000_000; // ₦50,000
@@ -42,10 +69,35 @@ export const CAP_LIMIT_CENTS = 5_000_000_000; // ₦50,000,000
 export const COLD_START_SCORE = 10;
 export const ON_TIME_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * W18 score weights, documented in one place. `noCreditHistory` is the
+ * legacy wave-12 formula (new-to-credit buyers: behavior unchanged);
+ * `withCreditHistory` makes platform credit outcomes the dominant signal.
+ */
+export const SCORING_WEIGHTS = {
+  noCreditHistory: { onTime: 0.5, volume: 0.3, tenure: 0.2 },
+  withCreditHistory: { credit: 0.5, onTime: 0.25, volume: 0.15, tenure: 0.1 },
+} as const;
+
+/** W18 credit-history signal magnitudes (creditFactor starts at 0.5). */
+export const CREDIT_HISTORY = {
+  onTimeFacilityBonus: 0.1, // per facility repaid on time (cap 3)
+  lateRepaymentPenalty: 0.15, // per late draw (cap 3)
+  activeDefaultPenalty: 0.4, // frozen account / draw overdue past freeze horizon
+  cureAtZeroBonus: 0.1, // late markers but outstanding back to 0
+  healthyUtilizationBonus: 0.05, // 0 < outstanding/limit ≤ 70%
+  maxCounted: 3,
+  healthyUtilizationMax: 0.7,
+} as const;
+
 export interface CreditScoreResult {
   score: number;
   suggestedLimitCents: number;
   reasons: string[];
+  /** W18: risk-based terms band for the score (decline below 20). */
+  terms: CreditTerms;
+  /** W18: anti-gaming flags on the GMV input ([] when clean). */
+  antiGamingFlags: string[];
 }
 
 /** "₦2.4M" / "₦850k" / "₦12,000" compact naira formatting for reasons. */
@@ -57,6 +109,93 @@ export function formatNairaCompact(cents: number): string {
   }
   if (naira >= 100_000) return `₦${Math.round(naira / 1_000)}k`;
   return `₦${Math.round(naira).toLocaleString("en-US")}`;
+}
+
+/** Dunning markers proving a draw was repaid late (see dunning.ts). */
+const LATE_MARKERS = ["[dun:fee]", "[dun:r+7]"] as const;
+const FREEZE_OVERDUE_DAYS = 7;
+
+interface CreditHistorySignals {
+  hasHistory: boolean;
+  onTimeFacilities: number;
+  lateRepayments: number;
+  activeDefault: boolean;
+  curedAtZero: boolean;
+  healthyUtilization: boolean;
+}
+
+/** Aggregate platform-wide credit outcomes for the buyer tenant. */
+async function creditHistorySignalsTx(
+  db: TxHandle,
+  buyerTenantId: string,
+  now: Date,
+): Promise<CreditHistorySignals> {
+  const accounts = await db
+    .select()
+    .from(creditAccounts)
+    .where(eq(creditAccounts.buyerTenantId, buyerTenantId));
+  const sig: CreditHistorySignals = {
+    hasHistory: false,
+    onTimeFacilities: 0,
+    lateRepayments: 0,
+    activeDefault: false,
+    curedAtZero: false,
+    healthyUtilization: false,
+  };
+  for (const account of accounts) {
+    const rows = await db
+      .select()
+      .from(creditLedger)
+      .where(eq(creditLedger.creditAccountId, account.id));
+    const draws = rows.filter((r) => r.kind === "invoice_draw" && r.status !== "void");
+    const repayments = rows.filter((r) => r.kind === "repayment" && r.status !== "void");
+    if (draws.length === 0 && repayments.length === 0) continue;
+    sig.hasHistory = true;
+
+    const lateDraws = draws.filter((d) =>
+      LATE_MARKERS.some((m) => (d.note ?? "").includes(m)),
+    );
+    sig.lateRepayments += lateDraws.length;
+
+    if (account.status === "frozen") sig.activeDefault = true;
+    const overduePosted = draws.some((d) => {
+      if (d.status !== "posted" || !d.dueDate) return false;
+      const overdueDays = Math.floor((now.getTime() - new Date(d.dueDate).getTime()) / (24 * 60 * 60 * 1000));
+      return overdueDays > FREEZE_OVERDUE_DAYS;
+    });
+    if (overduePosted) sig.activeDefault = true;
+
+    const settledDraws = draws.filter((d) => d.status === "settled");
+    if (
+      settledDraws.length > 0 &&
+      lateDraws.length === 0 &&
+      account.outstandingCents === 0
+    ) {
+      // Every draw settled, no late markers, balance back to zero.
+      sig.onTimeFacilities += 1;
+    }
+    if (lateDraws.length > 0 && account.outstandingCents === 0) sig.curedAtZero = true;
+    if (
+      account.limitCents > 0 &&
+      account.outstandingCents > 0 &&
+      account.outstandingCents / account.limitCents <= CREDIT_HISTORY.healthyUtilizationMax
+    ) {
+      sig.healthyUtilization = true;
+    }
+  }
+  return sig;
+}
+
+/** creditFactor (0..1) from the aggregated signals; 0.5 is neutral. */
+export function creditFactorFromSignals(sig: CreditHistorySignals): number {
+  const cap = CREDIT_HISTORY.maxCounted;
+  let f = 0.5;
+  f += CREDIT_HISTORY.onTimeFacilityBonus * Math.min(cap, sig.onTimeFacilities);
+  f -= CREDIT_HISTORY.lateRepaymentPenalty * Math.min(cap, sig.lateRepayments);
+  if (sig.activeDefault) f -= CREDIT_HISTORY.activeDefaultPenalty;
+  else if (sig.curedAtZero) f += CREDIT_HISTORY.cureAtZeroBonus;
+  if (sig.healthyUtilization) f += CREDIT_HISTORY.healthyUtilizationBonus;
+  return Math.max(0, Math.min(1, f));
 }
 
 export async function suggestLimitTx(
@@ -73,7 +212,7 @@ export async function suggestLimitTx(
     .from(orders)
     .where(and(eq(orders.tenantId, buyerTenantId), gte(orders.createdAt, since30d)))
     .orderBy(desc(orders.createdAt));
-  const vol30dCents = recentOrders.reduce(
+  const rawVol30dCents = recentOrders.reduce(
     (sum, o) => sum + Math.round(Number(o.totalAmount) * 100),
     0,
   );
@@ -102,8 +241,26 @@ export async function suggestLimitTx(
   const hasPayments = completedPayments.length > 0;
   const onTime = hasPayments ? onTimeCount / completedPayments.length : 0.5;
 
+  // W18: platform-wide credit history (all suppliers).
+  const creditSig = await creditHistorySignalsTx(db, buyerTenantId, now);
+  const creditFactor = creditFactorFromSignals(creditSig);
+
+  // W18: anti-gaming adjustment of the 30-day GMV input (fail-open).
+  let antiGaming: AntiGamingResult;
+  try {
+    antiGaming = await adjustVolumeTx(db, buyerTenantId, now);
+  } catch {
+    antiGaming = {
+      rawVolumeCents: rawVol30dCents,
+      adjustedVolumeCents: rawVol30dCents,
+      flags: [FLAG_UNAVAILABLE],
+      confidencePenalty: 0,
+    };
+  }
+  const vol30dCents = antiGaming.adjustedVolumeCents;
+
   // ── Formula ──────────────────────────────────────────────────────────────
-  const coldStart = recentOrders.length === 0 && !firstOrder && !hasPayments;
+  const coldStart = recentOrders.length === 0 && !firstOrder && !hasPayments && !creditSig.hasHistory;
   let score: number;
   let suggestedLimitCents: number;
   const reasons: string[] = [];
@@ -115,9 +272,15 @@ export async function suggestLimitTx(
     reasons.push(`${formatNairaCompact(0)} 30-day volume`);
     reasons.push("0 months tenure");
   } else {
-    const volumeFactor = Math.min(1, vol30dCents / VOLUME_TARGET_CENTS);
+    const volumeFactor =
+      Math.min(1, vol30dCents / VOLUME_TARGET_CENTS) * (1 - antiGaming.confidencePenalty);
     const tenureFactor = Math.min(1, tenureMonths / 12);
-    score = Math.max(0, Math.min(100, Math.round(100 * (0.5 * onTime + 0.3 * volumeFactor + 0.2 * tenureFactor))));
+    const w = creditSig.hasHistory ? SCORING_WEIGHTS.withCreditHistory : SCORING_WEIGHTS.noCreditHistory;
+    const weighted =
+      "credit" in w
+        ? w.credit * creditFactor + w.onTime * onTime + w.volume * volumeFactor + w.tenure * tenureFactor
+        : w.onTime * onTime + w.volume * volumeFactor + w.tenure * tenureFactor;
+    score = Math.max(0, Math.min(100, Math.round(100 * weighted)));
     const raw = vol30dCents * (0.2 + 0.8 * (score / 100));
     suggestedLimitCents = Math.max(FLOOR_LIMIT_CENTS, Math.min(CAP_LIMIT_CENTS, Math.round(raw / 1000) * 1000));
     reasons.push(
@@ -125,9 +288,33 @@ export async function suggestLimitTx(
         ? `on-time rate ${Math.round(onTime * 100)}%`
         : "no completed payments — neutral on-time prior",
     );
-    reasons.push(`${formatNairaCompact(vol30dCents)} 30-day volume`);
+    reasons.push(
+      antiGaming.adjustedVolumeCents !== antiGaming.rawVolumeCents
+        ? `${formatNairaCompact(vol30dCents)} 30-day volume (adjusted from ${formatNairaCompact(antiGaming.rawVolumeCents)})`
+        : `${formatNairaCompact(vol30dCents)} 30-day volume`,
+    );
     reasons.push(`${tenureMonths} months tenure`);
+    // W18: human-readable credit-history reasons.
+    if (creditSig.hasHistory) {
+      if (creditSig.onTimeFacilities > 0) {
+        reasons.push(
+          `credit: ${creditSig.onTimeFacilities} facilit${creditSig.onTimeFacilities === 1 ? "y" : "ies"} repaid on time`,
+        );
+      }
+      if (creditSig.lateRepayments > 0) {
+        reasons.push(`credit: ${creditSig.lateRepayments} late repayment${creditSig.lateRepayments === 1 ? "" : "s"}`);
+      }
+      if (creditSig.activeDefault) reasons.push("credit: active default / frozen account");
+      else if (creditSig.curedAtZero) reasons.push("credit: recovered to zero after late repayment");
+      if (creditSig.healthyUtilization) reasons.push("credit: utilization in healthy band");
+    }
+    // W18: anti-gaming flags are surfaced in the explainability trail.
+    for (const flag of antiGaming.flags) reasons.push(`anti-gaming flag: ${flag}`);
   }
 
-  return { score, suggestedLimitCents, reasons };
+  const terms = termsForScore(score);
+  if (terms.decline && !coldStart) {
+    reasons.push(`score ${score} below 20 — decline credit suggestion`);
+  }
+  return { score, suggestedLimitCents, reasons, terms, antiGamingFlags: antiGaming.flags };
 }

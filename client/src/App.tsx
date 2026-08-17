@@ -77,6 +77,7 @@ const WaTemplates = lazy(() => import("./pages/WaTemplates"));
 const SupplierDirectory = lazy(() => import("./pages/SupplierDirectory"));
 const ProcurementHub = lazy(() => import("./pages/ProcurementHub"));
 const CreditAccounts = lazy(() => import("./pages/CreditAccounts"));
+const ManufacturerCredit = lazy(() => import("./pages/ManufacturerCredit"));
 const SupplierApprovals = lazy(() => import("./pages/SupplierApprovals"));
 const WhatsAppMediaPortal = lazy(() => import("./pages/WhatsAppMediaPortal"));
 const SlaExtensionResponse = lazy(() => import("./pages/SlaExtensionResponse"));
@@ -215,6 +216,7 @@ function Router() {
           <Route path="/suppliers" component={SupplierDirectory} />
           <Route path="/procurement" component={ProcurementHub} />
           <Route path="/credit-accounts" component={CreditAccounts} />
+          <Route path="/manufacturer-credit" component={ManufacturerCredit} />
           <Route path="/supplier-approvals" component={SupplierApprovals} />
           <Route path="/onboarding-copilot" component={OnboardingCopilot} />
           <Route path="/404" component={NotFound} />
