@@ -12,12 +12,12 @@ import { loadJourneys, runAll } from "./runner";
 // approval — disable the first-draw tenure gate (default 7d) for the sim.
 process.env.CREDIT_TENURE_GATE_DAYS = "0";
 
-describe("WhatsApp feature simulation (93 journeys)", () => {
+describe("WhatsApp feature simulation (94 journeys)", () => {
   it(
     "runs every journey against the real webhook handlers with Meta mocked",
     async () => {
       const journeys = await loadJourneys();
-      expect(journeys.length).toBe(93);
+      expect(journeys.length).toBe(94);
       const results = await runAll();
       const failed = results.filter((r) => !r.pass);
       expect(

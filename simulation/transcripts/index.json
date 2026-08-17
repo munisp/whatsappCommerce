@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T19:02:26.549Z",
+  "generatedAt": "2026-08-17T21:27:01.530Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -726,9 +726,9 @@
       "id": "J91",
       "title": "crm lead scoring + win-back",
       "feature": "RFM+credit lead score → pipeline → at-risk win-back broadcast → reply lifts score",
-      "pass": true,
+      "pass": false,
       "file": "J91.json",
-      "messageCount": 4
+      "messageCount": 0
     },
     {
       "id": "J92",
@@ -744,6 +744,14 @@
       "feature": "program CRUD/caps, checkDrawAllowed, program-capped suggestLimit, book cure",
       "pass": true,
       "file": "J93.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J94",
+      "title": "soc2 compliance controls",
+      "feature": "incident lifecycle, audit-chain verify/tamper detection, retention purge preview/execute, access review",
+      "pass": true,
+      "file": "J94.json",
       "messageCount": 0
     }
   ]

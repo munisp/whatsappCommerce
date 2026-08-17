@@ -210,6 +210,7 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: Settings,        label: "Setup Wizard",    path: "/setup" },
       { icon: Rocket,          label: "Deploy Checklist", path: "/deploy-checklist" },
       { icon: Shield,          label: "Compliance/B2G",  path: "/compliance" },
+      { icon: Shield,          label: "SOC2 Dashboard",  path: "/soc2" },
       { icon: Cpu,             label: "Infra Health",    path: "/infra-health" },
     ],
   },

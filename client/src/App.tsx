@@ -89,6 +89,7 @@ const MobileMoneyPortal = lazy(() => import("./pages/MobileMoneyPortal"));
 const ServiceCommercePage = lazy(() => import("./pages/ServiceCommercePage"));
 const AnalyticsBIDashboard = lazy(() => import("./pages/AnalyticsBIDashboard"));
 const CompliancePortal = lazy(() => import("./pages/CompliancePortal"));
+const Compliance = lazy(() => import("./pages/Compliance"));
 const MedusaIntegration = lazy(() => import("./pages/MedusaIntegration"));
 const WebhookDLQ = lazy(() => import("./pages/WebhookDLQ"));
 const UnifiedOnboarding = lazy(() => import("./pages/UnifiedOnboarding"));
@@ -195,6 +196,7 @@ function Router() {
           <Route path="/service-commerce" component={ServiceCommercePage} />
           <Route path="/analytics-bi" component={AnalyticsBIDashboard} />
           <Route path="/compliance" component={CompliancePortal} />
+          <Route path="/soc2" component={Compliance} />
           <Route path="/medusa" component={MedusaIntegration} />
           <Route path="/webhook-dlq" component={WebhookDLQ} />
           <Route path="/visual-inventory" component={VisualInventory} />
