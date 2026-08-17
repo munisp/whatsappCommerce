@@ -20,12 +20,14 @@ import {
   creditAccounts,
   creditLedger,
   creditLimitHistory,
+  customers,
   kycApplications,
   mandateCharges,
   orders,
   paymentMandates,
   paymentTransactions,
   processedWebhookEvents,
+  users,
   purchaseOrders,
   tenants,
   bureauReportLog,
@@ -50,6 +52,8 @@ export interface AccountRow {
   bureauConsentAt?: Date | null;
   bureauConsentRef?: string | null;
   facilityId?: string | null;
+  // W18: risk-based terms fee snapshot at approval (migration 0058).
+  feeBps?: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -135,7 +139,11 @@ export interface MandateChargeRow {
   createdAt: Date;
   updatedAt: Date;
 }
-export interface OrderRow { tenantId: string; totalAmount: string; createdAt: Date }
+export interface OrderRow { tenantId: string; totalAmount: string; createdAt: Date; customerId?: string | null }
+/** W18 anti-gaming: customers row (id → WhatsApp phone). */
+export interface CustomerRow { id: string; tenantId: string; whatsappPhone: string }
+/** W18 anti-gaming: users row (staff phones for a tenant). */
+export interface UserRow { tenantId: string; phone: string | null }
 export interface PaymentRow { tenantId: string; status: string; createdAt: Date; paidAt: Date | null }
 export interface TenantRow { id: string; settings: unknown }
 
@@ -152,6 +160,8 @@ export interface FakeStore {
   webhookEvents: WebhookEventRow[];
   bureauReportLog: BureauLogRow[];
   mandateCharges: MandateChargeRow[];
+  customers: CustomerRow[];
+  users: UserRow[];
 }
 
 // ── drizzle condition decoding ───────────────────────────────────────────────
@@ -210,7 +220,7 @@ const PROP: Record<string, Record<string, string>> = {
     limit_cents: "limitCents", outstanding_cents: "outstandingCents", terms_days: "termsDays",
     status: "status", score: "score", score_reasons: "scoreReasons",
     bureau_consent_at: "bureauConsentAt", bureau_consent_ref: "bureauConsentRef",
-    facility_id: "facilityId",
+    facility_id: "facilityId", fee_bps: "feeBps",
     created_at: "createdAt", updated_at: "updatedAt",
   },
   bureau_report_log: {
@@ -222,7 +232,9 @@ const PROP: Record<string, Record<string, string>> = {
     id: "id", credit_account_id: "creditAccountId", kind: "kind", amount_cents: "amountCents",
     po_id: "poId", due_date: "dueDate", status: "status", ref: "ref", note: "note", created_at: "createdAt",
   },
-  orders: { tenantId: "tenantId", totalAmount: "totalAmount", createdAt: "createdAt" },
+  orders: { tenantId: "tenantId", totalAmount: "totalAmount", createdAt: "createdAt", customerId: "customerId" },
+  customers: { id: "id", tenantId: "tenantId", whatsappPhone: "whatsappPhone" },
+  users: { tenantId: "tenantId", phone: "phone" },
   payment_transactions: { tenantId: "tenantId", status: "status", createdAt: "createdAt", paidAt: "paidAt" },
   tenants: { id: "id", settings: "settings" },
   kyc_applications: { id: "id", tenantId: "tenantId", type: "type", status: "status" },
@@ -283,6 +295,8 @@ function tableName(table: unknown): string {
     processed_webhook_events: processedWebhookEvents,
     bureau_report_log: bureauReportLog,
     mandate_charges: mandateCharges,
+    customers,
+    users,
   })) {
     if (t === table) return name;
   }
@@ -303,6 +317,8 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     webhookEvents: (seed?.webhookEvents ?? []).map((r) => ({ ...r })),
     bureauReportLog: (seed?.bureauReportLog ?? []).map((r) => ({ ...r })),
     mandateCharges: (seed?.mandateCharges ?? []).map((r) => ({ ...r })),
+    customers: (seed?.customers ?? []).map((r) => ({ ...r })),
+    users: (seed?.users ?? []).map((r) => ({ ...r })),
   };
   const rowsOf = (t: string): any[] =>
     t === "credit_accounts" ? store.accounts
@@ -316,6 +332,8 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     : t === "processed_webhook_events" ? store.webhookEvents
     : t === "bureau_report_log" ? store.bureauReportLog
     : t === "mandate_charges" ? store.mandateCharges
+    : t === "customers" ? store.customers
+    : t === "users" ? store.users
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────
@@ -355,6 +373,14 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       } else if (sig === "tenantId") {
         rows = rows.filter((r) => r.tenantId === values[0]);
       } else throw new Error(`fakeDb select orders: unhandled ${sig}`);
+    } else if (t === "customers") {
+      if (sig === "tenantId") {
+        rows = rows.filter((r) => r.tenantId === values[0]);
+      } else throw new Error(`fakeDb select customers: unhandled ${sig}`);
+    } else if (t === "users") {
+      if (sig === "tenantId") {
+        rows = rows.filter((r) => r.tenantId === values[0]);
+      } else throw new Error(`fakeDb select users: unhandled ${sig}`);
     } else if (t === "payment_transactions") {
       if (sig === "tenantId,status") {
         rows = rows.filter((r) => r.tenantId === values[0] && r.status === values[1]);
@@ -451,6 +477,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         bureauConsentAt: values.bureauConsentAt ?? null,
         bureauConsentRef: values.bureauConsentRef ?? null,
         facilityId: values.facilityId ?? null,
+        feeBps: values.feeBps ?? null,
         createdAt: values.createdAt ?? new Date(),
         updatedAt: values.updatedAt ?? new Date(),
       };

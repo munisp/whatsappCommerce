@@ -26,6 +26,7 @@ import {
   setCreditAccountStatusTx,
   updateCreditAccountTx,
   CreditAccountExistsError,
+  BureauPullDeclinedError,
   applyRepaymentTx,
   suggestLimitTx,
   requestRepayment,
@@ -43,6 +44,7 @@ import { retrySettlement, reconcilePendingMandateCharges } from "../services/tra
 import { creditAccounts } from "../../drizzle/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { requireApprovedKyb } from "../services/kycGate";
+import { termsForScore } from "../services/tradeCredit/terms";
 
 async function requireDb() {
   const db = await getDb();
@@ -195,7 +197,36 @@ export const tradeCreditRouter = router({
           });
         }
       }
-      const row = await approveCreditAccountTx(db, input);
+      // W18: risk-based terms — when the supplier did not specify terms and
+      // the account carries a scorer-produced score, derive tenor + fee from
+      // the score band and snapshot them on approval. Explicit input always
+      // wins; score-less accounts keep the wave-8 defaults.
+      const derived = input.termsDays === undefined && account.score != null
+        ? termsForScore(account.score)
+        : null;
+      // W18: bureau-pull gate lives inside approveCreditAccountTx
+      // (BUREAU_PULL_REQUIRED=true). A hard decline surfaces as
+      // PRECONDITION_FAILED with the decline reason; adapter failures never
+      // reach here (fire-and-forget inside the service).
+      let row: Awaited<ReturnType<typeof approveCreditAccountTx>>;
+      try {
+        row = await approveCreditAccountTx(db, {
+          ...input,
+          termsDays: input.termsDays ?? (derived && !derived.decline ? derived.tenorDays : undefined),
+          feeBps: derived && !derived.decline ? derived.feeBps : undefined,
+        });
+      } catch (err) {
+        if (err instanceof BureauPullDeclinedError) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              err.reason === "consent_required"
+                ? "Bureau consent is required to approve this facility (BUREAU_PULL_REQUIRED)."
+                : `Facility approval declined by credit-bureau report: ${err.message}`,
+          });
+        }
+        throw err;
+      }
       if (!row) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Pending credit account not found" });
       }
@@ -214,7 +245,7 @@ export const tradeCreditRouter = router({
           }),
         );
       }
-      return row;
+      return { ...row, terms: termsForScore(row.score ?? 0) };
     }),
 
   /** Portfolio list with aging buckets. */

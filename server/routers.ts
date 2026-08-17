@@ -93,6 +93,7 @@ import { auditRouter } from "./routers/audit";
 import { integrationsRouter } from "./routers/integrations";
 import { procurementRouter } from "./routers/procurement";
 import { creditFacilitiesRouter } from "./routers/creditFacilities";
+import { manufacturerProgramsRouter } from "./routers/manufacturerPrograms";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
@@ -227,6 +228,7 @@ export const appRouter = router({
   integrations: integrationsRouter,
   tradeCredit: tradeCreditRouter,
   creditFacilities: creditFacilitiesRouter,
+  manufacturerPrograms: manufacturerProgramsRouter,
   creditRepay: creditRepayRouter,
   procurement: procurementRouter,
   onboardingCopilot: onboardingCopilotRouter,
