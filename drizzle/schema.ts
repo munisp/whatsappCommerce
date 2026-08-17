@@ -3375,3 +3375,63 @@ export const customerLeadScores = pgTable("customer_lead_scores", {
 ]);
 export type CustomerLeadScore = typeof customerLeadScores.$inferSelect;
 export type NewCustomerLeadScore = typeof customerLeadScores.$inferInsert;
+
+// ── W19 SOC2: tamper-evident audit chain ────────────────────────────────────
+// Append-only hash-chained audit log. Each row's `hash` =
+// sha256(prevHash + canonical(event fields)) — see server/services/auditChain.ts.
+// `prev_hash` links to the previous row's hash (GENESIS_HASH for the first
+// row), so any edit/delete/reorder breaks verification. tenant_id is nullable
+// for platform-level events.
+export const auditChain = pgTable("audit_chain", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  tenantId:  varchar("tenant_id", { length: 36 }),
+  eventType: varchar("event_type", { length: 100 }).notNull(),
+  actorId:   varchar("actor_id", { length: 64 }),
+  payload:   jsonb("payload_jsonb"),
+  prevHash:  varchar("prev_hash", { length: 64 }).notNull(),
+  hash:      varchar("hash", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("audit_chain_tenant_idx").on(t.tenantId),
+  index("audit_chain_created_idx").on(t.createdAt),
+  index("audit_chain_event_type_idx").on(t.eventType),
+]);
+export type AuditChainRow = typeof auditChain.$inferSelect;
+export type NewAuditChainRow = typeof auditChain.$inferInsert;
+
+// ── W19 SOC2: data retention policies ───────────────────────────────────────
+// One row per (tenant, entity): how many days rows of that entity are kept
+// before purge. legal_hold=true exempts the entity from purge (litigation /
+// regulator hold). Consumed by server/services/retention.ts.
+export const retentionPolicies = pgTable("retention_policies", {
+  id:            uuid("id").primaryKey().defaultRandom(),
+  tenantId:      varchar("tenant_id", { length: 36 }).notNull(),
+  entity:        varchar("entity", { length: 64 }).notNull(),
+  retentionDays: integer("retention_days").notNull(),
+  legalHold:     boolean("legal_hold").notNull().default(false),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("retention_policies_tenant_entity_uniq").on(t.tenantId, t.entity),
+  index("retention_policies_tenant_idx").on(t.tenantId),
+]);
+export type RetentionPolicy = typeof retentionPolicies.$inferSelect;
+export type NewRetentionPolicy = typeof retentionPolicies.$inferInsert;
+
+// ── W19 SOC2: incident log ──────────────────────────────────────────────────
+// Security/availability incident register. Status machine:
+// open → investigating → mitigated → resolved (resolved_at set on resolve).
+export const incidents = pgTable("incidents", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  severity:    varchar("severity", { length: 20 }).notNull().default("low"), // 'low' | 'medium' | 'high' | 'critical'
+  status:      varchar("status", { length: 20 }).notNull().default("open"), // 'open' | 'investigating' | 'mitigated' | 'resolved'
+  title:       varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  openedAt:    timestamp("opened_at").notNull().defaultNow(),
+  resolvedAt:  timestamp("resolved_at"),
+}, (t) => [
+  index("incidents_tenant_idx").on(t.tenantId),
+  index("incidents_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type Incident = typeof incidents.$inferSelect;
+export type NewIncident = typeof incidents.$inferInsert;

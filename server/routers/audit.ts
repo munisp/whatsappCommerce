@@ -3,16 +3,31 @@ import { and, desc, eq, gte, lte, SQL } from "drizzle-orm";
 import { adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { auditLogs, NewAuditLog } from "../../drizzle/schema";
+import { appendAuditEventTx } from "../services/auditChain";
 
 /**
  * Append a forensic audit row. Fire-and-forget safe: failures are logged but
  * never thrown, so auditing can never break a money-movement path.
+ *
+ * W19 SOC2: every row is ALSO appended to the tamper-evident audit_chain
+ * (hash-chained; verifiable via compliance.verifyAuditChain). The chain
+ * append shares the same fire-and-forget guard.
  */
 export async function writeAuditLog(entry: Omit<NewAuditLog, "id" | "createdAt">): Promise<void> {
   try {
     const db = await getDb();
     if (!db) return;
     await db.insert(auditLogs).values(entry);
+    await appendAuditEventTx(db, {
+      tenantId: entry.tenantId ?? null,
+      eventType: `audit:${entry.action}`,
+      actorId: entry.actorId ?? null,
+      payload: {
+        entityType: entry.entityType,
+        entityId: entry.entityId ?? null,
+        summary: entry.summary ?? null,
+      },
+    });
   } catch (err: any) {
     console.error("[audit] failed to write audit log:", err?.message);
   }

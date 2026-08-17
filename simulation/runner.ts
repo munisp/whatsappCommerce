@@ -121,6 +121,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j91-crm-winback"),
     import("./journeys/j92-credit-score-credit-history"),
     import("./journeys/j93-manufacturer-credit-program"),
+    import("./journeys/j94-soc2-compliance"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

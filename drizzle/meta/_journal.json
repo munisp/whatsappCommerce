@@ -400,6 +400,13 @@
       "when": 1786988353871,
       "tag": "0059_manufacturer_credit_programs",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1786988400000,
+      "tag": "0060_soc2_compliance",
+      "breakpoints": true
     }
   ]
 }
