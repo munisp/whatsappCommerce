@@ -19,10 +19,16 @@ import { randomUUID } from "crypto";
 import {
   creditAccounts,
   creditLedger,
+  creditLimitHistory,
   kycApplications,
+  mandateCharges,
   orders,
+  paymentMandates,
   paymentTransactions,
+  processedWebhookEvents,
+  purchaseOrders,
   tenants,
+  bureauReportLog,
 } from "../../../drizzle/schema";
 
 // ── Row types (JS camelCase props, mirroring drizzle $inferSelect) ──────────
@@ -36,8 +42,70 @@ export interface AccountRow {
   status: string;
   score: number | null;
   scoreReasons: unknown;
+  mandateId: string | null;
+  suspended: boolean;
+  suspendedAt: Date | null;
+  suspensionReason: string | null;
+  // W14: bureau consent (optional in seeds — absent means NOT consented).
+  bureauConsentAt?: Date | null;
+  bureauConsentRef?: string | null;
+  facilityId?: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+/** W14: bureau_report_log row. */
+export interface BureauLogRow {
+  id: string;
+  accountId: string;
+  eventType: string;
+  bureau: string;
+  status: string;
+  payload: unknown;
+  response: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+export interface MandateRow {
+  id: string;
+  tenantId: string;
+  provider: string;
+  mandateRef: string;
+  customerRef: string | null;
+  status: string;
+  metadata: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
+export interface LimitHistoryRow {
+  id: string;
+  accountId: string;
+  oldLimitCents: number;
+  newLimitCents: number;
+  score: number | null;
+  reason: string | null;
+  createdAt: Date;
+}
+export interface PoRow {
+  id: string;
+  poNumber: string;
+  buyerTenantId: string;
+  supplierTenantId: string;
+  status: string;
+  subtotalCents: number;
+  paymentMode: string;
+  creditAccountId: string | null;
+  termsDays: number | null;
+  dueDate: Date | null;
+  buyerPhone: string | null;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+export interface WebhookEventRow {
+  id: string;
+  tenantId: string;
+  type: string;
+  processedAt: Date;
 }
 export interface LedgerRow {
   id: string;
@@ -51,6 +119,22 @@ export interface LedgerRow {
   note: string | null;
   createdAt: Date;
 }
+/** A1-02: mandate_charges row. */
+export interface MandateChargeRow {
+  id: string;
+  accountId: string;
+  mandateId: string | null;
+  mandateRef: string | null;
+  provider: string;
+  reference: string;
+  amountCents: number;
+  currency: string;
+  status: string;
+  providerStatus: string | null;
+  rawResponse: unknown;
+  createdAt: Date;
+  updatedAt: Date;
+}
 export interface OrderRow { tenantId: string; totalAmount: string; createdAt: Date }
 export interface PaymentRow { tenantId: string; status: string; createdAt: Date; paidAt: Date | null }
 export interface TenantRow { id: string; settings: unknown }
@@ -62,6 +146,12 @@ export interface FakeStore {
   payments: PaymentRow[];
   tenants: TenantRow[];
   kycApplications: Array<{ id: string; tenantId: string; type: string; status: string }>;
+  mandates: MandateRow[];
+  limitHistory: LimitHistoryRow[];
+  purchaseOrders: PoRow[];
+  webhookEvents: WebhookEventRow[];
+  bureauReportLog: BureauLogRow[];
+  mandateCharges: MandateChargeRow[];
 }
 
 // ── drizzle condition decoding ───────────────────────────────────────────────
@@ -119,6 +209,13 @@ const PROP: Record<string, Record<string, string>> = {
     id: "id", supplier_tenant_id: "supplierTenantId", buyer_tenant_id: "buyerTenantId",
     limit_cents: "limitCents", outstanding_cents: "outstandingCents", terms_days: "termsDays",
     status: "status", score: "score", score_reasons: "scoreReasons",
+    bureau_consent_at: "bureauConsentAt", bureau_consent_ref: "bureauConsentRef",
+    facility_id: "facilityId",
+    created_at: "createdAt", updated_at: "updatedAt",
+  },
+  bureau_report_log: {
+    id: "id", account_id: "accountId", event_type: "eventType", bureau: "bureau",
+    status: "status", payload: "payload", response: "response",
     created_at: "createdAt", updated_at: "updatedAt",
   },
   credit_ledger: {
@@ -129,6 +226,28 @@ const PROP: Record<string, Record<string, string>> = {
   payment_transactions: { tenantId: "tenantId", status: "status", createdAt: "createdAt", paidAt: "paidAt" },
   tenants: { id: "id", settings: "settings" },
   kyc_applications: { id: "id", tenantId: "tenantId", type: "type", status: "status" },
+  payment_mandates: {
+    id: "id", tenantId: "tenantId", provider: "provider", mandateRef: "mandateRef",
+    customerRef: "customerRef", status: "status", metadata: "metadata",
+    createdAt: "createdAt", updatedAt: "updatedAt",
+  },
+  credit_limit_history: {
+    id: "id", accountId: "accountId", oldLimitCents: "oldLimitCents", newLimitCents: "newLimitCents",
+    score: "score", reason: "reason", createdAt: "createdAt",
+  },
+  purchase_orders: {
+    id: "id", po_number: "poNumber", buyer_tenant_id: "buyerTenantId", supplier_tenant_id: "supplierTenantId",
+    status: "status", subtotal_cents: "subtotalCents", payment_mode: "paymentMode",
+    credit_account_id: "creditAccountId", terms_days: "termsDays", due_date: "dueDate",
+    buyer_phone: "buyerPhone", notes: "notes", created_at: "createdAt", updated_at: "updatedAt",
+  },
+  processed_webhook_events: { id: "id", tenantId: "tenantId", type: "type", processedAt: "processedAt" },
+  mandate_charges: {
+    id: "id", account_id: "accountId", mandate_id: "mandateId", mandate_ref: "mandateRef",
+    provider: "provider", reference: "reference", amount_cents: "amountCents", currency: "currency",
+    status: "status", provider_status: "providerStatus", raw_response: "rawResponse",
+    created_at: "createdAt", updated_at: "updatedAt",
+  },
 };
 
 /** Extract { delta } from an arithmetic SQL set value, honoring +/-. */
@@ -158,6 +277,12 @@ function tableName(table: unknown): string {
     payment_transactions: paymentTransactions,
     tenants,
     kyc_applications: kycApplications,
+    payment_mandates: paymentMandates,
+    credit_limit_history: creditLimitHistory,
+    purchase_orders: purchaseOrders,
+    processed_webhook_events: processedWebhookEvents,
+    bureau_report_log: bureauReportLog,
+    mandate_charges: mandateCharges,
   })) {
     if (t === table) return name;
   }
@@ -172,6 +297,12 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     payments: (seed?.payments ?? []).map((r) => ({ ...r })),
     tenants: (seed?.tenants ?? []).map((r) => ({ ...r })),
     kycApplications: (seed?.kycApplications ?? []).map((r) => ({ ...r })),
+    mandates: (seed?.mandates ?? []).map((r) => ({ ...r })),
+    limitHistory: (seed?.limitHistory ?? []).map((r) => ({ ...r })),
+    purchaseOrders: (seed?.purchaseOrders ?? []).map((r) => ({ ...r })),
+    webhookEvents: (seed?.webhookEvents ?? []).map((r) => ({ ...r })),
+    bureauReportLog: (seed?.bureauReportLog ?? []).map((r) => ({ ...r })),
+    mandateCharges: (seed?.mandateCharges ?? []).map((r) => ({ ...r })),
   };
   const rowsOf = (t: string): any[] =>
     t === "credit_accounts" ? store.accounts
@@ -179,6 +310,12 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     : t === "orders" ? store.orders
     : t === "payment_transactions" ? store.payments
     : t === "kyc_applications" ? store.kycApplications
+    : t === "payment_mandates" ? store.mandates
+    : t === "credit_limit_history" ? store.limitHistory
+    : t === "purchase_orders" ? store.purchaseOrders
+    : t === "processed_webhook_events" ? store.webhookEvents
+    : t === "bureau_report_log" ? store.bureauReportLog
+    : t === "mandate_charges" ? store.mandateCharges
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────
@@ -205,6 +342,8 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         rows = rows.filter((r) => r.creditAccountId === values[0] && kinds.includes(r.kind));
       } else if (sig === "credit_account_id") {
         rows = rows.filter((r) => r.creditAccountId === values[0]);
+      } else if (sig === "credit_account_id,ref") {
+        rows = rows.filter((r) => r.creditAccountId === values[0] && r.ref === values[1]);
       } else if (sig === "kind,status,due_date,due_date") {
         const horizon = values[2] as Date;
         rows = rows.filter((r) => r.kind === values[0] && r.status === values[1] && r.dueDate != null && new Date(r.dueDate).getTime() <= horizon.getTime());
@@ -229,6 +368,48 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       } else if (sig === "tenantId") {
         rows = rows.filter((r) => r.tenantId === values[0]);
       } else throw new Error(`fakeDb select kyc_applications: unhandled ${sig}`);
+    } else if (t === "payment_mandates") {
+      if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else if (sig === "tenantId,status") {
+        rows = rows.filter((r) => r.tenantId === values[0] && r.status === values[1]);
+      } else if (sig === "tenantId,mandateRef") {
+        rows = rows.filter((r) => r.tenantId === values[0] && r.mandateRef === values[1]);
+      } else throw new Error(`fakeDb select payment_mandates: unhandled ${sig}`);
+    } else if (t === "purchase_orders") {
+      if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else throw new Error(`fakeDb select purchase_orders: unhandled ${sig}`);
+    } else if (t === "credit_limit_history") {
+      if (sig === "accountId") {
+        rows = rows.filter((r) => r.accountId === values[0]);
+      } else throw new Error(`fakeDb select credit_limit_history: unhandled ${sig}`);
+    } else if (t === "processed_webhook_events") {
+      if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else throw new Error(`fakeDb select processed_webhook_events: unhandled ${sig}`);
+    } else if (t === "bureau_report_log") {
+      if (sig === "status") {
+        // inArray(status, [...]) — values may arrive nested
+        const statuses = (values as unknown[]).flat();
+        rows = rows.filter((r) => statuses.includes(r.status));
+      } else if (sig === "account_id") {
+        rows = rows.filter((r) => r.accountId === values[0]);
+      } else if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else throw new Error(`fakeDb select bureau_report_log: unhandled ${sig}`);
+    } else if (t === "mandate_charges") {
+      if (sig === "status") {
+        rows = rows.filter((r) => r.status === values[0]);
+      } else if (sig === "reference") {
+        rows = rows.filter((r) => r.reference === values[0]);
+      } else if (sig === "account_id") {
+        rows = rows.filter((r) => r.accountId === values[0]);
+      } else if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else if (sig === "id,status") {
+        rows = rows.filter((r) => r.id === values[0] && r.status === values[1]);
+      } else throw new Error(`fakeDb select mandate_charges: unhandled ${sig}`);
     }
     // orderBy
     for (const { prop, desc } of decodeOrder(orderExprs).reverse()) {
@@ -263,13 +444,86 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         status: values.status ?? "active",
         score: values.score ?? null,
         scoreReasons: values.scoreReasons ?? null,
+        mandateId: values.mandateId ?? null,
+        suspended: values.suspended ?? false,
+        suspendedAt: values.suspendedAt ?? null,
+        suspensionReason: values.suspensionReason ?? null,
+        bureauConsentAt: values.bureauConsentAt ?? null,
+        bureauConsentRef: values.bureauConsentRef ?? null,
+        facilityId: values.facilityId ?? null,
         createdAt: values.createdAt ?? new Date(),
         updatedAt: values.updatedAt ?? new Date(),
       };
       store.accounts.push(row);
       return { ...row };
     }
+    if (t === "payment_mandates") {
+      const row: MandateRow = {
+        id: values.id ?? randomUUID(),
+        tenantId: values.tenantId,
+        provider: values.provider,
+        mandateRef: values.mandateRef,
+        customerRef: values.customerRef ?? null,
+        status: values.status ?? "pending",
+        metadata: values.metadata ?? null,
+        createdAt: values.createdAt ?? new Date(),
+        updatedAt: values.updatedAt ?? new Date(),
+      };
+      store.mandates.push(row);
+      return { ...row };
+    }
+    if (t === "credit_limit_history") {
+      const row: LimitHistoryRow = {
+        id: values.id ?? randomUUID(),
+        accountId: values.accountId,
+        oldLimitCents: values.oldLimitCents,
+        newLimitCents: values.newLimitCents,
+        score: values.score ?? null,
+        reason: values.reason ?? null,
+        createdAt: values.createdAt ?? new Date(),
+      };
+      store.limitHistory.push(row);
+      return { ...row };
+    }
+    if (t === "processed_webhook_events") {
+      const row: WebhookEventRow = {
+        id: values.id,
+        tenantId: values.tenantId,
+        type: values.type,
+        processedAt: values.processedAt ?? new Date(),
+      };
+      store.webhookEvents.push(row);
+      return { ...row };
+    }
     if (t === "credit_ledger") {
+      // 0052 unique index credit_ledger_repayment_ref_uniq: exactly one
+      // repayment row per (account, ref). Emulate PG's 23505 so the
+      // exactly-once translation in applyRepaymentTx is testable.
+      if (values.kind === "repayment" && values.ref != null) {
+        const dupe = store.ledger.some((r) =>
+          r.kind === "repayment" && r.ref === values.ref && r.creditAccountId === values.creditAccountId);
+        if (dupe) {
+          const err: any = new Error(
+            `duplicate key value violates unique constraint "credit_ledger_repayment_ref_uniq"`);
+          err.code = "23505";
+          err.constraint = "credit_ledger_repayment_ref_uniq";
+          throw err;
+        }
+      }
+      // 0053 unique index credit_ledger_draw_ref_uniq: exactly one invoice
+      // draw per (account, ref). Emulates PG's 23505 so the idempotent
+      // already-drawn translation in drawOnCreditTx is testable.
+      if (values.kind === "invoice_draw" && values.ref != null) {
+        const dupe = store.ledger.some((r) =>
+          r.kind === "invoice_draw" && r.ref === values.ref && r.creditAccountId === values.creditAccountId);
+        if (dupe) {
+          const err: any = new Error(
+            `duplicate key value violates unique constraint "credit_ledger_draw_ref_uniq"`);
+          err.code = "23505";
+          err.constraint = "credit_ledger_draw_ref_uniq";
+          throw err;
+        }
+      }
       const row: LedgerRow = {
         id: values.id ?? randomUUID(),
         creditAccountId: values.creditAccountId,
@@ -283,6 +537,51 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         createdAt: values.createdAt ?? new Date(),
       };
       store.ledger.push(row);
+      return { ...row };
+    }
+    if (t === "bureau_report_log") {
+      const row: BureauLogRow = {
+        id: values.id ?? randomUUID(),
+        accountId: values.accountId,
+        eventType: values.eventType,
+        bureau: values.bureau,
+        status: values.status ?? "pending",
+        payload: values.payload ?? null,
+        response: values.response ?? null,
+        createdAt: values.createdAt ?? new Date(),
+        updatedAt: values.updatedAt ?? new Date(),
+      };
+      store.bureauReportLog.push(row);
+      return { ...row };
+    }
+    if (t === "mandate_charges") {
+      // 0053 unique index mandate_charges_reference_uniq: one charge row per
+      // repayment reference. Emulate PG's 23505 for the idempotent-replay
+      // translation in capture.ts.
+      if (values.reference != null &&
+          store.mandateCharges.some((r) => r.reference === values.reference)) {
+        const err: any = new Error(
+          `duplicate key value violates unique constraint "mandate_charges_reference_uniq"`);
+        err.code = "23505";
+        err.constraint = "mandate_charges_reference_uniq";
+        throw err;
+      }
+      const row: MandateChargeRow = {
+        id: values.id ?? randomUUID(),
+        accountId: values.accountId,
+        mandateId: values.mandateId ?? null,
+        mandateRef: values.mandateRef ?? null,
+        provider: values.provider,
+        reference: values.reference,
+        amountCents: values.amountCents,
+        currency: values.currency ?? "NGN",
+        status: values.status ?? "pending",
+        providerStatus: values.providerStatus ?? null,
+        rawResponse: values.rawResponse ?? null,
+        createdAt: values.createdAt ?? new Date(),
+        updatedAt: values.updatedAt ?? new Date(),
+      };
+      store.mandateCharges.push(row);
       return { ...row };
     }
     throw new Error(`fakeDb insert: unhandled ${t}`);
@@ -312,6 +611,21 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         } else if (sig === "id,status") {
           // dunning freeze: id + status='active'
           ok = r.id === values[0] && r.status === values[1];
+        } else if (sig === "id,suspended") {
+          // enforcement suspend/lift claim: id + suspended=<bool>
+          ok = r.id === values[0] && r.suspended === values[1];
+        } else if (sig === "id,limit_cents") {
+          // reviseLimits claim: id + limit unchanged
+          ok = r.id === values[0] && r.limitCents === Number(values[1]);
+        } else if (sig === "id,mandate_id") {
+          // mandate link claim: id + mandate_id IS NULL (1 value) or = prior link
+          ok = r.id === values[0] && (values.length < 2 ? r.mandateId == null : r.mandateId === values[1]);
+        } else if (sig === "buyer_tenant_id,mandate_id") {
+          // mandate revoke detach: buyer + linked mandate
+          ok = r.buyerTenantId === values[0] && r.mandateId === values[1];
+        } else if (sig === "id") {
+          // bureau-consent stamp post-insert / plain id-scoped update
+          ok = r.id === values[0];
         } else throw new Error(`fakeDb update credit_accounts: unhandled ${sig}`);
         if (!ok) continue;
         for (const [k, v] of Object.entries(set)) {
@@ -357,6 +671,62 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       }
       return matched;
     }
+    if (t === "payment_mandates") {
+      for (const r of store.mandates) {
+        let ok = false;
+        if (sig === "id,tenantId,status") {
+          // confirmMandate claim: id + tenant + status='pending'
+          ok = r.id === values[0] && r.tenantId === values[1] && r.status === values[2];
+        } else if (sig === "id,status") {
+          // revokeMandate claim: id + current status
+          ok = r.id === values[0] && r.status === values[1];
+        } else throw new Error(`fakeDb update payment_mandates: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
+    if (t === "purchase_orders") {
+      for (const r of store.purchaseOrders) {
+        let ok = false;
+        if (sig === "id,status") {
+          // settleDrawToSupplier claim: id + status='invoiced'
+          ok = r.id === values[0] && r.status === values[1];
+        } else throw new Error(`fakeDb update purchase_orders: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
+    if (t === "mandate_charges") {
+      for (const r of store.mandateCharges) {
+        let ok = false;
+        if (sig === "id,status") {
+          // claim-first status flip: id + status=<expected>
+          ok = r.id === values[0] && r.status === values[1];
+        } else if (sig === "id") {
+          ok = r.id === values[0];
+        } else throw new Error(`fakeDb update mandate_charges: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
+    if (t === "bureau_report_log") {
+      for (const r of store.bureauReportLog) {
+        let ok = false;
+        if (sig === "id") {
+          ok = r.id === values[0];
+        } else throw new Error(`fakeDb update bureau_report_log: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
     throw new Error(`fakeDb update: unhandled ${t}`);
   }
 
@@ -369,6 +739,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     return self;
   };
 
+  let txQueue: Promise<unknown> = Promise.resolve();
   const db: any = {
     select(fields?: Record<string, unknown>) {
       return {
@@ -399,7 +770,48 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
       const t = tableName(table);
       return {
         values(vals: any) {
-          const get = () => [runInsert(t, vals)];
+          let conflictNothing = false;
+          const get = () => {
+            // ON CONFLICT DO NOTHING: PK (id) collision inserts zero rows.
+            if (conflictNothing && t === "processed_webhook_events") {
+              if (store.webhookEvents.some((r) => r.id === vals.id)) return [];
+            }
+            return [runInsert(t, vals)];
+          };
+          const chain: any = thenable(get);
+          chain.returning = () => chain;
+          chain.onConflictDoNothing = () => {
+            conflictNothing = true;
+            return chain;
+          };
+          return chain;
+        },
+      };
+    },
+    delete(table: unknown) {
+      const t = tableName(table);
+      return {
+        where(cond: unknown) {
+          const get = () => {
+            const { columns, values } = decode(cond);
+            const sig = columns.join(",");
+            if (t === "processed_webhook_events" && sig === "id") {
+              const idx = store.webhookEvents.findIndex((r) => r.id === values[0]);
+              if (idx >= 0) return store.webhookEvents.splice(idx, 1).map((r) => ({ ...r }));
+              return [];
+            }
+            if (t === "credit_ledger" && sig === "credit_account_id,ref,kind,note") {
+              // settlement_retry marker claim: account + ref + kind + note LIKE prefix%
+              const [accountId, ref, kind, pattern] = values as [string, string, string, string];
+              const prefix = pattern.replace(/%+$/, "");
+              const matched = store.ledger.filter((r) =>
+                r.creditAccountId === accountId && r.ref === ref && r.kind === kind &&
+                (r.note ?? "").startsWith(prefix));
+              store.ledger = store.ledger.filter((r) => !matched.includes(r));
+              return matched.map((r) => ({ ...r }));
+            }
+            throw new Error(`fakeDb delete: unhandled ${t} ${sig}`);
+          };
           const chain: any = thenable(get);
           chain.returning = () => chain;
           return chain;
@@ -423,8 +835,23 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     },
     transaction(fn: (tx: any) => Promise<any>) {
       // Single synchronous store ⇒ check-and-apply is atomic (PG row-lock
-      // semantics); no rollback needed because guard failures mutate nothing.
-      return fn(db);
+      // semantics). Transactions touching the store are SERIALIZED (as PG
+      // row locks would force for same-row claims), and a mid-transaction
+      // failure (e.g. the 23505 unique-violation insert above) rolls back
+      // via a snapshot taken at transaction START — never wiping another
+      // transaction's committed writes.
+      const run = txQueue.then(async () => {
+        const keys = Object.keys(store) as Array<keyof FakeStore>;
+        const snapshot = keys.map((k) => [k, (store[k] as any[]).map((r) => ({ ...r }))] as const);
+        try {
+          return await fn(db);
+        } catch (err) {
+          for (const [k, rows] of snapshot) (store as any)[k] = rows;
+          throw err;
+        }
+      });
+      txQueue = run.catch(() => {});
+      return run;
     },
     execute: async () => [],
   };
@@ -443,8 +870,47 @@ export function seedAccount(over: Partial<AccountRow> = {}): AccountRow {
     status: "active",
     score: null,
     scoreReasons: null,
+    mandateId: null,
+    suspended: false,
+    suspendedAt: null,
+    suspensionReason: null,
     createdAt: new Date("2025-01-01T00:00:00Z"),
     updatedAt: new Date("2025-01-01T00:00:00Z"),
+    ...over,
+  };
+}
+
+export function seedMandate(over: Partial<MandateRow> = {}): MandateRow {
+  return {
+    id: over.id ?? randomUUID(),
+    tenantId: "buyer-1",
+    provider: "fake",
+    mandateRef: `fake-${randomUUID()}`,
+    customerRef: null,
+    status: "active",
+    metadata: null,
+    createdAt: new Date("2025-01-01T00:00:00Z"),
+    updatedAt: new Date("2025-01-01T00:00:00Z"),
+    ...over,
+  };
+}
+
+export function seedPurchaseOrder(over: Partial<PoRow> = {}): PoRow {
+  return {
+    id: over.id ?? randomUUID(),
+    poNumber: `PO-${Math.floor(Math.random() * 1e6)}`,
+    buyerTenantId: "buyer-1",
+    supplierTenantId: "supplier-1",
+    status: "invoiced",
+    subtotalCents: 10_000,
+    paymentMode: "credit",
+    creditAccountId: null,
+    termsDays: 30,
+    dueDate: null,
+    buyerPhone: null,
+    notes: null,
+    createdAt: new Date("2025-01-02T00:00:00Z"),
+    updatedAt: new Date("2025-01-02T00:00:00Z"),
     ...over,
   };
 }
@@ -461,6 +927,26 @@ export function seedDraw(accountId: string, over: Partial<LedgerRow> = {}): Ledg
     ref: "draw:po-1",
     note: null,
     createdAt: new Date("2025-01-02T00:00:00Z"),
+    ...over,
+  };
+}
+
+/** A1-02: pending-by-default mandate charge row for reconcile tests. */
+export function seedMandateCharge(over: Partial<MandateChargeRow> = {}): MandateChargeRow {
+  return {
+    id: over.id ?? randomUUID(),
+    accountId: "acct-1",
+    mandateId: "m-1",
+    mandateRef: "fake-mandate-ref",
+    provider: "paystack",
+    reference: `cr-acct-1-20250310-${Math.floor(Math.random() * 1e6).toString().padStart(6, "0")}`,
+    amountCents: 4_000,
+    currency: "NGN",
+    status: "pending",
+    providerStatus: "pending",
+    rawResponse: null,
+    createdAt: new Date("2025-03-10T12:00:00Z"),
+    updatedAt: new Date("2025-03-10T12:00:00Z"),
     ...over,
   };
 }

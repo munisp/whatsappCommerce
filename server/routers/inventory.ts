@@ -6,6 +6,7 @@ import {
 } from "../../drizzle/schema";
 import { eq, and, desc, sql, lt, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { syncTenantInventoryFromOdoo } from "../services/inventorySync";
 
 export const inventoryRouter = router({
   // ── Get stock levels for a tenant ──────────────────────────────────────────
@@ -76,64 +77,9 @@ export const inventoryRouter = router({
       assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
-      const logId = randomUUID();
-      // Log sync start
-      await db.insert(inventorySyncLog).values({
-        id: logId,
-        tenantId: input.tenantId,
-        source: "odoo",
-        status: "syncing",
-        recordsSynced: 0,
-        syncedAt: new Date(),
-      });
-      try {
-        // Pull from odoo_synced_products (already synced from Odoo)
-        const odooProds = await db.select().from(odooSyncedProducts)
-          .where(eq(odooSyncedProducts.tenantId, input.tenantId));
-
-        let synced = 0;
-        for (const op of odooProds) {
-          if (!op.localProductId) continue;
-          const stockQty = Number(op.stockQty ?? 0);
-          // Simulate reservations as 10% of stock
-          const reservedQty = Math.floor(stockQty * 0.1);
-          const availableQty = stockQty - reservedQty;
-          await db.insert(inventorySnapshots).values({
-            id: randomUUID(),
-            tenantId: input.tenantId,
-            productId: op.localProductId,
-            odooProductId: op.odooId,
-            stockQty: stockQty.toString(),
-            reservedQty: reservedQty.toString(),
-            availableQty: availableQty.toString(),
-            lastSyncedAt: new Date(),
-            syncSource: "odoo",
-          }).onConflictDoUpdate({
-            target: [inventorySnapshots.tenantId, inventorySnapshots.productId],
-            set: {
-              stockQty: stockQty.toString(),
-              reservedQty: reservedQty.toString(),
-              availableQty: availableQty.toString(),
-              lastSyncedAt: new Date(),
-            },
-          });
-          // Also update local product stock
-          await db.update(products)
-            .set({ stockQuantity: stockQty, updatedAt: new Date() })
-            .where(eq(products.id, op.localProductId));
-          synced++;
-        }
-        // Update log to success
-        await db.update(inventorySyncLog)
-          .set({ status: "success", recordsSynced: synced, syncedAt: new Date() })
-          .where(eq(inventorySyncLog.id, logId));
-        return { success: true, recordsSynced: synced };
-      } catch (err: any) {
-        await db.update(inventorySyncLog)
-          .set({ status: "failed", errors: err.message, syncedAt: new Date() })
-          .where(eq(inventorySyncLog.id, logId));
-        throw err;
-      }
+      // A3-F02: real Odoo data only — no fabricated reservations.
+      const result = await syncTenantInventoryFromOdoo(db, input.tenantId);
+      return { success: true, recordsSynced: result.recordsSynced, syncedReservations: result.syncedReservations };
     }),
 
   // ── Reserve stock (oversell guard) ─────────────────────────────────────────

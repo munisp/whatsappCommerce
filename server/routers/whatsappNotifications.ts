@@ -424,9 +424,17 @@ export const whatsappNotificationsRouter = router({
   /** Mark a customer reply as read. */
   markReplyRead: protectedProcedure
     .input(z.object({ replyId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // A2-06: load-then-assert — the reply belongs to the caller's tenant.
+      const [reply] = await db
+        .select({ tenantId: whatsappCustomerReplies.tenantId })
+        .from(whatsappCustomerReplies)
+        .where(eq(whatsappCustomerReplies.id, input.replyId))
+        .limit(1);
+      if (!reply) throw new TRPCError({ code: "NOT_FOUND", message: "Reply not found" });
+      if (reply.tenantId) assertTenantAccess(ctx.user, reply.tenantId);
       await db
         .update(whatsappCustomerReplies)
         .set({ read: true, readAt: new Date() })
@@ -437,9 +445,17 @@ export const whatsappNotificationsRouter = router({
   /** Mark a specific reply as unread so the admin can follow up later. */
   markReplyUnread: protectedProcedure
     .input(z.object({ replyId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // A2-06: load-then-assert — the reply belongs to the caller's tenant.
+      const [reply] = await db
+        .select({ tenantId: whatsappCustomerReplies.tenantId })
+        .from(whatsappCustomerReplies)
+        .where(eq(whatsappCustomerReplies.id, input.replyId))
+        .limit(1);
+      if (!reply) throw new TRPCError({ code: "NOT_FOUND", message: "Reply not found" });
+      if (reply.tenantId) assertTenantAccess(ctx.user, reply.tenantId);
       await db
         .update(whatsappCustomerReplies)
         .set({ read: false, readAt: null })
@@ -449,13 +465,19 @@ export const whatsappNotificationsRouter = router({
 
   /** Get unread reply count across all orders (for badge). */
   getUnreadReplyCount: protectedProcedure
-    .query(async () => {
+    .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) return { count: 0 };
+      // A2-06: scope the badge count to the caller's tenant (admins see all).
+      const tenantId = ctx.user.role === "admin" ? null : ctx.user.tenantId;
       const rows = await db
         .select({ id: whatsappCustomerReplies.id })
         .from(whatsappCustomerReplies)
-        .where(eq(whatsappCustomerReplies.read, false));
+        .where(
+          tenantId
+            ? and(eq(whatsappCustomerReplies.read, false), eq(whatsappCustomerReplies.tenantId, tenantId))
+            : eq(whatsappCustomerReplies.read, false),
+        );
       return { count: rows.length };
     }),
   /** Get unread reply counts for multiple orders at once (for admin orders list badges). */
@@ -499,7 +521,11 @@ export const whatsappNotificationsRouter = router({
         const [ord] = db
           ? await db.select({ tenantId: orders.tenantId }).from(orders).where(eq(orders.id, input.orderId)).limit(1)
           : [];
-        if (ord?.tenantId) tenantId = ord.tenantId;
+        if (ord?.tenantId) {
+          // A2-05: the order's tenant owns the sender credentials — verify access.
+          assertTenantAccess(ctx.user, ord.tenantId);
+          tenantId = ord.tenantId;
+        }
       }
       try {
         const result = await sendWhatsAppText(tenantId, input.phone, input.message, {
@@ -536,7 +562,7 @@ export const whatsappNotificationsRouter = router({
       }).optional(),
       tone: z.enum(["professional", "friendly", "empathetic", "concise"]).default("professional"),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { invokeLLM } = await import("../_core/llm");
       const messageHistory = input.recentReplies
         .slice()
@@ -551,6 +577,7 @@ export const whatsappNotificationsRouter = router({
         if (db) {
           const [ord] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
           if (ord) {
+            assertTenantAccess(ctx.user, ord.tenantId);
             const totalDisplay = ord.totalAmount != null
               ? `${ord.currency ?? ""} ${Number(ord.totalAmount).toFixed(2)}`
               : "?";
@@ -597,7 +624,7 @@ Draft a helpful reply to the customer's most recent message. Reply in plain text
     .input(z.object({
       phone: z.string().min(7),
       orderId: z.string().optional(),
-      fileBase64: z.string(),          // base64-encoded file content
+      fileBase64: z.string().max(14_000_000), // base64-encoded file content (~10MB raw cap, A2-05)
       fileName: z.string(),
       mimeType: z.enum([
         "image/jpeg", "image/png", "image/webp",
@@ -624,7 +651,11 @@ Draft a helpful reply to the customer's most recent message. Reply in plain text
         const [ord] = db
           ? await db.select({ tenantId: orders.tenantId }).from(orders).where(eq(orders.id, input.orderId)).limit(1)
           : [];
-        if (ord?.tenantId) tenantId = ord.tenantId;
+        if (ord?.tenantId) {
+          // A2-05: the order's tenant owns the sender credentials — verify access.
+          assertTenantAccess(ctx.user, ord.tenantId);
+          tenantId = ord.tenantId;
+        }
       }
       const creds = await resolveTenantWaCredentials(tenantId);
       if (!creds) {

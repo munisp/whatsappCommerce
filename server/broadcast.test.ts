@@ -3,7 +3,7 @@
  * Covers: consent gating (non-consented excluded), 24h-window text vs
  * template routing, dryRun, per-tenant rate limiting, tenant isolation.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("./db", () => ({
   getDb: vi.fn(),
@@ -76,9 +76,18 @@ const ADMIN_CTX = { user: { id: 1, role: "admin", tenantId: null } } as any;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // W17 F8: the send path consults the marketing frequency policy (quiet
+  // hours 21:00–08:00 Africa/Lagos by default) — pin to Lagos midday so the
+  // cap/quiet-hours gate never defers these sends.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-02-02T12:00:00Z"));
   vi.mocked(sendWhatsAppText).mockResolvedValue({ sent: true, simulated: false, wamids: ["wamid.text"], chunks: 1 });
   vi.mocked(sendWhatsAppTemplate).mockResolvedValue({ sent: true, simulated: false, wamid: "wamid.tpl" });
   vi.mocked(redisIncrExStrict).mockResolvedValue(1);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("broadcast.send consent gating", () => {

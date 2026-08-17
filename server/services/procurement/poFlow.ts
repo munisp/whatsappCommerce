@@ -25,6 +25,7 @@ import {
 } from "../../../drizzle/schema";
 import { sendWhatsAppInteractive, sendWhatsAppText, type SendInteractiveInput } from "../waSender";
 import { drawOnCredit, getCreditAccount, suggestLimit } from "../tradeCredit";
+import { checkOrderSuspension, settleCreditDrawToSupplier, suspensionMessage } from "./creditEnforcement";
 import { getActiveSupplierProfile, type DbHandle } from "./directory";
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
@@ -212,8 +213,17 @@ export interface PoLineInput {
 
 export interface SubmitPoResult {
   ok: boolean;
-  reason?: "supplier_inactive" | "empty" | "below_moq";
+  reason?: "supplier_inactive" | "empty" | "below_moq" | "suspended";
   moqCents?: number;
+  /** Present when reason === "suspended": UX copy for the block. */
+  suspensionReason?: string | null;
+  outstandingCents?: number | null;
+  /**
+   * Present when reason === "suspended" and the verdict is a fail-closed
+   * stand-in for a transient lookup outage — callers render neutral
+   * try-again copy, not dunning guidance.
+   */
+  unavailable?: boolean;
   po?: PurchaseOrder;
   autoApproved?: boolean;
 }
@@ -238,6 +248,20 @@ export async function submitPurchaseOrder(
 ): Promise<SubmitPoResult> {
   const profile = await getActiveSupplierProfile(db, opts.supplierTenantId);
   if (!profile) return { ok: false, reason: "supplier_inactive" };
+  // Enforcement gate: a buyer whose credit access is suspended may keep
+  // drafting but may not SUBMIT — this blocks both the manual path and the
+  // auto-approve-below-threshold path below (which only runs post-submit).
+  const suspension = await checkOrderSuspension(opts.buyerTenantId, opts.supplierTenantId);
+  if (suspension.suspended) {
+    console.info(`[procurement] PO submit blocked: buyer ${opts.buyerTenantId} suspended with supplier ${opts.supplierTenantId}`);
+    return {
+      ok: false,
+      reason: "suspended",
+      suspensionReason: suspension.reason,
+      outstandingCents: suspension.outstandingCents,
+      unavailable: suspension.unavailable === true,
+    };
+  }
   const lines = (opts.lines ?? []).filter((l) => l.qty > 0 && l.unitPriceCents >= 0 && l.name.trim());
   if (lines.length === 0) return { ok: false, reason: "empty" };
   const subtotalCents = lines.reduce((s, l) => s + l.qty * l.unitPriceCents, 0);
@@ -286,7 +310,7 @@ export async function submitPurchaseOrder(
     await notifyBuyer(
       db,
       (await getPoById(db, poId)) ?? po,
-      `✅ ${poNumber} was auto-approved by the supplier${result.status === "invoiced" ? ` on credit — due ${result.dueDate?.toDateString()}` : ""}.`,
+      `✅ ${poNumber} was auto-approved by the supplier${result.status === "invoiced" ? ` — Paid via credit, due ${result.dueDate?.toDateString()}` : ""}.`,
     );
     return { ok: true, po: (await getPoById(db, poId)) ?? po, autoApproved: true };
     }
@@ -324,10 +348,41 @@ export async function approvePurchaseOrder(
 ): Promise<ApprovePoResult> {
   const po = await getPoById(db, opts.poId);
   if (!po) return { ok: false, reason: "not_found" };
-  if (po.status !== "submitted") return { ok: false, reason: "wrong_status" };
   const now = new Date();
 
   if (po.paymentMode === "credit") {
+    // 'invoiced' is allowed through to the claim/replay logic below: an
+    // approval that crashed after claiming but before completing (or an
+    // idempotent retry of a completed approval) must converge instead of
+    // being refused — the draw is exactly-once per PO.
+    if (po.status !== "submitted" && po.status !== "invoiced") {
+      return { ok: false, reason: "wrong_status" };
+    }
+    // A1-04/F-01: CLAIM-FIRST approval. The status transition is a single
+    // atomic UPDATE guarded on status='submitted' — only ONE concurrent
+    // approval can win it, so only one credit draw is ever attempted per PO.
+    // (Pre-fix this was a plain read of po.status followed by an
+    // unconditional UPDATE ... WHERE id, and two concurrent approvals both
+    // drew — reproduced in the assurance audit.) The draw itself carries a
+    // second backstop: credit_ledger_draw_ref_uniq (0053) makes the draw
+    // insert exactly-once per (account, ref=draw:{poId}).
+    const [claimed] = await db.update(purchaseOrders)
+      .set({ status: "invoiced", updatedAt: now })
+      .where(and(eq(purchaseOrders.id, po.id), eq(purchaseOrders.status, "submitted")))
+      .returning();
+    const ownClaim = !!claimed;
+    if (!ownClaim) {
+      // Lost the claim race. Re-read: 'invoiced' means the winner completed
+      // OR a previous approval crashed between the claim and the draw/field
+      // update. Only the CRASHED state (claimed but never completed — no
+      // due_date written yet) is converged here via the exactly-once draw
+      // below; a fully-completed approval stays a wrong_status refusal so
+      // the router keeps surfacing CONFLICT on a true double-approve.
+      const fresh = await getPoById(db, po.id);
+      if (!fresh) return { ok: false, reason: "not_found" };
+      if (fresh.status !== "invoiced") return { ok: false, reason: "wrong_status" };
+      if (fresh.dueDate != null) return { ok: false, reason: "wrong_status" }; // completed
+    }
     const account = await getCreditAccount(po.supplierTenantId, po.buyerTenantId).catch(() => null);
     const termsDays = opts.termsDays ?? po.termsDays ?? Number((account as any)?.termsDays ?? 14);
     const draw = await drawOnCredit({
@@ -337,7 +392,21 @@ export async function approvePurchaseOrder(
       poId: po.id,
       termsDays,
     });
-    if (!draw.ok) return { ok: false, reason: draw.reason };
+    if (!draw.ok) {
+      // Compensate the claim ONLY when we own it: revert to 'submitted' so a
+      // later approval can retry. Guarded on the exact claimed state — a
+      // concurrent writer that moved the PO forward is never clobbered. (A
+      // replay caller that lost the claim race must NOT revert the winner's
+      // state; draw.ok with alreadyDrawn is not a failure.)
+      if (ownClaim) {
+        await db.update(purchaseOrders)
+          .set({ status: "submitted", updatedAt: new Date() })
+          .where(and(eq(purchaseOrders.id, po.id), eq(purchaseOrders.status, "invoiced")));
+      }
+      return { ok: false, reason: draw.reason };
+    }
+    // A crash-replay that finds the draw already persisted (alreadyDrawn)
+    // simply completes the bookkeeping — it never drew twice.
     const dueDate = new Date(now.getTime() + termsDays * 24 * 60 * 60 * 1000);
     await db.update(purchaseOrders).set({
       status: "invoiced",
@@ -346,10 +415,15 @@ export async function approvePurchaseOrder(
       dueDate,
       updatedAt: now,
     }).where(eq(purchaseOrders.id, po.id));
+    // Supplier-direct settlement: the draw settles straight to the supplier,
+    // so the PO is paid-via-credit ('invoiced' — fulfillable) with NO
+    // payment link. Bookkeeping lives behind the tradeCredit contract.
+    await settleCreditDrawToSupplier({ poId: po.id, drawResult: { ledgerId: draw.ledgerId } });
     return { ok: true, status: "invoiced", dueDate, outstandingAfter: draw.outstandingAfter };
   }
 
   // paynow — approved pending payment; create the payment link for the buyer.
+  if (po.status !== "submitted") return { ok: false, reason: "wrong_status" };
   await db.update(purchaseOrders).set({ status: "approved", updatedAt: now })
     .where(eq(purchaseOrders.id, po.id));
   const link = await createPoPaymentLink(db, po).catch((e: any) => {
@@ -835,6 +909,29 @@ export async function handleProcurementChat(
         nextState: null,
       };
     }
+    if (result.reason === "suspended") {
+      // W14.1: the draft SURVIVES a suspension block — keep the confirm
+      // session alive (nextState: state("confirm", data)) so the buyer can
+      // resend CONFIRM once repaid / once a transient outage clears. The
+      // gate itself is unchanged: the block still blocks, no PO persists.
+      // Transient lookup outages (unavailable) get neutral try-again copy,
+      // never dunning guidance.
+      const tail = result.unavailable
+        ? " Your draft cart is unchanged — resend CONFIRM to try again."
+        : " Your draft cart is unchanged — message us once your repayment lands.";
+      return {
+        reply: `🚫 ${suspensionMessage(
+          {
+            suspended: true,
+            reason: result.suspensionReason ?? null,
+            outstandingCents: result.outstandingCents ?? null,
+            unavailable: result.unavailable === true,
+          },
+          formatNaira,
+        )}${tail}`,
+        nextState: state("confirm", data),
+      };
+    }
     return { reply: "Sorry, that supplier isn't available for procurement right now.", nextState: null };
   }
   const po = result.po!;
@@ -887,7 +984,7 @@ export async function handlePoAction(opts: {
     await notifyBuyer(
       db,
       fresh,
-      `✅ ${po.poNumber} approved on credit — ${formatNaira(Number(po.subtotalCents))}, due ${result.dueDate.toDateString()} (net ${fresh.termsDays}d). Outstanding on your account: ${formatNaira(result.outstandingAfter)}.`,
+      `✅ ${po.poNumber} approved on credit — Paid via credit, due ${result.dueDate.toDateString()} (net ${fresh.termsDays}d). Outstanding on your account: ${formatNaira(result.outstandingAfter)}. Repay by the due date to keep ordering.`,
     );
     return {
       reply: `✅ ${po.poNumber} approved on credit — due ${result.dueDate.toDateString()}. Buyer outstanding: ${formatNaira(result.outstandingAfter)}.`,

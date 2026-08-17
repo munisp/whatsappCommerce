@@ -185,16 +185,46 @@ class PayMockState {
    * registerCustomGatewayHost().
    */
   customGatewayHosts = new Set<string>();
+  /**
+   * W13: scripted HTTP status for mandate (off-session) charge endpoints —
+   * paystack /transaction/charge_authorization and flutterwave
+   * /v3/tokenized-charges. While set, those endpoints answer with this
+   * status (decline injection); null restores success.
+   */
+  mandateChargeStatus: number | null = null;
   reset() {
     this.calls = [];
     this.hostStatus.clear();
     this.customGatewayHosts.clear();
+    this.mandateChargeStatus = null;
   }
 }
 
 export const pay = new PayMockState();
 
 // ── Outbound query helpers ───────────────────────────────────────────────────
+
+// ── Wave 15: scripted ERP connector endpoints (J76) ──────────────────────────
+// Odoo JSON-RPC / Twenty GraphQL / Medusa admin endpoints run through the REAL
+// integrationSync fetch path; journeys register per-host handlers here so the
+// exact request shapes execute with zero network. Calls are recorded for
+// dedupe/zero-duplicate assertions.
+export interface ErpConnectorCall {
+  url: string;
+  method: string;
+  body: any;
+}
+export const erp = {
+  handlers: new Map<string, (body: any) => { status?: number; json: unknown }>(),
+  calls: [] as ErpConnectorCall[],
+  script(host: string, handler: (body: any) => { status?: number; json: unknown }): void {
+    this.handlers.set(host, handler);
+  },
+  reset(): void {
+    this.handlers.clear();
+    this.calls.length = 0;
+  },
+};
 
 function parseJsonSafe(raw: string | null): any {
   if (!raw) return null;
@@ -244,6 +274,7 @@ export const outbound = {
     pay.reset();
     ledger.calls.length = 0;
     ledger.transfers.length = 0;
+    erp.reset();
   },
 };
 
@@ -520,6 +551,19 @@ function copilotExtractFacts(userText: string): Record<string, unknown> {
   if (/deliver|dispatch|ship/.test(lower)) facts.delivery = "offers delivery";
   if (/bank transfer|transfer/.test(lower)) facts.paymentPrefs = ["bank transfer"];
   else if (/cash/.test(lower)) facts.paymentPrefs = ["cash"];
+  // Wave 15 (J73): Yoruba/Pidgin intake phrasing — the multilingual copilot
+  // accepts threads in yo/pcm, so the scripted extractor understands the
+  // common self-description patterns ("orúkọ iṣòwò mi ni X … ní Ìbàdàn").
+  if (!facts.businessName) {
+    const yoName = /orúkọ iṣòwò(?:\s+mi)?\s+ni\s+([^,.!?]+)/i.exec(conv);
+    if (yoName) facts.businessName = yoName[1].trim();
+  }
+  if (!facts.city) {
+    const yoCity = /\bní\s+([A-ZÀ-Ỷ][A-Za-zÀ-ỹ]+)/u.exec(conv);
+    if (yoCity) facts.city = yoCity[1];
+  }
+  if (!facts.industry && /àṣọ|adire|aso oke/i.test(lower)) facts.industry = "fashion fabrics";
+  if (!facts.delivery && /ráńṣẹ́|ranṣẹ́|ranse/i.test(lower)) facts.delivery = "offers delivery";
   return facts;
 }
 
@@ -682,6 +726,32 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
       data: { authorization_url: `${pay.paystackBaseUrl}/${ref}`, reference: ref },
     });
   }
+  // ── W13: mandate (off-session / tokenized) charges ───────────────────────
+  if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/charge_authorization")) {
+    if (pay.mandateChargeStatus != null) {
+      return jsonResponse(
+        { status: false, message: `sim: mandate charge declined (${pay.mandateChargeStatus})` },
+        pay.mandateChargeStatus,
+      );
+    }
+    return jsonResponse({
+      status: true,
+      message: "Charge attempted",
+      data: { status: "success", reference: body?.reference ?? "sim-ref" },
+    });
+  }
+  if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/tokenized-charges")) {
+    if (pay.mandateChargeStatus != null) {
+      return jsonResponse(
+        { status: "error", message: `sim: mandate charge declined (${pay.mandateChargeStatus})` },
+        pay.mandateChargeStatus,
+      );
+    }
+    return jsonResponse({
+      status: "success",
+      data: { status: "successful", tx_ref: body?.tx_ref ?? "sim-ref" },
+    });
+  }
   if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/payments")) {
     const ref = body?.tx_ref ?? "sim-ref";
     return jsonResponse({ status: "success", data: { link: `${pay.flutterwaveBaseUrl}/${ref}` } });
@@ -752,6 +822,11 @@ export function registerCustomGatewayHost(hostname: string): void {
 export function setPayHostStatus(hostname: string, status: number | null): void {
   if (status == null) pay.hostStatus.delete(hostname);
   else pay.hostStatus.set(hostname, status);
+}
+
+/** W13: script the HTTP status for mandate charge endpoints (decline injection). */
+export function setMandateChargeStatus(status: number | null): void {
+  pay.mandateChargeStatus = status;
 }
 
 // ── Ledger bridge scripting ─────────────────────────────────────────────────
@@ -840,6 +915,15 @@ export function installFetchMock(): void {
       const call = record(url, method, bodyText, headers);
       ledger.calls.push(call);
       return handleLedger(u, method, body);
+    }
+
+    // Wave 15: scripted ERP connector endpoints (J76) — per-host handlers.
+    if (erp.handlers.has(u.hostname)) {
+      record(url, method, bodyText, headers);
+      const body = parseJsonSafe(bodyText);
+      erp.calls.push({ url, method, body });
+      const out = erp.handlers.get(u.hostname)!(body);
+      return jsonResponse(out.json, out.status ?? 200);
     }
 
     // Anything else: record + fast failure (never hangs the pipeline).

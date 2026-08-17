@@ -53,6 +53,8 @@ export function renderManualInstructions(c: ManualCreds, amountCents: number, cu
 export const manualProvider: PaymentProvider = {
   id: "manual",
   displayName: "Manual Bank Transfer",
+  // Bank transfer has no auto-debit concept — no mandate support (w13).
+  supportsMandates: false,
 
   async initiate(ctx: PaymentInitiateCtx, creds: unknown): Promise<PaymentInitiateResult> {
     const c = asCreds(creds);

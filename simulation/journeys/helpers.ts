@@ -338,6 +338,62 @@ export async function creditLedgerRows(world: World, kind?: string) {
 
 export { SUPPLIER_TENANT_ID, CREDIT_ACCOUNT_ID };
 
+// ── Wave 13: repayment-at-source mandates ───────────────────────────────────
+
+export interface LinkedMandate {
+  mandateId: string;
+  mandateRef: string;
+  authorizationUrl: string;
+}
+
+/**
+ * W13: drive the REAL mandate lifecycle for a buyer's facility via the tRPC
+ * router — requestMandate (paystack createMandate → mock authorization URL,
+ * payment_mandates row PENDING + linked to the account) → confirmMandate
+ * (claim-first pending → active). Returns the active mandate ids.
+ */
+export async function linkActiveMandate(
+  world: World,
+  opts: { buyerTenantId: string; accountId: string; userId?: number; amountLimitCents?: number },
+): Promise<LinkedMandate> {
+  const schema = await import("../../drizzle/schema");
+  const { eq } = await import("drizzle-orm");
+  const buyer = await tenantCaller(opts.buyerTenantId, { userId: opts.userId ?? 77 });
+
+  const res = await buyer.tradeCredit.requestMandate({
+    buyerTenantId: opts.buyerTenantId,
+    accountId: opts.accountId,
+    amountLimitCents: opts.amountLimitCents,
+  });
+  assert(res.ok === true, `requestMandate succeeded (${JSON.stringify(res)})`);
+  assert(res.status === "pending", `mandate starts pending (got ${res.status})`);
+  assert(typeof res.authorizationUrl === "string" && res.authorizationUrl.includes("checkout.paystack.com/sim/"),
+    `provider authorization URL issued (got ${res.authorizationUrl})`);
+  assert(typeof res.mandateId === "string" && res.mandateId, "mandate id returned");
+
+  const [pendingRow] = await world.db
+    .select()
+    .from(schema.paymentMandates)
+    .where(eq(schema.paymentMandates.id, res.mandateId))
+    .limit(1);
+  assert(pendingRow && pendingRow.status === "pending", "payment_mandates row pending");
+  assert(pendingRow.provider === "paystack", "mandate via the paystack adapter");
+
+  const confirmed = await buyer.tradeCredit.confirmMandate({
+    buyerTenantId: opts.buyerTenantId,
+    mandateId: res.mandateId,
+  });
+  assert(confirmed.status === "active", `mandate active after confirm (got ${confirmed.status})`);
+
+  const [account] = await world.db
+    .select()
+    .from(schema.creditAccounts)
+    .where(eq(schema.creditAccounts.id, opts.accountId))
+    .limit(1);
+  assert(account?.mandateId === res.mandateId, "mandate linked to the credit account");
+  return { mandateId: res.mandateId, mandateRef: pendingRow.mandateRef, authorizationUrl: res.authorizationUrl! };
+}
+
 // ── Wave 9: agentic onboarding copilot helpers ───────────────────────────────
 // Journeys drive the REAL copilot module (server/services/onboardingCopilot)
 // — the LLM is scripted by metaMock's copilot tool-call handler, so the full
@@ -510,6 +566,60 @@ export async function monnifyPaymentSuccess(
     opts.overrideSignature ??
     crypto.createHmac("sha512", opts.secretKey).update(raw).digest("hex");
   return postProviderWebhook(world, "monnify", raw, { "monnify-signature": sig });
+}
+
+// ── Wave 14: bureau consent + lender facilities ─────────────────────────────
+
+export interface CreditPair {
+  sup: string;
+  buy: string;
+  supCaller: Awaited<ReturnType<typeof tenantCaller>>;
+  buyCaller: Awaited<ReturnType<typeof tenantCaller>>;
+  accountId: string;
+}
+
+/**
+ * W14: provision a supplier/buyer tenant pair with dual-KYB approved and a
+ * PENDING credit account (limit 0). Approvals go through the real KYB gate so
+ * tradeCredit.approveAccount can run (use limits ≤ ₦50,000 floor to skip the
+ * W13 mandate requirement, or link a mandate first).
+ */
+export async function provisionCreditPair(
+  world: World,
+  opts: { userIdBase: number; name: string },
+): Promise<CreditPair> {
+  const schema = await import("../../drizzle/schema");
+  const admin = await adminCaller();
+  const sup = (await admin.onboarding.start({ name: `${opts.name} Supplier` })).tenantId;
+  const buy = (await admin.onboarding.start({ name: `${opts.name} Buyer` })).tenantId;
+  const supCaller = await tenantCaller(sup, { userId: opts.userIdBase });
+  const buyCaller = await tenantCaller(buy, { userId: opts.userIdBase + 1 });
+  const supApp = await supCaller.kyc.getOrCreateApplication({ tenantId: sup, type: "kyb" });
+  await admin.kyc.review({ applicationId: supApp.id, decision: "approved" });
+  const buyApp = await buyCaller.kyc.getOrCreateApplication({ tenantId: buy, type: "kyb" });
+  await admin.kyc.review({ applicationId: buyApp.id, decision: "approved" });
+  const accountId = crypto.randomUUID();
+  await world.db.insert(schema.creditAccounts).values({
+    id: accountId,
+    supplierTenantId: sup,
+    buyerTenantId: buy,
+    limitCents: 0,
+    outstandingCents: 0,
+    termsDays: 14,
+    status: "pending",
+  });
+  return { sup, buy, supCaller, buyCaller, accountId };
+}
+
+/** W14: bureau_report_log rows for one account, oldest first. */
+export async function bureauLogRows(world: World, accountId: string) {
+  const schema = await import("../../drizzle/schema");
+  const { asc, eq } = await import("drizzle-orm");
+  return world.db
+    .select()
+    .from(schema.bureauReportLog)
+    .where(eq(schema.bureauReportLog.accountId, accountId))
+    .orderBy(asc(schema.bureauReportLog.createdAt), asc(schema.bureauReportLog.id));
 }
 
 /** Declarative custom gateway (customHttp config): configurable header/algo/encoding. */

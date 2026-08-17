@@ -101,6 +101,21 @@ export async function getProviderForTenant(tenantId: string): Promise<TenantProv
 }
 
 /**
+ * Mandate-capable slice of the tenant's fallback chain (w13): resolves
+ * getProviderForTenant and keeps only entries whose adapter declares
+ * supportsMandates=true AND implements createMandate/chargeMandate.
+ */
+export async function getMandateCapableProviders(tenantId: string): Promise<TenantProviderEntry[]> {
+  const chain = await getProviderForTenant(tenantId);
+  return chain.filter(
+    (e) =>
+      e.provider.supportsMandates === true &&
+      typeof e.provider.createMandate === "function" &&
+      typeof e.provider.chargeMandate === "function",
+  );
+}
+
+/**
  * Upsert a tenant provider config, encrypting secret fields at rest (w10
  * encrypt-on-write). `creds.secretKey` / `creds.webhookSecret` go into the
  * encrypted text columns; all other creds fields are non-secret extras

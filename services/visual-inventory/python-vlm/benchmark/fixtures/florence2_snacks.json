@@ -1,0 +1,50 @@
+{
+  "name": "florence2_snacks",
+  "description": "Snack rack processed via the Florence-2 zero-shot backend adapter (florence2_to_vlm_format path).",
+  "backend": "florence2",
+  "ground_truth": [
+    {"label": "Plantain Chips", "true_count": 14},
+    {"label": "Gala Sausage Roll", "true_count": 18}
+  ],
+  "mock_florence2": {
+    "backend": "florence2-hf",
+    "detections": [
+      {"label": "plantain chips", "bbox": [10, 10, 60, 60]},
+      {"label": "plantain chips", "bbox": [70, 10, 120, 60]},
+      {"label": "plantain chips", "bbox": [130, 10, 180, 60]},
+      {"label": "plantain chips", "bbox": [190, 10, 240, 60]},
+      {"label": "plantain chips", "bbox": [250, 10, 300, 60]},
+      {"label": "plantain chips", "bbox": [310, 10, 360, 60]},
+      {"label": "plantain chips", "bbox": [370, 10, 420, 60]},
+      {"label": "plantain chips", "bbox": [10, 70, 60, 120]},
+      {"label": "plantain chips", "bbox": [70, 70, 120, 120]},
+      {"label": "plantain chips", "bbox": [130, 70, 180, 120]},
+      {"label": "plantain chips", "bbox": [190, 70, 240, 120]},
+      {"label": "plantain chips", "bbox": [250, 70, 300, 120]},
+      {"label": "plantain chips", "bbox": [310, 70, 360, 120]},
+      {"label": "gala sausage roll", "bbox": [10, 140, 60, 190]},
+      {"label": "gala sausage roll", "bbox": [70, 140, 120, 190]},
+      {"label": "gala sausage roll", "bbox": [130, 140, 180, 190]},
+      {"label": "gala sausage roll", "bbox": [190, 140, 240, 190]},
+      {"label": "gala sausage roll", "bbox": [250, 140, 300, 190]},
+      {"label": "gala sausage roll", "bbox": [310, 140, 360, 190]},
+      {"label": "gala sausage roll", "bbox": [370, 140, 420, 190]},
+      {"label": "gala sausage roll", "bbox": [430, 140, 480, 190]},
+      {"label": "gala sausage roll", "bbox": [10, 200, 60, 250]},
+      {"label": "gala sausage roll", "bbox": [70, 200, 120, 250]},
+      {"label": "gala sausage roll", "bbox": [130, 200, 180, 250]},
+      {"label": "gala sausage roll", "bbox": [190, 200, 240, 250]},
+      {"label": "gala sausage roll", "bbox": [250, 200, 300, 250]},
+      {"label": "gala sausage roll", "bbox": [310, 200, 360, 250]},
+      {"label": "gala sausage roll", "bbox": [370, 200, 420, 250]},
+      {"label": "gala sausage roll", "bbox": [430, 200, 480, 250]},
+      {"label": "gala sausage roll", "bbox": [490, 200, 540, 250]}
+    ]
+  },
+  "mock_vlm": null,
+  "mock_yolo": {
+    "counts": {},
+    "detections": [],
+    "total_detected": 0
+  }
+}

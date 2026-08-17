@@ -330,6 +330,62 @@
       "when": 1786600008000,
       "tag": "0049_tenant_type_memberships",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1786600009000,
+      "tag": "0050_credit_mandates",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1786600010000,
+      "tag": "0051_bureau_facilities",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1786600011000,
+      "tag": "0052_repayment_ref_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1786600012000,
+      "tag": "0053_funds_flow_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1786600100000,
+      "tag": "0054_visual_stocktake_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1786600200000,
+      "tag": "0055_broadcast_journeys_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1786600300000,
+      "tag": "0056_cod_offline_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1786600400000,
+      "tag": "0057_customer_lead_scores",
+      "breakpoints": true
     }
   ]
 }

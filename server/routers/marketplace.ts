@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, adminProcedure, operatorProcedure, assertTenantAccess } from "../_core/trpc";
+import * as connectorMarketplace from "../services/marketplace";
 import { getDb } from "../db";
 import { marketplaceSellers, marketplaceCommissions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -43,10 +44,12 @@ export const marketplaceRouter = router({
 
   getSeller: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [seller] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, input.id));
-      return seller ?? null;
+      if (!seller) return null;
+      assertTenantAccess(ctx.user, seller.tenantId);
+      return seller;
     }),
 
   updateSellerStatus: adminProcedure
@@ -121,8 +124,14 @@ export const marketplaceRouter = router({
 
   settleCommission: protectedProcedure
     .input(z.object({ id: z.string(), paidAt: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [commission] = await db.select().from(marketplaceCommissions).where(eq(marketplaceCommissions.id, input.id)).limit(1);
+      if (!commission) throw new TRPCError({ code: "NOT_FOUND", message: "Commission not found" });
+      // Commissions are keyed by sellerId — assert via the seller's tenant.
+      const [seller] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, commission.sellerId)).limit(1);
+      if (!seller) throw new TRPCError({ code: "NOT_FOUND", message: "Seller not found" });
+      assertTenantAccess(ctx.user, seller.tenantId);
       await db.update(marketplaceCommissions).set({ status: "paid", settledAt: new Date(input.paidAt ?? Date.now()) })
         .where(eq(marketplaceCommissions.id, input.id));
       return { ok: true };
@@ -146,5 +155,59 @@ export const marketplaceRouter = router({
         paidCommission: paidCommission.toFixed(2),
         pendingCommission: (totalCommission - paidCommission).toFixed(2),
       };
+    }),
+
+  // ── Integrations Marketplace Lite (F7) ──────────────────────────────────
+  // Connector registry / install / uninstall / health. Reads are tenant-
+  // scoped; mutations are operator-gated and audit-logged in the service.
+
+  listConnectors: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      return connectorMarketplace.listConnectors({ tenantId: input.tenantId });
+    }),
+
+  installConnector: operatorProcedure
+    .input(z.object({ tenantId: z.string(), key: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        return await connectorMarketplace.installConnector({
+          tenantId: input.tenantId,
+          key: input.key,
+          actorId: String(ctx.user!.id),
+          actorRole: ctx.user!.role,
+        });
+      } catch (err: any) {
+        if (String(err?.message ?? "").startsWith("Unknown connector")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  uninstallConnector: operatorProcedure
+    .input(z.object({ tenantId: z.string(), key: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        return await connectorMarketplace.uninstallConnector({
+          tenantId: input.tenantId,
+          key: input.key,
+          actorId: String(ctx.user!.id),
+          actorRole: ctx.user!.role,
+        });
+      } catch (err: any) {
+        if (String(err?.message ?? "").startsWith("Unknown connector")) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err.message });
+        }
+        throw err;
+      }
+    }),
+
+  connectorHealth: protectedProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      return connectorMarketplace.marketplaceHealth({ tenantId: input.tenantId });
     }),
 });

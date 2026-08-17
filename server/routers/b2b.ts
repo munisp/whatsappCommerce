@@ -4,6 +4,7 @@ import { router, protectedProcedure, publicProcedure, assertTenantAccess } from 
 import { getDb } from "../db";
 import { wholesalePriceTiers, b2bRfq, b2bPurchaseOrders } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
+import { TRPCError } from "@trpc/server";
 
 const ItemSchema = z.object({
   productId: z.string(),
@@ -53,8 +54,11 @@ export const b2bRouter = router({
 
   deletePriceTier: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [tier] = await db.select().from(wholesalePriceTiers).where(eq(wholesalePriceTiers.id, input.id)).limit(1);
+      if (!tier) throw new TRPCError({ code: "NOT_FOUND", message: "Price tier not found" });
+      assertTenantAccess(ctx.user, tier.tenantId);
       await db.delete(wholesalePriceTiers).where(eq(wholesalePriceTiers.id, input.id));
       return { ok: true };
     }),
@@ -94,8 +98,11 @@ export const b2bRouter = router({
 
   quoteRfq: protectedProcedure
     .input(z.object({ id: z.string(), quotedPrice: z.string(), notes: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [rfq] = await db.select().from(b2bRfq).where(eq(b2bRfq.id, input.id)).limit(1);
+      if (!rfq) throw new TRPCError({ code: "NOT_FOUND", message: "RFQ not found" });
+      assertTenantAccess(ctx.user, rfq.tenantId);
       await db.update(b2bRfq).set({ status: "quoted", quotedPrice: input.quotedPrice, quotedAt: new Date(), notes: input.notes, updatedAt: new Date() })
         .where(eq(b2bRfq.id, input.id));
       return { ok: true };
@@ -103,8 +110,11 @@ export const b2bRouter = router({
 
   updateRfqStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(["accepted", "rejected", "expired"]) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [rfq] = await db.select().from(b2bRfq).where(eq(b2bRfq.id, input.id)).limit(1);
+      if (!rfq) throw new TRPCError({ code: "NOT_FOUND", message: "RFQ not found" });
+      assertTenantAccess(ctx.user, rfq.tenantId);
       await db.update(b2bRfq).set({ status: input.status, updatedAt: new Date() }).where(eq(b2bRfq.id, input.id));
       return { ok: true };
     }),
@@ -153,6 +163,9 @@ export const b2bRouter = router({
     .input(z.object({ id: z.string(), approvedBy: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [po] = await db.select().from(b2bPurchaseOrders).where(eq(b2bPurchaseOrders.id, input.id)).limit(1);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "Purchase order not found" });
+      assertTenantAccess(ctx.user, po.tenantId);
       await db.update(b2bPurchaseOrders).set({ status: "approved", approvedBy: input.approvedBy, approvedAt: new Date(), updatedAt: new Date() })
         .where(eq(b2bPurchaseOrders.id, input.id));
       return { ok: true };
@@ -160,8 +173,11 @@ export const b2bRouter = router({
 
   updatePoStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.enum(["rejected", "fulfilled", "cancelled"]) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [po] = await db.select().from(b2bPurchaseOrders).where(eq(b2bPurchaseOrders.id, input.id)).limit(1);
+      if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "Purchase order not found" });
+      assertTenantAccess(ctx.user, po.tenantId);
       await db.update(b2bPurchaseOrders).set({ status: input.status, updatedAt: new Date() }).where(eq(b2bPurchaseOrders.id, input.id));
       return { ok: true };
     }),

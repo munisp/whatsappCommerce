@@ -1,0 +1,8 @@
+{
+  "id": "J79",
+  "title": "shopify oauth + catalog sync e2e",
+  "feature": "signed-state OAuth → encrypted token → sync create/adopt/update → dry-run zero-write",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

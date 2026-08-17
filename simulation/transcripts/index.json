@@ -481,6 +481,254 @@
       "pass": true,
       "file": "J60.json",
       "messageCount": 0
+    },
+    {
+      "id": "J61",
+      "title": "mandate-gated approval",
+      "feature": "approveAccount mandate gate (₦50k floor)",
+      "pass": true,
+      "file": "J61.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J62",
+      "title": "charge-first repayment",
+      "feature": "initiateRepayment → mandate charge → FIFO settle, exactly-once",
+      "pass": true,
+      "file": "J62.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J63",
+      "title": "mandate charge failure fallback",
+      "feature": "declined mandate charge → dunning + payment-link fallback",
+      "pass": true,
+      "file": "J63.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J64",
+      "title": "downward limit revision",
+      "feature": "reviseLimits: auto_revision + limit_clamped + upward restore",
+      "pass": true,
+      "file": "J64.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J65",
+      "title": "tenure gate + suspension",
+      "feature": "first-draw tenure gate; dunning freeze → PO-submit suspension",
+      "pass": true,
+      "file": "J65.json",
+      "messageCount": 62
+    },
+    {
+      "id": "J66",
+      "title": "supplier-direct settlement",
+      "feature": "credit PO → paid-via-credit, zero payment-link outbounds",
+      "pass": true,
+      "file": "J66.json",
+      "messageCount": 35
+    },
+    {
+      "id": "J67",
+      "title": "bureau consent gating",
+      "feature": "reportEvent consent gate + consent_missing warning",
+      "pass": true,
+      "file": "J67.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J68",
+      "title": "bureau event payloads & lifecycle",
+      "feature": "disbursement→repayment→delinquency→cure→closure payloads",
+      "pass": true,
+      "file": "J68.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J69",
+      "title": "bureau retry & dispute",
+      "feature": "retryFailedReports sweep + markDisputed exclusion",
+      "pass": true,
+      "file": "J69.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J70",
+      "title": "loan-book tape",
+      "feature": "generateLoanBookTape JSON/CSV, DPD buckets, asOf",
+      "pass": true,
+      "file": "J70.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J71",
+      "title": "facility utilization & covenants",
+      "feature": "utilizationBps/advance math, covenant breaches, admin gating",
+      "pass": true,
+      "file": "J71.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J72",
+      "title": "credit hardening e2e",
+      "feature": "strict fail-closed PO gate + exactly-once retrySettlement",
+      "pass": true,
+      "file": "J72.json",
+      "messageCount": 55
+    },
+    {
+      "id": "J73",
+      "title": "multilingual onboarding e2e",
+      "feature": "yo thread → explicit pcm switch → live; en byte-compat",
+      "pass": true,
+      "file": "J73.json",
+      "messageCount": 40
+    },
+    {
+      "id": "J74",
+      "title": "language detection edge cases",
+      "feature": "sticky low-confidence + latest-message wins + C1 stopword regression",
+      "pass": true,
+      "file": "J74.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J75",
+      "title": "photo → catalog bootstrap",
+      "feature": "extract → draft → confirm subset+edits → idempotent dedupe",
+      "pass": true,
+      "file": "J75.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J76",
+      "title": "erp provisioning e2e",
+      "feature": "provisionErpTenantObjects: adopt/create, idempotent, isolated failure, dry-run",
+      "pass": true,
+      "file": "J76.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J77",
+      "title": "copilot ongoing config intents",
+      "feature": "preview vs confirm + audit + operator gating",
+      "pass": true,
+      "file": "J77.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J78",
+      "title": "w14.1 credit regression e2e",
+      "feature": "repayment 23505 exactly-once + suspension session survival + copy polarity",
+      "pass": true,
+      "file": "J78.json",
+      "messageCount": 31
+    },
+    {
+      "id": "J79",
+      "title": "shopify oauth + catalog sync e2e",
+      "feature": "signed-state OAuth → encrypted token → sync create/adopt/update → dry-run zero-write",
+      "pass": true,
+      "file": "J79.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J80",
+      "title": "shopify order bridge e2e",
+      "feature": "HMAC fail-closed → kobo totals → exactly-once dedupe → unknown-SKU capture → customer link by phone",
+      "pass": true,
+      "file": "J80.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J81",
+      "title": "embedded signup e2e",
+      "feature": "code exchange + discovery → idempotent replay → error taxonomy → waSender credential seam → coexistence",
+      "pass": true,
+      "file": "J81.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J82",
+      "title": "template library lifecycle",
+      "feature": "validate → submit ×2 → sync approved/rejected-with-reason → resubmit → idempotent double-submit",
+      "pass": true,
+      "file": "J82.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J83",
+      "title": "marketplace lifecycle",
+      "feature": "catalog enrichment → awaiting_config → fail-closed health gate → cache → audited uninstall → FORBIDDEN",
+      "pass": true,
+      "file": "J83.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J84",
+      "title": "new-tenant w16 distribution e2e",
+      "feature": "embedded signup → template submit → shopify connect+sync → first bridged order → WhatsApp consent/menu on new creds",
+      "pass": true,
+      "file": "J84.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J85",
+      "title": "whatsapp visual stock-take",
+      "feature": "photo → counts → APPLY (calibrated)",
+      "pass": true,
+      "file": "J85.json",
+      "messageCount": 8
+    },
+    {
+      "id": "J86",
+      "title": "broadcast journey lifecycle",
+      "feature": "enroll → template → reply advances → done",
+      "pass": true,
+      "file": "J86.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J87",
+      "title": "journey frequency cap + withdrawal",
+      "feature": "cap defers send; withdrawal exits run",
+      "pass": true,
+      "file": "J87.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J88",
+      "title": "COD chat order → rider cash → settled",
+      "feature": "cod state machine + RIDER_CONFIRM reply",
+      "pass": true,
+      "file": "J88.json",
+      "messageCount": 20
+    },
+    {
+      "id": "J89",
+      "title": "COD delivery_failed → returned",
+      "feature": "failure branches + merchant alerts",
+      "pass": true,
+      "file": "J89.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J90",
+      "title": "COD partial cash → balance → completion",
+      "feature": "partial-payment tracking + reconciliation",
+      "pass": true,
+      "file": "J90.json",
+      "messageCount": 16
+    },
+    {
+      "id": "J91",
+      "title": "crm lead scoring + win-back",
+      "feature": "RFM+credit lead score → pipeline → at-risk win-back broadcast → reply lifts score",
+      "pass": true,
+      "file": "J91.json",
+      "messageCount": 4
     }
   ]
 }

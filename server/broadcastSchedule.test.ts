@@ -6,7 +6,7 @@
  * immediate send), dryRun segment-matched counts, dispatchCampaign for a due
  * scheduled campaign, and consent gating under segmentation.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("./db", () => ({ getDb: vi.fn() }));
 vi.mock("./_core/rateLimit", () => ({
@@ -88,9 +88,17 @@ const cust = (over: Record<string, unknown>) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // W17 F8: pin to Lagos midday so the default marketing quiet-hours window
+  // (21:00–08:00 Africa/Lagos) never defers these sends.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-02-02T12:00:00Z"));
   vi.mocked(sendWhatsAppText).mockResolvedValue({ sent: true, simulated: false, wamids: ["wamid.text"], chunks: 1 });
   vi.mocked(sendWhatsAppTemplate).mockResolvedValue({ sent: true, simulated: false, wamid: "wamid.tpl" });
   vi.mocked(redisIncrExStrict).mockResolvedValue(1);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("matchesSegment", () => {
@@ -114,6 +122,15 @@ describe("matchesSegment", () => {
     expect(matchesSegment(recent as any, { lastOrderWithinDays: 30 }, now)).toBe(true);
     expect(matchesSegment(stale as any, { lastOrderWithinDays: 30 }, now)).toBe(false);
     expect(matchesSegment(cust({}) as any, { lastOrderWithinDays: 30 }, now)).toBe(false);
+  });
+  it("noOrderSinceDays (W17 win-back targeting)", () => {
+    const quiet = cust({ lastOrderAt: new Date("2025-12-01T00:00:00Z") });
+    const recent = cust({ lastOrderAt: new Date("2026-01-25T00:00:00Z") });
+    expect(matchesSegment(quiet as any, { noOrderSinceDays: 30 }, now)).toBe(true);
+    expect(matchesSegment(recent as any, { noOrderSinceDays: 30 }, now)).toBe(false);
+    // never-ordered customers are excluded from win-back segments
+    expect(matchesSegment(cust({}) as any, { noOrderSinceDays: 30 }, now)).toBe(false);
+    expect(normalizeSegmentFilter({ minOrders: 1, noOrderSinceDays: 30 })).toEqual({ minOrders: 1, noOrderSinceDays: 30 });
   });
   it("normalizeSegmentFilter drops empties and junk", () => {
     expect(normalizeSegmentFilter(null)).toBeUndefined();

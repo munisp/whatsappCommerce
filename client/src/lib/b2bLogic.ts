@@ -17,6 +17,10 @@ export interface CreditAccountRef {
   limit: number;
   outstanding: number;
   status: CreditAccountStatus;
+  /** Trade-credit enforcement: ordering with this supplier is suspended. */
+  suspended?: boolean;
+  /** Supplier-recorded reason (UX copy) when suspended. */
+  suspensionReason?: string | null;
 }
 
 export interface SupplierSummary {
@@ -121,6 +125,9 @@ export interface CreditAccount {
   status: CreditAccountStatus;
   termsDays: number;
   nextDueDate?: string | null;
+  /** Trade-credit enforcement flag + supplier-recorded reason (UX copy). */
+  suspended?: boolean;
+  suspensionReason?: string | null;
   score?: number | null;
   scoreReasons?: string[];
   aging?: AgingBuckets;
@@ -267,6 +274,48 @@ export function poPaymentModes(
     },
     { mode: "paynow", label: "Pay now", enabled: true, disabledReason: null },
   ];
+}
+
+// ─── Credit-access suspension (trade-credit enforcement) ───────────────────
+
+type SuspensionSource = Pick<CreditAccountRef, "outstanding"> & {
+  suspended?: boolean;
+  suspensionReason?: string | null;
+};
+
+/**
+ * Badge metadata for a suspended credit account, or null when the account is
+ * in good standing (or absent). Muted red outline, consistent with the other
+ * status badges.
+ */
+export function suspensionBadge(
+  account: { suspended?: boolean } | null | undefined,
+): StatusMeta | null {
+  if (!account?.suspended) return null;
+  return { label: "Ordering suspended", className: "border-red-500/40 text-red-400" };
+}
+
+/**
+ * Why PO submission is blocked for this account, or null when submission is
+ * allowed. Includes the supplier-recorded reason and "repay to restore
+ * ordering" guidance with the outstanding amount when known.
+ */
+export function suspensionBlockReason(
+  account: SuspensionSource | null | undefined,
+): string | null {
+  if (!account?.suspended) return null;
+  const reason = account.suspensionReason?.trim();
+  const outstanding = Number(account.outstanding ?? 0);
+  const guidance = outstanding > 0
+    ? `Repay your outstanding balance of ${formatNaira(outstanding)} to restore ordering.`
+    : "Repay your outstanding balance to restore ordering.";
+  return `Ordering is suspended with this supplier${reason ? ` — ${reason}` : ""}. ${guidance}`;
+}
+
+/** Short label for the "Paid via credit" PO settlement state. */
+export function paidViaCreditLabel(dueDate?: string | null): string {
+  const due = formatDate(dueDate);
+  return due === "—" ? "Paid via credit" : `Paid via credit — due ${due}`;
 }
 
 // ─── Aging buckets ──────────────────────────────────────────────────────────

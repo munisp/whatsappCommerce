@@ -55,6 +55,16 @@ export function RepaymentDialog({
       onOpenChange(false);
       utils?.tradeCredit?.myAccounts?.invalidate();
       utils?.tradeCredit?.myLedger?.invalidate();
+      // Repayment-restore: once the repayment is confirmed server-side the
+      // credit account unsuspends — refresh the surfaces that carry the
+      // suspension badge, then poll once more after the webhook settles.
+      utils?.procurement?.listSuppliers?.invalidate();
+      utils?.procurement?.listPos?.invalidate();
+      toast.info("Once your repayment is confirmed, any ordering suspension lifts automatically.");
+      setTimeout(() => {
+        utils?.tradeCredit?.myAccounts?.invalidate();
+        utils?.procurement?.listSuppliers?.invalidate();
+      }, 30_000);
     },
     onError: (e) => toast.error(e.message),
   });

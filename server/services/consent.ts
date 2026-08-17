@@ -71,10 +71,17 @@ export async function recordConsent(
 ): Promise<void> {
   const channel = opts.channel ?? CONSENT_CHANNEL_WHATSAPP;
   const existing = await getConsent(db, opts.tenantId, opts.phone, channel);
+  const now = new Date();
   if (existing) {
     await db
       .update(consents)
-      .set({ granted: opts.granted, updatedAt: new Date() })
+      .set({
+        granted: opts.granted,
+        updatedAt: now,
+        // W17 F8: a grant stamps grantedAt + clears any prior withdrawal;
+        // a denial is left to recordWithdrawal (which sets withdrawnAt).
+        ...(opts.granted ? { grantedAt: now, withdrawnAt: null, source: "whatsapp_reply" } : {}),
+      })
       .where(eq(consents.id, existing.id));
     return;
   }
@@ -84,6 +91,8 @@ export async function recordConsent(
     customerId: opts.customerId ?? null,
     channel,
     granted: opts.granted,
+    source: "whatsapp_reply",
+    ...(opts.granted ? { grantedAt: now } : {}),
   });
 }
 

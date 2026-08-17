@@ -4,6 +4,7 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { taxFilings, cacRegistrations, procurementBids, governmentContracts } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
+import { TRPCError } from "@trpc/server";
 
 export const complianceRouter = router({
   // ── FIRS Tax Filings ─────────────────────────────────────────────────────
@@ -45,8 +46,11 @@ export const complianceRouter = router({
 
   submitTaxFiling: protectedProcedure
     .input(z.object({ id: z.string(), referenceNumber: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [filing] = await db.select().from(taxFilings).where(eq(taxFilings.id, input.id)).limit(1);
+      if (!filing) throw new TRPCError({ code: "NOT_FOUND", message: "Tax filing not found" });
+      assertTenantAccess(ctx.user, filing.tenantId);
       await db.update(taxFilings).set({
         status: "submitted",
         referenceNumber: input.referenceNumber ?? `FIRS-${Date.now().toString(36).toUpperCase()}`,
@@ -84,8 +88,11 @@ export const complianceRouter = router({
 
   updateCacStatus: protectedProcedure
     .input(z.object({ id: z.string(), status: z.string(), rcNumber: z.string().optional() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [cac] = await db.select().from(cacRegistrations).where(eq(cacRegistrations.id, input.id)).limit(1);
+      if (!cac) throw new TRPCError({ code: "NOT_FOUND", message: "CAC registration not found" });
+      assertTenantAccess(ctx.user, cac.tenantId);
       await db.update(cacRegistrations).set({
         status: input.status,
         rcNumber: input.rcNumber,
@@ -132,8 +139,11 @@ export const complianceRouter = router({
 
   submitProcurementBid: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [bid] = await db.select().from(procurementBids).where(eq(procurementBids.id, input.id)).limit(1);
+      if (!bid) throw new TRPCError({ code: "NOT_FOUND", message: "Bid not found" });
+      assertTenantAccess(ctx.user, bid.tenantId);
       await db.update(procurementBids).set({ status: "submitted", submittedAt: new Date(), updatedAt: new Date() }).where(eq(procurementBids.id, input.id));
       return { ok: true };
     }),

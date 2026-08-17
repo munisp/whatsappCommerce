@@ -1,0 +1,23 @@
+{
+  "name": "shelf_beverages",
+  "description": "Beverage shelf, frontal angle. YOLO overcounts Coca-Cola slightly; VLM exact on the rest.",
+  "ground_truth": [
+    {"label": "Coca-Cola 50cl", "true_count": 12},
+    {"label": "Fanta Orange 50cl", "true_count": 8},
+    {"label": "Bottled Water 75cl", "true_count": 20}
+  ],
+  "mock_vlm": {
+    "scene_description": "Frontal view of a beverage shelf with three rows",
+    "inventory_notes": "Top row slightly obscured",
+    "items": [
+      {"label": "Coca-Cola 50cl", "count": 11, "confidence": 0.85, "location": "top", "notes": ""},
+      {"label": "Fanta Orange 50cl", "count": 8, "confidence": 0.9, "location": "middle", "notes": ""},
+      {"label": "Bottled Water 75cl", "count": 19, "confidence": 0.8, "location": "bottom", "notes": "one partially hidden"}
+    ]
+  },
+  "mock_yolo": {
+    "counts": {"coca cola": 12, "fanta": 8, "bottle": 20},
+    "detections": [],
+    "total_detected": 40
+  }
+}

@@ -24,6 +24,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { creditAccounts, creditLedger } from "../../../drizzle/schema";
 import { getCreditAccountByIdTx, type TxHandle } from "./accounts";
+import { reportEvent } from "../compliance/bureau";
 
 export interface RepaymentArgs {
   accountId: string;
@@ -34,6 +35,30 @@ export interface RepaymentArgs {
 export interface RepaymentResult {
   ok: boolean;
   outstandingAfter: number;
+  /**
+   * W14.1: true when the repayment was NOT applied because a repayment row
+   * with this ref already exists (unique index credit_ledger_repayment_ref_uniq,
+   * migration 0052). Idempotent exactly-once guarantee for concurrent
+   * retrySettlement calls: the loser of the race reports already-settled
+   * instead of double-settling or throwing.
+   */
+  alreadySettled?: boolean;
+}
+
+/** Postgres unique-violation on the repayment ref index (0052)? */
+function isRepaymentRefUniqueViolation(err: any): boolean {
+  const seen = new Set<any>();
+  let cur: any = err;
+  // node-postgres may nest the driver error under .cause — walk the chain.
+  while (cur && typeof cur === "object" && !seen.has(cur)) {
+    seen.add(cur);
+    if (String(cur.code ?? "") === "23505") {
+      const where = `${cur.constraint ?? ""} ${cur.constraint_name ?? ""} ${cur.message ?? ""}`;
+      if (where.includes("credit_ledger_repayment_ref_uniq")) return true;
+    }
+    cur = cur.cause;
+  }
+  return false;
 }
 
 export async function applyRepaymentTx(
@@ -47,7 +72,9 @@ export async function applyRepaymentTx(
     return { ok: false, outstandingAfter: account?.outstandingCents ?? 0 };
   }
 
-  return db.transaction(async (tx) => {
+  let result: RepaymentResult;
+  try {
+    result = await db.transaction(async (tx) => {
     // ── ATOMIC CLAIM: refuse over-repayment inside the guard ──────────────
     const [claimed] = await tx
       .update(creditAccounts)
@@ -114,6 +141,59 @@ export async function applyRepaymentTx(
         .where(and(inArray(creditLedger.id, settleIds), eq(creditLedger.status, "posted")));
     }
 
+    // ── W13: order-access auto-lift — a fully repaid facility is in good
+    // standing again, so any credit-control suspension lifts in the SAME
+    // transaction (claim-first on suspended=true; no-op otherwise).
+    if (claimed.outstandingCents === 0 && claimed.suspended === true) {
+      await tx
+        .update(creditAccounts)
+        .set({ suspended: false, suspendedAt: null, suspensionReason: null, updatedAt: now })
+        .where(and(eq(creditAccounts.id, args.accountId), eq(creditAccounts.suspended, true)));
+    }
+
     return { ok: true, outstandingAfter: claimed.outstandingCents };
-  });
+    });
+  } catch (err: any) {
+    // W14.1: a concurrent applyRepaymentTx/retrySettlement with the SAME ref
+    // won the insert race — the unique index (0052) rejected our repayment
+    // row and the transaction rolled back (no decrement, no ledger row, no
+    // FIFO flip). Translate to an idempotent already-settled no-op instead
+    // of throwing into the caller.
+    if (isRepaymentRefUniqueViolation(err)) {
+      const account = await getCreditAccountByIdTx(db, args.accountId);
+      return { ok: true, outstandingAfter: account?.outstandingCents ?? 0, alreadySettled: true };
+    }
+    throw err;
+  }
+
+  // W14: bureau events AFTER the money-path transaction commits — never
+  // blocking, never throwing (reportEvent skips non-consented accounts).
+  // alreadySettled no-ops skip re-reporting: the winner already reported.
+  if (result.ok && !result.alreadySettled) {
+    await reportEvent(db, {
+      accountId: args.accountId,
+      eventType: "repayment",
+      payload: {
+        amountCents,
+        currency: "NGN",
+        ref: args.ref.slice(0, 128),
+        outstandingAfter: result.outstandingAfter,
+        occurredAt: now.toISOString(),
+      },
+    });
+    // Repayment-to-zero: the facility is current again → 'cure' event
+    // (clears any prior delinquency at the bureau).
+    if (result.outstandingAfter === 0) {
+      await reportEvent(db, {
+        accountId: args.accountId,
+        eventType: "cure",
+        payload: {
+          amountCents,
+          outstandingAfter: 0,
+          occurredAt: now.toISOString(),
+        },
+      });
+    }
+  }
+  return result;
 }

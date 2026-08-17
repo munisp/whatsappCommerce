@@ -28,6 +28,7 @@ import {
   PO_STATUSES,
   type DbHandle,
 } from "../services/procurement";
+import { suspensionMessage } from "../services/procurement/creditEnforcement";
 import { requireApprovedKyb } from "../services/kycGate";
 
 async function requireDb(): Promise<DbHandle> {
@@ -149,6 +150,22 @@ export const procurementRouter = router({
         notes: input.notes ?? null,
       });
       if (!result.ok) {
+        if (result.reason === "suspended") {
+          // W14.1: transient lookup outage (unavailable) → neutral try-again
+          // copy via suspensionMessage, never dunning guidance.
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: suspensionMessage(
+              {
+                suspended: true,
+                reason: result.suspensionReason ?? null,
+                outstandingCents: result.outstandingCents ?? null,
+                unavailable: result.unavailable === true,
+              },
+              (cents) => `₦${(cents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            ),
+          });
+        }
         const msg = result.reason === "below_moq"
           ? `Subtotal below supplier MOQ of ${result.moqCents} cents`
           : result.reason === "empty"
@@ -173,6 +190,7 @@ export const procurementRouter = router({
     }),
 
   getPo: protectedProcedure
+    // authz:exempt object-level check inside getPoForEitherSide (buyer-side or supplier-side access)
     .input(z.object({ poId: z.string() }))
     .query(async ({ input, ctx }) => {
       const db = await requireDb();

@@ -1,0 +1,8 @@
+{
+  "id": "J62",
+  "title": "charge-first repayment",
+  "feature": "initiateRepayment → mandate charge → FIFO settle, exactly-once",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

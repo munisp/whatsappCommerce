@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { productImageCollections } from "../../drizzle/schema";
 import { eq, desc, count, sql } from "drizzle-orm";
@@ -221,8 +222,11 @@ export const productImagesRouter = router({
         h: z.number().min(0).max(1),
       }).nullable(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [img] = await db.select().from(productImageCollections).where(eq(productImageCollections.id, input.id)).limit(1);
+      if (!img) throw new TRPCError({ code: "NOT_FOUND", message: "Image not found" });
+      assertTenantAccess(ctx.user, img.tenantId);
       await db.update(productImageCollections)
         .set({ bbox: input.bbox })
         .where(eq(productImageCollections.id, input.id));
@@ -232,8 +236,11 @@ export const productImagesRouter = router({
   // Rate image quality
   rateImage: protectedProcedure
     .input(z.object({ id: z.string(), qualityScore: z.number().min(1).max(5) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [img] = await db.select().from(productImageCollections).where(eq(productImageCollections.id, input.id)).limit(1);
+      if (!img) throw new TRPCError({ code: "NOT_FOUND", message: "Image not found" });
+      assertTenantAccess(ctx.user, img.tenantId);
       await db.update(productImageCollections)
         .set({ qualityScore: input.qualityScore })
         .where(eq(productImageCollections.id, input.id));
@@ -243,8 +250,11 @@ export const productImagesRouter = router({
   // Delete an image
   deleteImage: protectedProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [img] = await db.select().from(productImageCollections).where(eq(productImageCollections.id, input.id)).limit(1);
+      if (!img) throw new TRPCError({ code: "NOT_FOUND", message: "Image not found" });
+      assertTenantAccess(ctx.user, img.tenantId);
       await db.delete(productImageCollections)
         .where(eq(productImageCollections.id, input.id));
       return { success: true };

@@ -34,7 +34,9 @@ import type { TxHandle } from "./accounts";
 import { getWindow } from "../sessionWindow";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "../waSender";
 import { formatNairaCompact } from "./scoring";
+import { suspendOrderAccessTx } from "./enforcement";
 import { captureException } from "../observability";
+import { reportEvent } from "../compliance/bureau";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Late fee: 2% of the overdue draw amount, applied once at +3d. */
@@ -217,6 +219,28 @@ export async function runDunningCheckTx(
         if (frozenRow) {
           result.frozen += 1;
           justFroze = true;
+          // W14: bureau 'delinquency' event at the +7d freeze milestone
+          // (highest severity). Fire-and-forget; never throws.
+          await reportEvent(db, {
+            accountId: draw.creditAccountId,
+            eventType: "delinquency",
+            payload: {
+              drawId: draw.id,
+              amountCents: draw.amountCents,
+              currency: "NGN",
+              daysOverdue: offsetDays,
+              severity: "freeze",
+              occurredAt: now.toISOString(),
+            },
+          });
+          // W13 credit control plane: the +7d freeze ALSO suspends the
+          // buyer's order access with this supplier (claim-first; lifted
+          // automatically when outstanding returns to 0 — repayment.ts).
+          await suspendOrderAccessTx(db, {
+            buyerTenantId: account.buyerTenantId,
+            supplierTenantId: account.supplierTenantId,
+            reason: "dunning_freeze_+7d",
+          }, now);
         }
       }
 
@@ -224,14 +248,49 @@ export async function runDunningCheckTx(
       if (offsetDays >= 3) {
         if (await claimMarker(db, draw.id, MARKERS.fee)) {
           const feeCents = Math.max(1, Math.round(draw.amountCents * LATE_FEE_RATE));
-          await db.insert(creditLedger).values({
-            creditAccountId: draw.creditAccountId,
-            kind: "fee",
-            amountCents: feeCents,
-            ref: `latefee:${draw.id}`.slice(0, 128),
-            note: `Late fee ${LATE_FEE_RATE * 100}% of draw ${draw.id} at +${offsetDays}d overdue`,
+          // A1-08(b): the fee is REAL debt — increment outstanding in the
+          // SAME transaction as the ledger row (pre-fix the fee was recorded
+          // but never owed: outstanding unchanged, fee rows excluded from
+          // the repayment FIFO, so the fee was uncollectible). The atomic
+          // increment cannot push outstanding below zero and needs no guard
+          // (it only grows the debt); the marker claim above keeps the whole
+          // block once-per-draw across overlapping sweeps. Repayments settle
+          // fee-bearing outstanding through the normal over-repayment guard:
+          // the buyer now owes draw + fee. Fee rows remain outside the FIFO
+          // settlement flip (they have no due_date/lifecycle) — they are
+          // collected as part of outstanding, documented here.
+          await db.transaction(async (tx) => {
+            await tx.insert(creditLedger).values({
+              creditAccountId: draw.creditAccountId,
+              kind: "fee",
+              amountCents: feeCents,
+              ref: `latefee:${draw.id}`.slice(0, 128),
+              note: `Late fee ${LATE_FEE_RATE * 100}% of draw ${draw.id} at +${offsetDays}d overdue`,
+            });
+            await tx
+              .update(creditAccounts)
+              .set({
+                outstandingCents: sql`${creditAccounts.outstandingCents} + ${feeCents}`,
+                updatedAt: now,
+              })
+              .where(eq(creditAccounts.id, draw.creditAccountId));
           });
           result.feesApplied += 1;
+          // W14: bureau 'delinquency' event at the +3d late-fee milestone.
+          // Fire-and-forget; never throws. (The +7d freeze escalates with a
+          // second delinquency event, severity 'freeze'.)
+          await reportEvent(db, {
+            accountId: draw.creditAccountId,
+            eventType: "delinquency",
+            payload: {
+              drawId: draw.id,
+              amountCents: draw.amountCents,
+              currency: "NGN",
+              daysOverdue: offsetDays,
+              severity: "late_fee",
+              occurredAt: now.toISOString(),
+            },
+          });
         }
       }
 

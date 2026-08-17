@@ -130,6 +130,30 @@ supplier-profile activation gating + directory `kybVerified` trust flag
 jti revocation, admin revoke-all, tenantType backfill to 'hybrid', and the
 last-owner guard (J60).
 
+Wave 13 (J61–J66) attacks the W13 credit-capture money paths end-to-end:
+mandate-gated facility approval above the ₦50k micro-credit floor
+(requestMandate → paystack authorization URL → confirmMandate → activation;
+floor-level facilities stay mandate-free) (J61); charge-mandate-first
+repayment with the mock recording `/transaction/charge_authorization` under
+the exact `cr-{accountId}-*` reference, FIFO settlement, zero payment-link
+outbounds, and double-submit refused BEFORE any provider charge (J62);
+declined mandate charge → graceful payment-link fallback + dunning notice +
+claim release + exactly-once link settlement (J63); scorer-driven DOWNWARD
+limit revision with `credit_limit_history` audit rows (`auto_revision`,
+`limit_clamped` at outstanding) and the restored upward path (J64); the
+first-draw tenure gate (`CREDIT_TENURE_GATE_DAYS`, override + aged account)
+plus the dunning +7d freeze suspending order access — WhatsApp PO
+submission to that supplier is rejected with repay-guidance copy, and a
+full repayment auto-lifts the suspension (J65); and supplier-direct
+settlement — a credit PO lands 'paid' (fulfillable) with NO payment link,
+the supplier's funds-credit ledger row, and the buyer's "Paid via credit —
+due {date}" notice (J66). The paystack/flutterwave mock hosts gain
+mandate-charge endpoints (`charge_authorization` / `tokenized-charges`)
+with decline scripting (`setMandateChargeStatus`). The sim world disables
+the first-draw tenure gate by default (`CREDIT_TENURE_GATE_DAYS=0`,
+restored between journeys — J65 re-enables it) and the seed-account reset
+clears the W13 suspension + mandate-link columns.
+
 ## Prod bugs found by this suite (fixed surgically)
 
 1. **`server/services/useCases.ts`** — the numeric menu selector hijacked
@@ -212,6 +236,25 @@ Wave 12 (found by J53/J55):
     (`onConflictDoUpdate` on `(tenantId, cohortMonth)` /
     `(tenantId, customerPhone)` with no backing unique constraint), so every
     cohort/churn write 500'd. Both are now select-then-insert/update.
+
+Wave 13 (found by J62/J66):
+
+14. **`server/services/procurement/creditEnforcement.ts`** — the
+    supplier-direct settlement adapter called
+    `settleDrawToSupplier({ poId, drawResult: { ledgerId } })`, but the
+    tradeCredit contract requires a SUCCESSFUL draw result
+    (`Extract<DrawResult, { ok: true }>`): the bare `{ ledgerId }` shape
+    failed the `drawResult?.ok` guard, so the settle call SILENTLY no-oped
+    (`action: 'no_draw'`, swallowed by the adapter's own catch-log) and a
+    credit PO never reached its paid/fulfillable state. The adapter now
+    reconstructs the success shape (`{ ok: true, ledgerId }`).
+15. **`server/services/tradeCredit/capture.ts`** — a double-submitted
+    mandate repayment (fresh random reference per call, so the exactly-once
+    claim cannot catch it) CHARGED THE MANDATE FIRST and only then hit
+    `applyRepaymentTx`'s claim-first over-repayment guard — money moved with
+    no settlement (`settlement_failed`, left for reconciliation). A
+    pre-charge guard now refuses any amount above outstanding
+    (`reason: 'exceeds_outstanding'`) before the provider is ever called.
 
 ## Rules
 

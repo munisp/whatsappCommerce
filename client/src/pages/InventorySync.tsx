@@ -135,7 +135,8 @@ export default function InventorySync() {
               <p className="text-muted-foreground text-xs leading-relaxed">
                 The Odoo integration pulls product stock quantities via XML-RPC every 5 minutes (heartbeat job). 
                 Synced values are written to <code className="bg-muted px-1 rounded">inventory_snapshots</code> with a 
-                separate <em>reserved</em> and <em>available</em> column. When a WhatsApp order is placed, 
+                separate <em>reserved</em> and <em>available</em> column. The sync reports real Odoo stock only —
+                reservations are not fabricated by the sync (<code className="bg-muted px-1 rounded">reservedQty</code> stays 0 until a real reservation source is wired). When a WhatsApp order is placed, 
                 an atomic SQL UPDATE decrements <code className="bg-muted px-1 rounded">availableQty</code> — 
                 if it would go negative, the transaction is rejected, preventing overselling.
               </p>

@@ -1,0 +1,20 @@
+{
+  "id": "J63",
+  "title": "mandate charge failure fallback",
+  "feature": "declined mandate charge → dunning + payment-link fallback",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000319",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910231163,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect your credit repayment of ₦80,000 from your linked payment mandate (sim: mandate charge declined (402)). Please complete the repayment via the payment link to keep your credit facility in good standing."
+    }
+  ]
+}

@@ -29,7 +29,7 @@ import { useActiveTenant } from "@/contexts/TenantContext";
 import {
   useApprovePo, useB2bUtils, useCreditAccounts, useMarkFulfilled, useMarkPaid, usePo, usePos, useRejectPo, useTenantNames,
 } from "@/lib/b2b";
-import { formatDate, formatNaira, type PurchaseOrder } from "@/lib/b2bLogic";
+import { formatDate, formatNaira, suspensionBadge, type PurchaseOrder } from "@/lib/b2bLogic";
 import { Check, ClipboardCheck, Copy, Inbox, Loader2, PackageCheck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,7 +50,13 @@ function PendingCard({
 }: {
   po: PurchaseOrder;
   buyerName: string;
-  account: { status: "active" | "frozen" | "closed"; limit: number; outstanding: number } | null;
+  account: {
+    status: "active" | "frozen" | "closed";
+    limit: number;
+    outstanding: number;
+    suspended?: boolean;
+    suspensionReason?: string | null;
+  } | null;
   onApprove: () => void;
   onReject: () => void;
   busy: boolean;
@@ -66,7 +72,20 @@ function PendingCard({
               <span className="font-mono text-xs">{po.poNumber}</span> · {formatDate(po.createdAt)}
             </CardDescription>
           </div>
-          <CreditStatusChip account={account} poSubtotal={po.subtotal} />
+          <div className="flex items-center gap-1.5">
+            {suspensionBadge(account) && (
+              // Read-only: the supplier sees that this buyer's credit access
+              // is suspended (new POs from them are blocked server-side).
+              <Badge
+                variant="outline"
+                className={`font-normal ${suspensionBadge(account)!.className}`}
+                title={account?.suspensionReason ?? "Buyer's ordering is suspended until they repay"}
+              >
+                {suspensionBadge(account)!.label}
+              </Badge>
+            )}
+            <CreditStatusChip account={account} poSubtotal={po.subtotal} />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -140,8 +159,22 @@ export default function SupplierApprovals() {
 
   // buyerTenantId → their credit account with me
   const accountByBuyer = useMemo(() => {
-    const map = new Map<string, { status: "active" | "frozen" | "closed"; limit: number; outstanding: number }>();
-    for (const a of accounts ?? []) map.set(a.buyerTenantId, { status: a.status, limit: a.limit, outstanding: a.outstanding });
+    const map = new Map<string, {
+      status: "active" | "frozen" | "closed";
+      limit: number;
+      outstanding: number;
+      suspended?: boolean;
+      suspensionReason?: string | null;
+    }>();
+    for (const a of accounts ?? []) {
+      map.set(a.buyerTenantId, {
+        status: a.status,
+        limit: a.limit,
+        outstanding: a.outstanding,
+        suspended: a.suspended === true,
+        suspensionReason: a.suspensionReason ?? null,
+      });
+    }
     return map;
   }, [accounts]);
 

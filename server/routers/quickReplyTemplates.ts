@@ -71,6 +71,7 @@ export const quickReplyTemplatesRouter = router({
 
   /** Delete a template by ID. */
   delete: protectedProcedure
+    // authz:exempt shared quick-reply template library (tenantId nullable; list is global), cross-tenant by design
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -89,6 +90,7 @@ export const quickReplyTemplatesRouter = router({
 
   /** Increment usage count when a template is used. */
   incrementUsage: protectedProcedure
+    // authz:exempt shared quick-reply template library (tenantId nullable; list is global), cross-tenant by design
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const db = await getDb();

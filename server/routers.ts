@@ -24,13 +24,18 @@ import { waTemplatesRouter } from "./routers/waTemplates";
 import { ctwaRouter } from "./routers/ctwa";
 import { inventoryRouter } from "./routers/inventory";
 import { broadcastAbRouter } from "./routers/broadcastAb";
+import { journeysRouter } from "./routers/journeys";
+import { consentsRouter } from "./routers/consents";
 import { onboardingRouter } from "./routers/onboarding";
 import { kycRouter } from "./routers/kyc";
 import { heartbeatRouter } from "./routers/heartbeat";
 import { nlpRouter } from "./routers/nlp";
+import { catalogBootstrapRouter } from "./routers/catalogBootstrap";
 import { orderCrudRouter } from "./routers/orderCrud";
+import { codRouter } from "./routers/cod";
 import { promosRouter } from "./routers/promos";
 import { customersRouter } from "./routers/customers";
+import { crmRouter } from "./routers/crm";
 import { invoiceRouter } from "./routers/invoice";
 import { paymentGatewayRouter } from "./routers/paymentGateway";
 import { tenantPortalRouter } from "./routers/tenantPortal";
@@ -87,9 +92,13 @@ import { reportRouter } from "./routers/report";
 import { auditRouter } from "./routers/audit";
 import { integrationsRouter } from "./routers/integrations";
 import { procurementRouter } from "./routers/procurement";
+import { creditFacilitiesRouter } from "./routers/creditFacilities";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
+import { erpProvisionRouter } from "./routers/erpProvision";
+import { embeddedSignupRouter } from "./routers/embeddedSignup";
+import { shopifyIntegrationRouter } from "./routers/shopifyIntegration";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -143,13 +152,18 @@ export const appRouter = router({
   ctwa: ctwaRouter,
   inventory: inventoryRouter,
   broadcastAb: broadcastAbRouter,
+  journeys: journeysRouter,
+  consents: consentsRouter,
   onboarding: onboardingRouter,
   kyc: kycRouter,
   heartbeat: heartbeatRouter,
   nlp: nlpRouter,
+  catalogBootstrap: catalogBootstrapRouter,
   orderCrud: orderCrudRouter,
+  cod: codRouter,
   promos: promosRouter,
   customers: customersRouter,
+  crm: crmRouter,
   invoice: invoiceRouter,
   paymentGateway: paymentGatewayRouter,
   tenantPortal: tenantPortalRouter,
@@ -212,9 +226,13 @@ export const appRouter = router({
   audit: auditRouter,
   integrations: integrationsRouter,
   tradeCredit: tradeCreditRouter,
+  creditFacilities: creditFacilitiesRouter,
   creditRepay: creditRepayRouter,
   procurement: procurementRouter,
   onboardingCopilot: onboardingCopilotRouter,
+  erpProvision: erpProvisionRouter,
+  embeddedSignup: embeddedSignupRouter,
+  shopifyIntegration: shopifyIntegrationRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";

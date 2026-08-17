@@ -29,7 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { useB2bUtils, useCancelPo, useCreditAccounts, usePos, useRequestCreditAccount, useSuppliers, useTenantNames } from "@/lib/b2b";
 import {
-  dueCountdown, formatDate, formatNaira, type PoStatus, type PurchaseOrder, type SupplierSummary,
+  dueCountdown, formatDate, formatNaira, paidViaCreditLabel, type PoStatus, type PurchaseOrder, type SupplierSummary,
 } from "@/lib/b2bLogic";
 import { FileText, HandCoins, Loader2, Plus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
@@ -201,9 +201,14 @@ export default function ProcurementHub() {
                           <TableCell>
                             <div className="flex items-center gap-1.5">
                               <PoStatusBadge status={po.status} />
-                              {po.paymentMode === "credit" && (
+                              {po.paymentMode === "credit" && po.status === "invoiced" ? (
+                                // Credit draw settled straight to the supplier — no payment link.
+                                <Badge variant="outline" className="text-[10px] font-normal border-sky-500/40 text-sky-400">
+                                  {paidViaCreditLabel(po.dueDate)}
+                                </Badge>
+                              ) : po.paymentMode === "credit" ? (
                                 <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">credit</Badge>
-                              )}
+                              ) : null}
                             </div>
                           </TableCell>
                           <TableCell>

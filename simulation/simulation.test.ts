@@ -8,12 +8,16 @@
 import { describe, expect, it } from "vitest";
 import { loadJourneys, runAll } from "./runner";
 
-describe("WhatsApp feature simulation (60 journeys)", () => {
+// W13: the simulation journeys draw on credit immediately after facility
+// approval — disable the first-draw tenure gate (default 7d) for the sim.
+process.env.CREDIT_TENURE_GATE_DAYS = "0";
+
+describe("WhatsApp feature simulation (91 journeys)", () => {
   it(
     "runs every journey against the real webhook handlers with Meta mocked",
     async () => {
       const journeys = await loadJourneys();
-      expect(journeys.length).toBe(60);
+      expect(journeys.length).toBe(91);
       const results = await runAll();
       const failed = results.filter((r) => !r.pass);
       expect(

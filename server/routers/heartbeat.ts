@@ -7,9 +7,12 @@
  */
 import { publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { runInventorySyncHeartbeat } from "../services/inventorySync";
 import { inventorySnapshots } from "../../drizzle/schema";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
+
+export { runInventorySyncHeartbeat } from "../services/inventorySync";
 
 export const heartbeatRouter = router({
   /**
@@ -20,17 +23,12 @@ export const heartbeatRouter = router({
   inventorySync: publicProcedure
     .input(z.object({ _heartbeat: z.string().optional() }).optional())
     .mutation(async ({ ctx }) => {
+      // A3-F03: run the real per-tenant Odoo inventory sync (fail-closed
+      // logging inside; never throws), then report low-stock items.
+      const summary = await runInventorySyncHeartbeat();
+
       const db = await getDb();
       if (!db) throw new Error("Database not available");
-
-      // In production: call Odoo XML-RPC here
-      // const odooStock = await callOdooXmlRpc(ENV.odooUrl, ENV.odooDb, ENV.odooUser, ENV.odooPassword);
-      // For now: update lastSyncedAt for all snapshots to mark sync ran
-      const now = Date.now();
-      await db
-        .update(inventorySnapshots)
-        .set({ lastSyncedAt: new Date(now), syncSource: "heartbeat" })
-        .execute();
 
       // Find low-stock items
       const lowStockItems = await db
@@ -46,8 +44,8 @@ export const heartbeatRouter = router({
         .execute();
 
       return {
-        synced: true,
-        syncedAt: new Date(now).toISOString(),
+        ...summary,
+        synced: summary.failed.length === 0,
         lowStockCount: lowStockItems.length,
         lowStockItems: lowStockItems.map((i: { productId: string; availableQty: string }) => ({
           productId: i.productId,

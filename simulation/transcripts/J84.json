@@ -1,0 +1,61 @@
+{
+  "id": "J84",
+  "title": "new-tenant w16 distribution e2e",
+  "feature": "embedded signup → template submit → shopify connect+sync → first bridged order → WhatsApp consent/menu on new creds",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348018069347",
+      "profileName": "Fresh Buyer",
+      "inboundId": "wamid.sim.in.text.00269",
+      "at": 1786910282750,
+      "kind": "text",
+      "text": "hello"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00269",
+      "at": 1786910282753
+    },
+    {
+      "dir": "out",
+      "phone": "2348018069347",
+      "wamid": "wamid.sim.000422",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910282771,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018069347",
+      "profileName": "Sim User 9347",
+      "inboundId": "wamid.sim.in.text.00270",
+      "at": 1786910283294,
+      "kind": "text",
+      "text": "YES"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00270",
+      "at": 1786910283298
+    },
+    {
+      "dir": "out",
+      "phone": "2348018069347",
+      "wamid": "wamid.sim.000423",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1786910283317,
+      "kind": "text",
+      "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Wave16 Fresh Stores! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
+    }
+  ]
+}

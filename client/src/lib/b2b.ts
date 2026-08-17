@@ -62,6 +62,8 @@ interface RawDirectoryEntry {
     limitCents: number;
     outstandingCents: number;
     termsDays: number;
+    suspended?: boolean;
+    suspensionReason?: string | null;
   } | null;
 }
 
@@ -118,6 +120,8 @@ interface RawCreditAccount {
   status: CreditAccount["status"];
   score: number | null;
   scoreReasons: unknown;
+  suspended?: boolean;
+  suspensionReason?: string | null;
   createdAt: string | Date;
   updatedAt: string | Date;
   aging?: {
@@ -162,6 +166,8 @@ function normalizeSupplier(raw: RawDirectoryEntry): SupplierSummary {
           status: raw.credit.status as CreditAccount["status"],
           limit: raw.credit.limitCents / 100,
           outstanding: raw.credit.outstandingCents / 100,
+          suspended: raw.credit.suspended === true,
+          suspensionReason: raw.credit.suspensionReason ?? null,
         }
       : null,
   };
@@ -219,6 +225,8 @@ function normalizeAccount(raw: RawCreditAccount): CreditAccount {
     outstanding: raw.outstandingCents / 100,
     status: raw.status,
     termsDays: raw.termsDays,
+    suspended: raw.suspended === true,
+    suspensionReason: raw.suspensionReason ?? null,
     score: raw.score ?? null,
     scoreReasons: Array.isArray(raw.scoreReasons) ? (raw.scoreReasons as string[]) : [],
     aging: raw.aging

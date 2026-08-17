@@ -1,4 +1,4 @@
-import { protectedProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { waWebhookEvents } from "../../drizzle/schema";
 import { desc, eq, inArray, or, and, lte } from "drizzle-orm";
@@ -21,7 +21,7 @@ export const webhookDlqRouter = router({
         .limit(input.limit);
     }),
 
-  retryEvent: protectedProcedure
+  retryEvent: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
@@ -32,7 +32,7 @@ export const webhookDlqRouter = router({
       return { ok: true };
     }),
 
-  dismissEvent: protectedProcedure
+  dismissEvent: adminProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;

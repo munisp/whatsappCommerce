@@ -119,6 +119,7 @@ describe("webhook dedupe ledger", () => {
     set("REDIS_URL", "redis://localhost:6379");
     set("SECRETS_MASTER_KEY", Buffer.alloc(32, 7).toString("base64"));
     set("KYC_SERVICE_API_KEY", "kyc-live-test-key");
+    set("WHATSAPP_VERIFY_TOKEN", "wa-verify-test-token-0123456789"); // A4-04 prod boot gate
     vi.resetModules();
     try {
       const { claimWebhookEvent: prodClaim } = await import("./services/webhookDedupe");
@@ -330,6 +331,7 @@ describe("env boot gate", () => {
     process.env.REDIS_URL = "redis://localhost:6379";
     process.env.SECRETS_MASTER_KEY = Buffer.alloc(32, 7).toString("base64");
     process.env.KYC_SERVICE_API_KEY = "kyc-live-test-key";
+    process.env.WHATSAPP_VERIFY_TOKEN = "wa-verify-test-token-0123456789"; // A4-04 prod boot gate
     vi.resetModules();
     const mod = await import("./_core/env");
     expect(mod.REQUIRED_BY_ENV.DATABASE_URL).toBe("postgres://x");

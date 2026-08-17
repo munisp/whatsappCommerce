@@ -49,4 +49,65 @@ export interface PaymentProvider {
   verifyWebhook(headers: Record<string, string>, rawBody: string, creds: unknown): WebhookNormalization;
   fetchStatus(reference: string, creds: unknown): Promise<{ status: 'pending' | 'success' | 'failed'; amountCents: number }>;
   testConnection(creds: unknown): Promise<{ ok: boolean; detail?: string }>;
+
+  /* -------- OPTIONAL mandate capability (w13) -------- */
+  /** True when the adapter supports recurring/auto-debit mandates. */
+  supportsMandates?: boolean;
+  /**
+   * Create a reusable customer authorization. Typically returns an
+   * authorizationUrl the customer visits once to authorize future debits;
+   * mandateRef is set when the provider issues the reusable handle
+   * synchronously (otherwise it arrives later via webhook/verification).
+   */
+  createMandate?(ctx: MandateCreateCtx, creds: unknown): Promise<MandateCreateResult>;
+  /**
+   * Charge an existing mandate off-session. `ctx.reference` is passed
+   * through verbatim as the provider-side transaction reference.
+   */
+  chargeMandate?(ctx: MandateChargeCtx, creds: unknown): Promise<MandateChargeResult>;
+  /** Revoke a mandate. Best-effort where the provider lacks a true revoke. */
+  revokeMandate?(mandateRef: string, creds: unknown): Promise<{ ok: boolean }>;
+}
+
+/* ------------------------------------------------------------------ */
+/* MANDATE (recurring / auto-debit) operations — w13.                  */
+/* Foundation for repayment-at-source in trade credit: a mandate is a  */
+/* reusable customer authorization (Paystack authorization_code,       */
+/* Flutterwave token, Stripe customer/payment_method) that the         */
+/* provider can later charge off-session.                              */
+/* ------------------------------------------------------------------ */
+
+export interface MandateCreateCtx {
+  tenantId: string;
+  customerRef: string;
+  amountLimitCents?: number;
+  currency: string;
+  email?: string;
+  phone?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MandateCreateResult {
+  ok: boolean;
+  mandateRef?: string;
+  authorizationUrl?: string;
+  instructions?: string;
+  provider: string;
+  error?: string;
+}
+
+export interface MandateChargeCtx {
+  mandateRef: string;
+  amountCents: number;
+  currency: string;
+  reference: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MandateChargeResult {
+  ok: boolean;
+  reference: string;
+  status: 'success' | 'pending' | 'failed';
+  provider: string;
+  error?: string;
 }

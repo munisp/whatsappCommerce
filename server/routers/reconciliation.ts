@@ -5,6 +5,8 @@ import { paymentTransactions, paymentGatewayConfigs, orders } from "../../drizzl
 import { eq, desc, and, gte } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import crypto from "crypto";
+import { TRPCError } from "@trpc/server";
+import { auditLogs } from "../../drizzle/schema";
 
 // ─── Simulation types ─────────────────────────────────────────────────────────
 
@@ -34,8 +36,65 @@ interface AuditEntry {
   discrepancy: string | null;
 }
 
-// In-memory simulation store (production: persist to DB)
+// A3-F04: simulation results are persisted to audit_logs as `recon.simulation`
+// events (durable, queryable). The Map below is only a bounded TTL'd fallback
+// for DB-down windows: max 100 entries, entries expire after 1 hour.
+const SIM_FALLBACK_MAX = 100;
+const SIM_FALLBACK_TTL_MS = 60 * 60 * 1000;
 const simulations = new Map<string, { steps: SimStep[]; audit: AuditEntry[]; completedAt: number | null }>();
+const simulationOwners = new Map<string, Set<string>>();
+
+function simFallbackSet(id: string, v: { steps: SimStep[]; audit: AuditEntry[]; completedAt: number | null }) {
+  const now = Date.now();
+  for (const [k, e] of Array.from(simulations.entries())) {
+    if (e.completedAt != null && now - e.completedAt > SIM_FALLBACK_TTL_MS) simulations.delete(k);
+  }
+  while (simulations.size >= SIM_FALLBACK_MAX) {
+    const oldest = simulations.keys().next();
+    if (oldest.done) break;
+    simulations.delete(oldest.value);
+  }
+  simulations.set(id, v);
+}
+
+function simFallbackOwn(id: string, userId: string) {
+  let owners = simulationOwners.get(id);
+  if (!owners) {
+    owners = new Set();
+    simulationOwners.set(id, owners);
+  }
+  owners.add(userId);
+  if (simulationOwners.size > SIM_FALLBACK_MAX) {
+    const oldest = simulationOwners.keys().next();
+    if (!oldest.done) simulationOwners.delete(oldest.value);
+  }
+}
+
+async function persistSimulation(
+  ctxUserId: string,
+  simulationId: string,
+  provider: string,
+  result: { steps: SimStep[]; audit: AuditEntry[]; completedAt: number | null },
+): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    // Direct insert (not writeAuditLog, which swallows errors) so the caller
+    // can fall back to the bounded in-memory store when persistence fails.
+    await db.insert(auditLogs).values({
+      actorId: ctxUserId,
+      action: "recon.simulation",
+      entityType: "recon_simulation",
+      entityId: simulationId,
+      summary: `recon simulation ${simulationId} (${provider}, ${result.steps.length} steps)`,
+      after: { provider, ...result },
+    });
+    return true;
+  } catch (err) {
+    console.error("[reconciliation] persistSimulation failed (using in-memory fallback):", err);
+    return false;
+  }
+}
 
 function generatePaystackWebhookPayload(ref: string, amount: number, status: "success" | "failed") {
   return {
@@ -247,10 +306,16 @@ export const reconciliationRouter = router({
       injectFailure: z.boolean().default(false),
       webhookSecret: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { steps, audit } = await runSimulation(input);
       const simulationId = randomUUID();
-      simulations.set(simulationId, { steps, audit, completedAt: Date.now() });
+      const result = { steps, audit, completedAt: Date.now() };
+      // A3-F04: persist durably; keep bounded in-memory fallback on failure.
+      const persisted = await persistSimulation(String(ctx.user.id), simulationId, input.provider, result);
+      if (!persisted) {
+        simFallbackSet(simulationId, result);
+        simFallbackOwn(simulationId, String(ctx.user.id));
+      }
       return {
         simulationId,
         provider: input.provider,
@@ -269,11 +334,40 @@ export const reconciliationRouter = router({
     }),
 
   // Get audit trail for a simulation
+  // A3-F04: reads hit the durable audit_logs record; only the caller who ran
+  // the simulation (actorId) or an admin may read it. The bounded in-memory
+  // fallback is consulted when no persisted record exists.
   getAuditTrail: protectedProcedure
     .input(z.object({ simulationId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (db) {
+        const rows = await db
+          .select()
+          .from(auditLogs)
+          .where(and(
+            eq(auditLogs.action, "recon.simulation"),
+            eq(auditLogs.entityId, input.simulationId),
+          ))
+          .orderBy(desc(auditLogs.createdAt))
+          .limit(1);
+        const rec = rows[0];
+        if (rec) {
+          const isAdmin = ctx.user.role === "admin";
+          if (!isAdmin && rec.actorId !== String(ctx.user.id)) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Not your simulation" });
+          }
+          const after = (rec.after ?? {}) as { steps?: SimStep[]; audit?: AuditEntry[]; completedAt?: number | null };
+          return { steps: after.steps ?? [], audit: after.audit ?? [], completedAt: after.completedAt ?? null };
+        }
+      }
+      // Fallback path: only the owner (same process) or an admin.
       const sim = simulations.get(input.simulationId);
       if (!sim) return { steps: [], audit: [], completedAt: null };
+      if (ctx.user.role !== "admin" && !simulationOwners.get(input.simulationId)?.has(String(ctx.user.id))) {
+        // In-memory entries have no owner recorded pre-A3-F04; admins only.
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not your simulation" });
+      }
       return sim;
     }),
 
@@ -322,8 +416,11 @@ export const reconciliationRouter = router({
     }),
 
   // List recent simulations
-  listSimulations: protectedProcedure.query(async () => {
-    const list = Array.from(simulations.entries()).map(([id, sim]) => ({
+  listSimulations: protectedProcedure.query(async ({ ctx }) => {
+    const isAdmin = ctx.user.role === "admin";
+    const list = Array.from(simulations.entries())
+      .filter(([id]) => isAdmin || simulationOwners.get(id)?.has(String(ctx.user.id)))
+      .map(([id, sim]) => ({
       simulationId: id,
       totalSteps: sim.steps.length,
       successSteps: sim.steps.filter(s => s.status === "success").length,

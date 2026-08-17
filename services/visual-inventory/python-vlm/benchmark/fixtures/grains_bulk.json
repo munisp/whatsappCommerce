@@ -1,0 +1,23 @@
+{
+  "name": "grains_bulk",
+  "description": "Bulk grains section, oblique angle. Largest scene; VLM undercounts rice cups, YOLO near-exact, merge takes max.",
+  "ground_truth": [
+    {"label": "Rice Measurement Cup", "true_count": 25},
+    {"label": "Beans Measurement Cup", "true_count": 18},
+    {"label": "Garri Sack", "true_count": 4}
+  ],
+  "mock_vlm": {
+    "scene_description": "Bulk grains sold by measurement cup in open trays",
+    "inventory_notes": "Oblique camera angle compresses back rows",
+    "items": [
+      {"label": "Rice Measurement Cup", "count": 22, "confidence": 0.65, "location": "left tray", "notes": "back rows compressed"},
+      {"label": "Beans Measurement Cup", "count": 17, "confidence": 0.7, "location": "middle tray", "notes": ""},
+      {"label": "Garri Sack", "count": 4, "confidence": 0.95, "location": "floor", "notes": ""}
+    ]
+  },
+  "mock_yolo": {
+    "counts": {"rice": 25, "beans": 18, "sack": 4},
+    "detections": [],
+    "total_detected": 47
+  }
+}

@@ -16,6 +16,7 @@ import {
   bigint,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { uuid } from "drizzle-orm/pg-core";
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -239,14 +240,39 @@ export const orders = pgTable("orders", {
   metadata: jsonb("metadata"),
   notes: text("notes"),
   erpOrderId: varchar("erpOrderId", { length: 64 }),
+  // COD/offline-trade (W17/F10): current cash-on-delivery flow state. NULL for
+  // non-COD orders. See server/services/codFlow.ts for the state machine.
+  codState: varchar("codState", { length: 32 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("orders_tenant_idx").on(t.tenantId),
   index("orders_status_idx").on(t.status),
   index("orders_customer_idx").on(t.customerId),
+  index("orders_cod_state_idx").on(t.tenantId, t.codState),
   uniqueIndex("orders_number_idx").on(t.tenantId, t.orderNumber),
 ]);
+
+// ─── COD flow events (W17/F10) ───────────────────────────────────────────────
+// Append-only audit trail for the cash-on-delivery state machine. Settlement
+// idempotency is enforced by partial unique indexes (see 0056 SQL): at most
+// one 'cash_collected' and one 'settled' event per order.
+export const codEvents = pgTable("cod_events", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }).notNull(),
+  fromState: varchar("fromState", { length: 32 }),
+  toState: varchar("toState", { length: 32 }).notNull(),
+  actor: varchar("actor", { length: 128 }).notNull(),
+  note: text("note"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("cod_events_tenant_idx").on(t.tenantId),
+  index("cod_events_order_idx").on(t.orderId),
+]);
+
+export type CodEvent = typeof codEvents.$inferSelect;
+export type NewCodEvent = typeof codEvents.$inferInsert;
 
 // ─── Payment Intents ──────────────────────────────────────────────────────────
 export const paymentIntents = pgTable("payment_intents", {
@@ -805,6 +831,50 @@ export type BroadcastCampaign = typeof broadcastCampaigns.$inferSelect;
 export type InsertBroadcastCampaign = typeof broadcastCampaigns.$inferInsert;
 export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
 export type InsertBroadcastRecipient = typeof broadcastRecipients.$inferInsert;
+
+// ─── Broadcast Journeys (W17 F8) ─────────────────────────────────────────────
+// A journey is an ordered list of steps (send_template / wait / wait_for_reply
+// / condition / exit) over the existing broadcast/template infrastructure.
+// Definitions live here; per-customer progress lives in broadcast_journey_runs
+// and is advanced by runDueJourneySteps() (server/services/journeyBuilder.ts).
+export const journeyStatusEnum = pgEnum("journey_status", ["draft", "active", "paused", "archived"]);
+export const journeyRunStateEnum = pgEnum("journey_run_state", ["waiting", "done", "exited", "failed"]);
+
+export const broadcastJourneys = pgTable("broadcast_journeys", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  status: journeyStatusEnum("status").default("draft").notNull(),
+  steps: jsonb("steps").notNull(),
+  entryAudience: jsonb("entryAudience"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("broadcast_journeys_tenant_idx").on(t.tenantId),
+  index("broadcast_journeys_status_idx").on(t.status),
+]);
+
+export const broadcastJourneyRuns = pgTable("broadcast_journey_runs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  journeyId: varchar("journeyId", { length: 36 }).notNull(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerId: varchar("customerId", { length: 36 }).notNull(),
+  currentStep: integer("currentStep").default(0).notNull(),
+  state: journeyRunStateEnum("state").default("waiting").notNull(),
+  context: jsonb("context"),
+  nextRunAt: timestamp("nextRunAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("broadcast_journey_runs_journey_idx").on(t.journeyId),
+  index("broadcast_journey_runs_tenant_idx").on(t.tenantId),
+  index("broadcast_journey_runs_due_idx").on(t.state, t.nextRunAt),
+]);
+
+export type BroadcastJourney = typeof broadcastJourneys.$inferSelect;
+export type InsertBroadcastJourney = typeof broadcastJourneys.$inferInsert;
+export type BroadcastJourneyRun = typeof broadcastJourneyRuns.$inferSelect;
+export type InsertBroadcastJourneyRun = typeof broadcastJourneyRuns.$inferInsert;
 export type InventorySnapshot = typeof inventorySnapshots.$inferSelect;
 export type InsertInventorySnapshot = typeof inventorySnapshots.$inferInsert;
 export type InventorySyncLog = typeof inventorySyncLog.$inferSelect;
@@ -1342,6 +1412,15 @@ export const walletTransactions = pgTable("wallet_transactions", {
   index("wallet_tx_tenant_idx").on(t.tenantId),
   index("wallet_tx_type_idx").on(t.type),
   index("wallet_tx_created_idx").on(t.createdAt),
+  // A1-03: exactly-once withdrawal per (wallet, reference). The client
+  // reference is the idempotency key for requestWithdrawal; without this
+  // index two concurrent same-reference withdrawals both pass the
+  // read-then-check and double-debit the available balance. The loser's
+  // insert fails 23505 and is translated into an idempotent replay of the
+  // original pending withdrawal.
+  uniqueIndex("wallet_tx_wallet_ref_uniq")
+    .on(t.walletId, t.reference)
+    .where(sql`reference IS NOT NULL`),
 ]);
 
 // ─── Logistics Shipments ──────────────────────────────────────────────────────
@@ -1461,6 +1540,8 @@ export const notificationTypeEnum = pgEnum("notification_type", [
   "withdrawal_processed",
   "shipment_update",
   "system",
+  "cod_discrepancy",
+  "cod_delivery_failed",
 ]);
 
 export const merchantNotifications = pgTable("merchant_notifications", {
@@ -2248,6 +2329,8 @@ export const visualInventorySessions = pgTable("visual_inventory_sessions", {
   inventoryUpdates: jsonb("inventoryUpdates").default([]),  // [{productId, oldQty, newQty}]
   notes: text("notes"),
   scanLocation: varchar("scanLocation", { length: 256 }),  // shelf/aisle/store location
+  // CV-1: capture channel — 'mobile' (dashboard upload) or 'whatsapp' (J85 stock-take).
+  source: varchar("source", { length: 32 }).default("mobile").notNull(),
   errorMessage: text("errorMessage"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -2887,6 +2970,11 @@ export const consents = pgTable("consents", {
   customerId: varchar("customer_id", { length: 36 }),
   channel:    varchar("channel", { length: 30 }).notNull().default("whatsapp"),
   granted:    boolean("granted").notNull().default(false),
+  // W17 F8: GDPR/NDPR-grade consent tooling (additive columns).
+  scope:      varchar("scope", { length: 40 }).notNull().default("marketing"),
+  source:     varchar("source", { length: 60 }),
+  grantedAt:  timestamp("granted_at"),
+  withdrawnAt: timestamp("withdrawn_at"),
   createdAt:  timestamp("created_at").notNull().defaultNow(),
   updatedAt:  timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -2971,6 +3059,21 @@ export const creditAccounts = pgTable("credit_accounts", {
   status: varchar("status", { length: 20 }).notNull().default("active"), // 'pending' | 'active' | 'frozen' | 'closed'
   score: integer("score"),
   scoreReasons: jsonb("score_reasons"), // string[] human-readable scoring rationale
+  // W13: repayment-at-source mandate linked to this facility (payment_mandates.id).
+  mandateId: varchar("mandate_id", { length: 36 }),
+  // W13: order-access suspension (credit control plane). suspended=true blocks
+  // new credit-backed orders for this (buyer, supplier) pair while leaving the
+  // ledger intact; lifted automatically when outstanding returns to 0.
+  suspended: boolean("suspended").notNull().default(false),
+  suspendedAt: timestamp("suspended_at"),
+  suspensionReason: varchar("suspension_reason", { length: 255 }),
+  // W14: credit-bureau consent capture (roadmap F3). bureauConsentAt is the
+  // buyer's acceptance timestamp of the bureau-reporting terms; accounts
+  // without it are EXCLUDED from bureau reporting (compliance/bureau.ts).
+  bureauConsentAt: timestamp("bureau_consent_at"),
+  bureauConsentRef: varchar("bureau_consent_ref", { length: 64 }),
+  // W14: link to the wholesale credit_facilities row funding this facility.
+  facilityId: varchar("facility_id", { length: 36 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -2979,6 +3082,121 @@ export const creditAccounts = pgTable("credit_accounts", {
 ]);
 export type CreditAccount = typeof creditAccounts.$inferSelect;
 export type NewCreditAccount = typeof creditAccounts.$inferInsert;
+
+// ── W13: repayment-at-source mandates + credit limit history ───────────────
+// payment_mandates: a buyer-tenant authorization letting the platform debit
+// them at source (direct-debit / tokenized bank auth) for credit repayments.
+// Status machine: pending → active (authorization confirmed) → revoked |
+// failed. Provider interactions live in server/services/payments/mandates.ts;
+// the mandate-capable provider contract is implemented by the payments wave
+// (createMandate/chargeMandate/revokeMandate on PaymentProvider).
+export const paymentMandates = pgTable("payment_mandates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull().references(() => tenants.id),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  mandateRef: varchar("mandateRef", { length: 128 }).notNull(),
+  customerRef: varchar("customerRef", { length: 128 }),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // 'pending' | 'active' | 'revoked' | 'failed'
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("payment_mandates_tenant_status_idx").on(t.tenantId, t.status),
+  uniqueIndex("payment_mandates_tenant_provider_ref_uniq").on(t.tenantId, t.provider, t.mandateRef),
+]);
+export type PaymentMandate = typeof paymentMandates.$inferSelect;
+export type NewPaymentMandate = typeof paymentMandates.$inferInsert;
+
+// mandate_charges (A1-02/F-03): durable record of every repayment-at-source
+// mandate charge. Previously mandate charges were persisted nowhere, so a
+// 'pending' provider charge was settled immediately (money had NOT moved)
+// and could never be reconciled. The sweeper
+// (tradeCredit/capture.reconcilePendingMandateCharges) re-checks pending
+// rows via the provider's fetchStatus() and settles exactly once on
+// success / releases the dedupe claim on failure. `reference` is the
+// exactly-once repayment reference (cr-…), shared with the
+// processed_webhook_events claim and the credit_ledger repayment ref.
+export const mandateCharges = pgTable("mandate_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: uuid("account_id").notNull().references(() => creditAccounts.id),
+  mandateId: uuid("mandate_id"),
+  mandateRef: varchar("mandate_ref", { length: 128 }),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  reference: varchar("reference", { length: 128 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // 'pending' | 'success' | 'failed'
+  providerStatus: varchar("provider_status", { length: 40 }),
+  rawResponse: jsonb("raw_response"), // redacted per compliance/bureau conventions
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("mandate_charges_reference_uniq").on(t.reference),
+  index("mandate_charges_account_idx").on(t.accountId),
+  index("mandate_charges_status_idx").on(t.status),
+]);
+export type MandateCharge = typeof mandateCharges.$inferSelect;
+export type NewMandateCharge = typeof mandateCharges.$inferInsert;
+
+// credit_limit_history: append-only audit of limit revisions (auto or
+// manual). reason 'auto_revision' for scorer-driven changes, 'limit_clamped'
+// when a downward revision was clamped at the outstanding balance.
+export const creditLimitHistory = pgTable("credit_limit_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: uuid("accountId").notNull().references(() => creditAccounts.id),
+  oldLimitCents: bigint("oldLimitCents", { mode: "number" }).notNull(),
+  newLimitCents: bigint("newLimitCents", { mode: "number" }).notNull(),
+  score: integer("score"),
+  reason: varchar("reason", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("credit_limit_history_account_idx").on(t.accountId),
+]);
+export type CreditLimitHistoryEntry = typeof creditLimitHistory.$inferSelect;
+export type NewCreditLimitHistoryEntry = typeof creditLimitHistory.$inferInsert;
+
+// ── W14: credit-bureau reporting + wholesale facilities (roadmap F3) ───────
+// bureau_report_log: one row per attempted bureau report. Status machine:
+// pending (never sent / send failed — retryable via retryFailedReports) →
+// sent | disputed (buyer disputes the reported datum). payload is the
+// REDACTED event body (secrets stripped before persist — compliance/bureau.ts).
+export const bureauReportLog = pgTable("bureau_report_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountId: varchar("account_id", { length: 36 }).notNull(),
+  eventType: varchar("event_type", { length: 30 }).notNull(), // 'disbursement' | 'repayment' | 'delinquency' | 'cure' | 'closure'
+  bureau: varchar("bureau", { length: 20 }).notNull(), // 'crc' | 'creditregistry' | 'customHttp' | 'disabled'
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // 'pending' | 'sent' | 'failed' | 'disputed'
+  payload: jsonb("payload"),
+  response: jsonb("response"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("bureau_report_log_account_idx").on(t.accountId),
+  index("bureau_report_log_status_idx").on(t.status),
+]);
+export type BureauReportLogEntry = typeof bureauReportLog.$inferSelect;
+export type NewBureauReportLogEntry = typeof bureauReportLog.$inferInsert;
+
+// credit_facilities: lender-side wholesale facilities that fund the
+// trade-credit book. commitment_cents is the lender's total commitment;
+// advance_rate_bps (default 8000 = 80%) caps the eligible collateral advance.
+// CONTRACT for W14-C2: keep column names/types exactly as written.
+export const creditFacilities = pgTable("credit_facilities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  lenderName: varchar("lender_name", { length: 255 }).notNull(),
+  facilityRef: varchar("facility_ref", { length: 64 }).notNull(),
+  commitmentCents: bigint("commitment_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  advanceRateBps: integer("advance_rate_bps").notNull().default(8000),
+  covenants: jsonb("covenants"),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("credit_facilities_ref_uniq").on(t.facilityRef),
+]);
+export type CreditFacility = typeof creditFacilities.$inferSelect;
+export type NewCreditFacility = typeof creditFacilities.$inferInsert;
 
 // Append-only credit ledger. amount_cents is always non-negative; direction
 // is encoded by kind: 'invoice_draw' + 'fee' raise exposure, 'repayment'
@@ -2999,6 +3217,23 @@ export const creditLedger = pgTable("credit_ledger", {
 }, (t) => [
   index("credit_ledger_account_idx").on(t.creditAccountId),
   index("credit_ledger_due_idx").on(t.dueDate),
+  // W14.1: exactly-once repayment per (account, ref). Scoped to repayment
+  // rows only — settlement_retry markers share the table with kind
+  // 'adjustment' and the SAME ref, so a full-table index would collide.
+  // Two concurrent retrySettlement calls now resolve to one insert; the
+  // loser sees 23505 and applyRepaymentTx translates it to an idempotent
+  // already_settled-style no-op.
+  uniqueIndex("credit_ledger_repayment_ref_uniq")
+    .on(t.creditAccountId, t.ref)
+    .where(sql`kind = 'repayment' AND ref IS NOT NULL`),
+  // A1-04/F-01: exactly-once invoice draw per (account, ref). Draw refs are
+  // `draw:{poId}` — without this index two concurrent PO approvals (or a
+  // crash-retry) could insert two draw rows and increment outstanding twice
+  // for one PO. The loser sees 23505, which drawOnCreditTx translates into
+  // an idempotent already-drawn success returning the existing row.
+  uniqueIndex("credit_ledger_draw_ref_uniq")
+    .on(t.creditAccountId, t.ref)
+    .where(sql`kind = 'invoice_draw' AND ref IS NOT NULL`),
 ]);
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type NewCreditLedgerEntry = typeof creditLedger.$inferInsert;
@@ -3117,3 +3352,25 @@ export const onboardingSessions = pgTable("onboarding_sessions", {
 ]);
 export type OnboardingSessionRow = typeof onboardingSessions.$inferSelect;
 export type NewOnboardingSessionRow = typeof onboardingSessions.$inferInsert;
+
+// ── W17 F11: CRM lead scoring (commerce-native, Twenty stays system of record)
+// customer_lead_scores: one row per (tenantId, customerId), recomputed by
+// server/services/leadScoring.refreshLeadScores. `factors` is the explainable
+// breakdown — every score delta the pure computeLeadScore function applied.
+export const customerLeadScores = pgTable("customer_lead_scores", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  customerId: varchar("customerId", { length: 36 }).notNull().references(() => customers.id),
+  score: integer("score").notNull().default(0),
+  band: varchar("band", { length: 10 }).notNull().default("cold"), // 'hot' | 'warm' | 'cold'
+  stage: varchar("stage", { length: 20 }).notNull().default("new_lead"), // derived pipeline stage
+  factors: jsonb("factors").notNull().default([]), // [{factor, delta}]
+  computedAt: timestamp("computed_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("customer_lead_scores_tenant_idx").on(t.tenantId),
+  uniqueIndex("customer_lead_scores_tenant_customer_uniq").on(t.tenantId, t.customerId),
+]);
+export type CustomerLeadScore = typeof customerLeadScores.$inferSelect;
+export type NewCustomerLeadScore = typeof customerLeadScores.$inferInsert;

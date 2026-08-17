@@ -49,12 +49,13 @@ describe("0049 migration SQL", () => {
 
 describe("drizzle journal + snapshot", () => {
   it("registers idx 49 / tag 0049_tenant_type_memberships after idx 48", () => {
+    // W13 note: later waves append to the journal (0050_credit_mandates etc.),
+    // so assert the 0049 ENTRY itself rather than the journal tail.
     const entries = journal.entries;
-    const last = entries[entries.length - 1];
-    expect(entries[entries.length - 2].idx).toBe(48);
-    expect(last.idx).toBe(49);
-    expect(last.tag).toBe("0049_tenant_type_memberships");
-    expect(existsSync(path.join(root, "drizzle", `${last.tag}.sql`))).toBe(true);
+    const entry = entries.find((e: any) => e.idx === 49);
+    expect(entries[entries.indexOf(entry) - 1].idx).toBe(48);
+    expect(entry.tag).toBe("0049_tenant_type_memberships");
+    expect(existsSync(path.join(root, "drizzle", `${entry.tag}.sql`))).toBe(true);
   });
   it("ships a 0049 snapshot containing the new tables and column", () => {
     const snapPath = path.join(root, "drizzle", "meta", "0049_snapshot.json");

@@ -18,10 +18,13 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { isProd, isDev } from "./env";
+import { runRecoverySweeps, sweepEndpointAuth, sweepIntervalMinutes } from "./recoverySweeps";
+import { registerGracefulShutdown } from "./gracefulShutdown";
 import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
 import { getDb } from "../db";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
+import { runInventorySyncHeartbeat } from "../services/inventorySync";
 import { sql } from "drizzle-orm";
 import crypto from "crypto";
 import { paymentTransactions, paymentIntents, walletTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
@@ -340,10 +343,8 @@ async function startServer() {
       if (!user.isCron) return res.status(403).json({ error: "cron-only" });
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "db-unavailable" });
-      // Update lastSyncedAt for all snapshots (production: replace with Odoo XML-RPC call)
-      await db.update(inventorySnapshots)
-        .set({ lastSyncedAt: new Date(), syncSource: "heartbeat" })
-        .execute();
+      // A3-F03: run the real per-tenant Odoo inventory sync (never throws).
+      const syncSummary = await runInventorySyncHeartbeat();
       // Count low-stock items using per-product threshold via JOIN
       const lowStockRows = await db.execute(sql`
         SELECT COUNT(*) AS cnt
@@ -359,7 +360,8 @@ async function startServer() {
       const lowStockCount = Number((lowStockRows as any[])[0]?.cnt ?? 0);
       const outOfStockCount = Number((outOfStockRows as any[])[0]?.cnt ?? 0);
       return res.json({
-        ok: true,
+        ok: syncSummary.failed.length === 0,
+        sync: syncSummary,
         syncedAt: new Date().toISOString(),
         lowStockCount,
         outOfStockCount,
@@ -842,13 +844,70 @@ async function startServer() {
     }
   });
 
+  // ── Shopify app connector (W16, roadmap F7) — ADDITIVE ────────────────────
+  // OAuth redirect callback (GET) and HMAC-verified webhooks (POST
+  // /api/webhooks/shopify?t=<tenantId>). Verification + processing live in
+  // server/services/shopifyIntegration/webhook.ts.
+  app.get("/api/shopify/callback", async (req, res) => {
+    try {
+      const { handleShopifyOAuthCallbackExpress } = await import("../services/shopifyIntegration/webhook");
+      await handleShopifyOAuthCallbackExpress(req, res);
+    } catch (err: any) {
+      console.error("[shopify-oauth-callback]", err);
+      res.status(500).json({ error: err?.message });
+    }
+  });
+  app.post("/api/webhooks/shopify", express.raw({ type: "*/*" }), async (req, res) => {
+    try {
+      const { handleShopifyWebhookExpress } = await import("../services/shopifyIntegration/webhook");
+      await handleShopifyWebhookExpress(req, res);
+    } catch (err: any) {
+      console.error("[shopify-webhook]", err);
+      res.status(500).json({ error: err?.message });
+    }
+  });
+  // ── Internal recovery sweeps (assurance F-02) ─────────────────────────────
+  // Runs the recovery/reconciliation sweeps that previously had no invoker:
+  // settlement_retry markers, mandate-charge reconcile, bureau outbox retry,
+  // dunning, and webhook-dedupe retention. See _core/recoverySweeps.ts.
+  //
+  // Auth: shared-secret header `x-sweep-secret` compared (timing-safe) against
+  // SWEEP_SECRET. FAIL-CLOSED: when SWEEP_SECRET is unset the endpoint is
+  // disabled (503) — there is no default secret. Wrong/missing secret → 401.
+  //
+  // External scheduler example (any cron runner / k8s CronJob):
+  //   curl -XPOST -H "x-sweep-secret: $SWEEP_SECRET" https://app/api/internal/sweeps
+  app.post("/api/internal/sweeps", async (req, res) => {
+    const auth = sweepEndpointAuth(req.headers as any);
+    if (auth === "disabled") {
+      // Fail closed: never run recovery sweeps on an unauthenticated endpoint.
+      return res.status(503).json({ error: "sweeps disabled — SWEEP_SECRET is not configured" });
+    }
+    if (auth === "unauthorized") {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+    try {
+      const report = await runRecoverySweeps();
+      console.log(`[sweeps] completed ok=${report.ok} in ${report.durationMs}ms: ${JSON.stringify(report.results)}`);
+      return res.status(report.ok ? 200 : 207).json(report);
+    } catch (err: any) {
+      return res.status(503).json({ error: String(err?.message ?? err) });
+    }
+  });
+
   // ── WhatsApp Business API webhook (Meta) ──────────────────────────────────
   // GET: verification challenge from Meta
   app.get("/api/webhooks/whatsapp", (req, res) => {
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
     const challenge = req.query["hub.challenge"];
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN ?? "whatsapp_verify_token_demo";
+    // A4-04: never fall back to the public static token in production — the
+    // env.ts boot gate already refuses to boot in prod when the var is unset
+    // or still the demo value; this is defense-in-depth at request time.
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN ?? (isProd ? "" : "whatsapp_verify_token_demo");
+    if (!verifyToken) {
+      return res.status(503).json({ error: "Webhook verification not configured" });
+    }
     if (mode === "subscribe" && token === verifyToken) {
       console.log("[whatsapp-webhook] Verification successful");
       return res.status(200).send(challenge);
@@ -1151,6 +1210,44 @@ async function startServer() {
             }
             continue; // Skip NLP processing for PO commands
           }
+          // ── CV-1 / J85: visual stock-take APPLY / REVIEW replies ────────
+          // "APPLY" applies the calibrated auto-apply items from the latest
+          // WhatsApp shelf-photo stock-take; "REVIEW" parks it for the
+          // dashboard. Tenant opt-in only — the service returns handled=false
+          // when settings.visualInventoryWhatsAppEnabled is off and the text
+          // falls through to the normal menu/NLP pipeline.
+          const stocktakeMatch = textBody.trim().match(/^(APPLY|REVIEW)$/i);
+          if (stocktakeMatch) {
+            try {
+              const { handleStocktakeApplyReply } = await import("../services/visualStocktake");
+              const stOutcome = await handleStocktakeApplyReply({
+                tenantId,
+                waPhoneNumber,
+                command: stocktakeMatch[1].toUpperCase() as "APPLY" | "REVIEW",
+              });
+              if (stOutcome.handled) continue; // Skip NLP processing for stock-take commands
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] visual stocktake reply error:", e?.message);
+            }
+          }
+          // ── W17/F10: rider cash-collection confirmation ─────────────────
+          // "RIDER_CONFIRM <orderNumber> [amount]" from a registered rider
+          // phone (tenant settings.codRiderPhones). Non-riders / other texts
+          // fall through to the normal menu/NLP pipeline (handled=false).
+          if (/^\s*RIDER_CONFIRM\s+\S+/i.test(textBody)) {
+            try {
+              const { handleRiderConfirm } = await import("../services/codFlow");
+              const riderOutcome = await handleRiderConfirm({
+                db,
+                tenantId,
+                waPhoneNumber,
+                text: textBody,
+              });
+              if (riderOutcome.handled) continue; // Skip NLP processing for rider commands
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] rider confirm error:", e?.message);
+            }
+          }
           // Publish inbound message to Kafka for event streaming
           publishConversationEvent(
             msg.id ?? randomUUID(),
@@ -1356,8 +1453,26 @@ async function startServer() {
                 // order must never be double-handled as a product search.
                 return import("../services/visualSearch").then(({ shouldRunVisualSearchAfterReceipt, handleInboundProductImage }) =>
                   shouldRunVisualSearchAfterReceipt(outcome)
-                    ? handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
-                        .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message))
+                    // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
+                    // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
+                    // Runs BEFORE visual product search when enabled — a
+                    // stock-take tenant's shelf photos must not be mistaken
+                    // for customer product lookups. Outcome "disabled" falls
+                    // through to visual search unchanged.
+                    ? import("../services/visualStocktake")
+                        .then(({ handleInboundStocktakeImage }) =>
+                          handleInboundStocktakeImage({ tenantId, waPhoneNumber, mediaId })
+                            .catch((e: any) => {
+                              console.error("[whatsapp-webhook] visual stocktake error:", e?.message);
+                              return { handled: false } as { handled: boolean; outcome?: string };
+                            }),
+                        )
+                        .then((stOutcome) =>
+                          stOutcome?.handled && stOutcome.outcome !== "disabled"
+                            ? undefined
+                            : handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
+                                .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message)),
+                        )
                     : undefined,
                 );
               })
@@ -1937,6 +2052,26 @@ async function startServer() {
       return res.json({ ok: true, triggered });
     } catch (err: any) {
       console.error("[broadcast-scheduler]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Journey Tick Heartbeat (W17 F8) ───────────────────────────────────────
+  // Fires every minute; advances due broadcast_journey_runs (state='waiting',
+  // nextRunAt <= now) through their journey steps — consent-gated and
+  // frequency-cap/quiet-hours aware. Follows the runInventorySyncHeartbeat
+  // wiring pattern (service owns the logic, never throws).
+  app.post("/api/scheduled/journey-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runDueJourneySteps } = await import("../services/journeyBuilder");
+      const summary = await runDueJourneySteps(new Date(), db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[journey-tick]", err);
       return res.status(500).json({ error: err?.message });
     }
   });
@@ -3323,9 +3458,44 @@ function drawBbox(img,id){
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  // ── Graceful shutdown (A4-11): SIGTERM/SIGINT drain + process-level fault
+  // handlers (unhandledRejection/uncaughtException). See _core/gracefulShutdown.ts.
+  registerGracefulShutdown(server, { drainMs: 10_000 });
+
+  // ── Optional in-process sweep scheduler (F-02; DEFAULT OFF) ──────────────
+  // Single-node deployments without an external cron runner can set
+  // SWEEP_INTERVAL_MINUTES=N to run the recovery sweeps every N minutes.
+  // Multi-replica deployments should leave this unset and drive
+  // POST /api/internal/sweeps from ONE external scheduler instead (the sweeps
+  // are claim-first/idempotent, so overlap is safe, but a single scheduler
+  // avoids duplicate work). An in-flight run is never overlapped.
+  const sweepIntervalMin = sweepIntervalMinutes();
+  if (sweepIntervalMin !== null) {
+    let sweepInFlight = false;
+    const timer = setInterval(async () => {
+      if (sweepInFlight) return;
+      sweepInFlight = true;
+      try {
+        const report = await runRecoverySweeps();
+        console.log(`[sweeps] interval run ok=${report.ok} in ${report.durationMs}ms`);
+      } catch (err: any) {
+        console.error(`[sweeps] interval run failed: ${err?.message ?? err}`);
+      } finally {
+        sweepInFlight = false;
+      }
+    }, sweepIntervalMin * 60 * 1000);
+    timer.unref?.();
+    console.log(`[sweeps] in-process scheduler enabled (every ${sweepIntervalMin}m)`);
+  }
 }
 
-startServer().catch(console.error);
+startServer().catch((err) => {
+  // Fatal boot error: log with an explicit non-zero exit so supervisors
+  // (k8s/systemd) see a crashed pod instead of a silently-dead process.
+  console.error("[boot] fatal startup error:", err);
+  process.exit(1);
+});
 import { notifyOwner } from "./notification";
 import { whatsappMediaFiles, offlineMessageQueue, waWebhookEvents, waMessageDeliveryReceipts, whatsappNotificationLog, whatsappCustomerReplies, users } from "../../drizzle/schema";
 import { fetchOdooStockLevels, fetchMedusaCatalog } from "../services/integrationSync";

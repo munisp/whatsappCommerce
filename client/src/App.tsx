@@ -18,11 +18,13 @@ const TenantDetail = lazy(() => import("./pages/TenantDetail"));
 const Products = lazy(() => import("./pages/Products"));
 const Conversations = lazy(() => import("./pages/Conversations"));
 const Orders = lazy(() => import("./pages/Orders"));
+const CodBoard = lazy(() => import("./pages/CodBoard"));
 const OrderTimeline = lazy(() => import("./pages/OrderTimeline"));
 const Payments = lazy(() => import("./pages/Payments"));
 const AgentConsole = lazy(() => import("./pages/AgentConsole"));
 const ServiceHealth = lazy(() => import("./pages/ServiceHealth"));
 const TwentyCRM = lazy(() => import("./pages/TwentyCRM"));
+const Crm = lazy(() => import("./pages/Crm"));
 const OdooERP = lazy(() => import("./pages/OdooERP"));
 const MenuBuilder = lazy(() => import("./pages/MenuBuilder"));
 const IntegrationHub = lazy(() => import("./pages/IntegrationHub"));
@@ -31,6 +33,8 @@ const TenantMenuAssignment = lazy(() => import("./pages/TenantMenuAssignment"));
 const CredentialWizard = lazy(() => import("./pages/CredentialWizard"));
 const TemplateVersions = lazy(() => import("./pages/TemplateVersions"));
 const BroadcastCampaigns = lazy(() => import("./pages/BroadcastCampaigns"));
+const Journeys = lazy(() => import("./pages/Journeys"));
+const Consents = lazy(() => import("./pages/Consents"));
 const InventorySync = lazy(() => import("./pages/InventorySync"));
 const TenantOnboarding = lazy(() => import("./pages/TenantOnboarding"));
 const AgentArchitecture = lazy(() => import("./pages/AgentArchitecture"));
@@ -122,12 +126,14 @@ function Router() {
       <Route path="/products" component={Products} />
       <Route path="/conversations" component={Conversations} />
       <Route path="/orders" component={Orders} />
+      <Route path="/cod" component={CodBoard} />
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/track/:token" component={TrackOrder} />
       <Route path="/payments" component={Payments} />
       <Route path="/agent" component={AgentConsole} />
       <Route path="/health" component={ServiceHealth} />
       <Route path="/twenty-crm" component={TwentyCRM} />
+      <Route path="/crm" component={Crm} />
       <Route path="/odoo-erp" component={OdooERP} />
       <Route path="/menu-builder" component={MenuBuilder} />
       <Route path="/integrations" component={IntegrationHub} />
@@ -136,6 +142,8 @@ function Router() {
       <Route path="/setup" component={CredentialWizard} />
       <Route path="/template-versions" component={TemplateVersions} />
       <Route path="/broadcast" component={BroadcastCampaigns} />
+      <Route path="/journeys" component={Journeys} />
+      <Route path="/consents" component={Consents} />
       <Route path="/inventory" component={InventorySync} />
       <Route path="/onboarding" component={TenantOnboarding} />
           <Route path="/agent-architecture" component={AgentArchitecture} />

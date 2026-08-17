@@ -111,6 +111,48 @@ export const ENV = {
   flwSecretKey: process.env.FLW_SECRET_KEY ?? "",
   paystackWebhookSecret: process.env.PAYSTACK_WEBHOOK_SECRET ?? "",
   flwWebhookSecret: process.env.FLW_WEBHOOK_SECRET ?? "",
+  // ── W14: credit-bureau reporting (roadmap F3). ALL OPTIONAL — unset means
+  // the 'disabled' adapter: events are still logged to bureau_report_log as
+  // 'pending' for later backfill, no network is touched. NOT prod-required:
+  // bureau reporting is additive and never gates the money path.
+  //   BUREAU_PROVIDER   'disabled' (default) | 'crc' | 'creditregistry' | 'customHttp'
+  //   BUREAU_API_BASE   bureau endpoint base URL (full URL for customHttp)
+  //   BUREAU_API_KEY    bureau credential (never logged; redacted from payloads)
+  //   BUREAU_TIMEOUT_MS per-send timeout (default 8000)
+  // ── W16: Meta embedded signup + template pre-approval (roadmap F9). ALL
+  // OPTIONAL — unset means the embedded-signup exchange is disabled and
+  // surfaces a structured meta_api_error; nothing else changes. NOT added to
+  // REQUIRED_BY_ENV (additive feature, never gates boot).
+  //   META_APP_ID / META_APP_SECRET   Meta app credentials for the
+  //                                   embedded-signup code→token exchange
+  //   META_GRAPH_BASE_URL             Graph API base (default v21.0)
+  //   META_EMBEDDED_SIGNUP_TIMEOUT_MS per-call timeout (default 8000)
+  //   WA_TEMPLATE_LIBRARY_ENABLED     'false' hides the pre-approval library
+  metaAppId: process.env.META_APP_ID ?? "",
+  metaAppSecret: process.env.META_APP_SECRET ?? "",
+  metaGraphBaseUrl: process.env.META_GRAPH_BASE_URL ?? "https://graph.facebook.com/v21.0",
+  metaEmbeddedSignupTimeoutMs: parseInt(process.env.META_EMBEDDED_SIGNUP_TIMEOUT_MS ?? "8000"),
+  waTemplateLibraryEnabled: (process.env.WA_TEMPLATE_LIBRARY_ENABLED ?? "true").toLowerCase() !== "false",
+  // ── W16: Shopify app connector (roadmap F7). ALL OPTIONAL — unset means the
+  // connector simply reports not-configured; never prod-required, never gates
+  // the money path. Secrets are never logged (services/shopifyIntegration
+  // redacts before any log/audit write).
+  //   SHOPIFY_API_KEY      app client id from the Shopify Partners dashboard
+  //   SHOPIFY_API_SECRET   app client secret (OAuth exchange + webhook HMAC)
+  //   SHOPIFY_APP_URL      public base URL of this app (OAuth redirect target)
+  //   SHOPIFY_SCOPES       comma-separated scopes (default below)
+  //   SHOPIFY_API_VERSION  Admin REST API version (default 2024-01)
+  //   SHOPIFY_TIMEOUT_MS   per-request timeout to Shopify (default 8000)
+  shopifyApiKey: process.env.SHOPIFY_API_KEY ?? "",
+  shopifyApiSecret: process.env.SHOPIFY_API_SECRET ?? "",
+  shopifyAppUrl: process.env.SHOPIFY_APP_URL ?? process.env.APP_URL ?? "",
+  shopifyScopes: process.env.SHOPIFY_SCOPES ?? "read_products,write_products,read_orders",
+  shopifyApiVersion: process.env.SHOPIFY_API_VERSION ?? "2024-01",
+  shopifyTimeoutMs: parseInt(process.env.SHOPIFY_TIMEOUT_MS ?? "8000"),
+  bureauProvider: process.env.BUREAU_PROVIDER ?? "disabled",
+  bureauApiBase: process.env.BUREAU_API_BASE ?? "",
+  bureauApiKey: process.env.BUREAU_API_KEY ?? "",
+  bureauTimeoutMs: parseInt(process.env.BUREAU_TIMEOUT_MS ?? "8000"),
 };
 
 // ─── Fail-closed startup checks (production-like envs — see isProd) ─────────
@@ -215,4 +257,83 @@ if (isProd && process.env.SECRETS_MASTER_KEY) {
         "(`openssl rand -base64 32`) — refusing to boot.",
     );
   }
+}
+
+// ─── Weak-default boot gates (assurance A4-04 / A4-05 / A4-12) ─────────────
+// Production-only, fail-closed, following the REQUIRED_BY_ENV pattern above.
+// Development/test are warn-only so local runs stay usable.
+if (isProd) {
+  // A4-04: the WhatsApp webhook verification token must never fall back to
+  // the public static demo string (previously hard-coded as the default in
+  // _core/index.ts). Anyone could complete Meta's verification challenge
+  // against a deploy that forgot the var.
+  const waVerify = (process.env.WHATSAPP_VERIFY_TOKEN ?? "").trim();
+  if (!waVerify || waVerify === "whatsapp_verify_token_demo") {
+    throw new Error(
+      "[ENV] FATAL: WHATSAPP_VERIFY_TOKEN is unset or still the public demo " +
+        'value "whatsapp_verify_token_demo". Set a strong, unique token before ' +
+        "starting — refusing to boot.",
+    );
+  }
+
+  // A4-05: refuse to boot when the APISIX admin API would run with the
+  // published vendor-default key. APISIX counts as "configured" when either
+  // APISIX_ADMIN_URL or APISIX_ADMIN_KEY is explicitly set in the env.
+  const APISIX_VENDOR_DEFAULT_KEY = "edd1c9f034335f136f87ad84b625c8f1";
+  const apisixKey = (process.env.APISIX_ADMIN_KEY ?? "").trim();
+  const apisixConfigured =
+    !!(process.env.APISIX_ADMIN_URL ?? "").trim() || !!apisixKey;
+  if (apisixKey === APISIX_VENDOR_DEFAULT_KEY) {
+    throw new Error(
+      "[ENV] FATAL: APISIX_ADMIN_KEY is the published APISIX vendor-default " +
+        "key — anyone can administer the gateway. Set a strong, unique key " +
+        "before starting — refusing to boot.",
+    );
+  }
+  if (apisixConfigured && !apisixKey) {
+    throw new Error(
+      "[ENV] FATAL: APISIX is configured (APISIX_ADMIN_URL set) but " +
+        "APISIX_ADMIN_KEY is unset — the gateway admin API would run without " +
+        "an explicit credential. Set it before starting — refusing to boot.",
+    );
+  }
+
+  // A4-12: OpenSearch / MinIO compose defaults. These are compose-level
+  // service credentials (the Node app is only one consumer), so we WARN and
+  // document rather than block — blocking would break deploys that front
+  // those services with network policy and never expose them. Rotate them
+  // for any environment where the services are reachable beyond localhost.
+  if ((process.env.OPENSEARCH_PASS ?? "admin") === "admin") {
+    console.warn(
+      "[ENV] WARNING: OPENSEARCH_PASS is the compose default \"admin\". " +
+        "Set a strong password (and OPENSEARCH_USER) for production deploys " +
+        "where OpenSearch is network-reachable.",
+    );
+  }
+  if (
+    (process.env.S3_ACCESS_KEY ?? "minioadmin") === "minioadmin" ||
+    (process.env.S3_SECRET_KEY ?? "minioadmin") === "minioadmin"
+  ) {
+    console.warn(
+      "[ENV] WARNING: S3_ACCESS_KEY/S3_SECRET_KEY are the MinIO compose " +
+        "defaults (minioadmin). Set unique credentials for production deploys " +
+        "where the object store is network-reachable.",
+    );
+  }
+}
+
+// ─── Credit-enforcement suspension-check posture (W14; additive) ───────────
+// The PO submit gate's trade-credit suspension lookup historically failed
+// OPEN on error (a delinquent buyer could order during a lookup outage).
+// CREDIT_ENFORCEMENT_STRICT=true forces fail-CLOSED (the lookup error blocks
+// submission with a "credit status unavailable, try again" message);
+// =false forces fail-open. Unset, the safe default applies: fail-CLOSED in
+// production-like environments (see isProd), fail-open in development/test
+// so local runs without the credit stack stay usable. Read lazily (function,
+// not a load-time const) so tests and runtime toggles see the live value.
+export function isCreditEnforcementStrict(): boolean {
+  const raw = (process.env.CREDIT_ENFORCEMENT_STRICT ?? "").trim().toLowerCase();
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return isProd;
 }

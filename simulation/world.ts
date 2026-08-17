@@ -78,6 +78,15 @@ export const CREDIT_LIMIT_CENTS = 50_000_000;
 export const CREDIT_TERMS_DAYS = 14;
 
 export const SUPPLIER_MOQ_CENTS = 100_000; // ₦1,000
+// ── Wave 16: Shopify connector + Meta embedded signup app credentials ───────
+// Set at boot so ENV (module-scope, read-once) sees them; journeys sign real
+// Shopify webhook HMACs with SHOPIFY_API_SECRET_VALUE and script the Meta
+// embedded-signup exchange with META_APP_ID_VALUE / META_APP_SECRET_VALUE.
+export const SHOPIFY_API_KEY_VALUE = "sim-shopify-api-key";
+export const SHOPIFY_API_SECRET_VALUE = "sim-shopify-app-secret-0123456789";
+export const META_APP_ID_VALUE = "sim-meta-app-id";
+export const META_APP_SECRET_VALUE = "sim-meta-app-secret-0123456789";
+
 export const SUPPLIER_PRODUCTS = {
   preforms: {
     id: "sp-preforms", sku: "SIM-PREFORM", name: "PET Preforms 500ml",
@@ -286,6 +295,10 @@ export async function bootWorld(): Promise<World> {
     // payment.initiate + creditRepayLink need a Paystack secret (intercepted
     // by the fetch mock — never a real network call).
     setEnv("PAYSTACK_SECRET_KEY", "sk_sim_test");
+    // W13: sim journeys draw on credit immediately after facility approval —
+    // disable the first-draw tenure gate by default (J65 re-enables it
+    // explicitly to test the gate itself). Mirrors simulation.test.ts.
+    setEnv("CREDIT_TENURE_GATE_DAYS", "0");
     // Wave 9: platform onboarding intake number (waOnboarding) + resumable
     // upload app id (brand-studio profile photo push, intercepted by metaMock).
     setEnv("ONBOARDING_PHONE_NUMBER_ID", ONBOARDING_PHONE_NUMBER_ID);
@@ -296,6 +309,13 @@ export async function bootWorld(): Promise<World> {
     // dev/test fallback exists, but journeys J45/J46 prove the real envelope
     // path against an env-provided key.
     setEnv("SECRETS_MASTER_KEY", crypto.createHash("sha256").update("w10-sim-secrets-master-key").digest("base64"));
+    // W16: Shopify app connector + Meta embedded-signup app credentials so
+    // the REAL OAuth/HMAC/exchange paths execute (ENV is read at import).
+    setEnv("SHOPIFY_API_KEY", SHOPIFY_API_KEY_VALUE);
+    setEnv("SHOPIFY_API_SECRET", SHOPIFY_API_SECRET_VALUE);
+    setEnv("SHOPIFY_APP_URL", `http://localhost:${port}`);
+    setEnv("META_APP_ID", META_APP_ID_VALUE);
+    setEnv("META_APP_SECRET", META_APP_SECRET_VALUE);
 
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
@@ -488,6 +508,13 @@ export async function bootWorld(): Promise<World> {
               outstandingCents: 0,
               termsDays: CREDIT_TERMS_DAYS,
               status: "active",
+              // W13: order-access suspension + linked mandate must not leak
+              // between journeys (dunning journeys suspend the seed account
+              // at the +7d freeze; mandate journeys link payment_mandates).
+              mandateId: null,
+              suspended: false,
+              suspendedAt: null,
+              suspensionReason: null,
               updatedAt: new Date(),
             })
             .where(eq(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
@@ -532,6 +559,10 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.churnPredictions);
           await world.db.delete(schema.cohortSnapshots);
           await world.db.delete(schema.temporalWorkflowRuns);
+          // W13 isolation: mandate rows (FK → tenants) are cleared before
+          // non-seed tenants are dropped.
+          await world.db.delete(schema.paymentMandates);
+          await world.db.delete(schema.creditLimitHistory);
           await world.db.delete(schema.creditAccounts).where(ne(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
           // Non-seed tenants (onboarding.start / KYB journeys) and their
           // supplier profiles are dropped; the two seeded tenants stay.
@@ -546,9 +577,121 @@ export async function bootWorld(): Promise<World> {
           clearSessionCaches();
           keycloakMock.reset();
         } catch { /* w12 tables not migrated yet */ }
+        // Wave 14 isolation: bureau outbox rows, lender facilities and
+        // provider/enforcement env created by J67–J72 never leak between
+        // journeys. (Bureau rows reference account ids, not FKs, so order is
+        // unconstrained; facilities are dropped after the W12 account wipe.)
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.bureauReportLog);
+        } catch { /* w14 tables not migrated yet */ }
+        try {
+          const { creditFacilities } = await import("../server/services/creditFacilities/tables");
+          await world.db.delete(creditFacilities);
+        } catch { /* w14 tables not migrated yet */ }
+        // Wave 15 isolation: catalog-bootstrap drafts + ERP provisioning state
+        // live in tenants.settings jsonb — strip them from the seed tenants;
+        // drop ERP integration rows + memberships J76/J77 create (memberships
+        // already wiped above; odoo/twenty rows are journey-owned).
+        try {
+          const schema = await import("../drizzle/schema");
+          for (const tid of [TENANT_ID, SUPPLIER_TENANT_ID]) {
+            const [t] = await world.db
+              .select({ settings: schema.tenants.settings })
+              .from(schema.tenants)
+              .where(eq(schema.tenants.id, tid))
+              .limit(1);
+            const s = { ...((t?.settings ?? {}) as Record<string, any>) };
+            if ("catalogDrafts" in s || "erpProvision" in s) {
+              delete s.catalogDrafts;
+              delete s.erpProvision;
+              await world.db
+                .update(schema.tenants)
+                .set({ settings: s, updatedAt: new Date() })
+                .where(eq(schema.tenants.id, tid));
+            }
+          }
+        } catch { /* w15 settings keys absent */ }
+        // Wave 16 isolation: Shopify connector / embedded signup / template
+        // library / marketplace state all live in tenants.settings jsonb —
+        // strip them from the seed tenants; drop Shopify-bridged orders and
+        // their placeholder customers so no money/order rows leak; restore
+        // the SHOPIFY_*/META_* env (and the read-once ENV mirror) plus the
+        // injectable Shopify fetch and the 60s marketplace health cache.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { like } = await import("drizzle-orm");
+          for (const tid of [TENANT_ID, SUPPLIER_TENANT_ID]) {
+            const [t] = await world.db
+              .select({ settings: schema.tenants.settings })
+              .from(schema.tenants)
+              .where(eq(schema.tenants.id, tid))
+              .limit(1);
+            const s = { ...((t?.settings ?? {}) as Record<string, any>) };
+            if ("shopifyIntegration" in s || "embeddedSignup" in s || "waTemplateLibrary" in s || "marketplace" in s) {
+              delete s.shopifyIntegration;
+              delete s.embeddedSignup;
+              delete s.waTemplateLibrary;
+              delete s.marketplace;
+              await world.db
+                .update(schema.tenants)
+                .set({ settings: s, updatedAt: new Date() })
+                .where(eq(schema.tenants.id, tid));
+            }
+          }
+          const bridged = await world.db
+            .select({ id: schema.orders.id })
+            .from(schema.orders)
+            .where(like(schema.orders.orderNumber, "SHOPIFY-%"))
+            .catch(() => [] as Array<{ id: string }>);
+          for (const o of bridged) {
+            await world.db.delete(schema.orderItems).where(eq(schema.orderItems.orderId, o.id)).catch(() => {});
+            await world.db.delete(schema.orders).where(eq(schema.orders.id, o.id)).catch(() => {});
+          }
+          await world.db
+            .delete(schema.customers)
+            .where(like(schema.customers.whatsappPhone, "shopify-%"))
+            .catch(() => {});
+        } catch { /* w16 tables/keys absent */ }
+        try {
+          process.env.SHOPIFY_API_KEY = SHOPIFY_API_KEY_VALUE;
+          process.env.SHOPIFY_API_SECRET = SHOPIFY_API_SECRET_VALUE;
+          process.env.META_APP_ID = META_APP_ID_VALUE;
+          process.env.META_APP_SECRET = META_APP_SECRET_VALUE;
+          const { ENV } = await import("../server/_core/env");
+          ENV.shopifyApiKey = SHOPIFY_API_KEY_VALUE;
+          ENV.shopifyApiSecret = SHOPIFY_API_SECRET_VALUE;
+          ENV.metaAppId = META_APP_ID_VALUE;
+          ENV.metaAppSecret = META_APP_SECRET_VALUE;
+        } catch { /* env module unavailable */ }
+        try {
+          const { resetShopifyFetch } = await import("../server/services/shopifyIntegration/client");
+          resetShopifyFetch();
+        } catch { /* shopify client unavailable */ }
+        try {
+          const { clearHealthCache } = await import("../server/services/marketplace");
+          clearHealthCache();
+        } catch { /* marketplace unavailable */ }
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.odooIntegrations);
+          await world.db.delete(schema.twentyIntegrations);
+        } catch { /* integration tables not present */ }
+        delete process.env.CATALOG_EXTRACTION_PROVIDER;
+        delete process.env.CATALOG_EXTRACTION_ENDPOINT;
+        delete process.env.CATALOG_EXTRACTION_API_KEY;
+        delete process.env.CATALOG_EXTRACTION_TIMEOUT_MS;
+        delete process.env.BUREAU_PROVIDER;
+        delete process.env.BUREAU_API_BASE;
+        delete process.env.BUREAU_API_KEY;
+        delete process.env.BUREAU_TIMEOUT_MS;
+        delete process.env.CREDIT_ENFORCEMENT_STRICT;
         delete process.env.ERROR_WEBHOOK_URL;
         delete process.env.TEMPORAL_ADDRESS;
         delete process.env.KYC_GATE_DISABLED;
+        // W13: journeys may re-enable the first-draw tenure gate (J65) —
+        // restore the sim default (gate disabled) between journeys.
+        process.env.CREDIT_TENURE_GATE_DAYS = "0";
         outbound.reset();
         llmMock.reset();
         openaiMock.reset();

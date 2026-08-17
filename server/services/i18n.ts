@@ -42,7 +42,43 @@ export interface LocalePack {
   voiceNotEnabled: string;
   reorderNoPriorOrder: string;
   disputeConfirm: string;
+  /** B2B enforcement: buyer's credit access is suspended ({reason}, {outstanding}). */
+  orderingSuspended: string;
+  /** B2B enforcement: transient credit-status lookup outage — neutral try-again copy (never dunning). */
+  orderingUnavailable: string;
+  /** B2B settlement notice: PO settled straight to the supplier via credit ({poNumber}, {dueDate}). */
+  paidViaCredit: string;
 }
+
+/**
+ * W14: credit-bureau reporting consent text (roadmap F3), shown to the buyer
+ * before they accept trade-credit terms (tradeCredit.requestAccount /
+ * approveAccount bureauConsent flag). NDPR-aligned: explicit, specific,
+ * revocable via the dispute flow (compliance/bureau markDisputed).
+ */
+export const BUREAU_CONSENT_TEXT: Record<Locale, string> = {
+  en:
+    "Credit bureau reporting: by accepting, you agree that we may report your trade-credit " +
+    "facility activity (draws, repayments, delinquencies and cures) to licensed Nigerian credit " +
+    "bureaus (CRC Credit Bureau / CreditRegistry). You may dispute a report at any time.",
+  fr:
+    "Déclaration aux bureaux de crédit : en acceptant, vous autorisez la déclaration de " +
+    "l'activité de votre facilité de crédit (tirages, remboursements, retards et régularisations) " +
+    "aux bureaux de crédit nigérians agréés (CRC Credit Bureau / CreditRegistry). " +
+    "Vous pouvez contester un rapport à tout moment.",
+  ha:
+    "Bayar da rahoto ga hukumar bashi: ta amincewa, kun yarda mu bayar da rahoton ayyukan " +
+    "bashin kasuwanci (jayayya, biya, makara da gyara) ga hukumomin bashi da aka lasisata a " +
+    "Najeriya (CRC Credit Bureau / CreditRegistry). Kuna iya ƙalubalantar rahoto a kowane lokaci.",
+  yo:
+    "Ijabọ si ile-iṣẹ gbese: nipa gbigba gba, o gba pe a le jabọ awọn iṣẹ awin rẹ " +
+    "(awọn yiyọ, awọn sanwo, awọn idaduro ati awọn atunṣe) si awọn ile-iṣẹ gbese ti o gba " +
+    "iwe-aṣẹ ni Naijiria (CRC Credit Bureau / CreditRegistry). O le tako ijabọ kankan nigbakugba.",
+  ig:
+    "Akụkọ ụlọ ọrụ ịgba alaghachi: site na ịnakwere, ị kwenyere na anyị nwere ike ịkpesa " +
+    "ọrụ akwụmụgwọ gị (ịdọrọ, ịkwụghachi, ịgbaghara na ndozi) n'ụlọ ọrụ akwụmụgwọ " +
+    "Naịjirịa (CRC Credit Bureau / CreditRegistry). Ị nwere ike ịrụju akụkọ ọ bụla oge ọ bụla.",
+};
 
 export const LOCALE_PACKS: Record<Locale, LocalePack> = {
   en: {
@@ -71,6 +107,9 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Sorry, voice notes aren't enabled right now — please type your message instead. 🎤❌",
     reorderNoPriorOrder: "I couldn't find a previous paid order for this number — tell me what you'd like and I'll add it to your cart.",
     disputeConfirm: "Your complaint has been logged and our team has been notified. We'll get back to you shortly. 🙏",
+    orderingSuspended: "Ordering is suspended with this supplier{reason}. Repay your outstanding balance{outstanding} to restore ordering.",
+    orderingUnavailable: "We couldn't confirm your credit status just now — please try again shortly. Your cart is unchanged and no order was placed.",
+    paidViaCredit: "Paid via credit — due {dueDate}. Repay by the due date to keep ordering.",
   },
   fr: {
     greeting: "Bonjour ! Bienvenue chez {businessName}. Comment pouvons-nous vous aider ?",
@@ -95,6 +134,9 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Désolé, les notes vocales ne sont pas activées — veuillez taper votre message. 🎤❌",
     reorderNoPriorOrder: "Je n'ai trouvé aucune commande payée précédente pour ce numéro — dites-moi ce que vous voulez et je l'ajoute au panier.",
     disputeConfirm: "Votre réclamation a été enregistrée et notre équipe a été informée. Nous revenons vers vous rapidement. 🙏",
+    orderingSuspended: "Les commandes sont suspendues auprès de ce fournisseur{reason}. Remboursez votre solde impayé{outstanding} pour rétablir les commandes.",
+    orderingUnavailable: "Nous n'avons pas pu vérifier votre statut de crédit pour le moment — veuillez réessayer dans un instant. Votre panier est inchangé et aucune commande n'a été passée.",
+    paidViaCredit: "Payé à crédit — échéance {dueDate}. Remboursez avant l'échéance pour continuer à commander.",
   },
   ha: {
     greeting: "Sannu da zuwa {businessName}! Yaya za mu iya taimaka maka yau?",
@@ -117,6 +159,9 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Yi haƙuri, ba a kunna saƙon murya ba yanzu — don Allah rubuta saƙonka. 🎤❌",
     reorderNoPriorOrder: "Ban sami tsohon oda da ka biya ba — faɗa min abin da kake so in saka maka a kwando.",
     disputeConfirm: "An rubuta kōƙarinka kuma an sanar da tawagarmu. Za mu dawo gare ka nan ba da jimawa ba. 🙏",
+    orderingSuspended: "An dakatar da oda a wannan mai sayarwa{reason}. Biya bashin da ka ke dasu{outstanding} don a sake buɗe oda.",
+    orderingUnavailable: "Ba mu iya tabbatar da matsayin bashin ku a yanzu ba — don Allah sake gwadawa da sannu. Kwandonku bai canja ba kuma ba a sanya oda ba.",
+    paidViaCredit: "An biya ta bashi — ranar biya {dueDate}. Biya kafin ranar don ci gaba da oda.",
   },
   yo: {
     greeting: "Ẹ káàbọ̀ sí {businessName}! Báwo la ṣe lè ràn wọ́ lọ́wọ́ lónìí?",
@@ -139,6 +184,9 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Ẹ pèlẹ́, a kò tíì ṣí Ìfiranṣẹ́ ohùn ṣíṣe — jọ̀wọ́ kọ ìfiranṣẹ́ rẹ. 🎤❌",
     reorderNoPriorOrder: "N kò rí àṣẹ àtijọ́ tí o ti sanwó fún nọ́ńbà yìí — sọ ohun tí o fẹ́ kí n sì í sínú àpò.",
     disputeConfirm: "A ti kọ ẹ̀jọ́ rẹ sílẹ̀, a sì ti jẹ́ kí àwọn ọmọ ẹgbẹ́ wa mọ̀. A ó padà sọ́dọ̀ rẹ láìpẹ́. 🙏",
+    orderingSuspended: "A ti dáwọ́ ìbéèrè lọ́dọ̀ olùtà yìí dúró{reason}. San gbèsè tó kù{outstanding} láti tún bẹ̀rẹ̀ ìbéèrè.",
+    orderingUnavailable: "A kò lè jẹ́rìí sí ipo gbèsè yín ní ìsìn yìí — jọ̀wọ́ gbìyànjú lẹ́ẹ̀kansi. Àkópọ̀ yín kò yí padà, kò sì sí ìbéèrè tí a ṣe.",
+    paidViaCredit: "A sanwó ní gbèsè — ojọ́ ìsanwó {dueDate}. San ṣáájú ojọ́ náà láti tẹ̀síwájú pẹ̀lú ìbéèrè.",
   },
   ig: {
     greeting: "Nnọọ na {businessName}! Kedu ka anyị ga-esi nyere gị aka taa?",
@@ -161,6 +209,9 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     voiceNotEnabled: "Ndo, anọgideghị ozi olu ugbu a — biko dee ozi gị. 🎤❌",
     reorderNoPriorOrder: "Achọtaghị m ihe ọ bụla ị zụrụ ma kwụọ ụgwọ maka nọmba a — gwa m ihe ị chọrọ ka m tinye na ngọdo.",
     disputeConfirm: "Edebela mkpesa gị, ọzụzụkwa anyị amataala ya. Anyị ga-azaghachi gị n'oge na-adịghị anya. 🙏",
+    orderingSuspended: "A kwụsịtụru ịtụ ihe ndazị na onye na-ere a{reason}. Kwụọ ụgwọ fọdụrụ{outstanding} ka e weghachi ike ịtụ ihe.",
+    orderingUnavailable: "Anyị enwebeghị ike ịkwenye ọnọdụ kredit gị ugbu a — biko nwaa ọzọ n'oge na-adịghị anya. Ọ dịghị ihe gbanwere na ngọdo gị, e mebeghị ihe ndazị ọ bụla.",
+    paidViaCredit: "A kwụrụ site na kredit — ụbọchị akwụ ụgwọ {dueDate}. Kwụọ tupu ụbọchị ahụ ka ị gaa n'ihu ịtụ ihe.",
   },
 };
 
@@ -235,7 +286,12 @@ export function detectLocale(text: string): Locale {
   const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0 };
   for (const [lang, words] of Object.entries(STOPWORDS) as Array<[Exclude<Locale, "en">, string[]]>) {
     for (const w of words) {
-      const re = new RegExp(`(^|[^a-zà-ỹ])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ]|$)`, "i");
+      // W15.1 bugfix: apostrophe is NOT a word boundary — otherwise the Hausa
+      // stopword "don" matches inside English "I don't …" (the apostrophe used
+      // to terminate the token), misdetecting a customer's FIRST message as
+      // Hausa and persisting the wrong locale for 30 days. Mirrors the copilot
+      // detector (services/onboardingCopilot/language.ts).
+      const re = new RegExp(`(^|[^a-zà-ỹ'])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-zà-ỹ']|$)`, "i");
       if (re.test(lower)) scores[lang] += w.includes(" ") ? 2 : 1.5;
     }
   }
