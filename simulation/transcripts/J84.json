@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018069347",
+      "phone": "2348011443421",
       "profileName": "Fresh Buyer",
       "inboundId": "wamid.sim.in.text.00269",
-      "at": 1786910282750,
+      "at": 1786993327367,
       "kind": "text",
       "text": "hello"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00269",
-      "at": 1786910282753
+      "at": 1786993327371
     },
     {
       "dir": "out",
-      "phone": "2348018069347",
+      "phone": "2348011443421",
       "wamid": "wamid.sim.000422",
       "statuses": [
         "sent"
       ],
-      "at": 1786910282771,
+      "at": 1786993327387,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348018069347",
-      "profileName": "Sim User 9347",
+      "phone": "2348011443421",
+      "profileName": "Sim User 3421",
       "inboundId": "wamid.sim.in.text.00270",
-      "at": 1786910283294,
+      "at": 1786993327912,
       "kind": "text",
       "text": "YES"
     },
@@ -44,16 +44,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00270",
-      "at": 1786910283298
+      "at": 1786993327917
     },
     {
       "dir": "out",
-      "phone": "2348018069347",
+      "phone": "2348011443421",
       "wamid": "wamid.sim.000423",
       "statuses": [
         "sent"
       ],
-      "at": 1786910283317,
+      "at": 1786993327929,
       "kind": "text",
       "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Wave16 Fresh Stores! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
     }

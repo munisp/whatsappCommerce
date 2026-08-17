@@ -729,6 +729,22 @@
       "pass": true,
       "file": "J91.json",
       "messageCount": 4
+    },
+    {
+      "id": "J92",
+      "title": "credit score sees credit history",
+      "feature": "credit-outcome scoring + risk-based terms bands",
+      "pass": true,
+      "file": "J92.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J93",
+      "title": "manufacturer credit program",
+      "feature": "program CRUD/caps, checkDrawAllowed, program-capped suggestLimit, book cure",
+      "pass": true,
+      "file": "J93.json",
+      "messageCount": 0
     }
   ]
 }

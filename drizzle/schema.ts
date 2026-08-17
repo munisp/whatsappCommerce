@@ -3074,6 +3074,10 @@ export const creditAccounts = pgTable("credit_accounts", {
   bureauConsentRef: varchar("bureau_consent_ref", { length: 64 }),
   // W14: link to the wholesale credit_facilities row funding this facility.
   facilityId: varchar("facility_id", { length: 36 }),
+  // W18: risk-based terms (tradeCredit/terms.ts) — facility fee in basis
+  // points snapshotted at approval. NULL for facilities approved before W18
+  // (downward-compatible: no fee).
+  feeBps: integer("fee_bps"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

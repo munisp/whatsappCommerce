@@ -43,6 +43,20 @@ export {
   type CreditScoreResult,
 } from "./scoring";
 export { runDunningCheckTx, LATE_FEE_RATE, FREEZE_AFTER_DAYS, type DunningResult } from "./dunning";
+// ── W18: credit-outcome-aware scoring, anti-gaming, risk-based terms ──────
+export {
+  SCORING_WEIGHTS,
+  CREDIT_HISTORY,
+  creditFactorFromSignals,
+} from "./scoring";
+export {
+  adjustVolumeTx,
+  analyzeVolume,
+  VELOCITY_SPIKE_MULTIPLIER,
+  CIRCULAR_SHARE_THRESHOLD,
+  type AntiGamingResult,
+} from "./antiGaming";
+export { termsForScore, TERMS_BANDS, type CreditTerms, type TermsBand } from "./terms";
 // ── W13: credit control plane + repayment-at-source ─────────────────────────
 export { reviseLimitsTx, type ReviseLimitsResult, type LimitRevisionReason } from "./limits";
 export {

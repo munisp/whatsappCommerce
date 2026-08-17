@@ -19,6 +19,15 @@ import {
   type CreditLedgerEntry,
 } from "../../../drizzle/schema";
 import { reportEvent } from "../compliance/bureau";
+import { bureauReportLog } from "../../../drizzle/schema";
+import {
+  bureauPullMinScore,
+  bureauPullProvider,
+  bureauPullRequired,
+  pullBureauReport,
+  type BureauPullDeps,
+  type BureauSubject,
+} from "./bureauPull";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 /** Any handle exposing the drizzle mutation/query surface (db or tx). */
@@ -34,6 +43,34 @@ export type CreditLedgerKind = "invoice_draw" | "repayment" | "fee" | "adjustmen
  */
 export function bureauConsentRef(accountId: string): string {
   return `bcr:${accountId}`.slice(0, 64);
+}
+
+/**
+ * W18: hard decline from the bureau-pull approval gate
+ * (BUREAU_PULL_REQUIRED=true). reason 'consent_required' = fail-closed:
+ * pull is mandatory but the account has no bureau_consent_ref;
+ * 'bureau_report' = the pulled report breached policy (active default or
+ * score below BUREAU_PULL_MIN_SCORE).
+ */
+export class BureauPullDeclinedError extends Error {
+  constructor(
+    public readonly reason: "consent_required" | "bureau_report",
+    message: string,
+    public readonly summary?: BureauPullSummary,
+  ) {
+    super(message);
+    this.name = "BureauPullDeclinedError";
+  }
+}
+
+/** W18: bureau-pull outcome attached to approveCreditAccountTx results. */
+export interface BureauPullSummary {
+  bureauPulled: boolean;
+  provider?: string;
+  score?: number | null;
+  activeDefaults?: number;
+  rawRef?: string;
+  error?: string;
 }
 
 export class CreditAccountExistsError extends Error {
@@ -162,6 +199,8 @@ export async function approveCreditAccountTx(
     supplierTenantId: string;
     limitCents?: number;
     termsDays?: number;
+    /** W18: risk-based facility fee (bps) snapshot at approval. */
+    feeBps?: number;
     /**
      * W14: the buyer accepted the bureau-reporting terms
      * (BUREAU_CONSENT_TEXT). Stamps bureau_consent_at/ref on approval.
@@ -170,11 +209,84 @@ export async function approveCreditAccountTx(
      * reporting (compliance/bureau.ts) and the router logs consent_missing.
      */
     bureauConsent?: boolean;
+    /**
+     * W18: subject hints for the bureau pull (BUREAU_PULL_REQUIRED flow).
+     * Defaults to { businessName: buyerTenantId } when omitted.
+     */
+    subject?: BureauSubject;
   },
-): Promise<CreditAccount | null> {
+  /** W18: injectable env/http for the bureau-pull adapter (tests). */
+  deps: BureauPullDeps = {},
+): Promise<(CreditAccount & { bureauPull?: BureauPullSummary }) | null> {
+  // W18 bureau-pull gate. Default OFF (BUREAU_PULL_REQUIRED unset): zero
+  // behavior change — not even the pre-read runs. When required and a real
+  // provider is configured, pull BEFORE the claim-first activation:
+  // fail-closed on missing consent, hard-decline on policy breach, and
+  // NEVER block on adapter errors (fire-and-forget, mirroring the W14 push
+  // adapter).
+  let pullSummary: BureauPullSummary | undefined;
+  const env = deps.env ?? process.env;
+  if (bureauPullRequired(env) && bureauPullProvider(env) !== "disabled") {
+    const account = await getCreditAccountByIdTx(db, args.accountId);
+    // Only gate accounts this approval would actually activate — anything
+    // else is a no-op for the claim-first UPDATE below anyway.
+    if (account && account.supplierTenantId === args.supplierTenantId && account.status === "pending") {
+      const consentRef =
+        account.bureauConsentRef ??
+        (args.bureauConsent === true ? bureauConsentRef(args.accountId) : null);
+      if (!consentRef) {
+        throw new BureauPullDeclinedError(
+          "consent_required",
+          `Bureau pull required but no bureau consent on account ${args.accountId}`,
+          { bureauPulled: false },
+        );
+      }
+      const subject = args.subject ?? { businessName: account.buyerTenantId };
+      const result = await pullBureauReport(subject, consentRef, deps);
+      // Audit trail: reuse bureau_report_log (shape fits — eventType is a
+      // free varchar; 'bureau_pull' rows are excluded from push-retry by
+      // their status: 'sent' or 'failed-pull', never 'pending').
+      try {
+        await db.insert(bureauReportLog).values({
+          accountId: args.accountId,
+          eventType: "bureau_pull",
+          bureau: result.provider,
+          status: result.report ? "sent" : "failed",
+          payload: { consentRef, subject } as never,
+          response: (result.report ?? { error: result.error ?? "no_report" }) as never,
+        });
+      } catch (logErr: any) {
+        console.warn(`[tradeCredit/accounts] bureau_pull audit log failed: ${logErr?.message ?? logErr}`);
+      }
+      if (result.report) {
+        const minScore = bureauPullMinScore(env);
+        pullSummary = {
+          bureauPulled: true,
+          provider: result.provider,
+          score: result.report.score,
+          activeDefaults: result.report.activeDefaults,
+          rawRef: result.report.rawRef,
+        };
+        if (
+          result.report.activeDefaults > 0 ||
+          (result.report.score != null && result.report.score < minScore)
+        ) {
+          throw new BureauPullDeclinedError(
+            "bureau_report",
+            `Bureau report declined facility approval (activeDefaults=${result.report.activeDefaults} score=${result.report.score} minScore=${minScore})`,
+            pullSummary,
+          );
+        }
+      } else {
+        // Adapter failure / no report: warn and proceed — never block.
+        pullSummary = { bureauPulled: false, provider: result.provider, error: result.error };
+      }
+    }
+  }
   const set: Record<string, unknown> = { status: "active", updatedAt: new Date() };
   if (args.limitCents !== undefined) set.limitCents = Math.max(0, Math.round(args.limitCents));
   if (args.termsDays !== undefined) set.termsDays = args.termsDays;
+  if (args.feeBps !== undefined) set.feeBps = Math.max(0, Math.round(args.feeBps));
   if (args.bureauConsent === true) {
     set.bureauConsentAt = new Date();
     set.bureauConsentRef = bureauConsentRef(args.accountId);
@@ -190,6 +302,8 @@ export async function approveCreditAccountTx(
       ),
     )
     .returning();
+  // W18: attach the bureau-pull summary (metadata only — not a schema column).
+  if (row && pullSummary) return Object.assign(row, { bureauPull: pullSummary });
   return row ?? null;
 }
 
@@ -206,6 +320,8 @@ export async function updateCreditAccountTx(
     supplierTenantId: string;
     limitCents?: number;
     termsDays?: number;
+    /** W18: risk-based facility fee (bps) snapshot. */
+    feeBps?: number;
     score?: number | null;
     scoreReasons?: string[] | null;
   },
@@ -213,6 +329,7 @@ export async function updateCreditAccountTx(
   const set: Record<string, unknown> = { updatedAt: new Date() };
   if (args.limitCents !== undefined) set.limitCents = Math.max(0, Math.round(args.limitCents));
   if (args.termsDays !== undefined) set.termsDays = args.termsDays;
+  if (args.feeBps !== undefined) set.feeBps = Math.max(0, Math.round(args.feeBps));
   if (args.score !== undefined) set.score = args.score;
   if (args.scoreReasons !== undefined) set.scoreReasons = args.scoreReasons;
   const [row] = await db
