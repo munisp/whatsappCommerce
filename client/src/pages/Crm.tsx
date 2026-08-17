@@ -19,8 +19,29 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import {
   Users, Flame, Thermometer, Snowflake, RefreshCw, Loader2,
-  AlertTriangle, Megaphone, TrendingUp,
+  AlertTriangle, Megaphone, TrendingUp, BrainCircuit,
 } from "lucide-react";
+
+/** W20: ML propensity % + source badge. */
+function PropensityBadge({ propensity, scoreSource }: { propensity?: number | null; scoreSource?: "ml" | "rules" | null }) {
+  if (propensity == null) return null;
+  const pct = Math.round(propensity * 100);
+  return (
+    <span className="flex items-center gap-1">
+      <span className="text-xs font-semibold text-emerald-400">{pct}%</span>
+      <span
+        className={`text-[10px] px-1.5 py-0.5 rounded border font-medium uppercase ${
+          scoreSource === "ml"
+            ? "bg-violet-500/20 text-violet-400 border-violet-500/30"
+            : "bg-muted text-muted-foreground border-border"
+        }`}
+        title={scoreSource === "ml" ? "ML propensity model" : "Rule-based score (ML model not trained yet)"}
+      >
+        {scoreSource === "ml" ? "ML" : "Rules"}
+      </span>
+    </span>
+  );
+}
 
 const STAGE_LABELS: Record<string, string> = {
   new_lead: "New leads",
@@ -76,6 +97,19 @@ export default function Crm() {
     onError: (e) => toast.error(e.message),
   });
 
+  // W20: ML propensity model — status line + manual retrain.
+  const modelStatusQ = trpc.crm.leadModelStatus.useQuery({ tenantId: activeTenantId }, { enabled });
+  const trainModel = trpc.crm.trainLeadModel.useMutation({
+    onSuccess: (d) => {
+      if (d.trained) toast.success(`ML model v${d.version} trained on ${d.sampleCount} customers (logloss ${d.logloss?.toFixed(3)})`);
+      else toast.info(`Not enough history to train (${d.sampleCount}/${d.minTrainSamples} labeled customers) — rule-based scoring stays active`);
+      modelStatusQ.refetch();
+      atRiskQ.refetch();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const modelStatus = modelStatusQ.data;
+
   const summary = summaryQ.data;
   const atRisk = atRiskQ.data ?? [];
   const stages = summary?.stages ?? {};
@@ -116,7 +150,30 @@ export default function Crm() {
               {refresh.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
               Refresh scores
             </Button>
+            <Button
+              variant="outline" size="sm" className="gap-2 border-border"
+              disabled={!enabled || trainModel.isPending}
+              onClick={() => trainModel.mutate({ tenantId: activeTenantId })}
+            >
+              {trainModel.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <BrainCircuit className="w-4 h-4" />}
+              Train model
+            </Button>
           </div>
+        </div>
+
+        {/* W20: ML model status line */}
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <BrainCircuit className="w-3.5 h-3.5 text-violet-400" />
+          {modelStatus?.trained ? (
+            <span>
+              ML propensity model v{modelStatus.version} — trained {modelStatus.trainedAt ? new Date(modelStatus.trainedAt).toLocaleString() : "—"}
+              {" · "}{modelStatus.sampleCount} customers{modelStatus.logloss != null ? ` · logloss ${modelStatus.logloss.toFixed(3)}` : ""}
+            </span>
+          ) : (
+            <span>
+              ML model not trained yet (needs {modelStatus?.minTrainSamples ?? 50} customers with order history) — using rule-based scores.
+            </span>
+          )}
         </div>
 
         {/* Band distribution */}
@@ -206,6 +263,7 @@ export default function Crm() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <PropensityBadge propensity={c.propensity} scoreSource={c.scoreSource} />
                       <BandBadge band={c.band} />
                       {c.score != null && <Badge variant="outline" className="border-border">{c.score}</Badge>}
                     </div>

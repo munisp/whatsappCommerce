@@ -34,6 +34,27 @@ type IncidentStatusResult = {
   resolved: number;
   recent: Array<{ id: string; title: string; severity: string; status: string; openedAt: string }>;
 };
+type AnomalyAlertRow = {
+  id: string;
+  signal: string;
+  score: number;
+  status: "open" | "acknowledged" | "dismissed";
+  createdAt: string;
+  windowBucket: string;
+  detail?: Record<string, unknown> | null;
+};
+type AnomalyScanResult = {
+  baselineBuilding: boolean;
+  baselineEvents: number;
+  windowEvents: number;
+  alertsCreated: number;
+};
+
+const anomalyStatusColors: Record<string, string> = {
+  open: "bg-red-500/20 text-red-400 border-red-500/30",
+  acknowledged: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  dismissed: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+};
 
 const severityColors: Record<string, string> = {
   critical: "bg-red-500/20 text-red-400 border-red-500/30",
@@ -74,6 +95,16 @@ export default function Compliance() {
     retry: false,
     refetchInterval: 60_000,
   }) as { data?: IncidentStatusResult; isLoading: boolean; isError: boolean };
+  const anomalyAlertsQuery = complianceApi.anomalyAlerts.useQuery(undefined, {
+    retry: false,
+    refetchInterval: 60_000,
+  }) as { data?: AnomalyAlertRow[]; isLoading: boolean; isError: boolean; refetch: () => void };
+  const anomalyScan = complianceApi.anomalyScan.useMutation({
+    onSuccess: () => anomalyAlertsQuery.refetch(),
+  }) as { mutate: (input?: Record<string, never>) => void; isPending: boolean; data?: AnomalyScanResult };
+  const updateAnomalyAlert = complianceApi.updateAnomalyAlert.useMutation({
+    onSuccess: () => anomalyAlertsQuery.refetch(),
+  }) as { mutate: (input: { alertId: string; status: "acknowledged" | "dismissed" }) => void; isPending: boolean };
 
   const chain = auditChain.data;
   const incidentData = incidents.data;
@@ -221,8 +252,82 @@ export default function Compliance() {
           </CardContent>
         </Card>
 
-        {/* Retention policies */}
+        {/* W20: anomaly detection over the audit stream */}
         <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Anomaly Detection</span>
+              <button
+                type="button"
+                className="rounded-md border border-border px-3 py-1 text-sm hover:bg-accent disabled:opacity-50"
+                disabled={anomalyScan.isPending}
+                onClick={() => anomalyScan.mutate({})}
+              >
+                {anomalyScan.isPending ? "Scanning…" : "Run scan"}
+              </button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {anomalyScan.data?.baselineBuilding && (
+              <p className="text-sm text-muted-foreground">
+                Baseline building ({anomalyScan.data.baselineEvents} events collected) — alerts activate once enough history exists.
+              </p>
+            )}
+            {anomalyAlertsQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading anomaly alerts…</p>
+            ) : anomalyAlertsQuery.isError || !anomalyAlertsQuery.data ? (
+              <p className="text-sm text-yellow-400">Anomaly alerts unavailable.</p>
+            ) : anomalyAlertsQuery.data.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No anomaly alerts.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Signal</TableHead>
+                    <TableHead>Score</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {anomalyAlertsQuery.data.map((a) => (
+                    <TableRow key={a.id}>
+                      <TableCell className="font-medium">{a.signal}</TableCell>
+                      <TableCell>{a.score.toFixed(2)}</TableCell>
+                      <TableCell>
+                        <Badge className={anomalyStatusColors[a.status] ?? ""}>{a.status}</Badge>
+                      </TableCell>
+                      <TableCell>{fmtDate(a.createdAt)}</TableCell>
+                      <TableCell className="space-x-2">
+                        {a.status === "open" && (
+                          <>
+                            <button
+                              type="button"
+                              className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent"
+                              onClick={() => updateAnomalyAlert.mutate({ alertId: a.id, status: "acknowledged" })}
+                            >
+                              Ack
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent"
+                              onClick={() => updateAnomalyAlert.mutate({ alertId: a.id, status: "dismissed" })}
+                            >
+                              Dismiss
+                            </button>
+                          </>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Retention policies */}        <Card>
           <CardHeader>
             <CardTitle>Retention Policies</CardTitle>
           </CardHeader>

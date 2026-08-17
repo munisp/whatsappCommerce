@@ -407,6 +407,20 @@
       "when": 1786988400000,
       "tag": "0060_soc2_compliance",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1786988500000,
+      "tag": "0061_lead_score_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786988600000,
+      "tag": "0062_anomaly_alerts",
+      "breakpoints": true
     }
   ]
 }

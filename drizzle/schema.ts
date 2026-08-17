@@ -1,6 +1,7 @@
 import {
   boolean,
   decimal,
+  doublePrecision,
   integer,
   jsonb,
   pgEnum,
@@ -3435,3 +3436,47 @@ export const incidents = pgTable("incidents", {
 ]);
 export type Incident = typeof incidents.$inferSelect;
 export type NewIncident = typeof incidents.$inferInsert;
+
+// ── W20: ML propensity lead-scoring model registry ─────────────────────────
+// One row per trained per-tenant logistic-regression model
+// (server/services/mlLeadScoring.ts). weights_jsonb is a number[] aligned
+// with feature_names (a string[]); version increments per tenant per train.
+// Training rows are gated by MIN_TRAIN_SAMPLES — tenants below the gate have
+// NO rows here and scoring falls back to the rule-based lead score.
+export const leadScoreModels = pgTable("lead_score_models", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  weights:      jsonb("weights_jsonb").notNull(), // number[], aligned with featureNames
+  featureNames: jsonb("feature_names").notNull(), // string[]
+  trainedAt:    timestamp("trained_at").notNull().defaultNow(),
+  sampleCount:  integer("sample_count").notNull(),
+  logloss:      real("logloss"), // final training log-loss (null if not computed)
+  version:      integer("version").notNull().default(1),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("lead_score_models_tenant_idx").on(t.tenantId),
+  uniqueIndex("lead_score_models_tenant_version_uniq").on(t.tenantId, t.version),
+]);
+export type LeadScoreModel = typeof leadScoreModels.$inferSelect;
+export type NewLeadScoreModel = typeof leadScoreModels.$inferInsert;
+
+// ── W20: audit-stream anomaly detection alerts ──────────────────────────────
+// Alerts emitted by server/services/auditAnomaly.ts when a tenant's audit
+// stream deviates from its learned baseline. Idempotent per
+// (tenant_id, signal, window_bucket): re-scans of the same bucket upsert-nothing.
+export const anomalyAlerts = pgTable("anomaly_alerts", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  signal:      varchar("signal", { length: 100 }).notNull(),
+  score:       doublePrecision("score").notNull(),
+  detail:      jsonb("detail_jsonb"),
+  status:      varchar("status", { length: 20 }).notNull().default("open"), // 'open' | 'acknowledged' | 'dismissed'
+  windowBucket: timestamp("window_bucket").notNull(),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("anomaly_alerts_tenant_signal_bucket_uniq").on(t.tenantId, t.signal, t.windowBucket),
+  index("anomaly_alerts_tenant_idx").on(t.tenantId),
+  index("anomaly_alerts_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type AnomalyAlert = typeof anomalyAlerts.$inferSelect;
+export type NewAnomalyAlert = typeof anomalyAlerts.$inferInsert;

@@ -2071,6 +2071,26 @@ async function startServer() {
     }
   });
 
+  // ── Lead Model Tick (W20) ─────────────────────────────────────────────────
+  // Periodic per-tenant retraining of the ML propensity lead-scoring model
+  // (services/mlLeadScoring.ts). Follows the journey-tick wiring pattern:
+  // cron-only, service owns the logic, never throws; tenants below the
+  // minimum-sample gate are skipped and keep the rule-based fallback.
+  app.post("/api/scheduled/lead-model-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runLeadModelTick } = await import("../services/mlLeadScoring");
+      const summary = await runLeadModelTick(db, new Date());
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[lead-model-tick]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── Scheduled Broadcast Dispatch ──────────────────────────────────────────
   // Picks up campaigns scheduled via broadcast.send(scheduleAt) — status
   // 'scheduled' with scheduledAt <= now — and runs the REAL consent-gated,

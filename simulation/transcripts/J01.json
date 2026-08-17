@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011026754",
-      "profileName": "Sim User 6754",
+      "phone": "2348016088277",
+      "profileName": "Sim User 8277",
       "inboundId": "wamid.sim.in.text.00001",
-      "at": 1787001713499,
+      "at": 1787008866666,
       "kind": "text",
       "text": "hello there"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00001",
-      "at": 1787001713510
+      "at": 1787008866681
     },
     {
       "dir": "out",
-      "phone": "2348011026754",
+      "phone": "2348016088277",
       "wamid": "wamid.sim.000001",
       "statuses": [
         "sent"
       ],
-      "at": 1787001713570,
+      "at": 1787008866831,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348011026754",
-      "profileName": "Sim User 6754",
+      "phone": "2348016088277",
+      "profileName": "Sim User 8277",
       "inboundId": "wamid.sim.in.text.00002",
-      "at": 1787001714019,
+      "at": 1787008867178,
       "kind": "text",
       "text": "YES"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00002",
-      "at": 1787001714025
+      "at": 1787008867186
     },
     {
       "dir": "out",
-      "phone": "2348011026754",
+      "phone": "2348016088277",
       "wamid": "wamid.sim.000002",
       "statuses": [
         "sent"
       ],
-      "at": 1787001714057,
+      "at": 1787008867225,
       "kind": "text",
       "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
     },
     {
       "dir": "in",
-      "phone": "2348015915726",
-      "profileName": "Sim User 5726",
+      "phone": "2348019089104",
+      "profileName": "Sim User 9104",
       "inboundId": "wamid.sim.in.text.00003",
-      "at": 1787001714572,
+      "at": 1787008867731,
       "kind": "text",
       "text": "bonjour"
     },
@@ -70,25 +70,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00003",
-      "at": 1787001714580
+      "at": 1787008867746
     },
     {
       "dir": "out",
-      "phone": "2348015915726",
+      "phone": "2348019089104",
       "wamid": "wamid.sim.000003",
       "statuses": [
         "sent"
       ],
-      "at": 1787001714617,
+      "at": 1787008867766,
       "kind": "text",
       "body": "Avant de continuer : nous aimerions vous envoyer des mises à jour de commande et des offres sur WhatsApp. Répondez OUI pour les recevoir, ou NON pour refuser. Vous pouvez changer d'avis à tout moment."
     },
     {
       "dir": "in",
-      "phone": "2348015915726",
-      "profileName": "Sim User 5726",
+      "phone": "2348019089104",
+      "profileName": "Sim User 9104",
       "inboundId": "wamid.sim.in.text.00004",
-      "at": 1787001715120,
+      "at": 1787008868281,
       "kind": "text",
       "text": "OUI"
     },
@@ -96,25 +96,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00004",
-      "at": 1787001715139
+      "at": 1787008868288
     },
     {
       "dir": "out",
-      "phone": "2348015915726",
+      "phone": "2348019089104",
       "wamid": "wamid.sim.000004",
       "statuses": [
         "sent"
       ],
-      "at": 1787001715168,
+      "at": 1787008868332,
       "kind": "text",
       "body": "Merci ! Vous recevrez désormais nos mises à jour sur WhatsApp.\n\nBonjour ! Bienvenue chez Sim Store. Comment pouvons-nous vous aider ?\n\n1. Acheter / passer une commande\n2. Suivre ma commande\n3. Parler à un agent\n\nReply with a number to choose an option."
     },
     {
       "dir": "in",
-      "phone": "2348018097299",
-      "profileName": "Sim User 7299",
+      "phone": "2348012855319",
+      "profileName": "Sim User 5319",
       "inboundId": "wamid.sim.in.text.00005",
-      "at": 1787001715668,
+      "at": 1787008868830,
       "kind": "text",
       "text": "hi"
     },
@@ -122,25 +122,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00005",
-      "at": 1787001715674
+      "at": 1787008868835
     },
     {
       "dir": "out",
-      "phone": "2348018097299",
+      "phone": "2348012855319",
       "wamid": "wamid.sim.000005",
       "statuses": [
         "sent"
       ],
-      "at": 1787001715701,
+      "at": 1787008868856,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348018097299",
-      "profileName": "Sim User 7299",
+      "phone": "2348012855319",
+      "profileName": "Sim User 5319",
       "inboundId": "wamid.sim.in.text.00006",
-      "at": 1787001716215,
+      "at": 1787008869378,
       "kind": "text",
       "text": "NO"
     },
@@ -148,16 +148,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00006",
-      "at": 1787001716223
+      "at": 1787008869383
     },
     {
       "dir": "out",
-      "phone": "2348018097299",
+      "phone": "2348012855319",
       "wamid": "wamid.sim.000006",
       "statuses": [
         "sent"
       ],
-      "at": 1787001716247,
+      "at": 1787008869402,
       "kind": "text",
       "body": "Understood — you've opted out of proactive order updates. You can still message us anytime, and reply YES later to opt back in."
     }

@@ -35,6 +35,7 @@ authoritative once those files land.
 | ID | Control | Evidence |
 |---|---|---|
 | CC4.1 | Hash-chained, tamper-evident audit log with verification | ⏳ `server/services/auditChain.ts`; verify via tRPC `compliance.verifyAuditChain`; UI status card in `client/src/pages/Compliance.tsx`; operator views `client/src/pages/AuditLog.tsx`, `client/src/pages/AuditLogViewer.tsx` |
+| CC4.1a | Behavioral anomaly detection over the audit stream (EWMA baselines, robust z-scores, idempotent alert buckets, auto-incident ≥ 0.95) | ⏳ `server/services/auditAnomaly.ts`, `anomaly_alerts` table (`drizzle/0062_anomaly_alerts.sql`); tRPC `compliance.anomalyScan`/`anomalyAlerts`/`updateAnomalyAlert`; UI panel in `client/src/pages/Compliance.tsx`; threshold env `AUDIT_ANOMALY_THRESHOLD`; model doc `docs/ML.md` |
 | CC4.2 | Authz coverage continuously scanned (tenant-guard ratchet) | `server/routers/__tests__/authzScan.lib.ts`, `server/routers/__tests__/authzCoverage.test.ts`, per-area ratchets `w12authz*.test.ts` |
 | CC4.3 | Health/observability monitoring | `server/services/observability.ts`, `server/routers/infra.ts`, `client/src/pages/HealthStatus.tsx`, `client/src/pages/InfraHealth.tsx`, `client/src/pages/ServiceHealth.tsx` |
 | CC4.4 | Controls self-check script in CI | `scripts/soc2-check.ts`; step in `.github/workflows/ci.yml` (`continue-on-error: true`) |
@@ -62,7 +63,7 @@ authoritative once those files land.
 
 | ID | Control | Evidence |
 |---|---|---|
-| CC7.1 | Incident recording with severity + status lifecycle | ⏳ `incidents` table (`drizzle/schema.ts`), incidents router; rollup via tRPC `compliance.incidentStatus`; UI in `client/src/pages/Compliance.tsx` |
+| CC7.1 | Incident recording with severity + status lifecycle | ⏳ `incidents` table (`drizzle/schema.ts`), incidents router; rollup via tRPC `compliance.incidentStatus`; UI in `client/src/pages/Compliance.tsx`; critical incidents auto-opened by `server/services/auditAnomaly.ts` when an anomaly score ≥ 0.95 |
 | CC7.2 | Incident response runbook + postmortems | `docs/SOC2/INCIDENT_RUNBOOK.md` |
 | CC7.3 | Change management via PR + CI gates | `.github/workflows/ci.yml` (typecheck, vitest, prod audit, CV-stack gate); `docs/SOC2/CHANGE_MANAGEMENT.md` |
 | CC7.4 | Webhook failure recovery (DLQ) | `server/routers/webhookDlq.ts`, `client/src/pages/WebhookDLQ.tsx` |

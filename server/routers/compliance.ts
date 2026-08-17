@@ -4,12 +4,13 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   taxFilings, cacRegistrations, procurementBids, governmentContracts,
-  users, tenantMemberships, sessionRevocations, incidents,
+  users, tenantMemberships, sessionRevocations, incidents, anomalyAlerts,
   customers, orders, conversations, channelMessages, creditAccounts,
 } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { appendAuditEventTx, verifyAuditChain } from "../services/auditChain";
+import { scanAuditAnomaliesTx } from "../services/auditAnomaly";
 import {
   listRetentionPolicies, purgeExecute, purgePreview,
   UnknownEntityError, upsertRetentionPolicy,
@@ -22,6 +23,7 @@ const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 const incidentStatusEnum = z.enum(["open", "investigating", "mitigated", "resolved"]);
 const incidentSeverityEnum = z.enum(["low", "medium", "high", "critical"]);
+const anomalyAlertStatusEnum = z.enum(["open", "acknowledged", "dismissed"]);
 
 export const complianceRouter = router({
   // ── FIRS Tax Filings ─────────────────────────────────────────────────────
@@ -332,6 +334,13 @@ export const complianceRouter = router({
       const messages = phone
         ? await db.select().from(channelMessages).where(and(eq(channelMessages.tenantId, input.tenantId), or(eq(channelMessages.fromAddress, phone), eq(channelMessages.toAddress, phone))))
         : [];
+      // Audit the export itself — sensitive event for W20 anomaly detection.
+      await appendAuditEventTx(db, {
+        tenantId: input.tenantId,
+        eventType: "customer_data_export",
+        actorId: String(ctx.user.id),
+        payload: { customerId: input.customerId },
+      });
       return {
         exportedAt: new Date().toISOString(),
         customer,
@@ -408,6 +417,50 @@ export const complianceRouter = router({
         actorId: String(ctx.user.id),
         payload: { incidentId: input.incidentId, ...set, resolvedAt: set.resolvedAt instanceof Date ? set.resolvedAt.toISOString() : (set.resolvedAt ?? null) },
       });
+      return { ok: true };
+    }),
+
+  // ── W20: audit-stream anomaly detection ──────────────────────────────────
+  anomalyScan: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      windowMs: z.number().int().min(60_000).optional(),
+      now: z.string().optional(), // ISO override for deterministic tests/journeys
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = (await getDb())!;
+      return scanAuditAnomaliesTx(db, input.tenantId, {
+        windowMs: input.windowMs,
+        now: input.now ? new Date(input.now) : undefined,
+      });
+    }),
+
+  anomalyAlerts: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      status: anomalyAlertStatusEnum.optional(),
+      limit: z.number().default(50),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = (await getDb())!;
+      const conds = [eq(anomalyAlerts.tenantId, input.tenantId)];
+      if (input.status) conds.push(eq(anomalyAlerts.status, input.status));
+      return db.select().from(anomalyAlerts).where(and(...conds)).orderBy(desc(anomalyAlerts.createdAt)).limit(input.limit);
+    }),
+
+  updateAnomalyAlert: protectedProcedure
+    .input(z.object({
+      alertId: z.string(),
+      status: z.enum(["acknowledged", "dismissed"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = (await getDb())!;
+      const [alert] = await db.select().from(anomalyAlerts).where(eq(anomalyAlerts.id, input.alertId)).limit(1);
+      if (!alert) throw new TRPCError({ code: "NOT_FOUND", message: "Anomaly alert not found" });
+      assertTenantAccess(ctx.user, alert.tenantId);
+      await db.update(anomalyAlerts).set({ status: input.status }).where(eq(anomalyAlerts.id, input.alertId));
       return { ok: true };
     }),
 
