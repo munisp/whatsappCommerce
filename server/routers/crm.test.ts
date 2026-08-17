@@ -110,6 +110,117 @@ describe("crm.createWinBackCampaign", () => {
   });
 });
 
+describe("crm.atRiskList W20 propensity", () => {
+  const ago = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  it("each entry carries propensity + scoreSource ('rules' when no model)", async () => {
+    // The universal chain mock returns the customer rows for EVERY select,
+    // including the lead_score_models lookup → malformed model → rules fallback.
+    vi.mocked(getDb).mockResolvedValue({ select: vi.fn(() => chainTo([
+      { customerId: "quiet", name: "Ada", whatsappPhone: "2341", totalOrders: 5, totalSpent: "9000.00", lastOrderAt: ago(45), score: 30, band: "cold" },
+    ])) } as any);
+    const caller = crmRouter.createCaller(ADMIN);
+    const out = await caller.atRiskList({ tenantId: "t1" });
+    expect(out).toHaveLength(1);
+    expect(out[0].scoreSource).toBe("rules");
+    expect(typeof out[0].propensity).toBe("number");
+    expect(out[0].propensity).toBeGreaterThanOrEqual(0);
+    expect(out[0].propensity).toBeLessThanOrEqual(1);
+    // existing fields intact (additive change)
+    expect(out[0].score).toBe(30);
+    expect(out[0].band).toBe("cold");
+  });
+});
+
+describe("crm.trainLeadModel", () => {
+  it("tenant guard: non-admin cannot train another tenant's model", async () => {
+    vi.mocked(getDb).mockResolvedValue({ select: vi.fn(() => chainTo([])) } as any);
+    const caller = crmRouter.createCaller(TENANT_USER);
+    await expect(caller.trainLeadModel({ tenantId: "OTHER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("happy path: below the sample gate → trained=false, no insert", async () => {
+    const inserted: any[] = [];
+    let call = 0;
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(() => {
+        call += 1;
+        // 1st select = customers (5 → below the 50-row gate), rest = count/feature queries
+        return chainTo(call === 1
+          ? Array.from({ length: 5 }, (_, i) => ({ id: `c${i}`, whatsappPhone: `p${i}`, totalOrders: 1, totalSpent: "10.00", lastOrderAt: new Date() }))
+          : [{ n: 1, createdAt: new Date(), cents: 1000 }]);
+      }),
+      insert: vi.fn(() => ({ values: vi.fn((v: any) => { inserted.push(v); return Promise.resolve([]); }) })),
+    } as any);
+    const caller = crmRouter.createCaller(TENANT_USER);
+    const r = await caller.trainLeadModel({ tenantId: "t1" });
+    expect(r.trained).toBe(false);
+    expect(r.reason).toBe("insufficient_samples");
+    expect(r.sampleCount).toBe(5);
+    expect(r.minTrainSamples).toBe(50);
+    expect(inserted).toHaveLength(0);
+  });
+
+  it("happy path: enough samples → trained model persisted with version bump", async () => {
+    const inserted: any[] = [];
+    let call = 0;
+    const customerRows = Array.from({ length: 60 }, (_, i) => ({
+      id: `c${String(i).padStart(3, "0")}`, whatsappPhone: `p${i}`, totalOrders: 3,
+      totalSpent: "100.00", lastOrderAt: new Date(Date.now() - 30 * 86400000),
+    }));
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(() => {
+        call += 1;
+        // counts: pre=1, post=1 → every customer labeled; max(version)=2 → v3
+        return chainTo(call === 1 ? customerRows : [{ n: 1, createdAt: new Date(Date.now() - 30 * 86400000), cents: 10000, v: 2, limit: 0, outstanding: 0 }]);
+      }),
+      insert: vi.fn(() => ({ values: vi.fn((v: any) => { inserted.push(v); return Promise.resolve([]); }) })),
+    } as any);
+    const caller = crmRouter.createCaller(TENANT_USER);
+    const r = await caller.trainLeadModel({ tenantId: "t1" });
+    expect(r.trained).toBe(true);
+    expect(r.sampleCount).toBe(60);
+    expect(r.version).toBe(3);
+    expect(typeof r.logloss).toBe("number");
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0].tenantId).toBe("t1");
+    expect(inserted[0].version).toBe(3);
+    expect(inserted[0].sampleCount).toBe(60);
+    expect(Array.isArray(inserted[0].weights)).toBe(true);
+    expect(inserted[0].featureNames.length).toBe(7);
+    expect(inserted[0].weights.length).toBe(8); // bias + 7 features
+  });
+});
+
+describe("crm.leadModelStatus", () => {
+  it("tenant guard: non-admin cannot read another tenant's model status", async () => {
+    vi.mocked(getDb).mockResolvedValue({ select: vi.fn(() => chainTo([])) } as any);
+    const caller = crmRouter.createCaller(TENANT_USER);
+    await expect(caller.leadModelStatus({ tenantId: "OTHER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("untrained tenant → trained=false with nulls; trained → metadata", async () => {
+    vi.mocked(getDb).mockResolvedValue({ select: vi.fn(() => chainTo([])) } as any);
+    const caller = crmRouter.createCaller(ADMIN);
+    const untrained = await caller.leadModelStatus({ tenantId: "t1" });
+    expect(untrained).toEqual({ trained: false, trainedAt: null, sampleCount: 0, logloss: null, version: null, minTrainSamples: 50 });
+
+    const trainedAt = new Date();
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(() => chainTo([{
+        id: "m1", tenantId: "t1", weights: [0, 0, 0, 0, 0, 0, 0, 0], featureNames: ["a"],
+        trainedAt, sampleCount: 120, logloss: 0.42, version: 2,
+      }])),
+    } as any);
+    const trained = await caller.leadModelStatus({ tenantId: "t1" });
+    expect(trained.trained).toBe(true);
+    expect(trained.sampleCount).toBe(120);
+    expect(trained.logloss).toBe(0.42);
+    expect(trained.version).toBe(2);
+    expect(trained.trainedAt).toBe(trainedAt);
+  });
+});
+
 describe("crm.getScoreBreakdown", () => {
   it("returns factors for a scored customer, 404 otherwise", async () => {
     const row = {

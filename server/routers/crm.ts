@@ -24,6 +24,12 @@ import {
   type LeadBand,
   type LeadStage,
 } from "../services/leadScoring";
+import {
+  loadLatestModel,
+  scoreCustomerMl,
+  trainLeadModelTx,
+  ML_MODEL_PARAMS,
+} from "../services/mlLeadScoring";
 
 export const LEAD_STAGES: LeadStage[] = ["new_lead", "engaged", "first_order", "repeat", "vip", "at_risk"];
 export const LEAD_BANDS: LeadBand[] = ["hot", "warm", "cold"];
@@ -122,24 +128,69 @@ export const crmRouter = router({
         .orderBy(desc(customers.totalSpent))
         .limit(1000);
       const now = Date.now();
-      return (rows as any[])
+      const atRisk = (rows as any[])
         .filter((r) => {
           if ((r.totalOrders ?? 0) < 2) return false; // previously active buyers only
           if (!r.lastOrderAt) return false;
           return now - new Date(r.lastOrderAt).getTime() >= 30 * 24 * 60 * 60 * 1000;
         })
-        .slice(0, input.limit)
-        .map((r) => ({
-          customerId: r.customerId,
-          name: r.name,
-          whatsappPhone: r.whatsappPhone,
-          totalOrders: r.totalOrders,
-          totalSpent: Number(r.totalSpent ?? 0),
-          lastOrderAt: r.lastOrderAt,
-          daysSinceLastOrder: Math.floor((now - new Date(r.lastOrderAt).getTime()) / (24 * 60 * 60 * 1000)),
-          score: r.score ?? null,
-          band: r.band ?? null,
-        }));
+        .slice(0, input.limit);
+      // W20: attach ML propensity per entry (ML-first, rules fallback —
+      // scoreCustomerMl never throws and reports which source produced it).
+      return Promise.all(
+        atRisk.map(async (r) => {
+          const ml = await scoreCustomerMl(db, input.tenantId, r.customerId);
+          return {
+            customerId: r.customerId,
+            name: r.name,
+            whatsappPhone: r.whatsappPhone,
+            totalOrders: r.totalOrders,
+            totalSpent: Number(r.totalSpent ?? 0),
+            lastOrderAt: r.lastOrderAt,
+            daysSinceLastOrder: Math.floor((now - new Date(r.lastOrderAt).getTime()) / (24 * 60 * 60 * 1000)),
+            score: r.score ?? null,
+            band: r.band ?? null,
+            propensity: ml.propensity,
+            scoreSource: (ml.fallbackUsed ? "rules" : "ml") as "ml" | "rules",
+          };
+        }),
+      );
+    }),
+
+  /**
+   * W20: train (or retrain) this tenant's ML propensity model from order
+   * history. Below the minimum-sample gate no model is persisted and
+   * scoring keeps using the rule-based fallback.
+   */
+  trainLeadModel: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const result = await trainLeadModelTx(db, input.tenantId);
+      return { ...result, minTrainSamples: ML_MODEL_PARAMS.minTrainSamples };
+    }),
+
+  /** W20: latest trained model metadata for the tenant (null when untrained). */
+  leadModelStatus: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const model = await loadLatestModel(db, input.tenantId);
+      if (!model) {
+        return { trained: false as const, trainedAt: null, sampleCount: 0, logloss: null, version: null, minTrainSamples: ML_MODEL_PARAMS.minTrainSamples };
+      }
+      return {
+        trained: true as const,
+        trainedAt: model.trainedAt,
+        sampleCount: model.sampleCount,
+        logloss: model.logloss,
+        version: model.version,
+        minTrainSamples: ML_MODEL_PARAMS.minTrainSamples,
+      };
     }),
 
   /** Explainable score breakdown for one customer (factor list drawer). */

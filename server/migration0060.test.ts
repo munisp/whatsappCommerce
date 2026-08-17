@@ -64,7 +64,11 @@ describe("0060_soc2_compliance.sql", () => {
     const entry = journal.entries.find((e: any) => e.tag === "0060_soc2_compliance");
     expect(entry).toBeTruthy();
     expect(entry.idx).toBe(60);
-    expect(journal.entries[journal.entries.length - 1].idx).toBe(60);
+    // Later migrations (0061+) append after 0060 — 0060 keeps idx 60 and the
+    // tip only moves forward (journal has historical gaps at idx 32–34).
+    expect(journal.entries[journal.entries.length - 1].idx).toBeGreaterThanOrEqual(60);
+    expect(journal.entries.filter((e: any) => e.idx === 60)).toHaveLength(1);
+    expect(journal.entries.some((e: any) => e.idx === 60)).toBe(true);
   });
 
   it("snapshot carries the new tables and stays cumulative", () => {
