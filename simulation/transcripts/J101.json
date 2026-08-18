@@ -1,0 +1,8 @@
+{
+  "id": "J101",
+  "title": "LLM copilot — incident triage + merchant ask",
+  "feature": "fallback contract, runbook retrieval, aggregate-grounded answers, prompt redaction, copilot_queries audit log, tenant guards",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -3510,6 +3510,35 @@ export const upliftModels = pgTable("uplift_models", {
 export type UpliftModel = typeof upliftModels.$inferSelect;
 export type NewUpliftModel = typeof upliftModels.$inferInsert;
 
+// ── W22: contextual-bandit credit-limit decision log ────────────────────────
+// One row per limit suggestion the LinUCB bandit scored
+// (server/services/banditLimits.ts). context is the normalized feature
+// vector (number[], aligned with BANDIT_FEATURE_NAMES); chosenMultiplier is
+// the arm the policy picked; suggestedLimitCents is the bandit's
+// (cap-clamped) limit, baselineLimitCents the rule-based baseline. mode is
+// 'shadow' (default: logged, not applied) or 'active' (only with
+// BANDIT_LIMITS_MODE=active AND the min-rewarded-decisions gate met; always
+// clamped by manufacturer program caps). reward is NULL until the
+// bandit-reward-tick cron assigns it from repayment outcomes
+// (1 on-time, 0.5 late-cured, 0 default).
+export const banditDecisions = pgTable("bandit_decisions", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  tenantId:            varchar("tenant_id", { length: 36 }).notNull(),
+  buyerId:             varchar("buyer_id", { length: 36 }).notNull(),
+  context:             jsonb("context_jsonb").notNull(), // number[], aligned with BANDIT_FEATURE_NAMES
+  chosenMultiplier:    real("chosen_multiplier").notNull(),
+  suggestedLimitCents: bigint("suggested_limit_cents", { mode: "number" }).notNull(),
+  baselineLimitCents:  bigint("baseline_limit_cents", { mode: "number" }).notNull(),
+  mode:                varchar("mode", { length: 16 }).notNull().default("shadow"), // 'shadow' | 'active'
+  reward:              real("reward"), // NULL until the reward tick assigns it
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("bandit_decisions_tenant_idx").on(t.tenantId),
+  index("bandit_decisions_reward_idx").on(t.reward),
+]);
+export type BanditDecision = typeof banditDecisions.$inferSelect;
+export type NewBanditDecision = typeof banditDecisions.$inferInsert;
+
 // ── W20: audit-stream anomaly detection alerts ──────────────────────────────
 // Alerts emitted by server/services/auditAnomaly.ts when a tenant's audit
 // stream deviates from its learned baseline. Idempotent per
@@ -3530,3 +3559,47 @@ export const anomalyAlerts = pgTable("anomaly_alerts", {
 ]);
 export type AnomalyAlert = typeof anomalyAlerts.$inferSelect;
 export type NewAnomalyAlert = typeof anomalyAlerts.$inferInsert;
+
+
+// ── W22: graph-based collusion detection alerts ─────────────────────────────
+// Alerts emitted by server/services/graphCollusion.ts when the tenant-level
+// trade-interaction graph shows collusion signals (cycles, concentration,
+// tight clusters). Idempotent per (tenant_id, buyer_id, signal,
+// window_bucket): re-scans of the same bucket upsert-nothing.
+export const graphAlerts = pgTable("graph_alerts", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  buyerId:     varchar("buyer_id", { length: 36 }).notNull(),
+  signal:      varchar("signal", { length: 100 }).notNull(), // 'cycle' | 'concentration' | 'cluster'
+  score:       doublePrecision("score").notNull(),
+  evidence:    jsonb("evidence_jsonb"),
+  status:      varchar("status", { length: 20 }).notNull().default("open"), // 'open' | 'acknowledged' | 'dismissed'
+  windowBucket: timestamp("window_bucket").notNull(),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("graph_alerts_tenant_buyer_signal_bucket_uniq").on(t.tenantId, t.buyerId, t.signal, t.windowBucket),
+  index("graph_alerts_tenant_idx").on(t.tenantId),
+  index("graph_alerts_tenant_status_idx").on(t.tenantId, t.status),
+  index("graph_alerts_buyer_idx").on(t.buyerId),
+]);
+export type GraphAlert = typeof graphAlerts.$inferSelect;
+export type NewGraphAlert = typeof graphAlerts.$inferInsert;
+
+// ── W22: LLM copilot invocation log ─────────────────────────────────────────
+// Audit trail for server/services/llmCopilot.ts (merchant Q&A + SOC2 incident
+// triage). Stores ONLY the sha256 prompt hash, fallback flag and latency —
+// never raw prompts, answers, or PII.
+export const copilotQueries = pgTable("copilot_queries", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  kind:         varchar("kind", { length: 10 }).notNull(), // 'triage' | 'ask'
+  promptHash:   varchar("prompt_hash", { length: 64 }).notNull(), // sha256 hex
+  fallbackUsed: boolean("fallback_used").notNull().default(false),
+  latencyMs:    integer("latency_ms").notNull().default(0),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("copilot_queries_tenant_idx").on(t.tenantId),
+  index("copilot_queries_tenant_created_idx").on(t.tenantId, t.createdAt),
+]);
+export type CopilotQuery = typeof copilotQueries.$inferSelect;
+export type NewCopilotQuery = typeof copilotQueries.$inferInsert;

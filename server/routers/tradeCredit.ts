@@ -335,6 +335,34 @@ export const tradeCreditRouter = router({
       };
     }),
 
+  /**
+   * W22: bandit serving status for the tenant — decisions logged, reward
+   * coverage, configured mode (shadow/active) and whether the active-mode
+   * gate (≥ minRewardedDecisions rewarded) is currently met.
+   */
+  banditStatus: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await requireDb();
+      const { banditStatusTx } = await import("../services/banditLimits");
+      return banditStatusTx(db, input.tenantId);
+    }),
+
+  /**
+   * W22: off-policy replay estimate — rejection-sampled average reward of
+   * the current LinUCB policy vs the logged ×1.0 baseline arm, plus
+   * per-multiplier reward stats on the tenant's rewarded decisions.
+   */
+  banditReplay: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await requireDb();
+      const { banditReplayTx } = await import("../services/banditLimits");
+      return banditReplayTx(db, input.tenantId);
+    }),
+
   /** Record a buyer repayment (partial allowed; over-repayment refused). */
   recordRepayment: protectedProcedure
     .input(z.object({

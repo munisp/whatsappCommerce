@@ -31,6 +31,7 @@ import {
   purchaseOrders,
   tenants,
   bureauReportLog,
+  graphAlerts,
 } from "../../../drizzle/schema";
 
 // ── Row types (JS camelCase props, mirroring drizzle $inferSelect) ──────────
@@ -139,13 +140,26 @@ export interface MandateChargeRow {
   createdAt: Date;
   updatedAt: Date;
 }
-export interface OrderRow { tenantId: string; totalAmount: string; createdAt: Date; customerId?: string | null }
+export interface OrderRow { tenantId: string; totalAmount: string; createdAt: Date; customerId?: string | null; shippingAddress?: unknown }
 /** W18 anti-gaming: customers row (id → WhatsApp phone). */
 export interface CustomerRow { id: string; tenantId: string; whatsappPhone: string }
 /** W18 anti-gaming: users row (staff phones for a tenant). */
 export interface UserRow { tenantId: string; phone: string | null }
 export interface PaymentRow { tenantId: string; status: string; createdAt: Date; paidAt: Date | null }
 export interface TenantRow { id: string; settings: unknown }
+
+/** W22 graph collusion: graph_alerts row. */
+export interface GraphAlertRow {
+  id: string;
+  tenantId: string;
+  buyerId: string;
+  signal: string;
+  score: number;
+  evidence: unknown;
+  status: string;
+  windowBucket: Date;
+  createdAt: Date;
+}
 
 export interface FakeStore {
   accounts: AccountRow[];
@@ -162,6 +176,7 @@ export interface FakeStore {
   mandateCharges: MandateChargeRow[];
   customers: CustomerRow[];
   users: UserRow[];
+  graphAlerts: GraphAlertRow[];
 }
 
 // ── drizzle condition decoding ───────────────────────────────────────────────
@@ -254,6 +269,10 @@ const PROP: Record<string, Record<string, string>> = {
     buyer_phone: "buyerPhone", notes: "notes", created_at: "createdAt", updated_at: "updatedAt",
   },
   processed_webhook_events: { id: "id", tenantId: "tenantId", type: "type", processedAt: "processedAt" },
+  graph_alerts: {
+    id: "id", tenant_id: "tenantId", buyer_id: "buyerId", signal: "signal", score: "score",
+    evidence_jsonb: "evidence", status: "status", window_bucket: "windowBucket", created_at: "createdAt",
+  },
   mandate_charges: {
     id: "id", account_id: "accountId", mandate_id: "mandateId", mandate_ref: "mandateRef",
     provider: "provider", reference: "reference", amount_cents: "amountCents", currency: "currency",
@@ -297,6 +316,7 @@ function tableName(table: unknown): string {
     mandate_charges: mandateCharges,
     customers,
     users,
+    graph_alerts: graphAlerts,
   })) {
     if (t === table) return name;
   }
@@ -319,6 +339,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     mandateCharges: (seed?.mandateCharges ?? []).map((r) => ({ ...r })),
     customers: (seed?.customers ?? []).map((r) => ({ ...r })),
     users: (seed?.users ?? []).map((r) => ({ ...r })),
+    graphAlerts: (seed?.graphAlerts ?? []).map((r) => ({ ...r })),
   };
   const rowsOf = (t: string): any[] =>
     t === "credit_accounts" ? store.accounts
@@ -334,6 +355,7 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     : t === "mandate_charges" ? store.mandateCharges
     : t === "customers" ? store.customers
     : t === "users" ? store.users
+    : t === "graph_alerts" ? store.graphAlerts
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────
@@ -372,15 +394,38 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
         rows = rows.filter((r) => r.tenantId === values[0] && new Date(r.createdAt).getTime() >= since.getTime());
       } else if (sig === "tenantId") {
         rows = rows.filter((r) => r.tenantId === values[0]);
+      } else if (sig === "createdAt") {
+        // W22 graph scan: platform-wide window query (gte createdAt).
+        const since = values[0] as Date;
+        rows = rows.filter((r) => new Date(r.createdAt).getTime() >= since.getTime());
       } else throw new Error(`fakeDb select orders: unhandled ${sig}`);
     } else if (t === "customers") {
       if (sig === "tenantId") {
         rows = rows.filter((r) => r.tenantId === values[0]);
+      } else if (sig === "createdAt") {
+        // W22 graph scan: full-table resolution pass (gte epoch bound).
+        const since = values[0] as Date;
+        rows = rows.filter((r) => new Date((r as any).createdAt ?? 0).getTime() >= since.getTime());
       } else throw new Error(`fakeDb select customers: unhandled ${sig}`);
     } else if (t === "users") {
       if (sig === "tenantId") {
         rows = rows.filter((r) => r.tenantId === values[0]);
+      } else if (sig === "createdAt") {
+        const since = values[0] as Date;
+        rows = rows.filter((r) => new Date((r as any).createdAt ?? 0).getTime() >= since.getTime());
       } else throw new Error(`fakeDb select users: unhandled ${sig}`);
+    } else if (t === "graph_alerts") {
+      if (sig === "buyer_id,status,score") {
+        // scoring integration: open alerts for buyer at/above threshold
+        const min = values[2] as number;
+        rows = rows.filter((r) => r.buyerId === values[0] && r.status === values[1] && r.score >= min);
+      } else if (sig === "tenant_id,status") {
+        rows = rows.filter((r) => r.tenantId === values[0] && r.status === values[1]);
+      } else if (sig === "tenant_id") {
+        rows = rows.filter((r) => r.tenantId === values[0]);
+      } else if (sig === "id") {
+        rows = rows.filter((r) => r.id === values[0]);
+      } else throw new Error(`fakeDb select graph_alerts: unhandled ${sig}`);
     } else if (t === "payment_transactions") {
       if (sig === "tenantId,status") {
         rows = rows.filter((r) => r.tenantId === values[0] && r.status === values[1]);
@@ -459,6 +504,21 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
 
   // ── INSERT ───────────────────────────────────────────────────────────────
   function runInsert(t: string, values: any): any {
+    if (t === "graph_alerts") {
+      const row: GraphAlertRow = {
+        id: values.id ?? randomUUID(),
+        tenantId: values.tenantId,
+        buyerId: values.buyerId,
+        signal: values.signal,
+        score: values.score,
+        evidence: values.evidence ?? null,
+        status: values.status ?? "open",
+        windowBucket: values.windowBucket ?? new Date(),
+        createdAt: values.createdAt ?? new Date(),
+      };
+      store.graphAlerts.push(row);
+      return { ...row };
+    }
     if (t === "credit_accounts") {
       const row: AccountRow = {
         id: values.id ?? randomUUID(),
@@ -619,6 +679,18 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     const { columns, values } = decode(cond);
     const sig = columns.join(",");
     const matched: any[] = [];
+    if (t === "graph_alerts") {
+      for (const r of store.graphAlerts) {
+        let ok = false;
+        if (sig === "id") {
+          ok = r.id === values[0];
+        } else throw new Error(`fakeDb update graph_alerts: unhandled ${sig}`);
+        if (!ok) continue;
+        for (const [k, v] of Object.entries(set)) (r as any)[k] = v;
+        matched.push({ ...r });
+      }
+      return matched;
+    }
     if (t === "credit_accounts") {
       for (const r of store.accounts) {
         let ok = false;
@@ -802,6 +874,13 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
             // ON CONFLICT DO NOTHING: PK (id) collision inserts zero rows.
             if (conflictNothing && t === "processed_webhook_events") {
               if (store.webhookEvents.some((r) => r.id === vals.id)) return [];
+            }
+            // ON CONFLICT DO NOTHING: (tenant,buyer,signal,window_bucket) dedupe.
+            if (conflictNothing && t === "graph_alerts") {
+              const bucket = new Date(vals.windowBucket).getTime();
+              if (store.graphAlerts.some((r) =>
+                r.tenantId === vals.tenantId && r.buyerId === vals.buyerId &&
+                r.signal === vals.signal && new Date(r.windowBucket).getTime() === bucket)) return [];
             }
             return [runInsert(t, vals)];
           };
