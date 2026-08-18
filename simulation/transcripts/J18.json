@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018520765",
-      "profileName": "Sim User 0765",
+      "phone": "2348011756648",
+      "profileName": "Sim User 6648",
       "inboundId": "wamid.sim.in.text.00076",
-      "at": 1787031580838,
+      "at": 1787058909928,
       "kind": "text",
       "text": "last unit special A"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00076",
-      "at": 1787031580842
+      "at": 1787058909932
     },
     {
       "dir": "out",
-      "phone": "2348018520765",
+      "phone": "2348011756648",
       "wamid": "wamid.sim.000097",
       "statuses": [
         "sent"
       ],
-      "at": 1787031580867,
+      "at": 1787058909957,
       "kind": "text",
       "body": "✅ 1 × Last Unit Special\nAdded!"
     },
     {
       "dir": "in",
-      "phone": "2348012458958",
-      "profileName": "Sim User 8958",
+      "phone": "2348018952345",
+      "profileName": "Sim User 2345",
       "inboundId": "wamid.sim.in.text.00077",
-      "at": 1787031581383,
+      "at": 1787058910476,
       "kind": "text",
       "text": "last unit special B"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00077",
-      "at": 1787031581387
+      "at": 1787058910480
     },
     {
       "dir": "out",
-      "phone": "2348012458958",
+      "phone": "2348018952345",
       "wamid": "wamid.sim.000098",
       "statuses": [
         "sent"
       ],
-      "at": 1787031581408,
+      "at": 1787058910508,
       "kind": "text",
       "body": "✅ 1 × Last Unit Special\nAdded!"
     },
     {
       "dir": "in",
-      "phone": "2348018520765",
-      "profileName": "Sim User 0765",
+      "phone": "2348011756648",
+      "profileName": "Sim User 6648",
       "inboundId": "wamid.sim.in.text.00078",
-      "at": 1787031581928,
+      "at": 1787058911026,
       "kind": "text",
       "text": "confirm A"
     },
@@ -70,25 +70,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00078",
-      "at": 1787031581933
+      "at": 1787058911031
     },
     {
       "dir": "out",
-      "phone": "2348018520765",
+      "phone": "2348011756648",
       "wamid": "wamid.sim.000099",
       "statuses": [
         "sent"
       ],
-      "at": 1787031581953,
+      "at": 1787058911053,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Last Unit Special — ₦1,000.00 each\nSubtotal: ₦1,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348012458958",
-      "profileName": "Sim User 8958",
+      "phone": "2348018952345",
+      "profileName": "Sim User 2345",
       "inboundId": "wamid.sim.in.text.00079",
-      "at": 1787031582476,
+      "at": 1787058911578,
       "kind": "text",
       "text": "confirm B"
     },
@@ -96,34 +96,34 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00079",
-      "at": 1787031582481
+      "at": 1787058911583
     },
     {
       "dir": "out",
-      "phone": "2348012458958",
+      "phone": "2348018952345",
       "wamid": "wamid.sim.000100",
       "statuses": [
         "sent"
       ],
-      "at": 1787031582503,
+      "at": 1787058911603,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Last Unit Special — ₦1,000.00 each\nSubtotal: ₦1,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348018520765",
-      "profileName": "Sim User 0765",
+      "phone": "2348011756648",
+      "profileName": "Sim User 6648",
       "inboundId": "wamid.sim.in.text.00080",
-      "at": 1787031583026,
+      "at": 1787058912128,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "in",
-      "phone": "2348012458958",
-      "profileName": "Sim User 8958",
+      "phone": "2348018952345",
+      "profileName": "Sim User 2345",
       "inboundId": "wamid.sim.in.text.00081",
-      "at": 1787031583028,
+      "at": 1787058912130,
       "kind": "text",
       "text": "1"
     },
@@ -131,13 +131,13 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00080",
-      "at": 1787031583038
+      "at": 1787058912138
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00081",
-      "at": 1787031583040
+      "at": 1787058912140
     },
     {
       "dir": "out",
@@ -146,64 +146,64 @@
       "statuses": [
         "sent"
       ],
-      "at": 1787031583088,
+      "at": 1787058912200,
       "kind": "text",
       "body": "⚠️ *Low stock alert*: *Last Unit Special* is down to 0 units left (threshold 3). Restock soon to avoid losing sales."
     },
     {
       "dir": "out",
-      "phone": "2348012458958",
+      "phone": "2348018952345",
       "wamid": "wamid.sim.000102",
       "statuses": [
         "sent"
       ],
-      "at": 1787031583092,
+      "at": 1787058912204,
       "kind": "text",
       "body": "😔 *Some items are out of stock right now:*\n• Last Unit Special — out of stock\n\nNone of the items in your cart are available right now — please check back soon.\n\n🔔 Reply *NOTIFY ME* and I'll message you the moment it's back in stock."
     },
     {
       "dir": "out",
-      "phone": "2348018520765",
+      "phone": "2348011756648",
       "wamid": "wamid.sim.000103",
       "statuses": [
         "sent"
       ],
-      "at": 1787031583095,
+      "at": 1787058912207,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MSY8GQCE*\n1 × Last Unit Special — ₦1,000.00 each\n*Total: ₦1,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/9d558bd7-1ec5-41b1-832f-39f8ae70df20\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/1a66eceb-80cb-4728-b8d7-9ee08506cf88.HRVmqhd8wOskObdQBuv-UAZd"
+      "body": "🧾 *Pickup Order ORD-MSYOQHMA*\n1 × Last Unit Special — ₦1,000.00 each\n*Total: ₦1,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/37593ade-bae0-4c5e-a2a9-d7480149d409\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/2af8421a-ca40-4a80-8096-bdb503b7e29c.fTZJ0aYbP8I7anTAJjaVBF7u"
     },
     {
       "dir": "out",
-      "phone": "2348018520765",
+      "phone": "2348011756648",
       "wamid": "wamid.sim.000104",
       "statuses": [
         "sent"
       ],
-      "at": 1787031583101,
+      "at": 1787058912221,
       "kind": "interactive",
-      "body": "Order ORD-MSY8GQCE — manage it here:",
+      "body": "Order ORD-MSYOQHMA — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:1a66eceb-80cb-4728-b8d7-9ee08506cf88",
+          "id": "order_track:2af8421a-ca40-4a80-8096-bdb503b7e29c",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:1a66eceb-80cb-4728-b8d7-9ee08506cf88",
+          "id": "order_pay:2af8421a-ca40-4a80-8096-bdb503b7e29c",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:1a66eceb-80cb-4728-b8d7-9ee08506cf88",
+          "id": "order_cancel:2af8421a-ca40-4a80-8096-bdb503b7e29c",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348012458958",
-      "profileName": "Sim User 8958",
+      "phone": "2348018952345",
+      "profileName": "Sim User 2345",
       "inboundId": "wamid.sim.in.text.00082",
-      "at": 1787031583122,
+      "at": 1787058912226,
       "kind": "text",
       "text": "NOTIFY ME"
     },
@@ -211,25 +211,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00082",
-      "at": 1787031583126
+      "at": 1787058912231
     },
     {
       "dir": "out",
-      "phone": "2348012458958",
+      "phone": "2348018952345",
       "wamid": "wamid.sim.000105",
       "statuses": [
         "sent"
       ],
-      "at": 1787031583144,
+      "at": 1787058912255,
       "kind": "text",
       "body": "🔔 Got it — I'll message you the moment it's back in stock. Reply STOP to unsubscribe."
     },
     {
       "dir": "in",
-      "phone": "2348011020825",
-      "profileName": "Sim User 0825",
+      "phone": "2348012190919",
+      "profileName": "Sim User 0919",
       "inboundId": "wamid.sim.in.text.00083",
-      "at": 1787031583671,
+      "at": 1787058912781,
       "kind": "text",
       "text": "sold out sneakers please"
     },
@@ -237,16 +237,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00083",
-      "at": 1787031583675
+      "at": 1787058912786
     },
     {
       "dir": "out",
-      "phone": "2348011020825",
+      "phone": "2348012190919",
       "wamid": "wamid.sim.000106",
       "statuses": [
         "sent"
       ],
-      "at": 1787031583692,
+      "at": 1787058912813,
       "kind": "text",
       "body": "Sure!\n\n⚠️ \"Sold Out Sneakers\" is currently out of stock."
     }

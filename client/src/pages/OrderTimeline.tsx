@@ -1,5 +1,6 @@
 import { useRoute, Link } from "wouter";
 import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -1009,17 +1010,20 @@ export default function OrderTimeline() {
 
   if (isLoading) {
     return (
+      <DashboardLayout>
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-32 w-full rounded-xl" />
         <Skeleton className="h-48 w-full rounded-xl" />
         <Skeleton className="h-64 w-full rounded-xl" />
       </div>
+      </DashboardLayout>
     );
   }
 
   if (error || !data) {
     return (
+      <DashboardLayout>
       <div className="max-w-3xl mx-auto px-4 py-8">
         <Link href="/orders">
           <Button variant="ghost" size="sm" className="mb-4">
@@ -1033,12 +1037,14 @@ export default function OrderTimeline() {
           </p>
         </div>
       </div>
+      </DashboardLayout>
     );
   }
 
   const { order, items, payments, timeline, integrations } = data;
 
   return (
+    <DashboardLayout>
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
       {/* Back button */}
       <Link href="/orders">
@@ -1204,5 +1210,6 @@ export default function OrderTimeline() {
       {order?.id && <WhatsAppNotifPanel orderId={order.id} />}
       {order?.id && <CustomerRepliesPanel orderId={order.id} />}
     </div>
+    </DashboardLayout>
   );
 }

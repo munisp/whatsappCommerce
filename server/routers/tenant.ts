@@ -37,6 +37,32 @@ export const tenantRouter = router({
     };
   }),
 
+  /**
+   * Branding for the CALLER's own tenant (ctx.user.tenantId) — distinct from
+   * tenantTheme, which resolves via the request Host header for public
+   * storefronts. On the shared wa-app.newfire.app domain every signed-in
+   * user's Host is the same, so tenantTheme always resolved to the platform
+   * default tenant regardless of which business they'd actually created —
+   * this is what the authenticated app shell (DashboardLayout's sidebar
+   * header) should use instead so it shows the user's own business name.
+   */
+  myTenant: protectedProcedure.query(async ({ ctx }) => {
+    const tenantId = ctx.user.tenantId ?? null;
+    const t = tenantId ? await getTenantByIdForTheme(tenantId).catch(() => null) : null;
+    const settings = ((t?.settings ?? {}) as Record<string, unknown>);
+    const branding = ((settings.branding ?? {}) as Record<string, unknown>);
+    return {
+      tenantId,
+      name: (typeof branding.name === "string" && branding.name) || t?.name || null,
+      logoUrl: typeof branding.logoUrl === "string" && branding.logoUrl ? branding.logoUrl : null,
+      primaryColor:
+        typeof branding.primaryColor === "string" && branding.primaryColor
+          ? branding.primaryColor
+          : "#25D366",
+      currency: t?.defaultCurrency ?? "USD",
+    };
+  }),
+
   list: adminProcedure
     .input(z.object({ limit: z.number().default(50), offset: z.number().default(0) }).optional())
     .query(async ({ input }) => {

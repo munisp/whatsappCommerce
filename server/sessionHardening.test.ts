@@ -174,14 +174,20 @@ describe("auth.logout + auth.revokeUserSessions (router)", () => {
     const { ctxObj, cleared } = ctx({ id: 7, role: "user" }, `wa_session=${token}`);
     const result = await appRouter.createCaller(ctxObj).auth.logout();
     expect(result).toEqual({ success: true });
-    expect(cleared).toHaveLength(1);
+    // Clears both the real session cookie (wa_session) and the legacy
+    // pre-Keycloak-migration cookie (app_session_id) — the latter is never
+    // written by current code but was left un-cleared for a long time,
+    // which was the actual root cause of "sign out doesn't work" in prod.
+    expect(cleared).toHaveLength(2);
+    expect(cleared).toEqual(expect.arrayContaining(["wa_session", "app_session_id"]));
     expect(revocations.some((r) => r.jti === payload.jti)).toBe(true);
     expect(await sdkMod.isSessionRevoked({ jti: payload.jti })).toBe(true);
   });
   it("logout still succeeds without a session cookie", async () => {
     const { ctxObj, cleared } = ctx({ id: 7, role: "user" });
     await expect(appRouter.createCaller(ctxObj).auth.logout()).resolves.toEqual({ success: true });
-    expect(cleared).toHaveLength(1);
+    expect(cleared).toHaveLength(2);
+    expect(cleared).toEqual(expect.arrayContaining(["wa_session", "app_session_id"]));
     expect(revocations).toHaveLength(0);
   });
   it("revokeUserSessions is admin-only and writes the user marker", async () => {

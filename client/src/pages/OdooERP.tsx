@@ -1,5 +1,4 @@
 import { useState } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +39,7 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`inline-block w-2 h-2 rounded-full ${map[status] ?? "bg-zinc-500"}`} />;
 }
 
-export default function OdooERP() {
+export function OdooERPContent() {
   const [configOpen, setConfigOpen] = useState(false);
   const [form, setForm] = useState({ baseUrl: "https://mycompany.odoo.com", database: "mydb", username: "admin", apiKey: "", syncProducts: true, syncOrders: true, syncInvoices: true, whatsappEnabled: true });
   const [sendOpen, setSendOpen] = useState(false);
@@ -84,7 +83,7 @@ export default function OdooERP() {
   const unpaidInvoices = invoices.filter(i => i.state === "posted" && Number(i.amountResidual ?? 0) > 0);
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -93,7 +92,7 @@ export default function OdooERP() {
               <Package className="w-5 h-5 text-orange-400" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Odoo ERP</h1>
+              <h1 className="text-2xl font-bold text-foreground">Connection & Orders</h1>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <StatusDot status={status} />
                 <span className="capitalize">{status}</span>
@@ -326,6 +325,6 @@ export default function OdooERP() {
           </div>
         </DialogContent>
       </Dialog>
-    </DashboardLayout>
+    </>
   );
 }

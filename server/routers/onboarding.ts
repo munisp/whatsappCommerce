@@ -210,6 +210,17 @@ export const onboardingRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Guard against re-entry: without this, calling start() again (double
+      // submit, stale tab, browser back+resubmit) silently creates a SECOND
+      // tenant and overwrites users.tenantId, stranding the caller's access
+      // to their original tenant's self-service dashboard (tenantPortal.*
+      // resolves the tenant from this single column, not tenant_memberships).
+      if (ctx.user.role !== "admin" && ctx.user.tenantId) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "You already have a business on this platform. Use the dashboard for your existing business, or contact support to set up an additional one.",
+        });
+      }
       const { tenantId, slug, settings } = await createTenant(input);
 
       // Kick off the TenantOnboardingWorkflow when Temporal is configured

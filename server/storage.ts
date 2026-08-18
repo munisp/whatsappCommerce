@@ -62,3 +62,20 @@ export function generateStorageKey(filename: string): string {
   const hash = crypto.randomBytes(8).toString("hex");
   return `uploads/${hash}.${ext}`;
 }
+
+/**
+ * Stream an object back for the /api/storage/:key route below. storagePut's
+ * returned url is `/api/storage/{key}` — a permanent, app-proxied path (as
+ * opposed to storageGet's presigned MinIO URL, which expires) — so callers
+ * that persist the URL (e.g. a tenant's logo, stored in Postgres) need a
+ * route that actually serves it. Throws if the object doesn't exist.
+ */
+export async function storageServe(
+  relKey: string
+): Promise<{ stream: NodeJS.ReadableStream; contentType: string }> {
+  const client = getClient();
+  const key = relKey.replace(/^\/+/, "");
+  const stat = await client.statObject(ENV.s3Bucket, key);
+  const stream = await client.getObject(ENV.s3Bucket, key);
+  return { stream, contentType: stat.metaData?.["content-type"] ?? "application/octet-stream" };
+}

@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, CheckCircle2, Download, Package, Plus, TrendingUp, Upload, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, ImageIcon, Package, Plus, RefreshCw, TrendingUp, Upload, X, XCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -22,7 +22,36 @@ export default function Products() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", stockQuantity: 0 });
+  const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", stockQuantity: 0, imageUrl: "" });
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const uploadImageMutation = trpc.medusaOnboarding.uploadImage.useMutation();
+
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploadingImage(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const result = await uploadImageMutation.mutateAsync({
+        base64,
+        mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
+        filename: file.name,
+      });
+      setForm((f) => ({ ...f, imageUrl: result.url }));
+      toast.success("Photo uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Photo upload failed");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
 
   // CSV import state
   const [csvOpen, setCsvOpen] = useState(false);
@@ -226,7 +255,31 @@ export default function Products() {
                     <Label>Stock Quantity</Label>
                     <Input type="number" value={form.stockQuantity} onChange={(e) => setForm({ ...form, stockQuantity: parseInt(e.target.value) || 0 })} className="bg-input border-border" />
                   </div>
-                  <Button className="w-full bg-primary text-primary-foreground" onClick={() => createMutation.mutate({ tenantId: DEMO_TENANT, ...form })} disabled={createMutation.isPending}>
+                  <div className="space-y-1">
+                    <Label>Photo</Label>
+                    {form.imageUrl ? (
+                      <div className="flex items-center gap-2 p-2 border border-border rounded-lg bg-muted/50">
+                        <img src={form.imageUrl} alt="Product preview" className="w-10 h-10 object-contain rounded" />
+                        <span className="text-xs text-muted-foreground truncate flex-1">Photo set</span>
+                        <button type="button" onClick={() => setForm({ ...form, imageUrl: "" })} className="text-muted-foreground hover:text-destructive">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full gap-2 border-border bg-transparent"
+                        disabled={uploadingImage}
+                        onClick={() => imageInputRef.current?.click()}
+                      >
+                        {uploadingImage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+                        {uploadingImage ? "Uploading..." : "Upload Photo"}
+                      </Button>
+                    )}
+                    <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImageFileChange} />
+                  </div>
+                  <Button className="w-full bg-primary text-primary-foreground" onClick={() => createMutation.mutate({ tenantId: DEMO_TENANT, ...form, imageUrl: form.imageUrl || undefined })} disabled={createMutation.isPending}>
                     {createMutation.isPending ? "Creating..." : "Create Product"}
                   </Button>
                 </div>
@@ -265,6 +318,7 @@ export default function Products() {
             <Table>
               <TableHeader>
                 <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="w-12"></TableHead>
                   <TableHead>SKU</TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
@@ -275,9 +329,18 @@ export default function Products() {
               </TableHeader>
               <TableBody>
                 {filteredProducts.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</TableCell></TableRow>
                 ) : filteredProducts.map((p) => (
                   <TableRow key={p.id} className="border-border hover:bg-accent/30">
+                    <TableCell>
+                      {p.imageUrl ? (
+                        <img src={p.imageUrl} alt={p.name} className="w-8 h-8 object-contain rounded border border-border bg-muted" />
+                      ) : (
+                        <div className="w-8 h-8 rounded border border-border bg-muted flex items-center justify-center">
+                          <ImageIcon className="w-3.5 h-3.5 text-muted-foreground/40" />
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{p.sku}</TableCell>
                     <TableCell className="font-medium">{p.name}</TableCell>
                     <TableCell className="text-muted-foreground">{p.category ?? "—"}</TableCell>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
@@ -92,7 +93,23 @@ export const inventoryRouter = router({
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
-      if (!db) throw new Error("DB unavailable");
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // inventory_snapshots only exists for ERP-synced products (Odoo/Medusa
+      // sync services) — a missing row means this product's stock lives in
+      // products.stockQuantity instead, which orderCrud.create's reserveStock()
+      // guards atomically. Distinguish "not ERP-tracked" from "actually out of
+      // stock" so callers don't get a misleading insufficient-stock error.
+      const [snapshot] = await db.execute(sql`
+        SELECT id FROM inventory_snapshots
+        WHERE "tenantId" = ${input.tenantId} AND "productId" = ${input.productId}
+        LIMIT 1
+      `) as unknown[];
+      if (!snapshot) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This product is not under ERP-managed inventory tracking. Local-inventory stock is reserved automatically when the order is created.",
+        });
+      }
       // Atomic check-and-reserve: only succeeds if availableQty >= requested qty
       const result = await db.execute(sql`
         UPDATE inventory_snapshots
@@ -106,7 +123,10 @@ export const inventoryRouter = router({
         RETURNING id, "availableQty", "reservedQty"
       `);
       if ((result as any[]).length === 0) {
-        throw new Error(`Insufficient stock for product ${input.productId}. Cannot reserve ${input.qty} units.`);
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Insufficient stock for product ${input.productId}. Cannot reserve ${input.qty} units.`,
+        });
       }
       return { reserved: true, ...(result as any[])[0] };
     }),

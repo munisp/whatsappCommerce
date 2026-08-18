@@ -1,9 +1,9 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
@@ -21,12 +21,11 @@ const Orders = lazy(() => import("./pages/Orders"));
 const CodBoard = lazy(() => import("./pages/CodBoard"));
 const OrderTimeline = lazy(() => import("./pages/OrderTimeline"));
 const Payments = lazy(() => import("./pages/Payments"));
-const AgentConsole = lazy(() => import("./pages/AgentConsole"));
 const ServiceHealth = lazy(() => import("./pages/ServiceHealth"));
 const TwentyCRM = lazy(() => import("./pages/TwentyCRM"));
 const Crm = lazy(() => import("./pages/Crm"));
-const OdooERP = lazy(() => import("./pages/OdooERP"));
-const MenuBuilder = lazy(() => import("./pages/MenuBuilder"));
+const OdooHub = lazy(() => import("./pages/OdooHub"));
+const WhatsAppMenuHub = lazy(() => import("./pages/WhatsAppMenuHub"));
 const IntegrationHub = lazy(() => import("./pages/IntegrationHub"));
 const TemplateLibrary = lazy(() => import("./pages/TemplateLibrary"));
 const TenantMenuAssignment = lazy(() => import("./pages/TenantMenuAssignment"));
@@ -35,10 +34,8 @@ const TemplateVersions = lazy(() => import("./pages/TemplateVersions"));
 const BroadcastCampaigns = lazy(() => import("./pages/BroadcastCampaigns"));
 const Journeys = lazy(() => import("./pages/Journeys"));
 const Consents = lazy(() => import("./pages/Consents"));
-const InventorySync = lazy(() => import("./pages/InventorySync"));
+const InventoryHub = lazy(() => import("./pages/InventoryHub"));
 const TenantOnboarding = lazy(() => import("./pages/TenantOnboarding"));
-const AgentArchitecture = lazy(() => import("./pages/AgentArchitecture"));
-const NLPSimulator = lazy(() => import("./pages/NLPSimulator"));
 const TrackOrder = lazy(() => import("./pages/TrackOrder"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const PortalDashboard = lazy(() => import("./pages/portal/PortalDashboard"));
@@ -59,16 +56,14 @@ const RevenueDashboard = lazy(() => import("./pages/RevenueDashboard"));
 const EscrowDashboard = lazy(() => import("./pages/EscrowDashboard"));
 const LogisticsTracker = lazy(() => import("./pages/LogisticsTracker"));
 const DisputeManagement = lazy(() => import("./pages/DisputeManagement"));
-const PortalWallet = lazy(() => import("./pages/portal/PortalWallet"));
+const MerchantWallet = lazy(() => import("./pages/portal/MerchantWallet"));
 const OnboardingWizard = lazy(() => import("./pages/portal/OnboardingWizard"));
 const EvidencePortal = lazy(() => import("./pages/EvidencePortal"));
 const MerchantAnalytics = lazy(() => import("./pages/portal/MerchantAnalytics"));
 const PortalBroadcasts = lazy(() => import("./pages/portal/PortalBroadcasts"));
 const AuditLog = lazy(() => import("./pages/AuditLog"));
-const WaMenuBuilder = lazy(() => import("./pages/WaMenuBuilder"));
 const TenantOnboardingWizard = lazy(() => import("./pages/TenantOnboardingWizard"));
 const IntegrationsSettings = lazy(() => import("./pages/IntegrationsSettings"));
-const ProviderSettings = lazy(() => import("./pages/ProviderSettings"));
 const TenantSettings = lazy(() => import("./pages/TenantSettings"));
 const LiveLogisticsMap = lazy(() => import("./pages/LiveLogisticsMap"));
 const HealthStatus = lazy(() => import("./pages/HealthStatus"));
@@ -82,24 +77,16 @@ const SupplierApprovals = lazy(() => import("./pages/SupplierApprovals"));
 const WhatsAppMediaPortal = lazy(() => import("./pages/WhatsAppMediaPortal"));
 const SlaExtensionResponse = lazy(() => import("./pages/SlaExtensionResponse"));
 const OperatorTemplates = lazy(() => import("./pages/OperatorTemplates"));
-const B2BPortal = lazy(() => import("./pages/B2BPortal"));
+const SalesChannelsHub = lazy(() => import("./pages/SalesChannelsHub"));
 const MultiChannelHub = lazy(() => import("./pages/MultiChannelHub"));
-const MarketplacePortal = lazy(() => import("./pages/MarketplacePortal"));
 const MobileMoneyPortal = lazy(() => import("./pages/MobileMoneyPortal"));
-const ServiceCommercePage = lazy(() => import("./pages/ServiceCommercePage"));
 const AnalyticsBIDashboard = lazy(() => import("./pages/AnalyticsBIDashboard"));
 const CompliancePortal = lazy(() => import("./pages/CompliancePortal"));
 const Compliance = lazy(() => import("./pages/Compliance"));
-const MedusaIntegration = lazy(() => import("./pages/MedusaIntegration"));
+const MedusaHub = lazy(() => import("./pages/MedusaHub"));
 const WebhookDLQ = lazy(() => import("./pages/WebhookDLQ"));
-const UnifiedOnboarding = lazy(() => import("./pages/UnifiedOnboarding"));
 const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
-const VisualInventory = lazy(() => import("./pages/VisualInventory"));
-const MedusaOnboarding = lazy(() => import("./pages/MedusaOnboarding"));
-const OdooMedusaBridge = lazy(() => import("./pages/OdooMedusaBridge"));
 const LabelStudioPipe = lazy(() => import("./pages/LabelStudioPipe"));
-const FmcgTaxonomy = lazy(() => import("./pages/FmcgTaxonomy"));
-const ProductImageCollector = lazy(() => import("./pages/ProductImageCollector"));
 const ScanStatsDashboard = lazy(() => import("./pages/ScanStatsDashboard"));
 const TenantAnalytics = lazy(() => import("./pages/TenantAnalytics"));
 const HermesDashboard = lazy(() => import("./pages/HermesDashboard"));
@@ -108,6 +95,16 @@ const WhatsAppProfilePage = lazy(() => import("./pages/WhatsAppProfilePage"));
 const InfraHealth = lazy(() => import("./pages/InfraHealth"));
 const AdminPortal = lazy(() => import("./pages/AdminPortal"));
 const OnboardingCopilot = lazy(() => import("./pages/OnboardingCopilot"));
+
+// Client-side redirect for retired routes, now folded into a consolidated
+// hub page (see WhatsAppMenuHub/InventoryHub/SalesChannelsHub/MedusaHub/
+// OdooHub) — kept as a redirect rather than deleted outright in case
+// anything has the old path bookmarked.
+function RouteRedirect({ to }: { to: string }) {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate(to, { replace: true }); }, [to, navigate]);
+  return null;
+}
 
 function RouteFallback() {
   return (
@@ -132,12 +129,11 @@ function Router() {
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/track/:token" component={TrackOrder} />
       <Route path="/payments" component={Payments} />
-      <Route path="/agent" component={AgentConsole} />
       <Route path="/health" component={ServiceHealth} />
       <Route path="/twenty-crm" component={TwentyCRM} />
       <Route path="/crm" component={Crm} />
-      <Route path="/odoo-erp" component={OdooERP} />
-      <Route path="/menu-builder" component={MenuBuilder} />
+      <Route path="/odoo-erp" component={OdooHub} />
+      <Route path="/menu-builder" component={WhatsAppMenuHub} />
       <Route path="/integrations" component={IntegrationHub} />
       <Route path="/templates" component={TemplateLibrary} />
       <Route path="/tenant-menus" component={TenantMenuAssignment} />
@@ -146,10 +142,8 @@ function Router() {
       <Route path="/broadcast" component={BroadcastCampaigns} />
       <Route path="/journeys" component={Journeys} />
       <Route path="/consents" component={Consents} />
-      <Route path="/inventory" component={InventorySync} />
+      <Route path="/inventory" component={InventoryHub} />
       <Route path="/onboarding" component={TenantOnboarding} />
-          <Route path="/agent-architecture" component={AgentArchitecture} />
-          <Route path="/nlp-simulator" component={NLPSimulator} />
           <Route path="/invoices" component={Invoices} />
           <Route path="/portal" component={PortalDashboard} />
           {/* Magic-link login: matches the /portal/login?token=... links generated by server/routers/tenantInvite.ts */}
@@ -172,15 +166,14 @@ function Router() {
           <Route path="/escrow" component={EscrowDashboard} />
           <Route path="/logistics" component={LogisticsTracker} />
           <Route path="/disputes" component={DisputeManagement} />
-          <Route path="/portal/wallet" component={PortalWallet} />
+          <Route path="/portal/wallet" component={MerchantWallet} />
           <Route path="/portal/setup" component={() => <OnboardingWizard onComplete={() => { window.location.href = "/portal"; }} />} />
           <Route path="/portal/analytics" component={MerchantAnalytics} />
           <Route path="/portal/broadcasts" component={PortalBroadcasts} />
           <Route path="/audit-log" component={AuditLog} />
-          <Route path="/wa-menu-builder" component={WaMenuBuilder} />
+          <Route path="/wa-menu-builder" component={() => <RouteRedirect to="/menu-builder" />} />
           <Route path="/onboarding-wizard" component={TenantOnboardingWizard} />
           <Route path="/integration-settings" component={IntegrationsSettings} />
-          <Route path="/provider-settings" component={ProviderSettings} />
           <Route path="/tenant-settings" component={TenantSettings} />
           <Route path="/logistics-map" component={LiveLogisticsMap} />
           <Route path="/system-health" component={HealthStatus} />
@@ -189,23 +182,24 @@ function Router() {
           <Route path="/operator-templates" component={OperatorTemplates} />
           <Route path="/evidence/:token" component={EvidencePortal} />
           <Route path="/sla-extension/:token" component={SlaExtensionResponse} />
-          <Route path="/b2b" component={B2BPortal} />
+          <Route path="/b2b" component={() => <RouteRedirect to="/sales-channels" />} />
           <Route path="/multi-channel" component={MultiChannelHub} />
-          <Route path="/marketplace" component={MarketplacePortal} />
+          <Route path="/marketplace" component={() => <RouteRedirect to="/sales-channels" />} />
+          <Route path="/sales-channels" component={SalesChannelsHub} />
           <Route path="/mobile-money" component={MobileMoneyPortal} />
-          <Route path="/service-commerce" component={ServiceCommercePage} />
+          <Route path="/service-commerce" component={() => <RouteRedirect to="/sales-channels" />} />
           <Route path="/analytics-bi" component={AnalyticsBIDashboard} />
           <Route path="/compliance" component={CompliancePortal} />
           <Route path="/soc2" component={Compliance} />
-          <Route path="/medusa" component={MedusaIntegration} />
+          <Route path="/medusa" component={MedusaHub} />
           <Route path="/webhook-dlq" component={WebhookDLQ} />
-          <Route path="/visual-inventory" component={VisualInventory} />
-          <Route path="/medusa-onboarding" component={MedusaOnboarding} />
-          <Route path="/odoo-medusa-bridge" component={OdooMedusaBridge} />
+          <Route path="/visual-inventory" component={() => <RouteRedirect to="/inventory" />} />
+          <Route path="/medusa-onboarding" component={() => <RouteRedirect to="/medusa" />} />
+          <Route path="/odoo-medusa-bridge" component={() => <RouteRedirect to="/odoo-erp" />} />
           <Route path="/label-studio" component={LabelStudioPipe} />
-          <Route path="/fmcg-taxonomy" component={FmcgTaxonomy} />
+          <Route path="/fmcg-taxonomy" component={() => <RouteRedirect to="/inventory" />} />
           <Route path="/scan-stats" component={ScanStatsDashboard} />
-          <Route path="/product-images" component={ProductImageCollector} />
+          <Route path="/product-images" component={() => <RouteRedirect to="/inventory" />} />
           <Route path="/tenant-analytics" component={TenantAnalytics} />
           <Route path="/hermes" component={HermesDashboard} />
           <Route path="/phone-auth" component={PhoneAuthPage} />
@@ -213,7 +207,7 @@ function Router() {
           <Route path="/infra-health" component={InfraHealth} />
           <Route path="/admin" component={AdminPortal} />
           <Route path="/integration-health" component={IntegrationHealth} />
-          <Route path="/unified-onboarding" component={UnifiedOnboarding} />
+          <Route path="/unified-onboarding" component={() => <RouteRedirect to="/onboarding" />} />
           <Route path="/wa-templates" component={WaTemplates} />
           <Route path="/suppliers" component={SupplierDirectory} />
           <Route path="/procurement" component={ProcurementHub} />

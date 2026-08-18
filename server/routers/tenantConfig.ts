@@ -11,6 +11,8 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { ENV } from "../_core/env";
+import { storagePut } from "../storage";
 import {
   brandingConfigSchema,
   commerceConfigSchema,
@@ -190,6 +192,34 @@ export const tenantConfigRouter = router({
         s.branding = input.config;
       });
       return settings.branding;
+    }),
+
+  /**
+   * Uploads a tenant's logo to the shared MinIO bucket, returning an absolute
+   * URL suitable for brandingConfigSchema.logoUrl (which requires a full
+   * z.string().url(), not storagePut()'s bare "/api/storage/{key}" path).
+   * Does NOT itself persist the URL — callers still call setBrandingConfig
+   * with it, same as if the URL had been typed in directly.
+   */
+  uploadLogo: protectedProcedure
+    .input(tenantInput.extend({ imageBase64: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const matches = input.imageBase64.match(/^data:(.+);base64,(.+)$/);
+      if (!matches) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid image data" });
+      const mimeType = matches[1];
+      if (!mimeType.startsWith("image/")) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "File must be an image" });
+      }
+      const buffer = Buffer.from(matches[2], "base64");
+      const MAX_LOGO_BYTES = 5 * 1024 * 1024;
+      if (buffer.length > MAX_LOGO_BYTES) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Logo must be under 5MB" });
+      }
+      const ext = mimeType.split("/")[1]?.replace("+xml", "") ?? "png";
+      const fileKey = `tenant-branding/${input.tenantId}/logo-${Date.now()}.${ext}`;
+      const { url } = await storagePut(fileKey, buffer, mimeType);
+      return { url: `${ENV.appUrl.replace(/\/+$/, "")}${url}` };
     }),
 
   // ─── Domains (settings.domains — see server/_core/tenantDomain.ts) ────────

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { useActiveTenant } from "@/contexts/TenantContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,11 +31,12 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function LogisticsTracker() {
   const [statusFilter, setStatusFilter] = useState("all");
+  const [tenantFilter, setTenantFilter] = useState("all");
   const [simStatus, setSimStatus] = useState<Record<string, string>>({});
 
-  const { activeTenantId } = useActiveTenant();
+  const { data: tenants } = trpc.tenant.list.useQuery({ limit: 100 });
   const { data: shipments, isLoading, refetch } = trpc.logistics.listShipments.useQuery({
-    tenantId: activeTenantId,
+    tenantId: tenantFilter === "all" ? undefined : tenantFilter,
     status: statusFilter === "all" ? undefined : statusFilter,
     limit: 100,
   });
@@ -88,6 +88,17 @@ export default function LogisticsTracker() {
 
         {/* Filter */}
         <div className="flex items-center gap-3">
+          <Select value={tenantFilter} onValueChange={setTenantFilter}>
+            <SelectTrigger className="w-52">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Tenants</SelectItem>
+              {tenants?.map((t: { id: string; name: string }) => (
+                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-52">
               <SelectValue />

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
@@ -49,14 +50,28 @@ export const productRouter = router({
       category: z.string().optional(),
       price: z.string(),
       currency: z.string().length(3).default("USD"),
-      imageUrl: z.string().url().optional(),
+      // Not a strict z.string().url(): storagePut()'s upload endpoint
+      // returns an app-relative "/api/storage/{key}" path by design (proxied
+      // through this app rather than exposing MinIO directly), which a
+      // strict URL check rejects. importCsv accepts the same loose shape.
+      imageUrl: z.string().optional(),
       stockQuantity: z.number().int().min(0).default(0),
       lowStockThreshold: z.number().int().min(0).default(10),
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const id = nanoid();
-      await db.createProduct({ id, ...input, status: "active" });
+      try {
+        await db.createProduct({ id, ...input, status: "active" });
+      } catch (e: unknown) {
+        const code = (e as { code?: string; cause?: { code?: string } })?.code
+          ?? (e as { cause?: { code?: string } })?.cause?.code;
+        if (code === "23505") {
+          throw new TRPCError({ code: "CONFLICT", message: `A product with SKU "${input.sku}" already exists` });
+        }
+        console.error(`[product.create] insert failed for SKU ${input.sku}:`, e);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to create product" });
+      }
       await enqueueProductSync(input.tenantId, id, "created", {
         name: input.name,
         sku: input.sku,
@@ -147,11 +162,18 @@ export const productRouter = router({
             updatedAt: new Date(),
           });
           results.inserted++;
-        } catch (e: any) {
-          if (input.skipDuplicates && (e.message?.includes("duplicate") || e.message?.includes("unique"))) {
-            results.skipped++;
+        } catch (e: unknown) {
+          const code = (e as { code?: string; cause?: { code?: string } })?.code
+            ?? (e as { cause?: { code?: string } })?.cause?.code;
+          if (code === "23505") {
+            if (input.skipDuplicates) {
+              results.skipped++;
+            } else {
+              results.errors.push(`SKU ${row.sku}: a product with this SKU already exists`);
+            }
           } else {
-            results.errors.push(`SKU ${row.sku}: ${e.message}`);
+            console.error(`[product.importCsv] row failed for SKU ${row.sku}:`, e);
+            results.errors.push(`SKU ${row.sku}: import failed`);
           }
         }
       }

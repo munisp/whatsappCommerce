@@ -71,7 +71,7 @@ export const tenantInviteRouter = router({
       );
 
       const expiresAt = new Date(Date.now() + input.expiryHours * 60 * 60 * 1000);
-      const portalUrl = `${process.env.APP_BASE_URL || "https://your-domain.com"}/portal/login?token=${token}`;
+      const portalUrl = `${ENV.appUrl}/portal/login?token=${token}`;
 
       return {
         token,
@@ -161,7 +161,7 @@ export const tenantInviteRouter = router({
         { expiresIn: "72h" }
       );
 
-      const portalUrl = `${process.env.APP_BASE_URL || "https://your-domain.com"}/portal/login?token=${token}`;
+      const portalUrl = `${ENV.appUrl}/portal/login?token=${token}`;
 
       return {
         sent: true,

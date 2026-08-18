@@ -16,8 +16,8 @@ import {
   nlpSessions, cartSessions, cartItems, orders, orderItems,
   customers, products, conversations, agentEvents, tenants,
 } from "../../drizzle/schema";
-import { paymentGatewayConfigs, paymentTransactions } from "../../drizzle/schema";
-import { decryptSecret } from "../services/crypto/secrets";
+import { paymentTransactions } from "../../drizzle/schema";
+import { ENV } from "../_core/env";
 
 /**
  * W12.1 IDOR guard for sessionId-keyed procedures: resolve the session's
@@ -429,37 +429,54 @@ export async function createChatOrder(
     };
   }
 
-  // ── Initiate payment via configured gateway (amount = total incl. fee) ──
+  // ── Initiate payment via the PLATFORM's own gateway (amount = total incl.
+  // fee) — tenants no longer bring their own Paystack/Flutterwave keys.
+  // Every order is charged to the platform's account; escrow (custodyMode
+  // "psp") attributes the tenant's share to their wallet on release, and
+  // tenants cash out via wallet.requestWithdrawal. Mirrors the same
+  // provider-selection pattern already used by wallet.topUp.
   let paymentUrl: string | null = null;
   try {
-    const [gwConfig] = await db.select().from(paymentGatewayConfigs)
-      .where(and(eq(paymentGatewayConfigs.tenantId, opts.tenantId), eq(paymentGatewayConfigs.isActive, true)))
-      .limit(1);
-    if (gwConfig) {
+    const provider: "paystack" | "flutterwave" | null = ENV.paystackSecretKey
+      ? "paystack"
+      : ENV.flwSecretKey
+        ? "flutterwave"
+        : null;
+    if (provider) {
       const txId = crypto.randomUUID();
-      const callbackUrl = gwConfig.callbackUrl ?? `https://wa.me/${opts.waPhoneNumber}`;
-      // Stored encrypted (v1:) since w10 — decryptSecret passes legacy plaintext through.
-      const gwSecretKey = gwConfig.secretKey ? decryptSecret(gwConfig.secretKey) : gwConfig.secretKey;
-      if (gwConfig.provider === "paystack") {
+      const callbackUrl = `https://wa.me/${opts.waPhoneNumber}`;
+      // Paystack rejects /transaction/initialize outright without an email —
+      // WhatsApp customers never type one, so synthesize one from their phone
+      // number against a real, resolvable domain (Paystack validates the
+      // address format; a non-resolving placeholder domain like the old
+      // "@wa.commerce" gets rejected with "Invalid Email Address Passed").
+      const customerEmail = `${opts.waPhoneNumber.replace(/\D/g, "") || "customer"}@wa-app.newfire.app`;
+      if (provider === "paystack") {
         const resp = await fetch("https://api.paystack.co/transaction/initialize", {
           method: "POST",
-          headers: { Authorization: `Bearer ${gwSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: Math.round(total * 100), currency, reference: txId, callback_url: callbackUrl }),
-        }).then(r => r.json()).catch(() => null);
+          headers: { Authorization: `Bearer ${ENV.paystackSecretKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ email: customerEmail, amount: Math.round(total * 100), currency, reference: txId, callback_url: callbackUrl }),
+        }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Paystack initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
+        if (resp && resp.status === false) {
+          console.error(`[nlp] Paystack initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
+        }
         paymentUrl = resp?.data?.authorization_url ?? null;
-      } else if (gwConfig.provider === "flutterwave") {
+      } else {
         const resp = await fetch("https://api.flutterwave.com/v3/payments", {
           method: "POST",
-          headers: { Authorization: `Bearer ${gwSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ tx_ref: txId, amount: total, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber } }),
-        }).then(r => r.json()).catch(() => null);
+          headers: { Authorization: `Bearer ${ENV.flwSecretKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ tx_ref: txId, amount: total, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber, email: customerEmail } }),
+        }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Flutterwave initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
+        if (resp && resp.status === "error") {
+          console.error(`[nlp] Flutterwave initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
+        }
         paymentUrl = resp?.data?.link ?? null;
       }
       await db.insert(paymentTransactions).values({
         id: txId,
         tenantId: opts.tenantId,
         orderId,
-        provider: gwConfig.provider,
+        provider,
         providerRef: txId,
         amount: total.toFixed(2),
         currency,

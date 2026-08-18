@@ -1,11 +1,10 @@
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 
-export default function MedusaIntegration() {
+export function MedusaIntegrationContent() {
   const { data: config } = trpc.medusa.isConfigured.useQuery();
   const { data: products } = trpc.medusa.listProducts.useQuery({ limit: 20 });
   const { data: orders } = trpc.medusa.listOrders.useQuery({ limit: 20 });
@@ -19,11 +18,10 @@ export default function MedusaIntegration() {
   const statusColor = isConnected ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800";
 
   return (
-    <DashboardLayout>
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Medusa Commerce Integration</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Overview</h1>
             <p className="text-gray-500 text-sm mt-1">Headless commerce engine — products, orders, inventory, pricing</p>
           </div>
           <div className="flex items-center gap-2">
@@ -80,6 +78,5 @@ export default function MedusaIntegration() {
           </TabsContent>
         </Tabs>
       </div>
-    </DashboardLayout>
   );
 }

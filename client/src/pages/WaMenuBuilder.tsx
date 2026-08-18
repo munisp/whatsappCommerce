@@ -10,7 +10,6 @@
  * collision, empty label, duplicate key) are surfaced inline.
  */
 import { useEffect, useMemo, useState } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,7 +48,7 @@ const USE_CASE_HINTS: Record<WaUseCaseId, string> = {
   procurement: "Restock from your suppliers (B2B purchase orders)",
 };
 
-export default function WaMenuBuilder() {
+export function WaMenuBuilderContent() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
   const utils = trpc.useUtils();
@@ -196,13 +195,12 @@ export default function WaMenuBuilder() {
   const allIdsPresent = menu && WA_USE_CASE_IDS.every((id) => menu.useCases.some((u) => u.id === id));
 
   return (
-    <DashboardLayout>
       <div className="p-6 space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Smartphone className="w-6 h-6 text-primary" />
-              WhatsApp Menu Builder
+              Text Menu
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               Edit the text menu buyers see when they message your WhatsApp number.
@@ -536,6 +534,5 @@ export default function WaMenuBuilder() {
           </DialogContent>
         </Dialog>
       </div>
-    </DashboardLayout>
   );
 }

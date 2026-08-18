@@ -1135,6 +1135,7 @@ export const paymentGatewayConfigs = pgTable("payment_gateway_configs", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("pgc_tenant_idx").on(t.tenantId),
+  uniqueIndex("pgc_tenant_provider_idx").on(t.tenantId, t.provider),
 ]);
 
 export const paymentTransactions = pgTable("payment_transactions", {

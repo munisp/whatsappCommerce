@@ -42,16 +42,22 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
 }
 
 describe("auth.logout", () => {
-  it("clears the session cookie and reports success", async () => {
+  it("clears the wa_session cookie (the real, current session cookie) and reports success", async () => {
     const { ctx, clearedCookies } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
     const result = await caller.auth.logout();
 
     expect(result).toEqual({ success: true });
-    expect(clearedCookies).toHaveLength(1);
-    expect(clearedCookies[0]?.name).toBe(COOKIE_NAME);
-    expect(clearedCookies[0]?.options).toMatchObject({
+    const clearedNames = clearedCookies.map((c) => c.name);
+    // wa_session is what the app has actually authenticated with since the
+    // Keycloak migration — clearing only the legacy COOKIE_NAME (as this
+    // mutation used to) left every real session cookie untouched, so
+    // sign-out silently didn't sign anyone out.
+    expect(clearedNames).toContain("wa_session");
+    expect(clearedNames).toContain(COOKIE_NAME);
+    const waSessionClear = clearedCookies.find((c) => c.name === "wa_session");
+    expect(waSessionClear?.options).toMatchObject({
       maxAge: -1,
       secure: true,
       sameSite: "none",

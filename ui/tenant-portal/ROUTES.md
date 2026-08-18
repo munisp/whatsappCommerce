@@ -6,26 +6,31 @@ decisions and known open questions from splitting the original single-app
 `client/src/App.tsx` (94 routes) into `ui/platform-admin` and
 `ui/tenant-portal`.
 
-## Likely-duplicate pairs (not resolved — both kept reachable)
+## Likely-duplicate pairs — resolved
 
 The app grew two parallel implementations of several merchant features: an
 older set that reads the active tenant from `TenantContext`'s client-side
-picker (`useActiveTenant()`, no backend enforcement), and a newer `/portal/*`
-set that is properly scoped server-side via `tenantPortalRouter`'s
-`ctx.user.tenantId`. Both are included here unmodified; picking a canonical
-one and retiring the other is a follow-up decision, not made in this pass.
+picker (`useActiveTenant()`), and a newer `/portal/*` set built on a
+purpose-built, implicitly-scoped `tenantPortal.*` API (no explicit tenantId
+needed — always the caller's own tenant). Per-pair resolution below, decided
+by actually comparing feature coverage (not just which API is "newer"):
 
-| Legacy route | Portal equivalent |
-|---|---|
-| `/dashboard` (Dashboard) | `/portal` (PortalDashboard) |
-| `/products` (Products) | `/portal/products` (PortalProducts) |
-| `/orders` (Orders) | `/portal/orders` (PortalOrders) |
-| `/invoices` (Invoices) | `/portal/invoices` (PortalInvoices) |
-| `/conversations` (Conversations) | `/portal/conversations` (PortalConversations) |
-| `/payments` (Payments) | `/portal/payments` (PortalPayments) |
-| `/broadcast` (BroadcastCampaigns) | `/portal/broadcasts` (PortalBroadcasts) |
-| `/tenant-settings` (TenantSettings) | `/portal/settings` (PortalSettings) |
-| `/tenant-analytics` (TenantAnalytics) | `/portal/analytics` (MerchantAnalytics) |
+| Legacy route | Portal equivalent | Winner | Why |
+|---|---|---|---|
+| `/dashboard` (Dashboard) | `/portal` (PortalDashboard) | **Portal** | Dashboard.tsx showed a platform-wide admin stat (`analytics.platformOverview`, adminProcedure) plus two charts hardcoded to static demo arrays — never real for any tenant. `/dashboard` now redirects to `/portal`. |
+| `/products` (Products) | `/portal/products` (PortalProducts) | **Legacy** | Legacy has CSV import/validate + stats; portal was view+update only. `/portal/products` now redirects to `/products`. |
+| `/orders` (Orders) | `/portal/orders` (PortalOrders) | **Legacy** | Legacy links to `/orders/:orderNumber` (OrderTimeline.tsx) — customer replies, notification status, quick-reply templates — far richer than portal's inline detail view. Redirects to `/orders`. |
+| `/invoices` (Invoices) | `/portal/invoices` (PortalInvoices) | **Legacy** | Legacy can generate/send/mark-paid; portal was list-only. Redirects to `/invoices`. |
+| `/conversations` (Conversations) | `/portal/conversations` (PortalConversations) | **Legacy** | Legacy has delivery-receipt tracking/metrics; portal was list-only. Redirects to `/conversations`. |
+| `/payments` (Payments) | `/portal/payments` (PortalPayments) | **Legacy** | Comparable scope; kept for consistency with the rest of this table. Redirects to `/payments`. |
+| `/broadcast` (BroadcastCampaigns) | `/portal/broadcasts` (PortalBroadcasts) | **Legacy** | Legacy has full CRUD, A/B testing, delivery simulation; portal covered create/list/send only. Redirects to `/broadcast`. |
+| `/tenant-settings` (TenantSettings) | `/portal/settings` (PortalSettings) | **Legacy** | TenantSettings is ~1450 lines (branding incl. logo upload, custom domains, commerce zones, inventory source, CRM pipeline, CTWA links) vs PortalSettings' ~110 (store name/currency + a payment-gateway form that `/provider-settings` already covers more thoroughly). Redirects to `/tenant-settings`. |
+| `/tenant-analytics` (TenantAnalytics) | `/portal/analytics` (MerchantAnalytics) | **Portal** | TenantAnalytics.tsx has a platform-wide "pick any tenant" selector powered by `tenant.list` (adminProcedure) — it's a platform-admin tool that was misplaced in tenant-portal, not a tenant's own analytics. **Moved to `ui/platform-admin`**; `/tenant-analytics` here now redirects to `/portal/analytics`, the real one. |
+
+The retired legacy `/portal/*` page files (PortalProducts.tsx, PortalOrders.tsx,
+etc.) and `TenantPortalLayout.tsx` itself were NOT deleted — they're still
+routed by the separate legacy `client/src/App.tsx` monolith. They're just no
+longer reachable from `ui/tenant-portal`'s own routing.
 
 ## Genuinely ambiguous placements (best guess, flag if wrong)
 

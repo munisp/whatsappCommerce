@@ -14,6 +14,7 @@
 import React, { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,7 @@ import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Activity, AlertTriangle, Building2, CheckCircle2, ChevronRight, Clock,
-  CreditCard, Database, ExternalLink, Globe, Key, Layers, Lock, LogOut,
+  CreditCard, Database, ExternalLink, Globe, Key, Layers, Lock,
   MessageSquare, Package, RefreshCw, Server, Settings, Shield, TrendingUp,
   Users, Workflow, XCircle, Zap, ArrowLeftRight, Bot,
 } from "lucide-react";
@@ -764,6 +765,7 @@ export default function AdminPortal() {
 
   return (
     <AdminGuard>
+      <DashboardLayout>
       <div className="p-6 max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -804,6 +806,7 @@ export default function AdminPortal() {
           </TabsContent>
         </Tabs>
       </div>
+      </DashboardLayout>
     </AdminGuard>
   );
 }

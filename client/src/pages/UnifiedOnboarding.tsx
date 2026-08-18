@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -524,6 +525,7 @@ export default function UnifiedOnboarding() {
 
   if (completed) {
     return (
+      <DashboardLayout>
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
         <div className="max-w-md w-full text-center space-y-6">
           <div className="w-20 h-20 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
@@ -547,10 +549,12 @@ export default function UnifiedOnboarding() {
           </div>
         </div>
       </div>
+      </DashboardLayout>
     );
   }
 
   return (
+    <DashboardLayout>
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b bg-card px-6 py-4">
@@ -600,5 +604,6 @@ export default function UnifiedOnboarding() {
         </div>
       </div>
     </div>
+    </DashboardLayout>
   );
 }

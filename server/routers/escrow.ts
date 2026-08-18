@@ -506,20 +506,20 @@ export async function creditWalletTopUp(db: Db, paymentIntentId: string): Promis
     const claimed = await tx.execute(sql`
       UPDATE payment_intents
       SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{creditedAt}', to_jsonb(now()::text), true),
-          updated_at = now()
+          "updatedAt" = now()
       WHERE id = ${paymentIntentId}
         AND status = 'completed'
         AND metadata->>'type' = 'wallet_topup'
         AND metadata->>'walletId' IS NOT NULL
         AND metadata->>'creditedAt' IS NULL
-      RETURNING id, tenant_id, amount, metadata
+      RETURNING id, "tenantId", amount, metadata
     `);
     const intent = (claimed as unknown as Record<string, unknown>[])[0];
     if (!intent) return { credited: false, reason: "Not a completed, uncredited wallet top-up" };
 
     const metadata = (intent.metadata ?? {}) as Record<string, unknown>;
     const walletId = String(metadata.walletId);
-    const tenantId = String(intent.tenant_id);
+    const tenantId = String(intent.tenantId);
     const amount = parseFloat(String(intent.amount));
     if (!(amount > 0)) return { credited: false, reason: "Invalid top-up amount" };
 
@@ -532,6 +532,66 @@ export async function creditWalletTopUp(db: Db, paymentIntentId: string): Promis
     });
     return { credited: true };
   });
+}
+
+/**
+ * Finalizes a wallet withdrawal from a Paystack transfer webhook event.
+ * requestWithdrawal already debited the balance and initiated the transfer
+ * synchronously — this only ever does one of two things:
+ *   - transfer.success  → mark the wallet_transactions row "completed" (no
+ *     balance change, the money already left at debit time).
+ *   - transfer.failed / transfer.reversed → credit the balance back
+ *     (compensating credit) and mark the row "failed".
+ * Both branches are claim-first (guarded on metadata.status not already being
+ * a terminal state), so a replayed webhook can never double-credit or
+ * downgrade an already-completed transfer.
+ */
+export async function finalizeWalletWithdrawal(
+  db: Db,
+  opts: { reference: string; event: "transfer.success" | "transfer.failed" | "transfer.reversed"; reason: string | null },
+): Promise<{ ok: boolean; action: string }> {
+  const [row] = await db.select().from(walletTransactions)
+    .where(and(eq(walletTransactions.reference, opts.reference), eq(walletTransactions.type, "withdrawal")))
+    .limit(1);
+  if (!row) return { ok: false, action: "not-found" };
+  const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+  const currentStatus = String(metadata.status ?? "");
+  if (currentStatus === "completed" || currentStatus === "failed") {
+    return { ok: true, action: "already-terminal" };
+  }
+
+  if (opts.event === "transfer.success") {
+    const claimed = await db.execute(sql`
+      UPDATE wallet_transactions
+      SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{status}', '"completed"'::jsonb),
+          description = 'Withdrawal completed'
+      WHERE id = ${row.id} AND metadata->>'status' NOT IN ('completed', 'failed')
+      RETURNING id
+    `);
+    return { ok: (claimed as unknown[]).length > 0, action: "completed" };
+  }
+
+  // failed / reversed → compensating credit, claimed atomically first so a
+  // replay of the same webhook (or a race with another finalize call) can
+  // never credit the balance back twice for one withdrawal.
+  const claimed = await db.execute(sql`
+    UPDATE wallet_transactions
+    SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{status}', '"failed"'::jsonb)
+                    || ${JSON.stringify({ failureReason: opts.reason ?? opts.event })}::jsonb,
+        description = 'Withdrawal failed — refunded'
+    WHERE id = ${row.id} AND metadata->>'status' NOT IN ('completed', 'failed')
+    RETURNING id
+  `);
+  if ((claimed as unknown[]).length === 0) return { ok: true, action: "already-terminal" };
+
+  await db.execute(sql`
+    UPDATE merchant_wallets
+    SET available_balance = available_balance + ${row.amount}::numeric,
+        total_withdrawn = total_withdrawn - ${row.amount}::numeric,
+        updated_at = now()
+    WHERE id = ${row.walletId}
+  `);
+  return { ok: true, action: "refunded" };
 }
 
 // ─── Escrow Router ────────────────────────────────────────────────────────────
@@ -1357,6 +1417,27 @@ export const walletRouter = router({
       return wallet ?? null;
     }),
 
+  /** NGN bank list for the withdrawal form's bank picker — not tenant-scoped. */
+  listBanks: protectedProcedure.query(async () => {
+    const { listBanks: fetchBanks } = await import("../services/payments/paystackTransfer");
+    return fetchBanks(ENV.paystackSecretKey);
+  }),
+
+  /** Resolves an account number + bank code to the name on file, for the withdrawal form. */
+  resolveAccount: protectedProcedure
+    .input(z.object({ accountNumber: z.string().length(10), bankCode: z.string().min(1) }))
+    .query(async ({ input }) => {
+      const { resolveAccount: resolve, PaystackTransferError } = await import("../services/payments/paystackTransfer");
+      try {
+        return await resolve(ENV.paystackSecretKey, input.accountNumber, input.bankCode);
+      } catch (err) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: err instanceof PaystackTransferError ? err.message : "Could not resolve account",
+        });
+      }
+    }),
+
   listTransactions: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
@@ -1420,6 +1501,24 @@ export const walletRouter = router({
         }).where(eq(merchantWallets.id, wallet.id));
       }
 
+      // Resolve the bank details to pay out to: freshly supplied ones, or
+      // whatever's already on file for this wallet from a prior withdrawal.
+      const payoutAccountName = input.bankAccountName ?? wallet.bankAccountName;
+      const payoutAccountNumber = input.bankAccountNumber ?? wallet.bankAccountNumber;
+      const payoutBankCode = input.bankCode ?? wallet.bankCode;
+      if (!payoutAccountNumber || !payoutBankCode || !payoutAccountName) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Bank account name, number, and bank code are required (either on this request or already on file)",
+        });
+      }
+      if (!ENV.paystackSecretKey) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "No payment provider configured (set PAYSTACK_SECRET_KEY). Withdrawals cannot be paid out without a real provider.",
+        });
+      }
+
       // A1-03: the reference-existence check above runs OUTSIDE the debit
       // transaction, so two concurrent same-reference calls can both pass it.
       // The durable backstop is the partial unique index
@@ -1427,6 +1526,7 @@ export const walletRouter = router({
       // loser's insert fails 23505, its transaction (and debit) rolls back,
       // and we translate the violation into an idempotent replay of the
       // original pending withdrawal — exactly one debit per reference.
+      const walletTxId = crypto.randomUUID();
       try {
         await db.transaction(async (tx) => {
           // Re-check INSIDE the transaction as well: cheap no-op in the
@@ -1453,10 +1553,8 @@ export const walletRouter = router({
           }
           const after = parseFloat(String(row.available_balance));
           const before = after + input.amount;
-          // The withdrawal is recorded as PENDING — it is only paid out after a
-          // separate admin approval / payout step (tracked via metadata.status).
           await tx.insert(walletTransactions).values({
-            id: crypto.randomUUID(),
+            id: walletTxId,
             walletId: wallet.id,
             tenantId: input.tenantId,
             type: "withdrawal",
@@ -1464,13 +1562,13 @@ export const walletRouter = router({
             balanceBefore: before.toFixed(2),
             balanceAfter: after.toFixed(2),
             currency: wallet.currency,
-            description: `Withdrawal to ${input.bankAccountNumber ?? "bank account"} (pending approval)`,
+            description: `Withdrawal to ${payoutAccountNumber} (processing)`,
             reference: ref,
             metadata: {
-              status: "pending",
-              bankAccountName: input.bankAccountName ?? null,
-              bankAccountNumber: input.bankAccountNumber ?? null,
-              bankCode: input.bankCode ?? null,
+              status: "processing",
+              bankAccountName: payoutAccountName,
+              bankAccountNumber: payoutAccountNumber,
+              bankCode: payoutBankCode,
             },
             createdAt: new Date(),
           });
@@ -1494,6 +1592,63 @@ export const walletRouter = router({
         throw err;
       }
 
+      // Balance is debited — now actually move the money via Paystack
+      // Transfers. Any failure here must credit the balance back; the debit
+      // and the real payout are two separate operations (can't share one DB
+      // transaction with an external HTTP call), so this is a compensating
+      // action, not a rollback.
+      const { createTransferRecipient, initiateTransfer, PaystackTransferError } = await import("../services/payments/paystackTransfer");
+      let outcome: { status: "success" | "pending" | "processing" | "otp"; transferCode: string | null; recipientCode: string } | { status: "failed"; error: string };
+      try {
+        const recipientCode = await createTransferRecipient({
+          secretKey: ENV.paystackSecretKey,
+          accountName: payoutAccountName,
+          accountNumber: payoutAccountNumber,
+          bankCode: payoutBankCode,
+          currency: wallet.currency,
+        });
+        const transfer = await initiateTransfer({
+          secretKey: ENV.paystackSecretKey,
+          recipientCode,
+          amountMajor: input.amount,
+          reason: `Wallet withdrawal — ${input.tenantId}`,
+          reference: ref,
+          currency: wallet.currency,
+        });
+        outcome = { status: transfer.status, transferCode: transfer.transferCode, recipientCode };
+      } catch (err: unknown) {
+        outcome = { status: "failed", error: err instanceof PaystackTransferError ? err.message : (err as Error)?.message ?? "Unknown transfer error" };
+      }
+
+      if (outcome.status === "failed") {
+        // Compensating credit: same atomic-update discipline as the debit.
+        await db.execute(sql`
+          UPDATE merchant_wallets
+          SET available_balance = available_balance + ${input.amount.toFixed(2)}::numeric,
+              total_withdrawn = total_withdrawn - ${input.amount.toFixed(2)}::numeric,
+              updated_at = now()
+          WHERE id = ${wallet.id}
+        `);
+        await db.update(walletTransactions).set({
+          description: `Withdrawal to ${payoutAccountNumber} (failed — refunded)`,
+          metadata: sql`jsonb_set(COALESCE(${walletTransactions.metadata}, '{}'::jsonb), '{status}', '"failed"'::jsonb) || ${JSON.stringify({ error: outcome.error })}::jsonb`,
+        }).where(eq(walletTransactions.id, walletTxId));
+        await writeAuditLog({
+          actorId: String(ctx.user.id), actorRole: ctx.user.role, action: "wallet.withdrawal",
+          entityType: "merchant_wallet", entityId: wallet.id, tenantId: input.tenantId,
+          summary: `Withdrawal of ₦${input.amount.toFixed(2)} FAILED and was refunded (ref ${ref}): ${outcome.error}`,
+          after: { amount: input.amount, reference: ref, status: "failed", error: outcome.error },
+        });
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Payout failed and your balance was refunded: ${outcome.error}` });
+      }
+
+      await db.update(walletTransactions).set({
+        description: outcome.status === "otp"
+          ? `Withdrawal to ${payoutAccountNumber} (needs manual OTP approval in Paystack dashboard)`
+          : `Withdrawal to ${payoutAccountNumber} (${outcome.status})`,
+        metadata: sql`jsonb_set(jsonb_set(COALESCE(${walletTransactions.metadata}, '{}'::jsonb), '{status}', ${JSON.stringify(outcome.status)}::jsonb), '{transferCode}', ${JSON.stringify(outcome.transferCode)}::jsonb) || ${JSON.stringify({ recipientCode: outcome.recipientCode })}::jsonb`,
+      }).where(eq(walletTransactions.id, walletTxId));
+
       await writeAuditLog({
         actorId: String(ctx.user.id),
         actorRole: ctx.user.role,
@@ -1501,11 +1656,11 @@ export const walletRouter = router({
         entityType: "merchant_wallet",
         entityId: wallet.id,
         tenantId: input.tenantId,
-        summary: `Withdrawal of ₦${input.amount.toFixed(2)} requested (ref ${ref}, pending approval)`,
-        after: { amount: input.amount, reference: ref, status: "pending" },
+        summary: `Withdrawal of ₦${input.amount.toFixed(2)} initiated (ref ${ref}, status ${outcome.status})`,
+        after: { amount: input.amount, reference: ref, status: outcome.status },
       });
 
-      return { success: true, reference: ref, amount: input.amount, status: "pending" as const, duplicate: false };
+      return { success: true, reference: ref, amount: input.amount, status: outcome.status, duplicate: false };
     }),
 
   /**
@@ -1741,12 +1896,16 @@ export const walletRouter = router({
             method: "POST",
             headers: { Authorization: `Bearer ${ENV.paystackSecretKey}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              email: `wallet-${input.tenantId.replace(/[^a-zA-Z0-9]/g, "")}@wa.commerce`,
+              email: `wallet-${input.tenantId.replace(/[^a-zA-Z0-9]/g, "")}@wa-app.newfire.app`,
               amount: Math.round(input.amount * 100),
               currency: wallet.currency ?? "NGN",
               reference: ref,
               metadata: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, type: "wallet_topup" },
-              callback_url: `${ENV.appUrl}/api/webhooks/paystack/callback`,
+              // No such route as /api/webhooks/paystack/callback exists — that's
+              // the server-to-server webhook path, not a browser redirect target.
+              // Send the merchant back to their wallet page in the tenant portal;
+              // the webhook (above) is what actually credits the balance.
+              callback_url: `${ENV.appUrl}/tenant-portal/portal/wallet`,
             }),
             signal: AbortSignal.timeout(10000),
           });
@@ -1762,8 +1921,10 @@ export const walletRouter = router({
               tx_ref: ref,
               amount: input.amount,
               currency: wallet.currency ?? "NGN",
-              redirect_url: `${ENV.appUrl}/api/webhooks/flutterwave/callback`,
-              customer: { email: `wallet-${input.tenantId.replace(/[^a-zA-Z0-9]/g, "")}@wa.commerce` },
+              // Same fix as the Paystack branch above — no such webhook-path
+              // route exists; redirect the merchant to their wallet page.
+              redirect_url: `${ENV.appUrl}/tenant-portal/portal/wallet`,
+              customer: { email: `wallet-${input.tenantId.replace(/[^a-zA-Z0-9]/g, "")}@wa-app.newfire.app` },
               meta: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, type: "wallet_topup" },
             }),
             signal: AbortSignal.timeout(10000),
@@ -1816,7 +1977,7 @@ export const walletRouter = router({
           AND metadata->>'type' = 'wallet_topup'
           AND metadata->>'walletId' IS NOT NULL
           AND metadata->>'creditedAt' IS NULL
-        ORDER BY created_at ASC
+        ORDER BY "createdAt" ASC
         LIMIT ${input?.limit ?? 100}
       `);
       const pending = rows as unknown as { id: string }[];

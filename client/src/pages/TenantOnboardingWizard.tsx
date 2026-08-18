@@ -9,7 +9,8 @@
  * pass/fail from onboarding.validate; activate is blocked until validation
  * passes; failures display reasons with a retry path (retryValidation).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,15 +21,29 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
 import { Separator } from "@/components/ui/separator";
 import { trpc } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import {
-  AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Rocket,
-  ShieldCheck, XCircle,
+  AlertTriangle, Check, CheckCircle2, ChevronLeft, ChevronRight, ChevronsUpDown,
+  Loader2, Rocket, ShieldCheck, Upload, X, XCircle,
 } from "lucide-react";
+
+// Same list used by the platform-admin-initiated onboarding
+// (client/src/pages/TenantOnboarding.tsx) — kept in sync for consistency,
+// since both flows feed the same businessType field into KYC (server/routers/kyc.ts).
+const BUSINESS_TYPES = [
+  "Food & Beverage", "Fashion & Apparel", "Electronics", "Health & Beauty",
+  "Home & Garden", "Sports & Outdoors", "Books & Education", "Services",
+  "Agriculture", "Automotive", "Jewelry", "Toys & Games", "Other",
+] as const;
 import {
   DEFAULT_WA_MENU,
   sortUseCasesByOrder,
@@ -44,8 +59,25 @@ const STEPS = [
   { id: "integrations", label: "Integrations" },
   { id: "branding", label: "Branding" },
   { id: "review", label: "Review & Validate" },
+  { id: "kyb", label: "KYB Verification" },
   { id: "activate", label: "Activate" },
 ] as const;
+
+// server/routers/kyc.ts's uploadDocument document types — the two most
+// directly relevant to a business (as opposed to individual) KYB. Personal-ID
+// types (national_id, passport, …) exist for KYC and aren't collected here.
+const KYB_DOCUMENT_TYPES = [
+  { type: "business_registration" as const, label: "Business registration document" },
+  { type: "directors_id" as const, label: "Director's ID" },
+];
+
+const KYB_STATUS_META: Record<string, { label: string; className: string }> = {
+  not_started: { label: "Not started", className: "bg-zinc-500/15 text-zinc-300 border-zinc-500/30" },
+  pending: { label: "Pending review", className: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+  approved: { label: "Approved", className: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30" },
+  rejected: { label: "Rejected", className: "bg-red-500/15 text-red-300 border-red-500/30" },
+  resubmit_required: { label: "Resubmission required", className: "bg-orange-500/15 text-orange-300 border-orange-500/30" },
+};
 
 type WizardStepId = (typeof STEPS)[number]["id"];
 
@@ -70,9 +102,20 @@ interface ValidationCheck {
 }
 
 export default function TenantOnboardingWizard() {
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
+  const [, navigate] = useLocation();
   const { activeTenantId, setActiveTenantId } = useActiveTenant();
-  const tenantId = activeTenantId;
+  // A brand-new self-service user has no tenant yet, so users.tenantId is the
+  // source of truth — NOT activeTenantId, which is a cross-page, localStorage
+  // -backed default that has nothing to do with them and previously caused
+  // this page to try to load a tenant they don't own (rejected by
+  // assertTenantAccess) with no way to actually create one. createdTenantId
+  // covers the gap right after startMutation succeeds but before the
+  // session (and therefore user.tenantId) has refreshed. Platform admins,
+  // who are tenant-less by design, fall back to the shared picker so they
+  // can configure a specific tenant they manage.
+  const [createdTenantId, setCreatedTenantId] = useState<string | null>(null);
+  const tenantId = createdTenantId || user?.tenantId || (user?.role === "admin" ? activeTenantId : "");
   const utils = trpc.useUtils();
 
   const {
@@ -87,6 +130,8 @@ export default function TenantOnboardingWizard() {
 
   // ── Step forms ────────────────────────────────────────────────────────────
   const [provision, setProvision] = useState({ name: "", slug: "", plan: "starter", businessType: "" });
+  const [businessTypeOpen, setBusinessTypeOpen] = useState(false);
+  const [businessTypeOther, setBusinessTypeOther] = useState("");
   const [waCreds, setWaCreds] = useState({ phoneNumberId: "", accessToken: "" });
   const [greeting, setGreeting] = useState(DEFAULT_WA_MENU.greeting);
   const [useCases, setUseCases] = useState<WaMenuUseCase[]>(DEFAULT_WA_MENU.useCases);
@@ -99,6 +144,115 @@ export default function TenantOnboardingWizard() {
   });
   const [branding, setBranding] = useState({ name: "", logoUrl: "", primaryColor: "#8A5A2B" });
   const [checks, setChecks] = useState<ValidationCheck[] | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const uploadLogoMutation = trpc.tenantConfig.uploadLogo.useMutation({
+    onSuccess: (data) => setBranding((b) => ({ ...b, logoUrl: data.url })),
+    onError: (e) => toast.error(`Logo upload failed: ${e.message}`),
+  });
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please choose an image file");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Logo must be under 5MB");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => uploadLogoMutation.mutate({ tenantId, imageBase64: reader.result as string });
+    reader.onerror = () => toast.error("Could not read the selected file");
+    reader.readAsDataURL(file);
+  };
+
+  // ── KYB (server/services/kycGate.ts) ────────────────────────────────────
+  // onboarding.activate hard-requires an admin-approved KYB application.
+  // getOrCreateApplication returns any existing draft/pending one (idempotent),
+  // so this only ever creates one the first time a tenant reaches this step.
+  const [kybAppId, setKybAppId] = useState<string | null>(null);
+  const getOrCreateKyb = trpc.kyc.getOrCreateApplication.useMutation({
+    onSuccess: (app) => setKybAppId(app.id),
+    onError: (e) => toast.error(`Could not start KYB verification: ${e.message}`),
+  });
+  useEffect(() => {
+    if (tenantId && !kybAppId && !getOrCreateKyb.isPending) {
+      getOrCreateKyb.mutate({ tenantId, type: "kyb" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]);
+
+  const { data: kybApp, refetch: refetchKyb } = trpc.kyc.getApplication.useQuery(
+    { applicationId: kybAppId ?? "" },
+    { enabled: !!kybAppId },
+  );
+  const kybApproved = kybApp?.status === "approved";
+
+  const [kybForm, setKybForm] = useState({
+    applicantName: "", applicantEmail: "", applicantPhone: "",
+    businessName: "", businessRegistrationNumber: "", businessCountry: "", businessType: "",
+  });
+  useEffect(() => {
+    if (!kybApp) return;
+    setKybForm({
+      applicantName: kybApp.applicantName ?? user?.name ?? "",
+      applicantEmail: kybApp.applicantEmail ?? user?.email ?? "",
+      applicantPhone: kybApp.applicantPhone ?? "",
+      businessName: kybApp.businessName ?? provision.name ?? "",
+      businessRegistrationNumber: kybApp.businessRegistrationNumber ?? "",
+      businessCountry: kybApp.businessCountry ?? "",
+      businessType: kybApp.businessType ?? provision.businessType ?? "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kybApp?.id]);
+
+  const saveKybMutation = trpc.kyc.updateApplication.useMutation({
+    onSuccess: () => { toast.success("KYB details saved"); refetchKyb(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const uploadKybDocMutation = trpc.kyc.uploadDocument.useMutation({
+    onSuccess: () => { toast.success("Document uploaded"); refetchKyb(); },
+    onError: (e) => toast.error(`Upload failed: ${e.message}`),
+  });
+  const submitKybMutation = trpc.kyc.submit.useMutation({
+    onSuccess: () => { toast.success("Submitted for review"); refetchKyb(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const kybDocInputRefs = {
+    business_registration: useRef<HTMLInputElement>(null),
+    directors_id: useRef<HTMLInputElement>(null),
+  };
+  const handleKybDocChange = (
+    documentType: "business_registration" | "directors_id",
+  ) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !kybAppId) return;
+    if (file.size > 10 * 1024 * 1024) { toast.error("File must be under 10MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      uploadKybDocMutation.mutate({
+        applicationId: kybAppId,
+        documentType,
+        fileBase64: base64,
+        mimeType: file.type || "application/octet-stream",
+        fileName: file.name,
+      });
+    };
+    reader.onerror = () => toast.error("Could not read the selected file");
+    reader.readAsDataURL(file);
+  };
+  const kybDocsPresent = new Set((kybApp?.documents ?? []).map((d) => d.documentType));
+  const kybCanSubmit =
+    !!kybAppId &&
+    kybForm.applicantName.trim() !== "" &&
+    kybForm.businessName.trim() !== "" &&
+    kybDocsPresent.has("business_registration") &&
+    kybApp?.status !== "pending" && kybApp?.status !== "approved";
 
   // Seed forms from the live config once loaded.
   const { data: savedMenu } = trpc.tenantConfig.getWaMenuConfig.useQuery(
@@ -135,7 +289,12 @@ export default function TenantOnboardingWizard() {
   const startMutation = trpc.onboarding.start.useMutation({
     onSuccess: (data) => {
       toast.success(`Tenant "${provision.name}" provisioned (${data.slug})`);
+      setCreatedTenantId(data.tenantId);
       setActiveTenantId(data.tenantId);
+      // users.tenantId only updates server-side for non-admin callers — refresh
+      // the cached session so the rest of the app (sidebar, nav, etc.) picks it
+      // up too, not just this page's local createdTenantId fallback.
+      refresh();
     },
     onError: onMutationError,
   });
@@ -173,6 +332,7 @@ export default function TenantOnboardingWizard() {
     onSuccess: () => {
       toast.success("Tenant is live!");
       utils.onboarding.getStatus.invalidate({ tenantId });
+      navigate("/portal");
     },
     onError: onMutationError,
   });
@@ -236,7 +396,7 @@ export default function TenantOnboardingWizard() {
     );
 
   const runValidate = () => validateMutation.mutate({ tenantId });
-  const canActivate = onboardingStatus === "validating" && status?.validationPassed === true;
+  const canActivate = onboardingStatus === "validating" && status?.validationPassed === true && kybApproved;
 
   const statusMeta = STATUS_META[onboardingStatus] ?? STATUS_META.draft;
 
@@ -261,8 +421,9 @@ export default function TenantOnboardingWizard() {
           {STEPS.map((s, i) => {
             const done =
               (s.id === "business" && !!status) ||
-              (s.id !== "business" && s.id !== "review" && s.id !== "activate" && completedSteps.has(s.id)) ||
+              (s.id !== "business" && s.id !== "review" && s.id !== "kyb" && s.id !== "activate" && completedSteps.has(s.id)) ||
               (s.id === "review" && status?.validationPassed === true) ||
+              (s.id === "kyb" && kybApproved) ||
               (s.id === "activate" && isLive);
             const active = i === stepIdx;
             return (
@@ -315,8 +476,10 @@ export default function TenantOnboardingWizard() {
                 <CardHeader>
                   <CardTitle className="text-base">Business</CardTitle>
                   <CardDescription>
-                    The wizard configures the currently selected tenant (switch it in the sidebar).
-                    Platform admins can also provision a brand-new tenant here.
+                    {tenantId
+                      ? "Configure, validate and activate your business."
+                      : "Create your business to get started — this becomes your tenant."}
+                    {user?.role === "admin" && " Platform admins can also provision a tenant on a business's behalf below."}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -340,11 +503,13 @@ export default function TenantOnboardingWizard() {
                       </div>
                     </div>
                   )}
-                  {user?.role === "admin" && (
+                  {(!tenantId || user?.role === "admin") && (
                     <>
-                      <Separator />
+                      {status && <Separator />}
                       <div className="space-y-4">
-                        <h3 className="text-sm font-semibold">Provision a new tenant</h3>
+                        <h3 className="text-sm font-semibold">
+                          {tenantId ? "Provision a new tenant" : "Create your business"}
+                        </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-1.5">
                             <Label htmlFor="ob-name">Business name</Label>
@@ -380,12 +545,56 @@ export default function TenantOnboardingWizard() {
                           </div>
                           <div className="space-y-1.5">
                             <Label htmlFor="ob-btype">Business type (optional)</Label>
-                            <Input
-                              id="ob-btype"
-                              value={provision.businessType}
-                              onChange={(e) => setProvision((p) => ({ ...p, businessType: e.target.value }))}
-                              placeholder="Food & Beverage"
-                            />
+                            <Popover open={businessTypeOpen} onOpenChange={setBusinessTypeOpen}>
+                              <PopoverTrigger asChild>
+                                <Button
+                                  id="ob-btype"
+                                  variant="outline"
+                                  role="combobox"
+                                  aria-expanded={businessTypeOpen}
+                                  className="w-full justify-between font-normal"
+                                >
+                                  {provision.businessType || "Select business type…"}
+                                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                                <Command>
+                                  <CommandInput placeholder="Search business type…" />
+                                  <CommandList>
+                                    <CommandEmpty>No match found.</CommandEmpty>
+                                    <CommandGroup>
+                                      {BUSINESS_TYPES.map((t) => (
+                                        <CommandItem
+                                          key={t}
+                                          value={t}
+                                          onSelect={() => {
+                                            setProvision((p) => ({ ...p, businessType: t }));
+                                            setBusinessTypeOpen(false);
+                                          }}
+                                        >
+                                          <Check
+                                            className={cn(
+                                              "mr-2 h-4 w-4",
+                                              provision.businessType === t ? "opacity-100" : "opacity-0",
+                                            )}
+                                          />
+                                          {t}
+                                        </CommandItem>
+                                      ))}
+                                    </CommandGroup>
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                            {provision.businessType === "Other" && (
+                              <Input
+                                className="mt-2"
+                                value={businessTypeOther}
+                                onChange={(e) => setBusinessTypeOther(e.target.value)}
+                                placeholder="Describe your business type"
+                              />
+                            )}
                           </div>
                         </div>
                         <Button
@@ -396,7 +605,10 @@ export default function TenantOnboardingWizard() {
                               name: provision.name.trim(),
                               slug: provision.slug.trim() || undefined,
                               plan: provision.plan as "starter" | "growth" | "enterprise",
-                              businessType: provision.businessType.trim() || undefined,
+                              businessType:
+                                (provision.businessType === "Other"
+                                  ? businessTypeOther.trim()
+                                  : provision.businessType.trim()) || undefined,
                             })
                           }
                         >
@@ -579,13 +791,53 @@ export default function TenantOnboardingWizard() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="ob-logo">Logo URL (optional)</Label>
-                    <Input
-                      id="ob-logo"
-                      value={branding.logoUrl}
-                      onChange={(e) => setBranding((b) => ({ ...b, logoUrl: e.target.value }))}
-                      placeholder="https://cdn.example.com/logo.png"
-                    />
+                    <Label htmlFor="ob-logo">Logo (optional)</Label>
+                    <div className="flex items-center gap-3">
+                      {branding.logoUrl ? (
+                        <img
+                          src={branding.logoUrl}
+                          alt="Logo preview"
+                          className="h-12 w-12 rounded-lg object-contain border bg-muted/30"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">
+                          <Upload className="h-4 w-4" />
+                        </div>
+                      )}
+                      <Button
+                        id="ob-logo"
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        disabled={uploadLogoMutation.isPending || !tenantId}
+                        onClick={() => logoInputRef.current?.click()}
+                      >
+                        {uploadLogoMutation.isPending ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="w-3.5 h-3.5" />
+                        )}
+                        {branding.logoUrl ? "Replace" : "Upload"}
+                      </Button>
+                      {branding.logoUrl && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setBranding((b) => ({ ...b, logoUrl: "" }))}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
+                      <input
+                        ref={logoInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleLogoFileChange}
+                      />
+                    </div>
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="ob-color">Primary color</Label>
@@ -704,6 +956,171 @@ export default function TenantOnboardingWizard() {
               </>
             )}
 
+            {/* ── KYB Verification ─────────────────────────────────────── */}
+            {step === "kyb" && (
+              <>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    KYB Verification
+                    {kybApp && (
+                      <Badge variant="outline" className={(KYB_STATUS_META[kybApp.status] ?? KYB_STATUS_META.not_started).className}>
+                        {(KYB_STATUS_META[kybApp.status] ?? KYB_STATUS_META.not_started).label}
+                      </Badge>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    A platform admin must approve this before the tenant can go live —
+                    fill in your business details, upload the required documents, then submit for review.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6 max-w-2xl">
+                  {kybApp?.status === "rejected" && (
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Application rejected</AlertTitle>
+                      <AlertDescription>{kybApp.rejectionReason || "See reviewer notes and resubmit."}</AlertDescription>
+                    </Alert>
+                  )}
+                  {kybApp?.status === "resubmit_required" && (
+                    <Alert>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Resubmission required</AlertTitle>
+                      <AlertDescription>{kybApp.reviewNotes || "The reviewer requested changes — update the details below and resubmit."}</AlertDescription>
+                    </Alert>
+                  )}
+                  {kybApp?.status === "pending" && (
+                    <Alert>
+                      <Loader2 className="h-4 w-4" />
+                      <AlertTitle>Submitted — awaiting review</AlertTitle>
+                      <AlertDescription>A platform admin will review your application. You can still update details below if needed.</AlertDescription>
+                    </Alert>
+                  )}
+                  {kybApp?.status === "approved" && (
+                    <Alert>
+                      <CheckCircle2 className="h-4 w-4" />
+                      <AlertTitle>Approved</AlertTitle>
+                      <AlertDescription>KYB verification is complete — you can proceed to Activate.</AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold">Applicant</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="kyb-aname">Full name</Label>
+                        <Input
+                          id="kyb-aname"
+                          value={kybForm.applicantName}
+                          onChange={(e) => setKybForm((f) => ({ ...f, applicantName: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="kyb-aemail">Email</Label>
+                        <Input
+                          id="kyb-aemail"
+                          type="email"
+                          value={kybForm.applicantEmail}
+                          onChange={(e) => setKybForm((f) => ({ ...f, applicantEmail: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="kyb-aphone">Phone</Label>
+                        <Input
+                          id="kyb-aphone"
+                          value={kybForm.applicantPhone}
+                          onChange={(e) => setKybForm((f) => ({ ...f, applicantPhone: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold">Business</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="kyb-bname">Registered business name</Label>
+                        <Input
+                          id="kyb-bname"
+                          value={kybForm.businessName}
+                          onChange={(e) => setKybForm((f) => ({ ...f, businessName: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="kyb-breg">Registration number</Label>
+                        <Input
+                          id="kyb-breg"
+                          value={kybForm.businessRegistrationNumber}
+                          onChange={(e) => setKybForm((f) => ({ ...f, businessRegistrationNumber: e.target.value }))}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="kyb-bcountry">Country</Label>
+                        <Input
+                          id="kyb-bcountry"
+                          value={kybForm.businessCountry}
+                          onChange={(e) => setKybForm((f) => ({ ...f, businessCountry: e.target.value }))}
+                          placeholder="Nigeria"
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={saveKybMutation.isPending || !kybAppId}
+                      onClick={() => kybAppId && saveKybMutation.mutate({ applicationId: kybAppId, ...kybForm })}
+                    >
+                      {saveKybMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                      Save details
+                    </Button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold">Documents</h3>
+                    {KYB_DOCUMENT_TYPES.map(({ type, label }) => {
+                      const present = kybDocsPresent.has(type);
+                      const ref = kybDocInputRefs[type];
+                      return (
+                        <div key={type} className="flex items-center gap-3 rounded-lg border p-3">
+                          {present ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-muted-foreground shrink-0" />
+                          )}
+                          <span className="text-sm flex-1">{label}</span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="gap-1.5"
+                            disabled={uploadKybDocMutation.isPending || !kybAppId}
+                            onClick={() => ref.current?.click()}
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            {present ? "Replace" : "Upload"}
+                          </Button>
+                          <input
+                            ref={ref}
+                            type="file"
+                            accept="image/*,.pdf"
+                            className="hidden"
+                            onChange={handleKybDocChange(type)}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    disabled={!kybCanSubmit || submitKybMutation.isPending}
+                    onClick={() => kybAppId && submitKybMutation.mutate({ applicationId: kybAppId })}
+                  >
+                    {submitKybMutation.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+                    Submit for review
+                  </Button>
+                </CardContent>
+              </>
+            )}
+
             {/* ── Activate ─────────────────────────────────────────────── */}
             {step === "activate" && (
               <>
@@ -715,13 +1132,25 @@ export default function TenantOnboardingWizard() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4 max-w-lg">
-                  {!canActivate && !isLive && (
+                  {!canActivate && !isLive && onboardingStatus !== "validating" && (
                     <Alert>
                       <AlertTriangle className="h-4 w-4" />
                       <AlertTitle>Validation required</AlertTitle>
                       <AlertDescription>
                         Activation is blocked until validation passes (current status: {onboardingStatus}).
                         Go to the review step and run validation.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {!canActivate && !isLive && onboardingStatus === "validating" && !kybApproved && (
+                    <Alert>
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>KYB verification required</AlertTitle>
+                      <AlertDescription>
+                        {kybApp?.status === "pending"
+                          ? "Your KYB application is submitted and awaiting admin review."
+                          : "Complete and submit KYB verification before activating."}{" "}
+                        Go to the KYB Verification step.
                       </AlertDescription>
                     </Alert>
                   )}

@@ -1,11 +1,16 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Router as WouterRouter, Switch } from "wouter";
+import { Route, Router as WouterRouter, Switch, useLocation } from "wouter";
+import { useAuth } from "@/_core/hooks/useAuth";
 
-const BASE_PATH = import.meta.env.PROD ? "/tenant-portal" : "";
+// Derived from BASE_URL (set directly from vite.config.ts's `base`, which
+// only depends on the build `command`) rather than PROD/MODE — those follow
+// Vite's `mode`, which a stray NODE_ENV in a loaded .env file can flip to
+// "development" even during a real `vite build` (see .dockerignore).
+const BASE_PATH = import.meta.env.BASE_URL.replace(/\/$/, "");
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthGate } from "@ui-shared/AuthGate";
@@ -13,42 +18,36 @@ import Home from "@/pages/Home";
 import PortalMagicLogin from "@/pages/portal/PortalMagicLogin";
 
 // Tenant/merchant-facing routes only — platform-wide administration lives in
-// ui/platform-admin. See ui/tenant-portal/ROUTES.md for the full triage,
-// including pages flagged as likely duplicates of the canonical /portal/*
-// implementations (kept reachable, not deleted, pending a decision).
+// ui/platform-admin. See ui/tenant-portal/ROUTES.md for the original triage;
+// the "likely-duplicate pairs" it flagged as a follow-up decision have since
+// been resolved (see the redirects in the route table below for which page
+// won and why).
 const TrackOrder = lazy(() => import("@/pages/TrackOrder"));
 const EvidencePortal = lazy(() => import("@/pages/EvidencePortal"));
 const SlaExtensionResponse = lazy(() => import("@/pages/SlaExtensionResponse"));
 
 const PortalDashboard = lazy(() => import("@/pages/portal/PortalDashboard"));
 const SsoCallback = lazy(() => import("@/pages/portal/SsoCallback"));
-const PortalProducts = lazy(() => import("@/pages/portal/PortalProducts"));
-const PortalOrders = lazy(() => import("@/pages/portal/PortalOrders"));
-const PortalInvoices = lazy(() => import("@/pages/portal/PortalInvoices"));
-const PortalSettings = lazy(() => import("@/pages/portal/PortalSettings"));
-const PortalConversations = lazy(() => import("@/pages/portal/PortalConversations"));
-const PortalPayments = lazy(() => import("@/pages/portal/PortalPayments"));
-const PortalWallet = lazy(() => import("@/pages/portal/PortalWallet"));
+const MerchantWallet = lazy(() => import("@/pages/portal/MerchantWallet"));
 const OnboardingWizard = lazy(() => import("@/pages/portal/OnboardingWizard"));
 const MerchantAnalytics = lazy(() => import("@/pages/portal/MerchantAnalytics"));
-const PortalBroadcasts = lazy(() => import("@/pages/portal/PortalBroadcasts"));
 
-const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Products = lazy(() => import("@/pages/Products"));
-const MenuBuilder = lazy(() => import("@/pages/MenuBuilder"));
-const InventorySync = lazy(() => import("@/pages/InventorySync"));
-const ProductImageCollector = lazy(() => import("@/pages/ProductImageCollector"));
-const VisualInventory = lazy(() => import("@/pages/VisualInventory"));
-const FmcgTaxonomy = lazy(() => import("@/pages/FmcgTaxonomy"));
-const MarketplacePortal = lazy(() => import("@/pages/MarketplacePortal"));
-const B2BPortal = lazy(() => import("@/pages/B2BPortal"));
-const ServiceCommercePage = lazy(() => import("@/pages/ServiceCommercePage"));
-const MedusaIntegration = lazy(() => import("@/pages/MedusaIntegration"));
-const MedusaOnboarding = lazy(() => import("@/pages/MedusaOnboarding"));
-const OdooMedusaBridge = lazy(() => import("@/pages/OdooMedusaBridge"));
+const WhatsAppMenuHub = lazy(() => import("@/pages/WhatsAppMenuHub"));
+const InventoryHub = lazy(() => import("@/pages/InventoryHub"));
+const SalesChannelsHub = lazy(() => import("@/pages/SalesChannelsHub"));
+const MedusaHub = lazy(() => import("@/pages/MedusaHub"));
+const OdooHub = lazy(() => import("@/pages/OdooHub"));
 const SupplierDirectory = lazy(() => import("@/pages/SupplierDirectory"));
+const Crm = lazy(() => import("@/pages/Crm"));
+const Journeys = lazy(() => import("@/pages/Journeys"));
+const Consents = lazy(() => import("@/pages/Consents"));
+const CodBoard = lazy(() => import("@/pages/CodBoard"));
+const ManufacturerCredit = lazy(() => import("@/pages/ManufacturerCredit"));
 const ProcurementHub = lazy(() => import("@/pages/ProcurementHub"));
 const CreditAccounts = lazy(() => import("@/pages/CreditAccounts"));
+const SupplierApprovals = lazy(() => import("@/pages/SupplierApprovals"));
+const IntegrationHealth = lazy(() => import("@/pages/IntegrationHealth"));
 const Conversations = lazy(() => import("@/pages/Conversations"));
 const MultiChannelHub = lazy(() => import("@/pages/MultiChannelHub"));
 const BroadcastCampaigns = lazy(() => import("@/pages/BroadcastCampaigns"));
@@ -65,19 +64,12 @@ const EscrowDashboard = lazy(() => import("@/pages/EscrowDashboard"));
 const RevenueDashboard = lazy(() => import("@/pages/RevenueDashboard"));
 const Invoices = lazy(() => import("@/pages/Invoices"));
 const MobileMoneyPortal = lazy(() => import("@/pages/MobileMoneyPortal"));
-const AgentConsole = lazy(() => import("@/pages/AgentConsole"));
-const AgentArchitecture = lazy(() => import("@/pages/AgentArchitecture"));
-const NLPSimulator = lazy(() => import("@/pages/NLPSimulator"));
 const AnalyticsBIDashboard = lazy(() => import("@/pages/AnalyticsBIDashboard"));
-const TenantAnalytics = lazy(() => import("@/pages/TenantAnalytics"));
 const IntegrationHub = lazy(() => import("@/pages/IntegrationHub"));
 const TwentyCRM = lazy(() => import("@/pages/TwentyCRM"));
-const OdooERP = lazy(() => import("@/pages/OdooERP"));
-const WaMenuBuilder = lazy(() => import("@/pages/WaMenuBuilder"));
 const TenantOnboardingWizard = lazy(() => import("@/pages/TenantOnboardingWizard"));
 const OnboardingCopilot = lazy(() => import("@/pages/OnboardingCopilot"));
 const IntegrationsSettings = lazy(() => import("@/pages/IntegrationsSettings"));
-const ProviderSettings = lazy(() => import("@/pages/ProviderSettings"));
 const TenantSettings = lazy(() => import("@/pages/TenantSettings"));
 
 function RouteFallback() {
@@ -102,36 +94,55 @@ function Router() {
         <Route path="/portal/login" component={PortalMagicLogin} />
         <Route path="/portal/magic-login" component={PortalMagicLogin} />
         <Route path="/portal/sso-callback" component={SsoCallback} />
-        <Route path="/portal/products" component={PortalProducts} />
-        <Route path="/portal/orders" component={PortalOrders} />
-        <Route path="/portal/invoices" component={PortalInvoices} />
-        <Route path="/portal/settings" component={PortalSettings} />
-        <Route path="/portal/conversations" component={PortalConversations} />
-        <Route path="/portal/payments" component={PortalPayments} />
-        <Route path="/portal/wallet" component={PortalWallet} />
+        <Route path="/portal/wallet" component={MerchantWallet} />
         <Route
           path="/portal/setup"
           component={() => <OnboardingWizard onComplete={() => { window.location.href = `${BASE_PATH}/portal`; }} />}
         />
         <Route path="/portal/analytics" component={MerchantAnalytics} />
-        <Route path="/portal/broadcasts" component={PortalBroadcasts} />
 
-        <Route path="/dashboard" component={Dashboard} />
+        {/* These /portal/* pages were a deliberately minimal, view-only MVP
+            duplicating the richer pages below (which have real editing:
+            CSV import, invoice send/markPaid, delivery receipts, broadcast
+            A/B testing — see the tenant-portal cleanup pass). Redirect
+            rather than remove outright, in case anything has them bookmarked. */}
+        <Route path="/portal/products" component={() => <RouteRedirect to="/products" />} />
+        <Route path="/portal/orders" component={() => <RouteRedirect to="/orders" />} />
+        <Route path="/portal/invoices" component={() => <RouteRedirect to="/invoices" />} />
+        <Route path="/portal/settings" component={() => <RouteRedirect to="/tenant-settings" />} />
+        <Route path="/portal/conversations" component={() => <RouteRedirect to="/conversations" />} />
+        <Route path="/portal/payments" component={() => <RouteRedirect to="/payments" />} />
+        <Route path="/portal/broadcasts" component={() => <RouteRedirect to="/broadcast" />} />
+
+        <Route path="/dashboard" component={() => <RouteRedirect to="/portal" />} />
+        {/* TenantAnalytics.tsx has a platform-wide "pick any tenant" selector
+            powered by tenant.list (adminProcedure) — it's a platform-admin
+            tool that was misplaced here, not a tenant's own analytics.
+            /portal/analytics (MerchantAnalytics, above) is the real one. */}
+        <Route path="/tenant-analytics" component={() => <RouteRedirect to="/portal/analytics" />} />
         <Route path="/products" component={Products} />
-        <Route path="/menu-builder" component={MenuBuilder} />
-        <Route path="/inventory" component={InventorySync} />
-        <Route path="/product-images" component={ProductImageCollector} />
-        <Route path="/visual-inventory" component={VisualInventory} />
-        <Route path="/fmcg-taxonomy" component={FmcgTaxonomy} />
-        <Route path="/marketplace" component={MarketplacePortal} />
-        <Route path="/b2b" component={B2BPortal} />
-        <Route path="/service-commerce" component={ServiceCommercePage} />
-        <Route path="/medusa" component={MedusaIntegration} />
-        <Route path="/medusa-onboarding" component={MedusaOnboarding} />
-        <Route path="/odoo-medusa-bridge" component={OdooMedusaBridge} />
+        <Route path="/menu-builder" component={WhatsAppMenuHub} />
+        <Route path="/inventory" component={InventoryHub} />
+        <Route path="/product-images" component={() => <RouteRedirect to="/inventory" />} />
+        <Route path="/visual-inventory" component={() => <RouteRedirect to="/inventory" />} />
+        <Route path="/fmcg-taxonomy" component={() => <RouteRedirect to="/inventory" />} />
+        <Route path="/marketplace" component={() => <RouteRedirect to="/sales-channels" />} />
+        <Route path="/b2b" component={() => <RouteRedirect to="/sales-channels" />} />
+        <Route path="/service-commerce" component={() => <RouteRedirect to="/sales-channels" />} />
+        <Route path="/sales-channels" component={SalesChannelsHub} />
+        <Route path="/medusa" component={MedusaHub} />
+        <Route path="/medusa-onboarding" component={() => <RouteRedirect to="/medusa" />} />
+        <Route path="/odoo-medusa-bridge" component={() => <RouteRedirect to="/odoo-erp" />} />
         <Route path="/suppliers" component={SupplierDirectory} />
+        <Route path="/crm" component={Crm} />
+        <Route path="/journeys" component={Journeys} />
+        <Route path="/consents" component={Consents} />
+        <Route path="/cod" component={CodBoard} />
+        <Route path="/manufacturer-credit" component={ManufacturerCredit} />
         <Route path="/procurement" component={ProcurementHub} />
         <Route path="/credit-accounts" component={CreditAccounts} />
+        <Route path="/supplier-approvals" component={SupplierApprovals} />
+        <Route path="/integration-health" component={IntegrationHealth} />
         <Route path="/conversations" component={Conversations} />
         <Route path="/multi-channel" component={MultiChannelHub} />
         <Route path="/broadcast" component={BroadcastCampaigns} />
@@ -148,19 +159,14 @@ function Router() {
         <Route path="/revenue" component={RevenueDashboard} />
         <Route path="/invoices" component={Invoices} />
         <Route path="/mobile-money" component={MobileMoneyPortal} />
-        <Route path="/agent" component={AgentConsole} />
-        <Route path="/agent-architecture" component={AgentArchitecture} />
-        <Route path="/nlp-simulator" component={NLPSimulator} />
         <Route path="/analytics-bi" component={AnalyticsBIDashboard} />
-        <Route path="/tenant-analytics" component={TenantAnalytics} />
         <Route path="/integrations" component={IntegrationHub} />
         <Route path="/twenty-crm" component={TwentyCRM} />
-        <Route path="/odoo-erp" component={OdooERP} />
-        <Route path="/wa-menu-builder" component={WaMenuBuilder} />
+        <Route path="/odoo-erp" component={OdooHub} />
+        <Route path="/wa-menu-builder" component={() => <RouteRedirect to="/menu-builder" />} />
         <Route path="/onboarding-wizard" component={TenantOnboardingWizard} />
         <Route path="/onboarding-copilot" component={OnboardingCopilot} />
         <Route path="/integration-settings" component={IntegrationsSettings} />
-        <Route path="/provider-settings" component={ProviderSettings} />
         <Route path="/tenant-settings" component={TenantSettings} />
 
         <Route path="/404" component={NotFound} />
@@ -176,26 +182,70 @@ function Router() {
 // enforces access via the token itself, not session auth.
 const PUBLIC_PREFIXES = ["/track/", "/evidence/", "/sla-extension/"];
 
-function App() {
-  const path =
-    typeof window !== "undefined"
-      ? window.location.pathname.slice(BASE_PATH.length) || "/"
-      : "/";
-  const isPublicPath = path === "/" || PUBLIC_PREFIXES.some(p => path.startsWith(p));
+const ONBOARDING_PATH = "/onboarding-wizard";
 
+// Generic client-side redirect for retired routes — /dashboard
+// (client/src/pages/Dashboard.tsx showed a platform-wide "Active Tenants"
+// stat plus two charts hardcoded to static demo arrays, never real for any
+// tenant) and the /portal/* pages that duplicated a richer page elsewhere
+// (see the route table above for which page replaced which).
+function RouteRedirect({ to }: { to: string }) {
+  const [, navigate] = useLocation();
+  useEffect(() => { navigate(to, { replace: true }); }, [to, navigate]);
+  return null;
+}
+
+// A freshly-registered user has no tenant yet (users.tenantId is null until
+// onboarding.start creates one for them). Left alone, every tenant-scoped
+// page here would just silently show empty/wrong data instead of routing
+// them to the one flow that actually creates their tenant. Platform admins
+// are tenant-less by design, so they're exempt.
+function OnboardingGate({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  const [location, navigate] = useLocation();
+  const needsOnboarding = !!user && user.role !== "admin" && !user.tenantId;
+
+  useEffect(() => {
+    if (needsOnboarding && location !== ONBOARDING_PATH) {
+      navigate(ONBOARDING_PATH);
+    }
+  }, [needsOnboarding, location, navigate]);
+
+  if (needsOnboarding && location !== ONBOARDING_PATH) return null;
+  return <>{children}</>;
+}
+
+// Must run INSIDE <WouterRouter> and use its useLocation() (not a plain
+// window.location.pathname read) so this re-evaluates on every client-side
+// navigation. A plain read only reflects the path at App()'s own mount —
+// clicking a button that calls navigate() (e.g. Home's "Go to Dashboard")
+// never re-renders App() itself, so a stale read would keep showing
+// whichever branch matched the ORIGINAL page (e.g. "/", public) even after
+// wouter has silently swapped the visible route to something protected,
+// skipping AuthGate/OnboardingGate entirely.
+function AppRoutes() {
+  const [location] = useLocation();
+  const isPublicPath = location === "/" || PUBLIC_PREFIXES.some(p => location.startsWith(p));
+
+  return isPublicPath ? (
+    <Router />
+  ) : (
+    <AuthGate allow={() => true}>
+      <OnboardingGate>
+        <Router />
+      </OnboardingGate>
+    </AuthGate>
+  );
+}
+
+function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
           <WouterRouter base={BASE_PATH}>
-            {isPublicPath ? (
-              <Router />
-            ) : (
-              <AuthGate allow={() => true}>
-                <Router />
-              </AuthGate>
-            )}
+            <AppRoutes />
           </WouterRouter>
         </TooltipProvider>
       </ThemeProvider>

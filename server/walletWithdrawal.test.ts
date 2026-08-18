@@ -23,6 +23,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("./db", () => ({ getDb: vi.fn() }));
 vi.mock("./routers/audit", () => ({ writeAuditLog: vi.fn(async () => {}) }));
+// requestWithdrawal now pays out for real via Paystack Transfers once the
+// atomic debit commits — irrelevant to the race/idempotency behavior this
+// file tests, so it's mocked to a deterministic success rather than left
+// to hit the network (there's no real PAYSTACK_SECRET_KEY in test env).
+vi.mock("./_core/env", async (importActual) => {
+  const actual = await importActual<typeof import("./_core/env")>();
+  return { ...actual, ENV: { ...actual.ENV, paystackSecretKey: "sk_test_mock" } };
+});
+vi.mock("./services/payments/paystackTransfer", () => ({
+  createTransferRecipient: vi.fn(async () => "RCP_mock"),
+  initiateTransfer: vi.fn(async () => ({ status: "success", transferCode: "TRF_mock" })),
+  PaystackTransferError: class PaystackTransferError extends Error {},
+}));
 
 import { getDb } from "./db";
 import { walletRouter } from "./routers/escrow";
@@ -66,6 +79,7 @@ function makeWalletDb() {
       id: "wal-1", tenantId: "tenant-1", currency: "NGN",
       availableBalance: "1000.00", escrowBalance: "0.00", totalEarned: "0.00", totalWithdrawn: "0.00",
       custodyMode: "psp", isActive: true, createdAt: new Date(), updatedAt: new Date(),
+      bankAccountName: "Test Merchant", bankAccountNumber: "0123456789", bankCode: "058",
     }] as WalletRow[],
     walletTxs: [] as TxRow[],
   };
@@ -218,7 +232,11 @@ describe("wallet.requestWithdrawal — same-reference double-debit race (A1-03)"
     expect(fresh).toHaveLength(1);
     expect(dup).toHaveLength(1);
     expect(dup[0].amount).toBe(500);
-    expect(dup[0].status).toBe("pending");
+    // "processing", not "success": the duplicate's replay-read races ahead of
+    // the fresh request's real payout call, which updates status afterward —
+    // this is the real transient state under the live-payout design (the old
+    // pending-admin-approval design never had it).
+    expect(dup[0].status).toBe("processing");
   });
 
   it("sequential same-reference retry replays the original withdrawal (no second debit)", async () => {

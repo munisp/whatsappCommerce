@@ -389,8 +389,12 @@ export const paymentRouter = router({
             currency: input.currency,
             reference,
             metadata: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, order_id: input.orderId },
-            customer: { phone: input.customerPhone, email: `${input.customerPhone.replace(/\D/g, "")}@wa.commerce` },
-            callbackUrl: `${ENV.appUrl}/api/webhooks/paystack/callback`,
+            customer: { phone: input.customerPhone, email: `${input.customerPhone.replace(/\D/g, "") || "customer"}@wa-app.newfire.app` },
+            // No such route as /api/webhooks/paystack/callback exists — the
+            // webhook confirms the payment server-side; this is only the
+            // post-checkout browser redirect, so send the buyer back into
+            // their WhatsApp chat, same as the nlp.ts checkout flow.
+            callbackUrl: `https://wa.me/${input.customerPhone.replace(/\D/g, "")}`,
           }, { preferredProvider: input.provider });
           paymentUrl = fallback.result.authorizationUrl ?? null;
           instructions = fallback.result.instructions ?? null;

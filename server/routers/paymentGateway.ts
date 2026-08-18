@@ -527,7 +527,7 @@ export const paymentGatewayRouter = router({
           currency: "NGN",
           reference: `TEST-${newRef().slice(0, 8).toUpperCase()}`,
           metadata: { kind: "provider_test", tenant_id: input.tenantId },
-          customer: { phone: "+2340000000000", email: "provider-test@wa.commerce" },
+          customer: { phone: "+2340000000000", email: "provider-test@wa-app.newfire.app" },
         }, { preferredProvider: input.provider });
         if (probe.providerId !== input.provider) {
           return { ok: false, message: `Probe fell through to '${probe.providerId}' — '${input.provider}' failed.` };

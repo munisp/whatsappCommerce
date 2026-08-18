@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,7 +191,7 @@ function TreeItem({
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
-export default function MenuBuilder() {
+export function MenuBuilderContent() {
   const [selectedMenuId, setSelectedMenuId] = useState<string | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [newMenuName, setNewMenuName] = useState("");
@@ -302,7 +301,7 @@ export default function MenuBuilder() {
   }
 
   return (
-    <DashboardLayout>
+    <>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between">
@@ -311,7 +310,7 @@ export default function MenuBuilder() {
               <Smartphone className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">WhatsApp Menu Builder</h1>
+              <h1 className="text-2xl font-bold text-foreground">Interactive Menu</h1>
               <p className="text-sm text-muted-foreground">Build interactive menus from Odoo inventory & Twenty CRM, then push to WhatsApp</p>
             </div>
           </div>
@@ -696,6 +695,6 @@ export default function MenuBuilder() {
           )}
         </DialogContent>
       </Dialog>
-    </DashboardLayout>
+    </>
   );
 }

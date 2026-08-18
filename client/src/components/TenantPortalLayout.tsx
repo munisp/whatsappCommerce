@@ -2,10 +2,9 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
-import { trpc } from "@/lib/trpc";
 import {
   LayoutDashboard, Package, ShoppingCart, FileText,
-  Settings, CreditCard, MessageSquare, LogOut, Building2, ArrowLeft,
+  Settings, CreditCard, MessageSquare, LogOut, Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -29,14 +28,7 @@ const NAV = [
 
 export function TenantPortalLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
-  const { user } = useAuth();
-  // BASE_URL reflects the Vite `base` this component was built under — "/"
-  // for the legacy combined client, "/tenant-portal/" when built into the
-  // standalone ui/tenant-portal app — so the redirect stays inside whichever
-  // app the user is actually in instead of hard-navigating to root.
-  const logoutMutation = trpc.auth.logout.useMutation({
-    onSuccess: () => { window.location.href = `${import.meta.env.BASE_URL}portal`; },
-  });
+  const { user, logout } = useAuth();
   const [tenantId, setTenantId] = useState("");
   const [ssoLoading, setSsoLoading] = useState(false);
 
@@ -88,7 +80,7 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
             className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3"
             onClick={() => startLogin()}
           >
-            Sign in with Manus
+            Sign In
           </Button>
           {/* Keycloak SSO section */}
           <div className="mt-6">
@@ -160,22 +152,12 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
             </Link>
           ))}
         </nav>
-        {user.role === "admin" && (
-          <div className="px-3 pb-2">
-            <Link href="/dashboard">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-700 hover:text-white cursor-pointer transition-colors">
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Admin Console
-              </div>
-            </Link>
-          </div>
-        )}
         <div className="p-3 border-t border-slate-700">
           <Button
             variant="ghost"
             size="sm"
             className="w-full justify-start text-slate-400 hover:text-white hover:bg-slate-700"
-            onClick={() => logoutMutation.mutate()}
+            onClick={() => logout()}
           >
             <LogOut className="h-4 w-4 mr-2" />
             Sign out

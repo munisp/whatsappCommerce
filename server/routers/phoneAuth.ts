@@ -25,6 +25,7 @@ import { randomUUID } from "crypto";
 import { createHash, randomInt } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "../_core/env";
+import { sendOtpEmail } from "../services/email/resend";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,17 @@ export const phoneAuthRouter = router({
       // Send OTP via WhatsApp
       await sendWhatsAppOtp(phone, otp);
 
+      // Best-effort second channel: if this phone belongs to a known user
+      // with an email on file, also email the code. Never blocks or fails
+      // the request — same phone is already required to use the code, so
+      // this adds no new attack surface.
+      const [existingUser] = await db.select({ email: users.email }).from(users).where(eq(users.phone, phone)).limit(1);
+      if (existingUser?.email) {
+        sendOtpEmail(existingUser.email, otp, input.purpose).catch(err =>
+          console.warn("[phoneAuth] OTP email failed", err)
+        );
+      }
+
       return { sessionId, expiresAt };
     }),
 
@@ -272,6 +284,12 @@ export const phoneAuthRouter = router({
       });
 
       await sendWhatsAppOtp(phone, otp);
+
+      if (ctx.user.email) {
+        sendOtpEmail(ctx.user.email, otp, "verify").catch(err =>
+          console.warn("[phoneAuth] OTP email failed", err)
+        );
+      }
 
       return { sessionId, expiresAt };
     }),

@@ -25,15 +25,15 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import {
-  LayoutDashboard, LogOut, PanelLeft, Package, MessageSquare, BarChart3,
+  LayoutDashboard, LogOut, Package, MessageSquare, BarChart3,
   CreditCard, Settings, Users, ShoppingBag, Bell, FileText, Globe,
   Zap, TrendingUp, Shield, Store, Truck, ChevronRight, ChevronDown,
-  Search, Bot, Megaphone, FileCode, ImagePlus, GitMerge, MessagesSquare,
-  BrainCircuit, Warehouse, Smartphone, Link2, Eye, ArrowLeftRight,
+  Search, Bot, Megaphone, FileCode, GitMerge, MessagesSquare,
+  BrainCircuit, Warehouse, Smartphone, Link2,
   Database, GitBranch, AlertTriangle, Activity, Lock, Network,
-  UserPlus, Rocket, KeyRound, Building2, ScrollText, Workflow, Leaf,
-  Calendar, Paperclip, BarChart2, Cpu, ListTree, Plug, SlidersHorizontal, Map, HeartPulse,
-  ClipboardCheck, ShoppingCart,
+  UserPlus, Rocket, KeyRound, Building2, ScrollText,
+  Paperclip, BarChart2, Cpu, Plug, SlidersHorizontal, Map, HeartPulse,
+  ClipboardCheck, ShoppingCart, ShieldCheck, Wallet, Route,
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -53,16 +53,24 @@ type NavGroup = {
   label: string;
   icon: React.ElementType;
   items: NavItem[];
-  adminOnly?: boolean;
 };
 
-const NAV_GROUPS: NavGroup[] = [
+// This layout is shared by every page under client/src/pages (via the `@`
+// alias) across all three surfaces — the legacy combined client, the
+// standalone ui/tenant-portal, and ui/platform-admin. Which nav config
+// renders is decided purely by which app is currently running (IS_PLATFORM_ADMIN,
+// below), not by role — role only gates *entry* to platform-admin (AuthGate in
+// ui/platform-admin/src/App.tsx), so nav content must never assume role alone
+// distinguishes the two audiences. Every path here must exist as a route in
+// that surface's own App.tsx or it's a dead link — see ui/tenant-portal/ROUTES.md
+// and ui/platform-admin/ROUTES.md for the placement reasoning per item.
+const TENANT_NAV_GROUPS: NavGroup[] = [
   {
     id: "overview",
     label: "Overview",
     icon: LayoutDashboard,
     items: [
-      { icon: LayoutDashboard, label: "Dashboard",       path: "/dashboard" },
+      { icon: LayoutDashboard, label: "Dashboard",       path: "/portal" },
     ],
   },
   {
@@ -71,18 +79,9 @@ const NAV_GROUPS: NavGroup[] = [
     icon: ShoppingBag,
     items: [
       { icon: Package,         label: "Products",        path: "/products" },
-      { icon: Smartphone,      label: "Menu Builder",    path: "/menu-builder" },
-      { icon: Link2,           label: "Menu Assignment", path: "/tenant-menus" },
-      { icon: Warehouse,       label: "Inventory Sync",  path: "/inventory" },
-      { icon: ImagePlus,       label: "Product Images",  path: "/product-images" },
-      { icon: Eye,             label: "Visual Inventory", path: "/visual-inventory" },
-      { icon: Leaf,            label: "FMCG Taxonomy",   path: "/fmcg-taxonomy" },
-      { icon: Store,           label: "Marketplace",     path: "/marketplace" },
-      { icon: Building2,       label: "B2B Portal",      path: "/b2b" },
-      { icon: Calendar,        label: "Service Commerce", path: "/service-commerce" },
-      { icon: Package,         label: "Medusa Commerce", path: "/medusa" },
-      { icon: ShoppingBag,     label: "Medusa Onboarding", path: "/medusa-onboarding" },
-      { icon: ArrowLeftRight,  label: "Odoo↔Medusa Bridge", path: "/odoo-medusa-bridge" },
+      { icon: Smartphone,      label: "WhatsApp Menu",   path: "/menu-builder" },
+      { icon: Warehouse,       label: "Inventory",       path: "/inventory" },
+      { icon: Store,           label: "Sales Channels",  path: "/sales-channels" },
     ],
   },
   {
@@ -94,6 +93,7 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: ShoppingCart,    label: "Procurement Hub",    path: "/procurement" },
       { icon: CreditCard,      label: "Credit Accounts",    path: "/credit-accounts" },
       { icon: ClipboardCheck,  label: "PO Approvals",       path: "/supplier-approvals" },
+      { icon: CreditCard,      label: "Manufacturer Credit", path: "/manufacturer-credit" },
     ],
   },
   {
@@ -109,6 +109,8 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: FileCode,        label: "Msg Templates",   path: "/operator-templates" },
       { icon: GitBranch,       label: "Version Control", path: "/template-versions" },
       { icon: Paperclip,       label: "WA Media",        path: "/whatsapp-media" },
+      { icon: Route,           label: "Journeys",        path: "/journeys" },
+      { icon: ShieldCheck,     label: "Consents",        path: "/consents" },
     ],
   },
   {
@@ -117,9 +119,8 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Truck,
     items: [
       { icon: BarChart3,       label: "Orders",          path: "/orders" },
-      { icon: Truck,           label: "Logistics",       path: "/logistics" },
       { icon: AlertTriangle,   label: "Disputes",        path: "/disputes" },
-      { icon: AlertTriangle,   label: "COGS Disputes",   path: "/cogs-disputes" },
+      { icon: Truck,           label: "COD & Offline",   path: "/cod" },
     ],
   },
   {
@@ -132,23 +133,7 @@ const NAV_GROUPS: NavGroup[] = [
       { icon: TrendingUp,      label: "Revenue",         path: "/revenue" },
       { icon: FileText,        label: "Invoices",        path: "/invoices" },
       { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money" },
-      { icon: GitMerge,        label: "Reconciliation",  path: "/reconciliation" },
-      { icon: AlertTriangle,   label: "Webhook DLQ",     path: "/webhook-dlq" },
-    ],
-  },
-  {
-    id: "ai",
-    label: "AI & ML",
-    icon: BrainCircuit,
-    items: [
-      { icon: Bot,             label: "AI Agent",        path: "/agent" },
-      { icon: Network,         label: "AI Architecture", path: "/agent-architecture" },
-      { icon: MessagesSquare,  label: "NLP Simulator",   path: "/nlp-simulator" },
-      { icon: BrainCircuit,    label: "ML Ops",          path: "/ml-ops" },
-      { icon: ScrollText,      label: "Audit Log",       path: "/audit-log" },
-      { icon: Database,        label: "Label Studio",    path: "/label-studio" },
-      { icon: BarChart2,       label: "Scan Accuracy",   path: "/scan-stats" },
-      { icon: Zap,             label: "Hermes Agent",    path: "/hermes" },
+      { icon: Wallet,          label: "Wallet",          path: "/portal/wallet" },
     ],
   },
   {
@@ -157,7 +142,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: BarChart3,
     items: [
       { icon: BarChart3,       label: "Analytics BI",    path: "/analytics-bi" },
-      { icon: BarChart2,       label: "Tenant Analytics", path: "/tenant-analytics" },
+      { icon: BarChart2,       label: "Merchant Analytics", path: "/portal/analytics" },
     ],
   },
   {
@@ -166,8 +151,11 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Globe,
     items: [
       { icon: Globe,           label: "Integration Hub", path: "/integrations" },
+      { icon: Activity,        label: "Integration Health", path: "/integration-health" },
       { icon: Users,           label: "Twenty CRM",      path: "/twenty-crm" },
-      { icon: Package,         label: "Odoo ERP",        path: "/odoo-erp" },
+      { icon: Users,           label: "CRM Pipeline",    path: "/crm" },
+      { icon: Package,         label: "Odoo",            path: "/odoo-erp" },
+      { icon: ShoppingBag,     label: "Medusa",          path: "/medusa" },
     ],
   },
   {
@@ -175,51 +163,111 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Configuration",
     icon: SlidersHorizontal,
     items: [
-      { icon: Smartphone,      label: "WA Menu Builder",  path: "/wa-menu-builder" },
       { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
+      { icon: Rocket,          label: "Store Setup",      path: "/portal/setup" },
       { icon: Bot,             label: "Copilot",          path: "/onboarding-copilot" },
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
-      { icon: CreditCard,      label: "Payment Providers",  path: "/provider-settings" },
       { icon: SlidersHorizontal, label: "Tenant Settings", path: "/tenant-settings" },
-    ],
-  },
-  {
-    id: "ops",
-    label: "Ops",
-    icon: HeartPulse,
-    items: [
-      { icon: Map,             label: "Live Map",        path: "/logistics-map" },
-      { icon: HeartPulse,      label: "System Health",   path: "/system-health" },
-      { icon: ScrollText,      label: "Audit Logs",      path: "/audit-logs" },
-    ],
-  },
-  {
-    id: "admin",
-    label: "Administration",
-    icon: Settings,
-    adminOnly: true,
-    items: [
-      { icon: Building2,       label: "Tenants",         path: "/tenants" },
-      { icon: UserPlus,        label: "Onboard Tenant",  path: "/onboarding" },
-      { icon: Building2,       label: "Merchant Portal", path: "/portal" },
-      { icon: Shield,          label: "SSO Users",       path: "/sso-users" },
-      { icon: KeyRound,        label: "Phone Auth",      path: "/phone-auth" },
-      { icon: MessageSquare,   label: "WhatsApp Profile", path: "/whatsapp-profile" },
-      { icon: Bell,            label: "Alert Rules",     path: "/alert-rules" },
-      { icon: Activity,        label: "Service Health",  path: "/health" },
-      { icon: Settings,        label: "Setup Wizard",    path: "/setup" },
-      { icon: Rocket,          label: "Deploy Checklist", path: "/deploy-checklist" },
-      { icon: Shield,          label: "Compliance/B2G",  path: "/compliance" },
-      { icon: Shield,          label: "SOC2 Dashboard",  path: "/soc2" },
-      { icon: Cpu,             label: "Infra Health",    path: "/infra-health" },
     ],
   },
 ];
 
-// Groups only visible to platform admins
-function visibleGroupsForRole(role: string | undefined): NavGroup[] {
-  return NAV_GROUPS.filter(g => !g.adminOnly || role === "admin");
-}
+// Platform-team-only tooling — reachable exclusively from ui/platform-admin.
+// None of these paths exist in ui/tenant-portal's route table on purpose.
+const PLATFORM_NAV_GROUPS: NavGroup[] = [
+  {
+    id: "overview",
+    label: "Overview",
+    icon: LayoutDashboard,
+    items: [
+      { icon: LayoutDashboard, label: "Admin Home",       path: "/" },
+    ],
+  },
+  {
+    id: "tenants",
+    label: "Tenants",
+    icon: Building2,
+    items: [
+      { icon: Building2,       label: "Tenants",          path: "/tenants" },
+      { icon: BarChart2,       label: "Tenant Analytics", path: "/tenant-analytics" },
+      { icon: UserPlus,        label: "Onboard Tenant",   path: "/onboarding" },
+      { icon: Link2,           label: "Menu Assignment",  path: "/tenant-menus" },
+    ],
+  },
+  {
+    id: "identity",
+    label: "Identity & Access",
+    icon: Shield,
+    items: [
+      { icon: Shield,          label: "SSO Users",        path: "/sso-users" },
+      { icon: KeyRound,        label: "Phone Auth",       path: "/phone-auth" },
+      { icon: MessageSquare,   label: "WhatsApp Profile", path: "/whatsapp-profile" },
+    ],
+  },
+  {
+    id: "setup-compliance",
+    label: "Setup & Compliance",
+    icon: Settings,
+    items: [
+      { icon: Settings,        label: "Setup Wizard",     path: "/setup" },
+      { icon: Rocket,          label: "Deploy Checklist", path: "/deploy-checklist" },
+      { icon: Shield,          label: "Compliance/B2G",   path: "/compliance" },
+      { icon: Shield,          label: "SOC2 Dashboard",   path: "/soc2" },
+      { icon: ShieldCheck,     label: "KYB Review",       path: "/kyb-review" },
+    ],
+  },
+  {
+    id: "monitoring",
+    label: "Monitoring",
+    icon: HeartPulse,
+    items: [
+      { icon: Activity,        label: "Service Health",   path: "/health" },
+      { icon: HeartPulse,      label: "System Health",    path: "/system-health" },
+      { icon: Cpu,             label: "Infra Health",     path: "/infra-health" },
+      { icon: Bell,            label: "Alert Rules",      path: "/alert-rules" },
+      { icon: ScrollText,      label: "Audit Logs",       path: "/audit-logs" },
+    ],
+  },
+  {
+    id: "logistics",
+    label: "Logistics",
+    icon: Truck,
+    items: [
+      { icon: Truck,           label: "Logistics",        path: "/logistics" },
+      { icon: Map,             label: "Live Map",         path: "/logistics-map" },
+    ],
+  },
+  {
+    id: "finance-ops",
+    label: "Finance & Ops",
+    icon: GitMerge,
+    items: [
+      { icon: GitMerge,        label: "Reconciliation",   path: "/reconciliation" },
+      { icon: AlertTriangle,   label: "Webhook DLQ",      path: "/webhook-dlq" },
+      { icon: AlertTriangle,   label: "COGS Disputes",    path: "/cogs-disputes" },
+    ],
+  },
+  {
+    id: "ai-tooling",
+    label: "AI & Data Tooling",
+    icon: BrainCircuit,
+    items: [
+      { icon: Bot,             label: "AI Agent",        path: "/agent" },
+      { icon: Network,         label: "AI Architecture", path: "/agent-architecture" },
+      { icon: ScrollText,      label: "Agent Events",    path: "/audit-log" },
+      { icon: MessagesSquare,  label: "NLP Simulator",   path: "/nlp-simulator" },
+      { icon: BrainCircuit,    label: "ML Ops",           path: "/ml-ops" },
+      { icon: Database,        label: "Label Studio",     path: "/label-studio" },
+      { icon: BarChart2,       label: "Scan Accuracy",    path: "/scan-stats" },
+      { icon: Zap,             label: "Hermes Agent",     path: "/hermes" },
+    ],
+  },
+];
+
+// Which config renders is determined by the running app, not by role —
+// BASE_URL only depends on the build `command` (see the .dockerignore/App.tsx
+// NODE_ENV-leak fix), so it's a reliable signal at both build and runtime.
+const IS_PLATFORM_ADMIN = import.meta.env.BASE_URL.includes("/platform-admin");
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const NAV_EXPANDED_KEY = "nav-expanded-groups";
@@ -380,14 +428,25 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
   const { activeTenantId, setActiveTenantId } = useActiveTenant();
-  const { data: tenantList } = trpc.tenant.list.useQuery({ limit: 20 });
-  // Tenant branding (public theme resolved from the request host): applied to
-  // the shell header — name, logo and primary color.
-  const { data: tenantTheme } = trpc.tenant.tenantTheme.useQuery();
-  const activeTenant = tenantList?.find((t: { id: string }) => t.id === activeTenantId);
+  // The caller's own tenant branding (name, logo, primary color) — applied to
+  // the shell header. Meaningless in platform-admin (there's no single
+  // "current tenant" to brand as).
+  const { data: myTenant } = trpc.tenant.myTenant.useQuery(undefined, { enabled: !IS_PLATFORM_ADMIN });
 
-  // Role-filtered nav: Administration group is only visible to admins
-  const visibleGroups = useMemo(() => visibleGroupsForRole(user?.role), [user?.role]);
+  // A tenant user has exactly one tenant — the underlying localStorage-backed
+  // TenantContext defaults to a placeholder id. Force it to the signed-in
+  // user's own tenant outside platform-admin so a stale/placeholder value in
+  // localStorage can never point these pages at someone else's data. (In
+  // platform-admin, the handful of pages that need a specific tenant — e.g.
+  // Logistics Tracker, Live Map — pick one locally, not via this shell.)
+  useEffect(() => {
+    if (IS_PLATFORM_ADMIN) return;
+    if (user?.tenantId && user.tenantId !== activeTenantId) {
+      setActiveTenantId(user.tenantId);
+    }
+  }, [user?.tenantId, activeTenantId, setActiveTenantId]);
+
+  const visibleGroups = IS_PLATFORM_ADMIN ? PLATFORM_NAV_GROUPS : TENANT_NAV_GROUPS;
   const allItems = useMemo(
     () => visibleGroups.flatMap(g => g.items.map(i => ({ ...i, group: g.label }))),
     [visibleGroups]
@@ -497,21 +556,25 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-2 px-2 py-1">
               {!isCollapsed && (
                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                  {tenantTheme?.logoUrl ? (
+                  {!IS_PLATFORM_ADMIN && myTenant?.logoUrl ? (
                     <img
-                      src={tenantTheme.logoUrl}
-                      alt={tenantTheme.name}
+                      src={myTenant.logoUrl}
+                      alt={myTenant.name ?? "Tenant logo"}
                       className="w-7 h-7 rounded-lg object-contain shrink-0 bg-white/10"
                     />
                   ) : (
                     <div
                       className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0"
-                      style={tenantTheme?.primaryColor ? { backgroundColor: tenantTheme.primaryColor } : undefined}
+                      style={!IS_PLATFORM_ADMIN && myTenant?.primaryColor ? { backgroundColor: myTenant.primaryColor } : undefined}
                     >
-                      <ShoppingBag className="h-4 w-4 text-primary-foreground" />
+                      {IS_PLATFORM_ADMIN
+                        ? <Shield className="h-4 w-4 text-primary-foreground" />
+                        : <ShoppingBag className="h-4 w-4 text-primary-foreground" />}
                     </div>
                   )}
-                  <span className="font-bold text-sm truncate">{tenantTheme?.name ?? "WhatsApp Commerce"}</span>
+                  <span className="font-bold text-sm truncate">
+                    {IS_PLATFORM_ADMIN ? "Platform Admin" : (myTenant?.name ?? "WhatsApp Commerce")}
+                  </span>
                 </div>
               )}
               <button
@@ -555,22 +618,6 @@ function DashboardLayoutContent({
                 )}
               </div>
             )}
-
-            {/* Tenant switcher */}
-            {!isCollapsed && (
-              <div className="px-2 pb-2">
-                <select
-                  value={activeTenantId}
-                  onChange={e => setActiveTenantId(e.target.value)}
-                  className="w-full h-8 rounded-md border bg-background px-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                >
-                  {!tenantList && <option value={activeTenantId}>{activeTenantId}</option>}
-                  {tenantList?.map((t: { id: string; name: string }) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
           </SidebarHeader>
 
           <SidebarContent className="gap-0 px-2 py-2">
@@ -589,12 +636,6 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter>
-            {!isCollapsed && activeTenant && (
-              <div className="px-3 py-2 border-t">
-                <p className="text-xs text-muted-foreground truncate">Active tenant</p>
-                <p className="text-sm font-medium truncate">{activeTenant.name}</p>
-              </div>
-            )}
             <SidebarMenu>
               <SidebarMenuItem>
                 <DropdownMenu>
