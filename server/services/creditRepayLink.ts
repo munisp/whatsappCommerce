@@ -204,9 +204,12 @@ export async function createRepaymentLink(
       },
       customer: {
         phone: customerPhone,
-        email: `${customerPhone.replace(/\D/g, "") || "credit"}@wa.commerce`,
+        email: `${customerPhone.replace(/\D/g, "") || "credit"}@wa-app.newfire.app`,
       },
-      callbackUrl: `${ENV.appUrl}/api/webhooks/paystack/callback`,
+      // No such route as /api/webhooks/paystack/callback exists — the
+      // webhook confirms repayment server-side; redirect the payer back to
+      // their credit accounts page in the portal after checkout.
+      callbackUrl: `${ENV.appUrl}/tenant-portal/credit-accounts`,
     });
     paymentUrl = fallback.result.authorizationUrl ?? null;
     instructions = fallback.result.instructions ?? null;

@@ -98,13 +98,23 @@ export const orderCrudRouter = router({
       // order back via InsufficientStockError).
       try {
         await db.transaction(async (tx) => {
-          // Atomic oversell guard for each item (ERP-synced snapshot ledger)
+          // Atomic oversell guard for each item, but ONLY for products under
+          // ERP-synced inventory (inventory_snapshots is populated solely by
+          // the Odoo/Medusa sync services — a missing row means this product's
+          // stock lives entirely in products.stockQuantity, which reserveStock()
+          // below already guards atomically and authoritatively).
           for (const item of input.items) {
+            const [snapshot] = (await tx.execute(sql`
+              SELECT "availableQty" FROM inventory_snapshots
+              WHERE "tenantId" = ${input.tenantId} AND "productId" = ${item.productId}
+              LIMIT 1
+            `)) as unknown[];
+            if (!snapshot) continue;
             const result = await tx.execute(sql`
               UPDATE inventory_snapshots
               SET "reservedQty" = CAST("reservedQty" AS NUMERIC) + ${item.quantity},
                   "availableQty" = CAST("availableQty" AS NUMERIC) - ${item.quantity}
-              WHERE "productId" = ${item.productId}
+              WHERE "tenantId" = ${input.tenantId} AND "productId" = ${item.productId}
                 AND CAST("availableQty" AS NUMERIC) >= ${item.quantity}
               RETURNING id
             `);

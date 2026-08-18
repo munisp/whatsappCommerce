@@ -67,7 +67,7 @@ export const paystackProvider: PaymentProvider = {
     }
     const email =
       ctx.customer.email ??
-      `${ctx.customer.phone.replace(/\D/g, "") || "customer"}@wa.commerce`;
+      `${ctx.customer.phone.replace(/\D/g, "") || "customer"}@wa-app.newfire.app`;
     try {
       const res = await fetch(`${PAYSTACK_BASE}/transaction/initialize`, {
         method: "POST",

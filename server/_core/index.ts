@@ -14,6 +14,7 @@ import { fileURLToPath } from "url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
+import { storageServe } from "../storage";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -38,6 +39,7 @@ import { daprSaveState, daprGetState } from "../dapr";
 import { redisSet, redisGet } from "../redis";
 import { runSlaScan } from "../routers/sla";
 import { confirmProviderPayment } from "../services/paymentConfirm";
+import { finalizeWalletWithdrawal } from "../routers/escrow";
 import { sendWhatsAppInteractive, sendWhatsAppMedia, sendWhatsAppText, applyWaDeliveryStatus, markMessageRead } from "../services/waSender";
 import { isOnboardingIntakeNumber } from "../services/waOnboarding";
 import { handleInboundReceiptImage } from "../services/receiptVerification";
@@ -253,14 +255,14 @@ async function startServer() {
   });
 
   // Configure body parser with larger size limit for file uploads.
-  // The Shopify webhook is exempt: its HMAC must be verified over the exact
-  // received bytes, so the route-level express.raw below must see the raw
-  // body — the global JSON parser would consume and re-serialize it first.
-  app.use((req, res, next) => {
-    if (req.path === "/api/webhooks/shopify") return next();
-    return express.json({ limit: "50mb" })(req, res, next);
-  });
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // Skip routes that need the exact raw bytes for HMAC signature verification
+  // (webhooks, evidence uploads) — express.raw() further down would otherwise
+  // find the body already consumed/parsed and fall back to re-serializing it,
+  // which is not guaranteed byte-identical to what the sender actually signed.
+  const RAW_BODY_PATH_PREFIXES = ["/api/webhooks/", "/integrations/", "/api/evidence/", "/api/internal/recon-settlements"];
+  const needsRawBody = (path: string) => RAW_BODY_PATH_PREFIXES.some((p) => path.startsWith(p));
+  app.use((req, res, next) => needsRawBody(req.path) ? next() : express.json({ limit: "50mb" })(req, res, next));
+  app.use((req, res, next) => needsRawBody(req.path) ? next() : express.urlencoded({ limit: "50mb", extended: true })(req, res, next));
 
   // ── Edge rate limiting (wave 10, additive) ────────────────────────────────
   // Token buckets keyed by IP (+X-Tenant-Id when present): webhooks 300/min
@@ -299,6 +301,26 @@ async function startServer() {
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+
+  // Serves objects uploaded via server/storage.ts's storagePut() — that
+  // function has always returned `/api/storage/{key}` as the object's URL,
+  // but no route ever served it (registerStorageProxy above is a *different*
+  // legacy proxy, for /manus-storage/* on the old Manus platform backend).
+  // Any existing storagePut() caller's returned URL — product images, and
+  // now tenant logos — has been silently 404ing until this route exists.
+  app.get("/api/storage/*", async (req, res) => {
+    const key = (req.params as Record<string, string>)[0];
+    if (!key) { res.status(400).send("Missing storage key"); return; }
+    try {
+      const { stream, contentType } = await storageServe(key);
+      res.set("Content-Type", contentType);
+      res.set("Cache-Control", "public, max-age=31536000, immutable");
+      stream.pipe(res);
+      stream.on("error", () => { if (!res.headersSent) res.status(404).end(); });
+    } catch {
+      res.status(404).send("Not found");
+    }
+  });
 
   // ── Scheduled: abandoned cart recovery (Heartbeat cron, every ~10 min) ────
   // Carts idle >30min with items, no newer order, and NDPR consent get ONE
@@ -635,6 +657,24 @@ async function startServer() {
           });
           if (!result.ok) {
             console.warn(`[paystack-webhook] ref=${ref} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
+          }
+          return res.status(200).json({ received: true, ...result });
+        }
+      }
+      // ── Wallet withdrawal payout finalization ────────────────────────────
+      // wallet.requestWithdrawal already debited the balance and initiated the
+      // transfer synchronously; these events only finalize the wallet_transactions
+      // status (success → completed) or credit the balance back (failed/reversed).
+      if (payload.event === "transfer.success" || payload.event === "transfer.failed" || payload.event === "transfer.reversed") {
+        const ref = payload.data?.reference as string | undefined;
+        if (ref) {
+          const result = await finalizeWalletWithdrawal(db, {
+            reference: ref,
+            event: payload.event,
+            reason: (payload.data?.reason as string | undefined) ?? null,
+          });
+          if (!result.ok) {
+            console.warn(`[paystack-webhook] transfer ref=${ref} → ${result.action}`);
           }
           return res.status(200).json({ received: true, ...result });
         }
@@ -978,16 +1018,21 @@ async function startServer() {
         const [tenant] = await db.select().from(tenants)
           .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
-        const tenantId: string = (tenant as any)?.id ?? "default";
+        const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
         // ── Platform ops: webhook idempotency (insert-first claim) ──────────
         // Meta retries deliveries until a 200; the wamid is the ledger PK, so
         // a retry collides (ON CONFLICT DO NOTHING) and is skipped — a
         // message is never reprocessed. Production fails closed when the
         // ledger is unavailable (dev/test use an in-memory fallback).
+        // Messages that don't match a real tenant (e.g. Meta's fixed-payload
+        // test button, always the same wamid) get a unique claim key per
+        // delivery instead, so they're never skipped as duplicates — real
+        // tenant-matched messages keep strict per-wamid dedup unchanged.
         if (msg.id) {
+          const claimId = tenant ? msg.id : `${msg.id}:${Date.now()}`;
           let claim: "claimed" | "duplicate";
           try {
-            claim = await claimWebhookEvent(db, { id: msg.id, tenantId, type: msg.type ?? "unknown" });
+            claim = await claimWebhookEvent(db, { id: claimId, tenantId, type: msg.type ?? "unknown" });
           } catch (dedupeErr: any) {
             // Fail closed (production policy): the ack was already sent, but a
             // blind dedupe ledger must NOT reprocess — skip the message.
@@ -2458,7 +2503,7 @@ async function startServer() {
               const [tenant] = await db.select().from(tenants)
                 .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
                 .limit(1).catch(() => [null as any]);
-              const tenantId: string = (tenant as any)?.id ?? "default";
+              const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
               const { appRouter: ar } = await import("../routers");
               const caller = ar.createCaller({ user: null } as any);
               const nlpResult = await caller.nlp.processMessage({

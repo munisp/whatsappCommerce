@@ -1,7 +1,7 @@
 /**
  * onboarding.test.ts — tenant provisioning + onboarding pipeline.
  *
- * Covers: platform-admin-only start, seeded default settings/waMenu contract,
+ * Covers: self-service start (creator becomes tenant super_admin), seeded default settings/waMenu contract,
  * happy path draft→configuring→validating→live (mocked fetch for Graph +
  * integration checks), validation failure blocking activation, retry flow,
  * and cross-tenant rejection.
@@ -197,15 +197,30 @@ afterEach(() => {
 });
 
 describe("onboarding.start (provisioning)", () => {
-  it("is platform-admin only", async () => {
-    const tenantUserCaller = onboardingRouter.createCaller(makeCtx(makeUser("user", "t-x")));
-    await expect(tenantUserCaller.start({ name: "Nope Ltd" })).rejects.toMatchObject({
-      code: "FORBIDDEN",
-    });
+  it("requires authentication", async () => {
     const anonCaller = onboardingRouter.createCaller(makeCtx(null));
     await expect(anonCaller.start({ name: "Nope Ltd" })).rejects.toMatchObject({
-      code: "FORBIDDEN",
+      code: "UNAUTHORIZED",
     });
+  });
+
+  it("is self-service: any authenticated user may provision a tenant and becomes its owner", async () => {
+    const founder = makeUser("user", null);
+    const caller = onboardingRouter.createCaller(makeCtx(founder));
+    const res = await caller.start({ name: "Founder Co" });
+
+    const membership = stores.tenant_memberships?.find(
+      (m) => String(m.userId) === String(founder.id) && m.tenantId === res.tenantId,
+    );
+    expect(membership).toBeTruthy();
+    expect(membership!.role).toBe("owner");
+  });
+
+  it("platform admins provisioning on a business's behalf are not enrolled as a member", async () => {
+    const caller = onboardingRouter.createCaller(adminCtx);
+    const res = await caller.start({ name: "Admin Provisioned Ltd" });
+    const membership = stores.tenant_memberships?.find((m) => m.tenantId === res.tenantId);
+    expect(membership).toBeUndefined();
   });
 
   it("seeds the exact default settings skeleton + waMenu contract", async () => {

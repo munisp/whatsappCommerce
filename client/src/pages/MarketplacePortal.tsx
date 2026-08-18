@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,12 +11,12 @@ import { toast } from "sonner";
 
 const TENANT_ID = "default";
 
-export default function MarketplacePortal() {
+export function MarketplacePortalContent() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ businessName: "", ownerPhone: "", ownerName: "", email: "", category: "", commissionRate: "10.00" });
 
   const { data: sellers, refetch } = trpc.marketplace.listSellers.useQuery({ tenantId: TENANT_ID });
-  const { data: commissions } = trpc.marketplace.listCommissions.useQuery({ tenantId: undefined });
+  const { data: commissions } = trpc.marketplace.listCommissions.useQuery({ tenantId: TENANT_ID });
   const { data: stats } = trpc.marketplace.marketplaceStats.useQuery({ tenantId: TENANT_ID });
 
   const register = trpc.marketplace.registerSeller.useMutation({
@@ -34,9 +33,8 @@ export default function MarketplacePortal() {
   };
 
   return (
-    <DashboardLayout>
       <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold text-gray-900">Marketplace Portal</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Marketplace</h1>
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
@@ -80,6 +78,5 @@ export default function MarketplacePortal() {
           </TabsContent>
         </Tabs>
       </div>
-    </DashboardLayout>
   );
 }

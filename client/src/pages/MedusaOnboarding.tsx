@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +49,7 @@ function emptyDraft(): ProductDraft {
   };
 }
 
-export default function MedusaOnboarding() {
+export function MedusaOnboardingContent() {
   const [drafts, setDrafts] = useState<ProductDraft[]>([emptyDraft()]);
   const [submitting, setSubmitting] = useState(false);
   const [pushing, setPushing] = useState(false);
@@ -183,14 +182,13 @@ export default function MedusaOnboarding() {
   const stats = statsData as { total?: number; synced?: number; draft?: number; failed?: number } | undefined;
 
   return (
-    <DashboardLayout>
       <div className="p-6 max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <ShoppingBag className="w-6 h-6 text-indigo-600" />
-              Medusa Product Onboarding
+              Add Products
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               Add your products and services to your Medusa v2 store via the Admin API
@@ -535,6 +533,5 @@ export default function MedusaOnboarding() {
           onChange={handleImageFileChange}
         />
       </div>
-    </DashboardLayout>
   );
 }

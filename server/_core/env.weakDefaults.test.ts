@@ -5,7 +5,10 @@
  * the module registry and re-imports with a controlled process.env:
  *   - prod + WHATSAPP_VERIFY_TOKEN unset            → FATAL (A4-04)
  *   - prod + WHATSAPP_VERIFY_TOKEN = public demo    → FATAL (A4-04)
- *   - prod + APISIX_ADMIN_KEY = vendor default      → FATAL (A4-05)
+ *   - prod + APISIX_ADMIN_KEY = vendor default      → WARN, boots (A4-05) —
+ *     the admin endpoint is ClusterIP-only (needs cluster-network access to
+ *     exploit) and the key is shared across other services/namespaces, so a
+ *     single app boot shouldn't be able to block on it; see env.ts A4-05.
  *   - prod + APISIX configured + key unset          → FATAL (A4-05)
  *   - prod + OpenSearch/MinIO compose defaults      → WARN, boots (A4-12)
  *   - prod + all strong values                      → boots
@@ -63,9 +66,13 @@ describe("env weak-default boot gates (A4-04/A4-05/A4-12)", () => {
     await expect(importFreshEnv()).rejects.toThrow(/WHATSAPP_VERIFY_TOKEN/);
   });
 
-  it("prod + APISIX_ADMIN_KEY = published vendor default → FATAL", async () => {
+  it("prod + APISIX_ADMIN_KEY = published vendor default → warns but boots", async () => {
     setEnv({ APISIX_ADMIN_KEY: APISIX_VENDOR_DEFAULT_KEY });
-    await expect(importFreshEnv()).rejects.toThrow(/APISIX_ADMIN_KEY.*vendor-default|vendor-default/);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(importFreshEnv()).resolves.toBeTruthy();
+    const messages = warn.mock.calls.flat().join(" ");
+    expect(messages).toMatch(/APISIX_ADMIN_KEY/);
+    expect(messages).toMatch(/vendor-default/);
   });
 
   it("prod + APISIX configured (URL set) but key unset → FATAL", async () => {

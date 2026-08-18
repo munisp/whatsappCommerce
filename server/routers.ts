@@ -124,6 +124,17 @@ export const appRouter = router({
         // Logout must never fail because revocation storage is unavailable.
         console.warn("[auth.logout] session revocation failed:", (err as Error)?.message);
       }
+      // Bug: this only ever cleared the legacy "app_session_id" cookie
+      // (COOKIE_NAME) — a holdover from the pre-Keycloak "Manus" auth system.
+      // The app has authenticated via the "wa_session" cookie since the
+      // Keycloak migration (see _core/oauth.ts), which this never touched —
+      // so sign-out cleared a cookie nobody has, leaving the real session
+      // cookie live. That's the ONLY reason startLogout()'s Keycloak
+      // redirect ever looked like "sign out doesn't work": the SSO session
+      // ended correctly, but this app's own cookie silently kept the user
+      // signed in on the very next request. Clear both — "wa_session" for
+      // every current session, COOKIE_NAME for any pre-migration holdout.
+      ctx.res.clearCookie("wa_session", { ...cookieOptions, maxAge: -1 });
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),

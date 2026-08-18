@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,7 +18,7 @@ type TaxonomyItem = {
   isCustom: boolean; isActive: boolean;
 };
 
-export default function FmcgTaxonomy() {
+export function FmcgTaxonomyContent() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("");
   const [filterLocal, setFilterLocal] = useState<boolean | undefined>(undefined);
@@ -74,13 +73,12 @@ export default function FmcgTaxonomy() {
   };
 
   return (
-    <DashboardLayout>
       <div className="p-6 space-y-6 max-w-6xl">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Package className="w-6 h-6 text-green-600" /> Nigerian FMCG Taxonomy
+              <Package className="w-6 h-6 text-green-600" /> Taxonomy
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               Product knowledge base for AI visual inventory — brands, variants, aliases, and sachet economy items
@@ -217,7 +215,6 @@ export default function FmcgTaxonomy() {
           ))}
         </div>
       </div>
-    </DashboardLayout>
   );
 }
 

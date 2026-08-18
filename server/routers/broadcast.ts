@@ -741,11 +741,26 @@ export const broadcastRouter = router({
 
   // Get delivery stats summary
   stats: protectedProcedure
-    .query(async () => {
+    .input(z.object({ tenantId: z.string().optional() }).optional())
+    .query(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) return { totalCampaigns: 0, totalSent: 0, avgDeliveryRate: 0, avgReadRate: 0 };
 
-      const campaigns = await db.select().from(broadcastCampaigns);
+      // Same scoping convention as `list`: explicit tenantId filters must
+      // pass tenant access; non-admins without a filter are scoped to their
+      // own tenant.
+      let tenantId = input?.tenantId;
+      if (tenantId) {
+        assertTenantAccess(ctx.user, tenantId);
+      } else if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "You can only access your own tenant's data" });
+        }
+        tenantId = ctx.user.tenantId;
+      }
+
+      const campaigns = await db.select().from(broadcastCampaigns)
+        .where(tenantId ? eq(broadcastCampaigns.tenantId, tenantId) : undefined);
       const completed = campaigns.filter(c => c.status === "completed");
 
       const totalSent = completed.reduce((s, c) => s + c.sentCount, 0);

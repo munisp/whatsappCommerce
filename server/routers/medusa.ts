@@ -4,7 +4,7 @@
  * Falls back gracefully when MEDUSA_API_URL is not configured.
  */
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, adminProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, operatorProcedure, assertTenantAccess, router } from "../_core/trpc";
 import {
   isMedusaConfigured,
   listProducts,
@@ -232,14 +232,15 @@ export const medusaRouter = router({
    * per-tenant resolver (getMedusaIntegrationConfig).  Runtime mutation of
    * process.env has been removed — env config must be set at deploy time.
    */
-  configure: adminProcedure
+  configure: operatorProcedure
     .input(z.object({
       tenantId: z.string(),
       baseUrl: z.string().url(),
       apiKey: z.string().min(1),
       publishableKey: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const baseUrl = input.baseUrl.replace(/\/+$/, "");

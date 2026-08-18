@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -467,6 +468,7 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
   const progressPct = ((completedSteps.size) / STEPS.length) * 100;
 
   return (
+    <DashboardLayout>
     <div className="min-h-screen bg-muted/30 flex items-start justify-center pt-8 pb-16 px-4">
       <div className="w-full max-w-2xl">
         {/* Header */}
@@ -541,5 +543,6 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
         )}
       </div>
     </div>
+    </DashboardLayout>
   );
 }

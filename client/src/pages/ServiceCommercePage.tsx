@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +12,7 @@ import { toast } from "sonner";
 
 const TENANT_ID = "default";
 
-export default function ServiceCommercePage() {
+export function ServiceCommercePageContent() {
   const [svcOpen, setSvcOpen] = useState(false);
   const [apptOpen, setApptOpen] = useState(false);
   const [svcForm, setSvcForm] = useState({ name: "", serviceType: "appointment" as "appointment" | "digital" | "subscription" | "physical", price: "", currency: "NGN", description: "" });
@@ -42,9 +41,8 @@ export default function ServiceCommercePage() {
   };
 
   return (
-    <DashboardLayout>
       <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold text-gray-900">Service Commerce</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Services</h1>
         <p className="text-gray-500 text-sm">Appointments · Digital Products · Subscriptions</p>
         <Tabs defaultValue="services">
           <TabsList><TabsTrigger value="services">Services</TabsTrigger><TabsTrigger value="appointments">Appointments</TabsTrigger><TabsTrigger value="subscriptions">Subscriptions</TabsTrigger><TabsTrigger value="digital">Digital Products</TabsTrigger></TabsList>
@@ -109,6 +107,5 @@ export default function ServiceCommercePage() {
           </TabsContent>
         </Tabs>
       </div>
-    </DashboardLayout>
   );
 }

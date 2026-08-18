@@ -1,4 +1,4 @@
-import { startLogin } from "@/const";
+import { setLoggingOut, startLogin, startLogout } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
@@ -28,6 +28,11 @@ export function useAuth(options?: UseAuthOptions) {
   });
 
   const logout = useCallback(async () => {
+    // Suppress the auto-redirect-on-401 listener (see main.tsx) for the rest
+    // of this page's lifetime — other still-mounted queries failing right
+    // after the cookie clears must not race startLogout() below with their
+    // own startLogin() call.
+    setLoggingOut(true);
     try {
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
@@ -35,9 +40,10 @@ export function useAuth(options?: UseAuthOptions) {
         error instanceof TRPCClientError &&
         error.data?.code === "UNAUTHORIZED"
       ) {
-        return;
+        // already logged out server-side — fine, continue to Keycloak logout
+      } else {
+        throw error;
       }
-      throw error;
     } finally {
       // Clear the Preview auto-login token mirrored into sessionStorage, so
       // header-based sessions (Safari ITP / WebView) are logged out too. The
@@ -46,8 +52,13 @@ export function useAuth(options?: UseAuthOptions) {
         sessionStorage.removeItem("manus-cookie");
       } catch {}
       utils.auth.me.setData(undefined, null);
-      await utils.auth.me.invalidate();
     }
+    // This app's own session cookie is now cleared, but Keycloak's SSO
+    // session is a separate, still-active cookie on Keycloak's own domain —
+    // without ending it too, the next login attempt (deliberate or via the
+    // listener above) silently re-authenticates with no credential prompt.
+    // Full-page navigation, so nothing after this line runs.
+    startLogout();
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {

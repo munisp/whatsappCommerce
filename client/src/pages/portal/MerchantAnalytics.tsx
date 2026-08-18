@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { TenantPortalLayout } from "@/components/TenantPortalLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -75,7 +75,7 @@ export default function MerchantAnalytics() {
   ], [data]);
 
   return (
-    <TenantPortalLayout>
+    <DashboardLayout>
       <div className="p-6 space-y-6 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -300,6 +300,6 @@ export default function MerchantAnalytics() {
           </CardContent>
         </Card>
       </div>
-    </TenantPortalLayout>
+    </DashboardLayout>
   );
 }

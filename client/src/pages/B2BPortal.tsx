@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +12,7 @@ import { toast } from "sonner";
 
 const TENANT_ID = "default";
 
-export default function B2BPortal() {
+export function B2BPortalContent() {
   const [rfqOpen, setRfqOpen] = useState(false);
   const [poOpen, setPoOpen] = useState(false);
   const [rfqForm, setRfqForm] = useState({ buyerPhone: "", buyerName: "", quantity: "1", productId: "", notes: "" });
@@ -41,10 +40,9 @@ export default function B2BPortal() {
   };
 
   return (
-    <DashboardLayout>
       <div className="p-6 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">B2B Commerce Portal</h1>
+          <h1 className="text-2xl font-bold text-gray-900">B2B Wholesale</h1>
           <p className="text-gray-500 text-sm mt-1">Wholesale pricing, RFQs, and purchase orders</p>
         </div>
 
@@ -189,6 +187,5 @@ export default function B2BPortal() {
           </TabsContent>
         </Tabs>
       </div>
-    </DashboardLayout>
   );
 }

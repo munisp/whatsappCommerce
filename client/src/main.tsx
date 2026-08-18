@@ -5,9 +5,23 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
-import { startLogin } from "./const";
+import { isLoggingOut, startLogin } from "./const";
 import "./index.css";
 import { TenantProvider } from "./contexts/TenantContext";
+
+// Vite fires this when a lazy route chunk fails to load — always true for any
+// tab left open across a deploy, since each deploy replaces /assets/ with a
+// fresh set of content-hashed files and the old chunk URL 404s (falls through
+// to the SPA shell, which the module loader correctly refuses to execute).
+// Reload once to pick up the current chunk manifest; the sessionStorage guard
+// (cleared shortly after a successful mount) stops a genuinely broken deploy
+// from reload-looping.
+window.addEventListener("vite:preloadError", () => {
+  if (sessionStorage.getItem("vitePreloadReloaded")) return;
+  sessionStorage.setItem("vitePreloadReloaded", "1");
+  window.location.reload();
+});
+setTimeout(() => sessionStorage.removeItem("vitePreloadReloaded"), 10_000);
 
 const queryClient = new QueryClient();
 
@@ -18,6 +32,7 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
 
   if (!isUnauthorized) return;
+  if (isLoggingOut()) return;
 
   startLogin();
 };

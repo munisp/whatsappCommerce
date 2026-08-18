@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   logisticsShipments, escrowTransactions, escrowConfig, orders, customers,
@@ -440,8 +440,8 @@ export const logisticsRouter = router({
       return updated!;
     }),
 
-  // Logistics stats
-  getStats: protectedProcedure.query(async () => {
+  // Logistics stats (cross-tenant aggregate — platform admin only)
+  getStats: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) return null;
     const rows = await db.select({

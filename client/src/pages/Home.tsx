@@ -3,20 +3,31 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { startLogin } from "@/const";
 import { Bot, Building2, MessageSquare, ShoppingCart, Zap, ArrowRight, Globe, Shield, BarChart3 } from "lucide-react";
-import { useEffect } from "react";
 import { useLocation } from "wouter";
 
+// This page is shared between the legacy combined client's root (/) and
+// ui/tenant-portal's own root (/tenant-portal/), built with different Vite
+// `base` values. On the legacy root there's no real signed-in experience to
+// return to, so "Sign In" first funnels into the tenant portal — its own
+// copy of this page then starts the real login and correctly returns there.
+const IS_LEGACY_ROOT = import.meta.env.BASE_URL === "/";
+
 export default function Home() {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
 
-  useEffect(() => {
-    if (!loading && isAuthenticated) {
+  // Signed-in visitors still see the landing page (no auto-redirect/blank
+  // flash) — the CTA just becomes a way back into the app they're already
+  // signed into instead of a login prompt.
+  const handleCta = () => {
+    if (isAuthenticated) {
       navigate("/dashboard");
+    } else if (IS_LEGACY_ROOT) {
+      window.location.href = "/tenant-portal/";
+    } else {
+      startLogin();
     }
-  }, [loading, isAuthenticated, navigate]);
-
-  if (!loading && isAuthenticated) return null;
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -28,8 +39,8 @@ export default function Home() {
           </div>
           <span className="font-bold text-lg">WhatsApp Commerce</span>
         </div>
-        <Button onClick={() => startLogin()} className="bg-primary text-primary-foreground hover:bg-primary/90">
-          Sign In
+        <Button onClick={handleCta} className="bg-primary text-primary-foreground hover:bg-primary/90">
+          {isAuthenticated ? "Go to Dashboard" : "Sign In"}
         </Button>
       </nav>
 
@@ -48,8 +59,8 @@ export default function Home() {
           LangGraph agents, Mojaloop payments, TigerBeetle ledger, and real-time Kubernetes orchestration.
         </p>
         <div className="flex items-center justify-center gap-4 flex-wrap">
-          <Button size="lg" onClick={() => startLogin()} className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
-            Launch Console <ArrowRight className="w-4 h-4" />
+          <Button size="lg" onClick={handleCta} className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
+            {isAuthenticated ? "Go to Dashboard" : "Launch Console"} <ArrowRight className="w-4 h-4" />
           </Button>
         </div>
       </section>

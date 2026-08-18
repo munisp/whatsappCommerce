@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +21,7 @@ import {
 import { Clock, History, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 
-export default function OdooMedusaBridge() {
+export function OdooMedusaBridgeContent() {
   const [syncing, setSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<{ synced: number; failed: number; total: number; ts: Date } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -119,14 +118,13 @@ export default function OdooMedusaBridge() {
   } | undefined;
 
   return (
-    <DashboardLayout>
       <div className="p-6 max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <ArrowLeftRight className="w-6 h-6 text-teal-600" />
-              Odoo ↔ Medusa Inventory Bridge
+              Medusa Bridge
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               Bidirectional inventory sync between Odoo ERP and Medusa v2 store
@@ -471,6 +469,5 @@ export default function OdooMedusaBridge() {
           </Card>
         )}
       </div>
-    </DashboardLayout>
   );
 }

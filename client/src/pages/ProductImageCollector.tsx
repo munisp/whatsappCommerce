@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback, useEffect, DragEvent, useLayoutEffect } from "react";
-import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -146,7 +145,7 @@ function useFineTuneStream() {
   return { logs, running, done, start, stop };
 }
 
-export default function ProductImageCollector() {
+export function ProductImageCollectorContent() {
   const [selectedClass, setSelectedClass] = useState<string>("");
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -388,12 +387,12 @@ export default function ProductImageCollector() {
   };
 
   return (
-    <DashboardLayout>
+    <>
       <div className="p-6 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Product Image Collector</h1>
+            <h1 className="text-2xl font-bold text-foreground">Photo Training</h1>
             <p className="text-muted-foreground mt-1">Collect product photos for YOLO training — Nigerian FMCG classes</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -945,6 +944,6 @@ export default function ProductImageCollector() {
           onSave={(bbox) => updateBboxMutation.mutate({ id: bboxEditorImg.id, bbox })}
           onClose={() => setBboxEditorImg(null)} />
       )}
-    </DashboardLayout>
+    </>
   );
 }

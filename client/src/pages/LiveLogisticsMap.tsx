@@ -6,8 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { useActiveTenant } from "@/contexts/TenantContext";
 import {
   estimateEtaMinutes,
   extractShipmentCoords,
@@ -52,8 +52,15 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
 };
 
 export default function LiveLogisticsMap() {
-  const { activeTenantId } = useActiveTenant();
-  const tenantId = activeTenantId;
+  // Delivery-zone ETAs are inherently per-tenant, so this map always shows
+  // one tenant at a time — picked locally here, not a global sidebar concept.
+  const { data: tenants } = trpc.tenant.list.useQuery({ limit: 100 });
+  const [tenantId, setTenantId] = useState<string>("");
+  useEffect(() => {
+    if (!tenantId && tenants && tenants.length > 0) {
+      setTenantId(tenants[0].id);
+    }
+  }, [tenants, tenantId]);
 
   const mapContainer = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -64,12 +71,12 @@ export default function LiveLogisticsMap() {
   const { data, isLoading, refetch, isFetching, dataUpdatedAt } =
     trpc.logistics.listShipments.useQuery(
       { tenantId, limit: 200 },
-      { refetchInterval: 30_000 },
+      { refetchInterval: 30_000, enabled: !!tenantId },
     );
   const shipments = (data?.items ?? []) as unknown as ShipmentRow[];
 
   // Tenant delivery zones feed the ETA mirror (settings.commerce.deliveryZones).
-  const { data: commerce } = trpc.tenantConfig.getCommerceConfig.useQuery({ tenantId });
+  const { data: commerce } = trpc.tenantConfig.getCommerceConfig.useQuery({ tenantId }, { enabled: !!tenantId });
   const zones = useMemo<EtaZone[]>(
     () =>
       ((commerce as any)?.deliveryZones ?? []).map((z: any) => ({
@@ -187,10 +194,22 @@ export default function LiveLogisticsMap() {
               the delivery-zone ETA engine.
             </p>
           </div>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetch()}>
-            {isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Select value={tenantId} onValueChange={setTenantId}>
+              <SelectTrigger className="w-52">
+                <SelectValue placeholder="Select tenant" />
+              </SelectTrigger>
+              <SelectContent>
+                {tenants?.map((t: { id: string; name: string }) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetch()}>
+              {isFetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-12 gap-4">

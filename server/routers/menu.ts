@@ -522,11 +522,21 @@ export const menuRouter = router({
     }),
 
   // ── Tenant-Menu Assignments ────────────────────────────────────────────────
-  getAssignments: protectedProcedure.query(async () => {
-    const db = await getDb();
-    if (!db) return [];
-    return db.select().from(tenantMenuAssignments);
-  }),
+  getAssignments: protectedProcedure
+    .input(z.object({ tenantId: z.string() }).optional())
+    .query(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) return [];
+      if (input?.tenantId) {
+        assertTenantAccess(ctx.user, input.tenantId);
+        return db.select().from(tenantMenuAssignments).where(eq(tenantMenuAssignments.tenantId, input.tenantId));
+      }
+      if (ctx.user.role !== "admin") {
+        if (!ctx.user.tenantId) return [];
+        return db.select().from(tenantMenuAssignments).where(eq(tenantMenuAssignments.tenantId, ctx.user.tenantId));
+      }
+      return db.select().from(tenantMenuAssignments);
+    }),
   assignToTenant: protectedProcedure
     .input(z.object({ tenantId: z.string(), menuId: z.string() }))
     .mutation(async ({ input, ctx }) => {

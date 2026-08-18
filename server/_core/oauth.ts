@@ -10,6 +10,8 @@
 import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
+import { decodeOAuthState } from "@shared/const";
+import { sendWelcomeEmail } from "../services/email/resend";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import {
@@ -47,18 +49,36 @@ export function registerOAuthRoutes(app: Express) {
     const code = getQueryParam(req, "code");
     const stateParam = getQueryParam(req, "state") ?? "";
     const [state, encodedRedirect] = stateParam.split(":");
-    const redirectTo = encodedRedirect ? decodeURIComponent(encodedRedirect) : "/";
+    let redirectTo = encodedRedirect ? decodeURIComponent(encodedRedirect) : "/";
+    // client/src/const.ts's startLogin() encodes state as base64 JSON
+    // (encodeOAuthState) with no ":" separator, so it falls through the
+    // legacy split above — decode it here for its returnTo path. Only ever
+    // accept a same-origin relative path (never "//host/..." or "scheme://"),
+    // so a crafted state can't turn this into an open redirect.
+    if (!encodedRedirect) {
+      const decoded = decodeOAuthState(stateParam);
+      if (decoded.returnTo && decoded.returnTo.startsWith("/") && !decoded.returnTo.startsWith("//")) {
+        redirectTo = decoded.returnTo;
+      }
+    }
     if (!code || !state) { res.status(400).json({ error: "code and state required" }); return; }
     try {
       const tokens = await exchangeKeycloakCode(code);
       if (!tokens) { res.status(401).json({ error: "Token exchange failed" }); return; }
       const claims = decodeIdToken(tokens.idToken) as Record<string, string> | null;
       if (!claims?.sub) { res.status(400).json({ error: "Missing sub in ID token" }); return; }
+      const isNewUser = !(await db.getUserByOpenId(claims.sub));
       await db.upsertUser({ openId: claims.sub, name: claims.name ?? claims.preferred_username ?? null, email: claims.email ?? null, loginMethod: "keycloak", lastSignedIn: new Date() });
       const user = await db.getUserByOpenId(claims.sub);
       const sessionToken = signSessionToken({ id: String(user?.id ?? 0), openId: claims.sub, email: claims.email ?? null, name: claims.name ?? null, role: (user?.role as "admin" | "user") ?? "user", tenantId: user?.tenantId ?? null, loginMethod: "keycloak" });
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(SESSION_COOKIE, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      // Fire-and-forget — a failed welcome email must never block login.
+      if (isNewUser && claims.email) {
+        sendWelcomeEmail(claims.email, claims.name ?? claims.preferred_username ?? null).catch(err =>
+          console.warn("[Auth] Welcome email failed", err)
+        );
+      }
       res.redirect(302, redirectTo);
     } catch (error) { console.error("[Auth] Callback failed", error); res.status(500).json({ error: "Auth callback failed" }); }
   });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
-import { router, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, operatorProcedure, assertTenantAccess } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import * as db from "../db";
 import { DEFAULT_TENANT_ID, getTenantByIdForTheme } from "../_core/tenantDomain";
@@ -28,6 +28,32 @@ export const tenantRouter = router({
         (typeof branding.name === "string" && branding.name) ||
         t?.name ||
         "WhatsApp Commerce",
+      logoUrl: typeof branding.logoUrl === "string" && branding.logoUrl ? branding.logoUrl : null,
+      primaryColor:
+        typeof branding.primaryColor === "string" && branding.primaryColor
+          ? branding.primaryColor
+          : "#25D366",
+      currency: t?.defaultCurrency ?? "USD",
+    };
+  }),
+
+  /**
+   * Branding for the CALLER's own tenant (ctx.user.tenantId) — distinct from
+   * tenantTheme, which resolves via the request Host header for public
+   * storefronts. On the shared wa-app.newfire.app domain every signed-in
+   * user's Host is the same, so tenantTheme always resolved to the platform
+   * default tenant regardless of which business they'd actually created —
+   * this is what the authenticated app shell (DashboardLayout's sidebar
+   * header) should use instead so it shows the user's own business name.
+   */
+  myTenant: protectedProcedure.query(async ({ ctx }) => {
+    const tenantId = ctx.user.tenantId ?? null;
+    const t = tenantId ? await getTenantByIdForTheme(tenantId).catch(() => null) : null;
+    const settings = ((t?.settings ?? {}) as Record<string, unknown>);
+    const branding = ((settings.branding ?? {}) as Record<string, unknown>);
+    return {
+      tenantId,
+      name: (typeof branding.name === "string" && branding.name) || t?.name || null,
       logoUrl: typeof branding.logoUrl === "string" && branding.logoUrl ? branding.logoUrl : null,
       primaryColor:
         typeof branding.primaryColor === "string" && branding.primaryColor
@@ -74,9 +100,10 @@ export const tenantRouter = router({
   // business account ID, and webhook verify token live in dedicated columns on
   // the tenants table; the permanent access token is stored inside the tenant's
   // `settings` JSON blob (never returned in full — only a masked hint).
-  getWhatsAppConfig: adminProcedure
+  getWhatsAppConfig: operatorProcedure
     .input(z.object({ tenantId: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const t = await db.getTenantById(input.tenantId);
       if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
       const settings = (t.settings ?? {}) as Record<string, unknown>;
@@ -95,7 +122,7 @@ export const tenantRouter = router({
       };
     }),
 
-  updateWhatsAppConfig: adminProcedure
+  updateWhatsAppConfig: operatorProcedure
     .input(z.object({
       tenantId: z.string(),
       phoneNumberId: z.string().min(1),
@@ -103,7 +130,8 @@ export const tenantRouter = router({
       accessToken: z.string().min(1),
       verifyToken: z.string().min(1),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const t = await db.getTenantById(input.tenantId);
       if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
       const settings = { ...((t.settings ?? {}) as Record<string, unknown>) };

@@ -462,7 +462,7 @@ export async function createPoPaymentLink(
     amount: Number(po.subtotalCents) / 100,
     currency: "NGN",
     provider: "paystack",
-    customerPhone: po.buyerPhone ?? "procurement@wa.commerce",
+    customerPhone: po.buyerPhone ?? "0000000000",
     metadata: { type: "po_payment", poId: po.id, poNumber: po.poNumber },
   });
   const r = result as any;

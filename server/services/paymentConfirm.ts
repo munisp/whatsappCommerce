@@ -16,6 +16,7 @@ import {
 import { splitEscrowAmounts } from "../../shared/escrowAmounts";
 import { syncLocalChange } from "./integrations/outbox";
 import { creditWalletTopUp } from "../routers/escrow";
+import { markInvoicePaidFromPaymentIntent } from "../routers/invoice";
 import { commitReservations } from "./inventory";
 import { captureException } from "./observability";
 
@@ -139,6 +140,30 @@ export async function confirmProviderPayment(
     }
   };
 
+  // ── Invoice payment hook (platform billing a tenant, e.g. subscription) ──
+  // A confirmed invoice-payment intent (metadata.type === 'invoice_payment',
+  // created by invoice.initiatePaystackPayment, charged to the PLATFORM's own
+  // Paystack account) marks the invoice paid. Idempotent via the same
+  // claim-first pattern as maybeCreditWalletTopUp — never throws.
+  const maybeMarkInvoicePaid = async () => {
+    if (kind !== "intent" || intentMetadata?.type !== "invoice_payment") return;
+    try {
+      const result = await markInvoicePaidFromPaymentIntent(db, rowId);
+      if (!result.paid) {
+        console.warn(`[payment-confirm] invoice payment not applied for intent ${rowId}: ${result.reason ?? "unknown"}`);
+      }
+    } catch (err: any) {
+      console.error(`[payment-confirm] invoice payment hook failed for intent ${rowId}:`, err?.message);
+      captureException(err, {
+        service: "paymentConfirm",
+        operation: "invoicePaymentHook",
+        tenantId,
+        severity: "critical",
+        extra: { intentId: rowId, reference },
+      });
+    }
+  };
+
   // ── PO payment hook (w8 B2B procurement) ─────────────────────────────────
   // A confirmed paynow purchase-order payment (intent metadata.type ===
   // 'po_payment', created by procurement/poFlow.createPoPaymentLink) moves the
@@ -195,6 +220,7 @@ export async function confirmProviderPayment(
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
     await maybeSettlePoPayment();
+    await maybeMarkInvoicePaid();
     return { ok: true, action: "already-completed" };
   }
   let transitioned = false;
@@ -221,6 +247,7 @@ export async function confirmProviderPayment(
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
     await maybeSettlePoPayment();
+    await maybeMarkInvoicePaid();
     return { ok: true, action: "already-completed" };
   }
 
@@ -368,6 +395,8 @@ export async function confirmProviderPayment(
   await maybeApplyCreditRepayment();
   // Settle paynow purchase orders for po_payment intents (idempotent).
   await maybeSettlePoPayment();
+  // Mark the invoice paid for invoice_payment intents (idempotent).
+  await maybeMarkInvoicePaid();
 
   // Transactional outbox: enqueue Medusa/Odoo sync for the confirmed order.
   // Enqueue failures are logged but never fail the payment confirmation.

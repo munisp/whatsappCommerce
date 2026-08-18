@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
-import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -66,7 +65,7 @@ function confidenceBadge(c: number): "default" | "secondary" | "destructive" {
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
-export default function VisualInventory() {
+export function VisualInventoryContent() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [capturedMime, setCapturedMime] = useState<"image/jpeg" | "image/png" | "image/webp">("image/jpeg");
   const [locationName, setLocationName] = useState("");
@@ -233,14 +232,13 @@ export default function VisualInventory() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <DashboardLayout>
       <div className="p-6 max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Eye className="w-6 h-6 text-violet-600" />
-              Visual Inventory
+              Visual Count
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
               AI-powered inventory counting using Ollama VLM + YOLO11 object detection
@@ -789,6 +787,5 @@ export default function VisualInventory() {
           </CardContent>
         </Card>
       </div>
-    </DashboardLayout>
   );
 }

@@ -106,7 +106,7 @@ describe("paystack adapter", () => {
     const body = JSON.parse(init.body);
     expect(body.amount).toBe(50000); // minor units, unchanged
     expect(body.reference).toBe("PAY-123");
-    expect(body.email).toBe("2348012345678@wa.commerce");
+    expect(body.email).toBe("2348012345678@wa-app.newfire.app");
     expect(body.callback_url).toBe("https://app.example/cb");
     expect(body.metadata).toEqual({ order_id: "o1" });
   });

@@ -5,7 +5,7 @@
  * plan limits (stored in tenants.settings.plan — see services/metering.ts).
  */
 import { z } from "zod";
-import { adminProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, assertTenantAccess, router } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   currentPeriod, DEFAULT_PLAN, getPlan, getUsage, setPlan,
@@ -18,25 +18,27 @@ const tenantInput = z.object({
 });
 
 export const meteringRouter = router({
-  /** Current-period usage counters for a tenant (admin). */
-  getUsage: adminProcedure
+  /** Current-period usage counters for a tenant. Any tenant member may view their own. */
+  getUsage: protectedProcedure
     .input(tenantInput)
     .query(async ({ input, ctx }) => {
+      const tenantId = input.tenantId ?? ctx.user.tenantId ?? "default";
+      assertTenantAccess(ctx.user, tenantId);
       const db = await getDb();
       if (!db) return { period: input.period ?? currentPeriod(), counters: [] };
-      const tenantId = input.tenantId ?? (ctx.user as any)?.tenantId ?? "default";
       const period = input.period ?? currentPeriod();
       const counters = await getUsage(db, tenantId, period);
       return { tenantId, period, counters };
     }),
 
-  /** Resolved plan (settings.plan merged over DEFAULT_PLAN). */
-  getPlan: adminProcedure
+  /** Resolved plan (settings.plan merged over DEFAULT_PLAN). Any tenant member may view their own. */
+  getPlan: protectedProcedure
     .input(z.object({ tenantId: z.string().min(1).max(36).optional() }))
     .query(async ({ input, ctx }) => {
+      const tenantId = input.tenantId ?? ctx.user.tenantId ?? "default";
+      assertTenantAccess(ctx.user, tenantId);
       const db = await getDb();
-      if (!db) return { tenantId: input.tenantId ?? null, plan: DEFAULT_PLAN };
-      const tenantId = input.tenantId ?? (ctx.user as any)?.tenantId ?? "default";
+      if (!db) return { tenantId, plan: DEFAULT_PLAN };
       const plan = await getPlan(db, tenantId);
       return { tenantId, plan };
     }),
@@ -64,12 +66,13 @@ export const meteringRouter = router({
    * rating HIGH/MEDIUM/LOW + messaging tier + last check time. Pass
    * refresh=true to re-pull from Meta before reading.
    */
-  getWaQuality: adminProcedure
+  getWaQuality: protectedProcedure
     .input(z.object({
       tenantId: z.string().min(1).max(36),
       refresh: z.boolean().optional().default(false),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) return { tenantId: input.tenantId, quality: null };
       const quality = input.refresh

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T05:44:15.631Z",
+  "generatedAt": "2026-08-18T13:19:36.429Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -388,8 +388,8 @@
     },
     {
       "id": "J47",
-      "title": "multi-provider tenants",
-      "feature": "provider registry per-tenant chains",
+      "title": "provider registry isolation + single-gateway checkout",
+      "feature": "provider registry per-tenant chains (data layer) vs platform-wide checkout routing",
       "pass": true,
       "file": "J47.json",
       "messageCount": 21
@@ -742,9 +742,9 @@
       "id": "J91",
       "title": "crm lead scoring + win-back",
       "feature": "RFM+credit lead score → pipeline → at-risk win-back broadcast → reply lifts score",
-      "pass": false,
+      "pass": true,
       "file": "J91.json",
-      "messageCount": 0
+      "messageCount": 4
     },
     {
       "id": "J92",

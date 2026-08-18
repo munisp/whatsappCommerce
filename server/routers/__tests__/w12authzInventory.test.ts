@@ -96,7 +96,12 @@ describe("inventory mutations", () => {
   });
 
   it("reserveStock: own tenant works", async () => {
-    vi.mocked(getDb).mockResolvedValue(makeDb([[{ id: "s1", availableQty: 4, reservedQty: 1 }]]));
+    // Two sequential execute() calls now: an ERP-tracking existence
+    // pre-check (SELECT), then the atomic reserve (UPDATE ... RETURNING).
+    vi.mocked(getDb).mockResolvedValue(makeDb([
+      [{ id: "s1" }],
+      [{ id: "s1", availableQty: 4, reservedQty: 1 }],
+    ]));
     const caller = inventoryRouter.createCaller(OWN);
     const r = await caller.reserveStock({ tenantId: T1, productId: "p1", qty: 1 });
     expect(r.reserved).toBe(true);

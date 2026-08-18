@@ -1,13 +1,18 @@
-import { TenantPortalLayout } from "@/components/TenantPortalLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ShoppingCart, DollarSign, MessageSquare, Users, FileText, AlertTriangle } from "lucide-react";
+import { ShoppingCart, DollarSign, MessageSquare, Users, FileText, AlertTriangle, Wallet } from "lucide-react";
 import { Rocket, ChevronRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
+
+function formatNGN(val: string | number | null | undefined) {
+  const n = typeof val === "string" ? parseFloat(val) : (val ?? 0);
+  return `₦${(Number.isFinite(n) ? n : 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 function KpiCard({ title, value, icon: Icon, sub, color = "emerald" }: {
   title: string; value: string | number; icon: any; sub?: string; color?: string;
@@ -32,9 +37,17 @@ function KpiCard({ title, value, icon: Icon, sub, color = "emerald" }: {
 
 export default function PortalDashboard() {
   const { data: tenant } = trpc.tenantPortal.getMyTenant.useQuery();
+  // Sourced from the session-derived tenant record above (not the
+  // localStorage-backed TenantContext switcher) — the wallet card shows real
+  // money, so tenantId must never be a stale/placeholder client-side value.
+  const tenantId = tenant?.id ?? "";
   const { data: kpis, isLoading } = trpc.tenantPortal.getDashboardKpis.useQuery();
   const { data: recentOrders } = trpc.tenantPortal.listMyOrders.useQuery({ limit: 5 });
   const { data: onboardingProgress } = trpc.onboardingProgress.getProgress.useQuery();
+  const { data: wallet, isLoading: walletLoading } = trpc.wallet.getBalance.useQuery(
+    { tenantId },
+    { enabled: !!tenantId },
+  );
 
   const showResumeWidget = onboardingProgress && !onboardingProgress.isCompleted && onboardingProgress.completedSteps.length > 0;
   const onboardingPct = onboardingProgress
@@ -42,7 +55,7 @@ export default function PortalDashboard() {
     : 0;
 
   return (
-    <TenantPortalLayout>
+    <DashboardLayout>
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-white">
@@ -84,12 +97,15 @@ export default function PortalDashboard() {
           </Card>
         )}
 
-        {isLoading ? (
+        {isLoading || walletLoading ? (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-24 bg-slate-700" />)}
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-24 bg-slate-700" />)}
           </div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <Link href="/portal/wallet">
+              <KpiCard title="Wallet Balance" value={formatNGN(wallet?.availableBalance)} icon={Wallet} sub="available to withdraw" color="emerald" />
+            </Link>
             <KpiCard title="Total Orders" value={kpis?.orders ?? 0} icon={ShoppingCart} sub="paid orders" />
             <KpiCard title="Revenue" value={`$${(kpis?.revenue ?? 0).toLocaleString()}`} icon={DollarSign} sub="all-time" color="yellow" />
             <KpiCard title="Conversations" value={kpis?.conversations ?? 0} icon={MessageSquare} sub="all channels" color="blue" />
@@ -124,6 +140,6 @@ export default function PortalDashboard() {
           </CardContent>
         </Card>
       </div>
-    </TenantPortalLayout>
+    </DashboardLayout>
   );
 }

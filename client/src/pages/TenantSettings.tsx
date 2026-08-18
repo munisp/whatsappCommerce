@@ -6,7 +6,7 @@
  * router). Each section loads its own config and saves through the
  * matching set* mutation; backend zod errors surface via toasts.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import {
-  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Users, Warehouse,
+  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Upload, Users, Warehouse, X,
 } from "lucide-react";
 import type {
   BrandingConfig, CommerceConfig, CrmCustomField, DeliveryZone, InventoryConfig,
@@ -49,9 +49,27 @@ function BrandingSection({ tenantId }: { tenantId: string }) {
       toast.success("Branding saved");
       utils.tenantConfig.getBrandingConfig.invalidate({ tenantId });
       utils.tenant.tenantTheme.invalidate();
+      utils.tenant.myTenant.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
+
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const uploadLogo = trpc.tenantConfig.uploadLogo.useMutation({
+    onSuccess: (data) => setForm((f) => (f ? { ...f, logoUrl: data.url } : f)),
+    onError: (e) => toast.error(`Logo upload failed: ${e.message}`),
+  });
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please choose an image file"); return; }
+    if (file.size > 5 * 1024 * 1024) { toast.error("Logo must be under 5MB"); return; }
+    const reader = new FileReader();
+    reader.onload = () => uploadLogo.mutate({ tenantId, imageBase64: reader.result as string });
+    reader.onerror = () => toast.error("Could not read the selected file");
+    reader.readAsDataURL(file);
+  };
 
   if (isLoading || !form) return <SectionLoading />;
   return (
@@ -71,16 +89,34 @@ function BrandingSection({ tenantId }: { tenantId: string }) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="ts-logo">Logo URL</Label>
-          <Input
-            id="ts-logo"
-            value={form.logoUrl ?? ""}
-            placeholder="https://cdn.example.com/logo.png (empty = none)"
-            onChange={(e) => setForm({ ...form, logoUrl: e.target.value === "" ? null : e.target.value })}
-          />
-          {form.logoUrl && (
-            <img src={form.logoUrl} alt="logo preview" className="h-10 mt-2 rounded border bg-white/5 object-contain" />
-          )}
+          <Label htmlFor="ts-logo">Logo</Label>
+          <div className="flex items-center gap-3">
+            {form.logoUrl ? (
+              <img src={form.logoUrl} alt="logo preview" className="h-12 w-12 rounded-lg border bg-white/5 object-contain" />
+            ) : (
+              <div className="h-12 w-12 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">
+                <Upload className="h-4 w-4" />
+              </div>
+            )}
+            <Button
+              id="ts-logo"
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={uploadLogo.isPending}
+              onClick={() => logoInputRef.current?.click()}
+            >
+              {uploadLogo.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              {form.logoUrl ? "Replace" : "Upload"}
+            </Button>
+            {form.logoUrl && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setForm({ ...form, logoUrl: null })}>
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
+          </div>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="ts-color">Primary color</Label>

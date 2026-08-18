@@ -194,20 +194,32 @@ describe("agent", () => {
 
 // ─── Analytics Tests ──────────────────────────────────────────────────────────
 describe("analytics", () => {
-  it("platformOverview returns cross-tenant metrics", async () => {
+  it("platformOverview is platform-admin only", async () => {
     const caller = appRouter.createCaller(makeUserCtx());
+    await expect(caller.analytics.platformOverview()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("platformOverview returns cross-tenant metrics for a platform admin", async () => {
+    const caller = appRouter.createCaller(makeAdminCtx());
     const result = await caller.analytics.platformOverview();
     expect(result?.tenants.total).toBe(5);
     expect(result?.revenue).toBe(45000);
     expect(result?.agentInteractions).toBe(8500);
   });
 
-  it("tenantDashboard returns per-tenant metrics", async () => {
+  it("tenantDashboard returns per-tenant metrics for a member of that tenant", async () => {
     const caller = appRouter.createCaller(makeUserCtx());
     const result = await caller.analytics.tenantDashboard({ tenantId: "t1" });
     expect(result.conversations.botActive).toBe(30);
     expect(result.orders.revenue).toBe(12500);
     expect(result.agent.avgConfidence).toBe(0.87);
     expect(result.customers).toBe(250);
+  });
+
+  it("tenantDashboard rejects a different tenant's data", async () => {
+    const caller = appRouter.createCaller(makeUserCtx());
+    await expect(caller.analytics.tenantDashboard({ tenantId: "t-other" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
   });
 });

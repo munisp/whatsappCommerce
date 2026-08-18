@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,12 +9,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { toast } from "sonner";
 import { useState } from "react";
-import { Download, CalendarIcon, X } from "lucide-react";
+import { Download, CalendarIcon, X, Check, ChevronsUpDown } from "lucide-react";
 import { PlusCircle } from "lucide-react";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
+import { cn } from "@/lib/utils";
 
 const TX_TYPE_COLORS: Record<string, string> = {
   escrow_credit: "text-yellow-600",
@@ -39,12 +42,19 @@ function toISODate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export default function MerchantWallet({ tenantId }: { tenantId: string }) {
+export default function MerchantWallet() {
+  // Sourced from the session-derived tenant record (not the localStorage-backed
+  // TenantContext switcher) — this page moves real money, so tenantId must
+  // never be a stale/placeholder client-side value. See PortalDashboard.tsx
+  // for the same fix.
+  const { data: myTenant } = trpc.tenantPortal.getMyTenant.useQuery();
+  const tenantId = myTenant?.id ?? "";
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [bankAccount, setBankAccount] = useState("");
   const [bankCode, setBankCode] = useState("");
-  const [bankName, setBankName] = useState("");
+  const [selectedBankLabel, setSelectedBankLabel] = useState("");
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   // Date range picker state
   const [dateRangeOpen, setDateRangeOpen] = useState(false);
@@ -53,9 +63,23 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
   const [topUpAmount, setTopUpAmount] = useState("");
   const [topUpNote, setTopUpNote] = useState("");
 
-  const { data: wallet, isLoading: walletLoading, refetch } = trpc.wallet.getBalance.useQuery({ tenantId });
-  const { data: txs, isLoading: txLoading } = trpc.wallet.listTransactions.useQuery({ tenantId, limit: 50 });
+  const { data: wallet, isLoading: walletLoading, refetch } = trpc.wallet.getBalance.useQuery({ tenantId }, { enabled: !!tenantId });
+  const { data: txs, isLoading: txLoading } = trpc.wallet.listTransactions.useQuery({ tenantId, limit: 50 }, { enabled: !!tenantId });
   const { data: config } = trpc.escrow.getConfig.useQuery();
+  // Bank list barely ever changes — cache it for the whole session rather
+  // than refetching every time the withdrawal dialog opens.
+  const { data: banks, isLoading: banksLoading } = trpc.wallet.listBanks.useQuery(undefined, { staleTime: Infinity });
+  // The account holder's name is resolved from the bank (NIBSS lookup via
+  // Paystack) once both fields are complete, rather than trusted as free
+  // text — a typo or mismatch here would send real money to the wrong name.
+  const {
+    data: resolvedAccount,
+    isFetching: resolvingAccount,
+    error: resolveError,
+  } = trpc.wallet.resolveAccount.useQuery(
+    { accountNumber: bankAccount, bankCode },
+    { enabled: bankAccount.length === 10 && !!bankCode, retry: false },
+  );
   const utils = trpc.useUtils();
 
   const withdraw = trpc.wallet.requestWithdrawal.useMutation({
@@ -69,14 +93,15 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
 
   const topUp = trpc.wallet.topUp.useMutation({
     onSuccess: (data: any) => {
-      // Provider-backed deposits are credited only after payment confirmation,
-      // so the server may return a pending status instead of an immediate credit.
-      const isPending = data?.status === "pending" || data?.pending === true;
-      if (isPending) {
-        toast.info(`Deposit of ${formatNGN(data.amount)} initiated (Ref: ${data.reference}). It will be credited once your payment provider confirms it.`);
-      } else {
-        toast.success(`Top-up of ${formatNGN(data.amount)} successful. Ref: ${data.reference}`);
+      // topUp always returns a real provider checkout link (Paystack/
+      // Flutterwave) — the wallet is only ever credited later, via webhook,
+      // once the merchant actually completes payment there. Redirect rather
+      // than just toasting, or the merchant has no way to actually pay.
+      if (data?.paymentUrl) {
+        window.location.href = data.paymentUrl;
+        return;
       }
+      toast.info(`Deposit of ${formatNGN(data.amount)} initiated (Ref: ${data.reference}). It will be credited once your payment provider confirms it.`);
       setTopUpOpen(false);
       setTopUpAmount("");
       setTopUpNote("");
@@ -125,7 +150,8 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
     : "All time";
 
   return (
-    <div className="space-y-6">
+    <DashboardLayout>
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-xl font-bold">Merchant Wallet</h2>
@@ -284,10 +310,6 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
         </DialogContent>
       </Dialog>
 
-      {/* Withdrawal Dialog */}
-      <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
-      </Dialog>
-
       {/* Top-Up Dialog */}
       <Dialog open={topUpOpen} onOpenChange={setTopUpOpen}>
         <DialogContent className="max-w-sm">
@@ -321,7 +343,7 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
         </DialogContent>
       </Dialog>
 
-      {/* Withdrawal Dialog (re-opened) */}
+      {/* Withdrawal Dialog */}
       <Dialog open={withdrawOpen} onOpenChange={setWithdrawOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -339,24 +361,73 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
               <Input value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} placeholder="0123456789" />
             </div>
             <div className="space-y-1">
-              <Label>Bank Code (CBN code)</Label>
-              <Input value={bankCode} onChange={(e) => setBankCode(e.target.value)} placeholder="e.g. 044" />
+              <Label>Bank</Label>
+              <Popover open={bankPickerOpen} onOpenChange={setBankPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={bankPickerOpen}
+                    disabled={banksLoading}
+                    className="w-full justify-between font-normal"
+                  >
+                    {selectedBankLabel || (banksLoading ? "Loading banks…" : "Select bank…")}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+                  <Command>
+                    <CommandInput placeholder="Search bank…" />
+                    <CommandList>
+                      <CommandEmpty>No match found.</CommandEmpty>
+                      <CommandGroup>
+                        {(banks ?? []).map((b) => (
+                          <CommandItem
+                            key={b.code}
+                            value={b.name}
+                            onSelect={() => {
+                              setBankCode(b.code);
+                              setSelectedBankLabel(b.name);
+                              setBankPickerOpen(false);
+                            }}
+                          >
+                            <Check className={cn("mr-2 h-4 w-4", bankCode === b.code ? "opacity-100" : "opacity-0")} />
+                            {b.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-1">
               <Label>Account Name</Label>
-              <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Account holder name" />
+              <div className="flex items-center h-10 px-3 rounded-md border bg-muted/40 text-sm">
+                {bankAccount.length !== 10 || !bankCode ? (
+                  <span className="text-muted-foreground">Enter account number and bank to resolve</span>
+                ) : resolvingAccount ? (
+                  <span className="text-muted-foreground">Resolving…</span>
+                ) : resolveError ? (
+                  <span className="text-red-500">{resolveError.message}</span>
+                ) : resolvedAccount ? (
+                  <span className="font-medium">{resolvedAccount.accountName}</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </div>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setWithdrawOpen(false)}>Cancel</Button>
             <Button
-              disabled={withdraw.isPending || !withdrawAmount || toNum(withdrawAmount) <= 0}
+              disabled={withdraw.isPending || !withdrawAmount || toNum(withdrawAmount) <= 0 || !resolvedAccount}
               onClick={() => withdraw.mutate({
                 tenantId,
                 amount: toNum(withdrawAmount),
                 bankAccountNumber: bankAccount || undefined,
                 bankCode: bankCode || undefined,
-                bankAccountName: bankName || undefined,
+                bankAccountName: resolvedAccount?.accountName,
               })}>
               {withdraw.isPending ? "Processing…" : "Submit Withdrawal"}
             </Button>
@@ -364,5 +435,6 @@ export default function MerchantWallet({ tenantId }: { tenantId: string }) {
         </DialogContent>
       </Dialog>
     </div>
+    </DashboardLayout>
   );
 }

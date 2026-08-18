@@ -1,7 +1,7 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useActiveTenant } from "@/contexts/TenantContext";
-import { Plus, FileText, CheckCircle, Clock, AlertTriangle, DollarSign, Send } from "lucide-react";
+import { Plus, FileText, CheckCircle, Clock, AlertTriangle, DollarSign, Send, CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +42,10 @@ export default function Invoices() {
   });
   const paidMut = trpc.invoice.markPaid.useMutation({
     onSuccess: () => { toast.success("Invoice marked as paid"); refetch(); refetchStats(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const payMut = trpc.invoice.initiatePaystackPayment.useMutation({
+    onSuccess: (data) => { window.location.href = data.paymentUrl; },
     onError: (e) => toast.error(e.message),
   });
 
@@ -117,10 +121,20 @@ export default function Invoices() {
                         <Send className="h-3 w-3 mr-1" /> Send
                       </Button>
                     )}
-                    {inv.status === "sent" && (
-                      <Button size="sm" variant="outline" onClick={() => paidMut.mutate({ invoiceId: inv.id })}>
-                        <CheckCircle className="h-3 w-3 mr-1" /> Mark Paid
-                      </Button>
+                    {(inv.status === "sent" || inv.status === "overdue") && (
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => payMut.mutate({ invoiceId: inv.id })}
+                          disabled={payMut.isPending}
+                        >
+                          {payMut.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <CreditCard className="h-3 w-3 mr-1" />}
+                          Pay Now
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => paidMut.mutate({ invoiceId: inv.id })}>
+                          <CheckCircle className="h-3 w-3 mr-1" /> Mark Paid
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>

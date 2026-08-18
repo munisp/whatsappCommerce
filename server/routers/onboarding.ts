@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenantOnboarding, tenants } from "../../drizzle/schema";
+import { tenantOnboarding, tenants, users } from "../../drizzle/schema";
+import * as membership from "../services/membership";
 import type { TenantOnboarding } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -181,11 +182,20 @@ export const onboardingRouter = router({
 
   // ─── Tenant provisioning pipeline ──────────────────────────────────────────
   // State machine: draft → configuring → validating → live | failed.
-  // Provisioning (start) is platform-admin only; the remaining procedures are
-  // tenant-scoped and guarded by assertTenantAccess.
+  // Provisioning (start) is self-service: any authenticated user may create a
+  // tenant and becomes its super_admin. Platform admins may still provision a
+  // tenant on a business's behalf; doing so does not enroll them as a member
+  // or touch their (tenant-agnostic) users.tenantId. The remaining procedures
+  // are tenant-scoped and guarded by assertTenantAccess.
 
-  /** Provision a new tenant end-to-end with the seeded settings skeleton. */
-  start: adminProcedure
+  /**
+   * Provision a new tenant end-to-end with the seeded settings skeleton.
+   * A non-platform-admin creator becomes the tenant's super_admin
+   * (tenant_memberships) and the new tenant becomes their active tenant
+   * (users.tenantId) — a Super Admin may own multiple tenants; switch
+   * between them via tenantMembers.switchTenant.
+   */
+  start: protectedProcedure
     .input(
       z.object({
         name: z.string().trim().min(1, "name must not be empty").max(255),
@@ -200,7 +210,19 @@ export const onboardingRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      // Guard against re-entry: without this, calling start() again (double
+      // submit, stale tab, browser back+resubmit) silently creates a SECOND
+      // tenant and overwrites users.tenantId, stranding the caller's access
+      // to their original tenant's self-service dashboard (tenantPortal.*
+      // resolves the tenant from this single column, not tenant_memberships).
+      if (ctx.user.role !== "admin" && ctx.user.tenantId) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "You already have a business on this platform. Use the dashboard for your existing business, or contact support to set up an additional one.",
+        });
+      }
       const { tenantId, slug, settings } = await createTenant(input);
+
       // Kick off the TenantOnboardingWorkflow when Temporal is configured
       // (env-gated; graceful skip otherwise — provisioning must succeed
       // regardless of Temporal availability).
@@ -216,6 +238,17 @@ export const onboardingRouter = router({
           console.warn("[onboarding.start] Temporal workflow start failed (continuing):", err?.message);
         }
       }
+
+      // Self-service: the creating user becomes the tenant's owner (unless
+      // they're a platform admin provisioning on a business's behalf, whose
+      // tenant-agnostic identity/users.tenantId must stay untouched).
+      if (ctx.user.role !== "admin") {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+        await membership.addMember({ tenantId, userId: ctx.user.id, role: "owner", invitedBy: ctx.user.id });
+        await db.update(users).set({ tenantId }).where(eq(users.id, ctx.user.id));
+      }
+
       return {
         tenantId,
         slug,
