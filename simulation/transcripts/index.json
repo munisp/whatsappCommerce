@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T13:19:36.429Z",
+  "generatedAt": "2026-08-18T19:22:42.555Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -99,6 +99,70 @@
       "messageCount": 0
     },
     {
+      "id": "J102",
+      "title": "new merchant onboarding → first sale → wallet credit",
+      "feature": "onboarding.start → KYB approve → activate → product.create → WhatsApp sale → paystack confirm → merchant wallet credit",
+      "pass": true,
+      "file": "J102.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J103",
+      "title": "WhatsApp order → paystack → status transitions → receipt",
+      "feature": "payment initiation → webhook → order confirmed → receipt notification",
+      "pass": true,
+      "file": "J103.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J104",
+      "title": "catalog → cart → checkout → payment → delivery → tracking",
+      "feature": "C1 customer purchase lifecycle end-to-end",
+      "pass": true,
+      "file": "J104.json",
+      "messageCount": 27
+    },
+    {
+      "id": "J105",
+      "title": "COD reconciliation + partial-cash variant",
+      "feature": "RIDER_CONFIRM hook, idempotent confirmCashCollection, settleCod, codReconciliation matched + partial aging",
+      "pass": true,
+      "file": "J105.json",
+      "messageCount": 30
+    },
+    {
+      "id": "J106",
+      "title": "visual stocktake variance + review queue",
+      "feature": "VLM mock analyse, variance alert > threshold, calibrated auto-apply vs review queue vs excluded",
+      "pass": true,
+      "file": "J106.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J107",
+      "title": "trade credit application + PD + bureau sandbox",
+      "feature": "seeded PD training, sandbox bureau pull gate, terms band + expected-loss fee snapshot, tenant guards",
+      "pass": true,
+      "file": "J107.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J108",
+      "title": "manufacturer program caps + tape CSV",
+      "feature": "evaluateDraw bps math, exposure/concentration caps, program tape CSV, tenant guards",
+      "pass": true,
+      "file": "J108.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J109",
+      "title": "credit dunning → default → cure → recovery",
+      "feature": "[dun:*] marker sequence, score drop on default, repayment cure, score recovery + terms improve",
+      "pass": true,
+      "file": "J109.json",
+      "messageCount": 0
+    },
+    {
       "id": "J11",
       "title": "tracking token",
       "feature": "HMAC tracking link + PII scrub",
@@ -107,12 +171,108 @@
       "messageCount": 10
     },
     {
+      "id": "J110",
+      "title": "merchant uplift-trained broadcast (M5)",
+      "feature": "uplift training on seeded cohorts → rankByUplift send → consent withdrawal excluded → frequency cap deferred → dryRun uplift scores",
+      "pass": true,
+      "file": "J110.json",
+      "messageCount": 23
+    },
+    {
+      "id": "J111",
+      "title": "journey automation — win-back flow (M6)",
+      "feature": "send_template→wait_for_reply→condition→exit via journey-tick cron; reply branches path; frequency cap + Lagos quiet hours respected (injectable sim clock)",
+      "pass": true,
+      "file": "J111.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J112",
+      "title": "ml lead scoring → at-risk win-back → pipeline movement (O3)",
+      "feature": "seed order history → trainLeadModel → atRiskList propensity + scoreSource ml → createWinBackCampaign → pipelineSummary movement",
+      "pass": true,
+      "file": "J112.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J113",
+      "title": "collusion ring → credit flag (S4)",
+      "feature": "3-tenant trading ring → scanGraphCollusion cycle+cluster alerts → suggestLimit graph-collusion flag with reduced confidence → honest tenant unaffected",
+      "pass": true,
+      "file": "J113.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J114",
+      "title": "bandit rewards + off-policy replay (O4)",
+      "feature": "seeded decisions + outcomes → reward tick → banditStatus coverage → banditReplay lift vs ×1.0 baseline → shadow suggest unchanged",
+      "pass": true,
+      "file": "J114.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J115",
+      "title": "credit buy → repay link (idempotent) → webhook → mandate retry → cleared",
+      "feature": "C2 credit repayment lifecycle end-to-end",
+      "pass": true,
+      "file": "J115.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J116",
+      "title": "support conversation → bot → human escalation → resolution",
+      "feature": "C3 escalation lifecycle end-to-end",
+      "pass": true,
+      "file": "J116.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J117",
+      "title": "compliance officer: chain tamper → anomaly burst → copilot triage → resolve",
+      "feature": "O1 incident-response lifecycle end-to-end",
+      "pass": true,
+      "file": "J117.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J118",
+      "title": "access review → retention policy → legal hold → purge → export",
+      "feature": "O2 retention + portability lifecycle end-to-end",
+      "pass": true,
+      "file": "J118.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J119",
+      "title": "paystack outage → flutterwave failover → reconciled confirmation",
+      "feature": "E1 provider failover end-to-end",
+      "pass": true,
+      "file": "J119.json",
+      "messageCount": 0
+    },
+    {
       "id": "J12",
       "title": "smart reorder",
       "feature": "reorder → repriced cart",
       "pass": true,
       "file": "J12.json",
       "messageCount": 14
+    },
+    {
+      "id": "J120",
+      "title": "offline order sync — two devices, last stock unit",
+      "feature": "E2 offline sync + stock-conflict resolution end-to-end",
+      "pass": true,
+      "file": "J120.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J121",
+      "title": "orchestrated full-stack (discovery → order → PD credit → VI → audit)",
+      "feature": "journey orchestrator local-fallback: checkpoints, durable resume via cron tick, compliance audit chain",
+      "pass": true,
+      "file": "J121.json",
+      "messageCount": 0
     },
     {
       "id": "J13",

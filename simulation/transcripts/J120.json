@@ -1,0 +1,8 @@
+{
+  "id": "J120",
+  "title": "offline order sync — two devices, last stock unit",
+  "feature": "E2 offline sync + stock-conflict resolution end-to-end",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

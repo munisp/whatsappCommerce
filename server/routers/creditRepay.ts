@@ -35,6 +35,9 @@ export const creditRepayRouter = router({
         amountCents: z.number().int().positive().optional(), // omitted → full outstanding
         poId: z.string().min(1).optional(),
         customerPhone: z.string().min(5).optional(),
+        // W23 (additive): retry-safe link creation — repeated calls with the
+        // same key return the still-open link (same reference).
+        idempotencyKey: z.string().min(1).max(128).optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -48,6 +51,7 @@ export const creditRepayRouter = router({
           amountCents: input.amountCents ?? null,
           poId: input.poId ?? null,
           customerPhone: input.customerPhone ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
         });
       } catch (err: any) {
         if (err instanceof CreditRepayError) {

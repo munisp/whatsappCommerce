@@ -1,0 +1,308 @@
+{
+  "id": "J110",
+  "title": "merchant uplift-trained broadcast (M5)",
+  "feature": "uplift training on seeded cohorts → rankByUplift send → consent withdrawal excluded → frequency cap deferred → dryRun uplift scores",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348011706303",
+      "wamid": "wamid.sim.000499",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916683,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 21"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012284414",
+      "wamid": "wamid.sim.000500",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916685,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 3"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012464094",
+      "wamid": "wamid.sim.000501",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916687,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 12"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013121225",
+      "wamid": "wamid.sim.000502",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916694,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 20"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013266691",
+      "wamid": "wamid.sim.000503",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916695,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 18"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013567154",
+      "wamid": "wamid.sim.000504",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916758,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 2"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013696514",
+      "wamid": "wamid.sim.000505",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916759,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 19"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013849548",
+      "wamid": "wamid.sim.000506",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916760,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 11"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013971139",
+      "wamid": "wamid.sim.000507",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916761,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 8"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014262207",
+      "wamid": "wamid.sim.000508",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916762,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 7"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014621383",
+      "wamid": "wamid.sim.000509",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916764,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 13"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015015757",
+      "wamid": "wamid.sim.000510",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916765,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 14"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015817993",
+      "wamid": "wamid.sim.000511",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916766,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 15"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016229307",
+      "wamid": "wamid.sim.000512",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916767,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 23"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016354275",
+      "wamid": "wamid.sim.000513",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916768,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 9"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017066289",
+      "wamid": "wamid.sim.000514",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916769,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 24"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017478723",
+      "wamid": "wamid.sim.000515",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916770,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 5"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017666356",
+      "wamid": "wamid.sim.000516",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916771,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 22"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018014291",
+      "wamid": "wamid.sim.000517",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916773,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 4"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018026305",
+      "wamid": "wamid.sim.000518",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916774,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 10"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018436280",
+      "wamid": "wamid.sim.000519",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916775,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 6"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018883424",
+      "wamid": "wamid.sim.000520",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916776,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 17"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019510447",
+      "wamid": "wamid.sim.000521",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080916778,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US",
+      "body": "J110R Responder 16"
+    }
+  ]
+}

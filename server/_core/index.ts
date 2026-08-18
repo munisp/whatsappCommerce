@@ -2116,6 +2116,25 @@ async function startServer() {
     }
   });
 
+  // ── Journey Orchestration Tick (W23) ─────────────────────────────────────
+  // Resumes local-fallback journey orchestrations still 'running' (crashed or
+  // deferred starts) from their last checkpoint. Follows the journey-tick
+  // wiring pattern: cron-only, service owns the logic, never throws.
+  app.post("/api/scheduled/journey-orchestrate-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runOrchestrationTick } = await import("../services/journeyOrchestrator");
+      const summary = await runOrchestrationTick(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[journey-orchestrate-tick]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── Lead Model Tick (W20) ─────────────────────────────────────────────────
   // Periodic per-tenant retraining of the ML propensity lead-scoring model
   // (services/mlLeadScoring.ts). Follows the journey-tick wiring pattern:

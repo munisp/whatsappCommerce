@@ -10,6 +10,7 @@ import { tenantRouter } from "./routers/tenant";
 import { tenantConfigRouter } from "./routers/tenantConfig";
 import { productRouter } from "./routers/product";
 import { conversationRouter } from "./routers/conversation";
+import { escalationRouter } from "./routers/escalation";
 import { orderRouter } from "./routers/order";
 import { paymentRouter } from "./routers/payment";
 import { agentRouter } from "./routers/agent";
@@ -151,6 +152,7 @@ export const appRouter = router({
   tenantConfig: tenantConfigRouter,
   product: productRouter,
   conversation: conversationRouter,
+  escalation: escalationRouter,
   order: orderRouter,
   payment: paymentRouter,
   agent: agentRouter,
@@ -231,6 +233,7 @@ export const appRouter = router({
   hermes: hermesRouter,
   infra: infraRouter,
   temporal: temporalRouter,
+  orchestrator: orchestratorRouter,
   search: searchRouter,
   ai: aiRouter,
   apisix: apisixRouter,
@@ -253,3 +256,4 @@ export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
 import { searchRouter } from "./routers/search";
 import { temporalRouter } from "./routers/temporal";
+import { orchestratorRouter } from "./routers/orchestrator";
