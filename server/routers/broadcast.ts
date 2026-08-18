@@ -24,6 +24,12 @@ import {
 } from "../services/sessionWindow";
 import { applyQualityThrottle } from "../services/waQuality";
 import { nextAllowedSendAtForTenant } from "../services/frequencyCap";
+import {
+  UPLIFT_MODEL_PARAMS,
+  loadLatestModels,
+  rankByUpliftOrNull,
+  trainUpliftModelsTx,
+} from "../services/mlUplift";
 import { toMinorUnitsExact } from "../../shared/escrowAmounts";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -92,6 +98,8 @@ export interface BroadcastAudienceMember {
   name: string | null;
   /** True when the customer's last inbound message is inside the 24h window. */
   inWindow: boolean;
+  /** W21: modeled uplift (pTreatment − pControl) when the audience was AI-ranked. */
+  uplift?: number;
 }
 
 // ── Segmented broadcasts ─────────────────────────────────────────────────────
@@ -181,7 +189,12 @@ export function normalizeSegmentFilter(raw: unknown): SegmentFilter | undefined 
  * consent AND match the campaign's segment filter (when any). Non-consented
  * customers are always excluded.
  */
-export async function buildBroadcastAudience(db: Db, tenantId: string, segment?: SegmentFilter): Promise<BroadcastAudienceMember[]> {
+export async function buildBroadcastAudience(
+  db: Db,
+  tenantId: string,
+  segment?: SegmentFilter,
+  opts?: { rankByUplift?: boolean },
+): Promise<BroadcastAudienceMember[]> {
   const custs = await db
     .select({
       id: customers.id,
@@ -198,18 +211,34 @@ export async function buildBroadcastAudience(db: Db, tenantId: string, segment?:
   if (consented.size === 0) return [];
   const lastInbound = await getLastInboundMap(db, tenantId);
   const now = Date.now();
-  return custs
-    .filter((c) => !segment || matchesSegment(c, segment))
-    .filter((c) => consented.has(normalizeWaPhone(c.whatsappPhone)))
-    .map((c) => {
-      const last = lastInbound.get(normalizeWaPhone(c.whatsappPhone));
-      return {
-        customerId: c.id,
-        phone: c.whatsappPhone,
-        name: c.name,
-        inWindow: Boolean(last && now - last.getTime() < WA_WINDOW_MS),
-      };
-    });
+  const toMember = (c: typeof custs[number], seg?: SegmentFilter): BroadcastAudienceMember | null => {
+    if (seg && !matchesSegment(c, seg)) return null;
+    if (!consented.has(normalizeWaPhone(c.whatsappPhone))) return null;
+    const last = lastInbound.get(normalizeWaPhone(c.whatsappPhone));
+    return {
+      customerId: c.id,
+      phone: c.whatsappPhone,
+      name: c.name,
+      inWindow: Boolean(last && now - last.getTime() < WA_WINDOW_MS),
+    };
+  };
+  const build = (seg?: SegmentFilter) =>
+    custs.map((c) => toMember(c, seg)).filter((m): m is BroadcastAudienceMember => m !== null);
+
+  // W21: AI uplift targeting. When requested, candidates are ranked/filtered
+  // by modeled uplift (only uplift > threshold, highest first) INSTEAD of the
+  // noOrderSinceDays win-back heuristic. When the tenant's uplift models are
+  // untrained, the ORIGINAL segment heuristic applies unchanged (fallback).
+  if (opts?.rankByUplift) {
+    const { noOrderSinceDays: _dropped, ...rest } = segment ?? {};
+    const heuristicless = Object.values(rest).some((v) => v != null && (!(Array.isArray(v)) || v.length > 0))
+      ? rest as SegmentFilter
+      : undefined;
+    const candidates = build(heuristicless);
+    const ranked = await rankByUpliftOrNull(db, tenantId, candidates);
+    if (ranked) return ranked.map((r) => ({ ...r.member, uplift: r.uplift }));
+  }
+  return build(segment);
 }
 
 /** Substitute {{var}} placeholders in a template body. */
@@ -457,7 +486,9 @@ export async function dispatchCampaign(db: Db, campaign: CampaignRow): Promise<C
   if (throttle.blocked) throw new TRPCError({ code: "PRECONDITION_FAILED", message: throttle.reason });
   bcfg.ratePerMin = throttle.ratePerMin;
   const segment = normalizeSegmentFilter(campaign.segmentFilter);
-  const audience = await buildBroadcastAudience(db, campaign.tenantId, segment);
+  // W21: scheduled sends honor the persisted uplift-ranking directive.
+  const rankByUplift = ((campaign.varMapping ?? {}) as Record<string, string>).__rankByUplift === "true";
+  const audience = await buildBroadcastAudience(db, campaign.tenantId, segment, { rankByUplift });
   return executeCampaignSend(db, campaign, bcfg, audience);
 }
 
@@ -582,6 +613,13 @@ export const broadcastRouter = router({
       dryRun: z.boolean().optional().default(false),
       scheduleAt: z.number().optional(),
       segment: segmentFilterSchema.optional(),
+      /**
+       * W21: rank/filter the audience by modeled AI uplift instead of the
+       * noOrderSinceDays win-back heuristic. When the tenant's uplift models
+       * are untrained the heuristic applies unchanged (fallback). Frequency
+       * caps and consent gates still apply regardless.
+       */
+      rankByUplift: z.boolean().optional().default(false),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -612,9 +650,14 @@ export const broadcastRouter = router({
       // Schedule for later: the cron dispatcher picks it up when due.
       if (!input.dryRun && input.scheduleAt && input.scheduleAt > Date.now()) {
         const when = new Date(input.scheduleAt);
+        // Persist the uplift-ranking directive so the cron dispatch honors it.
+        const varMapping = {
+          ...((campaign.varMapping ?? {}) as Record<string, string>),
+          ...(input.rankByUplift ? { __rankByUplift: "true" } : {}),
+        };
         await db
           .update(broadcastCampaigns)
-          .set({ status: "scheduled", scheduledAt: when, updatedAt: new Date() })
+          .set({ status: "scheduled", scheduledAt: when, varMapping, updatedAt: new Date() })
           .where(eq(broadcastCampaigns.id, input.campaignId));
         return {
           dryRun: false as const,
@@ -644,8 +687,9 @@ export const broadcastRouter = router({
       bcfg.ratePerMin = throttle.ratePerMin;
 
       const segment = normalizeSegmentFilter(campaign.segmentFilter);
-      const audience = await buildBroadcastAudience(db, campaign.tenantId, segment);
+      const audience = await buildBroadcastAudience(db, campaign.tenantId, segment, { rankByUplift: input.rankByUplift });
       const inWindowCount = audience.filter((a) => a.inWindow).length;
+      const upliftRanked = input.rankByUplift && audience.some((a) => typeof a.uplift === "number");
 
       if (input.dryRun) {
         return {
@@ -655,10 +699,13 @@ export const broadcastRouter = router({
           inWindowCount,
           outOfWindowCount: audience.length - inWindowCount,
           segment: segment ?? null,
+          /** W21: true when the audience was actually ranked by the uplift models. */
+          upliftRanked,
           sample: audience.slice(0, 5).map((a) => ({
             phone: a.phone,
             name: a.name,
             inWindow: a.inWindow,
+            ...(typeof a.uplift === "number" ? { uplift: a.uplift } : {}),
           })),
           sent: 0,
           delivered: 0,
@@ -760,5 +807,54 @@ export const broadcastRouter = router({
         updatedAt: new Date(),
       }).where(eq(broadcastCampaigns.id, input.campaignId));
       return { delivered, read, total: recipients.length };
+    }),
+
+  /**
+   * W21: train (or retrain) this tenant's two-arm uplift models (treatment =
+   * messaged customers, control = non-messaged). Below the per-arm
+   * minimum-sample gate no models are persisted and targeting keeps the
+   * rule-based segment heuristic.
+   */
+  trainUpliftModel: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const result = await trainUpliftModelsTx(db, input.tenantId);
+      return { ...result, minTrainSamplesPerArm: UPLIFT_MODEL_PARAMS.minTrainSamplesPerArm };
+    }),
+
+  /** W21: latest uplift model metadata for the tenant (untrained → trained=false). */
+  upliftModelStatus: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const models = await loadLatestModels(db, input.tenantId);
+      const t = models.treatment;
+      const c = models.control;
+      if (!t || !c || t.version !== c.version) {
+        return {
+          trained: false as const,
+          trainedAt: null, version: null,
+          treatmentSamples: 0, controlSamples: 0,
+          treatmentLogloss: null, controlLogloss: null,
+          minTrainSamplesPerArm: UPLIFT_MODEL_PARAMS.minTrainSamplesPerArm,
+          upliftThreshold: UPLIFT_MODEL_PARAMS.upliftThreshold,
+        };
+      }
+      return {
+        trained: true as const,
+        trainedAt: t.trainedAt,
+        version: t.version,
+        treatmentSamples: t.sampleCount,
+        controlSamples: c.sampleCount,
+        treatmentLogloss: t.logloss,
+        controlLogloss: c.logloss,
+        minTrainSamplesPerArm: UPLIFT_MODEL_PARAMS.minTrainSamplesPerArm,
+        upliftThreshold: UPLIFT_MODEL_PARAMS.upliftThreshold,
+      };
     }),
 });

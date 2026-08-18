@@ -392,6 +392,19 @@ function EditAccountDialog({
             {suggestion.reasons.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
         )}
+        {suggestion && suggestion.pd !== undefined && (
+          <div className="flex items-center gap-2 text-xs">
+            <Badge variant={suggestion.pdSource === "ml" ? "default" : "outline"} className="font-normal">
+              {suggestion.pdSource === "ml" ? "ML model" : "Rules"}
+            </Badge>
+            <span className="text-muted-foreground">
+              PD {(suggestion.pd * 100).toFixed(1)}%
+              {suggestion.expectedLossFeeBps !== undefined && suggestion.bandFeeBps !== undefined && (
+                <> · expected-loss fee {(suggestion.expectedLossFeeBps / 100).toFixed(2)}% vs band {(suggestion.bandFeeBps / 100).toFixed(2)}%</>
+              )}
+            </span>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button

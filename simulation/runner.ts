@@ -124,6 +124,8 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j94-soc2-compliance"),
     import("./journeys/j95-ml-lead-scoring"),
     import("./journeys/j96-audit-anomaly"),
+    import("./journeys/j97-pd-credit-model"),
+    import("./journeys/j98-uplift-broadcast"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

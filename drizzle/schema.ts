@@ -3460,6 +3460,56 @@ export const leadScoreModels = pgTable("lead_score_models", {
 export type LeadScoreModel = typeof leadScoreModels.$inferSelect;
 export type NewLeadScoreModel = typeof leadScoreModels.$inferInsert;
 
+// ── W21: ML probability-of-default (PD) credit model registry ──────────────
+// One row per trained logistic-regression PD model
+// (server/services/tradeCredit/mlPdScoring.ts). tenant_id is NULLABLE: a
+// null-tenant row is the GLOBAL corpus model used as fallback when a
+// tenant's own book is below the minimum-sample gate. weights_jsonb is a
+// number[] aligned with feature_names (a string[]); version increments per
+// scope per train. Tenants/scopes below the gate have NO rows here and PD
+// scoring falls back to the rule-score proxy (pd = 1 − score/100).
+export const creditPdModels = pgTable("credit_pd_models", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }), // NULL = global corpus model
+  weights:      jsonb("weights_jsonb").notNull(), // number[], aligned with featureNames
+  featureNames: jsonb("feature_names").notNull(), // string[]
+  trainedAt:    timestamp("trained_at").notNull().defaultNow(),
+  sampleCount:  integer("sample_count").notNull(),
+  logloss:      real("logloss"), // final training log-loss (null if not computed)
+  auc:          real("auc"), // rank AUC on the training set (null when single-class)
+  version:      integer("version").notNull().default(1),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("credit_pd_models_tenant_idx").on(t.tenantId),
+  uniqueIndex("credit_pd_models_tenant_version_uniq").on(t.tenantId, t.version),
+]);
+export type CreditPdModel = typeof creditPdModels.$inferSelect;
+export type NewCreditPdModel = typeof creditPdModels.$inferInsert;
+
+// ── W21: uplift-modeled broadcast targeting model registry ──────────────────
+// Per-tenant, per-role ('treatment' | 'control') logistic-regression weights
+// learned by server/services/mlUplift.ts: treatment arm from customers who
+// received a prior broadcast/win-back message, control arm from comparable
+// non-messaged customers. scoreUplift = pTreatment − pControl. Tenants below
+// the per-arm minimum-sample gate have no rows → heuristic segment fallback.
+export const upliftModels = pgTable("uplift_models", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  role:         varchar("role", { length: 16 }).notNull(), // 'treatment' | 'control'
+  weights:      jsonb("weights_jsonb").notNull(), // number[], aligned with featureNames
+  featureNames: jsonb("feature_names").notNull(), // string[]
+  trainedAt:    timestamp("trained_at").notNull().defaultNow(),
+  sampleCount:  integer("sample_count").notNull(),
+  logloss:      real("logloss"), // final training log-loss (null if not computed)
+  version:      integer("version").notNull().default(1),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("uplift_models_tenant_idx").on(t.tenantId),
+  uniqueIndex("uplift_models_tenant_role_version_uniq").on(t.tenantId, t.role, t.version),
+]);
+export type UpliftModel = typeof upliftModels.$inferSelect;
+export type NewUpliftModel = typeof upliftModels.$inferInsert;
+
 // ── W20: audit-stream anomaly detection alerts ──────────────────────────────
 // Alerts emitted by server/services/auditAnomaly.ts when a tenant's audit
 // stream deviates from its learned baseline. Idempotent per

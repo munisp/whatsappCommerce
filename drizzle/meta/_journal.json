@@ -421,6 +421,20 @@
       "when": 1786988600000,
       "tag": "0062_anomaly_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1786988700000,
+      "tag": "0063_credit_pd_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1786988800000,
+      "tag": "0064_uplift_models",
+      "breakpoints": true
     }
   ]
 }

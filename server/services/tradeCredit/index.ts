@@ -57,6 +57,27 @@ export {
   type AntiGamingResult,
 } from "./antiGaming";
 export { termsForScore, TERMS_BANDS, type CreditTerms, type TermsBand } from "./terms";
+// ── W21: ML probability-of-default model + expected-loss pricing ───────────
+export {
+  PD_MODEL_PARAMS,
+  PD_FEATURE_NAMES,
+  EL_PRICING,
+  scorePd,
+  trainPdModelTx,
+  loadLatestPdModel,
+  resolvePdModel,
+  runPdModelTick,
+  expectedLossTerms,
+  buildPdTrainingRows,
+  buyerPdSignalsTx,
+  pdFeaturesFromSignals,
+  trainLogisticRegression as trainPdLogisticRegression,
+  type PdScoreResult,
+  type PdTrainResult,
+  type PdModelTickSummary,
+  type StoredPdModel,
+  type ExpectedLossTerms,
+} from "./mlPdScoring";
 // ── W13: credit control plane + repayment-at-source ─────────────────────────
 export { reviseLimitsTx, type ReviseLimitsResult, type LimitRevisionReason } from "./limits";
 export {
