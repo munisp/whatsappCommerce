@@ -315,6 +315,14 @@ export interface SuggestedLimit {
   /** ₦ (normalized from suggestedLimitCents). */
   suggested: number;
   reasons: string[];
+  /** W21: probability of default (0..1), when the scorer enriched it. */
+  pd?: number;
+  /** W21: which path produced `pd` — trained ML model or rule proxy. */
+  pdSource?: "ml" | "rules";
+  /** W21: expected-loss fee (bps), capped at the rule-score band fee. */
+  expectedLossFeeBps?: number;
+  /** W21: the rule-score band fee (bps) the EL fee is capped by. */
+  bandFeeBps?: number;
 }
 
 // ─── procurement.* (S2 — real router: server/routers/procurement.ts) ────────
@@ -494,6 +502,10 @@ export function useSuggestLimit(supplierTenantId: string, buyerTenantId: string 
         score: r.score,
         suggested: r.suggestedLimitCents / 100,
         reasons: r.reasons ?? [],
+        pd: r.pd,
+        pdSource: r.pdSource,
+        expectedLossFeeBps: r.expectedLossFeeBps,
+        bandFeeBps: r.terms?.feeBps,
       }),
     },
   ) as QueryResult<SuggestedLimit>;

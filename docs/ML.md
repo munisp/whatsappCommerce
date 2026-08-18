@@ -134,3 +134,104 @@ statistics (population stability index per feature) against the previous
 model row in `lead_score_models`, and (b) score calibration (predicted vs
 observed conversion rate by decile). Sustained PSI or calibration drift
 triggers an earlier retrain or a rollback to the prior model row.
+
+---
+
+## 3. Broadcast uplift targeting (W21 — tranche 2)
+
+### Purpose
+Two-model **uplift scoring** for broadcast audience selection, layered on top
+of the rule-based segment heuristics (`matchesSegment` in
+`server/routers/broadcast.ts`). Instead of targeting "everyone who has not
+ordered in ≥N days" (`noOrderSinceDays`), the merchant can rank candidates by
+the modeled **incremental** effect of receiving the message.
+
+### Approach: two per-tenant logistic regressions
+- **Treatment model** — `P(purchase | received broadcast)`, trained on
+  customers with ≥1 `sent` row in `broadcast_recipients` before the
+  reference date.
+- **Control model** — `P(purchase | no message)`, trained on comparable
+  customers never messaged before the reference date.
+
+Both are the same dependency-free full-batch gradient-descent logistic
+regression as `mlLeadScoring` (fixed seed `2027`/`2028` per arm, fixed 400
+iterations, L2) — deterministic: the same data retrains to byte-identical
+weights.
+
+### Features / labels
+- **Features** (all normalized to [0,1], computed as-of the reference date):
+  recency score, 90-day order frequency, lifetime monetary (log1p cents),
+  reply rate (inbound WhatsApp replies per broadcast received, capped), and
+  days-since-last-order (normalized).
+- **Label**: the customer placed an order within **14 days** after the
+  reference date (`now − 14d`). Customers with no pre-reference order
+  history are excluded from both arms.
+- **Uplift** = `pTreatment − pControl`, clamped to `[−1, 1]`.
+
+### Storage
+Registry table **`uplift_models`** (drizzle 0064): one row per
+`(tenant_id, role, version)` with `weights_jsonb`, `feature_names`,
+`trained_at`, `sample_count`, `logloss`. Each train bumps a shared version
+for both arms together.
+
+### Fallback contract
+`scoreUplift(tenantId, customerId)` →
+`{ uplift, confidence, fallbackUsed }` and **never throws**. Untrained
+(either arm below the 40-sample gate), missing customer, malformed weights,
+or any DB error → `{ uplift: null, fallbackUsed: true }`. In the broadcast
+send path (`rankByUplift: true`), an untrained tenant silently keeps the
+original `noOrderSinceDays` heuristic (`upliftRanked: false` in dry-run);
+consent gates and marketing frequency caps apply identically in both modes.
+When ranked, only customers with `uplift > 0.05` are kept, highest first.
+
+### Cadence
+Nightly per-tenant retrain via cron `POST /api/scheduled/uplift-model-tick`
+(`runUpliftModelTick`), plus on-demand `broadcast.trainUpliftModel`.
+Old rows are retained per version for rollback/drift comparison.
+
+### Drift monitoring
+Per retrain, compare each arm's log-loss and per-feature distribution
+against the previous version's row in `uplift_models`; a sustained rise in
+control-arm base rate or arm imbalance (treatment/control sample ratio)
+signals audience-composition drift and should trigger review of the
+`upliftThreshold`.
+
+---
+
+## 4. PD credit model (parallel tranche-2 model — fixed contract)
+
+> This section documents the **contract** for the probability-of-default
+> model delivered in `server/services/tradeCredit/mlPdScoring.ts` (table
+> **`credit_pd_models`**). The runtime entrypoint is
+> `scorePd(tenantId, buyerId)` → `{ pd, confidence, fallbackUsed }`.
+
+### Model
+Per-tenant **logistic regression** over trade-credit repayment outcomes:
+label = default (invoice unpaid past due + grace) within the observation
+window; features follow the same RFM-plus-credit philosophy — repayment
+history, utilization, outstanding vs limit (integer cents), order cadence,
+tenor of requested terms, and prior delinquency count.
+
+### Expected-loss pricing
+The expected-loss fee for a credit sale is a deterministic function
+
+```
+fee = clamp( f(PD, LGD, tenorDays), TERMS_BANDS.minFeeBps, TERMS_BANDS.maxFeeBps )
+```
+
+where `LGD` (loss given default) is a fixed constant per policy and the
+result is clamped by the per-tenor `TERMS_BANDS` so fees can never leave the
+approved band regardless of model output. All money math is integer cents.
+
+### Fallback contract
+`scorePd` never throws. No trained `credit_pd_models` row, below the
+minimum-sample gate, or any error → `{ pd: null (or policy default),
+fallbackUsed: true }` and fee computation uses the flat policy rate inside
+`TERMS_BANDS`. A model fault can never move a fee outside the band.
+
+### Determinism / cadence / drift
+Seeded, fixed-iteration training (same philosophy as the lead/uplift
+models); nightly retrain tick plus on-demand retrain; per-version rows in
+`credit_pd_models` enable rollback. Drift is monitored via calibration of
+predicted PD vs observed default rate by decile and PSI on the repayment
+features.

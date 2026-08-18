@@ -49,7 +49,9 @@ describe("0062_anomaly_alerts.sql", () => {
     expect(entry).toBeTruthy();
     expect(entry.idx).toBe(62);
     expect(entry.when).toBe(1786988600000);
-    expect(journal.entries[journal.entries.length - 1].idx).toBe(62);
+    // Later waves (0063+) append after 0062 — the tip only moves forward.
+    expect(journal.entries[journal.entries.length - 1].idx).toBeGreaterThanOrEqual(62);
+    expect(journal.entries.filter((e: any) => e.idx === 62)).toHaveLength(1);
   });
 
   it("snapshot carries anomaly_alerts and stays cumulative", () => {

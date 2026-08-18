@@ -283,6 +283,58 @@ export const tradeCreditRouter = router({
       return suggestLimitTx(db, input.buyerTenantId, input.supplierTenantId);
     }),
 
+  /**
+   * W21: train (or retrain) this tenant's ML probability-of-default model
+   * from its own credit book. Below the minimum-sample gate no model is
+   * persisted and PD scoring keeps the rule proxy / global-model fallback.
+   */
+  trainPdModel: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await requireDb();
+      const { trainPdModelTx, PD_MODEL_PARAMS } = await import("../services/tradeCredit/mlPdScoring");
+      const result = await trainPdModelTx(db, input.tenantId);
+      return { ...result, minTrainSamples: PD_MODEL_PARAMS.minTrainSamples };
+    }),
+
+  /**
+   * W21: latest trained PD model metadata for the tenant — its own model
+   * when trained, otherwise whether the global corpus fallback is available.
+   */
+  pdModelStatus: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await requireDb();
+      const { loadLatestPdModel, PD_MODEL_PARAMS } = await import("../services/tradeCredit/mlPdScoring");
+      const model = await loadLatestPdModel(db, input.tenantId);
+      const globalModel = model ? null : await loadLatestPdModel(db, null);
+      const base = { minTrainSamples: PD_MODEL_PARAMS.minTrainSamples };
+      if (model) {
+        return {
+          ...base,
+          trained: true as const,
+          scope: "tenant" as const,
+          trainedAt: model.trainedAt,
+          sampleCount: model.sampleCount,
+          logloss: model.logloss,
+          auc: model.auc,
+          version: model.version,
+        };
+      }
+      return {
+        ...base,
+        trained: false as const,
+        scope: globalModel ? ("global" as const) : null,
+        trainedAt: globalModel?.trainedAt ?? null,
+        sampleCount: globalModel?.sampleCount ?? 0,
+        logloss: globalModel?.logloss ?? null,
+        auc: globalModel?.auc ?? null,
+        version: globalModel?.version ?? null,
+      };
+    }),
+
   /** Record a buyer repayment (partial allowed; over-repayment refused). */
   recordRepayment: protectedProcedure
     .input(z.object({

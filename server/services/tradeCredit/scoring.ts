@@ -98,6 +98,19 @@ export interface CreditScoreResult {
   terms: CreditTerms;
   /** W18: anti-gaming flags on the GMV input ([] when clean). */
   antiGamingFlags: string[];
+  /**
+   * W21: probability of default (0..1) from the ML PD model when trained
+   * (mlPdScoring.scorePd), otherwise the rule proxy (1 − score/100).
+   * Additive/optional — absent only if the PD call itself failed.
+   */
+  pd?: number;
+  /** W21: which path produced `pd` — trained ML model or rule proxy. */
+  pdSource?: "ml" | "rules";
+  /**
+   * W21: expected-loss fee (bps), capped at the rule-score band fee (bands
+   * remain policy caps — ML can only improve on them, never worsen them).
+   */
+  expectedLossFeeBps?: number;
 }
 
 /** "₦2.4M" / "₦850k" / "₦12,000" compact naira formatting for reasons. */
@@ -316,5 +329,29 @@ export async function suggestLimitTx(
   if (terms.decline && !coldStart) {
     reasons.push(`score ${score} below 20 — decline credit suggestion`);
   }
-  return { score, suggestedLimitCents, reasons, terms, antiGamingFlags: antiGaming.flags };
+
+  // ── W21: ML probability-of-default + expected-loss fee (additive) ───────
+  // ML-first: when a trained PD model exists (tenant scope, else global
+  // corpus) the PD comes from the model; otherwise the rule proxy
+  // (pd = 1 − score/100) is used. Never throws — any failure simply omits
+  // the PD fields and the rule-based result is returned unchanged.
+  let pd: number | undefined;
+  let pdSource: "ml" | "rules" | undefined;
+  let expectedLossFeeBps: number | undefined;
+  try {
+    const { scorePd, expectedLossTerms } = await import("./mlPdScoring");
+    const pdRes = await scorePd(db, _supplierTenantId, buyerTenantId, { now, ruleScore: score });
+    pd = Math.round(pdRes.pd * 1e6) / 1e6;
+    pdSource = pdRes.fallbackUsed ? "rules" : "ml";
+    // Bands remain policy caps: the expected-loss fee never exceeds the fee
+    // the rule-score band implies. A declined band has tenor 0 — price the
+    // informational EL fee at the baseline tenor instead.
+    const { EL_PRICING } = await import("./mlPdScoring");
+    const el = expectedLossTerms(pdRes.pd, terms.decline ? EL_PRICING.tenorBaselineDays : terms.tenorDays);
+    expectedLossFeeBps = terms.decline ? el.feeBps : Math.min(el.feeBps, terms.feeBps);
+  } catch {
+    // PD enrichment is best-effort; the rule-based result stands alone.
+  }
+
+  return { score, suggestedLimitCents, reasons, terms, antiGamingFlags: antiGaming.flags, pd, pdSource, expectedLossFeeBps };
 }
