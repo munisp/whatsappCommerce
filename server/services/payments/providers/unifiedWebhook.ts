@@ -184,6 +184,35 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
         `[unified-payment-webhook] ${providerId} ref=${norm.reference} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`,
       );
     }
+
+    // W23 (additive): a fresh webhook confirmation also lands on the
+    // compliance audit trail — previously only the admin payment.confirm
+    // procedure wrote one, leaving webhook-confirmed payments unaudited.
+    // Best-effort; NEVER fails the webhook ack.
+    if (result.ok && result.action === "confirmed" && tenantId) {
+      try {
+        const { writeAuditLog } = await import("../../../routers/audit");
+        const [confirmedIntent] = await db
+          .select({ id: paymentIntents.id, amount: paymentIntents.amount, currency: paymentIntents.currency, provider: paymentIntents.provider })
+          .from(paymentIntents)
+          .where(eq(paymentIntents.providerPaymentId, norm.reference))
+          .limit(1);
+        await writeAuditLog({
+          actorId: null,
+          actorRole: "system",
+          action: "payment.confirm",
+          entityType: "payment_intent",
+          entityId: confirmedIntent?.id ?? norm.reference,
+          tenantId,
+          summary: `Payment ${norm.reference} confirmed via ${providerId} webhook`,
+          after: confirmedIntent
+            ? { status: "completed", amount: confirmedIntent.amount, currency: confirmedIntent.currency, provider: confirmedIntent.provider }
+            : { status: "completed", provider: providerId },
+        });
+      } catch (auditErr: any) {
+        console.warn("[unified-payment-webhook] audit write failed:", auditErr?.message);
+      }
+    }
     return void res.status(200).json({ received: true, ...result });
   } catch (err: any) {
     console.error("[unified-payment-webhook]", err);

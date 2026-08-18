@@ -12,7 +12,7 @@
  * Fully paid orders get paymentStatus 'completed'; partial payments leave the
  * balance tracked via orderPaymentSummary (partial-payment tracking).
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
   codEvents,
@@ -36,6 +36,8 @@ export interface OfflineOrderItemInput {
 
 export interface CreateOfflineOrderResult {
   created: boolean;
+  /** W23: true when an idempotency replay returned the existing order. */
+  duplicate?: boolean;
   orderId?: string;
   orderNumber?: string;
   customerId?: string;
@@ -60,10 +62,46 @@ export async function createOfflineOrder(
     currency?: string;
     note?: string | null;
     actor?: string;
+    /**
+     * W23 (additive): device-local queue id for offline sync. When provided,
+     * re-syncing the SAME queued order (retry after a reconnect timeout)
+     * returns the already-created order instead of minting a duplicate and
+     * double-reserving stock. Stored in orders.metadata.clientRef.
+     */
+    clientRef?: string | null;
   },
 ): Promise<CreateOfflineOrderResult> {
   if (!opts.items.length) throw new Error("Offline order needs at least one item");
   const now = new Date();
+
+  // ── Idempotent reconnect sync (W23): replay of a queued clientRef ──────
+  const clientRef = opts.clientRef?.trim() || null;
+  if (clientRef) {
+    const existing = await db
+      .select()
+      .from(orders)
+      .where(and(
+        eq(orders.tenantId, opts.tenantId),
+        sql`metadata->>'source' = 'offline'`,
+        sql`metadata->>'clientRef' = ${clientRef}`,
+      ))
+      .limit(1)
+      .catch(() => [] as any[]);
+    const row = (Array.isArray(existing) ? existing : [])[0];
+    if (row) {
+      return {
+        created: true,
+        duplicate: true,
+        orderId: String(row.id),
+        orderNumber: String(row.orderNumber ?? ""),
+        customerId: String(row.customerId ?? ""),
+        total: Number(row.totalAmount ?? 0),
+        currency: String(row.currency ?? "NGN"),
+        paymentStatus: String(row.paymentStatus ?? ""),
+        codState: (row.codState ?? null) as string | null,
+      };
+    }
+  }
 
   // ── Resolve/create the customer (unique per tenant+phone) ─────────────
   const phone = opts.customerPhone.trim();
@@ -127,7 +165,7 @@ export async function createOfflineOrder(
       paymentStatus: amountPaid >= total && total > 0 ? "completed" : amountPaid > 0 ? "initiated" : "unpaid",
       codState: isCod ? "cod_pending" : null,
       items: lines.map((l) => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.unitPrice })),
-      metadata: { source: "offline", paymentMethod: opts.paymentMethod },
+      metadata: { source: "offline", paymentMethod: opts.paymentMethod, ...(clientRef ? { clientRef } : {}) },
       notes: opts.note ?? null,
       createdAt: now,
       updatedAt: now,

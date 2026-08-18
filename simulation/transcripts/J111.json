@@ -1,0 +1,45 @@
+{
+  "id": "J111",
+  "title": "journey automation — win-back flow (M6)",
+  "feature": "send_template→wait_for_reply→condition→exit via journey-tick cron; reply branches path; frequency cap + Lagos quiet hours respected (injectable sim clock)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348019241749",
+      "wamid": "wamid.sim.000522",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080917210,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013743121",
+      "wamid": "wamid.sim.000523",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080917219,
+      "kind": "template",
+      "templateName": "sim_broadcast",
+      "templateLanguage": "en_US"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019241749",
+      "wamid": "wamid.sim.000524",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080917666,
+      "kind": "template",
+      "templateName": "sim_vip_j111",
+      "templateLanguage": "en_US"
+    }
+  ]
+}

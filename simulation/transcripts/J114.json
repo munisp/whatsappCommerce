@@ -1,0 +1,8 @@
+{
+  "id": "J114",
+  "title": "bandit rewards + off-policy replay (O4)",
+  "feature": "seeded decisions + outcomes → reward tick → banditStatus coverage → banditReplay lift vs ×1.0 baseline → shadow suggest unchanged",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

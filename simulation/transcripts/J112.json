@@ -1,0 +1,8 @@
+{
+  "id": "J112",
+  "title": "ml lead scoring → at-risk win-back → pipeline movement (O3)",
+  "feature": "seed order history → trainLeadModel → atRiskList propensity + scoreSource ml → createWinBackCampaign → pipelineSummary movement",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

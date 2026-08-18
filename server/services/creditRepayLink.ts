@@ -110,6 +110,14 @@ export interface CreateRepaymentLinkInput {
   amountCents?: number | null;
   poId?: string | null;
   customerPhone?: string | null;
+  /**
+   * W23 (additive): caller-supplied idempotency key. When provided, a second
+   * call with the SAME key returns the still-open link (same reference /
+   * payment URL / intent) instead of minting a duplicate — safe for UI
+   * retries and double-taps. A key whose intent reached a terminal state
+   * (completed/failed) mints a fresh link.
+   */
+  idempotencyKey?: string | null;
 }
 
 export interface RepaymentLinkResult {
@@ -150,6 +158,38 @@ export async function createRepaymentLink(
     );
   }
 
+  // ── Idempotent reference (W23): reuse the open link for a repeated key ──
+  const linkIdemKey = input.idempotencyKey?.trim()
+    ? `credit-repayment-link:${input.idempotencyKey.trim()}`
+    : null;
+  if (linkIdemKey) {
+    const existing = await db
+      .select()
+      .from(paymentIntents)
+      .where(eq(paymentIntents.idempotencyKey, linkIdemKey))
+      .limit(1)
+      .catch(() => [] as any[]);
+    const row = (Array.isArray(existing) ? existing : [])[0];
+    if (
+      row &&
+      row.tenantId === input.buyerTenantId &&
+      (row.status === "pending" || row.status === "initiated") &&
+      (row.metadata as any)?.accountId === input.accountId &&
+      Math.round(Number(row.amount) * 100) === amountCents
+    ) {
+      return {
+        paymentIntentId: row.id,
+        reference: row.providerPaymentId,
+        paymentUrl: (row.metadata as any)?.paymentUrl ?? null,
+        instructions: (row.metadata as any)?.instructions ?? null,
+        provider: (row.metadata as any)?.servedProvider ?? row.provider,
+        amountCents,
+        currency: account.currency,
+        outstandingCents: outstanding,
+      };
+    }
+  }
+
   const amountMajor = amountCents / 100;
   const paymentIntentId = randomUUID();
   const reference = `CRP-${Date.now()}-${paymentIntentId.slice(0, 8).toUpperCase()}`;
@@ -175,7 +215,7 @@ export async function createRepaymentLink(
     currency: account.currency,
     provider: "paystack",
     providerPaymentId: reference,
-    idempotencyKey: `credit-repayment:${paymentIntentId}`,
+    idempotencyKey: linkIdemKey ?? `credit-repayment:${paymentIntentId}`,
     status: "pending",
     metadata,
     createdAt: now,
