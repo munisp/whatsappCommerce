@@ -235,3 +235,56 @@ models); nightly retrain tick plus on-demand retrain; per-version rows in
 `credit_pd_models` enable rollback. Drift is monitored via calibration of
 predicted PD vs observed default rate by decile and PSI on the repayment
 features.
+
+## 5. LLM copilot (W22) — merchant Q&A + SOC2 incident triage
+
+### Purpose
+Two copilot capabilities over the EXISTING provider wrapper
+(`server/_core/llm.ts` `invokeLLM` — no new provider, no new deps), in
+`server/services/llmCopilot.ts`:
+- `triageIncident(tenantId, incidentId)` — structured SOC2 triage
+  `{ severitySuggestion, likelyCause, runbookSteps[], postmortemDraft }`
+  built from the incident row + related `anomaly_alerts` + a
+  keyword-retrieved excerpt of `docs/SOC2/*.md` (read from disk, chunked by
+  markdown section, cached in memory, scored by query-token overlap).
+- `merchantAsk(tenantId, question)` — merchant Q&A grounded on a compact
+  tenant-scoped AGGREGATE snapshot: today's `salesCents` (integer cents),
+  order count, top products (30d), credit outstanding/limit (integer cents).
+
+### Provider gating
+The LLM is invoked ONLY when `COPILOT_LLM_ENABLED=1|true` AND the shared
+wrapper has `LLM_API_KEY` configured. Default OFF — tests and the
+simulation run deterministically on the fallback. See `env.example.txt`.
+
+### Fallback contract (never throws)
+Provider disabled, network/HTTP failure, or unparseable/underspecified
+reply → deterministic heuristic fallback with `fallbackUsed: true`:
+- triage: keyword severity rules (`purge/export/breach → critical`,
+  `payment/webhook/outage → high`, …) + generic SOC2 response steps spliced
+  with bullet lines from the retrieved runbook excerpt.
+- ask: a template answer assembled from the aggregate snapshot,
+  question-aware (sales / top products / credit), empty-snapshot safe.
+Missing incident rows and DB faults degrade to the same contract; no code
+path throws.
+
+### Redaction
+Every string entering a prompt passes `redactForPrompt()`: reuses
+`compliance/fakeHttp.redactSecrets` for the configured provider key plus
+deterministic regexes for phone numbers (8+ digits), e-mails, `Bearer`
+tokens and `api_key/token/secret/password=…` pairs. Merchant questions are
+redacted and truncated (500 chars) before assembly; triage prompts carry
+aggregate alert signals only, never row-level customer data.
+
+### Audit logging
+Every invocation inserts one `copilot_queries` row (migration 0067):
+`(id, tenant_id, kind 'triage'|'ask', prompt_hash sha256, fallback_used,
+latency_ms, created_at)`. Hashes/aggregates only — raw prompts, answers and
+PII are NEVER persisted. Insert failures are warn-and-continue.
+
+### Prompt construction
+`triage`: fixed JSON-output instruction + incident block + alert signal
+block + runbook excerpt (≤1200 chars). `ask`: fixed instruction ("answer
+only from the snapshot") + integer-cents snapshot block + redacted
+question. LLM triage replies are parsed with a strict shape validator
+(`severitySuggestion` enum, non-empty cause/steps/postmortem); ask replies
+are plain text bounded to [10, 2000] chars.

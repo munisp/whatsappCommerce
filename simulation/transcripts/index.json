@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T01:36:51.153Z",
+  "generatedAt": "2026-08-18T05:44:15.631Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -81,6 +81,22 @@
       "pass": true,
       "file": "J10.json",
       "messageCount": 18
+    },
+    {
+      "id": "J100",
+      "title": "Contextual-bandit credit limits",
+      "feature": "LinUCB limit multipliers, shadow logging, reward tick, off-policy replay, active-mode cap clamp",
+      "pass": true,
+      "file": "J100.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J101",
+      "title": "LLM copilot — incident triage + merchant ask",
+      "feature": "fallback contract, runbook retrieval, aggregate-grounded answers, prompt redaction, copilot_queries audit log, tenant guards",
+      "pass": true,
+      "file": "J101.json",
+      "messageCount": 0
     },
     {
       "id": "J11",
@@ -785,6 +801,14 @@
       "pass": true,
       "file": "J98.json",
       "messageCount": 24
+    },
+    {
+      "id": "J99",
+      "title": "graph collusion detection",
+      "feature": "tenant trade graph, cycle/concentration/cluster signals, idempotent graph_alerts, scoring flag, tenant guards",
+      "pass": true,
+      "file": "J99.json",
+      "messageCount": 0
     }
   ]
 }

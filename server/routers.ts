@@ -77,6 +77,7 @@ import { mobileMoneyRouter } from "./routers/mobileMoney";
 import { serviceCommerceRouter } from "./routers/serviceCommerce";
 import { analyticsBIRouter } from "./routers/analyticsBI";
 import { complianceRouter } from "./routers/compliance";
+import { copilotRouter } from "./routers/copilot";
 import { medusaRouter } from "./routers/medusa";
 import { webhookDlqRouter } from "./routers/webhookDlq";
 import { provisioningRouter } from "./routers/provisioning";
@@ -202,6 +203,7 @@ export const appRouter = router({
   serviceCommerce: serviceCommerceRouter,
   analyticsBI: analyticsBIRouter,
   compliance: complianceRouter,
+  copilot: copilotRouter,
   medusa: medusaRouter,
   webhookDlq: webhookDlqRouter,
   provisioning: provisioningRouter,

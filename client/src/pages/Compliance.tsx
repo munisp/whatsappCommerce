@@ -1,8 +1,11 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
+import { useActiveTenant } from "@/contexts/TenantContext";
 import { CheckCircle2, ShieldCheck, XCircle, AlertTriangle } from "lucide-react";
 
 /**
@@ -16,6 +19,17 @@ import { CheckCircle2, ShieldCheck, XCircle, AlertTriangle } from "lucide-react"
  * dropped without touching the JSX.
  */
 const complianceApi = (trpc as any).compliance;
+// W22: copilot.triageIncident — same parallel-wave seam as complianceApi.
+const copilotApi = (trpc as any).copilot;
+
+type TriageResult = {
+  severitySuggestion: string;
+  likelyCause: string;
+  runbookSteps: string[];
+  postmortemDraft: string;
+  fallbackUsed: boolean;
+  latencyMs: number;
+};
 
 type AuditChainResult = { ok: boolean; rowsChecked: number; firstBrokenId: string | null };
 type AccessReviewRow = {
@@ -47,6 +61,22 @@ type AnomalyScanResult = {
   baselineBuilding: boolean;
   baselineEvents: number;
   windowEvents: number;
+  alertsCreated: number;
+};
+// W22: graph-collusion alerts (server: compliance.scanGraphCollusion/graphAlerts/updateGraphAlert)
+type GraphAlertRow = {
+  id: string;
+  buyerId: string;
+  signal: "cycle" | "concentration" | "cluster";
+  score: number;
+  status: "open" | "acknowledged" | "dismissed";
+  createdAt: string;
+  evidence?: Record<string, unknown> | null;
+};
+type GraphScanResult = {
+  insufficient: boolean;
+  ordersScanned: number;
+  buyersScored: number;
   alertsCreated: number;
 };
 
@@ -105,6 +135,31 @@ export default function Compliance() {
   const updateAnomalyAlert = complianceApi.updateAnomalyAlert.useMutation({
     onSuccess: () => anomalyAlertsQuery.refetch(),
   }) as { mutate: (input: { alertId: string; status: "acknowledged" | "dismissed" }) => void; isPending: boolean };
+  // W22: graph-collusion detection over the tenant trade graph.
+  const graphAlertsQuery = complianceApi.graphAlerts.useQuery(undefined, {
+    retry: false,
+    refetchInterval: 60_000,
+  }) as { data?: GraphAlertRow[]; isLoading: boolean; isError: boolean; refetch: () => void };
+  const graphScan = complianceApi.scanGraphCollusion.useMutation({
+    onSuccess: () => graphAlertsQuery.refetch(),
+  }) as { mutate: (input?: Record<string, never>) => void; isPending: boolean; data?: GraphScanResult };
+  const updateGraphAlert = complianceApi.updateGraphAlert.useMutation({
+    onSuccess: () => graphAlertsQuery.refetch(),
+  }) as { mutate: (input: { alertId: string; status: "acknowledged" | "dismissed" }) => void; isPending: boolean };
+
+  // W22: AI triage per incident (LLM copilot; fallback-safe server side).
+  const { activeTenantId } = useActiveTenant();
+  const [triageFor, setTriageFor] = useState<string | null>(null);
+  const [triageResults, setTriageResults] = useState<Record<string, TriageResult>>({});
+  const triage = copilotApi.triageIncident.useMutation({
+    onSuccess: (data: TriageResult, vars: { incidentId: string }) => {
+      setTriageResults((prev) => ({ ...prev, [vars.incidentId]: data }));
+      setTriageFor(vars.incidentId);
+    },
+  }) as {
+    mutate: (input: { tenantId: string; incidentId: string }) => void;
+    isPending: boolean;
+  };
 
   const chain = auditChain.data;
   const incidentData = incidents.data;
@@ -189,6 +244,7 @@ export default function Compliance() {
                           <TableHead>Severity</TableHead>
                           <TableHead>Status</TableHead>
                           <TableHead>Opened</TableHead>
+                          <TableHead>AI</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -202,10 +258,55 @@ export default function Compliance() {
                               <Badge className={statusColors[inc.status] ?? ""}>{inc.status}</Badge>
                             </TableCell>
                             <TableCell>{fmtDate(inc.openedAt)}</TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!activeTenantId || triage.isPending}
+                                onClick={() =>
+                                  activeTenantId &&
+                                  triage.mutate({ tenantId: activeTenantId, incidentId: inc.id })
+                                }
+                              >
+                                {triage.isPending && triageFor === inc.id ? "Triaging…" : "AI triage"}
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
+                  )}
+                  {triageFor && triageResults[triageFor] && (
+                    <div className="space-y-2 rounded-md border border-border p-3">
+                      <div className="flex items-center gap-2">
+                        <Badge className={severityColors[triageResults[triageFor].severitySuggestion] ?? ""}>
+                          suggested: {triageResults[triageFor].severitySuggestion}
+                        </Badge>
+                        <Badge variant="outline">
+                          {triageResults[triageFor].fallbackUsed ? "heuristic fallback" : "LLM"}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {triageResults[triageFor].latencyMs} ms
+                        </span>
+                      </div>
+                      <p className="text-sm">
+                        <span className="font-medium">Likely cause:</span> {triageResults[triageFor].likelyCause}
+                      </p>
+                      <div>
+                        <p className="text-sm font-medium">Runbook steps</p>
+                        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+                          {triageResults[triageFor].runbookSteps.map((s, i) => (
+                            <li key={i}>{s}</li>
+                          ))}
+                        </ol>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Postmortem draft</p>
+                        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                          {triageResults[triageFor].postmortemDraft}
+                        </p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </>
@@ -313,6 +414,83 @@ export default function Compliance() {
                               type="button"
                               className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent"
                               onClick={() => updateAnomalyAlert.mutate({ alertId: a.id, status: "dismissed" })}
+                            >
+                              Dismiss
+                            </button>
+                          </>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* W22: graph-based collusion detection over the tenant trade graph */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Collusion Detection</span>
+              <button
+                type="button"
+                className="rounded-md border border-border px-3 py-1 text-sm hover:bg-accent disabled:opacity-50"
+                disabled={graphScan.isPending}
+                onClick={() => graphScan.mutate({})}
+              >
+                {graphScan.isPending ? "Scanning…" : "Run graph scan"}
+              </button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {graphScan.data?.insufficient && (
+              <p className="text-sm text-muted-foreground">
+                Insufficient trade data ({graphScan.data.ordersScanned} orders) — graph signals activate once enough history exists.
+              </p>
+            )}
+            {graphAlertsQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading graph alerts…</p>
+            ) : graphAlertsQuery.isError || !graphAlertsQuery.data ? (
+              <p className="text-sm text-yellow-400">Graph alerts unavailable.</p>
+            ) : graphAlertsQuery.data.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No collusion alerts.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Buyer</TableHead>
+                    <TableHead>Signal</TableHead>
+                    <TableHead>Score</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Time</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {graphAlertsQuery.data.map((a) => (
+                    <TableRow key={a.id}>
+                      <TableCell className="font-medium">{a.buyerId}</TableCell>
+                      <TableCell>{a.signal}</TableCell>
+                      <TableCell>{a.score.toFixed(2)}</TableCell>
+                      <TableCell>
+                        <Badge className={anomalyStatusColors[a.status] ?? ""}>{a.status}</Badge>
+                      </TableCell>
+                      <TableCell>{fmtDate(a.createdAt)}</TableCell>
+                      <TableCell className="space-x-2">
+                        {a.status === "open" && (
+                          <>
+                            <button
+                              type="button"
+                              className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent"
+                              onClick={() => updateGraphAlert.mutate({ alertId: a.id, status: "acknowledged" })}
+                            >
+                              Ack
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-md border border-border px-2 py-0.5 text-xs hover:bg-accent"
+                              onClick={() => updateGraphAlert.mutate({ alertId: a.id, status: "dismissed" })}
                             >
                               Dismiss
                             </button>

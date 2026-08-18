@@ -2132,6 +2132,26 @@ async function startServer() {
     }
   });
 
+  // ── Bandit Reward Tick (W22) ──────────────────────────────────────────────
+  // Sweeps bandit_decisions lacking a reward and assigns it from realized
+  // repayment outcomes (1 on-time / 0.5 late-cured / 0 default;
+  // services/banditLimits.ts). Follows the pd-model-tick wiring pattern:
+  // cron-only, service owns the logic, never throws.
+  app.post("/api/scheduled/bandit-reward-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runBanditRewardTick } = await import("../services/banditLimits");
+      const summary = await runBanditRewardTick(db, new Date());
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[bandit-reward-tick]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── Scheduled Broadcast Dispatch ──────────────────────────────────────────
   // Picks up campaigns scheduled via broadcast.send(scheduleAt) — status
   // 'scheduled' with scheduledAt <= now — and runs the REAL consent-gated,

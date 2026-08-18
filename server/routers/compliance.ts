@@ -4,13 +4,14 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   taxFilings, cacRegistrations, procurementBids, governmentContracts,
-  users, tenantMemberships, sessionRevocations, incidents, anomalyAlerts,
+  users, tenantMemberships, sessionRevocations, incidents, anomalyAlerts, graphAlerts,
   customers, orders, conversations, channelMessages, creditAccounts,
 } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { appendAuditEventTx, verifyAuditChain } from "../services/auditChain";
 import { scanAuditAnomaliesTx } from "../services/auditAnomaly";
+import { scanGraphCollusionTx } from "../services/graphCollusion";
 import {
   listRetentionPolicies, purgeExecute, purgePreview,
   UnknownEntityError, upsertRetentionPolicy,
@@ -461,6 +462,50 @@ export const complianceRouter = router({
       if (!alert) throw new TRPCError({ code: "NOT_FOUND", message: "Anomaly alert not found" });
       assertTenantAccess(ctx.user, alert.tenantId);
       await db.update(anomalyAlerts).set({ status: input.status }).where(eq(anomalyAlerts.id, input.alertId));
+      return { ok: true };
+    }),
+
+  // ── W22: graph-based collusion detection ─────────────────────────────────
+  scanGraphCollusion: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      windowMs: z.number().int().min(60_000).optional(),
+      now: z.string().optional(), // ISO override for deterministic tests/journeys
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = (await getDb())!;
+      return scanGraphCollusionTx(db, input.tenantId, {
+        windowMs: input.windowMs,
+        now: input.now ? new Date(input.now) : undefined,
+      });
+    }),
+
+  graphAlerts: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      status: anomalyAlertStatusEnum.optional(),
+      limit: z.number().default(50),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = (await getDb())!;
+      const conds = [eq(graphAlerts.tenantId, input.tenantId)];
+      if (input.status) conds.push(eq(graphAlerts.status, input.status));
+      return db.select().from(graphAlerts).where(and(...conds)).orderBy(desc(graphAlerts.createdAt)).limit(input.limit);
+    }),
+
+  updateGraphAlert: protectedProcedure
+    .input(z.object({
+      alertId: z.string(),
+      status: z.enum(["acknowledged", "dismissed"]),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = (await getDb())!;
+      const [alert] = await db.select().from(graphAlerts).where(eq(graphAlerts.id, input.alertId)).limit(1);
+      if (!alert) throw new TRPCError({ code: "NOT_FOUND", message: "Graph alert not found" });
+      assertTenantAccess(ctx.user, alert.tenantId);
+      await db.update(graphAlerts).set({ status: input.status }).where(eq(graphAlerts.id, input.alertId));
       return { ok: true };
     }),
 
