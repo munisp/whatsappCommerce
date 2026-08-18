@@ -315,6 +315,16 @@ export interface SuggestedLimit {
   /** ₦ (normalized from suggestedLimitCents). */
   suggested: number;
   reasons: string[];
+  /** W21: probability of default (0..1), when the scorer enriched it. */
+  pd?: number;
+  /** W21: which path produced `pd` — trained ML model or rule proxy. */
+  pdSource?: "ml" | "rules";
+  /** W21: expected-loss fee (bps), capped at the rule-score band fee. */
+  expectedLossFeeBps?: number;
+  /** W21: the rule-score band fee (bps) the EL fee is capped by. */
+  bandFeeBps?: number;
+  /** W22: bandit decision metadata, when a decision was logged. */
+  bandit?: { chosenMultiplier: number; mode: "shadow" | "active" };
 }
 
 // ─── procurement.* (S2 — real router: server/routers/procurement.ts) ────────
@@ -484,6 +494,43 @@ export function useCreditLedger(
   return trpc.tradeCredit.myLedger.useQuery({ buyerTenantId: tenantId, accountId: accountId ?? "" }, { enabled, select }) as QueryResult<LedgerEntry[]>;
 }
 
+/** W22 bandit status (decisions logged, reward coverage, serving mode). */
+export interface BanditStatusInfo {
+  mode: "shadow" | "active";
+  activeServing: boolean;
+  minRewardedDecisions: number;
+  multipliers: number[];
+  decisionsLogged: number;
+  rewardedDecisions: number;
+  rewardCoverage: number;
+  lastDecisionAt: string | Date | null;
+}
+
+/** W22 bandit replay (off-policy estimate vs the ×1.0 baseline arm). */
+export interface BanditReplayInfo {
+  matchedDecisions: number;
+  banditAvgReward: number | null;
+  baselineAvgReward: number | null;
+  lift: number | null;
+  perMultiplier: Array<{ multiplier: number; decisions: number; avgReward: number | null }>;
+}
+
+/** W22: bandit serving status for a supplier tenant (tenant-guarded). */
+export function useBanditStatus(tenantId: string, opts?: QOpts): QueryResult<BanditStatusInfo> {
+  return trpc.tradeCredit.banditStatus.useQuery(
+    { tenantId },
+    { enabled: !!tenantId && opts?.enabled !== false },
+  ) as QueryResult<BanditStatusInfo>;
+}
+
+/** W22: off-policy replay estimate for a supplier tenant (tenant-guarded). */
+export function useBanditReplay(tenantId: string, opts?: QOpts): QueryResult<BanditReplayInfo> {
+  return trpc.tradeCredit.banditReplay.useQuery(
+    { tenantId },
+    { enabled: !!tenantId && opts?.enabled !== false },
+  ) as QueryResult<BanditReplayInfo>;
+}
+
 /** Supplier-side deterministic limit suggestion for a buyer (supplier-gated). */
 export function useSuggestLimit(supplierTenantId: string, buyerTenantId: string | null, opts?: QOpts): QueryResult<SuggestedLimit> {
   return trpc.tradeCredit.suggestLimit.useQuery(
@@ -494,6 +541,11 @@ export function useSuggestLimit(supplierTenantId: string, buyerTenantId: string 
         score: r.score,
         suggested: r.suggestedLimitCents / 100,
         reasons: r.reasons ?? [],
+        pd: r.pd,
+        pdSource: r.pdSource,
+        expectedLossFeeBps: r.expectedLossFeeBps,
+        bandFeeBps: r.terms?.feeBps,
+        bandit: r.bandit,
       }),
     },
   ) as QueryResult<SuggestedLimit>;

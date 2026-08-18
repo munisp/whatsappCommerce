@@ -1,0 +1,8 @@
+{
+  "id": "J97",
+  "title": "ML probability-of-default credit model",
+  "feature": "logistic-regression PD model + expected-loss pricing + rules/global fallback + cron retrain",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

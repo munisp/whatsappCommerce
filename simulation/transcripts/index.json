@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-12T08:38:40.201Z",
+  "generatedAt": "2026-08-18T05:44:15.631Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -81,6 +81,22 @@
       "pass": true,
       "file": "J10.json",
       "messageCount": 18
+    },
+    {
+      "id": "J100",
+      "title": "Contextual-bandit credit limits",
+      "feature": "LinUCB limit multipliers, shadow logging, reward tick, off-policy replay, active-mode cap clamp",
+      "pass": true,
+      "file": "J100.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J101",
+      "title": "LLM copilot — incident triage + merchant ask",
+      "feature": "fallback contract, runbook retrieval, aggregate-grounded answers, prompt redaction, copilot_queries audit log, tenant guards",
+      "pass": true,
+      "file": "J101.json",
+      "messageCount": 0
     },
     {
       "id": "J11",
@@ -726,9 +742,9 @@
       "id": "J91",
       "title": "crm lead scoring + win-back",
       "feature": "RFM+credit lead score → pipeline → at-risk win-back broadcast → reply lifts score",
-      "pass": true,
+      "pass": false,
       "file": "J91.json",
-      "messageCount": 4
+      "messageCount": 0
     },
     {
       "id": "J92",
@@ -744,6 +760,54 @@
       "feature": "program CRUD/caps, checkDrawAllowed, program-capped suggestLimit, book cure",
       "pass": true,
       "file": "J93.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J94",
+      "title": "soc2 compliance controls",
+      "feature": "incident lifecycle, audit-chain verify/tamper detection, retention purge preview/execute, access review",
+      "pass": true,
+      "file": "J94.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J95",
+      "title": "ml propensity lead scoring",
+      "feature": "logistic-regression propensity model + rules fallback + cron retrain",
+      "pass": true,
+      "file": "J95.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J96",
+      "title": "audit-stream anomaly detection",
+      "feature": "EWMA baselines, robust z-score alerts, idempotent scan buckets, auto-incident, ack/dismiss, tenant guards",
+      "pass": true,
+      "file": "J96.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J97",
+      "title": "ML probability-of-default credit model",
+      "feature": "logistic-regression PD model + expected-loss pricing + rules/global fallback + cron retrain",
+      "pass": true,
+      "file": "J97.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J98",
+      "title": "uplift-modeled broadcast targeting",
+      "feature": "two-model uplift ranking replaces win-back heuristic; caps + consent unchanged; fallback when untrained",
+      "pass": true,
+      "file": "J98.json",
+      "messageCount": 24
+    },
+    {
+      "id": "J99",
+      "title": "graph collusion detection",
+      "feature": "tenant trade graph, cycle/concentration/cluster signals, idempotent graph_alerts, scoring flag, tenant guards",
+      "pass": true,
+      "file": "J99.json",
       "messageCount": 0
     }
   ]

@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011834245",
-      "profileName": "Sim User 4245",
+      "phone": "2348018145820",
+      "profileName": "Sim User 5820",
       "inboundId": "wamid.sim.in.img.00271",
-      "at": 1786993328796,
+      "at": 1787031814955,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-j85-shelf"
@@ -19,25 +19,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00271",
-      "at": 1786993328800
+      "at": 1787031814959
     },
     {
       "dir": "out",
-      "phone": "2348011834245",
+      "phone": "2348018145820",
       "wamid": "wamid.sim.000424",
       "statuses": [
         "sent"
       ],
-      "at": 1786993328829,
+      "at": 1787031814988,
       "kind": "text",
       "body": "📷 I counted: 12× Indomie Pack, 30× Pure Water Sachet. Reply APPLY to update stock or REVIEW to check first."
     },
     {
       "dir": "in",
-      "phone": "2348011834245",
-      "profileName": "Sim User 4245",
+      "phone": "2348018145820",
+      "profileName": "Sim User 5820",
       "inboundId": "wamid.sim.in.text.00272",
-      "at": 1786993329345,
+      "at": 1787031815503,
       "kind": "text",
       "text": "APPLY"
     },
@@ -45,25 +45,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00272",
-      "at": 1786993329349
+      "at": 1787031815507
     },
     {
       "dir": "out",
-      "phone": "2348011834245",
+      "phone": "2348018145820",
       "wamid": "wamid.sim.000425",
       "statuses": [
         "sent"
       ],
-      "at": 1786993329371,
+      "at": 1787031815523,
       "kind": "text",
       "body": "✅ Updated stock for 1 item(s). 1 item(s) had lower confidence and were NOT applied — please review them in your dashboard."
     },
     {
       "dir": "in",
-      "phone": "2348011026503",
-      "profileName": "Sim User 6503",
+      "phone": "2348013782568",
+      "profileName": "Sim User 2568",
       "inboundId": "wamid.sim.in.img.00273",
-      "at": 1786993329899,
+      "at": 1787031816056,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-j85-off"
@@ -72,7 +72,7 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00273",
-      "at": 1786993329903
+      "at": 1787031816060
     }
   ]
 }

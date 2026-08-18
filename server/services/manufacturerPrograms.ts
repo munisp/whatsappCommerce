@@ -545,7 +545,9 @@ export async function suggestLimitForProgramTx(
     buyerTenantId: string,
     supplierTenantId: string,
   ) => Promise<CreditScoreResult> = (scoreDb, buyerTenantId, supplierTenantId) =>
-    suggestLimitTx(scoreDb, buyerTenantId, supplierTenantId),
+    // W22: the program path applies the bandit AFTER the program caps
+    // (below), so the raw scorer's own bandit step is disabled here.
+    suggestLimitTx(scoreDb, buyerTenantId, supplierTenantId, new Date(), { bandit: false }),
 ): Promise<ProgramLimitSuggestion> {
   const program = await getProgramForTenant(db, args.programId, args.tenantId);
   if (!program) throw new ProgramNotFoundError(args.programId);
@@ -560,14 +562,54 @@ export async function suggestLimitForProgramTx(
       `capped by program: min(platform ${base.suggestedLimitCents}, maxExposure ${program.maxExposureCents}, remaining capacity ${remainingCapacityCents})`,
     );
   }
+
+  // ── W22: contextual-bandit limit decision on the PROGRAM-CAPPED baseline ──
+  // The bandit's multiplier is applied to the capped suggestion and the
+  // result is re-clamped by the SAME program caps — hard constraints the
+  // bandit can never exceed, even in active mode. Shadow mode (default):
+  // the decision is logged and the returned limit is unchanged. Never throws.
+  let finalSuggested = suggestedLimitCents;
+  let bandit: ProgramLimitSuggestion["bandit"];
+  try {
+    const { banditSuggestTx } = await import("./banditLimits");
+    const res = await banditSuggestTx(db, {
+      tenantId: program.tenantId,
+      buyerId: args.buyerTenantId,
+      baselineLimitCents: suggestedLimitCents,
+      pd: base.pd,
+      caps: { maxExposureCents: program.maxExposureCents, remainingCapacityCents },
+    });
+    if (!res.fallbackUsed) {
+      bandit = { chosenMultiplier: res.chosenMultiplier, mode: res.mode };
+      if (res.mode === "active") {
+        finalSuggested = Math.min(
+          res.suggestedLimitCents,
+          program.maxExposureCents,
+          remainingCapacityCents,
+        );
+        if (res.chosenMultiplier !== 1) {
+          reasons.push(
+            `bandit active: ×${res.chosenMultiplier} → ${res.banditLimitCents} (cap-clamped to ${finalSuggested})`,
+          );
+        }
+      }
+    }
+  } catch {
+    // Bandit step is best-effort; the capped rule-based result stands alone.
+  }
+
   return {
     score: base.score,
-    suggestedLimitCents,
+    suggestedLimitCents: finalSuggested,
     baseSuggestedLimitCents: base.suggestedLimitCents,
     programId: program.id,
     reasons,
     terms: base.terms,
     antiGamingFlags: base.antiGamingFlags,
+    pd: base.pd,
+    pdSource: base.pdSource,
+    expectedLossFeeBps: base.expectedLossFeeBps,
+    bandit,
   };
 }
 

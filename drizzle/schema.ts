@@ -1,6 +1,7 @@
 import {
   boolean,
   decimal,
+  doublePrecision,
   integer,
   jsonb,
   pgEnum,
@@ -3378,3 +3379,230 @@ export const customerLeadScores = pgTable("customer_lead_scores", {
 ]);
 export type CustomerLeadScore = typeof customerLeadScores.$inferSelect;
 export type NewCustomerLeadScore = typeof customerLeadScores.$inferInsert;
+
+// ── W19 SOC2: tamper-evident audit chain ────────────────────────────────────
+// Append-only hash-chained audit log. Each row's `hash` =
+// sha256(prevHash + canonical(event fields)) — see server/services/auditChain.ts.
+// `prev_hash` links to the previous row's hash (GENESIS_HASH for the first
+// row), so any edit/delete/reorder breaks verification. tenant_id is nullable
+// for platform-level events.
+export const auditChain = pgTable("audit_chain", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  tenantId:  varchar("tenant_id", { length: 36 }),
+  eventType: varchar("event_type", { length: 100 }).notNull(),
+  actorId:   varchar("actor_id", { length: 64 }),
+  payload:   jsonb("payload_jsonb"),
+  prevHash:  varchar("prev_hash", { length: 64 }).notNull(),
+  hash:      varchar("hash", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("audit_chain_tenant_idx").on(t.tenantId),
+  index("audit_chain_created_idx").on(t.createdAt),
+  index("audit_chain_event_type_idx").on(t.eventType),
+]);
+export type AuditChainRow = typeof auditChain.$inferSelect;
+export type NewAuditChainRow = typeof auditChain.$inferInsert;
+
+// ── W19 SOC2: data retention policies ───────────────────────────────────────
+// One row per (tenant, entity): how many days rows of that entity are kept
+// before purge. legal_hold=true exempts the entity from purge (litigation /
+// regulator hold). Consumed by server/services/retention.ts.
+export const retentionPolicies = pgTable("retention_policies", {
+  id:            uuid("id").primaryKey().defaultRandom(),
+  tenantId:      varchar("tenant_id", { length: 36 }).notNull(),
+  entity:        varchar("entity", { length: 64 }).notNull(),
+  retentionDays: integer("retention_days").notNull(),
+  legalHold:     boolean("legal_hold").notNull().default(false),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("retention_policies_tenant_entity_uniq").on(t.tenantId, t.entity),
+  index("retention_policies_tenant_idx").on(t.tenantId),
+]);
+export type RetentionPolicy = typeof retentionPolicies.$inferSelect;
+export type NewRetentionPolicy = typeof retentionPolicies.$inferInsert;
+
+// ── W19 SOC2: incident log ──────────────────────────────────────────────────
+// Security/availability incident register. Status machine:
+// open → investigating → mitigated → resolved (resolved_at set on resolve).
+export const incidents = pgTable("incidents", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  severity:    varchar("severity", { length: 20 }).notNull().default("low"), // 'low' | 'medium' | 'high' | 'critical'
+  status:      varchar("status", { length: 20 }).notNull().default("open"), // 'open' | 'investigating' | 'mitigated' | 'resolved'
+  title:       varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  openedAt:    timestamp("opened_at").notNull().defaultNow(),
+  resolvedAt:  timestamp("resolved_at"),
+}, (t) => [
+  index("incidents_tenant_idx").on(t.tenantId),
+  index("incidents_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type Incident = typeof incidents.$inferSelect;
+export type NewIncident = typeof incidents.$inferInsert;
+
+// ── W20: ML propensity lead-scoring model registry ─────────────────────────
+// One row per trained per-tenant logistic-regression model
+// (server/services/mlLeadScoring.ts). weights_jsonb is a number[] aligned
+// with feature_names (a string[]); version increments per tenant per train.
+// Training rows are gated by MIN_TRAIN_SAMPLES — tenants below the gate have
+// NO rows here and scoring falls back to the rule-based lead score.
+export const leadScoreModels = pgTable("lead_score_models", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  weights:      jsonb("weights_jsonb").notNull(), // number[], aligned with featureNames
+  featureNames: jsonb("feature_names").notNull(), // string[]
+  trainedAt:    timestamp("trained_at").notNull().defaultNow(),
+  sampleCount:  integer("sample_count").notNull(),
+  logloss:      real("logloss"), // final training log-loss (null if not computed)
+  version:      integer("version").notNull().default(1),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("lead_score_models_tenant_idx").on(t.tenantId),
+  uniqueIndex("lead_score_models_tenant_version_uniq").on(t.tenantId, t.version),
+]);
+export type LeadScoreModel = typeof leadScoreModels.$inferSelect;
+export type NewLeadScoreModel = typeof leadScoreModels.$inferInsert;
+
+// ── W21: ML probability-of-default (PD) credit model registry ──────────────
+// One row per trained logistic-regression PD model
+// (server/services/tradeCredit/mlPdScoring.ts). tenant_id is NULLABLE: a
+// null-tenant row is the GLOBAL corpus model used as fallback when a
+// tenant's own book is below the minimum-sample gate. weights_jsonb is a
+// number[] aligned with feature_names (a string[]); version increments per
+// scope per train. Tenants/scopes below the gate have NO rows here and PD
+// scoring falls back to the rule-score proxy (pd = 1 − score/100).
+export const creditPdModels = pgTable("credit_pd_models", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }), // NULL = global corpus model
+  weights:      jsonb("weights_jsonb").notNull(), // number[], aligned with featureNames
+  featureNames: jsonb("feature_names").notNull(), // string[]
+  trainedAt:    timestamp("trained_at").notNull().defaultNow(),
+  sampleCount:  integer("sample_count").notNull(),
+  logloss:      real("logloss"), // final training log-loss (null if not computed)
+  auc:          real("auc"), // rank AUC on the training set (null when single-class)
+  version:      integer("version").notNull().default(1),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("credit_pd_models_tenant_idx").on(t.tenantId),
+  uniqueIndex("credit_pd_models_tenant_version_uniq").on(t.tenantId, t.version),
+]);
+export type CreditPdModel = typeof creditPdModels.$inferSelect;
+export type NewCreditPdModel = typeof creditPdModels.$inferInsert;
+
+// ── W21: uplift-modeled broadcast targeting model registry ──────────────────
+// Per-tenant, per-role ('treatment' | 'control') logistic-regression weights
+// learned by server/services/mlUplift.ts: treatment arm from customers who
+// received a prior broadcast/win-back message, control arm from comparable
+// non-messaged customers. scoreUplift = pTreatment − pControl. Tenants below
+// the per-arm minimum-sample gate have no rows → heuristic segment fallback.
+export const upliftModels = pgTable("uplift_models", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  role:         varchar("role", { length: 16 }).notNull(), // 'treatment' | 'control'
+  weights:      jsonb("weights_jsonb").notNull(), // number[], aligned with featureNames
+  featureNames: jsonb("feature_names").notNull(), // string[]
+  trainedAt:    timestamp("trained_at").notNull().defaultNow(),
+  sampleCount:  integer("sample_count").notNull(),
+  logloss:      real("logloss"), // final training log-loss (null if not computed)
+  version:      integer("version").notNull().default(1),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("uplift_models_tenant_idx").on(t.tenantId),
+  uniqueIndex("uplift_models_tenant_role_version_uniq").on(t.tenantId, t.role, t.version),
+]);
+export type UpliftModel = typeof upliftModels.$inferSelect;
+export type NewUpliftModel = typeof upliftModels.$inferInsert;
+
+// ── W22: contextual-bandit credit-limit decision log ────────────────────────
+// One row per limit suggestion the LinUCB bandit scored
+// (server/services/banditLimits.ts). context is the normalized feature
+// vector (number[], aligned with BANDIT_FEATURE_NAMES); chosenMultiplier is
+// the arm the policy picked; suggestedLimitCents is the bandit's
+// (cap-clamped) limit, baselineLimitCents the rule-based baseline. mode is
+// 'shadow' (default: logged, not applied) or 'active' (only with
+// BANDIT_LIMITS_MODE=active AND the min-rewarded-decisions gate met; always
+// clamped by manufacturer program caps). reward is NULL until the
+// bandit-reward-tick cron assigns it from repayment outcomes
+// (1 on-time, 0.5 late-cured, 0 default).
+export const banditDecisions = pgTable("bandit_decisions", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  tenantId:            varchar("tenant_id", { length: 36 }).notNull(),
+  buyerId:             varchar("buyer_id", { length: 36 }).notNull(),
+  context:             jsonb("context_jsonb").notNull(), // number[], aligned with BANDIT_FEATURE_NAMES
+  chosenMultiplier:    real("chosen_multiplier").notNull(),
+  suggestedLimitCents: bigint("suggested_limit_cents", { mode: "number" }).notNull(),
+  baselineLimitCents:  bigint("baseline_limit_cents", { mode: "number" }).notNull(),
+  mode:                varchar("mode", { length: 16 }).notNull().default("shadow"), // 'shadow' | 'active'
+  reward:              real("reward"), // NULL until the reward tick assigns it
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("bandit_decisions_tenant_idx").on(t.tenantId),
+  index("bandit_decisions_reward_idx").on(t.reward),
+]);
+export type BanditDecision = typeof banditDecisions.$inferSelect;
+export type NewBanditDecision = typeof banditDecisions.$inferInsert;
+
+// ── W20: audit-stream anomaly detection alerts ──────────────────────────────
+// Alerts emitted by server/services/auditAnomaly.ts when a tenant's audit
+// stream deviates from its learned baseline. Idempotent per
+// (tenant_id, signal, window_bucket): re-scans of the same bucket upsert-nothing.
+export const anomalyAlerts = pgTable("anomaly_alerts", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  signal:      varchar("signal", { length: 100 }).notNull(),
+  score:       doublePrecision("score").notNull(),
+  detail:      jsonb("detail_jsonb"),
+  status:      varchar("status", { length: 20 }).notNull().default("open"), // 'open' | 'acknowledged' | 'dismissed'
+  windowBucket: timestamp("window_bucket").notNull(),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("anomaly_alerts_tenant_signal_bucket_uniq").on(t.tenantId, t.signal, t.windowBucket),
+  index("anomaly_alerts_tenant_idx").on(t.tenantId),
+  index("anomaly_alerts_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type AnomalyAlert = typeof anomalyAlerts.$inferSelect;
+export type NewAnomalyAlert = typeof anomalyAlerts.$inferInsert;
+
+
+// ── W22: graph-based collusion detection alerts ─────────────────────────────
+// Alerts emitted by server/services/graphCollusion.ts when the tenant-level
+// trade-interaction graph shows collusion signals (cycles, concentration,
+// tight clusters). Idempotent per (tenant_id, buyer_id, signal,
+// window_bucket): re-scans of the same bucket upsert-nothing.
+export const graphAlerts = pgTable("graph_alerts", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  buyerId:     varchar("buyer_id", { length: 36 }).notNull(),
+  signal:      varchar("signal", { length: 100 }).notNull(), // 'cycle' | 'concentration' | 'cluster'
+  score:       doublePrecision("score").notNull(),
+  evidence:    jsonb("evidence_jsonb"),
+  status:      varchar("status", { length: 20 }).notNull().default("open"), // 'open' | 'acknowledged' | 'dismissed'
+  windowBucket: timestamp("window_bucket").notNull(),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("graph_alerts_tenant_buyer_signal_bucket_uniq").on(t.tenantId, t.buyerId, t.signal, t.windowBucket),
+  index("graph_alerts_tenant_idx").on(t.tenantId),
+  index("graph_alerts_tenant_status_idx").on(t.tenantId, t.status),
+  index("graph_alerts_buyer_idx").on(t.buyerId),
+]);
+export type GraphAlert = typeof graphAlerts.$inferSelect;
+export type NewGraphAlert = typeof graphAlerts.$inferInsert;
+
+// ── W22: LLM copilot invocation log ─────────────────────────────────────────
+// Audit trail for server/services/llmCopilot.ts (merchant Q&A + SOC2 incident
+// triage). Stores ONLY the sha256 prompt hash, fallback flag and latency —
+// never raw prompts, answers, or PII.
+export const copilotQueries = pgTable("copilot_queries", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  kind:         varchar("kind", { length: 10 }).notNull(), // 'triage' | 'ask'
+  promptHash:   varchar("prompt_hash", { length: 64 }).notNull(), // sha256 hex
+  fallbackUsed: boolean("fallback_used").notNull().default(false),
+  latencyMs:    integer("latency_ms").notNull().default(0),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("copilot_queries_tenant_idx").on(t.tenantId),
+  index("copilot_queries_tenant_created_idx").on(t.tenantId, t.createdAt),
+]);
+export type CopilotQuery = typeof copilotQueries.$inferSelect;
+export type NewCopilotQuery = typeof copilotQueries.$inferInsert;

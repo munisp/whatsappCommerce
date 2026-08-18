@@ -400,6 +400,62 @@
       "when": 1786988353871,
       "tag": "0059_manufacturer_credit_programs",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1786988400000,
+      "tag": "0060_soc2_compliance",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1786988500000,
+      "tag": "0061_lead_score_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786988600000,
+      "tag": "0062_anomaly_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1786988700000,
+      "tag": "0063_credit_pd_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1786988800000,
+      "tag": "0064_uplift_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1786988900000,
+      "tag": "0065_graph_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1786989000000,
+      "tag": "0066_bandit_decisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1786989100000,
+      "tag": "0067_copilot_queries",
+      "breakpoints": true
     }
   ]
 }

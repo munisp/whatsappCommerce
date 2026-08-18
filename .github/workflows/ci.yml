@@ -41,6 +41,12 @@ jobs:
       - name: Production dependency audit (blocking at high)
         run: npm audit --omit=dev --audit-level=high
 
+      # SOC2 controls self-check (CC4.4) — advisory only; a FAIL surfaces
+      # control drift without blocking delivery. Triage per docs/SOC2.
+      - name: SOC2 controls self-check (non-blocking)
+        continue-on-error: true
+        run: npx tsx scripts/soc2-check.ts
+
       - name: Job summary
         if: always()
         run: |

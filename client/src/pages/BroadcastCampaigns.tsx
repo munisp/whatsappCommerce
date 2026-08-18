@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { trpc } from "@/lib/trpc";
@@ -127,6 +128,22 @@ export default function BroadcastCampaigns() {
   const [segMinOrders, setSegMinOrders] = useState("");
   const [segMinSpend, setSegMinSpend] = useState("");
   const [segLastOrderDays, setSegLastOrderDays] = useState("");
+  // W21: AI uplift targeting toggle (send preview dialog).
+  const [rankByUplift, setRankByUplift] = useState(false);
+
+  // W21: uplift model status + on-demand training (per-tenant, guarded server-side).
+  const { data: upliftStatus, refetch: refetchUpliftStatus } = trpc.broadcast.upliftModelStatus.useQuery(
+    { tenantId: "demo-tenant-1" },
+    { retry: false },
+  );
+  const trainUplift = trpc.broadcast.trainUpliftModel.useMutation({
+    onSuccess: (r) => {
+      if (r.trained) toast.success(`Uplift models trained (v${r.version}) — treatment ${r.treatmentSamples}, control ${r.controlSamples}`);
+      else toast.error(`Uplift training skipped: insufficient samples (need ≥${r.minTrainSamplesPerArm} per arm)`);
+      refetchUpliftStatus();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const { activeTenantId } = useActiveTenant();
   const { data: campaignsData, isLoading, refetch } = trpc.broadcast.list.useQuery({ tenantId: activeTenantId });
@@ -210,7 +227,8 @@ export default function BroadcastCampaigns() {
     audienceCount: number;
     inWindowCount: number;
     outOfWindowCount: number;
-    sample: { phone: string; name: string | null; inWindow: boolean }[];
+    upliftRanked?: boolean;
+    sample: { phone: string; name: string | null; inWindow: boolean; uplift?: number }[];
   } | null>(null);
   const dryRunCampaign = trpc.broadcast.send.useMutation({
     onSuccess: (data) => {
@@ -245,6 +263,7 @@ export default function BroadcastCampaigns() {
       setSegMinOrders("");
       setSegMinSpend("");
       setSegLastOrderDays("");
+      setRankByUplift(false);
       setPreviewCampaignId(campaignId);
       setPreviewOpen(true);
     } else {
@@ -274,6 +293,7 @@ export default function BroadcastCampaigns() {
       campaignId: previewCampaignId,
       scheduleAt: scheduleAtLocal ? new Date(scheduleAtLocal).getTime() : undefined,
       segment: buildCurrentSegment(),
+      rankByUplift,
     });
     setPreviewCampaignId(null);
   };
@@ -894,12 +914,18 @@ export default function BroadcastCampaigns() {
                 <p className="text-xs font-semibold text-sky-300">
                   Dry run — {dryRunResult.audienceCount} consented recipients
                   ({dryRunResult.inWindowCount} inside the 24h window, {dryRunResult.outOfWindowCount} need the template)
+                  {dryRunResult.upliftRanked && " — ranked by AI uplift"}
                 </p>
                 {dryRunResult.sample.length > 0 && (
                   <ul className="text-[11px] text-muted-foreground space-y-0.5">
                     {dryRunResult.sample.map((s) => (
                       <li key={s.phone} className="flex justify-between gap-2">
-                        <span className="truncate">{s.name ?? "—"} · {s.phone}</span>
+                        <span className="truncate">
+                          {s.name ?? "—"} · {s.phone}
+                          {typeof s.uplift === "number" && (
+                            <span className="text-primary"> · uplift {s.uplift.toFixed(3)}</span>
+                          )}
+                        </span>
                         <span className={s.inWindow ? "text-emerald-400" : "text-amber-400"}>
                           {s.inWindow ? "24h window" : "template"}
                         </span>
@@ -916,7 +942,7 @@ export default function BroadcastCampaigns() {
               variant="outline"
               className="gap-1.5"
               disabled={dryRunCampaign.isPending || !previewCampaignId}
-              onClick={() => previewCampaignId && dryRunCampaign.mutate({ campaignId: previewCampaignId, dryRun: true, segment: buildCurrentSegment() })}
+              onClick={() => previewCampaignId && dryRunCampaign.mutate({ campaignId: previewCampaignId, dryRun: true, segment: buildCurrentSegment(), rankByUplift })}
             >
               {dryRunCampaign.isPending ? "Checking…" : "Dry Run"}
             </Button>

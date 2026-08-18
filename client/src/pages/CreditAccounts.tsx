@@ -33,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import {
-  useB2bUtils, useCreditAccounts, useCreditLedger, useFreezeAccount,
+  useB2bUtils, useBanditReplay, useBanditStatus, useCreditAccounts, useCreditLedger, useFreezeAccount,
   useRequestLimitIncrease, useSuggestLimit, useTenantNames, useUnfreezeAccount, useUpsertAccount,
 } from "@/lib/b2b";
 import {
@@ -392,6 +392,31 @@ function EditAccountDialog({
             {suggestion.reasons.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
         )}
+        {suggestion && suggestion.pd !== undefined && (
+          <div className="flex items-center gap-2 text-xs">
+            <Badge variant={suggestion.pdSource === "ml" ? "default" : "outline"} className="font-normal">
+              {suggestion.pdSource === "ml" ? "ML model" : "Rules"}
+            </Badge>
+            <span className="text-muted-foreground">
+              PD {(suggestion.pd * 100).toFixed(1)}%
+              {suggestion.expectedLossFeeBps !== undefined && suggestion.bandFeeBps !== undefined && (
+                <> · expected-loss fee {(suggestion.expectedLossFeeBps / 100).toFixed(2)}% vs band {(suggestion.bandFeeBps / 100).toFixed(2)}%</>
+              )}
+            </span>
+          </div>
+        )}
+        {suggestion?.bandit && (
+          <div className="flex items-center gap-2 text-xs">
+            <Badge variant={suggestion.bandit.mode === "active" ? "default" : "outline"} className="font-normal">
+              Adaptive tuning ×{suggestion.bandit.chosenMultiplier}
+            </Badge>
+            <span className="text-muted-foreground">
+              {suggestion.bandit.mode === "active"
+                ? "bandit choice applied (program caps still enforced)"
+                : "shadow mode — logged for learning, limit unchanged"}
+            </span>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
@@ -404,6 +429,54 @@ function EditAccountDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** W22: contextual-bandit status + off-policy replay summary (supplier book). */
+function BanditStatusPanel({ tenantId }: { tenantId: string }) {
+  const { data: status } = useBanditStatus(tenantId);
+  const { data: replay } = useBanditReplay(tenantId);
+  if (!status || status.decisionsLogged === 0) return null;
+  const pct = (v: number | null | undefined) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          Adaptive limit tuning
+          <Badge variant={status.mode === "active" && status.activeServing ? "default" : "outline"} className="font-normal">
+            {status.mode === "active" ? (status.activeServing ? "active" : "active (gated)") : "shadow"}
+          </Badge>
+        </CardTitle>
+        <CardDescription className="text-xs">
+          A contextual bandit learns which limit multiplier repays best. In shadow mode decisions are
+          logged only — served limits are unchanged. Active mode requires BANDIT_LIMITS_MODE=active
+          and {status.minRewardedDecisions} rewarded decisions; program caps always apply.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="text-xs text-muted-foreground space-y-1.5">
+        <p>
+          {status.decisionsLogged} decisions logged · {status.rewardedDecisions} rewarded (
+          {(status.rewardCoverage * 100).toFixed(0)}% coverage)
+          {status.lastDecisionAt ? ` · last ${formatDate(status.lastDecisionAt)}` : ""}
+        </p>
+        {replay && (replay.banditAvgReward != null || replay.baselineAvgReward != null) && (
+          <p>
+            Replay: bandit avg reward {pct(replay?.banditAvgReward)} vs baseline {pct(replay?.baselineAvgReward)}
+            {replay?.lift != null && (
+              <> · lift {(replay.lift >= 0 ? "+" : "") + (replay.lift * 100).toFixed(1)}pp over {replay.matchedDecisions} matched decisions</>
+            )}
+          </p>
+        )}
+        {replay && replay.perMultiplier.some((m) => m.decisions > 0) && (
+          <p>
+            {replay.perMultiplier
+              .filter((m) => m.decisions > 0)
+              .map((m) => `×${m.multiplier}: ${m.decisions} @ ${pct(m.avgReward)}`)
+              .join(" · ")}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -489,6 +562,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
   return (
     <div className="space-y-4">
       <CreditAgingCards buckets={bookAging} />
+      <BanditStatusPanel tenantId={tenantId} />
 
       <Card>
         <Table>

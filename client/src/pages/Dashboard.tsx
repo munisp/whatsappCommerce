@@ -3,6 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import UsagePlanWidget from "@/components/UsagePlanWidget";
 import WaQualityWidget from "@/components/WaQualityWidget";
 import { CreditSummaryWidget } from "@/components/b2b/CreditSummaryWidget";
+import { CopilotAskWidget } from "@/components/CopilotAsk";
 import { PendingPoApprovalsWidget } from "@/components/b2b/PendingPoApprovalsWidget";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -154,6 +155,8 @@ export default function Dashboard() {
         </div>
 
         {/* Tenant Metrics */}
+        {/* W22: merchant copilot Ask box (tenant-scoped aggregates only) */}
+        <CopilotAskWidget tenantId={DEMO_TENANT} />
         {tenantDash && (
           <Card className="bg-card border-border">
             <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Tenant Metrics — Demo Tenant</CardTitle></CardHeader>

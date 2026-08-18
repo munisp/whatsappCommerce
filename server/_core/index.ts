@@ -2076,6 +2076,87 @@ async function startServer() {
     }
   });
 
+  // ── Lead Model Tick (W20) ─────────────────────────────────────────────────
+  // Periodic per-tenant retraining of the ML propensity lead-scoring model
+  // (services/mlLeadScoring.ts). Follows the journey-tick wiring pattern:
+  // cron-only, service owns the logic, never throws; tenants below the
+  // minimum-sample gate are skipped and keep the rule-based fallback.
+  app.post("/api/scheduled/lead-model-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runLeadModelTick } = await import("../services/mlLeadScoring");
+      const summary = await runLeadModelTick(db, new Date());
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[lead-model-tick]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── PD Model Tick (W21) ───────────────────────────────────────────────────
+  // Periodic retraining of the ML probability-of-default credit model
+  // (services/tradeCredit/mlPdScoring.ts): the global corpus model plus one
+  // model per supplier tenant with a credit book. Follows the lead-model-tick
+  // wiring pattern: cron-only, service owns the logic, never throws; scopes
+  // below the minimum-sample gate keep the rule-score PD proxy.
+  app.post("/api/scheduled/pd-model-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runPdModelTick } = await import("../services/tradeCredit/mlPdScoring");
+      const summary = await runPdModelTick(db, new Date());
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[pd-model-tick]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Uplift Model Tick (W21) ───────────────────────────────────────────────
+  // Periodic per-tenant retraining of the two-arm broadcast uplift models
+  // (services/mlUplift.ts). Follows the lead-model-tick wiring pattern:
+  // cron-only, service owns the logic, never throws; tenants below the
+  // per-arm minimum-sample gate are skipped and keep the heuristic fallback.
+  app.post("/api/scheduled/uplift-model-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runUpliftModelTick } = await import("../services/mlUplift");
+      const summary = await runUpliftModelTick(db, new Date());
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[uplift-model-tick]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  // ── Bandit Reward Tick (W22) ──────────────────────────────────────────────
+  // Sweeps bandit_decisions lacking a reward and assigns it from realized
+  // repayment outcomes (1 on-time / 0.5 late-cured / 0 default;
+  // services/banditLimits.ts). Follows the pd-model-tick wiring pattern:
+  // cron-only, service owns the logic, never throws.
+  app.post("/api/scheduled/bandit-reward-tick", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runBanditRewardTick } = await import("../services/banditLimits");
+      const summary = await runBanditRewardTick(db, new Date());
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[bandit-reward-tick]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
   // ── Scheduled Broadcast Dispatch ──────────────────────────────────────────
   // Picks up campaigns scheduled via broadcast.send(scheduleAt) — status
   // 'scheduled' with scheduledAt <= now — and runs the REAL consent-gated,

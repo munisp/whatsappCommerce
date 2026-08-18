@@ -60,7 +60,7 @@
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { creditAccounts, creditLedger, orders, paymentTransactions } from "../../../drizzle/schema";
 import type { TxHandle } from "./accounts";
-import { adjustVolumeTx, FLAG_UNAVAILABLE, type AntiGamingResult } from "./antiGaming";
+import { adjustVolumeTx, FLAG_UNAVAILABLE, CONFIDENCE_PENALTY_CAP, CONFIDENCE_PENALTY_PER_FLAG, type AntiGamingResult } from "./antiGaming";
 import { termsForScore, type CreditTerms } from "./terms";
 
 export const VOLUME_TARGET_CENTS = 500_000_000; // ₦5,000,000
@@ -98,6 +98,27 @@ export interface CreditScoreResult {
   terms: CreditTerms;
   /** W18: anti-gaming flags on the GMV input ([] when clean). */
   antiGamingFlags: string[];
+  /**
+   * W21: probability of default (0..1) from the ML PD model when trained
+   * (mlPdScoring.scorePd), otherwise the rule proxy (1 − score/100).
+   * Additive/optional — absent only if the PD call itself failed.
+   */
+  pd?: number;
+  /** W21: which path produced `pd` — trained ML model or rule proxy. */
+  pdSource?: "ml" | "rules";
+  /**
+   * W21: expected-loss fee (bps), capped at the rule-score band fee (bands
+   * remain policy caps — ML can only improve on them, never worsen them).
+   */
+  expectedLossFeeBps?: number;
+  /**
+   * W22: contextual-bandit decision metadata (services/banditLimits.ts).
+   * Present when the bandit logged a decision row. In shadow mode (the
+   * default) the returned suggestedLimitCents is the unchanged rule-based
+   * baseline; in active mode (BANDIT_LIMITS_MODE=active + gate met) it is
+   * the bandit's cap-clamped choice.
+   */
+  bandit?: { chosenMultiplier: number; mode: "shadow" | "active" };
 }
 
 /** "₦2.4M" / "₦850k" / "₦12,000" compact naira formatting for reasons. */
@@ -203,6 +224,7 @@ export async function suggestLimitTx(
   buyerTenantId: string,
   _supplierTenantId: string,
   now: Date = new Date(),
+  opts: { bandit?: boolean } = {},
 ): Promise<CreditScoreResult> {
   const since30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
@@ -258,6 +280,29 @@ export async function suggestLimitTx(
     };
   }
   const vol30dCents = antiGaming.adjustedVolumeCents;
+
+  // ── W22: graph-collusion signal (additive, fail-open) ────────────────────
+  // When an open graph alert ≥ threshold exists for this buyer (written by
+  // scanGraphCollusionTx), add the 'graph-collusion' flag and apply the same
+  // confidence-penalty pattern (0.2 per flag, respecting the 0.5 cap). If
+  // the graph signal is unavailable or errors, no flag is added and the
+  // existing heuristics are unchanged.
+  try {
+    const { hasGraphCollusionSignalTx, GRAPH_FLAG } = await import("../graphCollusion");
+    const g = await hasGraphCollusionSignalTx(db, buyerTenantId);
+    if (g.flagged && !antiGaming.flags.includes(GRAPH_FLAG)) {
+      antiGaming = {
+        ...antiGaming,
+        flags: [...antiGaming.flags, GRAPH_FLAG],
+        confidencePenalty: Math.min(
+          CONFIDENCE_PENALTY_CAP,
+          (antiGaming.flags.length + 1) * CONFIDENCE_PENALTY_PER_FLAG,
+        ),
+      };
+    }
+  } catch {
+    // Graph signal is best-effort; the rule-based result stands alone.
+  }
 
   // ── Formula ──────────────────────────────────────────────────────────────
   const coldStart = recentOrders.length === 0 && !firstOrder && !hasPayments && !creditSig.hasHistory;
@@ -316,5 +361,57 @@ export async function suggestLimitTx(
   if (terms.decline && !coldStart) {
     reasons.push(`score ${score} below 20 — decline credit suggestion`);
   }
-  return { score, suggestedLimitCents, reasons, terms, antiGamingFlags: antiGaming.flags };
+
+  // ── W21: ML probability-of-default + expected-loss fee (additive) ───────
+  // ML-first: when a trained PD model exists (tenant scope, else global
+  // corpus) the PD comes from the model; otherwise the rule proxy
+  // (pd = 1 − score/100) is used. Never throws — any failure simply omits
+  // the PD fields and the rule-based result is returned unchanged.
+  let pd: number | undefined;
+  let pdSource: "ml" | "rules" | undefined;
+  let expectedLossFeeBps: number | undefined;
+  try {
+    const { scorePd, expectedLossTerms } = await import("./mlPdScoring");
+    const pdRes = await scorePd(db, _supplierTenantId, buyerTenantId, { now, ruleScore: score });
+    pd = Math.round(pdRes.pd * 1e6) / 1e6;
+    pdSource = pdRes.fallbackUsed ? "rules" : "ml";
+    // Bands remain policy caps: the expected-loss fee never exceeds the fee
+    // the rule-score band implies. A declined band has tenor 0 — price the
+    // informational EL fee at the baseline tenor instead.
+    const { EL_PRICING } = await import("./mlPdScoring");
+    const el = expectedLossTerms(pdRes.pd, terms.decline ? EL_PRICING.tenorBaselineDays : terms.tenorDays);
+    expectedLossFeeBps = terms.decline ? el.feeBps : Math.min(el.feeBps, terms.feeBps);
+  } catch {
+    // PD enrichment is best-effort; the rule-based result stands alone.
+  }
+
+  // ── W22: contextual-bandit limit decision (additive) ────────────────────
+  // The bandit logs its chosen multiplier (bandit_decisions row) in shadow
+  // mode by default — the returned limit is UNCHANGED. Only with
+  // BANDIT_LIMITS_MODE=active AND the min-rewarded-decisions gate met does
+  // the bandit's (envelope-clamped) choice replace the suggestion. Program
+  // callers pass bandit:false here and apply the bandit AFTER program caps
+  // (suggestLimitForProgramTx). Never throws; failures omit the field.
+  let bandit: CreditScoreResult["bandit"];
+  let finalSuggested = suggestedLimitCents;
+  if (opts.bandit !== false) {
+    try {
+      const { banditSuggestTx } = await import("../banditLimits");
+      const res = await banditSuggestTx(db, {
+        tenantId: _supplierTenantId,
+        buyerId: buyerTenantId,
+        baselineLimitCents: suggestedLimitCents,
+        pd,
+        now,
+      });
+      if (!res.fallbackUsed) {
+        bandit = { chosenMultiplier: res.chosenMultiplier, mode: res.mode };
+        if (res.mode === "active") finalSuggested = res.suggestedLimitCents;
+      }
+    } catch {
+      // Bandit logging is best-effort; the rule-based result stands alone.
+    }
+  }
+
+  return { score, suggestedLimitCents: finalSuggested, reasons, terms, antiGamingFlags: antiGaming.flags, pd, pdSource, expectedLossFeeBps, bandit };
 }

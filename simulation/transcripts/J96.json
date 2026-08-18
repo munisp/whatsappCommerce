@@ -1,0 +1,8 @@
+{
+  "id": "J96",
+  "title": "audit-stream anomaly detection",
+  "feature": "EWMA baselines, robust z-score alerts, idempotent scan buckets, auto-incident, ack/dismiss, tenant guards",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

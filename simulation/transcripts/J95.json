@@ -1,0 +1,8 @@
+{
+  "id": "J95",
+  "title": "ml propensity lead scoring",
+  "feature": "logistic-regression propensity model + rules fallback + cron retrain",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}
