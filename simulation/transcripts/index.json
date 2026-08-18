@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-17T23:26:18.924Z",
+  "generatedAt": "2026-08-18T01:36:51.153Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -769,6 +769,22 @@
       "pass": true,
       "file": "J96.json",
       "messageCount": 0
+    },
+    {
+      "id": "J97",
+      "title": "ML probability-of-default credit model",
+      "feature": "logistic-regression PD model + expected-loss pricing + rules/global fallback + cron retrain",
+      "pass": true,
+      "file": "J97.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J98",
+      "title": "uplift-modeled broadcast targeting",
+      "feature": "two-model uplift ranking replaces win-back heuristic; caps + consent unchanged; fallback when untrained",
+      "pass": true,
+      "file": "J98.json",
+      "messageCount": 24
     }
   ]
 }
