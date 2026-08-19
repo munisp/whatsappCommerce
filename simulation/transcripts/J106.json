@@ -1,0 +1,62 @@
+{
+  "id": "J106",
+  "title": "visual stocktake variance + review queue",
+  "feature": "VLM mock analyse, variance alert > threshold, calibrated auto-apply vs review queue vs excluded",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348015173884",
+      "profileName": "Sim User 3884",
+      "inboundId": "wamid.sim.in.img.00306",
+      "at": 1787080905152,
+      "kind": "image",
+      "mediaKind": "image",
+      "mediaId": "m-j106-shelf"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.img.00306",
+      "at": 1787080905156
+    },
+    {
+      "dir": "out",
+      "phone": "2348015173884",
+      "wamid": "wamid.sim.000497",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080905178,
+      "kind": "text",
+      "body": "📷 I counted: 50× J106 Rice 5kg, 18× J106 Beans 2kg, 12× J106 Garri 1kg. Reply APPLY to update stock or REVIEW to check first."
+    },
+    {
+      "dir": "in",
+      "phone": "2348015173884",
+      "profileName": "Sim User 3884",
+      "inboundId": "wamid.sim.in.text.00307",
+      "at": 1787080905700,
+      "kind": "text",
+      "text": "APPLY"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00307",
+      "at": 1787080905704
+    },
+    {
+      "dir": "out",
+      "phone": "2348015173884",
+      "wamid": "wamid.sim.000498",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787080905719,
+      "kind": "text",
+      "body": "✅ Updated stock for 1 item(s). 2 item(s) had lower confidence and were NOT applied — please review them in your dashboard. (1 excluded as too uncertain.)"
+    }
+  ]
+}

@@ -190,6 +190,8 @@ export const codRouter = router({
         amountPaid: z.number().min(0).optional(),
         currency: z.string().length(3).optional(),
         note: z.string().max(2000).optional(),
+        // W23 (additive): device-local queue id — replay-safe offline sync.
+        clientRef: z.string().min(1).max(128).optional(),
         items: z
           .array(
             z.object({

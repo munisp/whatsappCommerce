@@ -1,0 +1,8 @@
+{
+  "id": "J109",
+  "title": "credit dunning → default → cure → recovery",
+  "feature": "[dun:*] marker sequence, score drop on default, repayment cure, score recovery + terms improve",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}
