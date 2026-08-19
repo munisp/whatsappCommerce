@@ -6,6 +6,14 @@ import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
 
+// vitePluginManusRuntime injects a ~360KB dev-preview overlay (bundles its
+// own copy of React) as a blocking inline <body> script, with no
+// production/build guard of its own. Root (/) was the only app that had it —
+// tenant-portal/platform-admin's own vite configs never imported it — and
+// was the only one showing the intermittent black-screen-on-load bug: the
+// huge synchronous script was aborting the sibling module/modulepreload
+// requests for the real app bundle. Dev-server only, never in a build.
+
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
 // Writes browser logs directly to files, trimmed when exceeding size limit
@@ -150,10 +158,14 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
-
-export default defineConfig({
-  plugins,
+export default defineConfig(({ command }) => ({
+  plugins: [
+    react(),
+    tailwindcss(),
+    jsxLocPlugin(),
+    ...(command === "build" ? [] : [vitePluginManusRuntime()]),
+    vitePluginManusDebugCollector(),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -197,4 +209,4 @@ export default defineConfig({
       deny: ["**/.*"],
     },
   },
-});
+}));
