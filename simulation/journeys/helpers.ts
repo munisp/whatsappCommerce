@@ -642,3 +642,29 @@ export async function customGatewayWebhook(
     crypto.createHmac(algo, opts.secret).update(opts.raw).digest(opts.encoding);
   return postProviderWebhook(world, opts.provider, opts.raw, { [opts.signatureHeader]: sig });
 }
+
+
+// ── W25: geospatial merchant-discovery journey fixtures ─────────────────────
+
+/** Wipe W25 geo rows (and geo taxonomy seeds) so journeys are hermetic. */
+export async function resetGeoDiscovery(world: World): Promise<void> {
+  const schema = await import("../../drizzle/schema");
+  const { like } = await import("drizzle-orm");
+  await world.db.delete(schema.sponsoredListings).catch(() => {});
+  await world.db.delete(schema.merchantLocations).catch(() => {});
+  await world.db.delete(schema.productTaxonomy)
+    .where(like(schema.productTaxonomy.id, "geo-sim-%")).catch(() => {});
+}
+
+/** Give a tenant an approved KYB application (discovery gates on it). */
+export async function approveKyb(world: World, tenantId: string): Promise<void> {
+  const schema = await import("../../drizzle/schema");
+  await world.db.insert(schema.kycApplications).values({
+    id: `kyb-geo-${tenantId}`,
+    tenantId,
+    type: "kyb",
+    status: "approved",
+    applicantName: "Sim Owner",
+    businessName: tenantId,
+  }).onConflictDoNothing();
+}

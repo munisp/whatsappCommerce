@@ -65,6 +65,8 @@ const AuditLog = lazy(() => import("./pages/AuditLog"));
 const TenantOnboardingWizard = lazy(() => import("./pages/TenantOnboardingWizard"));
 const IntegrationsSettings = lazy(() => import("./pages/IntegrationsSettings"));
 const TenantSettings = lazy(() => import("./pages/TenantSettings"));
+const DiscoverNearby = lazy(() => import("./pages/DiscoverNearby"));
+const MerchantGeoSettings = lazy(() => import("./pages/MerchantGeoSettings"));
 const LiveLogisticsMap = lazy(() => import("./pages/LiveLogisticsMap"));
 const HealthStatus = lazy(() => import("./pages/HealthStatus"));
 const AuditLogViewer = lazy(() => import("./pages/AuditLogViewer"));
@@ -175,6 +177,8 @@ function Router() {
           <Route path="/onboarding-wizard" component={TenantOnboardingWizard} />
           <Route path="/integration-settings" component={IntegrationsSettings} />
           <Route path="/tenant-settings" component={TenantSettings} />
+        <Route path="/discover" component={DiscoverNearby} />
+        <Route path="/settings/discovery" component={MerchantGeoSettings} />
           <Route path="/logistics-map" component={LiveLogisticsMap} />
           <Route path="/system-health" component={HealthStatus} />
           <Route path="/audit-logs" component={AuditLogViewer} />

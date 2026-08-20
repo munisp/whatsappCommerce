@@ -3607,3 +3607,59 @@ export const copilotQueries = pgTable("copilot_queries", {
 ]);
 export type CopilotQuery = typeof copilotQueries.$inferSelect;
 export type NewCopilotQuery = typeof copilotQueries.$inferInsert;
+
+// ── W25: geospatial merchant discovery ──────────────────────────────────────
+// merchant_locations: one row per merchant (tenant) branch discoverable by
+// customers via geo search (WhatsApp location pin / browser geolocation).
+// geohash (base32, precision 5 ≈ 5km cells) is a prefilter index; exact
+// filtering is haversine in server/services/geoDiscovery.ts. Additive only.
+export const merchantLocations = pgTable("merchant_locations", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  tenantId:        varchar("tenant_id", { length: 36 }).notNull(),
+  label:           varchar("label", { length: 120 }).notNull().default("Main branch"),
+  latitude:        numeric("latitude", { precision: 10, scale: 7 }).notNull(),
+  longitude:       numeric("longitude", { precision: 10, scale: 7 }).notNull(),
+  addressLine:     varchar("address_line", { length: 255 }),
+  city:            varchar("city", { length: 120 }),
+  country:         varchar("country", { length: 120 }),
+  serviceRadiusKm: numeric("service_radius_km", { precision: 8, scale: 3 }).notNull().default("5"),
+  deliveryZones:   jsonb("delivery_zones"),
+  discoverable:    boolean("discoverable").notNull().default(false),
+  openHours:       jsonb("open_hours"),
+  geohash:         text("geohash").notNull(),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+  updatedAt:       timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("merchant_locations_tenant_idx").on(t.tenantId),
+  index("merchant_locations_geohash_idx").on(t.geohash),
+]);
+export type MerchantLocation = typeof merchantLocations.$inferSelect;
+export type NewMerchantLocation = typeof merchantLocations.$inferInsert;
+
+// ── W25: location-aware sponsored listings (paid placement) ─────────────────
+// A listing boosts a tenant's ranking in discover results when the search
+// point is within radiusKm of (centerLat, centerLng) and the category filter
+// overlaps `categories` (empty array = all categories). ALL money is INTEGER
+// CENTS. status: 'draft' | 'active' | 'paused' | 'exhausted'. Additive only.
+export const sponsoredListings = pgTable("sponsored_listings", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  tenantId:         varchar("tenant_id", { length: 36 }).notNull(),
+  name:             varchar("name", { length: 160 }).notNull(),
+  categories:       jsonb("categories").notNull().default([]),
+  centerLat:        numeric("center_lat", { precision: 10, scale: 7 }).notNull(),
+  centerLng:        numeric("center_lng", { precision: 10, scale: 7 }).notNull(),
+  radiusKm:         numeric("radius_km", { precision: 8, scale: 3 }).notNull().default("10"),
+  dailyBudgetCents: integer("daily_budget_cents").notNull(),
+  spentTodayCents:  integer("spent_today_cents").notNull().default(0),
+  bidCents:         integer("bid_cents").notNull().default(0),
+  status:           varchar("status", { length: 16 }).notNull().default("draft"),
+  startsAt:         timestamp("starts_at"),
+  endsAt:           timestamp("ends_at"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("sponsored_listings_tenant_idx").on(t.tenantId),
+  index("sponsored_listings_status_idx").on(t.status),
+]);
+export type SponsoredListing = typeof sponsoredListings.$inferSelect;
+export type NewSponsoredListing = typeof sponsoredListings.$inferInsert;

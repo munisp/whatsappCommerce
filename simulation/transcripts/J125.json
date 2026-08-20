@@ -1,0 +1,63 @@
+{
+  "id": "J125",
+  "title": "sponsored placement boost",
+  "feature": "geo sponsored listings: boost + cap + pause",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348018897535",
+      "profileName": "Sim User 7535",
+      "inboundId": "wamid.sim.in.loc.00325",
+      "at": 1787253033089,
+      "kind": "location",
+      "lat": 6.53,
+      "lng": 3.3792
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.loc.00325",
+      "at": 1787253033092
+    },
+    {
+      "dir": "out",
+      "phone": "2348018897535",
+      "wamid": "wamid.sim.000555",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787253033105,
+      "kind": "text",
+      "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Sim Store — sim · 0.6 km\n2. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n\nReply with a category to filter, or tell me what you're looking for."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018897535",
+      "profileName": "Sim User 7535",
+      "inboundId": "wamid.sim.in.loc.00326",
+      "at": 1787253033651,
+      "kind": "location",
+      "lat": 6.53,
+      "lng": 3.3792
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.loc.00326",
+      "at": 1787253033655
+    },
+    {
+      "dir": "out",
+      "phone": "2348018897535",
+      "wamid": "wamid.sim.000556",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787253033668,
+      "kind": "text",
+      "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n2. ★ Sponsored: Geo Boost C — Local business · 0.8 km\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n4. Sim Store — sim · 0.6 km\n\nReply with a category to filter, or tell me what you're looking for."
+    }
+  ]
+}
