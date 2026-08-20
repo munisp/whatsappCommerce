@@ -587,7 +587,7 @@ CONVERSATION RULES:
 RESPOND WITH JSON (no markdown):
 {
   "reply": "<message to send to customer>",
-  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|unknown",
+  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|discover_nearby|unknown",
   "nextState": "greeting|browse|product_detail|add_to_cart|checkout_address|checkout_confirm|payment|order_confirmed|support",
   "extractedItems": [{"product": "<product name>", "quantity": <number>}] — EVERY product the customer wants to add in this message (multi-item orders are common, e.g. "2 spicy wraps and 1 malt"); empty array if none,
   "extractedProduct": "<single product name if exactly one mentioned, else null>",
@@ -897,6 +897,78 @@ export const nlpRouter = router({
           return {
             reply,
             intent: cmd === "stop" ? "waitlist_unsubscribe" : "waitlist_subscribe",
+            state: session.state,
+            language: session.language,
+            sessionId: session.id,
+            confidence: 1,
+          };
+        }
+      }
+
+      // 3e. Geospatial merchant discovery — deterministic, no LLM needed.
+      // Free-text "…near me" searches (and category-menu replies after a pin
+      // was shared) run discoverNearby centered on the session's
+      // lastDiscovery pin, falling back to the saved deliveryCoords.
+      {
+        const { extractDiscoverQuery, resolveCategorySelection, formatDiscoveryMenu } =
+          await import("../services/discoveryMenu");
+        const { discoverNearby, listCategories, defaultRadiusKm } =
+          await import("../services/geoDiscovery");
+        const geoCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+        const lastDisc = geoCtx.lastDiscovery as { lat?: number; lng?: number; radiusKm?: number } | undefined;
+        const hasPin = typeof lastDisc?.lat === "number" && typeof lastDisc?.lng === "number";
+        const residual = extractDiscoverQuery(input.message);
+        let category: string | null = null;
+        if (residual == null && hasPin) {
+          const cats = await listCategories(db).catch(() => [] as Awaited<ReturnType<typeof listCategories>>);
+          category = resolveCategorySelection(input.message, cats);
+        }
+        if (residual != null || category != null) {
+          let center: { lat: number; lng: number; radiusKm?: number } | null = null;
+          if (hasPin) {
+            center = { lat: lastDisc!.lat as number, lng: lastDisc!.lng as number, radiusKm: lastDisc!.radiusKm };
+          } else {
+            const dc = geoCtx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
+            if (typeof dc?.latitude === "number" && typeof dc?.longitude === "number") {
+              center = { lat: dc.latitude, lng: dc.longitude };
+            }
+          }
+          let reply: string;
+          if (!center) {
+            reply = "To see businesses near you, tap 📎 → Location and share your current location.";
+          } else {
+            const result = await discoverNearby({
+              lat: center.lat,
+              lng: center.lng,
+              radiusKm: center.radiusKm ?? defaultRadiusKm(),
+              ...(category ? { category } : {}),
+              ...(residual ? { query: residual } : {}),
+            }, db);
+            reply = formatDiscoveryMenu(result.items, result.radiusKm);
+          }
+          const geoHistory = [
+            ...((session.messageHistory as Array<{ role: string; content: string }>).slice(-10)),
+            { role: "user", content: input.message },
+            { role: "assistant", content: reply },
+          ].slice(-20);
+          await db.update(nlpSessions).set({
+            messageHistory: geoHistory,
+            lastActivityAt: new Date(),
+          }).where(eq(nlpSessions.id, session.id));
+          await db.insert(agentEvents).values({
+            id: crypto.randomUUID(),
+            tenantId: input.tenantId,
+            conversationId: session.id,
+            eventType: "nlp_message",
+            intentType: "discover_nearby",
+            confidence: "1.000",
+            escalated: false,
+            model: "deterministic-geo-discovery",
+            createdAt: new Date(),
+          });
+          return {
+            reply,
+            intent: "discover_nearby",
             state: session.state,
             language: session.language,
             sessionId: session.id,

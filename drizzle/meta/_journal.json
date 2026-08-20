@@ -456,6 +456,13 @@
       "when": 1786989100000,
       "tag": "0067_copilot_queries",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1786989200000,
+      "tag": "0068_geo_discovery",
+      "breakpoints": true
     }
   ]
 }

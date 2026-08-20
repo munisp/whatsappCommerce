@@ -21,6 +21,8 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { nlpSessions, orders } from "../../drizzle/schema";
+import { defaultRadiusKm, discoverNearby } from "./geoDiscovery";
+import { formatDiscoveryMenu } from "./discoveryMenu";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -36,6 +38,8 @@ export interface LocationInboundOutcome {
   reply?: string;
   orderCard?: { orderId: string; orderNumber: string; paymentUrl: string | null };
   savedAsDefault?: boolean;
+  /** True when the pin was turned into a nearby-merchant discovery menu. */
+  discoveryOffered?: boolean;
 }
 
 /** Human-readable address text for a shared location (what a typed address
@@ -120,6 +124,51 @@ export async function saveDefaultAddress(
 }
 
 /**
+ * Persist a discovery pin: keeps the existing default-address store
+ * (`deliveryAddress` / `deliveryCoords` — the checkout flow reads it) AND
+ * records `lastDiscovery` ({lat, lng, radiusKm}) so follow-up free-text
+ * queries ("pharmacy near me", category picks) re-center on this pin.
+ */
+export async function saveDiscoveryLocation(
+  db: Db,
+  tenantId: string,
+  waPhoneNumber: string,
+  customerName: string | undefined,
+  loc: InboundLocation,
+  radiusKm: number,
+): Promise<void> {
+  const addressText = formatLocationAddress(loc);
+  const coords = { latitude: loc.latitude, longitude: loc.longitude };
+  const lastDiscovery = { lat: loc.latitude, lng: loc.longitude, radiusKm };
+  const [latest] = await db.select().from(nlpSessions)
+    .where(eq(nlpSessions.waPhoneNumber, waPhoneNumber))
+    .orderBy(desc(nlpSessions.lastActivityAt))
+    .limit(1)
+    .catch(() => []);
+  if (latest) {
+    const ctx = {
+      ...((latest.context as Record<string, unknown>) ?? {}),
+      deliveryAddress: addressText,
+      deliveryCoords: coords,
+      lastDiscovery,
+    };
+    await db.update(nlpSessions).set({ context: ctx, lastActivityAt: new Date() })
+      .where(eq(nlpSessions.id, latest.id));
+  } else {
+    await db.insert(nlpSessions).values({
+      tenantId,
+      waPhoneNumber,
+      customerName: customerName ?? null,
+      state: "greeting",
+      context: { deliveryAddress: addressText, deliveryCoords: coords, lastDiscovery },
+      messageHistory: [],
+      lastActivityAt: new Date(),
+      createdAt: new Date(),
+    });
+  }
+}
+
+/**
  * Full inbound-location pipeline. Exported for tests; the webhook calls it
  * inside the message loop (fast — one session read + the normal checkout
  * path, no LLM spend on the happy path).
@@ -161,7 +210,28 @@ export async function handleInboundLocationMessage(opts: {
     };
   }
 
-  // No pending checkout — save as the customer's default delivery address.
+  // No pending checkout — the shared pin doubles as a discovery request:
+  // show nearby merchants around it. Zero results keep the original
+  // save-as-default fallback unchanged.
+  const radiusKm = defaultRadiusKm();
+  const discovery = await discoverNearby(
+    { lat: loc.latitude, lng: loc.longitude, radiusKm },
+    db,
+  ).catch((e: any) => {
+    console.error("[location-inbound] discovery failed:", e?.message);
+    return null;
+  });
+  if (discovery && discovery.items.length > 0) {
+    await saveDiscoveryLocation(db, tenantId, waPhoneNumber, opts.customerName, loc, discovery.radiusKm);
+    return {
+      handled: true,
+      discoveryOffered: true,
+      reply: `${formatDiscoveryMenu(discovery.items, discovery.radiusKm)}\n\nReply with a category to filter, or tell me what you're looking for.`,
+    };
+  }
+
+  // No pending checkout and nothing nearby — save as the customer's default
+  // delivery address.
   await saveDefaultAddress(db, tenantId, waPhoneNumber, opts.customerName, loc);
   const label = loc.name || loc.address ? ` (${addressText})` : "";
   return {

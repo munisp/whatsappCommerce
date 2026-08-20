@@ -71,6 +71,8 @@ const TenantOnboardingWizard = lazy(() => import("@/pages/TenantOnboardingWizard
 const OnboardingCopilot = lazy(() => import("@/pages/OnboardingCopilot"));
 const IntegrationsSettings = lazy(() => import("@/pages/IntegrationsSettings"));
 const TenantSettings = lazy(() => import("@/pages/TenantSettings"));
+const DiscoverNearby = lazy(() => import("@/pages/DiscoverNearby"));
+const MerchantGeoSettings = lazy(() => import("@/pages/MerchantGeoSettings"));
 
 function RouteFallback() {
   return (
@@ -168,6 +170,8 @@ function Router() {
         <Route path="/onboarding-copilot" component={OnboardingCopilot} />
         <Route path="/integration-settings" component={IntegrationsSettings} />
         <Route path="/tenant-settings" component={TenantSettings} />
+        <Route path="/discover" component={DiscoverNearby} />
+        <Route path="/settings/discovery" component={MerchantGeoSettings} />
 
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

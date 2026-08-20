@@ -7,191 +7,191 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012846629",
-      "profileName": "Sim User 6629",
+      "phone": "2348011951832",
+      "profileName": "Sim User 1832",
       "inboundId": "wamid.j43.greeting",
-      "at": 1787080708702,
+      "at": 1787252774076,
       "kind": "text",
       "text": "hi there"
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000288",
       "statuses": [
         "sent"
       ],
-      "at": 1787080708709,
+      "at": 1787252774082,
       "kind": "text",
       "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
     },
     {
       "dir": "in",
-      "phone": "2348012846629",
-      "profileName": "Sim User 6629",
+      "phone": "2348011951832",
+      "profileName": "Sim User 1832",
       "inboundId": "wamid.j43.intake",
-      "at": 1787080709249,
+      "at": 1787252774620,
       "kind": "text",
       "text": "I run Resume Styles in Enugu, fashion clothing, delivery within Enugu, bank transfer"
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000289",
       "statuses": [
         "sent"
       ],
-      "at": 1787080709279,
+      "at": 1787252774644,
       "kind": "text",
       "body": "Here's the setup I propose for Resume Styles. Review each card — approve, edit or reject. Nothing is applied until you approve it."
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000290",
       "statuses": [
         "sent"
       ],
-      "at": 1787080709279,
+      "at": 1787252774644,
       "kind": "interactive",
       "body": "WhatsApp menu for Resume Styles: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Resume Styles! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-1-0xsd9n",
+          "id": "onb_approve:p-1-coiuv0",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-1-0xsd9n",
+          "id": "onb_edit:p-1-coiuv0",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-1-0xsd9n",
+          "id": "onb_reject:p-1-coiuv0",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000291",
       "statuses": [
         "sent"
       ],
-      "at": 1787080709279,
+      "at": 1787252774644,
       "kind": "interactive",
       "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-2-1m0b1c",
+          "id": "onb_approve:p-2-sbgt6f",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-2-1m0b1c",
+          "id": "onb_edit:p-2-sbgt6f",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-2-1m0b1c",
+          "id": "onb_reject:p-2-sbgt6f",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000292",
       "statuses": [
         "sent"
       ],
-      "at": 1787080709280,
+      "at": 1787252774645,
       "kind": "interactive",
       "body": "Brand kit for Resume Styles\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiMzODcxNEUiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPlJTPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#38714E\",\n  \"secondaryColor\": \"#C893A5\",\n  \"tagline\": \"Style that fits your story\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-3-l6slx4",
+          "id": "onb_approve:p-3-24xls0",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-3-l6slx4",
+          "id": "onb_edit:p-3-24xls0",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-3-l6slx4",
+          "id": "onb_reject:p-3-24xls0",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000293",
       "statuses": [
         "sent"
       ],
-      "at": 1787080709280,
+      "at": 1787252774645,
       "kind": "interactive",
       "body": "Suggested integrations: twenty\n\n{\n  \"providers\": [\n    {\n      \"provider\": \"twenty\",\n      \"reason\": \"CRM to track customer conversations and follow-ups\"\n    }\n  ],\n  \"summary\": \"Suggested integrations: twenty\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-4-gvfdh5",
+          "id": "onb_approve:p-4-o48om9",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-4-gvfdh5",
+          "id": "onb_edit:p-4-o48om9",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-4-gvfdh5",
+          "id": "onb_reject:p-4-o48om9",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348012846629",
-      "profileName": "Sim User 6629",
+      "phone": "2348011951832",
+      "profileName": "Sim User 1832",
       "inboundId": "wamid.j43.intake",
-      "at": 1787080709794,
+      "at": 1787252775167,
       "redelivery": true,
       "kind": "text",
       "text": "I run Resume Styles in Enugu, fashion clothing, delivery within Enugu, bank transfer"
     },
     {
       "dir": "in",
-      "phone": "2348012846629",
-      "profileName": "Sim User 6629",
+      "phone": "2348011951832",
+      "profileName": "Sim User 1832",
       "inboundId": "wamid.sim.in.text.00174",
-      "at": 1787080710342,
+      "at": 1787252775713,
       "kind": "text",
       "text": "approve waMenu"
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000294",
       "statuses": [
         "sent"
       ],
-      "at": 1787080710345,
+      "at": 1787252775718,
       "kind": "text",
       "body": "Approved: waMenu."
     },
     {
       "dir": "in",
-      "phone": "2348012846629",
-      "profileName": "Sim User 6629",
+      "phone": "2348011951832",
+      "profileName": "Sim User 1832",
       "inboundId": "wamid.sim.in.text.00175",
-      "at": 1787080710888,
+      "at": 1787252776260,
       "kind": "text",
       "text": "restart"
     },
     {
       "dir": "out",
-      "phone": "2348012846629",
+      "phone": "2348011951832",
       "wamid": "wamid.sim.000295",
       "statuses": [
         "sent"
       ],
-      "at": 1787080710897,
+      "at": 1787252776269,
       "kind": "text",
       "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
     }
