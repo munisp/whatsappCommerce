@@ -64,6 +64,7 @@ import { medusaOnboardingRouter } from "./routers/medusaOnboarding";
 import { odooMedusaBridgeRouter } from "./routers/odooMedusaBridge";
 import { visualInventoryRouter } from "./routers/visualInventory";
 import { taxonomyRouter } from "./routers/taxonomy";
+import { geoRouter } from "./routers/geo";
 import { labelStudioRouter } from "./routers/labelStudio";
 import { viCorrectionsRouter } from "./routers/viCorrections";
 import { productImagesRouter } from "./routers/productImages";
@@ -224,6 +225,7 @@ export const appRouter = router({
   odooMedusaBridge: odooMedusaBridgeRouter,
   visualInventory: visualInventoryRouter,
   taxonomy: taxonomyRouter,
+  geo: geoRouter,
   labelStudio: labelStudioRouter,
   viCorrections: viCorrectionsRouter,
   productImages: productImagesRouter,

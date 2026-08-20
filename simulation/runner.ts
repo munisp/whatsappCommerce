@@ -149,6 +149,10 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j118-retention-hold-export"),
     import("./journeys/j119-payment-failover-reconcile"),
     import("./journeys/j120-offline-sync-stock-conflict"),
+    import("./journeys/j122-discover-pin-category"),
+    import("./journeys/j123-discover-freetext-order"),
+    import("./journeys/j124-merchant-geo-onboarding"),
+    import("./journeys/j125-sponsored-placement"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }

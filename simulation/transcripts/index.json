@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T19:22:42.555Z",
+  "generatedAt": "2026-08-20T19:10:34.507Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -273,6 +273,38 @@
       "pass": true,
       "file": "J121.json",
       "messageCount": 0
+    },
+    {
+      "id": "J122",
+      "title": "discover via pin + category filter",
+      "feature": "geo discovery: pin → menu → category",
+      "pass": true,
+      "file": "J122.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J123",
+      "title": "free-text discovery → order",
+      "feature": "geo discovery: near-me query → pin → checkout",
+      "pass": true,
+      "file": "J123.json",
+      "messageCount": 19
+    },
+    {
+      "id": "J124",
+      "title": "merchant geo onboarding",
+      "feature": "geo.merchant.setLocation/setDiscoverable",
+      "pass": true,
+      "file": "J124.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J125",
+      "title": "sponsored placement boost",
+      "feature": "geo sponsored listings: boost + cap + pause",
+      "pass": true,
+      "file": "J125.json",
+      "messageCount": 6
     },
     {
       "id": "J13",
