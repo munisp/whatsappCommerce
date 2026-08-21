@@ -340,6 +340,43 @@ async function startServer() {
     }
   });
 
+  // === W27 bookkeeping ===
+  // ── Scheduled: opt-in merchant sales digests (daily/weekly) ─────────────
+  // Sends "You made ₦X this week, up N%" to every opted-in merchant phone;
+  // idempotent per (tenant, phone, period) via bookkeeping_digest_log.
+  // After deploy: manus-heartbeat create --name bookkeeping-digests --cron "0 0 7 * * *" --path /api/scheduled/bookkeeping-digests
+  app.post("/api/scheduled/bookkeeping-digests", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runScheduledDigests } = await import("../services/bookkeeping");
+      const run = await runScheduledDigests(db, new Date());
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[bookkeeping-digests] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "bookkeeping-digests failed" });
+    }
+  });
+
+  // ── Scheduled: W27 credit — micro-loan auto-repayment sweep (every ~10 min) ──
+  // Deducts each active loan's repaymentPct from newly settled wallet sales
+  // (escrow_release credits) and marks overdue loans defaulted. Idempotent.
+  // After deploy: manus-heartbeat create --name credit-loan-repayment --cron "0 */10 * * * *" --path /api/scheduled/credit-loan-repayment
+  app.post("/api/scheduled/credit-loan-repayment", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runLoanRepaymentSweep } = await import("../services/tradeCredit/microLoans");
+      const run = await runLoanRepaymentSweep();
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[credit-loan-repayment] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "credit-loan-repayment failed" });
+    }
+  });
+
   // ── Scheduled: WhatsApp failed-send retry + dead-letter (every ~5 min) ────
   // Retries due retriable sends (5xx/429/network) with exponential backoff
   // (1m, 5m, 15m, 1h); after 4 attempts → status "dead" + tenant admin alert.
@@ -1112,6 +1149,18 @@ async function startServer() {
         if (msg.type === "interactive") {
           try {
             const reply = msg.interactive?.button_reply ?? msg.interactive?.list_reply ?? null;
+            // === W27 catalog-ai (additive): merchant AI-listing draft buttons
+            // (catalog_ai:publish:<id> / catalog_ai:reject:<id>) resolve here;
+            // any other id falls through to the standard dispatch unchanged.
+            if ((reply?.id ?? "").startsWith("catalog_ai:")) {
+              const { handleCatalogDraftButton } = await import("../services/catalogAI");
+              const r = await handleCatalogDraftButton({ tenantId, phone: waPhoneNumber, replyId: reply!.id });
+              if (r?.reply) {
+                await sendWhatsAppText(tenantId, waPhoneNumber, r.reply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] catalog-ai reply send error:", e?.message));
+              }
+              continue;
+            }
             const { handleInteractiveInbound } = await import("../services/useCases");
             const outcome = await handleInteractiveInbound({
               db,
@@ -1250,6 +1299,21 @@ async function startServer() {
             }
             continue; // Skip NLP processing for PO commands
           }
+          // === W27 bookkeeping ===
+          // Merchant bookkeeping commands ("sales summary", "digest on/off",
+          // "expense", "confirm expense", "export"). Exact/prefix matching
+          // only — non-matching messages fall through to the NLP pipeline.
+          try {
+            const { handleBookkeepingText } = await import("../services/bookkeeping");
+            const bkReply = await handleBookkeepingText({ db, tenantId, phone: waPhoneNumber, text: textBody });
+            if (bkReply) {
+              await sendWhatsAppText(tenantId, waPhoneNumber, bkReply)
+                .catch((e: any) => console.error("[whatsapp-webhook] bookkeeping reply send error:", e?.message));
+              continue; // claimed — skip NLP
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] bookkeeping command error:", e?.message);
+          }
           // ── CV-1 / J85: visual stock-take APPLY / REVIEW replies ────────
           // "APPLY" applies the calibrated auto-apply items from the latest
           // WhatsApp shelf-photo stock-take; "REVIEW" parks it for the
@@ -1286,6 +1350,30 @@ async function startServer() {
               if (riderOutcome.handled) continue; // Skip NLP processing for rider commands
             } catch (e: any) {
               console.error("[whatsapp-webhook] rider confirm error:", e?.message);
+            }
+          }
+          // ── W27 credit: merchant credit commands ────────────────────────
+          // "CREDIT [SCORE|OFFERS|STATUS|ACCEPT [amount]]" from the tenant's
+          // admin phone (settings.adminPhone). Non-admins / other texts fall
+          // through to the normal menu/NLP pipeline (handled=false).
+          if (/^\s*CREDIT\b/i.test(textBody)) {
+            try {
+              const { handleCreditCommand } = await import("../services/creditWhatsApp");
+              const creditOutcome = await handleCreditCommand({
+                db,
+                tenantId,
+                waPhoneNumber,
+                text: textBody,
+              });
+              if (creditOutcome.handled) {
+                if (creditOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, creditOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] credit reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for credit commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] credit command error:", e?.message);
             }
           }
           // Publish inbound message to Kafka for event streaming
@@ -1486,35 +1574,50 @@ async function startServer() {
           // Fully async — must NEVER delay the webhook 200 ack.
           if (msg.type === "image" && mediaId) {
             handleInboundReceiptImage({ tenantId, waPhoneNumber, mediaId })
-              .then((outcome) => {
+              .then(async (outcome) => {
                 // ── Visual product search ────────────────────────────────
                 // Only when the receipt pipeline did NOT claim the image
                 // (no pending unpaid order) — a receipt screenshot for an
                 // order must never be double-handled as a product search.
-                return import("../services/visualSearch").then(({ shouldRunVisualSearchAfterReceipt, handleInboundProductImage }) =>
-                  shouldRunVisualSearchAfterReceipt(outcome)
-                    // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
-                    // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
-                    // Runs BEFORE visual product search when enabled — a
-                    // stock-take tenant's shelf photos must not be mistaken
-                    // for customer product lookups. Outcome "disabled" falls
-                    // through to visual search unchanged.
-                    ? import("../services/visualStocktake")
-                        .then(({ handleInboundStocktakeImage }) =>
-                          handleInboundStocktakeImage({ tenantId, waPhoneNumber, mediaId })
-                            .catch((e: any) => {
-                              console.error("[whatsapp-webhook] visual stocktake error:", e?.message);
-                              return { handled: false } as { handled: boolean; outcome?: string };
-                            }),
-                        )
-                        .then((stOutcome) =>
-                          stOutcome?.handled && stOutcome.outcome !== "disabled"
-                            ? undefined
-                            : handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
-                                .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message)),
-                        )
-                    : undefined,
-                );
+                const { shouldRunVisualSearchAfterReceipt, handleInboundProductImage } = await import("../services/visualSearch");
+                if (!shouldRunVisualSearchAfterReceipt(outcome)) return;
+                // === W27 catalog-ai (additive): merchant product photo →
+                // AI draft listing. Only tenant staff phones are claimed;
+                // anything else falls through to expense OCR / stocktake /
+                // visual search.
+                const { handleInboundCatalogProductPhoto } = await import("../services/catalogAI");
+                const aiOutcome = await handleInboundCatalogProductPhoto({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] catalog-ai photo error:", e?.message);
+                    return { handled: false } as { handled: boolean; outcome?: string };
+                  });
+                if (aiOutcome?.handled) return;
+                // === W27 bookkeeping ===
+                // Expense receipt-photo capture claims the image ONLY when
+                // the sender has an open "expense" session; otherwise the
+                // stocktake / visual-search chain proceeds unchanged.
+                const { handleInboundExpenseImage } = await import("../services/bookkeeping");
+                const expOutcome = await handleInboundExpenseImage({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] expense OCR error:", e?.message);
+                    return { handled: false } as { handled: boolean };
+                  });
+                if (expOutcome?.handled) return;
+                // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
+                // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
+                // Runs BEFORE visual product search when enabled — a
+                // stock-take tenant's shelf photos must not be mistaken
+                // for customer product lookups. Outcome "disabled" falls
+                // through to visual search unchanged.
+                const { handleInboundStocktakeImage } = await import("../services/visualStocktake");
+                const stOutcome = await handleInboundStocktakeImage({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] visual stocktake error:", e?.message);
+                    return { handled: false } as { handled: boolean; outcome?: string };
+                  });
+                if (stOutcome?.handled && stOutcome.outcome !== "disabled") return;
+                await handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message));
               })
               .catch((e: any) => console.error("[whatsapp-webhook] receipt verify error:", e?.message));
           }
@@ -1525,6 +1628,18 @@ async function startServer() {
           // Fully async — must NEVER delay the webhook 200 ack.
           if (msg.type === "audio" && msg.audio?.id) {
             (async () => {
+              // === W27 catalog-ai (additive): merchant voice note → AI draft
+              // listing. Only tenant staff phones are claimed ("not_merchant"
+              // falls through to the buyer voice-ordering pipeline unchanged).
+              const { handleInboundCatalogVoiceNote } = await import("../services/catalogAI");
+              const aiOutcome = await handleInboundCatalogVoiceNote({
+                tenantId,
+                waPhoneNumber,
+                mediaId: msg.audio.id,
+                mimeType: msg.audio?.mime_type ?? null,
+              });
+              if (aiOutcome.handled && aiOutcome.outcome === "draft_created") return;
+              if (aiOutcome.handled && aiOutcome.outcome !== "not_merchant" && aiOutcome.outcome !== "disabled") return;
               const { handleInboundVoiceNote } = await import("../services/transcribe");
               await handleInboundVoiceNote({
                 tenantId,

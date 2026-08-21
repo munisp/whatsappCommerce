@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016622251",
-      "profileName": "Sim User 2251",
+      "phone": "2348015137431",
+      "profileName": "Sim User 7431",
       "inboundId": "wamid.sim.in.text.00281",
-      "at": 1787324118378,
+      "at": 1787340830878,
       "kind": "text",
       "text": "1 grilled chicken j89"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00281",
-      "at": 1787324118381
+      "at": 1787340830882
     },
     {
       "dir": "out",
-      "phone": "2348016622251",
+      "phone": "2348015137431",
       "wamid": "wamid.sim.000434",
       "statuses": [
         "sent"
       ],
-      "at": 1787324118401,
+      "at": 1787340830903,
       "kind": "text",
       "body": "✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348016622251",
-      "profileName": "Sim User 2251",
+      "phone": "2348015137431",
+      "profileName": "Sim User 7431",
       "inboundId": "wamid.sim.in.text.00282",
-      "at": 1787324118920,
+      "at": 1787340831423,
       "kind": "text",
       "text": "confirm my order j89"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00282",
-      "at": 1787324118924
+      "at": 1787340831428
     },
     {
       "dir": "out",
-      "phone": "2348016622251",
+      "phone": "2348015137431",
       "wamid": "wamid.sim.000435",
       "statuses": [
         "sent"
       ],
-      "at": 1787324118940,
+      "at": 1787340831445,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦3,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348016622251",
-      "profileName": "Sim User 2251",
+      "phone": "2348015137431",
+      "profileName": "Sim User 7431",
       "inboundId": "wamid.sim.in.text.00283",
-      "at": 1787324119464,
+      "at": 1787340831968,
       "kind": "text",
       "text": "2 — cash on delivery please"
     },
@@ -70,36 +70,36 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00283",
-      "at": 1787324119468
+      "at": 1787340831972
     },
     {
       "dir": "out",
-      "phone": "2348016622251",
+      "phone": "2348015137431",
       "wamid": "wamid.sim.000436",
       "statuses": [
         "sent"
       ],
-      "at": 1787324119489,
+      "at": 1787340832002,
       "kind": "location_request",
       "body": "📍 Share your delivery location — or just type your full address here."
     },
     {
       "dir": "out",
-      "phone": "2348016622251",
+      "phone": "2348015137431",
       "wamid": "wamid.sim.000437",
       "statuses": [
         "sent"
       ],
-      "at": 1787324119491,
+      "at": 1787340832004,
       "kind": "text",
       "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
     },
     {
       "dir": "in",
-      "phone": "2348016622251",
-      "profileName": "Sim User 2251",
+      "phone": "2348015137431",
+      "profileName": "Sim User 7431",
       "inboundId": "wamid.sim.in.text.00284",
-      "at": 1787324120009,
+      "at": 1787340832514,
       "kind": "text",
       "text": "5 Broad Street, Lagos"
     },
@@ -107,41 +107,41 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00284",
-      "at": 1787324120014
+      "at": 1787340832518
     },
     {
       "dir": "out",
-      "phone": "2348016622251",
+      "phone": "2348015137431",
       "wamid": "wamid.sim.000438",
       "statuses": [
         "sent"
       ],
-      "at": 1787324120045,
+      "at": 1787340832551,
       "kind": "text",
-      "body": "🧾 *Delivery Order ORD-MT32MTB6*\n1 × Grilled Chicken — ₦3,000.00 each\n📍 Deliver to: 5 Broad Street, Lagos\nSubtotal: ₦3,000.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,500.00*\n\n💵 *Cash on delivery* — please have ₦4,500.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/46d79caa-90c8-43f0-b316-6f9e6c1ce1db.wLlBeLpHwHLUD-vqhIx50IRj"
+      "body": "🧾 *Delivery Order ORD-MT3CL0RD*\n1 × Grilled Chicken — ₦3,000.00 each\n📍 Deliver to: 5 Broad Street, Lagos\nSubtotal: ₦3,000.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,500.00*\n\n💵 *Cash on delivery* — please have ₦4,500.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/c2cae23c-f0ba-45d1-9d56-492aaedc72df.bgunbznPdreKn26AdWdcRM0L"
     },
     {
       "dir": "out",
-      "phone": "2348016622251",
+      "phone": "2348015137431",
       "wamid": "wamid.sim.000439",
       "statuses": [
         "sent"
       ],
-      "at": 1787324120049,
+      "at": 1787340832555,
       "kind": "interactive",
-      "body": "Order ORD-MT32MTB6 — manage it here:",
+      "body": "Order ORD-MT3CL0RD — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:46d79caa-90c8-43f0-b316-6f9e6c1ce1db",
+          "id": "order_track:c2cae23c-f0ba-45d1-9d56-492aaedc72df",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:46d79caa-90c8-43f0-b316-6f9e6c1ce1db",
+          "id": "order_pay:c2cae23c-f0ba-45d1-9d56-492aaedc72df",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:46d79caa-90c8-43f0-b316-6f9e6c1ce1db",
+          "id": "order_cancel:c2cae23c-f0ba-45d1-9d56-492aaedc72df",
           "title": "Cancel Order"
         }
       ]

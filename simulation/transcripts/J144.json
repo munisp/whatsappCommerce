@@ -1,0 +1,217 @@
+{
+  "id": "J144",
+  "title": "verified-only review enforcement",
+  "feature": "purchase-verified reviews + moderation",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017357594",
+      "profileName": "Sim User 7594",
+      "inboundId": "wamid.sim.in.text.00359",
+      "at": 1787340960967,
+      "kind": "text",
+      "text": "RATE 5 Amazing!"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00359",
+      "at": 1787340960971
+    },
+    {
+      "dir": "out",
+      "phone": "2348017357594",
+      "wamid": "wamid.sim.000594",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340960989,
+      "kind": "text",
+      "body": "Sorry — reviews are only for verified purchases. Once your order is delivered you can rate your experience (e.g. \"RATE 5 Great!\")."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017357594",
+      "profileName": "Sim User 7594",
+      "inboundId": "wamid.sim.in.text.00360",
+      "at": 1787340961513,
+      "kind": "text",
+      "text": "i want these [546ca7d6]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00360",
+      "at": 1787340961516
+    },
+    {
+      "dir": "out",
+      "phone": "2348017357594",
+      "wamid": "wamid.sim.000595",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340961535,
+      "kind": "text",
+      "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017357594",
+      "profileName": "Sim User 7594",
+      "inboundId": "wamid.sim.in.text.00361",
+      "at": 1787340962059,
+      "kind": "text",
+      "text": "confirm please [546ca7d6]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00361",
+      "at": 1787340962063
+    },
+    {
+      "dir": "out",
+      "phone": "2348017357594",
+      "wamid": "wamid.sim.000596",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340962082,
+      "kind": "text",
+      "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348017357594",
+      "profileName": "Sim User 7594",
+      "inboundId": "wamid.sim.in.text.00362",
+      "at": 1787340962611,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00362",
+      "at": 1787340962616
+    },
+    {
+      "dir": "out",
+      "phone": "2348017357594",
+      "wamid": "wamid.sim.000597",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340962645,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MT3CNT54*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/658a73f9-0ad8-4865-af80-1a620570305f\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/7993c653-030c-4635-9d54-e48134402fb5.N17WzccLr3qmrqxs5X7-5rLJ"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017357594",
+      "wamid": "wamid.sim.000598",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340962655,
+      "kind": "interactive",
+      "body": "Order ORD-MT3CNT54 — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:7993c653-030c-4635-9d54-e48134402fb5",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:7993c653-030c-4635-9d54-e48134402fb5",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:7993c653-030c-4635-9d54-e48134402fb5",
+          "title": "Cancel Order"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348017357594",
+      "profileName": "Sim User 7594",
+      "inboundId": "wamid.sim.in.text.00363",
+      "at": 1787340963161,
+      "kind": "text",
+      "text": "RATE 5 Great jollof, fast pickup!"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00363",
+      "at": 1787340963164
+    },
+    {
+      "dir": "out",
+      "phone": "2348017357594",
+      "wamid": "wamid.sim.000599",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340963183,
+      "kind": "text",
+      "body": "⭐ Thanks for your 5-star review! It helps other buyers and the merchant improve."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017357594",
+      "profileName": "Sim User 7594",
+      "inboundId": "wamid.sim.in.text.00364",
+      "at": 1787340963709,
+      "kind": "text",
+      "text": "RATE 4 Actually, a bit salty"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00364",
+      "at": 1787340963713
+    },
+    {
+      "dir": "out",
+      "phone": "2348017357594",
+      "wamid": "wamid.sim.000600",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340963731,
+      "kind": "text",
+      "body": "⭐ Thanks for your 4-star review! It helps other buyers and the merchant improve."
+    },
+    {
+      "dir": "in",
+      "phone": "2348011763200",
+      "profileName": "Sim User 3200",
+      "inboundId": "wamid.sim.in.text.00365",
+      "at": 1787340964265,
+      "kind": "text",
+      "text": "RATE 1 terrible"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00365",
+      "at": 1787340964268
+    },
+    {
+      "dir": "out",
+      "phone": "2348011763200",
+      "wamid": "wamid.sim.000601",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340964310,
+      "kind": "text",
+      "body": "Sorry — reviews are only for verified purchases. Once your order is delivered you can rate your experience (e.g. \"RATE 5 Great!\")."
+    }
+  ]
+}

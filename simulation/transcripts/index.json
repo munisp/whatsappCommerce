@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T14:57:00.321Z",
+  "generatedAt": "2026-08-21T19:36:25.869Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -315,12 +315,116 @@
       "messageCount": 11
     },
     {
+      "id": "J127",
+      "title": "merchant voice note → listing",
+      "feature": "voice → STT → extract → draft → button publish",
+      "pass": true,
+      "file": "J127.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J128",
+      "title": "merchant photo → listing",
+      "feature": "photo → vision → draft → button publish (median price suggestion)",
+      "pass": true,
+      "file": "J128.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J129",
+      "title": "catalog draft edit / reject",
+      "feature": "edit + reject + text fallback + state guards",
+      "pass": true,
+      "file": "J129.json",
+      "messageCount": 3
+    },
+    {
       "id": "J13",
       "title": "abandoned cart recovery",
       "feature": "cartRecovery cron (1×/24h, consent-gated)",
       "pass": true,
       "file": "J13.json",
       "messageCount": 10
+    },
+    {
+      "id": "J130",
+      "title": "price suggestion sanity",
+      "feature": "median fallbacks, integer cents, draft integration",
+      "pass": true,
+      "file": "J130.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J131",
+      "title": "sales digest generation",
+      "feature": "W27 bookkeeping digests",
+      "pass": true,
+      "file": "J131.json",
+      "messageCount": 7
+    },
+    {
+      "id": "J132",
+      "title": "expense receipt photo",
+      "feature": "W27 bookkeeping expenses",
+      "pass": true,
+      "file": "J132.json",
+      "messageCount": 20
+    },
+    {
+      "id": "J133",
+      "title": "tax-ready export contents",
+      "feature": "W27 bookkeeping export",
+      "pass": true,
+      "file": "J133.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J134",
+      "title": "week-over-week math",
+      "feature": "W27 bookkeeping summaries",
+      "pass": true,
+      "file": "J134.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J135",
+      "title": "storefront render + slug uniqueness",
+      "feature": "public /shop/:slug view, slug uniqueness + defaults, visibility + KYB location gates",
+      "pass": true,
+      "file": "J135.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J136",
+      "title": "language switch → menus in Hausa",
+      "feature": "language picker, sticky locale, localized menu chrome, localized intent keywords",
+      "pass": true,
+      "file": "J136.json",
+      "messageCount": 12
+    },
+    {
+      "id": "J137",
+      "title": "i18n fallback to en for missing keys",
+      "feature": "locale→en catalog fallback, tenant overrides, tenant default locale resolution",
+      "pass": true,
+      "file": "J137.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J138",
+      "title": "merchant credit score determinism",
+      "feature": "getMerchantScore (frozen contract) + credit certificate",
+      "pass": true,
+      "file": "J138.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J139",
+      "title": "loan offer → accept → disburse",
+      "feature": "microLoans offers/accept via credit router + wallet rails",
+      "pass": true,
+      "file": "J139.json",
+      "messageCount": 0
     },
     {
       "id": "J14",
@@ -331,12 +435,124 @@
       "messageCount": 9
     },
     {
+      "id": "J140",
+      "title": "auto-repayment deduction on sale",
+      "feature": "runLoanRepaymentSweep over wallet escrow_release rails",
+      "pass": true,
+      "file": "J140.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J141",
+      "title": "loan default path",
+      "feature": "microLoans late/default handling + cure",
+      "pass": true,
+      "file": "J141.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J142",
+      "title": "delivery quote → book → status → escrow release",
+      "feature": "courier adapter aggregation + escrow tie-in",
+      "pass": true,
+      "file": "J142.json",
+      "messageCount": 16
+    },
+    {
+      "id": "J143",
+      "title": "loyalty earn → redeem with caps",
+      "feature": "ledger-backed loyalty points",
+      "pass": true,
+      "file": "J143.json",
+      "messageCount": 20
+    },
+    {
+      "id": "J144",
+      "title": "verified-only review enforcement",
+      "feature": "purchase-verified reviews + moderation",
+      "pass": true,
+      "file": "J144.json",
+      "messageCount": 22
+    },
+    {
+      "id": "J145",
+      "title": "review → trustScore effect on discovery ranking",
+      "feature": "review-driven trustScore via geoDiscovery hook",
+      "pass": true,
+      "file": "J145.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J146",
+      "title": "wholesale browse → tiered order",
+      "feature": "wholesaleCatalog tiered pricing + WhatsApp browse/buy",
+      "pass": true,
+      "file": "J146.json",
+      "messageCount": 9
+    },
+    {
+      "id": "J147",
+      "title": "trade-credit checkout gated by credit score",
+      "feature": "getMerchantScore gate + drawOnCreditTx wholesale checkout",
+      "pass": true,
+      "file": "J147.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J148",
+      "title": "group deal threshold success",
+      "feature": "groupBuy join → threshold confirm + progress bar",
+      "pass": true,
+      "file": "J148.json",
+      "messageCount": 12
+    },
+    {
+      "id": "J149",
+      "title": "group deal expiry → refunds/voids",
+      "feature": "groupBuy sweep: expire + refund/void, idempotent",
+      "pass": true,
+      "file": "J149.json",
+      "messageCount": 3
+    },
+    {
       "id": "J15",
       "title": "voice note ordering",
       "feature": "transcribe → NLP pipeline; fail-soft",
       "pass": true,
       "file": "J15.json",
       "messageCount": 6
+    },
+    {
+      "id": "J150",
+      "title": "stokvel circle full rotation",
+      "feature": "group savings circle → rotating payout → completion + audit trail",
+      "pass": true,
+      "file": "J150.json",
+      "messageCount": 30
+    },
+    {
+      "id": "J151",
+      "title": "stokvel missed contribution",
+      "feature": "reminders + missed tracking + idempotent contribution",
+      "pass": true,
+      "file": "J151.json",
+      "messageCount": 9
+    },
+    {
+      "id": "J152",
+      "title": "insurance add-on → policy → parametric claim",
+      "feature": "checkout opt-in + mock adapter + parametric trigger hook",
+      "pass": true,
+      "file": "J152.json",
+      "messageCount": 16
+    },
+    {
+      "id": "J153",
+      "title": "voucher issue → redeem → reconcile",
+      "feature": "voucher rails + eligibility + double-redeem guard + issuer report",
+      "pass": true,
+      "file": "J153.json",
+      "messageCount": 20
     },
     {
       "id": "J16",

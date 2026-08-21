@@ -182,6 +182,10 @@ export interface ChatOrderResult {
   promo?: { code: string; discount: number } | null;
   /** Reject reason when a promo code was supplied but not applied. */
   promoError?: string | null;
+  /** W27: aggregated courier quote snapshot (feeCents integer). */
+  deliveryQuote?: { courier: string; quoteId: string; feeCents: number; etaMinutes: number; label: string } | null;
+  /** W27: loyalty redemption applied at checkout (integer points/cents). */
+  loyalty?: { points: number; discountCents: number; balanceAfter: number } | null;
 }
 
 /** Buyer-facing reply when (part of) the cart can't be fulfilled: names the
@@ -232,6 +236,10 @@ export async function createChatOrder(
     /** W17/F10: 'cod' creates a cash-on-delivery order (no payment link,
      * codState = cod_pending) instead of an online-payment order. */
     paymentMethod?: "online" | "cod";
+    /** W27: buyer location pin — enables distance-priced courier quotes. */
+    deliveryCoords?: { latitude: number; longitude: number } | null;
+    /** W27: redeem loyalty points at checkout (discount capped per rules). */
+    loyaltyRedeem?: boolean;
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -254,7 +262,27 @@ export async function createChatOrder(
   }
 
   const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
-  const quote = opts.fulfillment === "delivery" ? quoteDeliveryFee({ address: opts.address }) : null;
+  // ── W27: aggregated courier quote — cheapest of the tenant's enabled
+  // courier adapters (distance-priced local dispatch when coordinates are
+  // known), falling back to the honest zone rate. Non-blocking. ────────────
+  let aggQuote: import("../services/delivery/service").AggregatedQuote | null = null;
+  if (opts.fulfillment === "delivery") {
+    try {
+      const { quoteOrderDelivery } = await import("../services/delivery/service");
+      const dc = opts.deliveryCoords ?? null;
+      aggQuote = await quoteOrderDelivery(db, {
+        tenantId: opts.tenantId,
+        dropoffAddress: opts.address,
+        ...(dc ? { dropoffLat: dc.latitude, dropoffLng: dc.longitude } : {}),
+        orderValueCents: toMinorUnitsExact(subtotal),
+      });
+    } catch (e: unknown) {
+      console.error("[nlp] aggregated delivery quote failed (non-blocking):", (e as Error)?.message);
+    }
+  }
+  const quote = aggQuote
+    ? { fee: aggQuote.feeMajor, zone: aggQuote.zone ?? "same_city", carrier: aggQuote.label }
+    : (opts.fulfillment === "delivery" ? quoteDeliveryFee({ address: opts.address }) : null);
   const deliveryFee = quote?.fee ?? 0;
 
   // ── Promo code (optional) ─────────────────────────────────────────────
@@ -285,7 +313,30 @@ export async function createChatOrder(
       console.error("[nlp] promo validation failed (non-blocking):", (e as Error)?.message);
     }
   }
-  const totalMinor = Math.max(0, toMinorUnitsExact(subtotal + deliveryFee) - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0));
+  // ── W27: loyalty points redemption (optional, cap-enforced) ─────────────
+  // Burn happens AFTER the order row commits (below); here we only preview
+  // the discount so totals/payment link reflect it. Integer cents only.
+  let loyaltyPreview: { points: number; discountCents: number } | null = null;
+  if (opts.loyaltyRedeem) {
+    try {
+      const { getLoyaltyRules, getBalance, previewRedemption } = await import("../services/loyalty");
+      const rules = await getLoyaltyRules(db, opts.tenantId);
+      if (rules.enabled) {
+        const balance = await getBalance(db, opts.tenantId, opts.waPhoneNumber);
+        const preLoyaltyMinor = Math.max(0, toMinorUnitsExact(subtotal + deliveryFee) - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0));
+        const preview = previewRedemption(rules, balance, preLoyaltyMinor);
+        if (preview.points > 0) {
+          loyaltyPreview = { points: preview.points, discountCents: preview.discountCents };
+        }
+      }
+    } catch (e: unknown) {
+      console.error("[nlp] loyalty preview failed (non-blocking):", (e as Error)?.message);
+    }
+  }
+  const totalMinor = Math.max(0,
+    toMinorUnitsExact(subtotal + deliveryFee)
+    - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0)
+    - (loyaltyPreview?.discountCents ?? 0));
   const total = Number(minorUnitsToString(totalMinor));
   const currency = items[0].currency;
 
@@ -339,6 +390,23 @@ export async function createChatOrder(
           source: "whatsapp_chat",
           paymentMethod: opts.paymentMethod === "cod" ? "cod" : "online",
           ...(promoMeta ? { promo: promoMeta } : {}),
+          // W27: aggregated courier quote snapshot + loyalty redemption.
+          ...(aggQuote ? {
+            deliveryQuote: {
+              courier: aggQuote.courier,
+              quoteId: aggQuote.quoteId,
+              feeCents: aggQuote.feeCents,
+              etaMinutes: aggQuote.etaMinutes,
+              label: aggQuote.label,
+            },
+          } : {}),
+          ...(opts.deliveryCoords ? { deliveryCoords: opts.deliveryCoords } : {}),
+          ...(loyaltyPreview ? {
+            loyaltyRedemption: {
+              points: loyaltyPreview.points,
+              discountCents: loyaltyPreview.discountCents,
+            },
+          } : {}),
         },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -368,6 +436,30 @@ export async function createChatOrder(
       }
     }).catch((e: unknown) => console.error("[nlp] promo usage claim failed:", (e as Error)?.message));
   }
+
+  // ── W27: burn the redeemed points only AFTER the order committed ────────
+  // (a rolled-back order must never burn points). Idempotent per order.
+  let loyaltyApplied: { points: number; discountCents: number; balanceAfter: number } | null = null;
+  if (loyaltyPreview) {
+    try {
+      const { redeemPoints } = await import("../services/loyalty");
+      const burn = await redeemPoints({
+        tenantId: opts.tenantId,
+        customerPhone: opts.waPhoneNumber,
+        points: loyaltyPreview.points,
+        reason: `Redeemed on order ${orderNumber}`,
+        orderId,
+      }, db);
+      loyaltyApplied = { ...loyaltyPreview, balanceAfter: burn.balanceAfter };
+    } catch (e: unknown) {
+      // Balance changed since preview (concurrent burn) — the buyer pays full
+      // price; the order total already reflects the discount, so log loudly.
+      console.error(`[nlp] loyalty burn failed for order ${orderId}:`, (e as Error)?.message);
+    }
+  }
+  const deliveryQuoteMeta = aggQuote
+    ? { courier: aggQuote.courier, quoteId: aggQuote.quoteId, feeCents: aggQuote.feeCents, etaMinutes: aggQuote.etaMinutes, label: aggQuote.label }
+    : null;
 
   // ── Fire-and-forget sync to external systems ─────────────────────────
   (async () => {
@@ -426,6 +518,8 @@ export async function createChatOrder(
       paymentMethod: "cod",
       promo,
       promoError,
+      deliveryQuote: deliveryQuoteMeta,
+      loyalty: loyaltyApplied,
     };
   }
 
@@ -501,6 +595,8 @@ export async function createChatOrder(
     paymentUrl,
     promo,
     promoError,
+    deliveryQuote: deliveryQuoteMeta,
+    loyalty: loyaltyApplied,
   };
 }
 import { hermesConfigs } from "../../drizzle/schema";
@@ -587,7 +683,7 @@ CONVERSATION RULES:
 RESPOND WITH JSON (no markdown):
 {
   "reply": "<message to send to customer>",
-  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|discover_nearby|unknown",
+  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|discover_nearby|browse_wholesale|join_group_deal|unknown",
   "nextState": "greeting|browse|product_detail|add_to_cart|checkout_address|checkout_confirm|payment|order_confirmed|support",
   "extractedItems": [{"product": "<product name>", "quantity": <number>}] — EVERY product the customer wants to add in this message (multi-item orders are common, e.g. "2 spicy wraps and 1 malt"); empty array if none,
   "extractedProduct": "<single product name if exactly one mentioned, else null>",
@@ -614,6 +710,27 @@ export const nlpRouter = router({
     .mutation(async ({ input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+
+      // === W27 catalog-ai (additive): merchant text fallback for AI listing
+      // drafts — "PUBLISH <id8>" / "REJECT <id8>" resolves the merchant's
+      // pending catalog_ai_drafts without touching the buyer NLP pipeline.
+      if (/^\s*(publish|reject)\s+[0-9a-f]{8}\s*$/i.test(input.message ?? "")) {
+        try {
+          const { handleCatalogDraftTextCommand, isTenantStaffPhone } = await import("../services/catalogAI");
+          if (await isTenantStaffPhone(db, input.tenantId, input.waPhoneNumber)) {
+            const res = await handleCatalogDraftTextCommand({
+              tenantId: input.tenantId,
+              phone: input.waPhoneNumber,
+              text: input.message,
+            });
+            if (res.handled) {
+              return { reply: res.reply ?? "", intent: "catalog_draft", confidence: 1, state: "browse", language: "en", sessionId: "" };
+            }
+          }
+        } catch (e: any) {
+          console.warn("[nlp] catalog_draft command error:", e?.message);
+        }
+      }
 
       // 1. Upsert NLP session
       const existing = await db.select().from(nlpSessions)
@@ -698,6 +815,13 @@ export const nlpRouter = router({
             stepCtx.paymentMethod = "cod";
           }
 
+          // W27: loyalty redemption intent at any checkout step ("redeem my
+          // points", "2 delivery use points") sticks to the session like the
+          // promo/COD capture above and is applied when the order is created.
+          if (/\b(redeem|use)\b[^.]*\bpoints?\b|\bpoints?\s+(discount|don jazzy)?$/i.test(lower) && !/\b(balance|how many|check)\b/.test(lower)) {
+            stepCtx.loyaltyRedeem = true;
+          }
+
           const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
             const order = await createChatOrder(db, {
               tenantId: input.tenantId,
@@ -708,6 +832,13 @@ export const nlpRouter = router({
               address,
               promoCode: typeof stepCtx.promoCode === "string" ? stepCtx.promoCode : null,
               paymentMethod: stepCtx.paymentMethod === "cod" ? "cod" : "online",
+              loyaltyRedeem: stepCtx.loyaltyRedeem === true,
+              deliveryCoords: (() => {
+                const dc = stepCtx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
+                return typeof dc?.latitude === "number" && typeof dc?.longitude === "number"
+                  ? { latitude: dc.latitude, longitude: dc.longitude }
+                  : null;
+              })(),
             });
             if (order.fraudBlocked) {
               return `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
@@ -722,10 +853,11 @@ export const nlpRouter = router({
             stepCtx.fulfillment = fulfillment;
             stepCtx.lastOrderId = order.orderId;
             stepCtx.lastOrderNumber = order.orderNumber;
+            if (order.loyalty) delete stepCtx.loyaltyRedeem; // W27: one-shot redeem flag consumed
             nextState = "payment";
             stepIntent = "confirm_order";
             stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
-            return buildOrderSummary({
+            const summary = buildOrderSummary({
               fulfillment,
               orderNumber: order.orderNumber!,
               items: order.items!,
@@ -741,6 +873,14 @@ export const nlpRouter = router({
               paymentMethod: order.paymentMethod ?? "online",
               trackingUrl: trackingUrlFor(order.orderId!),
             });
+            // W27: annotate the loyalty redemption on the buyer's summary.
+            if (order.loyalty && order.loyalty.points > 0) {
+              return summary + `\n🎁 Redeemed ${order.loyalty.points} pts (−${fmtMoney(order.loyalty.discountCents / 100, order.currency ?? "NGN")}). Points balance: ${order.loyalty.balanceAfter}.`;
+            }
+            if (stepCtx.loyaltyRedeem === true) {
+              return summary + `\n🎁 No loyalty points available to redeem yet — points vest when orders are delivered.`;
+            }
+            return summary;
           };
 
           if (stepCtx.awaitingFulfillment === true) {
@@ -977,6 +1117,119 @@ export const nlpRouter = router({
         }
       }
 
+      // 3f. W27 loyalty balance + verified review commands — deterministic,
+      // no LLM needed.
+      {
+        const cmd = input.message.trim().toLowerCase();
+        // ── POINTS / BALANCE / LOYALTY → points balance + earn hint ──────
+        if (/^(points|points balance|loyalty|loyalty points|balance)$/.test(cmd)) {
+          const { getBalance, getLoyaltyRules } = await import("../services/loyalty");
+          const [rules, balance] = await Promise.all([
+            getLoyaltyRules(db, input.tenantId),
+            getBalance(db, input.tenantId, input.waPhoneNumber),
+          ]);
+          const reply = rules.enabled
+            ? `🎁 You have *${balance} loyalty points*. Earn ${rules.pointsPerUnit} pt per ₦${Math.round(rules.unitValueCents / 100)} spent (points vest on delivery). Redeem at checkout with "redeem points" — up to ${rules.redemptionCapPercent}% off your order.`
+            : `🎁 Loyalty rewards aren't active at this store right now.`;
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "loyalty_balance", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── REDEEM POINTS (standalone) → sticks to the session like COD ──
+        // The discount is computed at order creation (createChatOrder) under
+        // the tenant's cap; this command only arms the session flag.
+        if (/^(redeem|use)( my)? points$/.test(cmd)) {
+          const w27Ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          w27Ctx.loyaltyRedeem = true;
+          await db.update(nlpSessions).set({ context: w27Ctx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply: "👍 I'll apply your loyalty points to your next checkout (up to the store's cap). Send your order when ready!",
+            intent: "loyalty_redeem_arm", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── RATE <1-5> [text] / REVIEW <1-5> [text] → verified review ────
+        const rateMatch = /^(?:rate|review)\s+([1-5])\b[:\-\s]*(.*)$/i.exec(input.message.trim());
+        if (rateMatch) {
+          const { createReview } = await import("../services/reviews");
+          const w27Ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          const lastOrderId = typeof w27Ctx.lastOrderId === "string" ? w27Ctx.lastOrderId : undefined;
+          const rating = parseInt(rateMatch[1], 10);
+          const reviewText = rateMatch[2]?.trim() || null;
+          let reply: string;
+          try {
+            await createReview(db, {
+              tenantId: input.tenantId,
+              customerPhone: input.waPhoneNumber,
+              rating,
+              text: reviewText,
+              ...(lastOrderId ? { orderId: lastOrderId } : {}),
+            });
+            reply = `⭐ Thanks for your ${rating}-star review${reviewText ? "" : ""}! It helps other buyers and the merchant improve.`;
+          } catch (e: any) {
+            reply = e?.code === "FORBIDDEN"
+              ? `Sorry — reviews are only for verified purchases. Once your order is delivered you can rate your experience (e.g. "RATE 5 Great!").`
+              : `Sorry, I couldn't save that review just now — please try again later.`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "review_submit", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === W27 Coder F: 3f. Wholesale marketplace + group buying commands ===
+      // Deterministic, no LLM needed (discoveryMenu.ts exemplar). Parses
+      // "wholesale [q]" / "buy <#> <qty>" / "deals" / "join <ref> <qty>" /
+      // "deal <ref>" and answers from the wholesaleCatalog / groupBuy
+      // services. Session context remembers the last listing menu so "buy 1
+      // 100" resolves to a listing.
+      {
+        const { parseWholesaleCommand, handleWholesaleCommand } =
+          await import("../services/wholesaleWhatsApp");
+        const wCmd = parseWholesaleCommand(input.message);
+        if (wCmd) {
+          const wCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          const result = await handleWholesaleCommand(db, wCmd, {
+            waPhoneNumber: input.waPhoneNumber,
+            sessionCtx: wCtx,
+          });
+          const nextCtx = result.ctxPatch ? { ...wCtx, ...result.ctxPatch } : wCtx;
+          const wHistory = [
+            ...((session.messageHistory as Array<{ role: string; content: string }>).slice(-10)),
+            { role: "user", content: input.message },
+            { role: "assistant", content: result.reply },
+          ].slice(-20);
+          await db.update(nlpSessions).set({
+            context: nextCtx,
+            messageHistory: wHistory,
+            lastActivityAt: new Date(),
+          }).where(eq(nlpSessions.id, session.id));
+          await db.insert(agentEvents).values({
+            id: crypto.randomUUID(),
+            tenantId: input.tenantId,
+            conversationId: session.id,
+            eventType: "nlp_message",
+            intentType: result.intent,
+            confidence: "1.000",
+            escalated: false,
+            model: "deterministic-wholesale-groupbuy",
+            createdAt: new Date(),
+          });
+          return {
+            reply: result.reply,
+            intent: result.intent,
+            state: session.state,
+            language: session.language,
+            sessionId: session.id,
+            confidence: 1,
+          };
+        }
+      }
+      // === END W27 Coder F ===
+
       // 4. Build message history for LLM context (last 10 turns)
       const history = (session.messageHistory as Array<{ role: string; content: string }>).slice(-10);
 
@@ -1187,6 +1440,13 @@ export const nlpRouter = router({
               address,
               promoCode: typeof ctx.promoCode === "string" ? ctx.promoCode : null,
               paymentMethod: ctx.paymentMethod === "cod" ? "cod" : "online",
+              loyaltyRedeem: ctx.loyaltyRedeem === true,
+              deliveryCoords: (() => {
+                const dc = ctx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
+                return typeof dc?.latitude === "number" && typeof dc?.longitude === "number"
+                  ? { latitude: dc.latitude, longitude: dc.longitude }
+                  : null;
+              })(),
             });
             if (order.fraudBlocked) {
               llmResult.reply = `\u26a0\ufe0f Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
@@ -1197,6 +1457,7 @@ export const nlpRouter = router({
             } else if (order.created) {
               ctx.lastOrderId = order.orderId;
               ctx.lastOrderNumber = order.orderNumber;
+              if (order.loyalty) delete ctx.loyaltyRedeem; // W27: one-shot redeem flag consumed
               orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
               llmResult.reply = buildOrderSummary({
                 fulfillment,
@@ -1214,6 +1475,9 @@ export const nlpRouter = router({
                 paymentMethod: order.paymentMethod ?? "online",
                 trackingUrl: trackingUrlFor(order.orderId!),
               });
+              if (order.loyalty && order.loyalty.points > 0) {
+                llmResult.reply += `\n🎁 Redeemed ${order.loyalty.points} pts (−${fmtMoney(order.loyalty.discountCents / 100, order.currency ?? "NGN")}). Points balance: ${order.loyalty.balanceAfter}.`;
+              }
             }
           }
         }

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
 import NotificationCenter from "@/components/NotificationCenter";
-import { Wallet, Rocket, BarChart3, Megaphone, MapPin } from "lucide-react";
+import { Wallet, Rocket, BarChart3, Megaphone, MapPin, BookOpen } from "lucide-react";
 
 const NAV = [
   { label: "Dashboard", path: "/portal", icon: LayoutDashboard },
@@ -21,6 +21,8 @@ const NAV = [
   { label: "Payments", path: "/portal/payments", icon: CreditCard },
   { label: "Wallet", path: "/portal/wallet", icon: Wallet },
   { label: "Analytics", path: "/portal/analytics", icon: BarChart3 },
+  // === W27 bookkeeping ===
+  { label: "Bookkeeping", path: "/portal/bookkeeping", icon: BookOpen },
   { label: "Broadcasts", path: "/portal/broadcasts", icon: Megaphone },
   { label: "Setup Wizard", path: "/portal/setup", icon: Rocket },
   { label: "Discovery", path: "/settings/discovery", icon: MapPin },

@@ -519,6 +519,16 @@ export async function bootWorld(): Promise<World> {
             })
             .where(eq(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
         } catch { /* w8 tables not seeded yet */ }
+        // === W27 Coder F: wipe wholesale/group-buy tables between journeys ===
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.groupDealParticipants);
+          await world.db.delete(schema.groupDeals);
+          await world.db.delete(schema.wholesaleOrders);
+          await world.db.delete(schema.wholesaleListingTiers);
+          await world.db.delete(schema.wholesaleListings);
+        } catch { /* w27 tables not migrated yet */ }
+        // === END W27 Coder F ===
         // Wave 9 isolation: onboarding copilot sessions + the waOnboarding
         // in-memory pending-edit map never leak between journeys.
         try {
@@ -589,6 +599,14 @@ export async function bootWorld(): Promise<World> {
           const { creditFacilities } = await import("../server/services/creditFacilities/tables");
           await world.db.delete(creditFacilities);
         } catch { /* w14 tables not migrated yet */ }
+        // === W27 bookkeeping === expense records + digest prefs/log never
+        // leak between journeys (J131–J134).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.bookkeepingDigestLog);
+          await world.db.delete(schema.bookkeepingDigestPrefs);
+          await world.db.delete(schema.expenses);
+        } catch { /* w27 tables not migrated yet */ }
         // Wave 15 isolation: catalog-bootstrap drafts + ERP provisioning state
         // live in tenants.settings jsonb — strip them from the seed tenants;
         // drop ERP integration rows + memberships J76/J77 create (memberships
@@ -677,6 +695,25 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.odooIntegrations);
           await world.db.delete(schema.twentyIntegrations);
         } catch { /* integration tables not present */ }
+        // W27 credit isolation: merchant credit scores, micro-loans,
+        // repayments and certificates created by J138–J141 never leak
+        // between journeys (no FKs to tenants; delete order: repayments
+        // before loans).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.merchantLoanRepayments);
+          await world.db.delete(schema.merchantLoans);
+          await world.db.delete(schema.merchantCreditScores);
+          await world.db.delete(schema.merchantCreditCertificates);
+          // Wallet rails for non-seed (journey-created) merchants: J139–J141
+          // disburse to / settle sales on a dedicated credit merchant wallet;
+          // leftover escrow_release credits would be swept by later journeys.
+          const { notInArray: notSeed } = await import("drizzle-orm");
+          await world.db.delete(schema.walletTransactions)
+            .where(notSeed(schema.walletTransactions.tenantId, [TENANT_ID, SUPPLIER_TENANT_ID]));
+          await world.db.delete(schema.merchantWallets)
+            .where(notSeed(schema.merchantWallets.tenantId, [TENANT_ID, SUPPLIER_TENANT_ID]));
+        } catch { /* w27 tables not migrated yet */ }
         delete process.env.CATALOG_EXTRACTION_PROVIDER;
         delete process.env.CATALOG_EXTRACTION_ENDPOINT;
         delete process.env.CATALOG_EXTRACTION_API_KEY;
