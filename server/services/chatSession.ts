@@ -36,6 +36,13 @@ export interface ChatSession {
   awaitingMenuSelection?: boolean;
   /** True while we wait for the NDPR consent YES/NO reply. */
   awaitingConsent?: boolean;
+  /**
+   * Optimistic-concurrency version. Every save bumps it; saveSessionCas
+   * refuses to overwrite a session whose stored version differs from the
+   * version the caller based its mutation on (prevents lost updates when
+   * two webhook deliveries race the same phone).
+   */
+  casVersion?: number;
   updatedAt: number;
 }
 
@@ -115,7 +122,11 @@ export async function saveSession(
   ttlSeconds: number = SESSION_TTL_SECONDS,
 ): Promise<void> {
   const key = sessionKey(session.tenantId, session.phone);
-  const value = JSON.stringify({ ...session, updatedAt: Date.now() });
+  const value = JSON.stringify({
+    ...session,
+    casVersion: (session.casVersion ?? 0) + 1,
+    updatedAt: Date.now(),
+  });
   try {
     const redis = await getRedis();
     if (redis) {
@@ -130,6 +141,64 @@ export async function saveSession(
     return; // stateless fallback — do not silently persist in process memory
   }
   memorySet(key, value, ttlSeconds);
+}
+
+/**
+ * Compare-and-swap session write: persists `session` only when the currently
+ * stored session still has `expectedVersion` (the casVersion the caller read
+ * before mutating). Returns false on a version conflict (concurrent writer
+ * won — caller must reload and re-apply) or when the session no longer
+ * exists. Atomic in Redis via a Lua check-and-set; the dev/test in-memory
+ * fallback is single-threaded and checks synchronously.
+ */
+export async function saveSessionCas(
+  session: ChatSession,
+  expectedVersion: number,
+  ttlSeconds: number = SESSION_TTL_SECONDS,
+): Promise<boolean> {
+  const key = sessionKey(session.tenantId, session.phone);
+  const value = JSON.stringify({
+    ...session,
+    casVersion: expectedVersion + 1,
+    updatedAt: Date.now(),
+  });
+  try {
+    const redis = await getRedis();
+    if (redis) {
+      const result = await redis.eval(
+        `local cur = redis.call('GET', KEYS[1])
+         if not cur then return 0 end
+         local ok, obj = pcall(cjson.decode, cur)
+         if not ok or type(obj) ~= 'table' then return 0 end
+         local v = obj['casVersion'] or 0
+         if v ~= tonumber(ARGV[1]) then return 0 end
+         redis.call('SETEX', KEYS[1], tonumber(ARGV[2]), ARGV[3])
+         return 1`,
+        1,
+        key,
+        String(expectedVersion),
+        String(ttlSeconds),
+        value,
+      );
+      return Number(result) === 1;
+    }
+  } catch (e: any) {
+    console.warn("[chatSession] redis CAS failed:", e?.message);
+  }
+  if (isProd) {
+    logProdMissingRedis();
+    return false;
+  }
+  const raw = memoryGet(key);
+  if (!raw) return false;
+  try {
+    const cur = JSON.parse(raw) as ChatSession;
+    if ((cur.casVersion ?? 0) !== expectedVersion) return false;
+  } catch {
+    return false;
+  }
+  memorySet(key, value, ttlSeconds);
+  return true;
 }
 
 export async function clearSession(tenantId: string, phone: string): Promise<void> {

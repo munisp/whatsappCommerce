@@ -1,5 +1,6 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
+import { timingSafeEqual } from "crypto";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { ENV } from "./env";
@@ -29,6 +30,60 @@ const requireUser = t.middleware(async opts => {
 });
 
 export const protectedProcedure = t.procedure.use(requireUser);
+
+/**
+ * W26 security (F8/F10): internal service-to-service procedure gate.
+ *
+ * Some tRPC mutations exist only so that platform-internal components (Go
+ * services, the WhatsApp webhook handler, heartbeat/recon workers) can write
+ * operational data. They must never be callable by arbitrary internet
+ * clients. `internalProcedure` enforces a shared-secret check:
+ *
+ *   - In-process server-side callers (createCaller without an Express req)
+ *     are trusted and pass through.
+ *   - Real HTTP requests must present the shared secret via the
+ *     `x-internal-api-key` header (`x-internal-token` / `x-api-key` also
+ *     accepted, matching the Go services' header) compared against
+ *     INTERNAL_API_KEY with a timing-safe comparison.
+ *   - Fail-closed: when INTERNAL_API_KEY is unset, requests are rejected in
+ *     production/staging (503); in dev/test they are allowed with a warning
+ *     so local workflows keep working.
+ */
+function safeEqualSecret(a: string, b: string): boolean {
+  const ba = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  return ba.length === bb.length && ba.length > 0 && timingSafeEqual(ba, bb);
+}
+
+export function assertInternalApiKey(ctx: Pick<TrpcContext, "req">): void {
+  // In-process server-side caller (no Express request) — trusted.
+  if (!ctx.req) return;
+  const configured = process.env.INTERNAL_API_KEY ?? "";
+  const headers = ctx.req.headers ?? {};
+  const presented =
+    (headers["x-internal-api-key"] as string | undefined) ??
+    (headers["x-internal-token"] as string | undefined) ??
+    (headers["x-api-key"] as string | undefined) ??
+    "";
+  if (!configured) {
+    if (ENV.isProduction || process.env.NODE_ENV === "staging") {
+      console.error("[internalProcedure] INTERNAL_API_KEY is not configured — refusing request (fail closed)");
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "internal-api-not-configured" });
+    }
+    console.warn("[internalProcedure] INTERNAL_API_KEY unset — allowing request (non-production mode)");
+    return;
+  }
+  if (!safeEqualSecret(presented, configured)) {
+    throw new TRPCError({ code: "UNAUTHORIZED", message: "invalid-internal-api-key" });
+  }
+}
+
+export const internalProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    assertInternalApiKey(opts.ctx);
+    return opts.next({ ctx: opts.ctx });
+  }),
+);
 
 /**
  * Multi-tenant isolation guard: non-admin callers may only touch resources

@@ -1,0 +1,124 @@
+{
+  "id": "J126",
+  "title": "escrow hold → SLA auto-release",
+  "feature": "settleEscrowAtomic + wallet credit conservation",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348011313457",
+      "profileName": "Sim User 3457",
+      "inboundId": "wamid.sim.in.text.00327",
+      "at": 1787324217792,
+      "kind": "text",
+      "text": "i want these [2498cf0a]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00327",
+      "at": 1787324217799
+    },
+    {
+      "dir": "out",
+      "phone": "2348011313457",
+      "wamid": "wamid.sim.000554",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787324217840,
+      "kind": "text",
+      "body": "✅ 1 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348011313457",
+      "profileName": "Sim User 3457",
+      "inboundId": "wamid.sim.in.text.00328",
+      "at": 1787324218339,
+      "kind": "text",
+      "text": "confirm please [2498cf0a]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00328",
+      "at": 1787324218343
+    },
+    {
+      "dir": "out",
+      "phone": "2348011313457",
+      "wamid": "wamid.sim.000555",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787324218372,
+      "kind": "text",
+      "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦5,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348011313457",
+      "profileName": "Sim User 3457",
+      "inboundId": "wamid.sim.in.text.00329",
+      "at": 1787324218889,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00329",
+      "at": 1787324218893
+    },
+    {
+      "dir": "out",
+      "phone": "2348011313457",
+      "wamid": "wamid.sim.000556",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787324218941,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MT32OXLW*\n1 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦5,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/5455834f-5eea-419d-b98e-96af7fc47aea\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/889a9802-3e46-4bf0-9d3f-76a6d916af71.nxTy0wdkmDZcYT4Npq4fAb-a"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011313457",
+      "wamid": "wamid.sim.000557",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787324218946,
+      "kind": "interactive",
+      "body": "Order ORD-MT32OXLW — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:889a9802-3e46-4bf0-9d3f-76a6d916af71",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:889a9802-3e46-4bf0-9d3f-76a6d916af71",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:889a9802-3e46-4bf0-9d3f-76a6d916af71",
+          "title": "Cancel Order"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348011313457",
+      "wamid": "wamid.sim.000558",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787324219452,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MT32OXLW\n\n1 × Jollof Rice — ₦2,500.00\n1 × Grilled Chicken — ₦3,000.00\n\nSubtotal: ₦5,500.00\n*Total paid: ₦5,500.00*\nPayment ref: 5455834f-5eea-419d-b98e-96af7fc47aea\n\n🔎 Track your order: http://localhost:4173/track/889a9802-3e46-4bf0-9d3f-76a6d916af71.nxTy0wdkmDZcYT4Npq4fAb-a"
+    }
+  ]
+}

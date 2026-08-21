@@ -48,11 +48,32 @@ export const evasionFixtureRouter = {
       return { ok: true };
     }),
 
-  // OK: parsed exemption marker — must NOT be flagged
+  // OK: allowlist-exempted procedure (EXEMPTION_ALLOWLIST entry
+  // "evasion.fixture.ts:publicWebhookish") — must NOT be flagged even though
+  // the in-source comment below is ignored by the hardened scanner.
   publicWebhookish: protectedProcedure
-    // authz:exempt fixture: proves marker parsing works
+    // authz:exempt this free-form comment no longer exempts anything
     .input(z.object({ orderId: z.string() }))
     .mutation(async ({ input }: any) => {
       return { ok: true, id: input.orderId };
     }),
+
+  // FLAG (W26): free-form self-approved exemption comment with NO allowlist
+  // entry — the hardened scanner must ignore the comment and flag this.
+  selfApprovedExempt: protectedProcedure
+    // authz:exempt self-approved by the author, not reviewable
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ input }: any) => {
+      return { ok: true, tenantId: input.tenantId };
+    }),
+
+  // FLAG (W26): odd-indent nested procedure (4+ spaces, e.g. inside a
+  // sub-router object) — the old `^\s{2}` anchor silently unscanned it.
+  nested: {
+      oddIndentUnguarded: protectedProcedure
+        .input(z.object({ tenantId: z.string() }))
+        .mutation(async ({ input }: any) => {
+          return { ok: true, tenantId: input.tenantId };
+        }),
+  },
 } as unknown as Record<string, unknown>;

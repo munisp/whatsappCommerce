@@ -12,6 +12,7 @@ import {
   tenants,
 } from "../../drizzle/schema";
 import { redisIncrExStrict, RateLimitUnavailableError } from "../_core/rateLimit";
+import { seededRng } from "../../shared/prng";
 import { ENV } from "../_core/env";
 import {
   normalizeWaPhone,
@@ -23,7 +24,7 @@ import {
   WA_WINDOW_MS as SESSION_WINDOW_MS,
 } from "../services/sessionWindow";
 import { applyQualityThrottle } from "../services/waQuality";
-import { nextAllowedSendAtForTenant } from "../services/frequencyCap";
+import { nextAllowedSendAtForTenant, marketingNow } from "../services/frequencyCap";
 import {
   UPLIFT_MODEL_PARAMS,
   loadLatestModels,
@@ -150,11 +151,15 @@ export function matchesSegment(
   }
   if (segment.minOrders != null && (c.totalOrders ?? 0) < segment.minOrders) return false;
   if (segment.minSpendKobo != null) {
+    // Money-context read: an unparseable totalSpent is a data corruption —
+    // log loudly and throw rather than silently treating the customer as
+    // zero-spend (which would misroute them into/out of spend segments).
     let spentMinor = 0;
     try {
       spentMinor = toMinorUnitsExact(c.totalSpent ?? "0");
-    } catch {
-      spentMinor = 0;
+    } catch (e: any) {
+      console.error(`[broadcast] invalid totalSpent for customer ${c.id}: ${JSON.stringify(c.totalSpent)}`, e?.message);
+      throw new Error(`invalid totalSpent for customer ${c.id}: ${JSON.stringify(c.totalSpent)}`);
     }
     if (spentMinor < segment.minSpendKobo) return false;
   }
@@ -375,8 +380,12 @@ export async function executeCampaignSend(
           // W17 F8: Meta marketing-frequency caps — when this customer is at
           // the cap (or inside quiet hours) defer rather than send; the
           // recipient stays pending with a deferral note for the next window.
-          const allowedAt = await nextAllowedSendAtForTenant(db, campaign.tenantId, member.phone, new Date());
-          if (allowedAt.getTime() > Date.now()) {
+          // marketingNow(): wall clock in production, pinned clock in
+          // simulations (setMarketingClockOverride) so quiet-hours gating is
+          // deterministic regardless of the time of day the suite runs.
+          const now = marketingNow();
+          const allowedAt = await nextAllowedSendAtForTenant(db, campaign.tenantId, member.phone, now);
+          if (allowedAt.getTime() > now.getTime()) {
             deferred++;
             await db
               .update(broadcastRecipients)
@@ -803,9 +812,13 @@ export const broadcastRouter = router({
         .where(eq(broadcastRecipients.campaignId, input.campaignId));
       let delivered = 0;
       let read = 0;
+      // Deterministic simulation: seeded by campaign id so repeated calls on
+      // the same campaign yield the same delivery/read projection (no
+      // unseeded Math.random in production paths).
+      const rng = seededRng(`broadcast-simulate:${input.campaignId}`);
       for (const r of recipients) {
-        const willDeliver = Math.random() > 0.1;
-        const willRead = willDeliver && Math.random() > 0.35;
+        const willDeliver = rng() > 0.1;
+        const willRead = willDeliver && rng() > 0.35;
         const newStatus = willRead ? "read" : willDeliver ? "delivered" : r.status;
         if (willDeliver || willRead) {
           await db.update(broadcastRecipients).set({

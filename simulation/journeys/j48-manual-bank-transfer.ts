@@ -2,8 +2,8 @@
  * J48 — Manual / bank-transfer provider: a tenant whose chain leads with the
  * `manual` adapter gets settlement INSTRUCTIONS (bank / account / amount /
  * reference) from payment.initiate — NOT a hosted URL and NO gateway init
- * call leaves the process. The existing receipt-upload verification path
- * (J08) still confirms the order end-to-end.
+ * call leaves the process. The receipt-upload path (J08) flags a matching
+ * receipt for HUMAN review (Wave 26 F2: OCR never auto-confirms).
  */
 import { eq } from "drizzle-orm";
 import { assert, assertIncludes, type World } from "../world";
@@ -74,7 +74,8 @@ export const journey: Journey = {
     assert((intent.metadata as any)?.servedProvider === "manual", "servedProvider=manual recorded on the intent");
     assert((intent.metadata as any)?.instructions?.includes("Sim Bank PLC"), "instructions persisted on the intent");
 
-    // ── The existing receipt-upload path still confirms the order ──────────
+    // ── Receipt-upload path: Wave 26 audit F2 — an OCR receipt NEVER
+    // auto-confirms; a matching scan is queued for human review ──────────
     world.llm.when(
       (userText: string) => userText.includes("[image:"),
       () => ({
@@ -90,9 +91,12 @@ export const journey: Journey = {
 
     await world.waitFor(async () => {
       const [o] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, order.orderId)).limit(1);
-      return o?.status === "confirmed";
-    }, 15000, "order confirmed via receipt-upload path");
+      return (o?.metadata as any)?.receiptReview === true;
+    }, 15000, "receipt flagged for human review");
     const [o] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, order.orderId)).limit(1);
-    assert(o.paymentStatus === "completed", "order payment completed via receipt verification");
+    assert((o.metadata as any)?.receiptReviewReason === "amount-match-awaiting-human-review",
+      "exact-match receipt queued for human review");
+    assert(o.status === "pending", `receipt alone never confirms (got ${o.status})`);
+    assert(o.paymentStatus !== "completed", "receipt alone never marks paid");
   },
 };

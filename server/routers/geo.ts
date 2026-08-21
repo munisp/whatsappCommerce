@@ -14,6 +14,7 @@ import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { ENV } from "../_core/env";
 import { getDb } from "../db";
 import { merchantLocations, sponsoredListings } from "../../drizzle/schema";
 import {
@@ -77,7 +78,22 @@ export const geoRouter = router({
       openNow: z.boolean().optional(),
       cursor: z.string().optional(),
     }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
+      // W26 security: per-IP rate limit on the public discovery surface
+      // (60 req/min). Fail-closed in production when the counter is
+      // unavailable; fail-open in dev/test so local runs work without Redis.
+      const ip =
+        (ctx.req?.headers?.["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
+        ctx.req?.socket?.remoteAddress ||
+        "unknown";
+      const { checkRateLimit } = await import("../_core/rateLimit");
+      const decision = await checkRateLimit(`geo:discover:${ip}`, 60, 60, ENV.isProduction);
+      if (!decision.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: "Rate limit exceeded for geo discovery — retry later",
+        });
+      }
       const db = await requireDb();
       // Cursor is an opaque page index (0-based, decimal string).
       const page = input.cursor ? Math.max(0, Number.parseInt(input.cursor, 10) || 0) : 0;

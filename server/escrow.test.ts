@@ -1,201 +1,352 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+/**
+ * Escrow unit tests — rewritten (F14) to exercise the REAL escrow code paths
+ * in server/routers/escrow.ts (settleEscrowAtomic / refundEscrowAtomic) and
+ * the REAL fee split in shared/escrowAmounts.ts against an embedded Postgres
+ * (PGlite) running the full drizzle migration chain.
+ *
+ * The previous version tested a shadow copy of the state machine (duplicated
+ * `nextStateOn*` helpers) that could drift from production logic unnoticed.
+ * Here only the OUT OF PROCESS collaborators are mocked (ledger bridge HTTP,
+ * notifications, storage, audit) — all DB reads/writes, guarded state
+ * transitions, wallet ledger entries and fee math are the production code.
+ */
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import fs from "fs";
+import path from "path";
+import net from "net";
+import crypto from "crypto";
 
-// ─── Escrow state machine unit tests ─────────────────────────────────────────
-// These tests verify the business logic of the escrow state transitions
-// without hitting the database (pure function tests).
+process.env.NODE_ENV = "test";
+process.env.TZ = "UTC";
 
-type EscrowState =
-  | "payment_received"
-  | "escrow_held"
-  | "delivery_confirmed"
-  | "release_instructed"
-  | "settled"
-  | "dispute_raised"
-  | "dispute_resolved"
-  | "refunded"
-  | "expired";
+// ─── Mock only out-of-process collaborators (NOT the DB layer) ───────────────
+const ledgerBridgeRequest = vi.fn(async () => ({}));
+vi.mock("./services/ledgerBridge", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./services/ledgerBridge")>();
+  return {
+    ...orig,
+    ledgerBridgeRequest: (...args: unknown[]) => ledgerBridgeRequest(...args),
+    reverseCommittedTransfer: vi.fn(async () => ({})),
+  };
+});
+vi.mock("./storage", () => ({ storagePut: vi.fn(), storageGet: vi.fn() }));
+vi.mock("./routers/notifications", () => ({
+  emitNotification: vi.fn(async () => ({})),
+  NOTIFICATION_TEMPLATES: {},
+}));
+vi.mock("./_core/notification", () => ({ notifyOwner: vi.fn(async () => true) }));
+vi.mock("./routers/audit", () => ({ writeAuditLog: vi.fn(async () => ({})) }));
+vi.mock("./services/disputes", () => ({ raiseEscrowDispute: vi.fn(async () => ({})) }));
 
-type CustodyMode = "pssp" | "psp";
+import { PGlite } from "@electric-sql/pglite";
+import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { eq } from "drizzle-orm";
+import * as schema from "../drizzle/schema";
+import { splitEscrowAmounts } from "../shared/escrowAmounts";
 
-interface EscrowConfig {
-  custodyMode: CustodyMode;
-  platformFeeRate: string;
-  buyerConfirmWindowHours: number;
-  disputeWindowHours: number;
-  autoConfirmEnabled: boolean;
-  floatYieldRate: string;
+type Db = ReturnType<typeof drizzle>;
+
+let pg: PGlite;
+let pgServer: PGLiteSocketServer;
+let client: ReturnType<typeof postgres>;
+let db: Db;
+let settleEscrowAtomic: typeof import("./routers/escrow").settleEscrowAtomic;
+let refundEscrowAtomic: typeof import("./routers/escrow").refundEscrowAtomic;
+let PLATFORM_FEE_WALLET_ID: string;
+
+async function freePort(): Promise<number> {
+  return new Promise((resolve) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as net.AddressInfo).port;
+      srv.close(() => resolve(port));
+    });
+  });
 }
 
-// ─── Pure state machine helpers (extracted from router logic) ─────────────────
-function computeFee(amount: number, feeRate: number): number {
-  return parseFloat((amount * feeRate).toFixed(2));
-}
-
-function computeNetMerchantAmount(amount: number, feeRate: number): number {
-  return parseFloat((amount * (1 - feeRate)).toFixed(2));
-}
-
-function computeBuyerConfirmDeadline(heldAt: Date, windowHours: number): Date {
-  return new Date(heldAt.getTime() + windowHours * 60 * 60 * 1000);
-}
-
-function isDeadlineExpired(deadline: Date, now: Date): boolean {
-  return now > deadline;
-}
-
-function nextStateOnDelivery(current: EscrowState): EscrowState {
-  if (current === "escrow_held") return "delivery_confirmed";
-  return current;
-}
-
-function nextStateOnBuyerConfirm(current: EscrowState, mode: CustodyMode): EscrowState {
-  if (current === "delivery_confirmed" || current === "escrow_held") {
-    return mode === "psp" ? "settled" : "release_instructed";
+beforeAll(async () => {
+  pg = new PGlite();
+  await pg.waitReady;
+  const migDir = path.resolve(process.cwd(), "drizzle");
+  const migFiles = fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort();
+  for (const f of migFiles) {
+    const sqlText = fs.readFileSync(path.join(migDir, f), "utf8");
+    for (const stmt of sqlText.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) {
+      await pg.exec(stmt);
+    }
   }
-  return current;
+  const port = await freePort();
+  pgServer = new PGLiteSocketServer({ db: pg, port, host: "127.0.0.1" });
+  await pgServer.start();
+  client = postgres(`postgres://postgres:postgres@127.0.0.1:${port}/postgres`, { max: 1 });
+  db = drizzle(client);
+
+  const mod = await import("./routers/escrow");
+  settleEscrowAtomic = mod.settleEscrowAtomic;
+  refundEscrowAtomic = mod.refundEscrowAtomic;
+  PLATFORM_FEE_WALLET_ID = mod.PLATFORM_FEE_WALLET_ID;
+}, 120_000);
+
+afterAll(async () => {
+  await client?.end().catch(() => {});
+  await pgServer?.stop().catch(() => {});
+  await pg?.close().catch(() => {});
+});
+
+// ─── Seed helpers ─────────────────────────────────────────────────────────────
+const TENANT = "escrow-test-tenant";
+let orderSeq = 0;
+
+async function setConfig(custodyMode: "pssp" | "psp") {
+  await db.delete(schema.escrowConfig).where(eq(schema.escrowConfig.id, 1));
+  await db.insert(schema.escrowConfig).values({
+    id: 1,
+    custodyMode,
+    platformFeeRate: "0.03125",
+    buyerConfirmWindowHours: 24,
+    disputeWindowHours: 48,
+    autoConfirmEnabled: true,
+    floatYieldRate: "0.08",
+    updatedAt: new Date(),
+  });
 }
 
-function nextStateOnBankSettlement(current: EscrowState): EscrowState {
-  if (current === "release_instructed") return "settled";
-  return current;
+async function seedEscrow(opts: { state: string; amount: string; fee: string; net: string; custodyMode?: "pssp" | "psp" }) {
+  const customerId = crypto.randomUUID();
+  await db.insert(schema.customers).values({
+    id: customerId,
+    tenantId: TENANT,
+    whatsappPhone: `23480${String(++orderSeq).padStart(8, "0")}`,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const orderId = crypto.randomUUID();
+  await db.insert(schema.orders).values({
+    id: orderId,
+    tenantId: TENANT,
+    customerId,
+    orderNumber: `ESC-TEST-${orderSeq}`,
+    totalAmount: opts.amount,
+    currency: "NGN",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const escrowId = crypto.randomUUID();
+  await db.insert(schema.escrowTransactions).values({
+    id: escrowId,
+    orderId,
+    tenantId: TENANT,
+    customerId,
+    amount: opts.amount,
+    platformFee: opts.fee,
+    netMerchantAmount: opts.net,
+    currency: "NGN",
+    custodyMode: opts.custodyMode ?? "psp",
+    state: opts.state as any,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  return { escrowId, orderId, customerId };
 }
 
-function nextStateOnDispute(current: EscrowState): EscrowState {
-  if (["escrow_held", "delivery_confirmed"].includes(current)) return "dispute_raised";
-  return current;
+async function walletOf(tenantId: string) {
+  const [w] = await db.select().from(schema.merchantWallets).where(eq(schema.merchantWallets.tenantId, tenantId));
+  return w;
 }
 
-function nextStateOnRefund(current: EscrowState): EscrowState {
-  if (!["settled", "refunded", "expired"].includes(current)) return "refunded";
-  return current;
+async function walletTxs(walletId: string) {
+  return db.select().from(schema.walletTransactions).where(eq(schema.walletTransactions.walletId, walletId));
 }
 
-// ─── Tests ────────────────────────────────────────────────────────────────────
-describe("Escrow fee calculation", () => {
-  it("computes 1.5% platform fee correctly", () => {
-    expect(computeFee(10000, 0.015)).toBe(150);
+// ─── Real fee split (shared/escrowAmounts) ────────────────────────────────────
+describe("splitEscrowAmounts (shared/escrowAmounts.ts)", () => {
+  it("conserves fee + net == gross for a deterministic sweep of amounts", () => {
+    // Deterministic pseudo-random sweep (LCG) — no unseeded Math.random.
+    let s = 0x5eed;
+    const next = () => (s = (s * 1103515245 + 12345) & 0x7fffffff);
+    for (let i = 0; i < 500; i++) {
+      const grossMinor = 1 + (next() % 10_000_000);
+      const split = splitEscrowAmounts(grossMinor / 100, 0.03125);
+      expect(split.feeMinor + split.netMinor).toBe(split.grossMinor);
+      expect(split.feeMinor).toBeGreaterThanOrEqual(0);
+      expect(split.netMinor).toBeGreaterThanOrEqual(0);
+    }
   });
 
-  it("computes net merchant amount correctly", () => {
-    expect(computeNetMerchantAmount(10000, 0.015)).toBe(9850);
-  });
-
-  it("handles zero amount", () => {
-    expect(computeFee(0, 0.015)).toBe(0);
-    expect(computeNetMerchantAmount(0, 0.015)).toBe(0);
-  });
-
-  it("handles large amounts with precision", () => {
-    const fee = computeFee(1000000, 0.015);
-    expect(fee).toBe(15000);
-    const net = computeNetMerchantAmount(1000000, 0.015);
-    expect(net).toBe(985000);
-  });
-});
-
-describe("Escrow state machine — PSSP mode (bank-partner custody)", () => {
-  it("transitions escrow_held → delivery_confirmed on delivery webhook", () => {
-    expect(nextStateOnDelivery("escrow_held")).toBe("delivery_confirmed");
-  });
-
-  it("does not change state if already settled", () => {
-    expect(nextStateOnDelivery("settled")).toBe("settled");
-  });
-
-  it("transitions delivery_confirmed → release_instructed on buyer confirm (PSSP)", () => {
-    expect(nextStateOnBuyerConfirm("delivery_confirmed", "pssp")).toBe("release_instructed");
-  });
-
-  it("transitions escrow_held → release_instructed on auto-confirm (PSSP)", () => {
-    expect(nextStateOnBuyerConfirm("escrow_held", "pssp")).toBe("release_instructed");
-  });
-
-  it("transitions release_instructed → settled on bank settlement callback", () => {
-    expect(nextStateOnBankSettlement("release_instructed")).toBe("settled");
-  });
-
-  it("does not change state on bank callback if not in release_instructed", () => {
-    expect(nextStateOnBankSettlement("settled")).toBe("settled");
-    expect(nextStateOnBankSettlement("escrow_held")).toBe("escrow_held");
+  it("rounds the fee exactly once (half up)", () => {
+    const split = splitEscrowAmounts("10000.00", 0.03125);
+    expect(split.fee).toBe("312.50");
+    expect(split.net).toBe("9687.50");
   });
 });
 
-describe("Escrow state machine — PSP mode (native wallet custody)", () => {
-  it("transitions delivery_confirmed → settled directly on buyer confirm (PSP)", () => {
-    expect(nextStateOnBuyerConfirm("delivery_confirmed", "psp")).toBe("settled");
+// ─── Real settlement path: PSP custody (wallet credit) ────────────────────────
+describe("settleEscrowAtomic — PSP custody (real code, PGlite)", () => {
+  it("settles escrow_held → settled, credits net to merchant, fee to platform wallet", async () => {
+    await setConfig("psp");
+    const { escrowId } = await seedEscrow({ state: "escrow_held", amount: "10000.00", fee: "312.50", net: "9687.50" });
+
+    const res = await settleEscrowAtomic(db as any, escrowId, {
+      autoConfirmed: false,
+      allowedFromStates: ["escrow_held", "delivery_confirmed"],
+    });
+    expect(res.transitioned).toBe(true);
+    expect(res.newState).toBe("settled");
+
+    const [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
+    expect(escrow.state).toBe("settled");
+    expect(escrow.settledAt).toBeTruthy();
+    expect(escrow.merchantWalletTxId).toBeTruthy();
+
+    const wallet = await walletOf(TENANT);
+    expect(parseFloat(wallet.availableBalance)).toBeCloseTo(9687.5, 2);
+    expect(parseFloat(wallet.totalEarned)).toBeCloseTo(9687.5, 2);
+
+    const txs = await walletTxs(wallet.id);
+    const release = txs.find((t) => t.type === "escrow_release");
+    const feeTx = txs.find((t) => t.type === "fee_deduction");
+    expect(parseFloat(release!.amount)).toBeCloseTo(9687.5, 2);
+    expect(parseFloat(feeTx!.amount)).toBeCloseTo(312.5, 2);
+
+    // Platform fee wallet holds the fee — money conserved end to end.
+    const [platform] = await db.select().from(schema.merchantWallets)
+      .where(eq(schema.merchantWallets.id, PLATFORM_FEE_WALLET_ID));
+    expect(parseFloat(platform.availableBalance)).toBeCloseTo(312.5, 2);
+    expect(9687.5 + 312.5).toBe(10000);
   });
 
-  it("transitions escrow_held → settled directly on auto-confirm (PSP)", () => {
-    expect(nextStateOnBuyerConfirm("escrow_held", "psp")).toBe("settled");
+  it("refuses a second settle (state guard) — no double wallet credit", async () => {
+    await setConfig("psp");
+    const { escrowId } = await seedEscrow({ state: "escrow_held", amount: "5000.00", fee: "156.25", net: "4843.75" });
+
+    const first = await settleEscrowAtomic(db as any, escrowId, {
+      autoConfirmed: false,
+      allowedFromStates: ["escrow_held", "delivery_confirmed"],
+    });
+    expect(first.transitioned).toBe(true);
+    const second = await settleEscrowAtomic(db as any, escrowId, {
+      autoConfirmed: false,
+      allowedFromStates: ["escrow_held", "delivery_confirmed"],
+    });
+    expect(second.transitioned).toBe(false);
+
+    const wallet = await walletOf(TENANT);
+    // 4843.75 from this test only (fresh tenant wallet per run is cumulative
+    // within the file — assert the delta via wallet tx count instead).
+    const txs = (await walletTxs(wallet.id)).filter((t) => t.type === "escrow_release");
+    expect(txs.length).toBe(2); // one from previous test + one here — NOT three
   });
 
-  it("does not re-settle an already settled escrow", () => {
-    expect(nextStateOnBuyerConfirm("settled", "psp")).toBe("settled");
+  it("does not settle from a disallowed state", async () => {
+    await setConfig("psp");
+    const { escrowId } = await seedEscrow({ state: "escrow_held", amount: "1000.00", fee: "31.25", net: "968.75" });
+    const res = await settleEscrowAtomic(db as any, escrowId, {
+      autoConfirmed: false,
+      allowedFromStates: ["delivery_confirmed"],
+    });
+    expect(res.transitioned).toBe(false);
+    const [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
+    expect(escrow.state).toBe("escrow_held");
   });
 });
 
-describe("Dispute and refund transitions", () => {
-  it("transitions escrow_held → dispute_raised on dispute", () => {
-    expect(nextStateOnDispute("escrow_held")).toBe("dispute_raised");
-  });
+// ─── Real settlement path: PSSP custody (bank release instruction) ────────────
+describe("settleEscrowAtomic — PSSP custody (real code, PGlite)", () => {
+  it("settles escrow_held → release_instructed with a bank ref and NO wallet credit", async () => {
+    await setConfig("pssp");
+    const { escrowId } = await seedEscrow({
+      state: "escrow_held", amount: "2000.00", fee: "62.50", net: "1937.50", custodyMode: "pssp",
+    });
+    const before = (await db.select().from(schema.walletTransactions)).length;
 
-  it("transitions delivery_confirmed → dispute_raised on dispute", () => {
-    expect(nextStateOnDispute("delivery_confirmed")).toBe("dispute_raised");
-  });
+    const res = await settleEscrowAtomic(db as any, escrowId, {
+      autoConfirmed: true,
+      allowedFromStates: ["escrow_held", "delivery_confirmed"],
+    });
+    expect(res.transitioned).toBe(true);
+    expect(res.newState).toBe("release_instructed");
 
-  it("cannot raise dispute on settled escrow", () => {
-    expect(nextStateOnDispute("settled")).toBe("settled");
-  });
+    const [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
+    expect(escrow.state).toBe("release_instructed");
+    expect(escrow.bankRef).toMatch(/^ESCROW-REL-/);
+    expect(escrow.autoConfirmed).toBe(true);
 
-  it("transitions any non-terminal state → refunded", () => {
-    expect(nextStateOnRefund("escrow_held")).toBe("refunded");
-    expect(nextStateOnRefund("delivery_confirmed")).toBe("refunded");
-    expect(nextStateOnRefund("dispute_raised")).toBe("refunded");
-  });
-
-  it("cannot refund an already settled escrow", () => {
-    expect(nextStateOnRefund("settled")).toBe("settled");
-  });
-
-  it("cannot refund an already refunded escrow", () => {
-    expect(nextStateOnRefund("refunded")).toBe("refunded");
+    const after = (await db.select().from(schema.walletTransactions)).length;
+    expect(after).toBe(before); // PSSP: bank moves the money, not the wallet
   });
 });
 
-describe("Auto-confirm deadline logic", () => {
-  it("computes deadline correctly for 48-hour window", () => {
-    const heldAt = new Date("2026-01-01T00:00:00Z");
-    const deadline = computeBuyerConfirmDeadline(heldAt, 48);
-    expect(deadline.toISOString()).toBe("2026-01-03T00:00:00.000Z");
+// ─── Real refund path ─────────────────────────────────────────────────────────
+describe("refundEscrowAtomic (real code, PGlite)", () => {
+  it("fully refunds an escrow_held escrow and records the wallet ledger entry", async () => {
+    await setConfig("psp");
+    const { escrowId } = await seedEscrow({ state: "escrow_held", amount: "3000.00", fee: "93.75", net: "2906.25" });
+
+    const res = await refundEscrowAtomic(db as any, escrowId, { reason: "buyer cancelled" });
+    expect(res.success).toBe(true);
+    expect(res.fullRefund).toBe(true);
+    expect(res.refundedAmount).toBeCloseTo(3000, 2);
+    expect(res.remaining).toBe(0);
+
+    const [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
+    expect(escrow.state).toBe("refunded");
+    expect(escrow.refundedAt).toBeTruthy();
+
+    const wallet = await walletOf(TENANT);
+    const txs = await walletTxs(wallet.id);
+    const refundTx = txs.find((t) => t.type === "escrow_refund" && t.escrowTxId === escrowId);
+    expect(refundTx).toBeTruthy();
+    expect(parseFloat(refundTx!.amount)).toBeCloseTo(3000, 2);
   });
 
-  it("detects expired deadline", () => {
-    const deadline = new Date("2026-01-01T00:00:00Z");
-    const now = new Date("2026-01-02T00:00:00Z");
-    expect(isDeadlineExpired(deadline, now)).toBe(true);
+  it("supports partial refunds, accumulates metadata, and refuses over-refund", async () => {
+    await setConfig("psp");
+    const { escrowId } = await seedEscrow({ state: "escrow_held", amount: "1000.00", fee: "31.25", net: "968.75" });
+
+    const part = await refundEscrowAtomic(db as any, escrowId, { reason: "partial", refundAmount: 100 });
+    expect(part.success).toBe(true);
+    expect(part.fullRefund).toBe(false);
+    expect(part.remaining).toBeCloseTo(900, 2);
+
+    let [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
+    expect(escrow.state).toBe("escrow_held"); // partial refund keeps state
+    expect((escrow.metadata as any).refundedAmount).toBe("100.00");
+
+    const tooMuch = await refundEscrowAtomic(db as any, escrowId, { reason: "greedy", refundAmount: 901 });
+    expect(tooMuch.success).toBe(false);
+    expect(tooMuch.error).toMatch(/exceeds remaining/);
+
+    const rest = await refundEscrowAtomic(db as any, escrowId, { reason: "remainder", refundAmount: 900 });
+    expect(rest.success).toBe(true);
+    expect(rest.fullRefund).toBe(true);
+    [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
+    expect(escrow.state).toBe("refunded");
+
+    // Terminal: nothing more can be refunded.
+    const again = await refundEscrowAtomic(db as any, escrowId, { reason: "again" });
+    expect(again.success).toBe(false);
   });
 
-  it("detects non-expired deadline", () => {
-    const deadline = new Date("2026-01-03T00:00:00Z");
-    const now = new Date("2026-01-02T00:00:00Z");
-    expect(isDeadlineExpired(deadline, now)).toBe(false);
-  });
-});
+  it("never refunds a settled escrow", async () => {
+    await setConfig("psp");
+    const { escrowId } = await seedEscrow({ state: "escrow_held", amount: "800.00", fee: "25.00", net: "775.00" });
+    const settled = await settleEscrowAtomic(db as any, escrowId, {
+      autoConfirmed: false,
+      allowedFromStates: ["escrow_held", "delivery_confirmed"],
+    });
+    expect(settled.transitioned).toBe(true);
 
-describe("Float income calculation (PSP mode)", () => {
-  it("computes daily float income from annual rate", () => {
-    const escrowBalance = 10_000_000; // ₦10M
-    const annualRate = 0.08; // 8% p.a.
-    const dailyRate = annualRate / 365;
-    const dailyIncome = escrowBalance * dailyRate;
-    // ₦10M × 8% / 365 ≈ ₦2,191.78
-    expect(dailyIncome).toBeCloseTo(2191.78, 0);
+    const res = await refundEscrowAtomic(db as any, escrowId, { reason: "too late" });
+    expect(res.success).toBe(false);
+    expect(res.error).toMatch(/Cannot refund from state: settled/);
   });
 
-  it("returns zero income when escrow balance is zero", () => {
-    const escrowBalance = 0;
-    const annualRate = 0.08;
-    const dailyRate = annualRate / 365;
-    expect(escrowBalance * dailyRate).toBe(0);
+  it("returns 'Escrow not found' for unknown ids", async () => {
+    await setConfig("psp");
+    const res = await refundEscrowAtomic(db as any, crypto.randomUUID(), { reason: "ghost" });
+    expect(res.success).toBe(false);
+    expect(res.error).toBe("Escrow not found");
   });
 });

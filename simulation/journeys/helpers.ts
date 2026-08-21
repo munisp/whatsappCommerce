@@ -668,3 +668,25 @@ export async function approveKyb(world: World, tenantId: string): Promise<void> 
     businessName: tenantId,
   }).onConflictDoNothing();
 }
+
+/**
+ * Seed a minimal orders row so payment.initiate (Wave 26 F1: amount/currency
+ * are derived SERVER-SIDE from the order, never the client) can be called
+ * directly in a journey. Amount is in MAJOR units.
+ */
+export async function seedOrderForInitiate(
+  world: World,
+  opts: { orderId: string; tenantId: string; amountMajor: number; currency?: string },
+) {
+  const schema = await import("../../drizzle/schema");
+  await world.db.insert(schema.orders).values({
+    id: opts.orderId,
+    tenantId: opts.tenantId,
+    customerId: `cust-${opts.orderId}`,
+    orderNumber: `SIM-${opts.orderId}`,
+    status: "pending",
+    totalAmount: opts.amountMajor.toFixed(2),
+    currency: opts.currency ?? "NGN",
+    paymentStatus: "unpaid",
+  });
+}

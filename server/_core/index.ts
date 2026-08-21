@@ -1619,7 +1619,16 @@ async function startServer() {
           if (transitioned.length === 0) continue;
 
           // Use the STORED net merchant amount — never recompute the fee here.
-          const netAmount = parseFloat(escrow.netMerchantAmount);
+          // F5: remainder-aware — after a partial refund only (net − refunded)
+          // may be released; never more than remains held.
+          const autoMeta = (escrow.metadata ?? {}) as Record<string, unknown>;
+          const alreadyRefundedAuto = parseFloat(String(autoMeta.refundedAmount ?? "0")) || 0;
+          const netAmount = Math.max(0, Math.round((parseFloat(escrow.netMerchantAmount) - alreadyRefundedAuto) * 100) / 100);
+          if (netAmount <= 0) {
+            await db.update(orders).set({ paymentStatus: "completed", updatedAt: now }).where(eq(orders.id, escrow.orderId));
+            confirmed++;
+            continue;
+          }
           const [wallet] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, escrow.tenantId));
           if (wallet) {
             const before = parseFloat(wallet.availableBalance);

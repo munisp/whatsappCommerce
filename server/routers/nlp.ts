@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, publicProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, internalProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { invokeLLM } from "../_core/llm";
 import {
@@ -603,7 +603,7 @@ export const nlpRouter = router({
    * Process an incoming WhatsApp message through the NLP engine.
    * Called by the webhook handler when a message arrives.
    */
-  processMessage: publicProcedure
+  processMessage: internalProcedure
     .input(z.object({
      tenantId: z.string(),
      waPhoneNumber: z.string(),

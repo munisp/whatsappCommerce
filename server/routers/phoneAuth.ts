@@ -35,8 +35,38 @@ function generateOtp(): string {
 }
 
 function hashOtp(otp: string): string {
-  // SHA-256 hash of OTP (fast enough for 6-digit codes, bcrypt is overkill here)
-  return createHash("sha256").update(otp + (ENV.jwtSecret || "wac-otp-salt")).digest("hex");
+  // SHA-256 hash of OTP (fast enough for 6-digit codes, bcrypt is overkill here).
+  // W26 security: FAIL CLOSED when the salt secret is missing — a well-known
+  // fallback salt would let anyone precompute valid OTP hashes.
+  const salt = ENV.jwtSecret || process.env.OTP_HASH_SALT || "";
+  if (!salt) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "OTP hashing salt is not configured (JWT_SECRET/OTP_HASH_SALT)",
+    });
+  }
+  return createHash("sha256").update(otp + salt).digest("hex");
+}
+
+// ── OTP attempt caps (W26 security) ──────────────────────────────────────────
+// Per-session cap (3 attempts) is enforced in verifyOtp below. These
+// per-phone fixed-window caps stop an attacker from simply requesting fresh
+// sessions to reset the per-session counter. In-memory (per-instance); the
+// OTP hash itself plus the per-session cap remain the primary controls.
+const MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR = 10;
+const MAX_OTP_SENDS_PER_PHONE_PER_HOUR = 5;
+const phoneVerifyAttempts = new Map<string, { windowStart: number; count: number }>();
+const phoneSendCounts = new Map<string, { windowStart: number; count: number }>();
+
+function bumpPhoneCounter(map: Map<string, { windowStart: number; count: number }>, phone: string, limit: number): boolean {
+  const now = Date.now();
+  const entry = map.get(phone);
+  if (!entry || now - entry.windowStart >= 3_600_000) {
+    map.set(phone, { windowStart: now, count: 1 });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= limit;
 }
 
 function normalisePhone(phone: string): string {
@@ -53,8 +83,9 @@ async function sendWhatsAppOtp(phone: string, otp: string): Promise<void> {
   const templateLang = process.env.WAC_WHATSAPP_TEMPLATE_LANG || "en_US";
 
   if (!token || !phoneId) {
-    // Simulation mode — log OTP for development
-    console.info(`[phoneAuth] SIMULATION: OTP ${otp} for ${phone.slice(-4).padStart(phone.length, "*")}`);
+    // Simulation mode — NEVER log the OTP itself (W26 security); record only
+    // that a code was issued, with the phone masked.
+    console.info(`[phoneAuth] SIMULATION: OTP issued for ${"*".repeat(Math.max(0, phone.length - 4))}${phone.slice(-4)}`);
     return;
   }
 
@@ -124,6 +155,14 @@ export const phoneAuthRouter = router({
       const phone = normalisePhone(input.phone);
       const now = Date.now();
       const expiresAt = now + 10 * 60 * 1000; // 10 minutes
+
+      // W26 security: per-phone hourly send cap (stops OTP flooding/SMS toll abuse).
+      if (!bumpPhoneCounter(phoneSendCounts, phone, MAX_OTP_SENDS_PER_PHONE_PER_HOUR)) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: "Too many OTP requests for this phone number. Try again later.",
+        });
+      }
 
       // Check for an existing unexpired session (rate limit: 1 OTP per 60s)
       const existing = await db
@@ -219,6 +258,15 @@ export const phoneAuthRouter = router({
 
       const expectedHash = hashOtp(input.otp);
       if (session.otpHash !== expectedHash) {
+        // W26 security: per-phone hourly verify cap (fresh sessions cannot
+        // reset the per-session attempt counter to brute-force the code).
+        if (!bumpPhoneCounter(phoneVerifyAttempts, session.phone, MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR)) {
+          await db.delete(phoneOtpSessions).where(eq(phoneOtpSessions.id, input.sessionId));
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many failed OTP attempts for this phone number. Try again later.",
+          });
+        }
         // Increment attempt counter
         await db
           .update(phoneOtpSessions)
