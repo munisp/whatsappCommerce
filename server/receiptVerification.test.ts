@@ -10,7 +10,6 @@ vi.mock("./services/receiptVision", async (importOriginal) => {
   const orig = await importOriginal<typeof import("./services/receiptVision")>();
   return { ...orig, analyzeReceiptImage: vi.fn() };
 });
-vi.mock("./services/paymentConfirm", () => ({ confirmProviderPayment: vi.fn() }));
 vi.mock("./services/waSender", () => ({
   resolveTenantWaCredentials: vi.fn(),
   sendWhatsAppText: vi.fn().mockResolvedValue({ sent: true, simulated: false, wamids: [], chunks: 1 }),
@@ -18,9 +17,8 @@ vi.mock("./services/waSender", () => ({
 
 import { getDb } from "./db";
 import { analyzeReceiptImage, parseReceiptAmount, receiptAmountMatches } from "./services/receiptVision";
-import { confirmProviderPayment } from "./services/paymentConfirm";
 import { resolveTenantWaCredentials, sendWhatsAppText } from "./services/waSender";
-import { handleInboundReceiptImage } from "./services/receiptVerification";
+import { handleInboundReceiptImage, RECEIPT_AMOUNT_TOLERANCE } from "./services/receiptVerification";
 
 const ORDER = {
   id: "order-1",
@@ -73,12 +71,12 @@ describe("receipt amount helpers", () => {
     expect(parseReceiptAmount("no amount here")).toBeNull();
   });
 
-  it("matches within ±₦100 tolerance", () => {
-    expect(receiptAmountMatches(6300, 6300)).toBe(true);
-    expect(receiptAmountMatches(6250, 6300)).toBe(true);
-    expect(receiptAmountMatches(6200, 6300)).toBe(true);
-    expect(receiptAmountMatches(6100, 6300)).toBe(false);
-    expect(receiptAmountMatches(6500, 6300)).toBe(false);
+  it("matches exactly with zero tolerance (Wave 26 F2)", () => {
+    expect(receiptAmountMatches(6300, 6300, RECEIPT_AMOUNT_TOLERANCE)).toBe(true);
+    expect(receiptAmountMatches(6299.99, 6300, RECEIPT_AMOUNT_TOLERANCE)).toBe(false);
+    expect(receiptAmountMatches(6250, 6300, RECEIPT_AMOUNT_TOLERANCE)).toBe(false);
+    expect(receiptAmountMatches(6500, 6300, RECEIPT_AMOUNT_TOLERANCE)).toBe(false);
+    expect(RECEIPT_AMOUNT_TOLERANCE).toBe(0);
   });
 });
 
@@ -88,33 +86,26 @@ describe("handleInboundReceiptImage branching", () => {
     stubMediaDownload();
   });
 
-  it("MATCH: confirms via the shared payment path and replies confirmed", async () => {
-    makeDb(ORDER, { id: "tx-1", providerRef: "ref-1", provider: "paystack", currency: "NGN", status: "initiated" });
+  it("MATCH: NEVER auto-confirms — flags for human review (Wave 26 F2)", async () => {
+    const { update } = makeDb(ORDER, { id: "tx-1", providerRef: "ref-1", provider: "paystack", currency: "NGN", status: "initiated" });
     (analyzeReceiptImage as any).mockResolvedValue({
       isReadable: true, clarityScore: 90, clarityIssues: [], documentType: "screenshot",
       extractedText: "Transfer successful ₦6,300.00", keyFields: { amount: "₦6,300.00" },
       confidence: 95, summary: "Bank transfer receipt for ₦6,300",
     });
-    (confirmProviderPayment as any).mockResolvedValue({ ok: true, action: "confirmed" });
 
     const result = await handleInboundReceiptImage({
       tenantId: "t1", waPhoneNumber: "2348012345678", mediaId: "media-1",
     });
 
-    expect(result.outcome).toBe("confirmed");
-    // SAME money path as the provider webhooks — called with the order's
-    // expected amount, parsed receipt amount recorded in rawPayload.
-    expect(confirmProviderPayment).toHaveBeenCalledOnce();
-    const [, confirmOpts] = (confirmProviderPayment as any).mock.calls[0];
-    expect(confirmOpts).toMatchObject({
-      reference: "ref-1",
-      amountMajor: 6300,
-      currency: "NGN",
-    });
-    expect(confirmOpts.rawPayload).toMatchObject({ source: "wa_receipt_scan", parsedAmount: 6300 });
+    // An OCR receipt alone must NEVER confirm a payment — even an exact
+    // amount match goes to human review; only provider webhooks/fetchStatus
+    // confirm payments.
+    expect(result.outcome).toBe("manual_review");
+    expect(update).toHaveBeenCalled();
     const [, , replyBody] = (sendWhatsAppText as any).mock.calls[0];
-    expect(replyBody).toMatch(/Payment received for order ORD-TEST1/);
-    expect(replyBody).toMatch(/confirmed/);
+    expect(replyBody).toMatch(/manual|confirmation from the store/i);
+    expect(replyBody).not.toMatch(/payment is confirmed/i);
   });
 
   it("MISMATCH: flags receiptReview and replies manual review, never confirms", async () => {
@@ -130,7 +121,6 @@ describe("handleInboundReceiptImage branching", () => {
     });
 
     expect(result.outcome).toBe("manual_review");
-    expect(confirmProviderPayment).not.toHaveBeenCalled();
     // order flagged for review
     expect(update).toHaveBeenCalled();
     const [, , replyBody] = (sendWhatsAppText as any).mock.calls[0];

@@ -16,7 +16,7 @@ import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import { TRPCError } from "@trpc/server";
 import { createHash, randomUUID } from "crypto";
-import { paymentIntents } from "../../drizzle/schema";
+import { orders, paymentIntents, purchaseOrders } from "../../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { publishPaymentEvent as publishPaymentDaprEvent, daprPublish } from "../dapr";
 import { getRedis } from "../redis";
@@ -25,6 +25,7 @@ import { createFraudCase } from "./fraudCase";
 import { writeAuditLog } from "./audit";
 import { initiateWithFallback } from "../services/payments/initiateWithFallback";
 import { toIntentProviderEnum } from "../services/payments/providers/providerEnum";
+import { fetchProviderPaymentStatus } from "../services/payments/verifyProviderStatus";
 
 // ── TigerBeetle ledger helper ─────────────────────────────────────────────────
 
@@ -224,6 +225,73 @@ export const paymentRouter = router({
 
       let ledgerPendingId: string | null = null;
       try {
+        // Step 1.2 (Wave 26 audit F1): load the order SERVER-SIDE and derive
+        // the amount/currency from the order record — NEVER trust the
+        // client-supplied amount/currency. The order must belong to the
+        // caller's tenant and must not already be paid.
+        //
+        // po_payment intents (metadata.type === "po_payment") are raised by
+        // the procurement pipeline against a purchase_orders row, not an
+        // orders row — the PO's subtotalCents is the server-side authority
+        // there (still never the client amount).
+        const isPoPayment = input.metadata?.type === "po_payment" && typeof input.metadata?.poId === "string";
+        let orderAmount: number;
+        let orderCurrency: string;
+        if (isPoPayment) {
+          const [po] = await database.select().from(purchaseOrders)
+            .where(eq(purchaseOrders.id, String(input.metadata!.poId))).limit(1);
+          if (!po) {
+            await releaseIdempotencyLock(idempotencyKey);
+            throw new TRPCError({ code: "NOT_FOUND", message: `Purchase order not found: ${String(input.metadata!.poId)}` });
+          }
+          if (po.supplierTenantId !== input.tenantId) {
+            await releaseIdempotencyLock(idempotencyKey);
+            throw new TRPCError({ code: "FORBIDDEN", message: "Purchase order does not belong to this tenant" });
+          }
+          orderAmount = Number(po.subtotalCents) / 100;
+          orderCurrency = "NGN";
+        } else {
+          const [order] = await database.select().from(orders)
+            .where(eq(orders.id, input.orderId)).limit(1);
+          if (!order) {
+            await releaseIdempotencyLock(idempotencyKey);
+            throw new TRPCError({ code: "NOT_FOUND", message: `Order not found: ${input.orderId}` });
+          }
+          if (order.tenantId !== input.tenantId) {
+            await releaseIdempotencyLock(idempotencyKey);
+            throw new TRPCError({ code: "FORBIDDEN", message: "Order does not belong to this tenant" });
+          }
+          if (order.paymentStatus === "completed") {
+            await releaseIdempotencyLock(idempotencyKey);
+            throw new TRPCError({ code: "CONFLICT", message: "Order is already paid" });
+          }
+          orderAmount = parseFloat(order.totalAmount);
+          orderCurrency = (order.currency ?? "NGN").toUpperCase();
+        }
+        // Authoritative amount/currency come from the order row. A client
+        // amount that disagrees (compared exactly in minor units) is rejected
+        // outright — never silently overridden.
+        if (!Number.isFinite(orderAmount) || orderAmount <= 0) {
+          await releaseIdempotencyLock(idempotencyKey);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Order has an invalid total amount" });
+        }
+        if (toMinorUnits(input.amount) !== toMinorUnits(orderAmount)) {
+          await releaseIdempotencyLock(idempotencyKey);
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Amount mismatch: order total is ${orderAmount.toFixed(2)} ${orderCurrency}`,
+          });
+        }
+        if (input.currency.toUpperCase() !== orderCurrency) {
+          await releaseIdempotencyLock(idempotencyKey);
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Currency mismatch: order currency is ${orderCurrency}`,
+          });
+        }
+        const amount = orderAmount;
+        const currency = orderCurrency;
+
         // Step 1.5: Reuse-or-clear any existing intent for this idempotency key.
         // The unique constraint on idempotencyKey would otherwise permanently
         // block retrying an order whose first attempt failed.
@@ -256,7 +324,7 @@ export const paymentRouter = router({
         // High-risk payments are NOT silently processed: the intent is
         // flagged and a fraud case is queued for AML filing.
         const fraudRisk = assessFraudRisk({
-          amount: input.amount,
+          amount: amount,
           numItems: typeof input.metadata?.numItems === "number" ? (input.metadata.numItems as number) : 0,
           phone: input.customerPhone,
           customerId: input.customerId ?? null,
@@ -271,8 +339,8 @@ export const paymentRouter = router({
           id: paymentIntentId,
           tenantId: input.tenantId,
           orderId: input.orderId,
-          amount: String(input.amount),
-          currency: input.currency,
+          amount: String(amount),
+          currency: currency,
           provider: input.provider,
           providerPaymentId: reference,
           idempotencyKey,
@@ -297,7 +365,7 @@ export const paymentRouter = router({
             fraudScore: fraudRisk.fraudProbability.toFixed(4),
             riskLevel: fraudRisk.riskLevel,
             status: "pending",
-            payload: { amount: input.amount, currency: input.currency, provider: input.provider },
+            payload: { amount: amount, currency: currency, provider: input.provider },
           });
           await writeAuditLog({
             actorId: null,
@@ -322,13 +390,13 @@ export const paymentRouter = router({
           const customerLedgerId = input.customerId ?? input.customerPhone;
           const debitAccountId = ledgerAccountId("customer", customerLedgerId);
           const creditAccountId = ledgerAccountId("escrow", input.tenantId);
-          await ensureLedgerAccountProvisioned({ tenantId: customerLedgerId, accountType: "float", currency: input.currency });
-          await ensureLedgerAccountProvisioned({ tenantId: input.tenantId, accountType: "escrow", currency: input.currency });
+          await ensureLedgerAccountProvisioned({ tenantId: customerLedgerId, accountType: "float", currency: currency });
+          await ensureLedgerAccountProvisioned({ tenantId: input.tenantId, accountType: "escrow", currency: currency });
           const reserveRes = (await ledgerRequest("/transfer", "POST", {
             debit_account_id: debitAccountId,
             credit_account_id: creditAccountId,
             // Integer minor units (kobo), round half up — the /transfer contract.
-            amount: toMinorUnits(input.amount),
+            amount: toMinorUnits(amount),
             ledger: 1,
             code: 1,
             idempotency_key: idempotencyKey,
@@ -361,8 +429,8 @@ export const paymentRouter = router({
         const sagaResult = await triggerPaymentSaga(sagaWorkflowId, {
           paymentIntentId,
           tenantId: input.tenantId,
-          amount: input.amount,
-          currency: input.currency,
+          amount: amount,
+          currency: currency,
           provider: input.provider,
           reference,
         });
@@ -385,8 +453,8 @@ export const paymentRouter = router({
         } else {
           const fallback = await initiateWithFallback(input.tenantId, {
             tenantId: input.tenantId,
-            amountCents: Math.round(input.amount * 100),
-            currency: input.currency,
+            amountCents: Math.round(amount * 100),
+            currency: currency,
             reference,
             metadata: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, order_id: input.orderId },
             customer: { phone: input.customerPhone, email: `${input.customerPhone.replace(/\D/g, "") || "customer"}@wa-app.newfire.app` },
@@ -431,17 +499,20 @@ export const paymentRouter = router({
         // Step 7: Publish events
         await publishPaymentEvent("payment.initiated", {
           paymentIntentId, tenantId: input.tenantId, orderId: input.orderId,
-          amount: input.amount, currency: input.currency, provider: input.provider,
+          amount: amount, currency: currency, provider: input.provider,
           reference, tbDebitOk, sagaStarted: sagaResult.started, timestamp: new Date().toISOString(),
         });
         await publishPaymentDaprEvent("payment.initiated", {
-          paymentIntentId, tenantId: input.tenantId, amount: input.amount, currency: input.currency,
+          paymentIntentId, tenantId: input.tenantId, amount: amount, currency: currency,
         });
 
         return { paymentIntentId, reference, paymentUrl, instructions, provider: servedProvider, status: "initiated",
           sagaWorkflowId: sagaResult.started ? sagaWorkflowId : null, tbDebitOk };
 
       } catch (err: any) {
+        // Validation errors (unknown order, tenant mismatch, amount mismatch)
+        // must surface verbatim — not be re-wrapped as a generic 500.
+        if (err instanceof TRPCError) throw err;
         // Compensation: void the ledger reservation (2-phase rollback) if one
         // was taken, then mark the payment as failed. The failed row is KEPT
         // for audit; a retry deletes/reuses it (see Step 1.5).
@@ -482,6 +553,39 @@ export const paymentRouter = router({
 
       if (intent.status === "completed" || intent.status === "failed") {
         return { ok: true, skipped: true, status: intent.status };
+      }
+
+      // Wave 26 audit (MEDIUM): before confirming a SUCCESS, verify with the
+      // provider's live fetchStatus where the provider supports it. An explicit
+      // provider "failed" verdict blocks the confirmation outright; a provider
+      // amount that disagrees in exact minor units also blocks. "pending" /
+      // "unknown" (unsupported provider, timeout) is logged and the admin's
+      // signed webhook verdict stands — but never silently.
+      if (input.providerStatus === "success") {
+        const intentMeta = (intent.metadata as Record<string, unknown> | null) ?? {};
+        const servedProvider = (intentMeta.servedProvider as string | undefined) ?? intent.provider;
+        const probe = await fetchProviderPaymentStatus(intent.tenantId, {
+          provider: servedProvider,
+          reference: input.reference,
+        });
+        if (probe.status === "failed") {
+          console.error(`[payment.confirm] Provider ${servedProvider} reports FAILED for ${input.reference} — refusing success confirmation`);
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Provider reports this payment as failed — cannot confirm as success`,
+          });
+        }
+        if (probe.status === "success" && probe.amountCents != null &&
+            probe.amountCents !== toMinorUnits(parseFloat(intent.amount))) {
+          console.error(`[payment.confirm] Provider amount mismatch for ${input.reference}: provider=${probe.amountCents}c expected=${toMinorUnits(parseFloat(intent.amount))}c`);
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Provider-reported amount does not match the payment intent",
+          });
+        }
+        if (probe.status === "pending" || probe.status === "unknown") {
+          console.warn(`[payment.confirm] provider fetchStatus for ${input.reference} = ${probe.status} — proceeding on signed webhook verdict`);
+        }
       }
 
       const newStatus = input.providerStatus === "success" ? "completed" : "failed";
@@ -639,7 +743,13 @@ export const paymentRouter = router({
       try {
         return await ledgerRequest(`/balance/${encodeURIComponent(input.accountId)}`);
       } catch (err: any) {
-        return { accountId: input.accountId, credits: 0, debits: 0, balance: 0, error: err.message };
+        // Money-context read: never swallow a ledger outage as a zero balance —
+        // a fake "0" could be acted on downstream. Log and throw.
+        console.error(`[payment.getLedgerBalance] ledger balance read failed for ${input.accountId}:`, err?.message);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Ledger balance unavailable: ${err?.message ?? "unknown"}`,
+        });
       }
     }),
 
@@ -662,7 +772,10 @@ export const paymentRouter = router({
       try {
         const data = await ledgerRequest(`/balance/${encodeURIComponent(input.accountId)}`);
         ledgerBalance = (data.balance ?? 0) / 100;
-      } catch (err: any) { ledgerError = err.message; }
+      } catch (err: any) {
+        console.error(`[payment.reconcileLedger] ledger read failed for ${input.accountId}:`, err?.message);
+        ledgerError = err.message;
+      }
 
       const drift = Math.abs(dbSum - ledgerBalance);
       if (drift > 100) {

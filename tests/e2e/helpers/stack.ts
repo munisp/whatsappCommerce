@@ -28,6 +28,9 @@ export const CFG = {
   /** Must match PAYSTACK_WEBHOOK_SECRET in the compose file. */
   paystackWebhookSecret:
     process.env.PAYSTACK_WEBHOOK_SECRET ?? "e2e-paystack-webhook-secret",
+  /** Must match ESCROW_BANK_WEBHOOK_SECRET in the compose file. */
+  escrowBankWebhookSecret:
+    process.env.ESCROW_BANK_WEBHOOK_SECRET ?? "e2e-escrow-bank-webhook-secret",
 } as const;
 
 export const HTTP_TIMEOUT = 15_000;

@@ -76,6 +76,10 @@ export const journey: Journey = {
 
     // ── 4. Merchant progresses the order; buyer gets status pushes ───────
     const merchant = await tenantCaller(TENANT_ID, { userId: 1040 });
+    // Wave 26 (F12): orderCrud enforces a legal state machine — confirmed
+    // must pass through processing before shipped.
+    const processing = await merchant.orderCrud.updateStatus({ orderId: order.orderId, status: "processing" });
+    assert(processing.ok === true, "merchant moves the order to processing");
     const shipped = await merchant.orderCrud.updateStatus({ orderId: order.orderId, status: "shipped" });
     assert(shipped.ok === true, "merchant marks the order shipped");
     await world.settle(300);

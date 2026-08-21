@@ -1,7 +1,11 @@
 /**
- * J8 — Receipt screenshot: image inbound matching a pending order ±₦100 →
- * auto-confirmed through paymentConfirm; mismatch → manual review reply,
- * order NOT confirmed. Vision LLM is scripted via the media bytes.
+ * J8 — Receipt screenshot (Wave 26 audit F2): an OCR receipt scan NEVER
+ * auto-confirms a payment — attacker-controlled pixels are not money
+ * movement. A matching receipt is flagged receiptReview (reason
+ * amount-match-awaiting-human-review) and the buyer is told a human will
+ * confirm; a mismatch (tolerance now ZERO — 2575 ≠ 2500) is flagged
+ * amount-mismatch with the scanned amount quoted. Vision LLM is scripted
+ * via the media bytes.
  */
 import { eq } from "drizzle-orm";
 import { scriptMedia } from "../metaMock";
@@ -51,10 +55,17 @@ export const journey: Journey = {
 
     await world.waitFor(async () => {
       const [o] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, orderA.orderId)).limit(1);
-      return o?.status === "confirmed";
-    }, 15000, "order A auto-confirmed by matching receipt");
+      return (o?.metadata as any)?.receiptReview === true;
+    }, 15000, "order A flagged receiptReview by matching receipt");
+    const [oA] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, orderA.orderId)).limit(1);
+    // F2: OCR alone must NEVER confirm — the order stays pending/unpaid.
+    assert(oA.status === "pending", `matching receipt does NOT auto-confirm (got ${oA.status})`);
+    assert(oA.paymentStatus !== "completed", "matching receipt not marked paid");
+    assert((oA.metadata as any)?.receiptReviewReason === "amount-match-awaiting-human-review",
+      "review reason records the exact-match human-review queue");
     const replyA = bodyText(world.outbound.lastOfType("text", phoneA));
-    assert(replyA.includes("Payment received") || replyA.includes("confirmed"), "buyer told payment was received");
+    assertIncludes(replyA, "matches the expected amount", "buyer told the amount matched");
+    assertIncludes(replyA, "final confirmation", "buyer told a human confirms");
 
     // ── Mismatched receipt → manual review, NOT confirmed ────────────────
     const phoneB = world.newPhone("b");
@@ -75,7 +86,8 @@ export const journey: Journey = {
     assertIncludes(replyB, "manual review", "buyer told receipt is under manual review");
     assertIncludes(replyB, "999", "mismatch reply quotes the scanned amount");
 
-    // ── Within-tolerance receipt (±₦100) also confirms ───────────────────
+    // ── Near-miss receipt (₦2,575 vs ₦2,500): tolerance is now ZERO, so
+    // this is a MISMATCH → manual review, never confirmed ─────────────────
     const phoneC = world.newPhone("c");
     await world.grantConsent(phoneC);
     const orderC = await createChatOrderViaNlp(world, phoneC, { items: [{ product: "Jollof Rice", quantity: 1 }] });
@@ -83,7 +95,13 @@ export const journey: Journey = {
     await world.image(phoneC, "m-receipt-close");
     await world.waitFor(async () => {
       const [o] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, orderC.orderId)).limit(1);
-      return o?.status === "confirmed";
-    }, 15000, "order C confirmed within ±₦100 tolerance");
+      return (o?.metadata as any)?.receiptReview === true;
+    }, 15000, "order C flagged receiptReview (zero tolerance)");
+    const [oC] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, orderC.orderId)).limit(1);
+    assert(oC.status === "pending", `near-miss order stays pending (got ${oC.status})`);
+    assert((oC.metadata as any)?.receiptReviewReason === "amount-mismatch",
+      "zero tolerance: ₦75 off is a mismatch");
+    const replyC = bodyText(world.outbound.lastOfType("text", phoneC));
+    assertIncludes(replyC, "manual review", "buyer told near-miss is under manual review");
   },
 };

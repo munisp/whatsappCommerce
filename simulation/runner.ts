@@ -153,6 +153,7 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j123-discover-freetext-order"),
     import("./journeys/j124-merchant-geo-onboarding"),
     import("./journeys/j125-sponsored-placement"),
+    import("./journeys/j126-escrow-release"),
   ]);
   return mods.map((m) => m.journey as Journey);
 }
@@ -166,27 +167,42 @@ export async function runAll(only?: string[]): Promise<JourneyResult[]> {
 
   const results: JourneyResult[] = [];
   for (const j of selected) {
-    const start = Date.now();
-    await world.resetJourneyState();
-    recorder.begin(j.id, j.name, j.feature);
-    try {
-      await j.run(world);
-      await world.settle(300);
-      recorder.end(true);
-      results.push({ id: j.id, name: j.name, feature: j.feature, pass: true, durationMs: Date.now() - start });
-    } catch (e: any) {
-      recorder.end(false);
-      results.push({
-        id: j.id, name: j.name, feature: j.feature, pass: false, durationMs: Date.now() - start,
-        error: String(e?.stack ?? e?.message ?? e),
-      });
-    }
+    results.push(await runOneJourney(world, j));
   }
+  writeTranscripts();
+  return results;
+}
+
+export function writeTranscripts(): void {
   if (process.env.SIM_TRANSCRIPTS !== "off") {
     const dir = recorder.writeAll();
     if (!process.env.VITEST) console.log(`\ntranscripts → ${dir}`);
   }
-  return results;
+}
+
+/**
+ * Run a single journey against an already-booted world: reset shared state,
+ * record the transcript, run, then settle to quiescence (300ms of no
+ * outbound/meta activity — deterministic, condition-based rather than a
+ * fixed sleep). Never throws: failures are captured in the result so
+ * per-journey test blocks can attribute them.
+ */
+export async function runOneJourney(world: World, j: Journey): Promise<JourneyResult> {
+  const start = Date.now();
+  await world.resetJourneyState();
+  recorder.begin(j.id, j.name, j.feature);
+  try {
+    await j.run(world);
+    await world.settle(300);
+    recorder.end(true);
+    return { id: j.id, name: j.name, feature: j.feature, pass: true, durationMs: Date.now() - start };
+  } catch (e: any) {
+    recorder.end(false);
+    return {
+      id: j.id, name: j.name, feature: j.feature, pass: false, durationMs: Date.now() - start,
+      error: String(e?.stack ?? e?.message ?? e),
+    };
+  }
 }
 
 export function printMatrix(results: JourneyResult[]): void {

@@ -270,9 +270,13 @@ export interface ConfirmCollectionResult {
 
 /**
  * Rider confirms cash collected for an order. Idempotency key is derived from
- * orderId + current codState + amount (`cod-collect:<orderId>:<state>:<amount>`)
- * unless the caller supplies one — replaying the same confirmation claims
- * nothing (providerRef partial unique index) and returns applied:false.
+ * orderId + codState + cumulative-paid-so-far + amount
+ * (`cod-collect:<orderId>:<state>:<paidSoFar>:<amount>`) unless the caller
+ * supplies one — replaying the same confirmation claims nothing (providerRef
+ * partial unique index) and returns applied:false, while two DISTINCT partial
+ * collections of the same amount no longer collide. Collections are capped
+ * at the remaining order balance (integer cents) — totalPaid can never
+ * exceed the order total via this path.
  *
  * Partial collection: the cash row is recorded, the order stays in
  * delivered_pending_cash and the remaining balance is tracked via
@@ -305,10 +309,35 @@ export async function confirmCashCollection(
   }
   if (!(opts.amount > 0)) throw new Error("Collected amount must be positive");
 
-  const amount = Math.round(opts.amount * 100) / 100;
+  // Over-collection cap: collections may never exceed the order total. The
+  // amount is clamped to the remaining balance (integer cents) BEFORE the
+  // idempotency key is derived, so an over-tendered confirmation records only
+  // what is actually owed instead of inflating totalPaid past the total.
+  const preSummary = await orderPaymentSummary(db, opts.tenantId, opts.orderId);
+  const remainingCents = Math.max(0, Math.round(preSummary.remaining * 100));
+  const requestedCents = Math.round(opts.amount * 100);
+  if (remainingCents <= 0 && order.codState === "cash_collected") {
+    // Already fully collected — nothing more can be applied.
+    return {
+      applied: false,
+      summary: preSummary,
+      codState: order.codState,
+      completed: true,
+    };
+  }
+  const cappedCents = Math.min(requestedCents, Math.max(remainingCents, 0));
+  if (cappedCents <= 0) throw new Error("Order is already fully paid — no further collection can be applied");
+  const amount = cappedCents / 100;
+
+  // Collision-safe deterministic idempotency key. The old key
+  // (orderId:state:amount) collapsed TWO DISTINCT partial collections of the
+  // same amount into one row (the second was swallowed as a "replay").
+  // Including the cumulative paid-so-far makes each distinct collection a
+  // distinct key, while a true retry of the SAME confirmation (same prior
+  // total, same amount) still maps to the same key and stays a no-op.
   const ref =
     opts.idempotencyKey ??
-    `cod-collect:${opts.orderId}:${order.codState}:${amount.toFixed(2)}`;
+    `cod-collect:${opts.orderId}:${order.codState}:${preSummary.totalPaid.toFixed(2)}:${amount.toFixed(2)}`;
 
   // Claim-first: the unique providerRef makes a replay a no-op insert.
   const claimed = await db

@@ -10,7 +10,7 @@
 import { eq } from "drizzle-orm";
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
-import { adminCaller, flutterwaveChargeSuccess, tenantCaller } from "./helpers";
+import { adminCaller, flutterwaveChargeSuccess, tenantCaller, seedOrderForInitiate } from "./helpers";
 import { setPayHostStatus } from "../metaMock";
 
 const FLW_SECRET_KEY = "flw_sk_sim_j119";
@@ -37,6 +37,10 @@ export const journey: Journey = {
       tenantId: tenant, provider: "flutterwave",
       creds: { secretKey: FLW_SECRET_KEY, secretHash: FLW_SECRET_HASH }, priority: 5,
     });
+
+    // Wave 26 (F1): payment.initiate derives amount from the order row.
+    await seedOrderForInitiate(world, { orderId: "order-j119-failover", tenantId: tenant, amountMajor: 9_750 });
+    await seedOrderForInitiate(world, { orderId: "order-j119-allfail", tenantId: tenant, amountMajor: 3_000 });
 
     // ── 1. Paystack down → flutterwave serves the initiation ─────────────
     setPayHostStatus("api.paystack.co", 500);

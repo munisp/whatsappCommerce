@@ -160,6 +160,53 @@ export interface InitiateTransferResult {
   reference: string;
 }
 
+export interface VerifyTransferResult {
+  /** Raw Paystack transfer status ("success" | "pending" | "processing" |
+   *  "otp" | "failed" | "reversed" | ...), or null when Paystack has no
+   *  transfer for this reference. */
+  status: string | null;
+  transferCode: string | null;
+  found: boolean;
+}
+
+/**
+ * Looks up a transfer by its reference (GET /transfer/verify/:reference).
+ * Used after an initiateTransfer timeout/network error: the transfer may have
+ * succeeded server-side even though we never saw the response, so a wallet
+ * refund must NEVER be issued until this lookup proves the transfer does not
+ * exist or terminally failed.
+ */
+export async function verifyTransfer(secretKey: string, reference: string): Promise<VerifyTransferResult> {
+  const res = await fetch(`${PAYSTACK_BASE}/transfer/verify/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${secretKey}` },
+    signal: AbortSignal.timeout(15000),
+  }).catch((err: unknown) => {
+    throw new PaystackTransferError(`Paystack transfer verify request failed: ${(err as Error)?.message ?? "network error"}`, err);
+  });
+  const raw = await res.text();
+  let parsed: { status?: boolean; message?: string; data?: Record<string, unknown> } = {};
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new PaystackTransferError(`Paystack transfer verify returned a non-JSON response (HTTP ${res.status}): ${raw.slice(0, 200)}`);
+  }
+  if (!res.ok || parsed.status !== true || !parsed.data) {
+    // Paystack 400s with "Transfer not found" when the reference is unknown —
+    // that is a definitive NOT-FOUND answer, not an error to retry.
+    const msg = String(parsed.message ?? "");
+    if (res.status === 404 || /not found/i.test(msg)) {
+      return { status: null, transferCode: null, found: false };
+    }
+    throw new PaystackTransferError(`Paystack transfer verify failed: ${msg || `HTTP ${res.status}`}`);
+  }
+  const data = parsed.data;
+  return {
+    status: typeof data.status === "string" ? data.status : null,
+    transferCode: typeof data.transfer_code === "string" ? data.transfer_code : null,
+    found: true,
+  };
+}
+
 /** Initiates a Paystack transfer from the platform's balance to a recipient. */
 export async function initiateTransfer(opts: InitiateTransferOpts): Promise<InitiateTransferResult> {
   const data = await paystackFetch("/transfer", opts.secretKey, {

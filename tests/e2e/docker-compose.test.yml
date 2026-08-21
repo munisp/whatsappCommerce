@@ -154,6 +154,7 @@ services:
       JWT_SECRET: e2e-jwt-secret
       INTERNAL_API_KEY: e2e-internal-key
       PAYSTACK_WEBHOOK_SECRET: e2e-paystack-webhook-secret
+      ESCROW_BANK_WEBHOOK_SECRET: e2e-escrow-bank-webhook-secret
       LEDGER_BRIDGE_URL: http://ledger-bridge:8095
       ML_STACK_URL: http://ml-inference:8099
       APP_URL: http://localhost:3000

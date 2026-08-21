@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { desc, eq, gte, and, sql, count } from "drizzle-orm";
-import { publicProcedure, protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, internalProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { waMessageDeliveryReceipts } from "../../drizzle/schema";
 
 export const deliveryReceiptsRouter = router({
   // Called by the Meta webhook handler (public, validated by HMAC upstream)
-  ingestStatusUpdate: publicProcedure
+  ingestStatusUpdate: internalProcedure
     .input(z.object({
       tenantId: z.string(),
       waMessageId: z.string(),

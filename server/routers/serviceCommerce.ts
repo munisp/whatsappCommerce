@@ -5,6 +5,7 @@ import { getDb } from "../db";
 import { serviceCatalog, appointments, digitalProducts, digitalProductPurchases, subscriptions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
+import { hasVerifiedPayment } from "../services/payments/verifyProviderStatus";
 
 export const serviceCommerceRouter = router({
   // ── Service Catalog ──────────────────────────────────────────────────────
@@ -98,14 +99,45 @@ export const serviceCommerceRouter = router({
       productId: z.string(),
       tenantId: z.string(),
       customerPhone: z.string(),
+      // Wave 26 audit F3: a download grant REQUIRES a verified payment —
+      // either a locally confirmed payment record or a live provider
+      // fetchStatus success, matching the product price in exact minor units.
+      paymentReference: z.string().min(1),
+      provider: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
+      const [product] = await db.select().from(digitalProducts)
+        .where(and(eq(digitalProducts.id, input.productId), eq(digitalProducts.tenantId, input.tenantId)))
+        .limit(1);
+      if (!product || !product.isActive) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Digital product not found" });
+      }
+      const priceCents = Math.round(parseFloat(product.price) * 100);
+      if (priceCents > 0) {
+        const pay = await hasVerifiedPayment(db, {
+          tenantId: input.tenantId,
+          reference: input.paymentReference,
+          provider: input.provider,
+          expectedAmountCents: priceCents,
+        });
+        if (!pay.verified) {
+          console.warn(`[serviceCommerce] digital purchase REJECTED (unverified payment ${input.paymentReference}, ${pay.detail ?? "no detail"})`);
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Payment not verified — complete payment before downloading",
+          });
+        }
+      }
       const id = randomUUID();
       const downloadToken = randomUUID().replace(/-/g, "");
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await db.insert(digitalProductPurchases).values({
-        id, ...input, downloadToken, downloadsUsed: 0, expiresAt, createdAt: new Date(),
+        id,
+        productId: input.productId,
+        tenantId: input.tenantId,
+        customerPhone: input.customerPhone,
+        downloadToken, downloadsUsed: 0, expiresAt, createdAt: new Date(),
       });
       return { id, downloadToken, expiresAt };
     }),
@@ -120,9 +152,30 @@ export const serviceCommerceRouter = router({
       billingCycle: z.enum(["monthly", "annual", "weekly"]).default("monthly"),
       amount: z.string(),
       currency: z.string().default("NGN"),
+      // Wave 26 audit F3: activating a subscription REQUIRES a verified
+      // first payment (confirmed record or live provider fetchStatus) whose
+      // amount matches the subscription amount in exact minor units.
+      paymentReference: z.string().min(1),
+      provider: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
       const db = (await getDb())!;
+      const amountCents = Math.round(parseFloat(input.amount) * 100);
+      if (Number.isFinite(amountCents) && amountCents > 0) {
+        const pay = await hasVerifiedPayment(db, {
+          tenantId: input.tenantId,
+          reference: input.paymentReference,
+          provider: input.provider,
+          expectedAmountCents: amountCents,
+        });
+        if (!pay.verified) {
+          console.warn(`[serviceCommerce] subscription REJECTED (unverified payment ${input.paymentReference}, ${pay.detail ?? "no detail"})`);
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Payment not verified — complete payment before activating a subscription",
+          });
+        }
+      }
       const id = randomUUID();
       const now = new Date();
       const periodEnd = new Date(now);
@@ -130,7 +183,15 @@ export const serviceCommerceRouter = router({
       else if (input.billingCycle === "annual") periodEnd.setFullYear(periodEnd.getFullYear() + 1);
       else periodEnd.setDate(periodEnd.getDate() + 7);
       await db.insert(subscriptions).values({
-        id, ...input, status: "active", currentPeriodStart: now, currentPeriodEnd: periodEnd, createdAt: now, updatedAt: now,
+        id,
+        serviceId: input.serviceId,
+        tenantId: input.tenantId,
+        customerPhone: input.customerPhone,
+        customerName: input.customerName,
+        billingCycle: input.billingCycle,
+        amount: input.amount,
+        currency: input.currency,
+        status: "active", currentPeriodStart: now, currentPeriodEnd: periodEnd, createdAt: now, updatedAt: now,
       });
       return { id, status: "active", currentPeriodEnd: periodEnd };
     }),

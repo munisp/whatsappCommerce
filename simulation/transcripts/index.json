@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-20T19:10:34.507Z",
+  "generatedAt": "2026-08-21T14:57:00.321Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -64,7 +64,7 @@
       "feature": "receiptVerification ±₦100",
       "pass": true,
       "file": "J08.json",
-      "messageCount": 41
+      "messageCount": 39
     },
     {
       "id": "J09",
@@ -305,6 +305,14 @@
       "pass": true,
       "file": "J125.json",
       "messageCount": 6
+    },
+    {
+      "id": "J126",
+      "title": "escrow hold → SLA auto-release",
+      "feature": "settleEscrowAtomic + wallet credit conservation",
+      "pass": true,
+      "file": "J126.json",
+      "messageCount": 11
     },
     {
       "id": "J13",
@@ -592,7 +600,7 @@
       "feature": "manual adapter instructions + receipt confirm",
       "pass": true,
       "file": "J48.json",
-      "messageCount": 14
+      "messageCount": 13
     },
     {
       "id": "J49",

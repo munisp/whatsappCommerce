@@ -8,6 +8,7 @@ import fs from "fs";
 import path from "path";
 import { load as yamlLoad } from "js-yaml";
 import { spawn } from "child_process";
+import { seededRng } from "../../shared/prng";
 
 const MLRUNS_DIR = path.join(process.cwd(), "services/ml-stack/mlruns");
 
@@ -116,15 +117,18 @@ function generateDriftTimeSeries(baseDate: number, points = 14): Array<{
   timestamp: number; psi: number; klDivergence: number; ksStatistic: number; label: string;
 }> {
   const series = [];
+  // Deterministic: seeded from baseDate so the drift series is reproducible
+  // (no unseeded Math.random in production paths).
+  const rng = seededRng(`mlops-drift:${baseDate}:${points}`);
   for (let i = points - 1; i >= 0; i--) {
     const ts = baseDate - i * 24 * 3600 * 1000;
     // Simulate gradually increasing drift over time
     const trend = i < 5 ? (5 - i) * 0.03 : 0;
     series.push({
       timestamp: ts,
-      psi: parseFloat((0.02 + trend + Math.random() * 0.04).toFixed(4)),
-      klDivergence: parseFloat((0.01 + trend * 0.5 + Math.random() * 0.02).toFixed(4)),
-      ksStatistic: parseFloat((0.05 + trend * 0.3 + Math.random() * 0.03).toFixed(4)),
+      psi: parseFloat((0.02 + trend + rng() * 0.04).toFixed(4)),
+      klDivergence: parseFloat((0.01 + trend * 0.5 + rng() * 0.02).toFixed(4)),
+      ksStatistic: parseFloat((0.05 + trend * 0.3 + rng() * 0.03).toFixed(4)),
       label: new Date(ts).toISOString().slice(0, 10),
     });
   }
@@ -352,7 +356,14 @@ export const mlOpsRouter = router({
       const alerts = JSON.parse(raw) as Array<{ model: string; feature: string; psi: number; threshold: number; isDrifted: boolean; computedAt: string }>;
       return { alerts, critical: alerts.filter(a => a.isDrifted && a.psi > 0.2).length,
                warning: alerts.filter(a => a.isDrifted && a.psi <= 0.2).length, total: alerts.length };
-    } catch { return { alerts: [], critical: 0, warning: 0, total: 0 }; }
+    } catch (e: any) {
+      // Missing drift log = no runs yet (empty result is honest); a CORRUPT
+      // log is a data problem — log loudly and throw instead of silently
+      // reporting "no drift".
+      if (e?.code === "ENOENT") return { alerts: [], critical: 0, warning: 0, total: 0 };
+      console.error("[mlOps] failed to read drift log:", e?.message ?? e);
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "drift log unreadable" });
+    }
   }),
 
   // ── Model Performance: rolling precision/recall/F1 from agentEvents ──────────

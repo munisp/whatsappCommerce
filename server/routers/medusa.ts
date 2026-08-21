@@ -4,7 +4,7 @@
  * Falls back gracefully when MEDUSA_API_URL is not configured.
  */
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, operatorProcedure, assertTenantAccess, router } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, publicProcedure, operatorProcedure, assertTenantAccess, router } from "../_core/trpc";
 import {
   isMedusaConfigured,
   listProducts,
@@ -86,8 +86,7 @@ export const medusaRouter = router({
   }),
 
   /** List orders (admin) */
-  listOrders: protectedProcedure
-    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
+  listOrders: adminProcedure
     .input(z.object({
       limit: z.number().min(1).max(100).default(20),
       offset: z.number().min(0).default(0),
@@ -100,8 +99,7 @@ export const medusaRouter = router({
     }),
 
   /** Get single order */
-  getOrder: protectedProcedure
-    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
+  getOrder: adminProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
       if (!isMedusaConfigured()) return { order: null, configured: false };
@@ -117,8 +115,7 @@ export const medusaRouter = router({
   }),
 
   /** Create price list (B2B wholesale tier) */
-  createPriceList: protectedProcedure
-    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
+  createPriceList: adminProcedure
     .input(z.object({
       name: z.string().min(1),
       type: z.enum(["sale", "override"]),

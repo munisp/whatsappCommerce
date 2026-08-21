@@ -57,6 +57,7 @@ import {
   getSession,
   newSession,
   saveSession,
+  saveSessionCas,
   type ChatSession,
 } from "./chatSession";
 import {
@@ -481,13 +482,25 @@ async function applyOutcome(
   outcome: UseCaseOutcome,
 ): Promise<boolean> {
   if (outcome.nextState) {
-    await saveSession({
-      ...session,
+    // Optimistic concurrency: the session was read before the use case ran —
+    // a racing webhook delivery for the same phone must not be overwritten
+    // silently. CAS on casVersion; on conflict reload the freshest session,
+    // re-apply the outcome onto it, and retry once.
+    const buildNext = (base: ChatSession): ChatSession => ({
+      ...base,
       ...outcome.nextState,
       tenantId: deps.tenantId,
       phone: deps.phone,
       updatedAt: Date.now(),
     });
+    const expected = session.casVersion ?? 0;
+    if (await saveSessionCas(buildNext(session), expected)) return true;
+    const fresh = await getSession(deps.tenantId, deps.phone);
+    if (fresh && (await saveSessionCas(buildNext(fresh), fresh.casVersion ?? 0))) return true;
+    console.error(
+      `[useCases] session CAS conflict for ${deps.tenantId}/${deps.phone} — ` +
+      "concurrent update won twice; dropping this transition (flow reply already sent).",
+    );
     return true;
   }
   await clearSession(deps.tenantId, deps.phone);
@@ -668,7 +681,10 @@ export async function handleConversationalInbound(opts: {
         .limit(1);
       const ctx = (nlpSession?.context ?? null) as Record<string, unknown> | null;
       return ctx?.awaitingFulfillment === true || ctx?.awaitingAddress === true;
-    } catch {
+    } catch (e: any) {
+      // Session-context read failed — fall back to menu dispatch, but never
+      // swallow the error silently (it usually means DB trouble).
+      console.warn("[useCases] nlp session context read failed:", e?.message ?? e);
       return false;
     }
   })();

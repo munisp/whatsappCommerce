@@ -19,6 +19,26 @@ import { syncLocalChange } from "../services/integrations/outbox";
 import { validatePromo, applyPromo } from "../services/promos";
 import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
 
+// ── F12: legal order status state machine ────────────────────────────────────
+// Any-status→any-status updates let an order jump backwards (delivered→pending)
+// or escape terminal states (cancelled→shipped), corrupting stock releases,
+// notifications and downstream escrow/COD flows. Only these transitions are
+// legal; "cancelled" and "refunded" are terminal, and an order may only be
+// cancelled BEFORE it ships.
+const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
+  pending:    ["confirmed", "cancelled"],
+  confirmed:  ["processing", "cancelled"],
+  processing: ["shipped", "cancelled"],
+  shipped:    ["delivered"],
+  delivered:  ["refunded"],
+  cancelled:  [],
+  refunded:   [],
+};
+
+export function isLegalOrderTransition(from: string, to: string): boolean {
+  return (ORDER_TRANSITIONS[from] ?? []).includes(to);
+}
+
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
   create: protectedProcedure
@@ -263,11 +283,27 @@ export const orderCrudRouter = router({
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       // Tenant isolation: only the owning tenant (or an admin) may mutate the order.
       assertTenantAccess(ctx.user, order.tenantId);
-      await db.update(orders).set({
+      if (input.status !== order.status && !isLegalOrderTransition(order.status, input.status)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Illegal status transition: ${order.status} → ${input.status}`,
+        });
+      }
+      // Guarded update: re-check the current status in the WHERE clause so a
+      // concurrent mutation between our read and this write can't smuggle an
+      // illegal transition through.
+      const transitioned = await db.update(orders).set({
         status: input.status,
         notes: input.notes,
         updatedAt: new Date(),
-      }).where(eq(orders.id, input.orderId));
+      }).where(and(eq(orders.id, input.orderId), eq(orders.status, order.status)))
+        .returning({ id: orders.id });
+      if (transitioned.length === 0) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Order status changed concurrently — retry the transition",
+        });
+      }
 
       // Cancelling releases any still-reserved stock back to the pool
       // (claim-first, idempotent — safe even if the sweeper races us).
@@ -307,26 +343,39 @@ export const orderCrudRouter = router({
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       // Tenant isolation.
       assertTenantAccess(ctx.user, order.tenantId);
-      if (["delivered", "cancelled", "refunded"].includes(order.status)) {
+      if (!isLegalOrderTransition(order.status, "cancelled")) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `Cannot cancel order in status: ${order.status}` });
       }
 
-      // Release reserved inventory
-      const items = await db.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
-      for (const item of items) {
-        await db.execute(sql`
-          UPDATE inventory_snapshots
-          SET "reservedQty" = GREATEST(0, CAST("reservedQty" AS NUMERIC) - ${item.quantity}),
-              "availableQty" = CAST("availableQty" AS NUMERIC) + ${item.quantity}
-          WHERE "productId" = ${item.productId}
-        `);
-      }
+      // Cancel + restock + status flip in ONE transaction: a mid-flight
+      // failure can no longer leave stock released for an order that is still
+      // active (or vice versa). The status guard in the UPDATE makes a
+      // concurrent cancel/fulfil a CONFLICT instead of a double restock.
+      await db.transaction(async (tx) => {
+        // Release reserved inventory
+        const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
+        for (const item of items) {
+          await tx.execute(sql`
+            UPDATE inventory_snapshots
+            SET "reservedQty" = GREATEST(0, CAST("reservedQty" AS NUMERIC) - ${item.quantity}),
+                "availableQty" = CAST("availableQty" AS NUMERIC) + ${item.quantity}
+            WHERE "productId" = ${item.productId}
+          `);
+        }
 
-      await db.update(orders).set({
-        status: "cancelled",
-        notes: input.reason ? `Cancelled: ${input.reason}` : "Cancelled",
-        updatedAt: new Date(),
-      }).where(eq(orders.id, input.orderId));
+        const transitioned = await tx.update(orders).set({
+          status: "cancelled",
+          notes: input.reason ? `Cancelled: ${input.reason}` : "Cancelled",
+          updatedAt: new Date(),
+        }).where(and(eq(orders.id, input.orderId), eq(orders.status, order.status)))
+          .returning({ id: orders.id });
+        if (transitioned.length === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Order status changed concurrently — cancel aborted, no stock was released",
+          });
+        }
+      });
 
       // Release pre-payment stock reservations (0031) — claim-first and
       // idempotent, so a concurrent expiry-sweeper run can't double-restock.
@@ -356,24 +405,54 @@ export const orderCrudRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Can only refund paid orders" });
       }
 
-      const refundId = crypto.randomUUID();
-      await db.insert(refunds).values({
-        id: refundId,
-        orderId: input.orderId,
-        tenantId: order.tenantId,
-        amount: input.amount.toFixed(2),
-        currency: order.currency,
-        reason: input.reason,
-        status: "pending",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      // F13 — over-refund guard: the cumulative refund check and the refund
+      // insert run in ONE transaction with the order row locked, so two
+      // concurrent refunds can never each pass a stale total check and
+      // together exceed the order total. Integer cents throughout.
+      const orderTotalCents = Math.round(parseFloat(order.totalAmount) * 100);
+      const requestCents = Math.round(input.amount * 100);
 
-      await db.update(orders).set({
-        status: "refunded",
-        paymentStatus: "refunded",
-        updatedAt: new Date(),
-      }).where(eq(orders.id, input.orderId));
+      const refundId = crypto.randomUUID();
+      await db.transaction(async (tx) => {
+        // Lock the order row for the duration of the check + insert.
+        await tx.execute(sql`SELECT id FROM orders WHERE id = ${input.orderId} FOR UPDATE`);
+        const sumRows = await tx.execute(sql`
+          SELECT COALESCE(SUM(amount::numeric), 0)::text AS total
+          FROM refunds
+          WHERE "orderId" = ${input.orderId} AND status IN ('pending', 'approved')
+        `);
+        const alreadyCents = Math.round(parseFloat(String((sumRows as unknown as { total: string }[])[0]?.total ?? "0")) * 100);
+        if (alreadyCents + requestCents > orderTotalCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Refund of ${input.amount.toFixed(2)} would exceed the order total: already refunded ${(alreadyCents / 100).toFixed(2)} of ${(orderTotalCents / 100).toFixed(2)}`,
+          });
+        }
+
+        await tx.insert(refunds).values({
+          id: refundId,
+          orderId: input.orderId,
+          tenantId: order.tenantId,
+          amount: input.amount.toFixed(2),
+          currency: order.currency,
+          reason: input.reason,
+          status: "pending",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+
+        // Only a FULL cumulative refund flips the order to refunded (the
+        // payment_status enum has no "partially_refunded" value and no schema
+        // change is warranted) — partial refunds leave the order payable/whole
+        // and are visible via the refunds table.
+        if (alreadyCents + requestCents >= orderTotalCents) {
+          await tx.update(orders).set({
+            status: "refunded",
+            paymentStatus: "refunded",
+            updatedAt: new Date(),
+          }).where(eq(orders.id, input.orderId));
+        }
+      });
 
       return { refundId, ok: true };
     }),
