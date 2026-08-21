@@ -1,0 +1,87 @@
+{
+  "id": "J151",
+  "title": "stokvel missed contribution",
+  "feature": "reminders + missed tracking + idempotent contribution",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348019136682",
+      "profileName": "Sim User 6682",
+      "inboundId": "wamid.sim.in.text.00384",
+      "at": 1787340977165,
+      "kind": "text",
+      "text": "stokvel contribute 740e9153"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00384",
+      "at": 1787340977175
+    },
+    {
+      "dir": "out",
+      "phone": "2348019136682",
+      "wamid": "wamid.sim.000620",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340977198,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 200.00 received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019136682",
+      "profileName": "Sim User 6682",
+      "inboundId": "wamid.sim.in.text.00385",
+      "at": 1787340977711,
+      "kind": "text",
+      "text": "stokvel contribute 740e9153"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00385",
+      "at": 1787340977715
+    },
+    {
+      "dir": "out",
+      "phone": "2348019136682",
+      "wamid": "wamid.sim.000621",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340977729,
+      "kind": "text",
+      "body": "✅ Your NGN 200.00 contribution for this cycle was already recorded. Thank you!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348014614228",
+      "profileName": "Sim User 4228",
+      "inboundId": "wamid.sim.in.text.00386",
+      "at": 1787340978266,
+      "kind": "text",
+      "text": "stokvel contribute 740e9153"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00386",
+      "at": 1787340978270
+    },
+    {
+      "dir": "out",
+      "phone": "2348014614228",
+      "wamid": "wamid.sim.000622",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340978286,
+      "kind": "text",
+      "body": "⚠️ Could not record your contribution: this cycle's contribution window was missed — contact your group admin"
+    }
+  ]
+}

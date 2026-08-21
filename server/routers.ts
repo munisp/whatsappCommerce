@@ -103,6 +103,10 @@ import { membershipRouter } from "./routers/membership";
 import { erpProvisionRouter } from "./routers/erpProvision";
 import { embeddedSignupRouter } from "./routers/embeddedSignup";
 import { shopifyIntegrationRouter } from "./routers/shopifyIntegration";
+// === W27 bookkeeping ===
+import { bookkeepingRouter } from "./routers/bookkeeping";
+// === W27 savings-insurance-vouchers (Coder G) ===
+import { insuranceRouter, stokvelRouter, vouchersRouter } from "./routers/savings";
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -253,9 +257,47 @@ export const appRouter = router({
   erpProvision: erpProvisionRouter,
   embeddedSignup: embeddedSignupRouter,
   shopifyIntegration: shopifyIntegrationRouter,
+  // === W27 catalog-ai ===
+  catalogAI: catalogAIRouter,
+  // === W27 bookkeeping ===
+  bookkeeping: bookkeepingRouter,
+  // === W27 storefront-i18n ===
+  storefront: storefrontRouter,
+  i18n: i18nRouter,
+  // === W27 credit ===
+  credit: creditRouter,
+  // === W27 delivery-loyalty-reviews (Coder E) ===
+  deliveryAggregation: deliveryRouter,
+  loyalty: loyaltyRouter,
+  reviews: reviewsRouter,
+  // === END W27 ===
+  // === W27 B2B wholesale marketplace + group buying (Coder F) ===
+  wholesale: wholesaleRouter,
+  groupBuy: groupBuyRouter,
+  // === END W27 Coder F ===
+  // === W27 savings-insurance-vouchers (Coder G) ===
+  stokvel: stokvelRouter,
+  insurance: insuranceRouter,
+  vouchers: vouchersRouter,
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
 import { searchRouter } from "./routers/search";
 import { temporalRouter } from "./routers/temporal";
 import { orchestratorRouter } from "./routers/orchestrator";
+// === W27 catalog-ai ===
+import { catalogAIRouter } from "./routers/catalogAI";
+// === W27 storefront-i18n ===
+import { storefrontRouter } from "./routers/storefront";
+import { i18nRouter } from "./routers/i18n";
+// === W27 credit ===
+import { creditRouter } from "./routers/credit";
+// === W27 delivery-loyalty-reviews (Coder E) ===
+import { deliveryRouter } from "./routers/delivery";
+import { loyaltyRouter } from "./routers/loyalty";
+import { reviewsRouter } from "./routers/reviews";
+// === END W27 ===
+// === W27 Coder F ===
+import { wholesaleRouter } from "./routers/wholesale";
+import { groupBuyRouter } from "./routers/groupBuy";
+// === END W27 Coder F ===

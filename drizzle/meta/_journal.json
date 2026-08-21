@@ -470,6 +470,104 @@
       "when": 1786989300000,
       "tag": "0069_payment_gateway_configs_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1786989400000,
+      "tag": "0070_catalog_ai_drafts",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1786989500000,
+      "tag": "0071_catalog_ai_draft_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1786989400000,
+      "tag": "0072_bookkeeping_expenses",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1786989500000,
+      "tag": "0073_bookkeeping_digests",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1786989400000,
+      "tag": "0074_storefronts",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1786989500000,
+      "tag": "0075_tenant_i18n_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1786989400000,
+      "tag": "0076_merchant_credit_scores",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1786989500000,
+      "tag": "0077_merchant_micro_loans",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1786989400000,
+      "tag": "0078_w27_delivery_loyalty",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1786989500000,
+      "tag": "0079_w27_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1786989400000,
+      "tag": "0080_wholesale_marketplace",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1786989500000,
+      "tag": "0081_group_buying",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1786989400000,
+      "tag": "0082_stokvel_insurance",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1786989500000,
+      "tag": "0083_voucher_rails",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import {
   timestamp,
   varchar,
   index,
+  unique,
   uniqueIndex,
   numeric,
   bigint,
@@ -1306,6 +1307,9 @@ export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
   "float_income",     // PSP: interest earned on held balance
   "withdrawal",       // merchant withdrawal to bank
   "fee_deduction",    // platform fee at settlement
+  // === W27 credit (additive enum values; never reorder the above) ===
+  "loan_disbursement", // micro-loan principal credited to merchant wallet
+  "loan_repayment",    // micro-loan repayment debited from merchant wallet
 ]);
 
 // ─── Escrow Config (platform-level) ──────────────────────────────────────────
@@ -3663,3 +3667,761 @@ export const sponsoredListings = pgTable("sponsored_listings", {
 ]);
 export type SponsoredListing = typeof sponsoredListings.$inferSelect;
 export type NewSponsoredListing = typeof sponsoredListings.$inferInsert;
+
+// === W27 catalog-ai ===
+// Voice-note→listing and photo→listing AI drafts. A merchant sends a WhatsApp
+// voice note or product photo; the pipeline (server/services/catalogAI.ts)
+// transcribes/vision-analyses it, extracts a structured listing, suggests a
+// deterministic integer-cents price, and stores a draft here pending merchant
+// confirmation (WhatsApp buttons or tenant portal). ALL money is INTEGER CENTS.
+// Additive only.
+export const catalogAiDrafts = pgTable("catalog_ai_drafts", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  tenantId:         varchar("tenant_id", { length: 36 }).notNull(),
+  /** 'voice' | 'photo' */
+  source:           varchar("source", { length: 16 }).notNull(),
+  merchantPhone:    varchar("merchant_phone", { length: 30 }).notNull(),
+  /** pending_confirm | confirmed | rejected | published | expired */
+  status:           varchar("status", { length: 20 }).notNull().default("pending_confirm"),
+  transcript:       text("transcript"),
+  mediaId:          varchar("media_id", { length: 128 }),
+  name:             varchar("name", { length: 255 }),
+  description:      text("description"),
+  category:         varchar("category", { length: 100 }),
+  suggestedPriceCents: integer("suggested_price_cents"),
+  priceBandLowCents:   integer("price_band_low_cents"),
+  priceBandHighCents:  integer("price_band_high_cents"),
+  currency:         varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** Product id once published. */
+  productId:        varchar("product_id", { length: 36 }),
+  rawExtraction:    jsonb("raw_extraction"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+  confirmedAt:      timestamp("confirmed_at"),
+  publishedAt:      timestamp("published_at"),
+}, (t) => [
+  index("catalog_ai_drafts_tenant_idx").on(t.tenantId),
+  index("catalog_ai_drafts_tenant_status_idx").on(t.tenantId, t.status),
+  index("catalog_ai_drafts_phone_idx").on(t.merchantPhone),
+]);
+export type CatalogAiDraft = typeof catalogAiDrafts.$inferSelect;
+export type NewCatalogAiDraft = typeof catalogAiDrafts.$inferInsert;
+
+// W27 catalog-ai draft lifecycle audit: one row per transition
+// (created/confirmed/edited/rejected/published/expired). Additive only.
+export const catalogAiDraftEvents = pgTable("catalog_ai_draft_events", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  draftId:   uuid("draft_id").notNull(),
+  tenantId:  varchar("tenant_id", { length: 36 }).notNull(),
+  event:     varchar("event", { length: 24 }).notNull(),
+  actor:     varchar("actor", { length: 64 }),
+  detail:    jsonb("detail"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("catalog_ai_draft_events_draft_idx").on(t.draftId),
+  index("catalog_ai_draft_events_tenant_idx").on(t.tenantId),
+]);
+export type CatalogAiDraftEvent = typeof catalogAiDraftEvents.$inferSelect;
+export type NewCatalogAiDraftEvent = typeof catalogAiDraftEvents.$inferInsert;
+// === end W27 catalog-ai ===
+// === W27 bookkeeping ===
+// Merchant bookkeeping: expenses (manual or receipt-photo OCR), opt-in
+// WhatsApp sales digests (daily/weekly), and tax-ready export support.
+// ALL money is INTEGER CENTS (kobo). Additive only — see SPEC_W27.md.
+
+// expenses: one row per merchant expense. status flow:
+//   awaiting_receipt (capture session opened via WhatsApp "expense")
+//   → pending_confirm (OCR parsed, awaiting merchant confirmation)
+//   → confirmed | rejected. Manual entries are created 'confirmed'.
+// source: 'manual' | 'receipt_photo'.
+export const expenses = pgTable("expenses", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tenantId:       varchar("tenant_id", { length: 36 }).notNull(),
+  amountCents:    integer("amount_cents").notNull(),
+  currency:       varchar("currency", { length: 3 }).notNull().default("NGN"),
+  vendor:         varchar("vendor", { length: 160 }),
+  category:       varchar("category", { length: 64 }).notNull().default("general"),
+  expenseDate:    timestamp("expense_date").notNull(),
+  status:         varchar("status", { length: 24 }).notNull().default("awaiting_receipt"),
+  source:         varchar("source", { length: 24 }).notNull().default("manual"),
+  mediaId:        varchar("media_id", { length: 128 }),
+  ocrText:        text("ocr_text"),
+  createdByPhone: varchar("created_by_phone", { length: 32 }),
+  note:           varchar("note", { length: 500 }),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("expenses_tenant_date_idx").on(t.tenantId, t.expenseDate),
+  index("expenses_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type Expense = typeof expenses.$inferSelect;
+export type NewExpense = typeof expenses.$inferInsert;
+
+// bookkeeping_digest_prefs: opt-in scheduled sales digest per (tenant, phone).
+// frequency: 'daily' | 'weekly'. hour_utc: preferred send hour (UTC).
+export const bookkeepingDigestPrefs = pgTable("bookkeeping_digest_prefs", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  tenantId:          varchar("tenant_id", { length: 36 }).notNull(),
+  phone:             varchar("phone", { length: 32 }).notNull(),
+  frequency:         varchar("frequency", { length: 8 }).notNull().default("weekly"),
+  optedIn:           boolean("opted_in").notNull().default(true),
+  hourUtc:           integer("hour_utc").notNull().default(7),
+  lastSentPeriodKey: varchar("last_sent_period_key", { length: 16 }),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("bookkeeping_digest_prefs_tenant_phone_idx").on(t.tenantId, t.phone),
+]);
+export type BookkeepingDigestPref = typeof bookkeepingDigestPrefs.$inferSelect;
+export type NewBookkeepingDigestPref = typeof bookkeepingDigestPrefs.$inferInsert;
+
+// bookkeeping_digest_log: one row per digest actually sent; the
+// (tenant_id, phone, period_key) unique index makes sends idempotent.
+export const bookkeepingDigestLog = pgTable("bookkeeping_digest_log", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  phone:       varchar("phone", { length: 32 }).notNull(),
+  frequency:   varchar("frequency", { length: 8 }).notNull(),
+  periodKey:   varchar("period_key", { length: 16 }).notNull(),
+  salesCents:  integer("sales_cents").notNull().default(0),
+  orderCount:  integer("order_count").notNull().default(0),
+  sentAt:      timestamp("sent_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("bookkeeping_digest_log_tenant_period_idx").on(t.tenantId, t.phone, t.periodKey),
+]);
+export type BookkeepingDigestLogEntry = typeof bookkeepingDigestLog.$inferSelect;
+export type NewBookkeepingDigestLogEntry = typeof bookkeepingDigestLog.$inferInsert;
+// === W27 storefront-i18n ===
+// storefronts: one public web storefront per tenant, served at /shop/:slug.
+// The slug is globally unique (auto-generated default from the tenant name,
+// merchant-customizable). isVisible gates public access; showLocation gates
+// whether the tenant's geo location is published on the storefront (public
+// rendering additionally requires an approved KYB application — see
+// server/services/storefront.ts). Additive only.
+export const storefronts = pgTable("storefronts", {
+  id:            uuid("id").primaryKey().defaultRandom(),
+  tenantId:      varchar("tenant_id", { length: 36 }).notNull(),
+  slug:          varchar("slug", { length: 80 }).notNull(),
+  heroText:      varchar("hero_text", { length: 280 }),
+  themeColor:    varchar("theme_color", { length: 16 }).notNull().default("#075E54"),
+  isVisible:     boolean("is_visible").notNull().default(false),
+  showLocation:  boolean("show_location").notNull().default(false),
+  defaultLocale: varchar("default_locale", { length: 8 }).notNull().default("en"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("storefronts_tenant_uidx").on(t.tenantId),
+  uniqueIndex("storefronts_slug_uidx").on(t.slug),
+]);
+export type Storefront = typeof storefronts.$inferSelect;
+export type NewStorefront = typeof storefronts.$inferInsert;
+
+// tenant_i18n_overrides: per-tenant custom translations for W27 message
+// catalog keys (server/services/i18n.ts MESSAGE_CATALOG). Lookup order at
+// render time: tenant override → locale pack → en fallback. Additive only.
+export const tenantI18nOverrides = pgTable("tenant_i18n_overrides", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  tenantId:  varchar("tenant_id", { length: 36 }).notNull(),
+  locale:    varchar("locale", { length: 8 }).notNull(),
+  key:       varchar("key", { length: 64 }).notNull(),
+  text:      text("text").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("tenant_i18n_overrides_tenant_locale_key_uidx").on(t.tenantId, t.locale, t.key),
+]);
+export type TenantI18nOverride = typeof tenantI18nOverrides.$inferSelect;
+export type NewTenantI18nOverride = typeof tenantI18nOverrides.$inferInsert;
+
+// === W27 credit ===
+// Merchant credit score + micro-loans (working capital) + portable credit
+// certificates. See server/services/creditScore.ts (frozen getMerchantScore
+// contract) and server/services/tradeCredit/microLoans.ts. ALL money is
+// INTEGER CENTS. Additive only; never reorder existing lines above.
+
+// merchant_credit_scores: cached deterministic score snapshot per
+// (tenantId, merchantId). Recomputed on demand by getMerchantScore; the
+// factors jsonb documents every factor's contribution (integer points).
+export const merchantCreditScores = pgTable("merchant_credit_scores", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  merchantId:  varchar("merchant_id", { length: 36 }).notNull(),
+  score:       integer("score").notNull(),
+  factors:     jsonb("factors").notNull(),
+  computedAt:  timestamp("computed_at").notNull().defaultNow(),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("merchant_credit_scores_tenant_merchant_uniq").on(t.tenantId, t.merchantId),
+  index("merchant_credit_scores_tenant_idx").on(t.tenantId),
+]);
+export type MerchantCreditScore = typeof merchantCreditScores.$inferSelect;
+export type NewMerchantCreditScore = typeof merchantCreditScores.$inferInsert;
+
+// merchant_loans: platform micro-loan (working capital) lifecycle.
+// status: 'active' | 'repaid' | 'defaulted' | 'cancelled'. Offers are
+// computed on the fly from the credit score tier (not stored); a loan row
+// appears only once the merchant accepts. repayment_pct is the integer
+// percent (1-100) of each future settled sale auto-deducted by the sweep.
+export const merchantLoans = pgTable("merchant_loans", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  tenantId:         varchar("tenant_id", { length: 36 }).notNull(),
+  merchantId:       varchar("merchant_id", { length: 36 }).notNull(),
+  status:           varchar("status", { length: 16 }).notNull().default("active"),
+  principalCents:   integer("principal_cents").notNull(),
+  feeCents:         integer("fee_cents").notNull(),
+  outstandingCents: integer("outstanding_cents").notNull(),
+  repaymentPct:     integer("repayment_pct").notNull(),
+  scoreAtAccept:    integer("score_at_accept").notNull(),
+  tier:             varchar("tier", { length: 8 }).notNull(),
+  currency:         varchar("currency", { length: 3 }).notNull().default("NGN"),
+  walletTxId:       varchar("wallet_tx_id", { length: 36 }),
+  disbursedAt:      timestamp("disbursed_at"),
+  dueAt:            timestamp("due_at"),
+  repaidAt:         timestamp("repaid_at"),
+  defaultedAt:      timestamp("defaulted_at"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("merchant_loans_tenant_idx").on(t.tenantId),
+  index("merchant_loans_merchant_idx").on(t.tenantId, t.merchantId),
+  index("merchant_loans_status_idx").on(t.status),
+]);
+export type MerchantLoan = typeof merchantLoans.$inferSelect;
+export type NewMerchantLoan = typeof merchantLoans.$inferInsert;
+
+// merchant_loan_repayments: append-only repayment ledger. source:
+// 'sale_deduction' (auto sweep) | 'manual'. reference is the idempotency
+// key — for sale deductions it is `loanrepay:<loanId>:<walletTxId>` so a
+// settled sale is never double-charged.
+export const merchantLoanRepayments = pgTable("merchant_loan_repayments", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  loanId:      uuid("loan_id").notNull().references(() => merchantLoans.id),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  source:      varchar("source", { length: 24 }).notNull(),
+  orderId:     varchar("order_id", { length: 36 }),
+  walletTxId:  varchar("wallet_tx_id", { length: 36 }),
+  reference:   varchar("reference", { length: 160 }).notNull(),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("merchant_loan_repayments_ref_uniq").on(t.reference),
+  index("merchant_loan_repayments_loan_idx").on(t.loanId),
+  index("merchant_loan_repayments_tenant_idx").on(t.tenantId),
+]);
+export type MerchantLoanRepayment = typeof merchantLoanRepayments.$inferSelect;
+export type NewMerchantLoanRepayment = typeof merchantLoanRepayments.$inferInsert;
+
+// merchant_credit_certificates: issued portable credit certificates (JSON
+// payload + HMAC-SHA256 signature; HTML rendered on demand). Immutable
+// once issued — a fresh download issues a new row (audit trail).
+export const merchantCreditCertificates = pgTable("merchant_credit_certificates", {
+  id:         uuid("id").primaryKey().defaultRandom(),
+  tenantId:   varchar("tenant_id", { length: 36 }).notNull(),
+  merchantId: varchar("merchant_id", { length: 36 }).notNull(),
+  payload:    jsonb("payload").notNull(),
+  signature:  varchar("signature", { length: 128 }).notNull(),
+  createdAt:  timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("merchant_credit_cert_tenant_idx").on(t.tenantId),
+  index("merchant_credit_cert_merchant_idx").on(t.tenantId, t.merchantId),
+]);
+export type MerchantCreditCertificate = typeof merchantCreditCertificates.$inferSelect;
+export type NewMerchantCreditCertificate = typeof merchantCreditCertificates.$inferInsert;
+// === W27 delivery-loyalty-reviews (Coder E) ===
+// Delivery aggregation, loyalty points and verified reviews. Additive only.
+// ALL money is INTEGER CENTS. Points are integers (never fractional).
+
+// ── W27: per-tenant courier adapter configuration ───────────────────────────
+// Each row enables a registered courier adapter (see
+// server/services/delivery/registry.ts) for a tenant. `credentials` holds
+// non-secret config only in cleartext; API keys must be AES-256-GCM encrypted
+// by the caller (same discipline as payment_gateway_configs). Higher
+// `priority` wins when multiple couriers are enabled.
+export const courierConfigs = pgTable("courier_configs", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  courier:     varchar("courier", { length: 50 }).notNull(),
+  enabled:     boolean("enabled").notNull().default(true),
+  priority:    integer("priority").notNull().default(0),
+  credentials: jsonb("credentials"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("courier_configs_tenant_idx").on(t.tenantId),
+  uniqueIndex("courier_configs_tenant_courier_idx").on(t.tenantId, t.courier),
+]);
+export type CourierConfig = typeof courierConfigs.$inferSelect;
+export type NewCourierConfig = typeof courierConfigs.$inferInsert;
+
+// ── W27: aggregated delivery bookings ───────────────────────────────────────
+// One row per booked dispatch. `quote` snapshots the accepted Quote so the
+// fee charged at checkout always reconciles with the booking. feeCents is
+// the delivery fee added to the order total (integer cents).
+// status: quoted | booked | picked_up | in_transit | delivered | failed | cancelled
+export const deliveries = pgTable("deliveries", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tenantId:       varchar("tenant_id", { length: 36 }).notNull(),
+  orderId:        varchar("order_id", { length: 36 }).notNull(),
+  courier:        varchar("courier", { length: 50 }).notNull(),
+  externalId:     varchar("external_id", { length: 128 }),
+  status:         varchar("status", { length: 24 }).notNull().default("quoted"),
+  feeCents:       integer("fee_cents").notNull(),
+  currency:       varchar("currency", { length: 3 }).notNull().default("NGN"),
+  distanceKm:     numeric("distance_km", { precision: 8, scale: 3 }),
+  quote:          jsonb("quote"),
+  pickupAddress:  jsonb("pickup_address"),
+  dropoffAddress: jsonb("dropoff_address"),
+  recipientPhone: varchar("recipient_phone", { length: 30 }),
+  statusHistory:  jsonb("status_history").notNull().default([]),
+  bookedAt:       timestamp("booked_at"),
+  deliveredAt:    timestamp("delivered_at"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("deliveries_tenant_idx").on(t.tenantId),
+  index("deliveries_order_idx").on(t.orderId),
+  index("deliveries_status_idx").on(t.tenantId, t.status),
+]);
+export type Delivery = typeof deliveries.$inferSelect;
+export type NewDelivery = typeof deliveries.$inferInsert;
+
+// ── W27: per-tenant loyalty earn/burn rules ─────────────────────────────────
+// earn: pointsPerUnit points per unitValueCents spent (default 1 pt / ₦100).
+// burn: pointsValueCents = value of 1 point when redeemed (integer cents);
+// redemptionCapPercent caps the discount at that % of the order total.
+export const loyaltyRules = pgTable("loyalty_rules", {
+  id:                    uuid("id").primaryKey().defaultRandom(),
+  tenantId:              varchar("tenant_id", { length: 36 }).notNull(),
+  enabled:               boolean("enabled").notNull().default(true),
+  pointsPerUnit:         integer("points_per_unit").notNull().default(1),
+  unitValueCents:        integer("unit_value_cents").notNull().default(10000),
+  pointsValueCents:      integer("points_value_cents").notNull().default(100),
+  redemptionCapPercent:  integer("redemption_cap_percent").notNull().default(20),
+  createdAt:             timestamp("created_at").notNull().defaultNow(),
+  updatedAt:             timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("loyalty_rules_tenant_idx").on(t.tenantId),
+]);
+export type LoyaltyRule = typeof loyaltyRules.$inferSelect;
+export type NewLoyaltyRule = typeof loyaltyRules.$inferInsert;
+
+// ── W27: loyalty points ledger (double-entry style) ─────────────────────────
+// Every movement is one row with (debitAccount, creditAccount):
+//   earn:   debit "liability:points",      credit "customer:{phone}"
+//   redeem: debit "customer:{phone}",      credit "liability:points"
+//   adjust: debit "merchant:adjust",       credit "customer:{phone}" (or vice
+//           versa for clawbacks — see `points` sign; points is always the
+//           absolute movement, `direction` marks earn/redeem/adjust).
+// `balanceAfter` snapshots the customer's balance for cheap balance reads.
+export const loyaltyLedger = pgTable("loyalty_ledger", {
+  id:            uuid("id").primaryKey().defaultRandom(),
+  tenantId:      varchar("tenant_id", { length: 36 }).notNull(),
+  customerPhone: varchar("customer_phone", { length: 30 }).notNull(),
+  entryType:     varchar("entry_type", { length: 16 }).notNull(), // earn|redeem|adjust
+  points:        integer("points").notNull(),
+  debitAccount:  varchar("debit_account", { length: 96 }).notNull(),
+  creditAccount: varchar("credit_account", { length: 96 }).notNull(),
+  balanceAfter:  integer("balance_after").notNull(),
+  reason:        varchar("reason", { length: 255 }).notNull(),
+  orderId:       varchar("order_id", { length: 36 }),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("loyalty_ledger_tenant_idx").on(t.tenantId),
+  index("loyalty_ledger_customer_idx").on(t.tenantId, t.customerPhone),
+  index("loyalty_ledger_order_idx").on(t.orderId),
+]);
+export type LoyaltyLedgerEntry = typeof loyaltyLedger.$inferSelect;
+export type NewLoyaltyLedgerEntry = typeof loyaltyLedger.$inferInsert;
+
+// ── W27: purchase-verified reviews ──────────────────────────────────────────
+// A review row may exist only when the reviewer has a completed/delivered
+// order for the merchant (enforced in server/services/reviews.ts). One review
+// per (tenant, order, product) — productId '' = merchant-level review.
+// status: published | flagged | removed.
+export const reviews = pgTable("reviews", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  tenantId:         varchar("tenant_id", { length: 36 }).notNull(),
+  orderId:          varchar("order_id", { length: 36 }).notNull(),
+  productId:        varchar("product_id", { length: 36 }).notNull().default(""),
+  customerPhone:    varchar("customer_phone", { length: 30 }).notNull(),
+  rating:           integer("rating").notNull(), // 1..5
+  text:             text("text"),
+  status:           varchar("status", { length: 16 }).notNull().default("published"),
+  merchantResponse: text("merchant_response"),
+  respondedAt:      timestamp("responded_at"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("reviews_tenant_idx").on(t.tenantId),
+  index("reviews_product_idx").on(t.tenantId, t.productId),
+  uniqueIndex("reviews_order_product_idx").on(t.tenantId, t.orderId, t.productId),
+]);
+export type Review = typeof reviews.$inferSelect;
+export type NewReview = typeof reviews.$inferInsert;
+// === END W27 delivery-loyalty-reviews ===
+// === W27 B2B WHOLESALE MARKETPLACE + GROUP BUYING ===
+// Wholesaler tenants publish bulk listings with MOQ + tiered unit pricing;
+// retailer tenants (or WhatsApp buyers) place purchase orders. ALL money is
+// INTEGER CENTS. Orders settle via existing order/payment rails; trade-credit
+// checkout draws on the existing credit account (server/services/tradeCredit)
+// gated by the platform merchant credit score (server/services/creditScore).
+// Additive only.
+export const wholesaleListings = pgTable("wholesale_listings", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(), // wholesaler tenant
+  productId:   varchar("product_id", { length: 36 }),          // optional catalog link
+  title:       varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  category:    varchar("category", { length: 120 }),
+  moq:         integer("moq").notNull().default(1),            // minimum order quantity (units)
+  currency:    varchar("currency", { length: 8 }).notNull().default("NGN"),
+  status:      varchar("status", { length: 16 }).notNull().default("draft"), // 'draft'|'active'|'paused'
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("wholesale_listings_tenant_idx").on(t.tenantId),
+  index("wholesale_listings_status_idx").on(t.status),
+  index("wholesale_listings_category_idx").on(t.category),
+]);
+export type WholesaleListing = typeof wholesaleListings.$inferSelect;
+export type NewWholesaleListing = typeof wholesaleListings.$inferInsert;
+
+// Tiered unit pricing per listing. [minQty, maxQty] inclusive bands; the
+// band with maxQty NULL is open-ended. unitPriceCents is INTEGER CENTS.
+export const wholesaleListingTiers = pgTable("wholesale_listing_tiers", {
+  id:              uuid("id").primaryKey().defaultRandom(),
+  tenantId:        varchar("tenant_id", { length: 36 }).notNull(),
+  listingId:       uuid("listing_id").notNull(),
+  minQty:          integer("min_qty").notNull(),
+  maxQty:          integer("max_qty"),
+  unitPriceCents:  integer("unit_price_cents").notNull(),
+  createdAt:       timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("wholesale_listing_tiers_listing_idx").on(t.listingId),
+  index("wholesale_listing_tiers_tenant_idx").on(t.tenantId),
+]);
+export type WholesaleListingTier = typeof wholesaleListingTiers.$inferSelect;
+export type NewWholesaleListingTier = typeof wholesaleListingTiers.$inferInsert;
+
+// Retailer purchase order against a wholesale listing. totalCents is
+// quantity × resolved tier unitPriceCents (integer cents). paymentMode:
+// 'pay_now' (existing payment rails) | 'trade_credit' (drawOnCredit).
+export const wholesaleOrders = pgTable("wholesale_orders", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tenantId:       varchar("tenant_id", { length: 36 }).notNull(),  // wholesaler (supplier)
+  buyerTenantId:  varchar("buyer_tenant_id", { length: 36 }),      // retailer tenant (null for guest phone buyer)
+  buyerPhone:     varchar("buyer_phone", { length: 32 }),
+  listingId:      uuid("listing_id").notNull(),
+  quantity:       integer("quantity").notNull(),
+  unitPriceCents: integer("unit_price_cents").notNull(),
+  totalCents:     integer("total_cents").notNull(),
+  currency:       varchar("currency", { length: 8 }).notNull().default("NGN"),
+  status:         varchar("status", { length: 20 }).notNull().default("pending"), // 'pending'|'confirmed'|'paid'|'fulfilled'|'cancelled'
+  paymentMode:    varchar("payment_mode", { length: 16 }).notNull().default("pay_now"), // 'pay_now'|'trade_credit'
+  creditLedgerId: varchar("credit_ledger_id", { length: 64 }),     // set on trade-credit draw
+  creditScore:    integer("credit_score"),                         // platform score used at credit checkout
+  orderId:        varchar("order_id", { length: 64 }),             // linked row in orders (existing rails)
+  notes:          text("notes"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("wholesale_orders_tenant_idx").on(t.tenantId),
+  index("wholesale_orders_buyer_idx").on(t.buyerTenantId),
+  index("wholesale_orders_listing_idx").on(t.listingId),
+  index("wholesale_orders_status_idx").on(t.tenantId, t.status),
+]);
+export type WholesaleOrder = typeof wholesaleOrders.$inferSelect;
+export type NewWholesaleOrder = typeof wholesaleOrders.$inferInsert;
+
+// === W27 GROUP BUYING ===
+// A merchant opens a deal: product + bulk price unlocked at thresholdQty by
+// deadline. Participants join (payment authorized/held per participant via
+// the existing payment/escrow rails); on threshold-met-by-deadline all
+// orders confirm, else automatic refunds/voids. ALL money INTEGER CENTS.
+export const groupDeals = pgTable("group_deals", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  tenantId:          varchar("tenant_id", { length: 36 }).notNull(), // merchant
+  productId:         varchar("product_id", { length: 36 }),
+  title:             varchar("title", { length: 200 }).notNull(),
+  description:       text("description"),
+  unitPriceCents:    integer("unit_price_cents").notNull(),   // bulk (discounted) price
+  retailPriceCents:  integer("retail_price_cents"),           // reference price for display
+  thresholdQty:      integer("threshold_qty").notNull(),      // unlock quantity
+  currentQty:        integer("current_qty").notNull().default(0),
+  currency:          varchar("currency", { length: 8 }).notNull().default("NGN"),
+  deadline:          timestamp("deadline").notNull(),
+  status:            varchar("status", { length: 16 }).notNull().default("open"), // 'open'|'confirmed'|'expired'|'cancelled'|'fulfilled'
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("group_deals_tenant_idx").on(t.tenantId),
+  index("group_deals_status_idx").on(t.status),
+  index("group_deals_deadline_idx").on(t.deadline),
+]);
+export type GroupDeal = typeof groupDeals.$inferSelect;
+export type NewGroupDeal = typeof groupDeals.$inferInsert;
+
+// One row per participant per deal (unique on deal+phone). amountCents =
+// quantity × deal.unitPriceCents. status: 'held' (authorized/held) →
+// 'confirmed' (deal won) | 'refunded' | 'voided' (deal lost).
+export const groupDealParticipants = pgTable("group_deal_participants", {
+  id:            uuid("id").primaryKey().defaultRandom(),
+  tenantId:      varchar("tenant_id", { length: 36 }).notNull(),
+  dealId:        uuid("deal_id").notNull(),
+  customerPhone: varchar("customer_phone", { length: 32 }).notNull(),
+  quantity:      integer("quantity").notNull(),
+  amountCents:   integer("amount_cents").notNull(),
+  currency:      varchar("currency", { length: 8 }).notNull().default("NGN"),
+  status:        varchar("status", { length: 16 }).notNull().default("held"), // 'held'|'confirmed'|'refunded'|'voided'
+  paymentRef:    varchar("payment_ref", { length: 128 }),
+  orderId:       varchar("order_id", { length: 64 }),  // created on deal confirm
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("group_deal_participants_deal_phone_uniq").on(t.dealId, t.customerPhone),
+  index("group_deal_participants_deal_idx").on(t.dealId),
+  index("group_deal_participants_tenant_idx").on(t.tenantId),
+  index("group_deal_participants_phone_idx").on(t.customerPhone),
+]);
+export type GroupDealParticipant = typeof groupDealParticipants.$inferSelect;
+export type NewGroupDealParticipant = typeof groupDealParticipants.$inferInsert;
+// === END W27 B2B WHOLESALE MARKETPLACE + GROUP BUYING ===
+// === W27 savings-insurance-vouchers (Coder G) ===
+// Stokvel / group savings circles (esusu/ajo/chama), micro-insurance
+// (partner-adapter pattern, integer cents) and government/NGO voucher rails.
+// Additive only. ALL money is INTEGER CENTS. Full audit trail per circle.
+
+// ── Stokvel circles ─────────────────────────────────────────────────────────
+// status: 'active' | 'completed' | 'cancelled'. rotationIndex points at the
+// member (by rotationPosition) receiving the CURRENT cycle payout.
+export const stokvelCircles = pgTable("stokvel_circles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  contributionAmountCents: integer("contribution_amount_cents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  frequency: varchar("frequency", { length: 16 }).notNull().default("monthly"), // 'weekly' | 'monthly'
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  rotationIndex: integer("rotation_index").notNull().default(0),
+  currentCycle: integer("current_cycle").notNull().default(1),
+  createdByPhone: varchar("created_by_phone", { length: 32 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("stokvel_circles_tenant_idx").on(t.tenantId),
+  index("stokvel_circles_status_idx").on(t.status),
+]);
+export type StokvelCircle = typeof stokvelCircles.$inferSelect;
+export type NewStokvelCircle = typeof stokvelCircles.$inferInsert;
+
+// status: 'active' | 'removed'. rotationPosition is assigned deterministically
+// in join order (0-based) unless explicitly provided at creation.
+export const stokvelMembers = pgTable("stokvel_members", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  circleId: uuid("circle_id").notNull().references(() => stokvelCircles.id),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  name: varchar("name", { length: 160 }),
+  rotationPosition: integer("rotation_position").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+}, (t) => [
+  unique("stokvel_members_circle_phone_uniq").on(t.circleId, t.phone),
+  index("stokvel_members_circle_idx").on(t.circleId),
+  index("stokvel_members_phone_idx").on(t.tenantId, t.phone),
+]);
+export type StokvelMember = typeof stokvelMembers.$inferSelect;
+export type NewStokvelMember = typeof stokvelMembers.$inferInsert;
+
+// One row per member per cycle. status: 'pending' | 'paid' | 'missed'.
+// Unique (circleId, cycle, memberId) makes double-contribution impossible.
+export const stokvelContributions = pgTable("stokvel_contributions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  circleId: uuid("circle_id").notNull().references(() => stokvelCircles.id),
+  cycle: integer("cycle").notNull(),
+  memberId: uuid("member_id").notNull().references(() => stokvelMembers.id),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  paymentRef: varchar("payment_ref", { length: 128 }),
+  paidAt: timestamp("paid_at"),
+  reminderCount: integer("reminder_count").notNull().default(0),
+  lastReminderAt: timestamp("last_reminder_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  unique("stokvel_contrib_circle_cycle_member_uniq").on(t.circleId, t.cycle, t.memberId),
+  index("stokvel_contrib_circle_cycle_idx").on(t.circleId, t.cycle),
+  index("stokvel_contrib_status_idx").on(t.status),
+]);
+export type StokvelContribution = typeof stokvelContributions.$inferSelect;
+export type NewStokvelContribution = typeof stokvelContributions.$inferInsert;
+
+// Deterministic rotating payout: exactly one per (circle, cycle) — enforced
+// by the unique constraint. status: 'pending' | 'paid' | 'skipped'.
+export const stokvelPayouts = pgTable("stokvel_payouts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  circleId: uuid("circle_id").notNull().references(() => stokvelCircles.id),
+  cycle: integer("cycle").notNull(),
+  memberId: uuid("member_id").notNull().references(() => stokvelMembers.id),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  unique("stokvel_payout_circle_cycle_uniq").on(t.circleId, t.cycle),
+  index("stokvel_payout_circle_idx").on(t.circleId),
+]);
+export type StokvelPayout = typeof stokvelPayouts.$inferSelect;
+export type NewStokvelPayout = typeof stokvelPayouts.$inferInsert;
+
+// Append-only audit trail for every circle mutation.
+export const stokvelEvents = pgTable("stokvel_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  circleId: uuid("circle_id").notNull().references(() => stokvelCircles.id),
+  actorPhone: varchar("actor_phone", { length: 32 }),
+  kind: varchar("kind", { length: 40 }).notNull(),
+  detail: jsonb("detail"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("stokvel_events_circle_idx").on(t.circleId, t.createdAt),
+]);
+export type StokvelEvent = typeof stokvelEvents.$inferSelect;
+export type NewStokvelEvent = typeof stokvelEvents.$inferInsert;
+
+// ── Micro-insurance ─────────────────────────────────────────────────────────
+// Partner-sold products configured per tenant. Premium is deterministic:
+// max(flatPremiumCents, orderCents * premiumBps / 10000) — integer cents.
+export const insuranceProducts = pgTable("insurance_products", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  premiumBps: integer("premium_bps").notNull().default(0),
+  flatPremiumCents: integer("flat_premium_cents").notNull().default(0),
+  coverageCents: integer("coverage_cents").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("insurance_products_tenant_idx").on(t.tenantId),
+]);
+export type InsuranceProduct = typeof insuranceProducts.$inferSelect;
+export type NewInsuranceProduct = typeof insuranceProducts.$inferInsert;
+
+// status: 'quoted' | 'bound' | 'expired'.
+export const insuranceQuotes = pgTable("insurance_quotes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 64 }).notNull().references(() => insuranceProducts.id),
+  orderId: varchar("order_id", { length: 36 }),
+  holderPhone: varchar("holder_phone", { length: 32 }),
+  contextJson: jsonb("context_json"),
+  premiumCents: integer("premium_cents").notNull(),
+  coverageCents: integer("coverage_cents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 16 }).notNull().default("quoted"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("insurance_quotes_tenant_idx").on(t.tenantId),
+  index("insurance_quotes_order_idx").on(t.orderId),
+]);
+export type InsuranceQuote = typeof insuranceQuotes.$inferSelect;
+export type NewInsuranceQuote = typeof insuranceQuotes.$inferInsert;
+
+// status: 'active' | 'claimed' | 'cancelled' | 'expired'.
+export const insurancePolicies = pgTable("insurance_policies", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  policyNumber: varchar("policy_number", { length: 32 }).notNull(),
+  quoteId: uuid("quote_id").notNull().references(() => insuranceQuotes.id),
+  productId: varchar("product_id", { length: 64 }).notNull().references(() => insuranceProducts.id),
+  orderId: varchar("order_id", { length: 36 }),
+  holderPhone: varchar("holder_phone", { length: 32 }),
+  premiumCents: integer("premium_cents").notNull(),
+  coverageCents: integer("coverage_cents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  boundAt: timestamp("bound_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  unique("insurance_policies_number_uniq").on(t.policyNumber),
+  index("insurance_policies_tenant_idx").on(t.tenantId),
+  index("insurance_policies_holder_idx").on(t.tenantId, t.holderPhone),
+]);
+export type InsurancePolicy = typeof insurancePolicies.$inferSelect;
+export type NewInsurancePolicy = typeof insurancePolicies.$inferInsert;
+
+// trigger: 'manual' | 'parametric'. status: 'filed' | 'approved' | 'rejected' | 'paid'.
+export const insuranceClaims = pgTable("insurance_claims", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  policyId: uuid("policy_id").notNull().references(() => insurancePolicies.id),
+  reason: text("reason").notNull(),
+  trigger: varchar("trigger", { length: 16 }).notNull().default("manual"),
+  status: varchar("status", { length: 16 }).notNull().default("filed"),
+  payoutCents: integer("payout_cents"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at"),
+}, (t) => [
+  index("insurance_claims_policy_idx").on(t.policyId),
+  index("insurance_claims_tenant_idx").on(t.tenantId),
+]);
+export type InsuranceClaim = typeof insuranceClaims.$inferSelect;
+export type NewInsuranceClaim = typeof insuranceClaims.$inferInsert;
+
+// ── Government / NGO voucher rails ──────────────────────────────────────────
+// A program is created by an issuer (government agency / NGO) with a budget;
+// vouchers are issued to eligible recipients and redeemed at checkout against
+// category / merchant restrictions. Integer cents; counters kept in lockstep
+// inside the same transactions as the voucher rows.
+export const voucherPrograms = pgTable("voucher_programs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  issuer: varchar("issuer", { length: 160 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  budgetCents: integer("budget_cents").notNull(),
+  issuedCents: integer("issued_cents").notNull().default(0),
+  redeemedCents: integer("redeemed_cents").notNull().default(0),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  eligiblePhones: jsonb("eligible_phones"), // string[] | null = all phones
+  eligibleCategories: jsonb("eligible_categories"), // string[] | null = all
+  expiresAt: timestamp("expires_at"),
+  status: varchar("status", { length: 16 }).notNull().default("active"), // 'active' | 'closed'
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("voucher_programs_tenant_idx").on(t.tenantId),
+  index("voucher_programs_status_idx").on(t.status),
+]);
+export type VoucherProgram = typeof voucherPrograms.$inferSelect;
+export type NewVoucherProgram = typeof voucherPrograms.$inferInsert;
+
+// status: 'issued' | 'redeemed' | 'expired' | 'cancelled'. `code` is globally
+// unique (deterministic HMAC-derived, see services/vouchers.ts) — the unique
+// constraint + transactional status claim prevent double redemption.
+export const vouchers = pgTable("vouchers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  programId: uuid("program_id").notNull().references(() => voucherPrograms.id),
+  code: varchar("code", { length: 32 }).notNull(),
+  recipientPhone: varchar("recipient_phone", { length: 32 }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 16 }).notNull().default("issued"),
+  orderId: varchar("order_id", { length: 36 }),
+  issuedAt: timestamp("issued_at").notNull().defaultNow(),
+  redeemedAt: timestamp("redeemed_at"),
+  expiresAt: timestamp("expires_at"),
+}, (t) => [
+  unique("vouchers_code_uniq").on(t.code),
+  index("vouchers_program_idx").on(t.programId),
+  index("vouchers_recipient_idx").on(t.tenantId, t.recipientPhone),
+  index("vouchers_status_idx").on(t.status),
+]);
+export type Voucher = typeof vouchers.$inferSelect;
+export type NewVoucher = typeof vouchers.$inferInsert;

@@ -73,6 +73,9 @@ const IntegrationsSettings = lazy(() => import("@/pages/IntegrationsSettings"));
 const TenantSettings = lazy(() => import("@/pages/TenantSettings"));
 const DiscoverNearby = lazy(() => import("@/pages/DiscoverNearby"));
 const MerchantGeoSettings = lazy(() => import("@/pages/MerchantGeoSettings"));
+// === W27 storefront-i18n ===
+const Shop = lazy(() => import("@/pages/Shop"));
+const StorefrontSettings = lazy(() => import("@/pages/StorefrontSettings"));
 
 function RouteFallback() {
   return (
@@ -172,6 +175,9 @@ function Router() {
         <Route path="/tenant-settings" component={TenantSettings} />
         <Route path="/discover" component={DiscoverNearby} />
         <Route path="/settings/discovery" component={MerchantGeoSettings} />
+        {/* === W27 storefront-i18n === */}
+        <Route path="/shop/:slug" component={Shop} />
+        <Route path="/settings/storefront" component={StorefrontSettings} />
 
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
@@ -184,7 +190,7 @@ function Router() {
 // suppliers, and dispute counterparties reach these via a shared link and
 // are never expected to have a WhatsApp Commerce account. The server
 // enforces access via the token itself, not session auth.
-const PUBLIC_PREFIXES = ["/track/", "/evidence/", "/sla-extension/"];
+const PUBLIC_PREFIXES = ["/track/", "/evidence/", "/sla-extension/", "/shop/"];
 
 const ONBOARDING_PATH = "/onboarding-wizard";
 

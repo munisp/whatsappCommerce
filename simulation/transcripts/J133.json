@@ -1,0 +1,35 @@
+{
+  "id": "J133",
+  "title": "tax-ready export contents",
+  "feature": "W27 bookkeeping export",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348019338393",
+      "profileName": "Sim User 8393",
+      "inboundId": "wamid.sim.in.text.00344",
+      "at": 1787340943576,
+      "kind": "text",
+      "text": "export"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00344",
+      "at": 1787340943585
+    },
+    {
+      "dir": "out",
+      "phone": "2348019338393",
+      "wamid": "wamid.sim.000573",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340943594,
+      "kind": "text",
+      "body": "📑 Your tax-ready sales & expense export lives in your tenant portal: http://localhost:4173/portal/bookkeeping — download CSV or PDF for any period (includes totals for banks/MFIs)."
+    }
+  ]
+}

@@ -399,6 +399,17 @@ export function buildCategoryTree(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = any;
 
+// ── W27 (Coder E) additive hook: external trustScore provider ───────────────
+// geoDiscovery still owns ranking; this hook only fills the previously
+// hard-coded `trustScore: null` (tenants has no trust column — W25 note).
+// server/services/reviews.ts registers a review-driven provider; when none
+// is registered behaviour is byte-identical to before.
+export type TrustScoreProvider = (tenantIds: string[], db: Db) => Promise<Map<string, number>>;
+let trustScoreProvider: TrustScoreProvider | null = null;
+export function setTrustScoreProvider(p: TrustScoreProvider | null): void {
+  trustScoreProvider = p;
+}
+
 /** Numeric columns come back from drizzle as strings — normalize. */
 function toNum(v: unknown): number {
   return typeof v === "number" ? v : Number(v);
@@ -452,6 +463,11 @@ export async function loadDiscoveryData(db: Db): Promise<{
     productsByTenant.get(tid)!.push(p);
   }
 
+  // W27: resolve trust scores via the registered provider (no-op by default).
+  const trustScores = trustScoreProvider
+    ? await trustScoreProvider(tenantIds, db).catch(() => new Map<string, number>())
+    : new Map<string, number>();
+
   const merchants: MerchantCandidate[] = [];
   for (const r of locRows) {
     const tid = r.tenantId as string;
@@ -474,7 +490,7 @@ export async function loadDiscoveryData(db: Db): Promise<{
           .map((x) => x.toLowerCase()),
       ),
       kybVerified: kybApproved.size > 0 ? kybApproved.has(tid) : null,
-      trustScore: null, // tenants table has no trust score column (W25 note)
+      trustScore: trustScores.get(tid) ?? null, // W27: review-driven provider hook (default none)
       openHours: r.openHours,
       serviceRadiusKm: r.serviceRadiusKm != null ? toNum(r.serviceRadiusKm) : null,
     });
