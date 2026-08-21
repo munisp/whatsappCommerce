@@ -21,9 +21,10 @@
  * Pure helpers (slugify, buildDefaultSlug, validateSlug) have no DB deps so
  * unit tests run hermetically.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   kycApplications,
+  medusaStoreMappings,
   merchantLocations,
   products,
   storefronts,
@@ -108,6 +109,12 @@ export interface StorefrontPublicView {
   defaultLocale: string;
   /** wa.me click-to-chat target — the tenant's public WhatsApp number id. */
   whatsappPhoneNumberId: string | null;
+  /**
+   * W28: which catalog the view was rendered from. "platform" (default) is
+   * the merchant's native catalog; "medusa" is the synced Medusa catalog
+   * (only when the tenant's store mapping enables it).
+   */
+  catalogSource: "platform" | "medusa";
   catalog: StorefrontProductView[];
   location: {
     label: string;
@@ -148,6 +155,28 @@ export async function getStorefrontPublicView(
     .catch(() => []);
   if (!tenant) return null;
 
+  // W28 catalog-source resolution: the tenant's Medusa store mapping decides
+  // which catalog the storefront renders. "medusa" (with sync enabled) → only
+  // synced medusa-sourced rows; an explicit "platform" mapping → only
+  // platform-native rows; NO mapping at all → unchanged legacy behavior (all
+  // active products, no source filter).
+  const [mapping] = await db
+    .select({
+      catalogSource: medusaStoreMappings.catalogSource,
+      syncEnabled: medusaStoreMappings.syncEnabled,
+    })
+    .from(medusaStoreMappings)
+    .where(eq(medusaStoreMappings.tenantId, sf.tenantId))
+    .limit(1)
+    .catch(() => []);
+  const catalogSource: "platform" | "medusa" =
+    mapping?.catalogSource === "medusa" && mapping.syncEnabled ? "medusa" : "platform";
+  const sourceFilter = !mapping
+    ? undefined
+    : catalogSource === "medusa"
+      ? sql`${products.metadata}->>'source' = 'medusa'`
+      : sql`coalesce(${products.metadata}->>'source', 'platform') <> 'medusa'`;
+
   // Catalog: active products only; stock exposure limited to in/out of stock.
   const catalogRows = await db
     .select({
@@ -161,7 +190,11 @@ export async function getStorefrontPublicView(
       stockQuantity: products.stockQuantity,
     })
     .from(products)
-    .where(and(eq(products.tenantId, sf.tenantId), eq(products.status, "active")))
+    .where(and(
+      eq(products.tenantId, sf.tenantId),
+      eq(products.status, "active"),
+      sourceFilter,
+    ))
     .orderBy(products.name)
     .limit(200)
     .catch(() => []);
@@ -195,6 +228,7 @@ export async function getStorefrontPublicView(
     themeColor: sf.themeColor,
     defaultLocale: sf.defaultLocale,
     whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? null,
+    catalogSource,
     catalog: catalogRows.map((p) => ({
       id: p.id,
       name: p.name,

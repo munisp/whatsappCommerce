@@ -52,6 +52,9 @@ const PortalConversations = lazy(() => import("./pages/portal/PortalConversation
 const PortalPayments = lazy(() => import("./pages/portal/PortalPayments"));
 // === W27 bookkeeping ===
 const PortalBookkeeping = lazy(() => import("./pages/portal/PortalBookkeeping"));
+// === W28 odoo-sync (Coder A) ===
+const PortalOdooSettings = lazy(() => import("./pages/portal/PortalOdooSettings"));
+// === END W28 odoo-sync ===
 const DeployChecklist = lazy(() => import("./pages/DeployChecklist"));
 const MLOpsDashboard = lazy(() => import("./pages/MLOpsDashboard"));
 const ReconciliationSim = lazy(() => import("./pages/ReconciliationSim"));
@@ -82,6 +85,9 @@ const Shop = lazy(() => import("./pages/Shop"));
 const StorefrontSettings = lazy(() => import("./pages/StorefrontSettings"));
 const MerchantGeoSettings = lazy(() => import("./pages/MerchantGeoSettings"));
 const LiveLogisticsMap = lazy(() => import("./pages/LiveLogisticsMap"));
+// === W28 medusa-storefront (Coder B) ===
+const MedusaStorefrontSettings = lazy(() => import("./pages/MedusaStorefrontSettings"));
+// === END W28 medusa-storefront ===
 const HealthStatus = lazy(() => import("./pages/HealthStatus"));
 const AuditLogViewer = lazy(() => import("./pages/AuditLogViewer"));
 const WaTemplates = lazy(() => import("./pages/WaTemplates"));
@@ -186,6 +192,9 @@ function Router() {
           <Route path="/portal/payments" component={PortalPayments} />
           {/* === W27 bookkeeping === */}
           <Route path="/portal/bookkeeping" component={PortalBookkeeping} />
+          {/* === W28 odoo-sync (Coder A) === */}
+          <Route path="/portal/odoo" component={PortalOdooSettings} />
+          {/* === END W28 odoo-sync === */}
           <Route path="/deploy-checklist" component={DeployChecklist} />
           <Route path="/ml-ops" component={MLOpsDashboard} />
           <Route path="/reconciliation" component={ReconciliationSim} />
@@ -211,6 +220,9 @@ function Router() {
         <Route path="/shop/:slug" component={Shop} />
         <Route path="/settings/storefront" component={StorefrontSettings} />
         <Route path="/settings/discovery" component={MerchantGeoSettings} />
+        {/* === W28 medusa-storefront (Coder B) === */}
+        <Route path="/settings/medusa-storefront" component={MedusaStorefrontSettings} />
+        {/* === END W28 medusa-storefront === */}
           <Route path="/logistics-map" component={LiveLogisticsMap} />
           <Route path="/system-health" component={HealthStatus} />
           <Route path="/audit-logs" component={AuditLogViewer} />

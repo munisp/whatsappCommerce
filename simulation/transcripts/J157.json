@@ -1,0 +1,35 @@
+{
+  "id": "J157",
+  "title": "odoo failure → retry → reconciliation",
+  "feature": "W28 odoo-sync retry + reconciliation queue",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348099900000",
+      "profileName": "Sim User 0000",
+      "inboundId": "wamid.sim.in.text.00400",
+      "at": 1787348864222,
+      "kind": "text",
+      "text": "odoo status"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00400",
+      "at": 1787348864225
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000639",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348864240,
+      "kind": "text",
+      "body": "📊 *Odoo sync status*\n• Connection: enabled (ondemand mode)\n• Pending: 0\n• Synced: 0\n• Failed (needs attention): 21\n• Connection test: not run yet\nOpen the portal reconciliation queue (Settings → Odoo) to retry failed items."
+    }
+  ]
+}

@@ -324,6 +324,14 @@ export async function confirmExpense(db: Db, tenantId: string, phone: string) {
   await db.update(expenses)
     .set({ status: "confirmed", updatedAt: new Date() })
     .where(eq(expenses.id, row.id));
+  // === W28 odoo-sync (Coder A): enqueue vendor-bill sync (additive, best-effort) ===
+  try {
+    const { onExpenseConfirmed } = await import("./odoo/sync");
+    await onExpenseConfirmed(db, tenantId, { ...row, status: "confirmed" });
+  } catch (e: any) {
+    console.error("[bookkeeping] odoo expense hook error:", e?.message);
+  }
+  // === END W28 odoo-sync ===
   return { ...row, status: "confirmed" };
 }
 

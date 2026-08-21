@@ -190,6 +190,18 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j151-stokvel-missed-contribution"),
     import("./journeys/j152-insurance-addon-claim"),
     import("./journeys/j153-voucher-rails"),
+    // === W28 odoo-sync (Coder A) ===
+    import("./journeys/j154-odoo-connect-config"),
+    import("./journeys/j155-odoo-paid-order-invoice"),
+    import("./journeys/j156-odoo-expense-vendor-bill"),
+    import("./journeys/j157-odoo-failure-retry-reconcile"),
+    // === END W28 odoo-sync ===
+    // === W28 medusa-storefront (Coder B) ===
+    import("./journeys/j158-medusa-mapping-backfill"),
+    import("./journeys/j159-medusa-webhook-idempotency"),
+    import("./journeys/j160-medusa-storefront-toggle"),
+    import("./journeys/j161-medusa-order-bridge"),
+    // === END W28 medusa-storefront ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

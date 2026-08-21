@@ -316,6 +316,10 @@ export async function bootWorld(): Promise<World> {
     setEnv("SHOPIFY_APP_URL", `http://localhost:${port}`);
     setEnv("META_APP_ID", META_APP_ID_VALUE);
     setEnv("META_APP_SECRET", META_APP_SECRET_VALUE);
+    // === W28 medusa-storefront (Coder B): deterministic adapter + webhook secret ===
+    setEnv("MEDUSA_ADAPTER", "mock");
+    setEnv("MEDUSA_WEBHOOK_SECRET", "sim-medusa-webhook-secret-0123456789");
+    // === END W28 medusa-storefront ===
 
     // 2. Fetch interceptor BEFORE any server module can fire a request.
     installFetchMock();
@@ -529,6 +533,24 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.wholesaleListings);
         } catch { /* w27 tables not migrated yet */ }
         // === END W27 Coder F ===
+        // === W28 medusa-storefront (Coder B): mappings, order links, synced
+        // medusa products and the shared mock adapter never leak between
+        // journeys (J158–J161). Platform-native seed products are untouched.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: medusaSql } = await import("drizzle-orm");
+          await world.db.delete(schema.medusaOrderLinks);
+          await world.db.delete(schema.medusaStoreMappings);
+          await world.db
+            .delete(schema.products)
+            .where(medusaSql`${schema.products.metadata}->>'source' = 'medusa'`);
+          await world.db
+            .delete(schema.tenantIntegrations)
+            .where(eq(schema.tenantIntegrations.integrationType, "medusa"));
+          const { mockMedusaAdapter } = await import("../server/services/medusa/adapter");
+          mockMedusaAdapter.reset();
+        } catch { /* w28 tables not migrated yet */ }
+        // === END W28 medusa-storefront ===
         // Wave 9 isolation: onboarding copilot sessions + the waOnboarding
         // in-memory pending-edit map never leak between journeys.
         try {
@@ -714,6 +736,19 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.merchantWallets)
             .where(notSeed(schema.merchantWallets.tenantId, [TENANT_ID, SUPPLIER_TENANT_ID]));
         } catch { /* w27 tables not migrated yet */ }
+        // === W28 odoo-sync (Coder A) isolation: outbox rows, configs and
+        // mock-adapter state created by J154–J157 never leak between
+        // journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.odooSyncOutbox);
+          await world.db.delete(schema.odooConfigs);
+        } catch { /* w28 tables not migrated yet */ }
+        try {
+          const { resetOdooAdapters } = await import("../server/services/odoo/adapter");
+          resetOdooAdapters();
+        } catch { /* odoo adapter unavailable */ }
+        // === END W28 odoo-sync ===
         delete process.env.CATALOG_EXTRACTION_PROVIDER;
         delete process.env.CATALOG_EXTRACTION_ENDPOINT;
         delete process.env.CATALOG_EXTRACTION_API_KEY;
