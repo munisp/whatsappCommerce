@@ -24,7 +24,7 @@ process.env.CREDIT_TENURE_GATE_DAYS = "0";
 // module top level so every journey gets a statically-defined test block.
 const journeys = await loadJourneys();
 
-describe("WhatsApp feature simulation (153 journeys)", () => {
+describe("WhatsApp feature simulation (161 journeys)", () => {
   let world: World;
 
   beforeAll(async () => {
@@ -36,7 +36,7 @@ describe("WhatsApp feature simulation (153 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(153);
+    expect(journeys.length).toBe(161);
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

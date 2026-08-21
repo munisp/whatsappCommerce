@@ -96,6 +96,10 @@ export default function Shop() {
         <section>
           <h2 className="text-lg font-semibold flex items-center gap-2 mb-3">
             <ShoppingBag className="h-5 w-5" /> Products
+            {/* W28: badge the synced Medusa catalog (view-model flag only). */}
+            {(shop as { catalogSource?: string }).catalogSource === "medusa" && (
+              <Badge variant="secondary">Medusa catalog</Badge>
+            )}
           </h2>
           {catalog.length === 0 ? (
             <p className="text-muted-foreground">No products listed yet — check back soon.</p>

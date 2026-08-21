@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T19:36:25.869Z",
+  "generatedAt": "2026-08-21T21:47:52.564Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -555,12 +555,76 @@
       "messageCount": 20
     },
     {
+      "id": "J154",
+      "title": "odoo connect + config validation",
+      "feature": "W28 odoo-sync connection config",
+      "pass": true,
+      "file": "J154.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J155",
+      "title": "odoo paid order → invoice",
+      "feature": "W28 odoo-sync sale → customer invoice",
+      "pass": true,
+      "file": "J155.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J156",
+      "title": "odoo expense → vendor bill + receipt",
+      "feature": "W28 odoo-sync expense → vendor bill",
+      "pass": true,
+      "file": "J156.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J157",
+      "title": "odoo failure → retry → reconciliation",
+      "feature": "W28 odoo-sync retry + reconciliation queue",
+      "pass": true,
+      "file": "J157.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J158",
+      "title": "medusa store mapping + backfill sync",
+      "feature": "per-tenant medusa_store_mappings + adapter registry + idempotent backfill",
+      "pass": true,
+      "file": "J158.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J159",
+      "title": "medusa catalog webhook replay-safety",
+      "feature": "HMAC webhook → idempotent upsert; platform-native products untouched",
+      "pass": true,
+      "file": "J159.json",
+      "messageCount": 0
+    },
+    {
       "id": "J16",
       "title": "multilingual (fr, sticky)",
       "feature": "i18n detect + sticky locale",
       "pass": true,
       "file": "J16.json",
       "messageCount": 12
+    },
+    {
+      "id": "J160",
+      "title": "storefront renders medusa catalog after toggle",
+      "feature": "catalog-source resolution in the public storefront view-model",
+      "pass": true,
+      "file": "J160.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J161",
+      "title": "storefront order → medusa order → fulfillment → escrow release",
+      "feature": "order bridge + idempotent outbound create + fulfillment webhook → existing release rails",
+      "pass": true,
+      "file": "J161.json",
+      "messageCount": 11
     },
     {
       "id": "J17",

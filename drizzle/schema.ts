@@ -4425,3 +4425,113 @@ export const vouchers = pgTable("vouchers", {
 ]);
 export type Voucher = typeof vouchers.$inferSelect;
 export type NewVoucher = typeof vouchers.$inferInsert;
+
+// === W28 odoo-sync (Coder A) ===
+// Per-tenant Odoo ERP connection config. Secrets: apiKey is AES-256-GCM
+// encrypted at rest (encrypt-on-write via services/crypto/secrets, same
+// pattern as payment_gateway_configs). syncMode:
+//   'push'     → enqueue + send immediately on each event
+//   'batch'    → enqueue on event; nightly cron posts summarized entries
+//   'ondemand' → enqueue only; merchant triggers "odoo sync now" / portal
+// accountMapping jsonb maps platform concepts → Odoo account ids, e.g.
+// { incomeAccountId, expenseAccountId, receivableAccountId, paymentJournalId }.
+export const odooConfigs = pgTable("odoo_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  url: varchar("url", { length: 255 }).notNull(),
+  db: varchar("db", { length: 128 }).notNull(),
+  username: varchar("username", { length: 128 }),
+  apiKey: text("api_key"), // AES-256-GCM encrypted; never plaintext at rest
+  syncMode: varchar("sync_mode", { length: 16 }).notNull().default("ondemand"), // 'push' | 'batch' | 'ondemand'
+  accountMapping: jsonb("account_mapping"),
+  enabled: boolean("enabled").notNull().default(false),
+  lastTestedAt: timestamp("last_tested_at"),
+  lastTestOk: boolean("last_test_ok"),
+  lastTestError: text("last_test_error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("odoo_configs_tenant_uniq").on(t.tenantId),
+]);
+export type OdooConfig = typeof odooConfigs.$inferSelect;
+export type NewOdooConfig = typeof odooConfigs.$inferInsert;
+
+// Exactly-once sync outbox: unique (tenantId, entityType, entityId) means a
+// sale/expense/payout/loan disbursement is enqueued at most once; the
+// claim-before-send worker transitions pending → sending → sent|failed with
+// a deterministic attempt counter (no exponential backoff — retries are
+// driven by the cron/ondemand sweeps). status:
+//   'pending' | 'sending' | 'sent' | 'failed'
+// failed rows surface in the portal reconciliation queue (never silently
+// divergent) and can be retried (failed → pending reset).
+export const odooSyncOutbox = pgTable("odoo_sync_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  entityType: varchar("entity_type", { length: 24 }).notNull(), // 'sale' | 'expense' | 'payout' | 'loan_disbursement'
+  entityId: varchar("entity_id", { length: 64 }).notNull(),
+  payload: jsonb("payload").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  lastError: text("last_error"),
+  odooRef: varchar("odoo_ref", { length: 64 }), // remote record id after send
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique("odoo_sync_outbox_entity_uniq").on(t.tenantId, t.entityType, t.entityId),
+  index("odoo_sync_outbox_status_idx").on(t.status),
+  index("odoo_sync_outbox_tenant_idx").on(t.tenantId),
+]);
+export type OdooSyncOutbox = typeof odooSyncOutbox.$inferSelect;
+export type NewOdooSyncOutbox = typeof odooSyncOutbox.$inferInsert;
+// === END W28 odoo-sync ===
+
+// === W28 medusa-storefront (Coder B) ===
+// Per-tenant Medusa store mapping. Lifts the Wave-26 blanket admin-only
+// Medusa integration: tenant-scoped procedures resolve their own mapping;
+// cross-tenant administration stays admin-only. `catalogSource` toggles the
+// storefront catalog between platform-native products and the synced Medusa
+// catalog; `apiKeyRef` points at the encrypted credential (tenant_integrations
+// row for integrationType "medusa") — plaintext keys never persist here.
+export const medusaStoreMappings = pgTable("medusa_store_mappings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  medusaStoreId: varchar("medusa_store_id", { length: 128 }),
+  medusaSalesChannelId: varchar("medusa_sales_channel_id", { length: 128 }),
+  baseUrl: varchar("base_url", { length: 512 }),
+  apiKeyRef: varchar("api_key_ref", { length: 255 }),
+  catalogSource: varchar("catalog_source", { length: 16 }).notNull().default("platform"),
+  syncEnabled: boolean("sync_enabled").notNull().default(false),
+  lastBackfillAt: timestamp("last_backfill_at"),
+  lastWebhookAt: timestamp("last_webhook_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("medusa_store_mappings_tenant_uidx").on(t.tenantId),
+  index("medusa_store_mappings_source_idx").on(t.tenantId, t.catalogSource),
+]);
+export type MedusaStoreMapping = typeof medusaStoreMappings.$inferSelect;
+export type NewMedusaStoreMapping = typeof medusaStoreMappings.$inferInsert;
+
+// Platform order ↔ Medusa order bridge links. Exactly one outbound Medusa
+// order per platform order (tenant+order unique); reverse lookup by
+// medusaOrderId feeds the fulfillment webhook → existing delivery/escrow
+// release flow (DB state only — escrow.ts untouched).
+export const medusaOrderLinks = pgTable("medusa_order_links", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  medusaOrderId: varchar("medusa_order_id", { length: 128 }).notNull(),
+  status: varchar("status", { length: 32 }).notNull().default("created"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("medusa_order_links_tenant_order_uidx").on(t.tenantId, t.orderId),
+  uniqueIndex("medusa_order_links_tenant_medusa_uidx").on(t.tenantId, t.medusaOrderId),
+  index("medusa_order_links_order_idx").on(t.orderId),
+]);
+export type MedusaOrderLink = typeof medusaOrderLinks.$inferSelect;
+export type NewMedusaOrderLink = typeof medusaOrderLinks.$inferInsert;
+// === END W28 medusa-storefront ===

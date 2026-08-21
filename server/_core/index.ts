@@ -360,6 +360,30 @@ async function startServer() {
     }
   });
 
+  // === W28 odoo-sync (Coder A) ===
+  // ── Scheduled: nightly Odoo batch sync (sweep + outbox drain) ───────────
+  // For every enabled odoo_configs tenant: sweep paid orders / confirmed
+  // expenses / payouts / loan disbursements into the exactly-once outbox,
+  // then run the claim-before-send worker. Batch-mode tenants get their
+  // entries posted here; failed rows surface in the portal reconciliation
+  // queue. Idempotent.
+  // After deploy: manus-heartbeat create --name odoo-sync-nightly --cron "0 0 2 * * *" --path /api/scheduled/odoo-sync
+  app.post("/api/scheduled/odoo-sync", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runOdooNightlyBatch } = await import("../services/odoo/sync");
+      const run = await runOdooNightlyBatch(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[odoo-sync] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "odoo-sync failed" });
+    }
+  });
+  // === END W28 odoo-sync ===
+
   // ── Scheduled: W27 credit — micro-loan auto-repayment sweep (every ~10 min) ──
   // Deducts each active loan's repaymentPct from newly settled wallet sales
   // (escrow_release credits) and marks overdue loans defaulted. Idempotent.
@@ -1376,6 +1400,31 @@ async function startServer() {
               console.error("[whatsapp-webhook] credit command error:", e?.message);
             }
           }
+          // === W28 odoo-sync (Coder A): tenant-admin Odoo commands ────────
+          // "ODOO STATUS" / "ODOO SYNC NOW" from the tenant's admin phone
+          // (settings.adminPhone). Non-admins / other texts fall through to
+          // the normal menu/NLP pipeline (handled=false).
+          if (/^\s*ODOO\b/i.test(textBody)) {
+            try {
+              const { handleOdooCommand } = await import("../services/odoo/odooWhatsApp");
+              const odooOutcome = await handleOdooCommand({
+                db,
+                tenantId,
+                waPhoneNumber,
+                text: textBody,
+              });
+              if (odooOutcome.handled) {
+                if (odooOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, odooOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] odoo reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for odoo commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] odoo command error:", e?.message);
+            }
+          }
+          // === END W28 odoo-sync ===
           // Publish inbound message to Kafka for event streaming
           publishConversationEvent(
             msg.id ?? randomUUID(),
@@ -2562,6 +2611,86 @@ async function startServer() {
       return res.status(500).json({ error: err?.message });
     }
   });
+
+  // ── W28 Coder B: Medusa catalog + fulfillment webhooks ──────────────────
+  // ADDITIVE block — the Wave-26 /api/webhooks/medusa block above is
+  // unchanged. Two endpoints, both HMAC-SHA256 verified over the raw body
+  // (X-Medusa-Signature: sha256=<hex>, secret MEDUSA_WEBHOOK_SECRET — same
+  // fail-closed requireWebhookSecret pattern as the other webhooks here):
+  //
+  //  POST /api/webhooks/medusa-catalog
+  //    product.created / product.updated / product.deleted → idempotent
+  //    upsert into the platform products table keyed by metadata.medusaId
+  //    (metadata.source="medusa"); platform-native products are never
+  //    touched. Tenant resolution per resolveTenantForMedusaEvent (never
+  //    guesses cross-tenant → 422).
+  //
+  //  POST /api/webhooks/medusa-fulfillment
+  //    order.fulfillment_created / order.completed / order.canceled → order
+  //    status update + escrow_held → delivery_confirmed advance (DB state
+  //    only — escrow.ts untouched; the existing buyerConfirm / SLA rails
+  //    complete the release).
+  app.post("/api/webhooks/medusa-catalog", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const rawBody = toRawBody(req.body);
+      const webhookSecret = requireWebhookSecret("MEDUSA_WEBHOOK_SECRET", process.env.MEDUSA_WEBHOOK_SECRET, res);
+      if (webhookSecret === null) return;
+      if (webhookSecret) {
+        const sig = ((req.headers["x-medusa-signature"] as string) ?? "").replace(/^sha256=/, "");
+        if (!verifyHmacSignature(rawBody, webhookSecret, sig, "sha256")) {
+          console.warn("[medusa-catalog-webhook] Invalid HMAC signature — rejected");
+          return res.status(401).json({ error: "invalid-signature" });
+        }
+      }
+      const { event, data } = JSON.parse(rawBody.toString()) as { event?: string; data?: Record<string, any> };
+      if (!event || !data) return res.status(400).json({ error: "missing event or data" });
+
+      const { resolveTenantForMedusaEvent, handleMedusaProductEvent } = await import("../services/medusa/sync");
+      const tenantId = await resolveTenantForMedusaEvent(db, data);
+      if (!tenantId) {
+        console.warn(`[medusa-catalog-webhook] no tenant mapping for event ${event} product=${data?.id}`);
+        return res.status(422).json({ error: "tenant-not-resolved" });
+      }
+      const result = await handleMedusaProductEvent(db, tenantId, event, data as any);
+      console.log(`[medusa-catalog-webhook] ${event} product=${data?.id} tenant=${tenantId} → ${result.action}`);
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[medusa-catalog-webhook]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+
+  app.post("/api/webhooks/medusa-fulfillment", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const rawBody = toRawBody(req.body);
+      const webhookSecret = requireWebhookSecret("MEDUSA_WEBHOOK_SECRET", process.env.MEDUSA_WEBHOOK_SECRET, res);
+      if (webhookSecret === null) return;
+      if (webhookSecret) {
+        const sig = ((req.headers["x-medusa-signature"] as string) ?? "").replace(/^sha256=/, "");
+        if (!verifyHmacSignature(rawBody, webhookSecret, sig, "sha256")) {
+          console.warn("[medusa-fulfillment-webhook] Invalid HMAC signature — rejected");
+          return res.status(401).json({ error: "invalid-signature" });
+        }
+      }
+      const { event, data } = JSON.parse(rawBody.toString()) as { event?: string; data?: Record<string, any> };
+      if (!event || !data) return res.status(400).json({ error: "missing event or data" });
+      const medusaOrderId = (data?.id ?? data?.order_id) as string | undefined;
+      if (!medusaOrderId) return res.json({ ok: true, action: "no-order-id" });
+
+      const { applyMedusaFulfillment } = await import("../services/medusa/orderBridge");
+      const result = await applyMedusaFulfillment(db, medusaOrderId, event);
+      console.log(`[medusa-fulfillment-webhook] ${event} medusaOrder=${medusaOrderId} → ${result.action}${result.newStatus ? ` (${result.newStatus})` : ""}`);
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[medusa-fulfillment-webhook]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W28 medusa-storefront webhooks ===
 
   // ── WhatsApp media download heartbeat ────────────────────────────────────
   // Runs every 5 minutes; fetches media from Meta Graph API and uploads to S3.

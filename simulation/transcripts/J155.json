@@ -1,0 +1,35 @@
+{
+  "id": "J155",
+  "title": "odoo paid order → invoice",
+  "feature": "W28 odoo-sync sale → customer invoice",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348099900000",
+      "profileName": "Sim User 0000",
+      "inboundId": "wamid.sim.in.text.00399",
+      "at": 1787348862635,
+      "kind": "text",
+      "text": "odoo sync now"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00399",
+      "at": 1787348862638
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000638",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348862731,
+      "kind": "text",
+      "body": "✅ *Odoo sync run complete*\n• New items queued: 20\n• Sent to Odoo: 20\n• Failed: 0\n• Still pending: 0"
+    }
+  ]
+}

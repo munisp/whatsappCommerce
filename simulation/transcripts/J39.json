@@ -7,390 +7,390 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "profileName": "Ada",
       "inboundId": "wamid.sim.in.text.00155",
-      "at": 1787340657469,
+      "at": 1787348533144,
       "kind": "text",
       "text": "hello"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000235",
       "statuses": [
         "sent"
       ],
-      "at": 1787340657479,
+      "at": 1787348533153,
       "kind": "text",
       "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
     },
     {
       "dir": "in",
-      "phone": "2348011898518",
-      "profileName": "Sim User 8518",
+      "phone": "2348013215147",
+      "profileName": "Sim User 5147",
       "inboundId": "wamid.sim.in.text.00156",
-      "at": 1787340658017,
+      "at": 1787348533694,
       "kind": "text",
       "text": "I run Ada's Fabrics in Enugu, ankara + lace, delivery within Enugu, bank transfer"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000236",
       "statuses": [
         "sent"
       ],
-      "at": 1787340658067,
+      "at": 1787348533739,
       "kind": "text",
       "body": "Here's the setup I propose for Ada's Fabrics. Review each card — approve, edit or reject. Nothing is applied until you approve it."
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000237",
       "statuses": [
         "sent"
       ],
-      "at": 1787340658067,
+      "at": 1787348533739,
       "kind": "interactive",
       "body": "WhatsApp menu for Ada's Fabrics: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Ada's Fabrics! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-1-w05kgj",
+          "id": "onb_approve:p-1-vuet3x",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-1-w05kgj",
+          "id": "onb_edit:p-1-vuet3x",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-1-w05kgj",
+          "id": "onb_reject:p-1-vuet3x",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000238",
       "statuses": [
         "sent"
       ],
-      "at": 1787340658067,
+      "at": 1787348533740,
       "kind": "interactive",
       "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-2-cwth5y",
+          "id": "onb_approve:p-2-t8qb0r",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-2-cwth5y",
+          "id": "onb_edit:p-2-t8qb0r",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-2-cwth5y",
+          "id": "onb_reject:p-2-t8qb0r",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000239",
       "statuses": [
         "sent"
       ],
-      "at": 1787340658067,
+      "at": 1787348533740,
       "kind": "interactive",
       "body": "Brand kit for Ada's Fabrics\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM0MjZDOEYiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPkFGPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#426C8F\",\n  \"secondaryColor\": \"#C6A390\",\n  \"tagline\": \"Style that fits your story\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-3-2ecxd6",
+          "id": "onb_approve:p-3-kdqta7",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-3-2ecxd6",
+          "id": "onb_edit:p-3-kdqta7",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-3-2ecxd6",
+          "id": "onb_reject:p-3-kdqta7",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000240",
       "statuses": [
         "sent"
       ],
-      "at": 1787340658068,
+      "at": 1787348533740,
       "kind": "interactive",
       "body": "Suggested integrations: twenty\n\n{\n  \"providers\": [\n    {\n      \"provider\": \"twenty\",\n      \"reason\": \"CRM to track customer conversations and follow-ups\"\n    }\n  ],\n  \"summary\": \"Suggested integrations: twenty\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-4-z91rcc",
+          "id": "onb_approve:p-4-pgido7",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-4-z91rcc",
+          "id": "onb_edit:p-4-pgido7",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-4-z91rcc",
+          "id": "onb_reject:p-4-pgido7",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348011898518",
-      "profileName": "Sim User 8518",
+      "phone": "2348013215147",
+      "profileName": "Sim User 5147",
       "inboundId": "wamid.sim.in.btn.00157",
-      "at": 1787340658565,
+      "at": 1787348534243,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-1-w05kgj"
+      "payloadId": "onb_approve:p-1-vuet3x"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000241",
       "statuses": [
         "sent"
       ],
-      "at": 1787340658573,
+      "at": 1787348534250,
       "kind": "text",
       "body": "Approved the waMenu proposal."
     },
     {
       "dir": "in",
-      "phone": "2348011898518",
-      "profileName": "Sim User 8518",
+      "phone": "2348013215147",
+      "profileName": "Sim User 5147",
       "inboundId": "wamid.sim.in.btn.00158",
-      "at": 1787340659108,
+      "at": 1787348534789,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-2-cwth5y"
+      "payloadId": "onb_approve:p-2-t8qb0r"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000242",
       "statuses": [
         "sent"
       ],
-      "at": 1787340659115,
+      "at": 1787348534798,
       "kind": "text",
       "body": "Approved the useCases proposal."
     },
     {
       "dir": "in",
-      "phone": "2348011898518",
-      "profileName": "Sim User 8518",
+      "phone": "2348013215147",
+      "profileName": "Sim User 5147",
       "inboundId": "wamid.sim.in.btn.00159",
-      "at": 1787340659654,
+      "at": 1787348535334,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-3-2ecxd6"
+      "payloadId": "onb_approve:p-3-kdqta7"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000243",
       "statuses": [
         "sent"
       ],
-      "at": 1787340659664,
+      "at": 1787348535346,
       "kind": "text",
       "body": "Approved the branding proposal."
     },
     {
       "dir": "in",
-      "phone": "2348011898518",
-      "profileName": "Sim User 8518",
+      "phone": "2348013215147",
+      "profileName": "Sim User 5147",
       "inboundId": "wamid.sim.in.btn.00160",
-      "at": 1787340660202,
+      "at": 1787348535881,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-4-z91rcc"
+      "payloadId": "onb_approve:p-4-pgido7"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000244",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660266,
+      "at": 1787348535945,
       "kind": "text",
       "body": "Approved the integrations proposal."
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000245",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660266,
+      "at": 1787348535945,
       "kind": "text",
       "body": "Applied: WhatsApp menu for Ada's Fabrics: greeting + top use cases"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000246",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660266,
+      "at": 1787348535945,
       "kind": "text",
       "body": "Applied: Suggested use cases: shop, track, handoff"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000247",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660267,
+      "at": 1787348535945,
       "kind": "text",
       "body": "Applied: Brand kit for Ada's Fabrics"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000248",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660267,
+      "at": 1787348535945,
       "kind": "text",
       "body": "Applied: Suggested integrations: twenty"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000249",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660267,
+      "at": 1787348535945,
       "kind": "text",
       "body": "Could not update the WhatsApp profile: photo."
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000250",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660267,
+      "at": 1787348535945,
       "kind": "text",
       "body": "I couldn't reach your WhatsApp phone number with the token on file. Please re-paste your WhatsApp access token and phone number ID from Meta Business Settings → WhatsApp → API Setup."
     },
     {
       "dir": "in",
-      "phone": "2348011898518",
-      "profileName": "Sim User 8518",
+      "phone": "2348013215147",
+      "profileName": "Sim User 5147",
       "inboundId": "wamid.sim.in.text.00161",
-      "at": 1787340660750,
+      "at": 1787348536431,
       "kind": "text",
       "text": "phone number id is 109000123456789 token is EAAj39prospecttoken0123456789"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000251",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660780,
+      "at": 1787348536459,
       "kind": "text",
       "body": "Got it — credentials updated. Re-running the checks…"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000252",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660780,
+      "at": 1787348536459,
       "kind": "text",
       "body": "🎉 All validation checks passed! One last step: approve go-live to switch your WhatsApp assistant on for customers (or reply \"go live\")."
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000253",
       "statuses": [
         "sent"
       ],
-      "at": 1787340660780,
+      "at": 1787348536459,
       "kind": "interactive",
-      "body": "All 1 validation check(s) passed — go live\n\n{\n  \"checks\": [\n    {\n      \"check\": \"whatsapp\",\n      \"ok\": true\n    }\n  ],\n  \"validatedAt\": \"2026-08-21T19:31:00.778Z\"\n}",
+      "body": "All 1 validation check(s) passed — go live\n\n{\n  \"checks\": [\n    {\n      \"check\": \"whatsapp\",\n      \"ok\": true\n    }\n  ],\n  \"validatedAt\": \"2026-08-21T21:42:16.457Z\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-5-skls9d",
+          "id": "onb_approve:p-5-wnjd65",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-5-skls9d",
+          "id": "onb_edit:p-5-wnjd65",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-5-skls9d",
+          "id": "onb_reject:p-5-wnjd65",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348011898518",
-      "profileName": "Sim User 8518",
+      "phone": "2348013215147",
+      "profileName": "Sim User 5147",
       "inboundId": "wamid.sim.in.btn.00162",
-      "at": 1787340661298,
+      "at": 1787348536980,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-5-skls9d"
+      "payloadId": "onb_approve:p-5-wnjd65"
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000254",
       "statuses": [
         "sent"
       ],
-      "at": 1787340661314,
+      "at": 1787348537002,
       "kind": "text",
       "body": "Approved the goLive proposal."
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000255",
       "statuses": [
         "sent"
       ],
-      "at": 1787340661314,
+      "at": 1787348537002,
       "kind": "text",
       "body": "🎉 You're LIVE! Your customers can now message your business on WhatsApp."
     },
     {
       "dir": "out",
-      "phone": "2348011898518",
+      "phone": "2348013215147",
       "wamid": "wamid.sim.000256",
       "statuses": [
         "sent"
       ],
-      "at": 1787340661315,
+      "at": 1787348537004,
       "kind": "text",
       "body": "🎉 Congratulations — your store is live!\n\nNext steps:\n1. Connect your own WhatsApp number via embedded signup: http://localhost:4173/settings/whatsapp\n2. Manage everything from your admin portal: http://localhost:4173\n\nWelcome aboard! 🚀"
     }

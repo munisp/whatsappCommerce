@@ -279,6 +279,9 @@ export const appRouter = router({
   stokvel: stokvelRouter,
   insurance: insuranceRouter,
   vouchers: vouchersRouter,
+  // === W28 odoo-sync (Coder A) ===
+  odooSync: odooSyncRouter,
+  // === END W28 odoo-sync ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -301,3 +304,6 @@ import { reviewsRouter } from "./routers/reviews";
 import { wholesaleRouter } from "./routers/wholesale";
 import { groupBuyRouter } from "./routers/groupBuy";
 // === END W27 Coder F ===
+// === W28 odoo-sync (Coder A) ===
+import { odooSyncRouter } from "./routers/odooSync";
+// === END W28 odoo-sync ===
