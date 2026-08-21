@@ -1,0 +1,35 @@
+{
+  "id": "J149",
+  "title": "group deal expiry → refunds/voids",
+  "feature": "groupBuy sweep: expire + refund/void, idempotent",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017477479",
+      "profileName": "Sim User 7479",
+      "inboundId": "wamid.sim.in.text.00373",
+      "at": 1787340970468,
+      "kind": "text",
+      "text": "deal 21a67b7d"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00373",
+      "at": 1787340970472
+    },
+    {
+      "dir": "out",
+      "phone": "2348017477479",
+      "wamid": "wamid.sim.000609",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340970492,
+      "kind": "text",
+      "body": "*Sugar 50kg — group price* — group deal @ NGN 45,000/unit\n██░░░░░░░░ 16% (8/50 units, 0 joined)\n⌛ Deal expired — all payments refunded/voided."
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "id": "J146",
+  "title": "wholesale browse → tiered order",
+  "feature": "wholesaleCatalog tiered pricing + WhatsApp browse/buy",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348019645779",
+      "profileName": "Sim User 5779",
+      "inboundId": "wamid.sim.in.text.00366",
+      "at": 1787340965516,
+      "kind": "text",
+      "text": "wholesale preforms"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00366",
+      "at": 1787340965519
+    },
+    {
+      "dir": "out",
+      "phone": "2348019645779",
+      "wamid": "wamid.sim.000602",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340965540,
+      "kind": "text",
+      "body": "🏪 *Wholesale marketplace* — “preforms”:\n1. *PET Preforms 500ml (bulk)* (MOQ 100)\n100+–499 units: NGN 45.00/unit; 500+ units: NGN 40.00/unit\nID: f7336741\n\nReply *buy <#> <qty>* to order (e.g. buy 1 100)."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019645779",
+      "profileName": "Sim User 5779",
+      "inboundId": "wamid.sim.in.text.00367",
+      "at": 1787340966062,
+      "kind": "text",
+      "text": "buy 1 50"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00367",
+      "at": 1787340966066
+    },
+    {
+      "dir": "out",
+      "phone": "2348019645779",
+      "wamid": "wamid.sim.000603",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340966082,
+      "kind": "text",
+      "body": "That quantity is below the minimum order quantity (MOQ) — check the listing and try a larger qty."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019645779",
+      "profileName": "Sim User 5779",
+      "inboundId": "wamid.sim.in.text.00368",
+      "at": 1787340966607,
+      "kind": "text",
+      "text": "buy 1 600"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00368",
+      "at": 1787340966612
+    },
+    {
+      "dir": "out",
+      "phone": "2348019645779",
+      "wamid": "wamid.sim.000604",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340966634,
+      "kind": "text",
+      "body": "✅ Wholesale order placed: 600 units × NGN 40.00 = *NGN 24,000.00*\nOrder ref: 47b1a361. The wholesaler will confirm and arrange payment/fulfillment."
+    }
+  ]
+}

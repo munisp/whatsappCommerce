@@ -1,0 +1,128 @@
+{
+  "id": "J136",
+  "title": "language switch → menus in Hausa",
+  "feature": "language picker, sticky locale, localized menu chrome, localized intent keywords",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348015318182",
+      "profileName": "Sim User 8182",
+      "inboundId": "wamid.sim.in.text.00345",
+      "at": 1787340945161,
+      "kind": "text",
+      "text": "language"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00345",
+      "at": 1787340945165
+    },
+    {
+      "dir": "out",
+      "phone": "2348015318182",
+      "wamid": "wamid.sim.000574",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340945188,
+      "kind": "text",
+      "body": "🌐 Choose your language / Zaɓi harshenka:\n1. English\n2. Français\n3. Hausa\n4. Yorùbá\n5. Igbo\n6. Kiswahili\n7. አማርኛ (Amharic)"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015318182",
+      "profileName": "Sim User 8182",
+      "inboundId": "wamid.sim.in.text.00346",
+      "at": 1787340945706,
+      "kind": "text",
+      "text": "3"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00346",
+      "at": 1787340945710
+    },
+    {
+      "dir": "out",
+      "phone": "2348015318182",
+      "wamid": "wamid.sim.000575",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340945730,
+      "kind": "text",
+      "body": "An saita harshe zuwa Hausa. Kana iya canza shi a kowane lokaci ta rubuta LANGUAGE.\n\nSannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?\n\n1. Sayayya / aika oda\n2. Bibiyar odana\n3. Yi magana da wakili\n\nReply with a number to choose an option."
+    },
+    {
+      "dir": "in",
+      "phone": "2348015318182",
+      "profileName": "Sim User 8182",
+      "inboundId": "wamid.sim.in.text.00347",
+      "at": 1787340946251,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00347",
+      "at": 1787340946261
+    },
+    {
+      "dir": "out",
+      "phone": "2348015318182",
+      "wamid": "wamid.sim.000576",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340946272,
+      "kind": "interactive",
+      "body": "Sannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Sayayya / aika oda"
+        },
+        {
+          "id": "menu_2",
+          "title": "Bibiyar odana"
+        },
+        {
+          "id": "menu_3",
+          "title": "Yi magana da wakili"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348015318182",
+      "profileName": "Sim User 8182",
+      "inboundId": "wamid.sim.in.text.00348",
+      "at": 1787340946795,
+      "kind": "text",
+      "text": "sayayya"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00348",
+      "at": 1787340946799
+    },
+    {
+      "dir": "out",
+      "phone": "2348015318182",
+      "wamid": "wamid.sim.000577",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340946814,
+      "kind": "text",
+      "body": "Ga kayayyakinmu — me kake so?"
+    }
+  ]
+}

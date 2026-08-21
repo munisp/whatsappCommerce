@@ -1,0 +1,165 @@
+{
+  "id": "J152",
+  "title": "insurance add-on → policy → parametric claim",
+  "feature": "checkout opt-in + mock adapter + parametric trigger hook",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348015474437",
+      "profileName": "Sim User 4437",
+      "inboundId": "wamid.sim.in.text.00387",
+      "at": 1787340979139,
+      "kind": "text",
+      "text": "i want these [1eab4427]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00387",
+      "at": 1787340979143
+    },
+    {
+      "dir": "out",
+      "phone": "2348015474437",
+      "wamid": "wamid.sim.000623",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340979163,
+      "kind": "text",
+      "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015474437",
+      "profileName": "Sim User 4437",
+      "inboundId": "wamid.sim.in.text.00388",
+      "at": 1787340979684,
+      "kind": "text",
+      "text": "confirm please [1eab4427]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00388",
+      "at": 1787340979689
+    },
+    {
+      "dir": "out",
+      "phone": "2348015474437",
+      "wamid": "wamid.sim.000624",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340979714,
+      "kind": "text",
+      "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015474437",
+      "profileName": "Sim User 4437",
+      "inboundId": "wamid.sim.in.text.00389",
+      "at": 1787340980241,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00389",
+      "at": 1787340980251
+    },
+    {
+      "dir": "out",
+      "phone": "2348015474437",
+      "wamid": "wamid.sim.000625",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340980280,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MT3CO6R0*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/dd060490-7460-4167-bc10-0c340cf95a15\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/6fc3b83b-80b0-4542-bf3b-12951baefa67.NcUz_uVEPfS5s2KWfW62cBUQ"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015474437",
+      "wamid": "wamid.sim.000626",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340980284,
+      "kind": "interactive",
+      "body": "Order ORD-MT3CO6R0 — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:6fc3b83b-80b0-4542-bf3b-12951baefa67",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:6fc3b83b-80b0-4542-bf3b-12951baefa67",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:6fc3b83b-80b0-4542-bf3b-12951baefa67",
+          "title": "Cancel Order"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348015474437",
+      "profileName": "Sim User 4437",
+      "inboundId": "wamid.sim.in.text.00390",
+      "at": 1787340980793,
+      "kind": "text",
+      "text": "insure"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00390",
+      "at": 1787340980796
+    },
+    {
+      "dir": "out",
+      "phone": "2348015474437",
+      "wamid": "wamid.sim.000627",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340980806,
+      "kind": "text",
+      "body": "🛡️ Protect your order (add-on at checkout):\n• Delivery Insurance [delivery-basic] — from NGN 1.00, covers up to NGN 500.00\nReply 'insure <product id>' to add cover to your latest order."
+    },
+    {
+      "dir": "in",
+      "phone": "2348015474437",
+      "profileName": "Sim User 4437",
+      "inboundId": "wamid.sim.in.text.00391",
+      "at": 1787340981337,
+      "kind": "text",
+      "text": "insure delivery-basic"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00391",
+      "at": 1787340981341
+    },
+    {
+      "dir": "out",
+      "phone": "2348015474437",
+      "wamid": "wamid.sim.000628",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787340981366,
+      "kind": "text",
+      "body": "🛡️ Policy confirmed!\nPolicy POL-DSLziMx56xcEDNPh\nPremium: NGN 50.00 (added to order ORD-MT3CO6R0)\nCover: up to NGN 500.00.\nIf your delivery fails, your claim is paid out automatically."
+    }
+  ]
+}

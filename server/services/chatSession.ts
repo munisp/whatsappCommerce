@@ -36,6 +36,8 @@ export interface ChatSession {
   awaitingMenuSelection?: boolean;
   /** True while we wait for the NDPR consent YES/NO reply. */
   awaitingConsent?: boolean;
+  /** W27: true while we wait for a language-picker reply. */
+  awaitingLanguageChoice?: boolean;
   /**
    * Optimistic-concurrency version. Every save bumps it; saveSessionCas
    * refuses to overwrite a session whose stored version differs from the

@@ -1,0 +1,8 @@
+{
+  "id": "J135",
+  "title": "storefront render + slug uniqueness",
+  "feature": "public /shop/:slug view, slug uniqueness + defaults, visibility + KYB location gates",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}
