@@ -33,7 +33,7 @@ import {
   Database, GitBranch, AlertTriangle, Activity, Lock, Network,
   UserPlus, Rocket, KeyRound, Building2, ScrollText,
   Paperclip, BarChart2, Cpu, Plug, SlidersHorizontal, Map, HeartPulse,
-  ClipboardCheck, ShoppingCart, ShieldCheck, Wallet, Route,
+  ClipboardCheck, ShoppingCart, ShieldCheck, Wallet, Route, MapPin,
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -168,6 +168,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: Bot,             label: "Copilot",          path: "/onboarding-copilot" },
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
       { icon: SlidersHorizontal, label: "Tenant Settings", path: "/tenant-settings" },
+      { icon: MapPin,          label: "Local Discovery",  path: "/settings/discovery" },
     ],
   },
 ];
