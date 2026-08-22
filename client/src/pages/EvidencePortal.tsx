@@ -187,6 +187,7 @@ export default function EvidencePortal() {
           const result = await scanMutation.mutateAsync({
             imageBase64: base64,
             mimeType: file.type as "image/jpeg" | "image/png" | "image/webp",
+            evidenceToken: token || undefined,
           });
           setScanResult(result as ScanResult);
         } catch { /* scan failed silently */ }
@@ -425,6 +426,7 @@ export default function EvidencePortal() {
                       const result = await scanMutation.mutateAsync({
                         imageBase64: base64,
                         mimeType: selectedFile.type as "image/jpeg" | "image/png" | "image/webp",
+                        evidenceToken: token || undefined,
                       });
                       setScanResult(result as ScanResult);
                     } catch { toast.error("Retry scan failed"); }

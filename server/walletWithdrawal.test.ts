@@ -34,6 +34,7 @@ vi.mock("./_core/env", async (importActual) => {
 vi.mock("./services/payments/paystackTransfer", () => ({
   createTransferRecipient: vi.fn(async () => "RCP_mock"),
   initiateTransfer: vi.fn(async () => ({ status: "success", transferCode: "TRF_mock" })),
+  verifyTransfer: vi.fn(async () => ({ status: "success", transferCode: "TRF_mock", found: true })),
   PaystackTransferError: class PaystackTransferError extends Error {},
 }));
 

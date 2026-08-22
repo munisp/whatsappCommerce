@@ -153,6 +153,55 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j123-discover-freetext-order"),
     import("./journeys/j124-merchant-geo-onboarding"),
     import("./journeys/j125-sponsored-placement"),
+    import("./journeys/j126-escrow-release"),
+    // === W27 catalog-ai ===
+    import("./journeys/j127-merchant-voice-listing"),
+    import("./journeys/j128-merchant-photo-listing"),
+    import("./journeys/j129-catalog-draft-edit-reject"),
+    import("./journeys/j130-price-suggestion"),
+    // === W27 bookkeeping ===
+    import("./journeys/j131-sales-digest"),
+    import("./journeys/j132-expense-receipt-photo"),
+    import("./journeys/j133-tax-export"),
+    import("./journeys/j134-week-over-week"),
+    // === W27 storefront-i18n ===
+    import("./journeys/j135-storefront-render-slug"),
+    import("./journeys/j136-language-switch-hausa"),
+    import("./journeys/j137-i18n-fallback"),
+    // === W27 credit ===
+    import("./journeys/j138-credit-score-determinism"),
+    import("./journeys/j139-loan-offer-accept-disburse"),
+    import("./journeys/j140-loan-auto-repayment"),
+    import("./journeys/j141-loan-default"),
+    // === W27 delivery-loyalty-reviews (Coder E) ===
+    import("./journeys/j142-delivery-aggregation-escrow"),
+    import("./journeys/j143-loyalty-earn-redeem"),
+    import("./journeys/j144-verified-reviews"),
+    import("./journeys/j145-review-trustscore"),
+    // === END W27 ===
+    // === W27 Coder F: B2B wholesale marketplace + group buying ===
+    import("./journeys/j146-wholesale-tiered-order"),
+    import("./journeys/j147-wholesale-trade-credit-score-gate"),
+    import("./journeys/j148-group-deal-threshold-success"),
+    import("./journeys/j149-group-deal-expiry-refunds"),
+    // === END W27 Coder F ===
+    // === W27 savings-insurance-vouchers (Coder G) ===
+    import("./journeys/j150-stokvel-full-cycle"),
+    import("./journeys/j151-stokvel-missed-contribution"),
+    import("./journeys/j152-insurance-addon-claim"),
+    import("./journeys/j153-voucher-rails"),
+    // === W28 odoo-sync (Coder A) ===
+    import("./journeys/j154-odoo-connect-config"),
+    import("./journeys/j155-odoo-paid-order-invoice"),
+    import("./journeys/j156-odoo-expense-vendor-bill"),
+    import("./journeys/j157-odoo-failure-retry-reconcile"),
+    // === END W28 odoo-sync ===
+    // === W28 medusa-storefront (Coder B) ===
+    import("./journeys/j158-medusa-mapping-backfill"),
+    import("./journeys/j159-medusa-webhook-idempotency"),
+    import("./journeys/j160-medusa-storefront-toggle"),
+    import("./journeys/j161-medusa-order-bridge"),
+    // === END W28 medusa-storefront ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }
@@ -166,27 +215,42 @@ export async function runAll(only?: string[]): Promise<JourneyResult[]> {
 
   const results: JourneyResult[] = [];
   for (const j of selected) {
-    const start = Date.now();
-    await world.resetJourneyState();
-    recorder.begin(j.id, j.name, j.feature);
-    try {
-      await j.run(world);
-      await world.settle(300);
-      recorder.end(true);
-      results.push({ id: j.id, name: j.name, feature: j.feature, pass: true, durationMs: Date.now() - start });
-    } catch (e: any) {
-      recorder.end(false);
-      results.push({
-        id: j.id, name: j.name, feature: j.feature, pass: false, durationMs: Date.now() - start,
-        error: String(e?.stack ?? e?.message ?? e),
-      });
-    }
+    results.push(await runOneJourney(world, j));
   }
+  writeTranscripts();
+  return results;
+}
+
+export function writeTranscripts(): void {
   if (process.env.SIM_TRANSCRIPTS !== "off") {
     const dir = recorder.writeAll();
     if (!process.env.VITEST) console.log(`\ntranscripts → ${dir}`);
   }
-  return results;
+}
+
+/**
+ * Run a single journey against an already-booted world: reset shared state,
+ * record the transcript, run, then settle to quiescence (300ms of no
+ * outbound/meta activity — deterministic, condition-based rather than a
+ * fixed sleep). Never throws: failures are captured in the result so
+ * per-journey test blocks can attribute them.
+ */
+export async function runOneJourney(world: World, j: Journey): Promise<JourneyResult> {
+  const start = Date.now();
+  await world.resetJourneyState();
+  recorder.begin(j.id, j.name, j.feature);
+  try {
+    await j.run(world);
+    await world.settle(300);
+    recorder.end(true);
+    return { id: j.id, name: j.name, feature: j.feature, pass: true, durationMs: Date.now() - start };
+  } catch (e: any) {
+    recorder.end(false);
+    return {
+      id: j.id, name: j.name, feature: j.feature, pass: false, durationMs: Date.now() - start,
+      error: String(e?.stack ?? e?.message ?? e),
+    };
+  }
 }
 
 export function printMatrix(results: JourneyResult[]): void {

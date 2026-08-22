@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import crypto from "crypto";
 import { TRPCError } from "@trpc/server";
 import { auditLogs } from "../../drizzle/schema";
+import { seededRng } from "../../shared/prng";
 
 // ─── Simulation types ─────────────────────────────────────────────────────────
 
@@ -97,10 +98,13 @@ async function persistSimulation(
 }
 
 function generatePaystackWebhookPayload(ref: string, amount: number, status: "success" | "failed") {
+  // Deterministic id derived from the reference (seeded — no unseeded
+  // Math.random in production paths) so simulations are reproducible.
+  const rng = seededRng(`recon-paystack:${ref}`);
   return {
     event: status === "success" ? "charge.success" : "charge.failed",
     data: {
-      id: Math.floor(Math.random() * 1e9),
+      id: Math.floor(rng() * 1e9),
       domain: "test",
       status,
       reference: ref,
@@ -120,7 +124,7 @@ function generateFlutterwaveWebhookPayload(txRef: string, amount: number, status
   return {
     event: "charge.completed",
     data: {
-      id: Math.floor(Math.random() * 1e9),
+      id: Math.floor(seededRng(`recon-flw:${txRef}`)() * 1e9),
       tx_ref: txRef,
       flw_ref: `FLW-${randomUUID().slice(0, 8)}`,
       device_fingerprint: "N/A",
@@ -170,7 +174,7 @@ async function runSimulation(opts: {
   webhookSecret?: string;
 }): Promise<{ steps: SimStep[]; audit: AuditEntry[] }> {
   const simulationId = randomUUID();
-  const ref = `SIM-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  const ref = `SIM-${Date.now()}-${Math.floor(seededRng(simulationId)() * 0xffffffff).toString(36).toUpperCase().slice(0, 6)}`;
   const steps: SimStep[] = [];
   const audit: AuditEntry[] = [];
   const t0 = Date.now();

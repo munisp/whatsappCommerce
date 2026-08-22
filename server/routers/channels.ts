@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, internalProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { channelMessages, ussdSessions as ussdSessionsTable } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -115,7 +115,7 @@ function buildUssdMenu(step: number, cart: Record<string, number>): string {
 export const channelsRouter = router({
   // ── USSD Gateway Webhook ─────────────────────────────────────────────────
   // Handles Africa's Talking / Infobip USSD format
-  processUssd: publicProcedure
+  processUssd: internalProcedure
     .input(z.object({
       sessionId: z.string(),
       serviceCode: z.string().optional(),
@@ -160,7 +160,7 @@ export const channelsRouter = router({
     }),
 
   // ── SMS Inbound Webhook ──────────────────────────────────────────────────
-  processSms: publicProcedure
+  processSms: internalProcedure
     .input(z.object({
       from: z.string(),
       to: z.string(),
@@ -208,7 +208,7 @@ export const channelsRouter = router({
     }),
 
   // ── Telegram Inbound Webhook ─────────────────────────────────────────────
-  processTelegram: publicProcedure
+  processTelegram: internalProcedure
     .input(z.object({
       updateId: z.number(),
       chatId: z.number(),
@@ -234,7 +234,7 @@ export const channelsRouter = router({
     }),
 
   // ── Instagram DM Inbound ─────────────────────────────────────────────────
-  processInstagram: publicProcedure
+  processInstagram: internalProcedure
     .input(z.object({
       senderId: z.string(),
       recipientId: z.string(),

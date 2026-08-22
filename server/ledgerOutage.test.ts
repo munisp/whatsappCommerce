@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TrpcContext } from "./_core/context";
+import { orders as ordersTable } from "../drizzle/schema";
 
 process.env.PAYSTACK_SECRET_KEY = "sk_test_ledgerOutage";
 delete process.env.PERMIFY_URL;
@@ -42,13 +43,22 @@ function makeMockDb() {
   };
   return {
     select: (_fields?: Record<string, unknown>) => ({
-      from: (_table: unknown) => ({
-        where: (_cond: unknown) => ({
-          limit: (_n: number) => Promise.resolve(rows.slice(0, 1)),
-          orderBy: (_o: unknown) => ({
-            limit: (_n: number) => Promise.resolve(rows.slice(0, 1)),
-          }),
-        }),
+      from: (table: unknown) => ({
+        where: (_cond: unknown) => {
+          // Wave 26 (F1): payment.initiate now loads the ORDER server-side and
+          // derives amount/currency from it. Serve a matching order row when
+          // the orders table is queried; payment_intents reads keep the old
+          // single-row intent store.
+          const source = table === ordersTable
+            ? [{ id: "order-ledger-outage", tenantId: "tenant-1", totalAmount: "2500", currency: "NGN", paymentStatus: "pending" }]
+            : rows;
+          return {
+            limit: (_n: number) => Promise.resolve(source.slice(0, 1)),
+            orderBy: (_o: unknown) => ({
+              limit: (_n: number) => Promise.resolve(source.slice(0, 1)),
+            }),
+          };
+        },
       }),
     }),
     insert: (_table: unknown) => ({

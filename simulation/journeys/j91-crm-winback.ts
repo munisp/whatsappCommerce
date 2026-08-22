@@ -105,7 +105,22 @@ export const journey: Journey = {
     assert(campaign.status === "draft", "win-back campaign starts as a draft");
     assert((campaign.segmentFilter as any)?.noOrderSinceDays === 30, "audience = no order in 30d+");
 
-    const sent = await caller.broadcast.send({ campaignId });
+    // Pin the marketing-frequency clock to 12:00 Africa/Lagos so the
+    // quiet-hours gate (21:00–08:00) in frequencyCap is deterministic —
+    // without this the journey flaked whenever the suite ran at night.
+    const { setMarketingClockOverride } = await import("../../server/services/frequencyCap");
+    const pinnedNoonLagos = () => {
+      const n = new Date();
+      // Lagos = UTC+1 → 12:00 Lagos == 11:00 UTC, same calendar day.
+      return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 11, 0, 0, 0));
+    };
+    setMarketingClockOverride(pinnedNoonLagos);
+    let sent: { total: number };
+    try {
+      sent = await caller.broadcast.send({ campaignId });
+    } finally {
+      setMarketingClockOverride(null);
+    }
     assert(sent.total >= 1, `win-back sent to at-risk audience (got ${sent.total})`);
     await world.waitFor(
       () => world.outbound.toPhone(riskPhone).some((c) => c.waType === "template"),

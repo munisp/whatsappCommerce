@@ -31,6 +31,7 @@ import {
   scanRouterDir,
   isTenantRelevant,
   isGuarded,
+  EXEMPTION_ALLOWLIST,
   type ProcBlock,
 } from "./authzScan.lib";
 
@@ -46,21 +47,28 @@ describe("W12.1/A2-02 authz coverage ratchet", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("exemption count is capped (each must carry a parsed reason)", () => {
+  it("exemptions come only from the explicit allowlist, each with a real reason", () => {
     const exempt = allBlocks.filter((b) => b.exempt);
     // Emit the full list so reviews see every exemption.
     console.log(
-      "authz exemptions:\n" +
+      "authz exemptions (allowlist):\n" +
         exempt
           .map((b) => `  ${b.file.replace(/\.ts$/, "")}.${b.name} — ${b.exempt}`)
           .join("\n"),
     );
-    // A2-02 genuine-exemption count after the hardening pass; only lower this
-    // by fixing procedures, raise it only with an audit-reviewed reason.
-    expect(exempt.length).toBeLessThanOrEqual(17);
+    // W26: exemption count may never exceed the allowlist size — growing the
+    // allowlist requires an audit-reviewed justification in the same PR.
+    expect(exempt.length).toBeLessThanOrEqual(Object.keys(EXEMPTION_ALLOWLIST).length);
     for (const b of exempt) {
       expect(b.exempt!.length).toBeGreaterThan(10); // real reason, not a token
     }
+    // Staleness ratchet: every non-fixture allowlist entry must still match a
+    // scanned procedure — delete the entry when the procedure is fixed/removed.
+    const scanned = new Set(allBlocks.map((b) => `${b.file}:${b.name}`));
+    const stale = Object.keys(EXEMPTION_ALLOWLIST).filter(
+      (k) => !k.startsWith("evasion.fixture.ts:") && !scanned.has(k),
+    );
+    expect(stale).toEqual([]);
   });
 
   it("A2-02 fixture: scanner catches the three evasion classes", () => {
@@ -78,7 +86,13 @@ describe("W12.1/A2-02 authz coverage ratchet", () => {
     expect(flagged.has("deletePriceTier")).toBe(true);
     // 3. comment-only guard does not satisfy the scanner
     expect(flagged.has("updateSettings")).toBe(true);
-    // Controls: real guard and parsed exemption must NOT be flagged
+    // 4. W26: free-form self-approved `// authz:exempt` comment is ignored
+    //    (allowlist-only exemptions) — this procedure has no allowlist entry.
+    expect(flagged.has("selfApprovedExempt")).toBe(true);
+    // 5. W26: odd-indent (4+ space) nested procedure is still discovered and
+    //    flagged — the old 2-space anchor silently unscanned it.
+    expect(flagged.has("oddIndentUnguarded")).toBe(true);
+    // Controls: real guard and allowlist-based exemption must NOT be flagged
     expect(flagged.has("saveConfigGuarded")).toBe(false);
     expect(flagged.has("publicWebhookish")).toBe(false);
   });

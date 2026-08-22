@@ -9,26 +9,32 @@
  *   2. Downloads the media from the WhatsApp Graph API (tenant credentials).
  *   3. Runs the shared receipt vision analysis (services/receiptVision.ts —
  *      the same core as the evidence-portal scanner).
- *   4. Compares the parsed amount to the order total (±₦100 tolerance):
- *      - MATCH   → confirms the payment through the SAME shared confirmation
- *                  path as the Paystack/Flutterwave webhooks
- *                  (services/paymentConfirm.ts — money logic is never
- *                  duplicated) and replies with a confirmation.
- *      - NO MATCH → flags the order metadata receiptReview:true and replies
- *                  that the receipt is queued for manual review.
+ *   4. Compares the parsed amount to the order total (EXACT minor-unit
+ *      match — zero tolerance, Wave 26 audit F2).
+ *
+ *      WAVE 26 AUDIT F2 (CRITICAL): an OCR receipt scan ALONE must NEVER
+ *      auto-confirm a payment. OCR output is attacker-controlled pixels, not
+ *      money movement. Every receipt — matching amount or not — is flagged
+ *      receiptReview:true and queued for HUMAN review; payment confirmation
+ *      only ever happens through the provider webhook / provider fetchStatus
+ *      paths (services/paymentConfirm.ts). The auto-confirm branch that
+ *      previously called confirmProviderPayment from here was removed.
  */
 
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "../db";
-import { customers, orders, paymentTransactions } from "../../drizzle/schema";
+import { customers, orders } from "../../drizzle/schema";
 import { analyzeReceiptImage, parseReceiptAmount, receiptAmountMatches } from "./receiptVision";
-import { confirmProviderPayment } from "./paymentConfirm";
 import { resolveTenantWaCredentials, sendWhatsAppText } from "./waSender";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
-/** Major-unit tolerance between the receipt amount and the order total (₦100). */
-export const RECEIPT_AMOUNT_TOLERANCE = 100;
+/**
+ * Tolerance between the receipt amount and the order total: ZERO (Wave 26
+ * audit F2) — only an exact minor-unit match counts, and even an exact match
+ * never auto-confirms (human review required).
+ */
+export const RECEIPT_AMOUNT_TOLERANCE = 0;
 
 /** Find the buyer's most recent order awaiting payment (last 24h). */
 export async function findRecentUnpaidOrder(
@@ -148,54 +154,21 @@ export async function handleInboundReceiptImage(opts: {
   const parsedAmount =
     parseReceiptAmount(scan.keyFields?.amount) ?? parseReceiptAmount(scan.extractedText);
 
-  // 3. Amount match within tolerance → confirm through the shared path.
+  // 3. Exact amount match → STILL manual review (Wave 26 audit F2). An OCR
+  // scan never confirms a payment by itself; a human (or the provider
+  // webhook / fetchStatus path) must verify real money movement.
   if (parsedAmount != null && receiptAmountMatches(parsedAmount, orderTotal, RECEIPT_AMOUNT_TOLERANCE)) {
-    const [tx] = await db.select().from(paymentTransactions)
-      .where(and(eq(paymentTransactions.orderId, order.id), eq(paymentTransactions.status, "initiated")))
-      .orderBy(desc(paymentTransactions.createdAt))
-      .limit(1);
-
-    if (tx?.providerRef) {
-      // The receipt matched within tolerance; confirm at the order's expected
-      // amount (the parsed amount is recorded in rawPayload for audit).
-      const result = await confirmProviderPayment(db, {
-        provider: tx.provider ?? "manual",
-        reference: tx.providerRef,
-        amountMajor: orderTotal,
-        currency: tx.currency ?? order.currency,
-        rawPayload: {
-          source: "wa_receipt_scan",
-          mediaId: opts.mediaId,
-          parsedAmount,
-          scanSummary: scan.summary,
-          scanConfidence: scan.confidence,
-        },
-      });
-      if (result.ok) {
-        await reply(
-          `✅ Payment received for order ${order.orderNumber} (${fmt(orderTotal)}). ` +
-          `Your payment is confirmed and your order is being prepared. 🎉`,
-        );
-        return { handled: true, outcome: "confirmed", orderId: order.id };
-      }
-      // Shared path rejected (e.g. already-completed is fine; a real mismatch
-      // there means something inconsistent) — fall through to manual review.
-      if (result.action === "already-completed") {
-        await reply(`✅ Order ${order.orderNumber} is already confirmed and being prepared. 🎉`);
-        return { handled: true, outcome: "confirmed", orderId: order.id };
-      }
-    }
-    // No initiatable payment row (e.g. pure bank-transfer tenant) — a human
-    // must record this payment; flag for review rather than bypassing the
-    // shared money path.
     await flagReceiptReview(db, order.id, {
-      receiptReviewReason: "no-payment-transaction",
+      receiptReviewReason: "amount-match-awaiting-human-review",
       receiptMediaId: opts.mediaId,
       parsedAmount,
+      expectedAmount: orderTotal,
+      scanSummary: scan.summary,
+      scanConfidence: scan.confidence,
     });
     await reply(
-      `🧾 Thanks! Your receipt for order ${order.orderNumber} (${fmt(parsedAmount ?? 0)}) matches the expected amount, ` +
-      `but needs a manual confirmation from the store. We'll confirm shortly.`,
+      `🧾 Thanks! Your receipt for order ${order.orderNumber} (${fmt(parsedAmount)}) matches the expected amount. ` +
+      `It's queued for a final confirmation from the store — we'll confirm shortly.`,
     );
     return { handled: true, outcome: "manual_review", orderId: order.id };
   }

@@ -5,7 +5,7 @@
  * IMPORTANT: These endpoints only work after the site is Published (deployed).
  * The Heartbeat platform cannot reach the sandbox dev server.
  */
-import { publicProcedure, router } from "../_core/trpc";
+import { internalProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { runInventorySyncHeartbeat } from "../services/inventorySync";
 import { inventorySnapshots } from "../../drizzle/schema";
@@ -20,7 +20,7 @@ export const heartbeatRouter = router({
    * In production: calls Odoo XML-RPC to pull stock quantities.
    * Here: simulates a sync by updating timestamps and checking low-stock thresholds.
    */
-  inventorySync: publicProcedure
+  inventorySync: internalProcedure
     .input(z.object({ _heartbeat: z.string().optional() }).optional())
     .mutation(async ({ ctx }) => {
       // A3-F03: run the real per-tenant Odoo inventory sync (fail-closed

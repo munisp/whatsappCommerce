@@ -1,5 +1,5 @@
 /**
- * A2-02: strengthened authz-coverage scanner (shared lib).
+ * A2-02 + W26: strengthened authz-coverage scanner (shared lib).
  *
  * Upgrades over the W12.1 regex ratchet:
  *  (a) Same-file module-level `const X = z.object({...})` schemas referenced
@@ -7,10 +7,23 @@
  *      (closes the hermes.saveConfig evasion class).
  *  (b) Inputs keyed by id-like fields (*Id / *id: orderId, poId, accountId,
  *      …) are treated as tenant-relevant even without a literal tenantId:
- *      they require a real guard on comment-stripped source, or a parsed
- *      `// authz:exempt <reason>` marker.
+ *      they require a real guard on comment-stripped source, or an explicit
+ *      EXEMPTION_ALLOWLIST entry.
  *  (c) Guard detection runs on comment-stripped source, so a guard mentioned
  *      only in a comment (or dead string) no longer satisfies the ratchet.
+ *
+ * W26 hardening (closes the "gameable scanner" finding):
+ *  (d) RECURSIVE directory scan — routers organized in subdirectories are
+ *      scanned too (previously only top-level server/routers/*.ts). Test and
+ *      fixture directories (__tests__, *.test.ts, *.fixture.ts) are excluded
+ *      from the production-source scan.
+ *  (e) INDENTATION-AGNOSTIC procedure detection — a procedure reindented
+ *      from 2 to 4+ spaces (e.g. nested sub-routers like geo.merchant.*) is
+ *      still discovered; the old `^\s{2}` anchor silently unscanned it.
+ *  (f) EXEMPTION ALLOWLIST — free-form `// authz:exempt <reason>` comments
+ *      are NO LONGER honored (any author could self-approve). An exemption
+ *      only counts when the exact `file:procedure` pair is present in
+ *      EXEMPTION_ALLOWLIST below with a reviewable justification.
  */
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
@@ -22,11 +35,45 @@ export interface ProcBlock {
   body: string; // raw source of the procedure block
   stripped: string; // comment-stripped body
   inputText: string; // resolved input schema text (inline + module-level consts)
-  exempt: string | null; // parsed exemption reason, if any
+  exempt: string | null; // allowlist justification, if exempted
 }
 
 const PROC_KINDS =
-  "protectedProcedure|publicProcedure|adminProcedure|operatorProcedure|analystProcedure";
+  "protectedProcedure|publicProcedure|adminProcedure|operatorProcedure|analystProcedure|internalProcedure";
+
+/**
+ * W26(f): explicit exemption allowlist. Key: `<file>:<procedure>` (file is
+ * the path relative to server/routers). Value: audit-reviewed justification.
+ * Free-form `// authz:exempt` comments in router source are ignored — add an
+ * entry here (with a real reason) in the same PR that needs the exemption so
+ * reviewers see it.
+ */
+export const EXEMPTION_ALLOWLIST: Record<string, string> = {
+  "alertRules.ts:listEvents":
+    "platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data",
+  "hermes.ts:approvePO":
+    "capability-token PO approval link: lookup requires matching approvalToken (bearer capability)",
+  "hermes.ts:rejectPO":
+    "capability-token PO approval link: lookup requires matching approvalToken (bearer capability)",
+  "mlOps.ts:getMlflowRuns":
+    "platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data",
+  "mlOps.ts:getMetricHistory":
+    "platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data",
+  "mlOps.ts:conclude":
+    "platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data",
+  "operatorTemplates.ts:getById":
+    "platform-shared operator templates readable by id; template library is cross-tenant by design",
+  "procurement.ts:getPo":
+    "object-level check inside getPoForEitherSide (buyer-side or supplier-side access)",
+  "quickReplyTemplates.ts:delete":
+    "shared quick-reply template library (tenantId nullable; list is global), cross-tenant by design",
+  "quickReplyTemplates.ts:incrementUsage":
+    "shared quick-reply template library (tenantId nullable; list is global), cross-tenant by design",
+  // Fixture control: proves the allowlist (not the in-source comment) is what
+  // exempts a procedure. Never add real exemptions for fixture files.
+  "evasion.fixture.ts:publicWebhookish":
+    "fixture: proves allowlist-based exemption works while free-form comments are ignored",
+};
 
 /** Strip line and block comments (naive but adequate for router source). */
 export function stripComments(src: string): string {
@@ -60,12 +107,12 @@ export function moduleSchemas(src: string): Map<string, string> {
   return map;
 }
 
-const EXEMPT_RE = /\/\/\s*authz:exempt\s+(\S[^\n]*)/;
-
 export function procedureBlocksFromSource(src: string, file: string): ProcBlock[] {
   const schemas = moduleSchemas(src);
+  // W26(e): indentation-agnostic — any leading whitespace (or none) before
+  // `<name>: <kind>Procedure`, so reindented/nested procedures stay scanned.
   const starts = Array.from(
-    src.matchAll(new RegExp(`^\\s{2}(\\w+):\\s*(${PROC_KINDS})\\b`, "gm")),
+    src.matchAll(new RegExp(`^\\s*(\\w+):\\s*(${PROC_KINDS})\\b`, "gm")),
   );
   const blocks: ProcBlock[] = [];
   for (let i = 0; i < starts.length; i++) {
@@ -83,7 +130,6 @@ export function procedureBlocksFromSource(src: string, file: string): ProcBlock[
       const resolved = schemas.get(idm[1]);
       if (resolved) inputText += "\n" + resolved;
     }
-    const exemptMatch = body.match(EXEMPT_RE);
     blocks.push({
       file,
       name: m[1],
@@ -91,16 +137,39 @@ export function procedureBlocksFromSource(src: string, file: string): ProcBlock[
       body,
       stripped: stripComments(body),
       inputText: stripComments(inputText),
-      exempt: exemptMatch ? exemptMatch[1].trim() : null,
+      // W26(f): exemptions come ONLY from the explicit allowlist.
+      exempt: EXEMPTION_ALLOWLIST[`${file}:${m[1]}`] ?? null,
     });
   }
   return blocks;
 }
 
-export function scanRouterDir(dir: string): ProcBlock[] {
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".ts"))
-    .flatMap((f) => procedureBlocksFromSource(readFileSync(join(dir, f), "utf8"), f));
+/**
+ * W26(d): recursive scan of the router directory. Subdirectories are
+ * traversed; test/fixture code (__tests__ dirs, *.test.ts, *.fixture.ts) is
+ * excluded because it is test code, not production router surface.
+ */
+export function scanRouterDir(dir: string, relPrefix = ""): ProcBlock[] {
+  const out: ProcBlock[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (entry.name === "__tests__" || entry.name === "node_modules") continue;
+      out.push(
+        ...scanRouterDir(
+          join(dir, entry.name),
+          relPrefix ? `${relPrefix}/${entry.name}` : entry.name,
+        ),
+      );
+    } else if (
+      entry.name.endsWith(".ts") &&
+      !entry.name.endsWith(".test.ts") &&
+      !entry.name.endsWith(".fixture.ts")
+    ) {
+      const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+      out.push(...procedureBlocksFromSource(readFileSync(join(dir, entry.name), "utf8"), rel));
+    }
+  }
+  return out;
 }
 
 const REQUIRED_TENANT_RE = /tenantId:\s*z\.string\(\)(?!\s*\.optional)/;
@@ -125,6 +194,9 @@ export function isGuarded(b: ProcBlock): boolean {
   if (b.exempt) return true;
   if (b.kind === "adminProcedure" || b.kind === "operatorProcedure" || b.kind === "analystProcedure")
     return true;
+  // W26: internalProcedure enforces the INTERNAL_API_KEY shared-secret gate
+  // (see server/_core/trpc.ts) — service-to-service surface, not tenant data.
+  if (b.kind === "internalProcedure") return true;
   if (b.kind === "publicProcedure") return true; // public surface reviewed separately
   if (b.stripped.includes("assertTenantAccess(")) return true;
   if (b.stripped.includes("assertNlpSessionAccess(")) return true;

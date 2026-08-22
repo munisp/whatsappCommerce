@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { alertRules, alertRuleEvents } from "../../drizzle/schema";
 import { eq, desc, gte, count } from "drizzle-orm";
@@ -47,8 +47,7 @@ export const alertRulesRouter = router({
   }),
 
   // ── Create a new rule ───────────────────────────────────────────────────────
-  create: protectedProcedure
-    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
+  create: adminProcedure
     .input(
       z.object({
         name: z.string().min(1).max(128),
@@ -85,8 +84,7 @@ export const alertRulesRouter = router({
     }),
 
   // ── Update an existing rule ─────────────────────────────────────────────────
-  update: protectedProcedure
-    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
+  update: adminProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -115,8 +113,7 @@ export const alertRulesRouter = router({
     }),
 
   // ── Toggle enabled/disabled ─────────────────────────────────────────────────
-  toggle: protectedProcedure
-    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
+  toggle: adminProcedure
     .input(z.object({ id: z.string().uuid(), isEnabled: z.boolean() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -129,8 +126,7 @@ export const alertRulesRouter = router({
     }),
 
   // ── Delete a rule ───────────────────────────────────────────────────────────
-  delete: protectedProcedure
-    // authz:exempt platform-scoped global alert rules (heartbeat/recon ops config), not per-tenant data
+  delete: adminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -162,7 +158,7 @@ export const alertRulesRouter = router({
 
   // ── Seed default rules on first admin login ─────────────────────────────────
   // Idempotent: only inserts if no rules exist yet.
-  seedDefaults: protectedProcedure.mutation(async () => {
+  seedDefaults: adminProcedure.mutation(async () => {
     const db = await getDb();
     if (!db) throw new Error("DB unavailable");
     const existing = await db.select({ id: alertRules.id }).from(alertRules).limit(1);

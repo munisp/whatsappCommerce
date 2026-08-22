@@ -1,0 +1,269 @@
+{
+  "id": "J150",
+  "title": "stokvel circle full rotation",
+  "feature": "group savings circle → rotating payout → completion + audit trail",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348018696386",
+      "profileName": "Sim User 6386",
+      "inboundId": "wamid.sim.in.text.00374",
+      "at": 1787348847189,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00374",
+      "at": 1787348847193
+    },
+    {
+      "dir": "out",
+      "phone": "2348018696386",
+      "wamid": "wamid.sim.000610",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348847233,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013027299",
+      "profileName": "Sim User 7299",
+      "inboundId": "wamid.sim.in.text.00375",
+      "at": 1787348847732,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00375",
+      "at": 1787348847736
+    },
+    {
+      "dir": "out",
+      "phone": "2348013027299",
+      "wamid": "wamid.sim.000611",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348847756,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013506018",
+      "profileName": "Sim User 6018",
+      "inboundId": "wamid.sim.in.text.00376",
+      "at": 1787348848276,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00376",
+      "at": 1787348848280
+    },
+    {
+      "dir": "out",
+      "phone": "2348013506018",
+      "wamid": "wamid.sim.000612",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348848304,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received — the cycle is complete! 🎉 Payout of NGN 1500.00 goes to 2348018696386."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018696386",
+      "profileName": "Sim User 6386",
+      "inboundId": "wamid.sim.in.text.00377",
+      "at": 1787348848821,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00377",
+      "at": 1787348848825
+    },
+    {
+      "dir": "out",
+      "phone": "2348018696386",
+      "wamid": "wamid.sim.000613",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348848860,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013027299",
+      "profileName": "Sim User 7299",
+      "inboundId": "wamid.sim.in.text.00378",
+      "at": 1787348849367,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00378",
+      "at": 1787348849371
+    },
+    {
+      "dir": "out",
+      "phone": "2348013027299",
+      "wamid": "wamid.sim.000614",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348849388,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013506018",
+      "profileName": "Sim User 6018",
+      "inboundId": "wamid.sim.in.text.00379",
+      "at": 1787348849912,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00379",
+      "at": 1787348849918
+    },
+    {
+      "dir": "out",
+      "phone": "2348013506018",
+      "wamid": "wamid.sim.000615",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348849940,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received — the cycle is complete! 🎉 Payout of NGN 1500.00 goes to 2348013027299."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018696386",
+      "profileName": "Sim User 6386",
+      "inboundId": "wamid.sim.in.text.00380",
+      "at": 1787348850457,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00380",
+      "at": 1787348850462
+    },
+    {
+      "dir": "out",
+      "phone": "2348018696386",
+      "wamid": "wamid.sim.000616",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348850493,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013027299",
+      "profileName": "Sim User 7299",
+      "inboundId": "wamid.sim.in.text.00381",
+      "at": 1787348851003,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00381",
+      "at": 1787348851007
+    },
+    {
+      "dir": "out",
+      "phone": "2348013027299",
+      "wamid": "wamid.sim.000617",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348851024,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received. Waiting on the other members to complete this cycle."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013506018",
+      "profileName": "Sim User 6018",
+      "inboundId": "wamid.sim.in.text.00382",
+      "at": 1787348851547,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00382",
+      "at": 1787348851551
+    },
+    {
+      "dir": "out",
+      "phone": "2348013506018",
+      "wamid": "wamid.sim.000618",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348851573,
+      "kind": "text",
+      "body": "✅ Contribution of NGN 500.00 received — the cycle is complete! 🎉 Payout of NGN 1500.00 goes to 2348013506018. The circle has completed a full rotation."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018696386",
+      "profileName": "Sim User 6386",
+      "inboundId": "wamid.sim.in.text.00383",
+      "at": 1787348852094,
+      "kind": "text",
+      "text": "stokvel contribute 8618eeae"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00383",
+      "at": 1787348852098
+    },
+    {
+      "dir": "out",
+      "phone": "2348018696386",
+      "wamid": "wamid.sim.000619",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787348852115,
+      "kind": "text",
+      "body": "⚠️ Could not record your contribution: circle is completed"
+    }
+  ]
+}

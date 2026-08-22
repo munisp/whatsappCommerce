@@ -57,6 +57,7 @@ import {
   getSession,
   newSession,
   saveSession,
+  saveSessionCas,
   type ChatSession,
 } from "./chatSession";
 import {
@@ -65,8 +66,15 @@ import {
   recordConsent,
 } from "./consent";
 import {
+  buildLanguageMenu,
+  isLanguageMenuRequest,
   localizeMenuConfig,
+  LOCALE_NAMES,
+  matchLocalizedIntent,
+  parseLanguageChoice,
   resolveLocale,
+  setStickyLocale,
+  t27,
   tr,
   type Locale,
 } from "./i18n";
@@ -481,13 +489,25 @@ async function applyOutcome(
   outcome: UseCaseOutcome,
 ): Promise<boolean> {
   if (outcome.nextState) {
-    await saveSession({
-      ...session,
+    // Optimistic concurrency: the session was read before the use case ran —
+    // a racing webhook delivery for the same phone must not be overwritten
+    // silently. CAS on casVersion; on conflict reload the freshest session,
+    // re-apply the outcome onto it, and retry once.
+    const buildNext = (base: ChatSession): ChatSession => ({
+      ...base,
       ...outcome.nextState,
       tenantId: deps.tenantId,
       phone: deps.phone,
       updatedAt: Date.now(),
     });
+    const expected = session.casVersion ?? 0;
+    if (await saveSessionCas(buildNext(session), expected)) return true;
+    const fresh = await getSession(deps.tenantId, deps.phone);
+    if (fresh && (await saveSessionCas(buildNext(fresh), fresh.casVersion ?? 0))) return true;
+    console.error(
+      `[useCases] session CAS conflict for ${deps.tenantId}/${deps.phone} — ` +
+      "concurrent update won twice; dropping this transition (flow reply already sent).",
+    );
     return true;
   }
   await clearSession(deps.tenantId, deps.phone);
@@ -638,10 +658,63 @@ export async function handleConversationalInbound(opts: {
     return { handled: true, reply: `${tr(locale, "consentGranted")}\n\n${menu}` };
   }
 
+  // ── 1b. W27 language selection: explicit request opens the picker; while
+  //        awaitingLanguageChoice, a valid choice switches the sticky locale
+  //        and re-renders the menu in the new language. ────────────────────
+  if (isLanguageMenuRequest(text)) {
+    await saveSession({
+      ...(session ?? newSession(tenantId, phone)),
+      awaitingLanguageChoice: true,
+    });
+    return { handled: true, reply: buildLanguageMenu(locale) };
+  }
+  if (session?.awaitingLanguageChoice) {
+    const choice = parseLanguageChoice(text);
+    if (choice) {
+      await setStickyLocale(tenantId, phone, choice).catch(() => {});
+      const localized = localizeMenuConfig(deps.config, choice);
+      const menu = renderWhatsAppMenu(localized, await menuCtxForCaller(deps));
+      await saveSession({ ...newSession(tenantId, phone), awaitingMenuSelection: true });
+      return {
+        handled: true,
+        reply: `${t27(choice, "languageSetConfirm", { language: LOCALE_NAMES[choice] })}\n\n${menu}`,
+      };
+    }
+    return {
+      handled: true,
+      reply: `${t27(locale, "invalidSelection")}\n\n${buildLanguageMenu(locale)}`,
+    };
+  }
+
   // ── 2. Menu keyword always re-opens the menu (and pushes the PDF menu
   //        when the tenant has settings.menuDocUrl configured) ──────────────
   if (isMenuKeyword(text)) {
     return showMenu(deps, { sendMenuDoc: true });
+  }
+
+  // ── 2b. W27 locale-aware intent keywords: localized "shop"/"track"/… map
+  //        to the existing use-case ids so menu navigation works in every
+  //        supported language (English list always included as fallback). ──
+  const localizedIntent = matchLocalizedIntent(text, locale);
+  if (localizedIntent === "menu") {
+    return showMenu(deps, { sendMenuDoc: true });
+  }
+  if (localizedIntent && localizedIntent in useCaseRegistry) {
+    const useCase = deps.config.useCases.find((u) => u.id === localizedIntent && u.enabled);
+    if (useCase) {
+      return runUseCase(deps, session ?? newSession(tenantId, phone), useCase.id as UseCaseId, text);
+    }
+  }
+
+  // === W27 savings-insurance-vouchers (Coder G) ===
+  // Stokvel / insurance / voucher keyword flows. A miss falls through to the
+  // existing use-case / menu / NLP pipeline unchanged.
+  try {
+    const { handleSavingsInbound } = await import("./savingsWa");
+    const savingsOutcome = await handleSavingsInbound({ db, tenantId, phone, text });
+    if (savingsOutcome) return savingsOutcome;
+  } catch (e: any) {
+    console.warn("[useCases] savings inbound handler failed:", e?.message ?? e);
   }
 
   // ── 3. Active use-case flow (slot filling, support intake, …) ────────────
@@ -668,7 +741,10 @@ export async function handleConversationalInbound(opts: {
         .limit(1);
       const ctx = (nlpSession?.context ?? null) as Record<string, unknown> | null;
       return ctx?.awaitingFulfillment === true || ctx?.awaitingAddress === true;
-    } catch {
+    } catch (e: any) {
+      // Session-context read failed — fall back to menu dispatch, but never
+      // swallow the error silently (it usually means DB trouble).
+      console.warn("[useCases] nlp session context read failed:", e?.message ?? e);
       return false;
     }
   })();

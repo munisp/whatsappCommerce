@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
 import { SUPPLIER_TENANT_ID } from "../world";
-import { adminCaller, stripeCheckoutCompleted, postProviderWebhook } from "./helpers";
+import { adminCaller, stripeCheckoutCompleted, postProviderWebhook, seedOrderForInitiate } from "./helpers";
 
 const STRIPE_SECRET_KEY = "sk_stripe_sim";
 const STRIPE_WHSEC = "whsec_sim_stripe";
@@ -34,6 +34,8 @@ export const journey: Journey = {
 
     // ── Initiation served by stripe (Checkout Session mock) ───────────────
     const caller = await adminCaller();
+    // Wave 26 (F1): payment.initiate derives amount from the order row.
+    await seedOrderForInitiate(world, { orderId: "order-j52-stripe", tenantId: SUPPLIER_TENANT_ID, amountMajor: 9_900 });
     const init = await caller.payment.initiate({
       tenantId: SUPPLIER_TENANT_ID,
       orderId: "order-j52-stripe",

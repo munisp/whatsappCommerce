@@ -1,0 +1,8 @@
+{
+  "id": "J137",
+  "title": "i18n fallback to en for missing keys",
+  "feature": "locale→en catalog fallback, tenant overrides, tenant default locale resolution",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -144,6 +144,23 @@ export function computeNextAllowedSendAt(
 
 type DbLike = { execute: (q: any) => Promise<any> };
 
+// ─── Clock seam (test/simulation only) ───────────────────────────────────────
+// The marketing send paths consult quiet hours (21:00–08:00 Africa/Lagos)
+// against the wall clock, which made time-of-day-dependent simulations
+// (e.g. journey J91) flaky. This override lets a simulation pin the clock the
+// frequency policy sees. Production code never sets it.
+let marketingClockOverride: (() => Date) | null = null;
+
+/** Test/simulation seam: pin (or clear, with null) the marketing-frequency clock. */
+export function setMarketingClockOverride(fn: (() => Date) | null): void {
+  marketingClockOverride = fn;
+}
+
+/** The current instant as seen by the marketing frequency policy. */
+export function marketingNow(): Date {
+  return marketingClockOverride?.() ?? new Date();
+}
+
 /**
  * Recent marketing send timestamps for (tenant, phone) from
  * whatsapp_notification_log. Defensive: any query error yields [] (fail

@@ -5,6 +5,14 @@
  * Extracted from server/_core/index.ts so ALL confirmation paths — provider
  * webhooks AND the WhatsApp receipt-scan pipeline — run through the SAME
  * money logic. Never duplicate this logic elsewhere.
+ *
+ * PIN CHANGE LOG: this file was byte-locked at md5
+ * d86c3c3ba52e2ff780166080ba2d1d39. That pin was RETIRED DELIBERATELY for the
+ * Wave 26 audit (F1b): (1) the order-confirmation UPDATE is now scoped by
+ * tenantId so a cross-tenant orderId can never be transitioned; (2) the
+ * webhook amount check is now an EXACT integer minor-unit comparison (the
+ * ₦0.01 tolerance is gone). New pin hash is recorded in the commit message
+ * and the Wave 26 audit trail.
  */
 import { eq, and, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -189,10 +197,13 @@ export async function confirmProviderPayment(
   };
 
   // ── Amount/currency verification (BEFORE any state mutation) ─────────────
+  // Wave 26 audit F1b: EXACT integer minor-unit comparison — no ₦0.01
+  // tolerance. A webhook reporting even 1 kobo off the expected amount is
+  // rejected.
   const amountMismatch =
     opts.amountMajor == null ||
     !Number.isFinite(opts.amountMajor) ||
-    Math.abs(opts.amountMajor - expectedAmount) > 0.01;
+    Math.round(opts.amountMajor * 100) !== Math.round(expectedAmount * 100);
   const currencyMismatch =
     !opts.currency || !expectedCurrency || opts.currency.toUpperCase() !== expectedCurrency;
   if (amountMismatch || currencyMismatch) {
@@ -260,17 +271,25 @@ export async function confirmProviderPayment(
   // hooks below run — so only drive order confirmation for references that
   // really are orders rows.
   if (orderId) {
+    // Tenant-scoped: an orderId pointing at ANOTHER tenant's order is treated
+    // as a non-order reference (Wave 26 audit F1b).
     const [orderRow] = await db
       .select({ id: orders.id })
       .from(orders)
-      .where(eq(orders.id, orderId))
+      .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
       .limit(1);
     if (!orderRow) orderId = null;
   }
   if (orderId) {
+    // Wave 26 audit F1b: tenant-scoped update — the order lookup/transition
+    // must never touch a row outside the payment's own tenant.
     await db.update(orders)
       .set({ paymentStatus: "completed", status: "confirmed", updatedAt: now })
-      .where(and(eq(orders.id, orderId), sql`${orders.paymentStatus} <> 'completed'`));
+      .where(and(
+        eq(orders.id, orderId),
+        eq(orders.tenantId, tenantId),
+        sql`${orders.paymentStatus} <> 'completed'`,
+      ));
 
     // Payment confirmed → commit the stock reservations made at order
     // creation (reserved → committed; stock stays decremented). Runs ONLY on

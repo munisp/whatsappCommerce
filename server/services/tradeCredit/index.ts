@@ -97,6 +97,33 @@ export {
   type SettleDrawToSupplierArgs,
 } from "./enforcement";
 
+// ── W27 credit: merchant micro-loans (working capital) ──────────────────────
+export {
+  getLoanOffersTx,
+  getLoanOffers,
+  acceptLoanTx,
+  acceptLoan,
+  repayLoanManualTx,
+  runLoanRepaymentSweepTx,
+  runLoanRepaymentSweep,
+  listLoansTx,
+  repaymentScheduleFor,
+  tierForScore,
+  sizeOffer,
+  deductionForSale,
+  loanRepaymentRef,
+  LOAN_TIERS,
+  MIN_LOAN_CENTS,
+  MAX_LOAN_CENTS,
+  DEFAULT_GRACE_DAYS,
+  type LoanTier,
+  type LoanOffer,
+  type OffersResult,
+  type AcceptLoanResult,
+  type LoanSweepResult,
+  type RepaymentScheduleEntry,
+} from "./microLoans";
+
 async function requireDb(): Promise<DbHandle> {
   const db = await getDb();
   if (!db) throw new Error("[tradeCredit] database unavailable");

@@ -80,8 +80,13 @@ export const invoiceRouter = router({
             AND "createdAt" <= ${periodEnd}
         `);
         const revenue = Number((result as any[])[0]?.revenue ?? 0);
-        subtotal = revenue;
-        commissionAmount = revenue * (input.commissionRate ?? 0.05);
+        // Integer minor units: convert to cents first, then apply the rate
+        // and round exactly once — no float commission drift (fee must be a
+        // clean cent amount for the invoice total to reconcile).
+        const revenueMinor = Math.round(revenue * 100);
+        const commissionMinor = Math.round(revenueMinor * (input.commissionRate ?? 0.05));
+        subtotal = revenueMinor / 100;
+        commissionAmount = commissionMinor / 100;
         lineItems.push({ description: `Revenue (${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()})`, amount: revenue, currency: input.currency });
         lineItems.push({ description: `Platform commission (${((input.commissionRate ?? 0.05) * 100).toFixed(1)}%)`, amount: commissionAmount, currency: input.currency });
       } else if (input.type === "subscription") {

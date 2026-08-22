@@ -104,3 +104,52 @@ describe("in-memory fallback (dev/test, Redis unavailable)", () => {
     expect(await getSession("other-tenant", P)).toBeNull();
   });
 });
+
+describe("saveSessionCas (optimistic concurrency)", () => {
+  it("in-memory: CAS succeeds on matching version, fails on stale version", async () => {
+    const { saveSessionCas } = await import("./services/chatSession");
+    await saveSession({ ...newSession(T, P), step: "start" });
+    const s1 = (await getSession(T, P))!;
+    expect(s1.casVersion).toBe(1);
+
+    // Two readers base mutations on version 1 — only the first wins.
+    expect(await saveSessionCas({ ...s1, step: "writer-a" }, s1.casVersion!)).toBe(true);
+    expect(await saveSessionCas({ ...s1, step: "writer-b" }, s1.casVersion!)).toBe(false);
+
+    const after = (await getSession(T, P))!;
+    expect(after.step).toBe("writer-a");
+    expect(after.casVersion).toBe(2);
+
+    // Reload-and-reapply recovers: writer B re-reads (v2) and CAS succeeds.
+    expect(await saveSessionCas({ ...after, step: "writer-b" }, after.casVersion!)).toBe(true);
+    expect((await getSession(T, P))?.step).toBe("writer-b");
+  });
+
+  it("in-memory: CAS fails when the session no longer exists", async () => {
+    const { saveSessionCas } = await import("./services/chatSession");
+    expect(await saveSessionCas(newSession(T, P), 0)).toBe(false);
+  });
+
+  it("redis: uses an atomic eval check-and-set", async () => {
+    const { saveSessionCas } = await import("./services/chatSession");
+    const store = new Map<string, string>();
+    redisClient = {
+      get: vi.fn(async (k: string) => store.get(k) ?? null),
+      setex: vi.fn(async (k: string, _t: number, v: string) => { store.set(k, v); }),
+      del: vi.fn(async (k: string) => { store.delete(k); }),
+      // Minimal eval shim honoring the Lua check-and-set contract.
+      eval: vi.fn(async (_lua: string, _nk: number, k: string, expected: string, ttl: string, v: string) => {
+        const cur = store.get(k);
+        if (!cur) return 0;
+        if ((JSON.parse(cur).casVersion ?? 0) !== Number(expected)) return 0;
+        store.set(k, v);
+        return 1;
+      }),
+    } as any;
+    await saveSession(newSession(T, P));
+    const s = (await getSession(T, P))!;
+    expect(await saveSessionCas({ ...s, step: "x" }, s.casVersion!)).toBe(true);
+    expect(await saveSessionCas({ ...s, step: "y" }, s.casVersion!)).toBe(false);
+    expect((redisClient as any).eval).toHaveBeenCalled();
+  });
+});

@@ -318,19 +318,34 @@ export async function settleEscrowAtomic(
       }
 
       const wallet = await getOrCreateWallet(tx, escrow.tenantId, "psp");
-      const netAmount = parseFloat(escrow.netMerchantAmount);
-      const fee = parseFloat(escrow.platformFee);
-      const releaseTxId = await recordWalletTxInTx(tx, wallet.id, escrow.tenantId, "escrow_release", netAmount, {
-        orderId: escrow.orderId, escrowTxId: escrow.id,
-        description: `${opts.descriptionPrefix ?? "Settlement"} for order ${escrow.orderId}`,
-      });
+      // F5 — remainder-aware release: after a PARTIAL refund the escrow still
+      // holds only (amount − alreadyRefunded). Releasing the full stored
+      // netMerchantAmount would pay out more than remains held. Refunds are
+      // taken out of the merchant's net first (integer cents), so:
+      //   release = max(0, net − alreadyRefunded), and release ≤ held remainder.
+      const meta = (escrow.metadata ?? {}) as Record<string, unknown>;
+      const alreadyRefundedCents = Math.round((parseFloat(String(meta.refundedAmount ?? "0")) || 0) * 100);
+      const netCents = Math.round(parseFloat(escrow.netMerchantAmount) * 100);
+      const feeCents = Math.round(parseFloat(escrow.platformFee) * 100);
+      const grossCents = Math.round(parseFloat(escrow.amount) * 100);
+      const heldRemainderCents = Math.max(0, grossCents - alreadyRefundedCents);
+      // Fee is only collected to the extent funds actually remain held.
+      const fee = Math.min(feeCents, heldRemainderCents) / 100;
+      const netAmount = Math.min(Math.max(0, netCents - alreadyRefundedCents), Math.max(0, heldRemainderCents - Math.min(feeCents, heldRemainderCents))) / 100;
+      // Skip a zero-amount ledger row when the refund consumed the entire net.
+      const releaseTxId = netAmount > 0
+        ? await recordWalletTxInTx(tx, wallet.id, escrow.tenantId, "escrow_release", netAmount, {
+            orderId: escrow.orderId, escrowTxId: escrow.id,
+            description: `${opts.descriptionPrefix ?? "Settlement"} for order ${escrow.orderId}${alreadyRefundedCents > 0 ? ` (net of ₦${(alreadyRefundedCents / 100).toFixed(2)} already refunded)` : ""}`,
+          })
+        : null;
       if (fee > 0) {
         await recordWalletTxInTx(tx, wallet.id, escrow.tenantId, "fee_deduction", fee, {
           orderId: escrow.orderId, escrowTxId: escrow.id,
           description: `Platform fee for order ${escrow.orderId}`,
         });
       }
-      const [final] = await tx.update(escrowTransactions).set({ merchantWalletTxId: releaseTxId, updatedAt: new Date() })
+      const [final] = await tx.update(escrowTransactions).set({ ...(releaseTxId ? { merchantWalletTxId: releaseTxId } : {}), updatedAt: new Date() })
         .where(eq(escrowTransactions.id, escrow.id))
         .returning();
       return { transitioned: true, newState: targetState, escrow: final ?? escrow };
@@ -557,8 +572,28 @@ export async function finalizeWalletWithdrawal(
   const metadata = (row.metadata ?? {}) as Record<string, unknown>;
   const currentStatus = String(metadata.status ?? "");
   if (currentStatus === "completed" || currentStatus === "failed") {
+    // F7 reconciliation: a webhook that CONTRADICTS the recorded terminal
+    // state means money and ledger disagree — e.g. the row was refunded
+    // ("failed") but Paystack now reports transfer.success (the payout
+    // actually landed). Never silently swallow that: flag the row for manual
+    // reconciliation and surface the conflict.
+    const contradicts =
+      (currentStatus === "failed" && opts.event === "transfer.success") ||
+      (currentStatus === "completed" && opts.event !== "transfer.success");
+    if (contradicts) {
+      await db.execute(sql`
+        UPDATE wallet_transactions
+        SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{needsReconciliation}', 'true'::jsonb)
+                        || ${JSON.stringify({ reconciliationReason: `webhook ${opts.event} contradicts recorded status ${currentStatus}`, conflictingEvent: opts.event, conflictingReason: opts.reason })}::jsonb
+        WHERE id = ${row.id}
+      `);
+      console.error(`[withdrawal-reconciliation] CONFLICT on ref ${opts.reference}: recorded status "${currentStatus}" but received "${opts.event}" — flagged needsReconciliation`);
+      return { ok: false, action: "conflict-flagged" };
+    }
     return { ok: true, action: "already-terminal" };
   }
+  // "uncertain" rows (initiate timed out and verification was inconclusive)
+  // fall through and are finalized by this webhook normally.
 
   if (opts.event === "transfer.success") {
     const claimed = await db.execute(sql`
@@ -652,10 +687,16 @@ export const escrowRouter = router({
       assertTenantAccess(ctx.user, input.tenantId);
       const cfg = await getEscrowConfig(db);
 
-      // Idempotency check
-      if (input.idempotencyKey) {
+      // Idempotency: one hold per order, always — even when the caller
+      // supplies no key. The deterministic fallback "escrow-hold:<orderId>"
+      // means a retry of the same hold (double-click, network retry,
+      // payment-confirm replay) reuses the SAME key, so the unique index on
+      // idempotency_key makes the second insert a replay instead of a
+      // duplicate hold.
+      const idempotencyKey = input.idempotencyKey ?? `escrow-hold:${input.orderId}`;
+      {
         const [existing] = await db.select().from(escrowTransactions)
-          .where(eq(escrowTransactions.idempotencyKey, input.idempotencyKey));
+          .where(eq(escrowTransactions.idempotencyKey, idempotencyKey));
         if (existing) return existing;
       }
 
@@ -705,22 +746,34 @@ export const escrowRouter = router({
       const buyerDeadline = new Date(Date.now() + cfg.buyerConfirmWindowHours * 3600 * 1000);
 
       const id = crypto.randomUUID();
-      await db.insert(escrowTransactions).values({
-        id,
-        orderId: input.orderId,
-        tenantId: input.tenantId,
-        customerId: input.customerId,
-        amount: split.gross,
-        platformFee: split.fee,
-        netMerchantAmount: split.net,
-        currency: input.currency,
-        custodyMode: cfg.custodyMode,
-        state: "escrow_held",
-        buyerConfirmDeadline: buyerDeadline,
-        idempotencyKey: input.idempotencyKey,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      try {
+        await db.insert(escrowTransactions).values({
+          id,
+          orderId: input.orderId,
+          tenantId: input.tenantId,
+          customerId: input.customerId,
+          amount: split.gross,
+          platformFee: split.fee,
+          netMerchantAmount: split.net,
+          currency: input.currency,
+          custodyMode: cfg.custodyMode,
+          state: "escrow_held",
+          buyerConfirmDeadline: buyerDeadline,
+          idempotencyKey,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      } catch (err: any) {
+        // 23505 on idempotency_key: a concurrent same-order hold won the race
+        // between our existence check and the insert. Replay it — never a
+        // second hold for the same order.
+        if (err?.code === "23505" || String(err?.message ?? "").includes("idempotency")) {
+          const [existing] = await db.select().from(escrowTransactions)
+            .where(eq(escrowTransactions.idempotencyKey, idempotencyKey));
+          if (existing) return existing;
+        }
+        throw err;
+      }
 
       // PSP mode: credit merchant escrow wallet
       if (cfg.custodyMode === "psp") {
@@ -1597,8 +1650,9 @@ export const walletRouter = router({
       // and the real payout are two separate operations (can't share one DB
       // transaction with an external HTTP call), so this is a compensating
       // action, not a rollback.
-      const { createTransferRecipient, initiateTransfer, PaystackTransferError } = await import("../services/payments/paystackTransfer");
+      const { createTransferRecipient, initiateTransfer, verifyTransfer, PaystackTransferError } = await import("../services/payments/paystackTransfer");
       let outcome: { status: "success" | "pending" | "processing" | "otp"; transferCode: string | null; recipientCode: string } | { status: "failed"; error: string };
+      let createdRecipientCode: string | null = null;
       try {
         const recipientCode = await createTransferRecipient({
           secretKey: ENV.paystackSecretKey,
@@ -1607,6 +1661,7 @@ export const walletRouter = router({
           bankCode: payoutBankCode,
           currency: wallet.currency,
         });
+        createdRecipientCode = recipientCode;
         const transfer = await initiateTransfer({
           secretKey: ENV.paystackSecretKey,
           recipientCode,
@@ -1621,18 +1676,77 @@ export const walletRouter = router({
       }
 
       if (outcome.status === "failed") {
-        // Compensating credit: same atomic-update discipline as the debit.
-        await db.execute(sql`
-          UPDATE merchant_wallets
-          SET available_balance = available_balance + ${input.amount.toFixed(2)}::numeric,
-              total_withdrawn = total_withdrawn - ${input.amount.toFixed(2)}::numeric,
-              updated_at = now()
-          WHERE id = ${wallet.id}
-        `);
-        await db.update(walletTransactions).set({
-          description: `Withdrawal to ${payoutAccountNumber} (failed — refunded)`,
-          metadata: sql`jsonb_set(COALESCE(${walletTransactions.metadata}, '{}'::jsonb), '{status}', '"failed"'::jsonb) || ${JSON.stringify({ error: outcome.error })}::jsonb`,
-        }).where(eq(walletTransactions.id, walletTxId));
+        // F7 — timeout double-spend guard: a network/timeout failure on
+        // /transfer is AMBIGUOUS — Paystack may have received and queued the
+        // transfer even though we never saw the response. Refunding here
+        // without checking would let the merchant withdraw the same money
+        // again while the real payout still lands. Verify the transfer by
+        // reference first; only refund when Paystack definitively has no
+        // (live) transfer for this reference.
+        let verified: { status: string | null; transferCode: string | null; found: boolean } | null = null;
+        let verifyError: string | null = null;
+        for (let attempt = 0; attempt < 3 && verified === null; attempt++) {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 500 * attempt));
+          try {
+            verified = await verifyTransfer(ENV.paystackSecretKey, ref);
+          } catch (err: unknown) {
+            verifyError = err instanceof Error ? err.message : String(err);
+          }
+        }
+
+        if (verified && verified.found && verified.status && verified.status !== "failed" && verified.status !== "reversed") {
+          // The transfer EXISTS and may still pay out — do NOT refund. Treat
+          // it as in-flight; the transfer.success/failed webhook finalizes it.
+          const liveStatus = (verified.status === "success" || verified.status === "pending"
+            || verified.status === "processing" || verified.status === "otp" ? verified.status : "pending") as
+            "success" | "pending" | "processing" | "otp";
+          outcome = { status: liveStatus, transferCode: verified.transferCode, recipientCode: createdRecipientCode ?? "" };
+          console.warn(`[withdrawal] initiateTransfer errored but transfer ${ref} exists at Paystack (status ${liveStatus}) — NOT refunding; webhook will finalize`);
+        } else if (verified === null) {
+          // Could not confirm either way — do NOT refund. Leave the debit in
+          // place and flag the row for reconciliation; the webhook (or an
+          // admin reject after manual verification) finalizes it.
+          await db.update(walletTransactions).set({
+            description: `Withdrawal to ${payoutAccountNumber} (UNCONFIRMED — needs reconciliation)`,
+            metadata: sql`jsonb_set(COALESCE(${walletTransactions.metadata}, '{}'::jsonb), '{status}', '"uncertain"'::jsonb) || ${JSON.stringify({ needsReconciliation: true, initiateError: outcome.error, verifyError })}::jsonb`,
+          }).where(eq(walletTransactions.id, walletTxId));
+          await writeAuditLog({
+            actorId: String(ctx.user.id), actorRole: ctx.user.role, action: "wallet.withdrawal",
+            entityType: "merchant_wallet", entityId: wallet.id, tenantId: input.tenantId,
+            summary: `Withdrawal of ₦${input.amount.toFixed(2)} UNCONFIRMED (ref ${ref}) — transfer status could not be verified; balance NOT refunded, reconciliation required`,
+            after: { amount: input.amount, reference: ref, status: "uncertain", initiateError: outcome.error, verifyError },
+          });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Payout status could not be confirmed with the payment provider. Your balance was NOT refunded yet — the withdrawal is flagged for reconciliation and will resolve via webhook or admin review.",
+          });
+        }
+        // else: verified.found === false or terminal failed/reversed → safe to refund below.
+      }
+
+      if (outcome.status === "failed") {
+        // Compensating credit + ledger-row update in ONE transaction: the
+        // balance can never be refunded without the row being marked failed
+        // (or vice versa), and the claim-guarded UPDATE makes a concurrent
+        // finalize/reject a no-op instead of a double refund.
+        await db.transaction(async (tx) => {
+          const claimed = await tx.execute(sql`
+            UPDATE wallet_transactions
+            SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{status}', '"failed"'::jsonb)
+                            || ${JSON.stringify({ error: (outcome as { error?: string }).error ?? "transfer failed" })}::jsonb,
+                description = ${`Withdrawal to ${payoutAccountNumber} (failed — refunded)`}
+            WHERE id = ${walletTxId} AND metadata->>'status' NOT IN ('completed', 'failed')
+            RETURNING id
+          `);
+          if ((claimed as unknown[]).length === 0) return; // already finalized elsewhere — no double refund
+          await tx.execute(sql`
+            UPDATE merchant_wallets
+            SET available_balance = available_balance + ${input.amount.toFixed(2)}::numeric,
+                total_withdrawn = total_withdrawn - ${input.amount.toFixed(2)}::numeric,
+                updated_at = now()
+            WHERE id = ${wallet.id}
+          `);
+        });
         await writeAuditLog({
           actorId: String(ctx.user.id), actorRole: ctx.user.role, action: "wallet.withdrawal",
           entityType: "merchant_wallet", entityId: wallet.id, tenantId: input.tenantId,

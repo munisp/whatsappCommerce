@@ -4,7 +4,7 @@
  * Falls back gracefully when MEDUSA_API_URL is not configured.
  */
 import { z } from "zod";
-import { protectedProcedure, publicProcedure, operatorProcedure, assertTenantAccess, router } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, publicProcedure, operatorProcedure, assertTenantAccess, router } from "../_core/trpc";
 import {
   isMedusaConfigured,
   listProducts,
@@ -32,6 +32,7 @@ import { randomUUID } from "crypto";
 function getMedusaTenantId(ctx: { user?: { tenantId?: string | null } | null }): string {
   return ctx.user?.tenantId ?? "default";
 }
+
 
 export const medusaRouter = router({
   /** Check if Medusa is configured */
@@ -86,8 +87,7 @@ export const medusaRouter = router({
   }),
 
   /** List orders (admin) */
-  listOrders: protectedProcedure
-    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
+  listOrders: adminProcedure
     .input(z.object({
       limit: z.number().min(1).max(100).default(20),
       offset: z.number().min(0).default(0),
@@ -100,8 +100,7 @@ export const medusaRouter = router({
     }),
 
   /** Get single order */
-  getOrder: protectedProcedure
-    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
+  getOrder: adminProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ input }) => {
       if (!isMedusaConfigured()) return { order: null, configured: false };
@@ -117,8 +116,7 @@ export const medusaRouter = router({
   }),
 
   /** Create price list (B2B wholesale tier) */
-  createPriceList: protectedProcedure
-    // authz:exempt Medusa admin-API proxy: upstream Medusa instance is single-tenant, scoping enforced by Medusa keys
+  createPriceList: adminProcedure
     .input(z.object({
       name: z.string().min(1),
       type: z.enum(["sale", "override"]),
@@ -350,5 +348,209 @@ export const medusaRouter = router({
     const cfg = await getMedusaIntegrationConfig(getMedusaTenantId(ctx));
     if (!cfg) return { configured: false, baseUrl: null, source: null };
     return { configured: true, baseUrl: cfg.baseUrl, source: cfg.source };
+  }),
+
+  // === W28 medusa-storefront (Coder B): per-tenant store mappings ===
+  // These procedures resolve the SESSION tenant's own mapping — the Wave-26
+  // blanket admin-only restriction is lifted for per-tenant operations.
+  // Cross-tenant administration (the `configure`/`listOrders` procedures
+  // above, which take an explicit tenantId) stays operator/admin-gated.
+
+  /** Read the session tenant's store mapping (null until first connect). */
+  getMapping: protectedProcedure.query(async ({ ctx }) => {
+    const tenantId = ctx.user?.tenantId;
+    if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "No tenant on session" });
+    const { getMedusaMapping } = await import("../services/medusa/adapter");
+    const mapping = await getMedusaMapping(tenantId);
+    if (!mapping) return { mapping: null };
+    // Never echo credential material — only the reference.
+    return {
+      mapping: {
+        id: mapping.id,
+        tenantId: mapping.tenantId,
+        medusaStoreId: mapping.medusaStoreId,
+        medusaSalesChannelId: mapping.medusaSalesChannelId,
+        baseUrl: mapping.baseUrl,
+        apiKeyRef: mapping.apiKeyRef,
+        catalogSource: mapping.catalogSource,
+        syncEnabled: mapping.syncEnabled,
+        lastBackfillAt: mapping.lastBackfillAt,
+        lastWebhookAt: mapping.lastWebhookAt,
+      },
+    };
+  }),
+
+  /**
+   * Connect (or update) the session tenant's Medusa store: persists the
+   * mapping row and the encrypted credential (tenant_integrations, same
+   * store as the admin `configure` procedure). Session-tenant scoped.
+   */
+  upsertMapping: protectedProcedure
+    .input(z.object({
+      baseUrl: z.string().url(),
+      /** Omit to keep the existing stored credential on update. */
+      apiKey: z.string().min(1).optional(),
+      medusaStoreId: z.string().max(128).optional(),
+      medusaSalesChannelId: z.string().max(128).optional(),
+      syncEnabled: z.boolean().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // Session-tenant scoped (fail closed) — the caller's own mapping only.
+      const tenantId = ctx.user?.tenantId;
+      if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "No tenant on session" });
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const { medusaStoreMappings, tenantIntegrations: ti } = await import("../../drizzle/schema");
+      const baseUrl = input.baseUrl.replace(/\/+$/, "");
+
+      // Credential row (encrypted at rest) — upsert like `configure`. The
+      // apiKey is optional on update: omitted → keep the stored credential.
+      const [existingInt] = await db
+        .select({ id: ti.id })
+        .from(ti)
+        .where(and(eq(ti.tenantId, tenantId), eq(ti.integrationType, "medusa")))
+        .limit(1);
+      if (!existingInt && !input.apiKey) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "apiKey is required when connecting a new store" });
+      }
+      const encApiKey = input.apiKey ? encryptSecret(input.apiKey) : null;
+      let integrationId: string;
+      if (existingInt) {
+        integrationId = existingInt.id;
+        await db.update(ti).set({
+          baseUrl,
+          ...(encApiKey ? { apiKey: encApiKey } : {}),
+          status: "active", enabledAt: new Date(), updatedAt: new Date(),
+        }).where(eq(ti.id, existingInt.id));
+      } else {
+        integrationId = randomUUID();
+        await db.insert(ti).values({
+          id: integrationId, tenantId, integrationType: "medusa",
+          displayName: "Medusa Commerce", baseUrl, apiKey: encApiKey!,
+          status: "active", enabledAt: new Date(),
+        });
+      }
+
+      const [existing] = await db
+        .select({ id: medusaStoreMappings.id })
+        .from(medusaStoreMappings)
+        .where(eq(medusaStoreMappings.tenantId, tenantId))
+        .limit(1);
+      const values = {
+        tenantId,
+        medusaStoreId: input.medusaStoreId ?? null,
+        medusaSalesChannelId: input.medusaSalesChannelId ?? null,
+        baseUrl,
+        apiKeyRef: `tenant_integrations:${integrationId}`,
+        ...(input.syncEnabled !== undefined ? { syncEnabled: input.syncEnabled } : {}),
+        updatedAt: new Date(),
+      };
+      if (existing) {
+        await db.update(medusaStoreMappings).set(values).where(eq(medusaStoreMappings.id, existing.id));
+        return { ok: true, id: existing.id };
+      }
+      const id = randomUUID();
+      await db.insert(medusaStoreMappings).values({ id, ...values });
+      return { ok: true, id };
     }),
+
+  /** Test the session tenant's Medusa connection via the resolved adapter. */
+  testMapping: protectedProcedure.mutation(async ({ ctx }) => {
+    const tenantId = ctx.user?.tenantId;
+    if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "No tenant on session" });
+    const { getMedusaAdapter } = await import("../services/medusa/adapter");
+    const resolved = await getMedusaAdapter(tenantId);
+    if (!resolved) {
+      return { ok: false, error: "Medusa is not configured for this tenant" };
+    }
+    return resolved.adapter.testConnection();
+  }),
+
+  /**
+   * Tenant-triggered full catalog backfill: pulls every product through the
+   * adapter into the idempotent upsert (same path as webhooks).
+   */
+  backfillCatalog: protectedProcedure.mutation(async ({ ctx }) => {
+    const tenantId = ctx.user?.tenantId;
+    if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "No tenant on session" });
+    const db = await getDb();
+    if (!db) throw new Error("DB unavailable");
+    const { getMedusaAdapter } = await import("../services/medusa/adapter");
+    const { backfillMedusaCatalog } = await import("../services/medusa/sync");
+    const resolved = await getMedusaAdapter(tenantId);
+    if (!resolved?.mapping) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Connect a Medusa store first (medusa.upsertMapping)" });
+    }
+    return backfillMedusaCatalog(db, tenantId, resolved.adapter);
+  }),
+
+  /** Catalog source toggle for the storefront (platform | medusa). */
+  setCatalogSource: protectedProcedure
+    .input(z.object({ source: z.enum(["platform", "medusa"]) }))
+    .mutation(async ({ ctx, input }) => {
+      // Session-tenant scoped (fail closed) — the caller's own mapping only.
+      const tenantId = ctx.user?.tenantId;
+      if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "No tenant on session" });
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const { medusaStoreMappings } = await import("../../drizzle/schema");
+      const [existing] = await db
+        .select({ id: medusaStoreMappings.id })
+        .from(medusaStoreMappings)
+        .where(eq(medusaStoreMappings.tenantId, tenantId))
+        .limit(1);
+      if (!existing) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Connect a Medusa store first (medusa.upsertMapping)" });
+      }
+      await db.update(medusaStoreMappings)
+        .set({
+          catalogSource: input.source,
+          // Toggling to medusa implies sync should flow; platform keeps creds.
+          ...(input.source === "medusa" ? { syncEnabled: true } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(medusaStoreMappings.id, existing.id));
+      return { catalogSource: input.source };
+    }),
+
+  /**
+   * Bridge a platform order to Medusa (idempotent per order). Tenant-scoped:
+   * the order must belong to the session tenant. Returns the link state.
+   */
+  bridgeOrder: protectedProcedure
+    .input(z.object({ orderId: z.string().min(1).max(36) }))
+    .mutation(async ({ ctx, input }) => {
+      // Session-tenant scoped (fail closed) — the caller's own mapping only.
+      const tenantId = ctx.user?.tenantId;
+      if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "No tenant on session" });
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const { getMedusaAdapter } = await import("../services/medusa/adapter");
+      const { bridgeOrderToMedusa } = await import("../services/medusa/orderBridge");
+      const resolved = await getMedusaAdapter(tenantId);
+      if (!resolved?.mapping) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Connect a Medusa store first (medusa.upsertMapping)" });
+      }
+      return bridgeOrderToMedusa(db, tenantId, input.orderId, resolved.adapter, resolved.mapping.syncEnabled);
+    }),
+
+  /** Bridge state for one of the session tenant's orders. */
+  getOrderBridge: protectedProcedure
+    .input(z.object({ orderId: z.string().min(1).max(36) }))
+    .query(async ({ ctx, input }) => {
+      // Session-tenant scoped (fail closed) — the caller's own mapping only.
+      const tenantId = ctx.user?.tenantId;
+      if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "No tenant on session" });
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const { medusaOrderLinks } = await import("../../drizzle/schema");
+      const [link] = await db
+        .select()
+        .from(medusaOrderLinks)
+        .where(and(eq(medusaOrderLinks.tenantId, tenantId), eq(medusaOrderLinks.orderId, input.orderId)))
+        .limit(1)
+        .catch(() => []);
+      return { link: link ?? null };
+    }),
+  // === END W28 medusa-storefront ===
 });

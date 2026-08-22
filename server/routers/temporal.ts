@@ -9,7 +9,7 @@
  *   - Update workflow status from callbacks
  */
 import { z } from "zod";
-import { router, adminProcedure, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, adminProcedure, protectedProcedure, publicProcedure, internalProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { temporalWorkflowRuns } from "../../drizzle/schema";
 import {
@@ -49,7 +49,7 @@ export const temporalRouter = router({
     }),
 
   // ── Record a workflow run (called by Go services) ───────────────────────────
-  recordRun: publicProcedure
+  recordRun: internalProcedure
     .input(z.object({
       workflowId: z.string(),
       runId: z.string(),
@@ -77,7 +77,7 @@ export const temporalRouter = router({
     }),
 
   // ── Update workflow status ──────────────────────────────────────────────────
-  updateStatus: publicProcedure
+  updateStatus: internalProcedure
     .input(z.object({
       runId: z.string(),
       status: z.enum(["completed", "failed", "cancelled", "timed_out", "terminated"]),

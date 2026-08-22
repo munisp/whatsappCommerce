@@ -11,7 +11,7 @@
  *   - TigerBeetle account management
  *   - Reconciliation trigger
  */
-import { router, adminProcedure, protectedProcedure, publicProcedure } from "../_core/trpc";
+import { router, adminProcedure, protectedProcedure, internalProcedure } from "../_core/trpc";
 import { z } from "zod";
 import { getDb } from "../db";
 import {
@@ -129,7 +129,7 @@ export const infraRouter = router({
   }),
 
   // ── WAF Events ──────────────────────────────────────────────────────────────
-  recordWafEvent: publicProcedure
+  recordWafEvent: internalProcedure
     .input(z.object({
       tenantId: z.string().optional(),
       severity: z.enum(["critical", "high", "medium", "low", "info"]).default("medium"),
@@ -193,7 +193,7 @@ export const infraRouter = router({
     }),
 
   // ── Fluvio Event Log ─────────────────────────────────────────────────────────
-  recordFluvioEvent: publicProcedure
+  recordFluvioEvent: internalProcedure
     .input(z.object({
       topic: z.string(),
       offset: z.number().int(),
@@ -422,7 +422,7 @@ export const infraRouter = router({
   }),
 
   // ── Reconciliation run recording (called by recon-worker) ───────────────────
-  recordReconRun: publicProcedure
+  recordReconRun: internalProcedure
     .input(z.object({
       runId: z.string(),
       discrepancies: z.number().int(),
