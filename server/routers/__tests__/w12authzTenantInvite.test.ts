@@ -81,3 +81,64 @@ describe("tenantInvite.resend", () => {
     expect(r.sent).toBe(true);
   });
 });
+
+// ── W30 hotfix2: resend must mint a LIVE token ──────────────────────────────
+// Before the fix resend minted an UNREGISTERED 72h token — validate() always
+// rejected it ("Invite token is not registered"), so every resent link was
+// dead. Resend now registers the jti in tenant_invite_tokens with the same
+// single-use ≤24h semantics as create().
+describe("tenantInvite.resend mints a live, single-use ≤24h token (hotfix2)", () => {
+  function makeStatefulDb() {
+    const tokens: any[] = [];
+    const tenantP = Promise.resolve([tenantRow]);
+    return {
+      tokens,
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn(() => tenantP), then: (r: any, j: any) => tenantP.then(r, j) })),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        values: vi.fn(async (v: any) => { tokens.push({ ...v, consumedAt: null }); }),
+      })),
+      update: vi.fn(() => ({
+        set: (vals: any) => ({
+          where: () => ({
+            returning: async () => {
+              const t = tokens.find((x) => !x.consumedAt);
+              if (!t) return [];
+              t.consumedAt = vals.consumedAt ?? new Date();
+              return [{ jti: t.jti }];
+            },
+          }),
+        }),
+      })),
+    } as any;
+  }
+
+  it("resent token carries a registered jti and validates exactly once", async () => {
+    const db = makeStatefulDb();
+    vi.mocked(getDb).mockResolvedValue(db);
+    const admin = tenantInviteRouter.createCaller(ADMIN);
+    const r = await admin.resend({ tenantId: T1 });
+    expect(r.sent).toBe(true);
+
+    // jti is in the signed token AND in the registry, expiring ≤ 24h out.
+    const token = r.portalUrl.split("token=")[1];
+    const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    expect(typeof payload.jti).toBe("string");
+    const reg = db.tokens.find((t: any) => t.jti === payload.jti);
+    expect(reg, "jti registered in tenant_invite_tokens").toBeTruthy();
+    expect(reg.tenantId).toBe(T1);
+    expect(reg.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
+    expect(payload.exp - payload.iat).toBeLessThanOrEqual(24 * 3600);
+
+    // validate() accepts it (the old dead-token bug) …
+    const portal = tenantInviteRouter.createCaller({ user: null } as any);
+    const first = await portal.validate({ token });
+    expect(first.valid, `first validate must succeed (got ${(first as any).error})`).toBe(true);
+    // … and exactly once (single-use consume).
+    const second = await portal.validate({ token });
+    expect(second.valid).toBe(false);
+  });
+});

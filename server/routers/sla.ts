@@ -2,7 +2,7 @@ import { z } from "zod";
 import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { escrowSlaConfig, escrowTransactions, escrowDisputes, orders } from "../../drizzle/schema";
-import { eq, isNull, and, inArray } from "drizzle-orm";
+import { eq, isNull, and, or, inArray, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { emitNotification } from "./notifications";
 import { settleEscrowAtomic, refundEscrowAtomic } from "./escrow";
@@ -69,22 +69,74 @@ export async function getEffectiveSlaConfig(db: NonNullable<Awaited<ReturnType<t
 // disputes are never auto-resolved.
 export async function runSlaScan() {
   const db = await getDb();
-  if (!db) return { scanned: 0, warned: 0, overdue: 0, settled: 0, skippedDisputed: 0, skippedUndelivered: 0, refunded: 0 };
+  if (!db) return { scanned: 0, warned: 0, overdue: 0, settled: 0, skippedDisputed: 0, skippedUndelivered: 0, skippedCourierUnverified: 0, refunded: 0 };
 
-  // Get all active escrows (held state)
+  // Get all active escrows (held state) — plus any escrow flagged
+  // metadata.refundSweepRequired (e.g. a refunded-internally escrow whose
+  // PROVIDER refund leg failed at cancel time, verify-v1 #9). Flagged
+  // escrows are handled by the sweep branch below and NEVER released.
   const activeEscrows = await db
     .select()
     .from(escrowTransactions)
-    .where(inArray(escrowTransactions.state, ["escrow_held", "delivery_confirmed"]));
+    .where(or(
+      inArray(escrowTransactions.state, ["escrow_held", "delivery_confirmed"]),
+      sql`metadata->>'refundSweepRequired' = 'true'`,
+    ));
 
   let warned = 0;
   let overdue = 0;
   let settled = 0;
   let skippedDisputed = 0;
   let skippedUndelivered = 0;
+  let skippedCourierUnverified = 0;
   let refunded = 0;
 
   for (const escrow of activeEscrows) {
+    // ── W30 hotfix (verify-v1 #9): provider-refund retry. The internal
+    // wallet-ledger refund already happened (e.g. at order cancel); only the
+    // PSP leg failed. Retry it here; keep the flag while the provider keeps
+    // failing. This runs before any deadline/release logic and NEVER settles.
+    const sweepMeta = (escrow.metadata ?? {}) as Record<string, unknown>;
+    if (sweepMeta.refundSweepRequired === true && sweepMeta.providerRefundOnly === true) {
+      const [order] = escrow.orderId
+        ? await db.select({ id: orders.id, currency: orders.currency }).from(orders).where(eq(orders.id, escrow.orderId)).limit(1)
+        : [undefined];
+      const { executeProviderRefund, honestOrderRefundStatus, honestRefundVocabulary } = await import("../services/payments/refunds");
+      const outcome = order
+        ? await executeProviderRefund(db, {
+            tenantId: escrow.tenantId,
+            orderId: escrow.orderId!,
+            amountCents: Math.round(parseFloat(String(escrow.amount)) * 100),
+            currency: order.currency ?? "NGN",
+            reason: `Provider-refund sweep for escrow ${escrow.id} (flagged at order cancellation)`,
+          })
+        : { executed: false as const, status: "no_provider_refund" as const, error: "order not found" };
+      if (outcome.status === "failed") {
+        console.error(`[sla-scan] provider-refund sweep failed for escrow ${escrow.id}: ${outcome.error} — will retry`);
+        continue;
+      }
+      // Terminal (executed / queued / no provider path): clear the flag and
+      // stamp the honest vocabulary + order payment status.
+      await db.update(escrowTransactions).set({
+        metadata: {
+          ...sweepMeta,
+          refundSweepRequired: false,
+          providerRefundOnly: false,
+          providerRefundFailed: false,
+          providerRefundError: null,
+          providerRefundVocabulary: honestRefundVocabulary(outcome),
+          providerRefundReference: outcome.refundReference ?? null,
+          providerRefundCompletedAt: new Date().toISOString(),
+        },
+        updatedAt: new Date(),
+      }).where(eq(escrowTransactions.id, escrow.id));
+      if (order) {
+        await db.update(orders).set({ paymentStatus: honestOrderRefundStatus(outcome), updatedAt: new Date() })
+          .where(eq(orders.id, order.id));
+      }
+      continue;
+    }
+
     // The escrow's SLA clock is the buyer-confirmation deadline (the column
     // previously read, `slaDeadline`, does not exist on escrow_transactions).
     const slaDeadline = escrow.buyerConfirmDeadline as Date | null;
@@ -123,7 +175,7 @@ export async function runSlaScan() {
       // unshipped/cancelled orders were auto-paid to the merchant once the
       // payment-time deadline elapsed.
       const [order] = escrow.orderId
-        ? await db.select({ id: orders.id, status: orders.status }).from(orders).where(eq(orders.id, escrow.orderId)).limit(1)
+        ? await db.select({ id: orders.id, status: orders.status, currency: orders.currency }).from(orders).where(eq(orders.id, escrow.orderId)).limit(1)
         : [undefined];
 
       // Cancelled order → the buyer must get their money back, never the
@@ -134,14 +186,43 @@ export async function runSlaScan() {
         });
         if (refund.success) {
           refunded++;
-          await db.update(orders).set({ paymentStatus: "refunded", updatedAt: new Date() })
+          // ── W30 hotfix (verify-v1 #9): internal ledger refund alone does
+          // not return PSP-custodied money — execute the provider refund and
+          // record the honest vocabulary (refunded / refund_initiated /
+          // refund_recorded). On provider failure flag the escrow for the
+          // provider-refund sweep (top of this scan) — never released.
+          const { executeProviderRefund, honestOrderRefundStatus, honestRefundVocabulary } = await import("../services/payments/refunds");
+          const providerOutcome = await executeProviderRefund(db, {
+            tenantId: escrow.tenantId,
+            orderId: escrow.orderId!,
+            amountCents: Math.round(refund.refundedAmount * 100),
+            currency: order?.currency ?? "NGN",
+            reason: `Order ${escrow.orderId} cancelled — SLA scan auto-refund to buyer`,
+          });
+          const honestStatus = honestOrderRefundStatus(providerOutcome);
+          await db.update(orders).set({ paymentStatus: honestStatus, updatedAt: new Date() })
             .where(eq(orders.id, escrow.orderId));
+          if (providerOutcome.status === "failed") {
+            const meta = (escrow.metadata ?? {}) as Record<string, unknown>;
+            await db.update(escrowTransactions).set({
+              metadata: {
+                ...meta,
+                refundSweepRequired: true,
+                providerRefundOnly: true,
+                providerRefundFailed: true,
+                providerRefundError: providerOutcome.error ?? "unknown",
+              },
+              updatedAt: new Date(),
+            }).where(eq(escrowTransactions.id, escrow.id));
+            console.error(`[sla-scan] cancel-refund provider leg FAILED for escrow ${escrow.id}: ${providerOutcome.error} — flagged for provider-refund sweep`);
+          }
+          const vocab = honestRefundVocabulary(providerOutcome);
           await emitNotification({
             tenantId: escrow.tenantId,
             type: "escrow_refunded",
             title: "Escrow Refunded (Order Cancelled)",
-            body: `Order #${escrow.orderId ?? escrow.id.slice(0, 8)} was cancelled; ₦${refund.refundedAmount.toLocaleString()} recorded as refunded to the buyer.`,
-            metadata: { escrowId: escrow.id, autoRefund: true },
+            body: `Order #${escrow.orderId ?? escrow.id.slice(0, 8)} was cancelled; ₦${refund.refundedAmount.toLocaleString()} ${vocab === "refund_paid" ? "refunded to the buyer" : vocab === "refund_initiated" ? "refund initiated with the payment provider (queued)" : vocab === "refund_failed" ? "refund recorded internally — provider refund pending retry" : "recorded as refunded on the platform ledger (provider refund unavailable)"}.`,
+            metadata: { escrowId: escrow.id, autoRefund: true, refundVocabulary: vocab },
           });
         } else {
           console.error(`[sla-scan] cancel-refund failed for escrow ${escrow.id}: ${refund.error}`);
@@ -158,13 +239,56 @@ export async function runSlaScan() {
         });
         if (refund.success) {
           refunded++;
-          await db.update(escrowTransactions).set({
-            metadata: { ...escMeta, refundSweepRequired: false, refundSweepCompletedAt: new Date().toISOString() },
-            updatedAt: new Date(),
-          }).where(eq(escrowTransactions.id, escrow.id));
+          // W30 hotfix (verify-v1 #9): internal refund recovered — now run
+          // the provider leg too (best-effort). If the provider fails, keep
+          // the sweep flag (providerRefundOnly) for the next scan.
+          const { executeProviderRefund, honestOrderRefundStatus, honestRefundVocabulary } = await import("../services/payments/refunds");
+          const providerOutcome = escrow.orderId
+            ? await executeProviderRefund(db, {
+                tenantId: escrow.tenantId,
+                orderId: escrow.orderId,
+                amountCents: Math.round(refund.refundedAmount * 100),
+                currency: order?.currency ?? "NGN",
+                reason: `Refund sweep for escrow ${escrow.id} (flagged at order cancellation)`,
+              })
+            : { executed: false as const, status: "no_provider_refund" as const, error: "no order" };
+          if (providerOutcome.status === "failed") {
+            await db.update(escrowTransactions).set({
+              metadata: { ...escMeta, refundSweepRequired: true, providerRefundOnly: true, providerRefundFailed: true, providerRefundError: providerOutcome.error ?? "unknown" },
+              updatedAt: new Date(),
+            }).where(eq(escrowTransactions.id, escrow.id));
+            console.error(`[sla-scan] refund sweep provider leg failed for escrow ${escrow.id}: ${providerOutcome.error} — will retry`);
+          } else {
+            await db.update(escrowTransactions).set({
+              metadata: {
+                ...escMeta,
+                refundSweepRequired: false,
+                refundSweepCompletedAt: new Date().toISOString(),
+                providerRefundVocabulary: honestRefundVocabulary(providerOutcome),
+                providerRefundReference: providerOutcome.refundReference ?? null,
+              },
+              updatedAt: new Date(),
+            }).where(eq(escrowTransactions.id, escrow.id));
+          }
+          if (escrow.orderId) {
+            await db.update(orders).set({ paymentStatus: honestOrderRefundStatus(providerOutcome), updatedAt: new Date() })
+              .where(eq(orders.id, escrow.orderId));
+          }
         } else {
           console.error(`[sla-scan] refund sweep failed for escrow ${escrow.id}: ${refund.error}`);
         }
+        continue;
+      }
+
+      // ── W30 hotfix (verify-v1 #11): escrow delivery was self-reported by a
+      // mock/local/unverified courier in production — NEVER auto-settle.
+      // Skip + alert; settlement requires a real buyer confirm or admin review.
+      if (escMeta.buyerProtection === "courier_unverified") {
+        skippedCourierUnverified++;
+        await notifyOwner({
+          title: `SLA auto-release BLOCKED — unverified courier (escrow ${escrow.id.slice(0, 8)})`,
+          content: `Escrow ${escrow.id} (order ${escrow.orderId ?? "unknown"}, tenant ${escrow.tenantId}, state ${escrow.state}) breached its buyer-confirmation deadline, but its delivery confirmation came from a mock/local/unverified courier ("${escMeta.courierUnverifiedAt ? `flagged at ${escMeta.courierUnverifiedAt}` : "courier_unverified"}"). Auto-release was skipped. Require buyer confirmation or manual admin review before settling.`,
+        }).catch(() => {/* non-fatal */});
         continue;
       }
 
@@ -203,7 +327,7 @@ export async function runSlaScan() {
     }
   }
 
-  return { scanned: activeEscrows.length, warned, overdue, settled, skippedDisputed, skippedUndelivered, refunded };
+  return { scanned: activeEscrows.length, warned, overdue, settled, skippedDisputed, skippedUndelivered, skippedCourierUnverified, refunded };
 }
 
 // ─── tRPC router ─────────────────────────────────────────────────────────────

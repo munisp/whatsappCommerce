@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { evaluateOutboundUrl, isPrivateIpv4, isPrivateIpv6 } from "./ssrfGuard";
-import { sniffMime, isRiskyInlineType, servedContentPolicy } from "./storageSecurity";
+import { sniffMime, isRiskyInlineType, servedContentPolicy, keyTenantScope, sessionMayReadScopedKey } from "./storageSecurity";
 import { makeCapabilityTokens } from "./capabilityTokens";
 import { evaluateChallenge, withdrawalStepUpThreshold, type StepUpChallengeRow } from "./stepUp";
 import { hashOtp, verifyOtpHash } from "../routers/phoneAuth";
@@ -43,6 +43,63 @@ describe("ssrfGuard (V2#8)", () => {
     expect(evaluateOutboundUrl("not a url").ok).toBe(false);
     expect(evaluateOutboundUrl("").ok).toBe(false);
   });
+
+  // ── W30 hotfix: IPv6 embedded-IPv4 bypass (independent-verifier residual) ──
+  // WHATWG URL parsing rewrites dotted IPv4-mapped IPv6 to HEX hextets, so
+  // http://[::ffff:127.0.0.1]/ arrives at the guard as [::ffff:7f00:1] and
+  // previously SAILED THROUGH (only the dotted form was classified).
+  it("blocks the verifier's live-reproduced bypass vectors", () => {
+    for (const u of [
+      "http://[::ffff:7f00:1]/",        // 127.0.0.1 loopback
+      "http://[::ffff:a9fe:a9fe]/",     // 169.254.169.254 cloud metadata
+      "http://[::ffff:127.0.0.1]/",     // dotted form of the same
+      "http://[::ffff:169.254.169.254]/latest/meta-data",
+    ]) {
+      const r = evaluateOutboundUrl(u);
+      expect(r.ok, `${u} must be blocked (got: ${r.ok})`).toBe(false);
+    }
+  });
+  it("classifies every IPv4-mapped hex form like its embedded IPv4", () => {
+    // Private embedded v4 → blocked; public embedded v4 → allowed.
+    for (const [v6, v4, blocked] of [
+      ["::ffff:7f00:1", "127.0.0.1", true],
+      ["::ffff:a9fe:a9fe", "169.254.169.254", true],
+      ["::ffff:a00:1", "10.0.0.1", true],
+      ["::ffff:c0a8:101", "192.168.1.1", true],
+      ["::ffff:ac10:1", "172.16.0.1", true],
+      ["::ffff:6440:1", "100.64.0.1", true],          // CGNAT
+      ["::ffff:808:808", "8.8.8.8", false],
+      ["::ffff:8.8.8.8", "8.8.8.8", false],
+    ] as const) {
+      expect(isPrivateIpv6(v6), `${v6} (${v4})`).toBe(blocked);
+      expect(evaluateOutboundUrl(`http://[${v6}]/`).ok, `url [::${v6}]`).toBe(!blocked);
+    }
+  });
+  it("classifies IPv4-compatible, 6to4 and Teredo embedded IPv4", () => {
+    expect(isPrivateIpv6("::127.0.0.1")).toBe(true);   // v4-compatible dotted
+    expect(isPrivateIpv6("::7f00:1")).toBe(true);      // v4-compatible hex
+    expect(isPrivateIpv6("::8.8.8.8")).toBe(false);
+    expect(isPrivateIpv6("2002:c0a8:0101::")).toBe(true);   // 6to4 → 192.168.1.1
+    expect(isPrivateIpv6("2002:7f00:1::")).toBe(true);      // 6to4 → 127.0.0.1
+    expect(isPrivateIpv6("2002:0808:0808::")).toBe(false);  // 6to4 → 8.8.8.8
+    // Teredo: client v4 is the last 32 bits XOR 0xffffffff.
+    expect(isPrivateIpv6("2001:0:5ef5:79fd::f5ff:fffe")).toBe(true);  // → 10.0.0.1
+    expect(isPrivateIpv6("2001:0:5ef5:79fd::f7f7:f7f7")).toBe(false); // → 8.8.8.8
+  });
+  it("blocks the remaining reserved IPv6 ranges", () => {
+    for (const ip of ["::", "::1", "fe80::1", "fe90::1", "fec0::1", "fc00::1", "fd12::1", "2001:db8::1", "ff02::1", "fe80::1%eth0"]) {
+      expect(isPrivateIpv6(ip), ip).toBe(true);
+    }
+    // And genuinely public IPv6 still passes.
+    expect(isPrivateIpv6("2606:4700:4700::1111")).toBe(false);
+    expect(evaluateOutboundUrl("https://[2606:4700:4700::1111]/").ok).toBe(true);
+    expect(isPrivateIpv6("64:ff9b::7f00:1")).toBe(false); // NAT64 wk84 — out of scope
+  });
+  it("rejects garbage without throwing", () => {
+    for (const bad of ["1.2.3.4", "gg::1", "1:2:3:4:5:6:7:8:9", "1::2::3", ":::1", ""]) {
+      expect(isPrivateIpv6(bad), bad).toBe(false);
+    }
+  });
 });
 
 describe("storageSecurity (V3#17)", () => {
@@ -65,6 +122,30 @@ describe("storageSecurity (V3#17)", () => {
     expect(isRiskyInlineType("text/html; charset=utf-8")).toBe(true);
     expect(isRiskyInlineType("application/javascript")).toBe(true);
     expect(isRiskyInlineType("image/png")).toBe(false);
+  });
+
+  // ── W30 hotfix2: session-path tenancy for tenant-scoped key namespaces ──
+  it("keyTenantScope extracts the tenant from scoped namespaces only", () => {
+    expect(keyTenantScope("tenant-branding/t-1/logo-1.png")).toBe("t-1");
+    expect(keyTenantScope("whatsapp-media/t-9/file-1-doc.pdf")).toBe("t-9");
+    expect(keyTenantScope("medusa-onboarding/t-2/kyb.pdf")).toBe("t-2");
+    expect(keyTenantScope("visual-inventory/t-3/sess-1.jpg")).toBe("t-3");
+    // Non-scoped namespaces carry no tenant segment → null (unchanged path).
+    expect(keyTenantScope("product-images/clothing/1-a.png")).toBeNull();
+    expect(keyTenantScope("kyc/app-1/id-1.pdf")).toBeNull();
+    expect(keyTenantScope("evidence/disp-1/uuid-note.txt")).toBeNull();
+    expect(keyTenantScope("escrow-attachments/esc-1/evt-1/1-a.pdf")).toBeNull();
+    expect(keyTenantScope("solo-segment")).toBeNull();
+  });
+  it("sessionMayReadScopedKey enforces the session tenant (admin bypass)", () => {
+    const tenantUser = { role: "user", tenantId: "t-1", memberships: null };
+    const memberUser = { role: "user", tenantId: null, memberships: ["t-2"] };
+    const admin = { role: "admin", tenantId: null, memberships: null };
+    expect(sessionMayReadScopedKey(tenantUser, "t-1")).toBe(true);
+    expect(sessionMayReadScopedKey(tenantUser, "t-2")).toBe(false); // cross-tenant read blocked
+    expect(sessionMayReadScopedKey(memberUser, "t-2")).toBe(true);
+    expect(sessionMayReadScopedKey(memberUser, "t-1")).toBe(false);
+    expect(sessionMayReadScopedKey(admin, "t-1")).toBe(true);
   });
 });
 

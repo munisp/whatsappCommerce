@@ -74,6 +74,86 @@ async function resolveOriginalPayment(db: Db, tenantId: string, orderId: string)
   };
 }
 
+/** B's honest refund vocabulary (W30 — verify-v1 #9). */
+export type HonestRefundVocabulary = "refund_paid" | "refund_initiated" | "refund_recorded" | "refund_failed";
+
+/**
+ * Map a provider refund outcome to the honest vocabulary:
+ *  - provider confirmed executed   → refund_paid
+ *  - provider accepted (queued)    → refund_initiated (NOT yet paid)
+ *  - provider attempted & failed   → refund_failed
+ *  - no provider refund path        → refund_recorded (platform-internal only —
+ *    the buyer's bank was NOT refunded)
+ */
+export function honestRefundVocabulary(outcome: ProviderRefundOutcome): HonestRefundVocabulary {
+  if (outcome.executed) return outcome.status === "processed" ? "refund_paid" : "refund_initiated";
+  return outcome.status === "failed" ? "refund_failed" : "refund_recorded";
+}
+
+/**
+ * Honest orders.paymentStatus vocabulary for a full-refund flow
+ * (verify-v1 #9 W30 hotfix): "refunded" is reserved for provider-confirmed
+ * execution; a queued provider refund is "refund_initiated"; an
+ * internal-ledger-only refund is "refund_recorded" — we never claim money
+ * was returned to the buyer's bank when it wasn't.
+ */
+export function honestOrderRefundStatus(
+  outcome: ProviderRefundOutcome,
+): "refunded" | "refund_initiated" | "refund_recorded" {
+  if (outcome.executed) return outcome.status === "processed" ? "refunded" : "refund_initiated";
+  return "refund_recorded";
+}
+
+/**
+ * Execute a provider refund against an EXPLICIT PSP reference — for holds
+ * that have no order row (e.g. group-deal participant paymentRefs).
+ * Never throws.
+ */
+export async function executeProviderRefundByReference(
+  db: Db,
+  opts: {
+    tenantId: string;
+    reference: string;
+    provider?: string;
+    amountCents: number;
+    currency: string;
+    reason?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<ProviderRefundOutcome> {
+  try {
+    if (!opts.reference) {
+      return { executed: false, status: "no_provider_refund", error: "no provider payment reference supplied" };
+    }
+    const chain = await getProviderForTenant(opts.tenantId);
+    const refundCapable = chain.filter((e) => typeof e.provider.refund === "function");
+    if (refundCapable.length === 0) {
+      return { executed: false, status: "no_provider_refund", error: "no refund-capable provider configured for tenant" };
+    }
+    const entry = (opts.provider ? refundCapable.find((e) => e.provider.id === opts.provider) : undefined) ?? refundCapable[0]!;
+    const result: RefundResult = await entry.provider.refund!(
+      {
+        tenantId: opts.tenantId,
+        reference: opts.reference,
+        amountCents: opts.amountCents,
+        currency: opts.currency,
+        reason: opts.reason,
+        metadata: opts.metadata,
+      },
+      entry.creds,
+    );
+    return {
+      executed: result.ok,
+      status: result.ok ? result.status : "failed",
+      provider: result.provider,
+      refundReference: result.refundReference,
+      error: result.error,
+    };
+  } catch (err: any) {
+    return { executed: false, status: "failed", error: String(err?.message ?? err) };
+  }
+}
+
 /**
  * Execute a provider refund for an order payment. Never throws — failures
  * are reported via the outcome so callers record honest refund state.
@@ -87,32 +167,17 @@ export async function executeProviderRefund(
     if (!original?.reference) {
       return { executed: false, status: "no_provider_refund", error: "no completed provider payment reference found for order" };
     }
-    const chain = await getProviderForTenant(opts.tenantId);
-    // Prefer the provider that took the original payment; fall back to any
-    // refund-capable adapter in the tenant's chain.
-    const refundCapable = chain.filter((e) => typeof e.provider.refund === "function");
-    if (refundCapable.length === 0) {
-      return { executed: false, status: "no_provider_refund", error: "no refund-capable provider configured for tenant" };
-    }
-    const entry = (original.provider ? refundCapable.find((e) => e.provider.id === original.provider) : undefined) ?? refundCapable[0]!;
-    const result: RefundResult = await entry.provider.refund!(
-      {
-        tenantId: opts.tenantId,
-        reference: original.reference,
-        amountCents: opts.amountCents,
-        currency: opts.currency,
-        reason: opts.reason,
-        metadata: { orderId: opts.orderId },
-      },
-      entry.creds,
-    );
-    return {
-      executed: result.ok,
-      status: result.ok ? result.status : "failed",
-      provider: result.provider,
-      refundReference: result.refundReference,
-      error: result.error,
-    };
+    // Prefer the provider that took the original payment; the by-reference
+    // helper falls back to any refund-capable adapter in the tenant's chain.
+    return executeProviderRefundByReference(db, {
+      tenantId: opts.tenantId,
+      reference: original.reference,
+      provider: original.provider || undefined,
+      amountCents: opts.amountCents,
+      currency: opts.currency,
+      reason: opts.reason,
+      metadata: { orderId: opts.orderId },
+    });
   } catch (err: any) {
     return { executed: false, status: "failed", error: String(err?.message ?? err) };
   }

@@ -27,6 +27,52 @@ export function sniffMime(head: Buffer | Uint8Array): string | null {
   return null;
 }
 
+/**
+ * W30 hotfix2: tenant-scoped storage key namespaces. For these prefixes the
+ * SECOND path segment is the owning tenantId (established by the storagePut
+ * call sites — tenantConfig branding, whatsappMedia, medusaOnboarding,
+ * visualInventory/visualStocktake). The /api/storage session path enforces
+ * that the caller's session tenant matches; the capability-token path
+ * (?cap=…) is unaffected (the token is already bound to the exact key).
+ *
+ * Namespaces NOT listed here (product-images catalog, kyc, evidence,
+ * escrow-attachments) carry no tenant segment in their keys — evidence and
+ * escrow attachments are shared via capability tokens, product images are
+ * catalog-public — so session-authenticated reads stay as they were.
+ */
+const TENANT_SCOPED_KEY_PREFIXES = new Set([
+  "tenant-branding",
+  "whatsapp-media",
+  "medusa-onboarding",
+  "visual-inventory",
+]);
+
+/** The owning tenantId encoded in a storage key, or null when the key's
+ *  namespace is not tenant-prefixed. */
+export function keyTenantScope(key: string): string | null {
+  const segments = key.split("/").filter((s) => s.length > 0);
+  if (segments.length < 2) return null;
+  if (!TENANT_SCOPED_KEY_PREFIXES.has(segments[0])) return null;
+  try {
+    return decodeURIComponent(segments[1]);
+  } catch {
+    return segments[1];
+  }
+}
+
+/** Session-path authorization: may `user` read an object scoped to
+ *  `scopeTenantId`? Platform admins bypass; otherwise the session tenant or
+ *  a membership must match. */
+export function sessionMayReadScopedKey(
+  user: { role?: string | null; tenantId?: string | null; memberships?: readonly string[] | null },
+  scopeTenantId: string,
+): boolean {
+  if (user.role === "admin") return true;
+  if (user.tenantId && user.tenantId === scopeTenantId) return true;
+  if (Array.isArray(user.memberships) && user.memberships.includes(scopeTenantId)) return true;
+  return false;
+}
+
 /** Types that must never be served inline on the application origin. */
 export function isRiskyInlineType(contentType: string): boolean {
   const t = contentType.split(";")[0].trim().toLowerCase();

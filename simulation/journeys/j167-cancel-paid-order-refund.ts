@@ -48,7 +48,10 @@ export const journey: Journey = {
     const [ord] = await world.db.select().from(schema.orders)
       .where(eq(schema.orders.id, order.orderId)).limit(1);
     assert(ord.status === "cancelled", `order cancelled (got ${ord.status})`);
-    assert(ord.paymentStatus === "refunded", `order payment refunded (got ${ord.paymentStatus})`);
+    // W30 hotfix (verify-v1 #9): cancel now ALSO executes the real provider
+    // refund — the paystack adapter queues refunds, so the honest status is
+    // "refund_initiated" (never "refunded" until the provider confirms).
+    assert(ord.paymentStatus === "refund_initiated", `order payment honestly refund_initiated (got ${ord.paymentStatus})`);
 
     // The cancelled-order escrow must NEVER be releasable: a bulk/admin
     // release attempt against the refunded escrow is rejected.

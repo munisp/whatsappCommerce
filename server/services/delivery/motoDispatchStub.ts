@@ -52,6 +52,8 @@ async function call<T>(path: string, init: RequestInit): Promise<T> {
 export const motoDispatchStubAdapter: CourierAdapter = {
   id: "moto_dispatch",
   displayName: "Moto Dispatch Partner API (stub)",
+  // verify-v1 #11: stub adapter — no live courier feed; untrusted for escrow.
+  escrowTrusted: false,
 
   async quote(req: QuoteRequest): Promise<Quote> {
     const data = await call<{

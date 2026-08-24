@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders, orderItems, refunds, inventorySnapshots, paymentIntents, customers } from "../../drizzle/schema";
 import { sendOrderNotificationWithLog, type OrderNotifType } from "./whatsappNotifications";
@@ -404,8 +404,40 @@ export const orderCrudRouter = router({
         }).catch((e: unknown) => ({ success: false as const, error: (e as Error)?.message ?? String(e) }));
         if (refund.success) {
           escrowRefunded = true;
-          await db.update(orders).set({ paymentStatus: "refunded", updatedAt: new Date() })
+          // ── W30 hotfix (verify-v1 #9): the internal wallet-ledger refund
+          // alone does NOT return PSP-custodied money to the buyer. Execute
+          // the real provider refund (best-effort) and record the honest
+          // status vocabulary — "refunded" only when the provider confirms,
+          // "refund_initiated" when queued, "refund_recorded" when the money
+          // has only moved on the platform's internal ledger.
+          const { executeProviderRefund, honestOrderRefundStatus } = await import("../services/payments/refunds");
+          const providerOutcome = await executeProviderRefund(db, {
+            tenantId: order.tenantId,
+            orderId: input.orderId,
+            amountCents: Math.round(refund.refundedAmount * 100),
+            currency: order.currency ?? "NGN",
+            reason: `Order ${input.orderId} cancelled${input.reason ? `: ${input.reason}` : ""}`,
+          });
+          const honestStatus = honestOrderRefundStatus(providerOutcome);
+          await db.update(orders).set({ paymentStatus: honestStatus, updatedAt: new Date() })
             .where(eq(orders.id, input.orderId));
+          if (providerOutcome.status === "failed") {
+            // Provider attempted and FAILED — flag the escrow for the SLA
+            // refund sweep (which retries the provider leg and never
+            // releases) + alert via logs. Never claim the buyer was repaid.
+            const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
+            await db.update(escrowTransactions).set({
+              metadata: {
+                ...meta,
+                refundSweepRequired: true,
+                providerRefundOnly: true,
+                providerRefundFailed: true,
+                providerRefundError: providerOutcome.error ?? "unknown",
+              },
+              updatedAt: new Date(),
+            }).where(eq(escrowTransactions.id, activeEscrow.id));
+            console.error(`[orderCrud] cancel of order ${input.orderId}: provider refund FAILED (${providerOutcome.error}) — escrow flagged for provider-refund sweep`);
+          }
         } else {
           // Mark for the refund sweep (runSlaScan retries flagged escrows and
           // NEVER releases them) + alert — the escrow must not stay releasable.
@@ -436,7 +468,9 @@ export const orderCrudRouter = router({
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       // Tenant isolation: refunds are money movement — only the owning tenant
       // (or an admin) may initiate one.
-      assertTenantAccess(ctx.user, order.tenantId);
+      // W30 hotfix (F7 residual): owner|operator membership required — an
+      // analyst membership must never initiate a refund.
+      await assertMoneyAccess(ctx.user, order.tenantId);
       if (order.paymentStatus !== "completed") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Can only refund paid orders" });
       }
@@ -542,9 +576,11 @@ export const orderCrudRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       // Tenant isolation: approving/rejecting a refund is money movement —
       // resolve the refund's tenant and enforce ownership.
+      // W30 hotfix (F7 residual): owner|operator membership required (analyst
+      // must never approve a money-moving refund).
       const [refund] = await db.select().from(refunds).where(eq(refunds.id, input.refundId)).limit(1);
       if (!refund) throw new TRPCError({ code: "NOT_FOUND", message: "Refund not found" });
-      assertTenantAccess(ctx.user, refund.tenantId);
+      await assertMoneyAccess(ctx.user, refund.tenantId);
 
       if (input.action === "rejected") {
         await db.update(refunds).set({ status: "rejected", processedAt: null, updatedAt: new Date() })
@@ -564,6 +600,35 @@ export const orderCrudRouter = router({
             reason: refund.reason ?? undefined,
           })
         : { executed: false as const, status: "no_provider_refund" as const, error: "order not found" };
+
+      // ── W30 hotfix (regression): provider attempted and FAILED → do NOT
+      // approve. Keep the row in the retryable "pending" state with attempt
+      // metadata, and throw an honest error. A retry simply re-invokes this
+      // endpoint; the row is never left "approved" while no money moved.
+      if (!outcome.executed && outcome.status === "failed") {
+        const priorMeta = (refund.metadata as Record<string, unknown> | null) ?? {};
+        const priorAttempts = (priorMeta.refundExecution as { attempts?: number } | undefined)?.attempts ?? 0;
+        await db.update(refunds).set({
+          status: "pending",
+          updatedAt: new Date(),
+          metadata: {
+            ...priorMeta,
+            refundExecution: {
+              at: new Date().toISOString(),
+              executed: false,
+              providerStatus: "failed",
+              provider: outcome.provider ?? null,
+              error: outcome.error ?? null,
+              attempts: priorAttempts + 1,
+              vocabulary: "refund_failed",
+            },
+          },
+        }).where(eq(refunds.id, input.refundId));
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Provider refund failed: ${outcome.error ?? "unknown"} — refund remains pending (attempt recorded) and can be retried; no approval recorded and no money moved`,
+        });
+      }
 
       // "processed" is reachable ONLY via a provider-executed refund; queued
       // provider refunds ("pending") and non-provider refunds keep honest
@@ -592,12 +657,6 @@ export const orderCrudRouter = router({
         },
       }).where(eq(refunds.id, input.refundId));
 
-      if (!outcome.executed && outcome.status === "failed") {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: `Provider refund failed: ${outcome.error ?? "unknown"} — refund left pending, no approval recorded`,
-        });
-      }
       return { ok: true, status: finalStatus, providerRefund: outcome };
     }),
 
@@ -618,7 +677,9 @@ export const orderCrudRouter = router({
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const [refund] = await db.select().from(refunds).where(eq(refunds.id, input.refundId)).limit(1);
       if (!refund) throw new TRPCError({ code: "NOT_FOUND", message: "Refund not found" });
-      assertTenantAccess(ctx.user, refund.tenantId);
+      // W30 hotfix (F7 residual): confirming money returned is money movement
+      // — owner|operator membership required (analyst is not enough).
+      await assertMoneyAccess(ctx.user, refund.tenantId);
       if (refund.status !== "approved") {
         throw new TRPCError({ code: "BAD_REQUEST", message: `Only an approved refund can be confirmed processed (current: ${refund.status})` });
       }

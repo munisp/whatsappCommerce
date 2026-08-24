@@ -272,6 +272,13 @@ export default function MLOpsDashboard() {
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-sm text-white/70 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-violet-400" /> Live Model Performance
+                {/* W30 hotfix: honest labeling — these are proxy metrics, not evaluated model quality */}
+                <span
+                  className="text-[10px] text-amber-400/80 border border-amber-400/30 rounded px-1.5 py-0.5"
+                  title="Precision/recall/F1 here are proxy metrics derived from agent events (confidence scores and escalation flags), not model quality evaluated against labeled ground truth."
+                >
+                  proxy metrics
+                </span>
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className="text-white/40 text-xs">Window:</span>
@@ -308,6 +315,10 @@ export default function MLOpsDashboard() {
                   </div>
                 </div>
               )}
+              {/* W30 hotfix: visible honesty disclaimer — proxy metrics, not evaluated model quality */}
+              <p className="text-[10px] text-white/35 mb-2">
+                Proxy metrics derived from agent events (confidence scores &amp; escalation flags) — not model quality evaluated against labeled ground truth.
+              </p>
               {perfBuckets.length > 0 ? (
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={perfBuckets} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>

@@ -471,6 +471,23 @@ export const phoneAuthRouter = router({
       // challenge for it — the OTP still goes to the tenant admin phone, so
       // this leaks nothing the caller doesn't already control.
       assertTenantAccess(ctx.user, input.tenantId);
+      // W30 hotfix2 (OTP bombing): each request sends an SMS/WhatsApp OTP to
+      // the tenant admin phone — without a throttle a tenant member (or a
+      // hijacked member session) could bomb the admin with OTPs. Per-tenant
+      // fixed window: 3 challenges / 10 min, via the shared fail-closed
+      // checkRateLimit (prod: a blind limiter denies; dev/test: fail-open).
+      const { checkRateLimit } = await import("../_core/rateLimit");
+      const { isProd } = await import("../_core/env");
+      const windowKey = `rl:stepup:${input.tenantId}:${Math.floor(Date.now() / 600_000)}`;
+      const decision = await checkRateLimit(windowKey, 3, 600, isProd);
+      if (!decision.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: decision.error
+            ? "Step-up is temporarily unavailable (rate-limiter outage) — retry shortly"
+            : `Too many step-up challenges for this tenant — retry in ${decision.retryAfter}s`,
+        });
+      }
       const { issueStepUpChallenge } = await import("../services/stepUp");
       return issueStepUpChallenge(db, {
         tenantId: input.tenantId,

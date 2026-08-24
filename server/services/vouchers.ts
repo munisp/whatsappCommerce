@@ -109,9 +109,12 @@ export async function issueVouchers(db: Db, input: {
     // W30 (V3#10): lock the program row FOR UPDATE so the budget check +
     // issuedCents decrement serialize against concurrent issuances (the
     // read-then-check below raced under READ COMMITTED).
+    // W30 hotfix: FAIL CLOSED — if the locked read errors there is NO silent
+    // fallback to an unlocked read (that would re-open the budget race); the
+    // error propagates and the whole issuance transaction aborts.
     const locked = await tx.execute(
       sql`SELECT * FROM voucher_programs WHERE id = ${programId} FOR UPDATE`,
-    ).catch(() => null);
+    );
     const program = ((locked as unknown as Record<string, unknown>[])?.[0] as any)
       ?? (await tx.select().from(voucherPrograms).where(eq(voucherPrograms.id, programId)).limit(1))[0];
     if (!program) throw new VoucherError("NOT_FOUND", "program not found");

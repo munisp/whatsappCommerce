@@ -1,0 +1,8 @@
+{
+  "id": "J176",
+  "title": "local-auth guard + logout jti revoke + single-use invite + ussd auth",
+  "feature": "oauth logout revocation + tenantInvite registry + /ussd shared secret",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

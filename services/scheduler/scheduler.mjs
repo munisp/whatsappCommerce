@@ -66,6 +66,8 @@ export const SCHEDULE = [
   { path: "/api/scheduled/delivery-summary", intervalMin: 1440 },
   { path: "/api/scheduled/hermes-po-expiry", intervalMin: 60 },
   { path: "/api/scheduled/hermes-health-snapshot", intervalMin: 5 },
+  // Monthly subscription invoicing (cron "0 0 1 1 * *" ≈ every 30 days).
+  { path: "/api/scheduled/generate-invoices", intervalMin: 43200 },
 ];
 
 function b64url(buf) {

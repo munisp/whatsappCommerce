@@ -232,6 +232,9 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j180-dashboard-honesty"),
     import("./journeys/j181-recon-checklist"),
     // === END W30 deploy-observability ===
+    // === W30 hotfix-money ===
+    import("./journeys/j182-unverified-courier-escrow"),
+    // === END W30 hotfix-money ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

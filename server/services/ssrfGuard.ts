@@ -43,17 +43,109 @@ export function isPrivateIpv4(ip: string): boolean {
   return false;
 }
 
-/** True when the IPv6 address is loopback / ULA / link-local / unspecified. */
-export function isPrivateIpv6(ip: string): boolean {
-  const norm = ip.toLowerCase().replace(/^\[|\]$/g, "");
-  if (norm === "::1" || norm === "::") return true;
-  if (norm.startsWith("fc") || norm.startsWith("fd")) return true; // ULA fc00::/7
-  if (/^fe[89ab]/.test(norm)) return true; // link-local fe80::/10
-  if (norm.startsWith("::ffff:")) {
-    // IPv4-mapped — evaluate the embedded v4 address.
-    const v4 = norm.slice(7);
-    if (v4.includes(".")) return isPrivateIpv4(v4);
+/**
+ * Parse an IPv6 address (string form, brackets optional) into eight 16-bit
+ * hextets, or null when the input is not a syntactically valid IPv6 literal.
+ *
+ * Handles every RFC 4291/5952 form that WHATWG URL parsing can produce:
+ *   - full 8-hextet form           2001:db8:0:0:0:0:0:1
+ *   - compressed `::` forms        ::1, fe80::1, 2001:db8::/32-style
+ *   - IPv4-mapped hex (WHATWG)     ::ffff:7f00:1        (= 127.0.0.1)
+ *   - IPv4-mapped dotted           ::ffff:127.0.0.1
+ *   - IPv4-compatible              ::127.0.0.1 / ::7f00:1
+ *   - embedded dotted quad in any  2001:db8::127.0.0.1
+ *     tail position (counts as two hextets)
+ */
+function parseIpv6Hextets(raw: string): number[] | null {
+  let s = raw.toLowerCase().replace(/^\[|\]$/g, "");
+  if (s.length === 0) return null;
+  // Zone id (fe80::1%eth0) — strip for parsing; the address itself classifies.
+  const pct = s.indexOf("%");
+  if (pct !== -1) s = s.slice(0, pct);
+  if (s.length === 0) return null;
+
+  // An embedded dotted-quad IPv4 tail counts as the final two hextets —
+  // rewrite it textually as hex so the rest of the parse is uniform.
+  const lastColon = s.lastIndexOf(":");
+  const tail = lastColon === -1 ? s : s.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    if (lastColon === -1) return null; // bare dotted quad is not IPv6
+    const parts = tail.split(".");
+    if (parts.length !== 4) return null;
+    if (parts.some((p) => !/^\d{1,3}$/.test(p))) return null;
+    const nums = parts.map((p) => Number(p));
+    if (nums.some((n) => n > 255)) return null;
+    const hi = ((nums[0] << 8) | nums[1]).toString(16);
+    const lo = ((nums[2] << 8) | nums[3]).toString(16);
+    s = `${s.slice(0, lastColon + 1)}${hi}:${lo}`;
   }
+
+  const pieces = s.split("::");
+  if (pieces.length > 2) return null; // more than one '::'
+  const parseGroup = (g: string): number[] | null => {
+    if (g === "") return [];
+    const out: number[] = [];
+    for (const part of g.split(":")) {
+      if (part === "" || !/^[0-9a-f]{1,4}$/.test(part)) return null;
+      out.push(parseInt(part, 16));
+    }
+    return out;
+  };
+  const head = parseGroup(pieces[0]);
+  if (head === null) return null;
+  let tailGroups: number[] = [];
+  if (pieces.length === 2) {
+    const t = parseGroup(pieces[1]);
+    if (t === null) return null;
+    tailGroups = t;
+  }
+  const total = head.length + tailGroups.length;
+  if (pieces.length === 1) {
+    // No '::' — must be exactly 8 groups.
+    if (total !== 8) return null;
+    return head;
+  }
+  // '::' fills at least one zero group.
+  if (total > 7) return null;
+  const zeros = new Array(8 - total).fill(0);
+  return [...head, ...zeros, ...tailGroups];
+}
+
+/** True when the IPv6 address is loopback / ULA / link-local / unspecified /
+ *  documentation / or embeds a non-routable IPv4 address (mapped, compatible,
+ *  6to4, Teredo). */
+export function isPrivateIpv6(ip: string): boolean {
+  const h = parseIpv6Hextets(ip);
+  if (!h) return false;
+  // :: (unspecified) and ::1 (loopback)
+  if (h.every((x) => x === 0)) return true;
+  if (h.slice(0, 7).every((x) => x === 0) && h[7] === 1) return true;
+  // IPv4-mapped (::ffff:0:0/96) and IPv4-compatible (::/96, excluding the
+  // unspecified/loopback forms handled above) — classify the embedded v4.
+  const embedV4 =
+    (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0xffff) ||
+    (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0);
+  // 6to4 (2002::/16) and Teredo (2001:0::/32) embed a public IPv4 in the
+  // address; the tunnel endpoint is only as public as that embedded v4.
+  const is6to4 = h[0] === 0x2002;
+  const isTeredo = h[0] === 0x2001 && h[1] === 0x0000;
+  if (embedV4 || is6to4 || isTeredo) {
+    let a: number, b: number, c: number, d: number;
+    if (embedV4) {
+      a = h[6] >> 8; b = h[6] & 0xff; c = h[7] >> 8; d = h[7] & 0xff;
+    } else if (is6to4) {
+      a = h[1] >> 8; b = h[1] & 0xff; c = h[2] >> 8; d = h[2] & 0xff;
+    } else {
+      // Teredo: the client IPv4 is the LAST 32 bits, XORed with 0xffffffff.
+      a = (h[6] >> 8) ^ 0xff; b = (h[6] & 0xff) ^ 0xff; c = (h[7] >> 8) ^ 0xff; d = (h[7] & 0xff) ^ 0xff;
+    }
+    if (isPrivateIpv4(`${a}.${b}.${c}.${d}`)) return true;
+  }
+  if ((h[0] & 0xfe00) === 0xfc00) return true; // ULA fc00::/7
+  if ((h[0] & 0xffc0) === 0xfe80) return true; // link-local fe80::/10
+  if ((h[0] & 0xffc0) === 0xfec0) return true; // site-local fec0::/10 (deprecated)
+  if (h[0] === 0x2001 && (h[1] & 0xffff) === 0x0db8) return true; // docs 2001:db8::/32
+  if ((h[0] & 0xff00) === 0xff00) return true; // multicast ff00::/8
   return false;
 }
 

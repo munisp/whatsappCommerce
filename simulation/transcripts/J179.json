@@ -1,0 +1,8 @@
+{
+  "id": "J179",
+  "title": "kyc mock guard + hermes wiring + approvePO email-failure honesty",
+  "feature": "deploy/observability: fail-closed kyc sidecar, honest hermes approval",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

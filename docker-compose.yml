@@ -272,8 +272,10 @@ services:
       # OVERRIDE every one of these in any real deployment (see env.example.txt).
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
       APP_URL: ${APP_URL:-http://localhost:3000}
-      # base64-encoded 32 bytes ("dev-master-key-0123456789abcde") — dev only.
-      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-ZGV2LW1hc3Rlci1rZXktMDEyMzQ1Njc4OWFiY2Rl}
+      # base64-encoded EXACTLY 32 bytes ("w30-dev-only-master-key-32-byte!") —
+      # fixed dev-only value; the prod boot gate rejects anything that does not
+      # decode to 32 bytes. OVERRIDE with `openssl rand -base64 32` in prod.
+      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-dzMwLWRldi1vbmx5LW1hc3Rlci1rZXktMzItYnl0ZSE=}
       # Dev-only KYC service key (must match the kyc-verifier sidecar env).
       KYC_SERVICE_API_KEY: ${KYC_SERVICE_API_KEY:-dev-only-kyc-key-change-in-prod}
       # Dev-only Meta webhook verification token (never the public demo value).
@@ -287,7 +289,9 @@ services:
       # at a real Mojaloop deployment for anything beyond local development.
       MOJALOOP_VALIDATE_SIG: ${MOJALOOP_VALIDATE_SIG:-true}
       # Shared service-to-service secret forwarded as X-Internal-Token.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # Dev-safe non-empty default so the REQUIRED_BY_ENV boot gate passes out
+      # of the box; OVERRIDE with a strong unique secret in any real deployment.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       # Cron scheduler auth secret (HS256) used by the scheduler service to
       # call /api/scheduled/* routes. Empty disables local cron auth; the
       # dev default matches the scheduler service below — override in prod.
@@ -304,18 +308,23 @@ services:
     restart: unless-stopped
 
   # ─── KYC document-verification sidecar (Python) ───────────────────────────
-  # The image default is VLM_MOCK_MODE=false (real vision via Ollama/GPT-4V).
-  # DEV-ONLY: compose explicitly opts into the mock below so a local stack
-  # boots without a VLM backend; REMOVE the override (and set OLLAMA_URL or
-  # OPENAI_API_KEY) in any real deployment. The platform boot gate probes
-  # /health and refuses to serve in production while the sidecar reports mock.
+  # The image default is VLM_MOCK_MODE=false (real vision via Ollama/GPT-4V),
+  # and the compose default below is now false as well: the shipped stack runs
+  # NODE_ENV=production on the platform, whose boot gate probes the sidecar
+  # /health and process.exit(1)s when it reports mock vision — so mock mode
+  # can NEVER be the shipped default.
+  # DEV-ONLY opt-in: developers without a VLM backend may set
+  #   VLM_MOCK_MODE=true docker compose up
+  # locally — and must then also run the platform with NODE_ENV=development
+  # (e.g. via a compose override file) so the prod mock gate stays satisfied
+  # with real vision in any production-like deployment.
   kyc-verifier:
     build:
       context: ./services/kyc-verifier
       dockerfile: Dockerfile
     environment:
       PORT: "8001"
-      VLM_MOCK_MODE: ${VLM_MOCK_MODE:-true} # DEV-ONLY override — see above
+      VLM_MOCK_MODE: ${VLM_MOCK_MODE:-false} # DEV-ONLY opt-in: set true locally (see header above)
       KYC_INTERNAL_API_KEY: ${KYC_SERVICE_API_KEY:-dev-only-kyc-key-change-in-prod}
       OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
       REDIS_URL: redis://redis:6379
@@ -359,7 +368,7 @@ services:
       PLATFORM_API_URL: http://platform:3000
       PLATFORM_API_KEY: ${PLATFORM_API_KEY:-dev-key}
       # Shared service-to-service secret (X-Internal-Token)
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       LOG_LEVEL: info
     depends_on:
       postgres:
@@ -415,7 +424,7 @@ services:
       OPENAPPSEC_SHARED_SECRET: ${OPENAPPSEC_SHARED_SECRET:-}
       # Shared service-to-service secret; the gateway forwards it as
       # X-Internal-Token to internal services it proxies to.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       LOG_LEVEL: info
     depends_on:
       redis:
@@ -469,7 +478,7 @@ services:
       AI_AGENT_URL: http://ai-agent:8090
       # ai-agent (/intent, /recommend, /handoff-summary) requires this as
       # X-Internal-Token on service-to-service calls.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       LOG_LEVEL: info
     depends_on:
       postgres:
@@ -494,7 +503,7 @@ services:
       TEMPORAL_NAMESPACE: ${TEMPORAL_NAMESPACE:-default}
       TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-whatsapp-commerce}
       # Shared service-to-service secret (X-Internal-Token) for internal calls.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       LOG_LEVEL: info
     depends_on:
       postgres:
@@ -520,7 +529,7 @@ services:
       MOJALOOP_API_URL: ${MOJALOOP_API_URL:-http://mojaloop-simulator:3000}
       TIGERBEETLE_URL: ${TIGERBEETLE_URL:-tigerbeetle:3000}
       # Shared service-to-service secret (X-Internal-Token) for downstream calls.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       # Token this service requires in X-Internal-Token on every route except
       # /health (fail-closed outside development when unset).
       PAYMENT_ORCHESTRATOR_INTERNAL_TOKEN: ${PAYMENT_ORCHESTRATOR_INTERNAL_TOKEN:-}
@@ -609,7 +618,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-placeholder}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-placeholder}
       # Required X-Internal-Token secret for /intent, /recommend, /handoff-summary
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       LOG_LEVEL: info
     depends_on:
       redis:
@@ -638,7 +647,7 @@ services:
       HERMES_SKILLS_URL: http://hermes-skills:8097
       # /hermes/ingest and /hermes/approval require X-Internal-Token matching
       # this shared secret; also sent on downstream calls to hermes-skills.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       LOG_LEVEL: info
     depends_on:
       kafka:
@@ -661,7 +670,7 @@ services:
       HERMES_SKILLS_URL: http://hermes-skills:8097
       # /ingest requires X-Internal-Token matching this secret; also sent on
       # downstream internal calls to hermes-bridge / hermes-skills.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       CIRCUIT_BREAKER_THRESHOLD: "5"
       CIRCUIT_BREAKER_TIMEOUT_SECS: "30"
       MAX_RETRY_ATTEMPTS: "3"
@@ -690,7 +699,7 @@ services:
       PLATFORM_API_KEY: ${PLATFORM_API_KEY:-dev-key}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-placeholder}
       # /skills/* requires X-Internal-Token matching this shared secret.
-      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
       SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
