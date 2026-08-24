@@ -103,7 +103,7 @@ jobs:
         working-directory: services/visual-inventory/python-vlm
         run: python -m pytest benchmark/ -q && python benchmark/runner.py
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: steps.cv_changed.outputs.run == 'true'
         with:
           go-version: "1.23"
