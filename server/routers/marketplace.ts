@@ -69,25 +69,59 @@ export const marketplaceRouter = router({
     }),
 
   // ── Commission Engine ────────────────────────────────────────────────────
+  /**
+   * W30 (V3#12): commissions are DERIVED SERVER-SIDE — sale amount/currency
+   * come from the real order, the rate from the seller's tenant config
+   * (admin-set via updateSellerCommission), never from the caller. One
+   * commission row per order (unique orderId backstop; replays return the
+   * existing row).
+   */
   recordCommission: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
       sellerId: z.string(),
       orderId: z.string(),
-      saleAmount: z.string(),
-      commissionRate: z.string(),
-      commissionAmount: z.string(),
-      currency: z.string().default("NGN"),
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
+      const { orders } = await import("../../drizzle/schema");
+      const [seller] = await db.select().from(marketplaceSellers)
+        .where(and(eq(marketplaceSellers.id, input.sellerId), eq(marketplaceSellers.tenantId, input.tenantId))).limit(1);
+      if (!seller) throw new TRPCError({ code: "NOT_FOUND", message: "Seller not found in this tenant" });
+      const [order] = await db.select().from(orders)
+        .where(and(eq(orders.id, input.orderId), eq(orders.tenantId, input.tenantId))).limit(1);
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found in this tenant" });
+
+      const saleAmount = Number(order.totalAmount);
+      if (!Number.isFinite(saleAmount) || saleAmount < 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Order has no valid total" });
+      }
+      const rate = Number(seller.commissionRate ?? "0");
+      if (!Number.isFinite(rate) || rate < 0) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Seller has no valid commission rate configured" });
+      }
+      // Integer minor units: convert once, apply the percent rate, round once.
+      const saleMinor = Math.round(saleAmount * 100);
+      const commissionMinor = Math.round(saleMinor * rate / 100);
       const id = randomUUID();
       const now = new Date();
-      const { tenantId: _t, ...commInput } = input;
-      await db.insert(marketplaceCommissions).values({
-        id, ...commInput, status: "pending", createdAt: now,
-      });
+      const inserted = await db.insert(marketplaceCommissions).values({
+        id,
+        sellerId: seller.id,
+        orderId: order.id,
+        saleAmount: saleAmount.toFixed(2),
+        commissionRate: rate.toFixed(2),
+        commissionAmount: (commissionMinor / 100).toFixed(2),
+        currency: order.currency ?? "NGN",
+        status: "pending",
+        createdAt: now,
+      }).onConflictDoNothing().returning({ id: marketplaceCommissions.id });
+      if (inserted.length === 0) {
+        const [existing] = await db.select().from(marketplaceCommissions)
+          .where(eq(marketplaceCommissions.orderId, input.orderId)).limit(1);
+        return { id: existing?.id ?? null, alreadyRecorded: true };
+      }
       return { id };
     }),
 
@@ -132,8 +166,15 @@ export const marketplaceRouter = router({
       const [seller] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, commission.sellerId)).limit(1);
       if (!seller) throw new TRPCError({ code: "NOT_FOUND", message: "Seller not found" });
       assertTenantAccess(ctx.user, seller.tenantId);
-      await db.update(marketplaceCommissions).set({ status: "paid", settledAt: new Date(input.paidAt ?? Date.now()) })
-        .where(eq(marketplaceCommissions.id, input.id));
+      // W30 (V3#12): guarded settle — only a pending commission can be paid,
+      // exactly once (double-settle / settle-disputed no longer flips).
+      const settled = await db.update(marketplaceCommissions)
+        .set({ status: "paid", settledAt: new Date(input.paidAt ?? Date.now()) })
+        .where(and(eq(marketplaceCommissions.id, input.id), eq(marketplaceCommissions.status, "pending")))
+        .returning({ id: marketplaceCommissions.id });
+      if (settled.length === 0) {
+        throw new TRPCError({ code: "CONFLICT", message: `Commission is ${commission.status} — only pending commissions can be settled` });
+      }
       return { ok: true };
     }),
 

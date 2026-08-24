@@ -73,7 +73,22 @@ export async function checkOrderSuspension(
 ): Promise<OrderSuspension> {
   try {
     const check = contractFn("isOrderAccessSuspended");
-    if (!check) return NOT_SUSPENDED; // contract not merged yet
+    if (!check) {
+      // W30 (f2-f12 #6): the missing-contract case bypassed the strict
+      // polarity — strict mode is documented fail-CLOSED, so an absent
+      // enforcement export must block ordering exactly like a lookup error.
+      if (isCreditEnforcementStrict()) {
+        console.warn("[procurement] tradeCredit enforcement contract missing (strict: fail-closed)");
+        return {
+          suspended: true,
+          unavailable: true,
+          reason: CREDIT_STATUS_UNAVAILABLE_REASON,
+          outstandingCents: null,
+        };
+      }
+      console.warn("[procurement] tradeCredit enforcement contract missing (fail-open, non-strict)");
+      return NOT_SUSPENDED;
+    }
     const suspended = !!(await check(buyerTenantId, supplierTenantId));
     if (!suspended) return NOT_SUSPENDED;
     // Best-effort enrichment for message copy (suspension_reason, outstanding).

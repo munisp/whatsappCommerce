@@ -132,7 +132,7 @@ export async function getGroupDealProgressTx(
 // ── Join (authorization/hold) ──────────────────────────────────────────────
 export type JoinResult =
   | { ok: true; participant: GroupDealParticipant; progress: GroupDealProgress; alreadyJoined?: boolean }
-  | { ok: false; reason: "deal_not_found" | "deal_not_open" | "deadline_passed" | "invalid_qty" };
+  | { ok: false; reason: "deal_not_found" | "deal_not_open" | "deadline_passed" | "invalid_qty" | "payment_not_verified" };
 
 /**
  * Join a deal. Idempotent per (dealId, customerPhone): a repeat join returns
@@ -174,6 +174,25 @@ export async function joinGroupDealTx(
   if (now.getTime() > new Date(deal.deadline).getTime()) return { ok: false, reason: "deadline_passed" };
 
   const amountCents = qty * deal.unitPriceCents;
+
+  // W30 (V1#10): a paymentRef is a claim that money was CAPTURED. It must
+  // verify against the real payment rails (local confirmed record or live
+  // provider probe) before the hold is recorded as captured — a fabricated
+  // ref can no longer create a "captured" hold that later pretends to refund.
+  if (args.paymentRef) {
+    try {
+      const { hasVerifiedPayment } = await import("./payments/verifyProviderStatus");
+      const v = await hasVerifiedPayment(db, {
+        tenantId: deal.tenantId,
+        reference: args.paymentRef,
+        expectedAmountCents: amountCents,
+      });
+      if (!v.verified) return { ok: false, reason: "payment_not_verified" };
+    } catch (err: any) {
+      console.error(`[groupBuy] payment verification error for ref=${args.paymentRef}: ${err?.message}`);
+      return { ok: false, reason: "payment_not_verified" }; // fail closed
+    }
+  }
 
   // Claim-first quantity increment (row lock serializes concurrent joins).
   const claimed = await db
@@ -261,13 +280,13 @@ export async function expireGroupDealTx(
   db: DbHandle,
   dealId: string,
   now: Date = new Date(),
-): Promise<{ refunded: number; voided: number }> {
+): Promise<{ refunded: number; voided: number; refundFailed: number }> {
   const transitioned = await db
     .update(groupDeals)
     .set({ status: "expired", updatedAt: now })
     .where(and(eq(groupDeals.id, dealId), eq(groupDeals.status, "open"), sql`${groupDeals.deadline} <= ${now.toISOString()}`))
     .returning({ id: groupDeals.id });
-  if (transitioned.length !== 1) return { refunded: 0, voided: 0 };
+  if (transitioned.length !== 1) return { refunded: 0, voided: 0, refundFailed: 0 };
 
   const held = await db
     .select()
@@ -276,10 +295,18 @@ export async function expireGroupDealTx(
 
   let refunded = 0;
   let voided = 0;
+  let refundFailed = 0;
   for (const p of held) {
-    // Refund via the existing escrow rail when a linked escrow exists.
-    let escrowRefunded = false;
-    if (p.paymentRef) {
+    // W30 (V1#10): record the REAL refund outcome. "refunded" only when the
+    // escrow refund path verifiably succeeded; any failure, exception, or
+    // missing escrow row → `refund_failed` (reconciliation surface via
+    // listRefundFailures + the paymentRef on the row) — NEVER auto-"refunded"
+    // on failure. Authorization-only holds (no paymentRef) are voided.
+    let finalStatus: "refunded" | "voided" | "refund_failed";
+    if (!p.paymentRef) {
+      finalStatus = "voided";
+    } else {
+      let escrowRefunded = false;
       try {
         const rows = await db.execute(sql`
           SELECT id FROM escrow_transactions
@@ -292,16 +319,17 @@ export async function expireGroupDealTx(
           const r = await refundEscrowAtomic(db as any, escrowRow.id, {
             reason: `group_deal_expired:${dealId}`,
           });
-          escrowRefunded = r.success;
-        } else {
-          escrowRefunded = true; // captured via payment rail — marked refunded
+          escrowRefunded = r.success === true;
         }
-      } catch {
-        escrowRefunded = true; // mark refunded; recon via paymentRef
+        // No escrow row → custody is on the payment rail; no automated
+        // provider refund exists for this hold, so the honest outcome is
+        // refund_failed (ops reconciles via paymentRef).
+      } catch (err: any) {
+        console.error(`[groupBuy] escrow refund failed for participant=${p.id}: ${err?.message}`);
+        escrowRefunded = false;
       }
+      finalStatus = escrowRefunded ? "refunded" : "refund_failed";
     }
-    const finalStatus = p.paymentRef ? "refunded" : "voided";
-    void escrowRefunded;
     const upd = await db
       .update(groupDealParticipants)
       .set({ status: finalStatus, updatedAt: now })
@@ -309,10 +337,18 @@ export async function expireGroupDealTx(
       .returning({ id: groupDealParticipants.id });
     if (upd.length === 1) {
       if (finalStatus === "refunded") refunded += 1;
+      else if (finalStatus === "refund_failed") refundFailed += 1;
       else voided += 1;
     }
   }
-  return { refunded, voided };
+  return { refunded, voided, refundFailed };
+}
+
+/** Reconciliation surface: participants whose refund could not be executed. */
+export async function listRefundFailuresTx(db: DbHandle, args: { tenantId?: string } = {}) {
+  const conds = [eq(groupDealParticipants.status, "refund_failed")];
+  if (args.tenantId) conds.push(eq(groupDealParticipants.tenantId, args.tenantId));
+  return db.select().from(groupDealParticipants).where(and(...conds));
 }
 
 /**
@@ -322,7 +358,7 @@ export async function expireGroupDealTx(
 export async function sweepGroupDealsTx(
   db: DbHandle,
   now: Date = new Date(),
-): Promise<{ confirmed: number; expired: number; participantsConfirmed: number; refunded: number; voided: number }> {
+): Promise<{ confirmed: number; expired: number; participantsConfirmed: number; refunded: number; voided: number; refundFailed: number }> {
   const due = await db
     .select()
     .from(groupDeals)
@@ -332,6 +368,7 @@ export async function sweepGroupDealsTx(
   let participantsConfirmed = 0;
   let refunded = 0;
   let voided = 0;
+  let refundFailed = 0;
   for (const deal of due) {
     if (deal.currentQty >= deal.thresholdQty) {
       const r = await confirmGroupDealTx(db, deal.id, now);
@@ -342,14 +379,15 @@ export async function sweepGroupDealsTx(
     } else {
       const r = await expireGroupDealTx(db, deal.id, now);
       // Only count when the row actually transitioned (first sweeper wins).
-      if (r.refunded + r.voided > 0 || (await getGroupDealTx(db, deal.id))?.status === "expired") {
-        expired += r.refunded + r.voided > 0 ? 1 : 0;
+      if (r.refunded + r.voided + r.refundFailed > 0 || (await getGroupDealTx(db, deal.id))?.status === "expired") {
+        expired += r.refunded + r.voided + r.refundFailed > 0 ? 1 : 0;
         refunded += r.refunded;
         voided += r.voided;
+        refundFailed += r.refundFailed;
       }
     }
   }
-  return { confirmed, expired, participantsConfirmed, refunded, voided };
+  return { confirmed, expired, participantsConfirmed, refunded, voided, refundFailed };
 }
 
 /** Cancel an open deal (merchant action) — behaves like expiry for holds. */
@@ -375,7 +413,7 @@ export function formatDealForWhatsApp(p: GroupDealProgress, title: string, unitP
     p.status === "confirmed"
       ? "🎉 Deal UNLOCKED — orders confirmed!"
       : p.status === "expired"
-        ? "⌛ Deal expired — all payments refunded/voided."
+        ? "⌛ Deal expired — holds refunded or voided; any refund that could not be completed is flagged for follow-up."
         : `${p.remainingQty} more unit(s) needed by ${p.deadline.toISOString().slice(0, 16).replace("T", " ")} UTC`;
   return [
     `*${title}* — group deal @ ${price}/unit`,

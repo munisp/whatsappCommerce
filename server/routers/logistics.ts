@@ -7,7 +7,8 @@ import {
   logisticsShipments, escrowTransactions, escrowConfig, orders, customers,
   type NewLogisticsShipment,
 } from "../../drizzle/schema";
-import { randomInt } from "crypto";
+import { randomInt, createHmac, timingSafeEqual } from "crypto";
+import { ENV } from "../_core/env";
 import { sendWhatsAppText } from "../services/waSender";
 import { trackingUrlFor } from "../services/trackingToken";
 
@@ -18,22 +19,126 @@ export function generateDeliveryPin(): string {
   return String(1000 + randomInt(9000));
 }
 
+// ─── W30 delivery PIN hardening (V3#17) ─────────────────────────────────────
+// PINs are stored HASHED (HMAC-SHA256 keyed by JWT_SECRET, salted with the
+// shipment id), compared in constant time, and verification is capped at
+// MAX_PIN_ATTEMPTS_PER_DAY per shipment per UTC day (counter in the shipment
+// metadata — no schema change needed). Legacy plaintext rows (pre-upgrade)
+// remain verifiable but new shipments always store the hash.
+
+const PIN_HASH_PREFIX = "pinv1:";
+export const MAX_PIN_ATTEMPTS_PER_DAY = 5;
+
+function pinPepper(): string {
+  const pepper = process.env.PIN_HASH_SALT || ENV.jwtSecret || "";
+  if (!pepper) throw new Error("PIN hashing secret is not configured (PIN_HASH_SALT/JWT_SECRET)");
+  return pepper;
+}
+
+/** Hash a delivery PIN for storage (never store plaintext for new shipments). */
+export function hashDeliveryPin(pin: string, shipmentId: string): string {
+  const mac = createHmac("sha256", pinPepper()).update(`${shipmentId}|${pin}`).digest("hex");
+  return `${PIN_HASH_PREFIX}${mac}`;
+}
+
+/** True when a stored PIN value is a W30 hash (vs legacy plaintext). */
+export function isHashedDeliveryPin(stored: string | null | undefined): boolean {
+  return !!stored && stored.startsWith(PIN_HASH_PREFIX);
+}
+
+/** Timing-safe, migration-safe PIN verification. */
+export function verifyDeliveryPin(
+  stored: string | null | undefined,
+  provided: string | null | undefined,
+  shipmentId: string,
+): boolean {
+  if (!stored || !provided) return false;
+  const pin = provided.trim();
+  if (isHashedDeliveryPin(stored)) {
+    const candidate = hashDeliveryPin(pin, shipmentId);
+    const a = Buffer.from(candidate);
+    const b = Buffer.from(stored);
+    return a.length === b.length && timingSafeEqual(a, b);
+  }
+  // Legacy plaintext row — constant-time compare on equal-length buffers.
+  const a = Buffer.from(pin);
+  const b = Buffer.from(stored);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
+ * Daily attempt cap evaluation (pure). `meta` is the shipment's metadata
+ * JSON; returns the updated counter or null when the cap is exhausted.
+ */
+export function evaluatePinAttempt(
+  meta: unknown,
+  now: Date = new Date(),
+  limit: number = MAX_PIN_ATTEMPTS_PER_DAY,
+): { allowed: boolean; nextMeta: Record<string, unknown> } {
+  const base = (meta && typeof meta === "object" ? { ...(meta as Record<string, unknown>) } : {}) as Record<string, unknown>;
+  const day = now.toISOString().slice(0, 10);
+  const prev = (base.pinAttempts as { date?: string; count?: number } | undefined) ?? {};
+  const count = prev.date === day ? (prev.count ?? 0) : 0;
+  if (count >= limit) return { allowed: false, nextMeta: base };
+  base.pinAttempts = { date: day, count: count + 1 };
+  return { allowed: true, nextMeta: base };
+}
+
 /**
  * Delivery PIN gate for marking a shipment delivered.
  * - No PIN on the shipment → nothing to check.
  * - Admin callers (dashboard simulate button) may bypass — the PIN protects
  *   buyer handover, not back-office testing.
- * - Otherwise the presented PIN must match exactly.
+ * - Otherwise the presented PIN must match (timing-safe; hashes accepted).
  * Throws FORBIDDEN on mismatch / missing PIN.
+ *
+ * NOTE: this pure sync gate does NOT enforce the daily attempt cap — use
+ * assertDeliveryPinAllowed (below) at mutation sites for the capped check.
  */
 export function checkDeliveryPin(opts: {
   deliveryPin: string | null | undefined;
   providedPin?: string | null;
   isAdmin: boolean;
+  /** W30: shipment id — required to verify hashed PINs. */
+  shipmentId?: string;
 }): void {
   if (!opts.deliveryPin) return;
   if (opts.isAdmin) return;
-  if (!opts.providedPin || opts.providedPin.trim() !== opts.deliveryPin) {
+  const ok = opts.shipmentId
+    ? verifyDeliveryPin(opts.deliveryPin, opts.providedPin ?? null, opts.shipmentId)
+    : !!opts.providedPin && opts.providedPin.trim() === opts.deliveryPin;
+  if (!ok) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "A valid 4-digit delivery PIN is required to confirm this delivery.",
+    });
+  }
+}
+
+/**
+ * Full PIN assertion for mutations: enforces the daily attempt cap (persisted
+ * to the shipment metadata) and then the PIN itself. Admin bypass skips both.
+ */
+export async function assertDeliveryPinAllowed(opts: {
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>;
+  shipment: { id: string; deliveryPin: string | null; metadata: unknown };
+  providedPin?: string | null;
+  isAdmin: boolean;
+}): Promise<void> {
+  if (!opts.shipment.deliveryPin) return;
+  if (opts.isAdmin) return;
+  const attempt = evaluatePinAttempt(opts.shipment.metadata);
+  if (!attempt.allowed) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `Too many PIN attempts today (max ${MAX_PIN_ATTEMPTS_PER_DAY}/day). Ask the buyer to confirm via their own device.`,
+    });
+  }
+  // Persist the attempt BEFORE verifying so failed guesses count.
+  await opts.db.update(logisticsShipments)
+    .set({ metadata: attempt.nextMeta as any, updatedAt: new Date() })
+    .where(eq(logisticsShipments.id, opts.shipment.id));
+  if (!verifyDeliveryPin(opts.shipment.deliveryPin, opts.providedPin ?? null, opts.shipment.id)) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "A valid 4-digit delivery PIN is required to confirm this delivery.",
@@ -64,7 +169,9 @@ const SHIPMENT_STATUS_MESSAGES: Record<string, (s: any, trackingUrl: string) => 
   in_transit: (_s, url) => `🚚 Your order is on its way.\n🔎 Track: ${url}`,
   out_for_delivery: (s, url) =>
     `🛵 Your order is out for delivery${s.carrierName ? ` with ${s.carrierName}` : ""}.` +
-    (s.deliveryPin ? `\n🔑 Your delivery PIN is *${s.deliveryPin}* — share it with the rider ONLY when you receive your order.` : "") +
+    // W30: the PIN is stored hashed — only ever show a legacy plaintext
+    // value (the buyer receives the plaintext PIN at shipment creation).
+    (s.deliveryPin && !isHashedDeliveryPin(s.deliveryPin) ? `\n🔑 Your delivery PIN is *${s.deliveryPin}* — share it with the rider ONLY when you receive your order.` : "") +
     `\n🔎 Track: ${url}`,
   delivered: (_s, url) =>
     `✅ Your order has been delivered. Enjoy! If anything is wrong, just reply here.\n🔎 Details: ${url}`,
@@ -270,7 +377,9 @@ export const logisticsRouter = router({
         carrierName: input.carrierName,
         trackingId,
         trackingUrl,
-        deliveryPin,
+        // W30 (V3#17): store only the keyed hash — the plaintext PIN is sent
+        // to the buyer below and never persisted.
+        deliveryPin: hashDeliveryPin(deliveryPin, id),
         status: trackingId ? "created" : "pending",
         senderName: input.senderName,
         senderPhone: input.senderPhone,
@@ -388,8 +497,10 @@ export const logisticsRouter = router({
       assertTenantAccess(ctx.user, shipment.tenantId);
 
       if (input.status === "delivered") {
-        checkDeliveryPin({
-          deliveryPin: shipment.deliveryPin,
+        // W30 (V3#17): daily attempt cap + timing-safe hash verification.
+        await assertDeliveryPinAllowed({
+          db,
+          shipment,
           providedPin: input.pin ?? null,
           isAdmin: (ctx as any)?.user?.role === "admin",
         });
@@ -415,17 +526,12 @@ export const logisticsRouter = router({
         updatedAt: now,
       }).where(eq(logisticsShipments.id, input.shipmentId));
 
-      // On delivery: trigger escrow delivery confirmation
+      // On delivery: trigger escrow delivery confirmation via the SHARED
+      // helper (W30 — verify-v1 #14): the buyer-protection deadline is always
+      // reset from the moment of delivery, never left running from payment.
       if (input.status === "delivered" && shipment.escrowTxId) {
-        await db.update(escrowTransactions).set({
-          state: "delivery_confirmed",
-          deliveryConfirmedAt: now,
-          shipmentId: shipment.id,
-          updatedAt: now,
-        }).where(and(
-          eq(escrowTransactions.id, shipment.escrowTxId),
-          eq(escrowTransactions.state, "escrow_held"),
-        ));
+        const { confirmEscrowDelivery } = await import("../services/escrowLifecycle");
+        await confirmEscrowDelivery(db, { escrowTxId: shipment.escrowTxId, shipmentId: shipment.id, at: now });
         await db.update(orders).set({ status: "delivered", updatedAt: now })
           .where(eq(orders.id, shipment.orderId));
       }

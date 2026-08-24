@@ -254,16 +254,11 @@ export async function applyDeliveryStatus(
     await db.update(orders).set({ status: "delivered", updatedAt: new Date() })
       .where(and(eq(orders.id, delivery.orderId), eq(orders.tenantId, delivery.tenantId)));
 
-    // 2. Escrow tie-in (event-style; escrow.ts untouched): move escrow_held →
-    //    delivery_confirmed so the EXISTING buyerConfirm / SLA sweep releases.
-    await db.update(escrowTransactions).set({
-      state: "delivery_confirmed",
-      deliveryConfirmedAt: new Date(at),
-      updatedAt: new Date(),
-    }).where(and(
-      eq(escrowTransactions.orderId, delivery.orderId),
-      eq(escrowTransactions.state, "escrow_held"),
-    )).catch(() => {});
+    // 2. Escrow tie-in via the SHARED helper (W30 — verify-v1 #14): moving
+    //    escrow_held → delivery_confirmed ALWAYS resets the buyer-protection
+    //    deadline from the moment of delivery.
+    const { confirmEscrowDelivery } = await import("../escrowLifecycle");
+    await confirmEscrowDelivery(db, { orderId: delivery.orderId, at: new Date(at) });
 
     // 3. Loyalty points vest on delivery (idempotent).
     await awardPointsForOrder(db, delivery.tenantId, delivery.orderId).catch(() => {});

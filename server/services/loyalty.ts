@@ -48,6 +48,16 @@ export const DEFAULT_LOYALTY_RULES: LoyaltyRules = {
 const LIABILITY_ACCOUNT = "liability:points";
 const customerAccount = (phone: string) => `customer:${phone}`;
 
+/**
+ * W30 (V3#9): serialize all ledger movements for one (tenant, customer) with
+ * a deterministic transaction-scoped advisory lock — the balance
+ * read-then-write below can never interleave across concurrent calls
+ * (works on first insert too, where there is no row to FOR UPDATE).
+ */
+async function lockCustomerLedger(tx: any, tenantId: string, customerPhone: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`${tenantId}|${customerPhone}`}))`);
+}
+
 /** Load the tenant's rules; falls back to DEFAULT_LOYALTY_RULES. */
 export async function getLoyaltyRules(db: Db, tenantId: string): Promise<LoyaltyRules> {
   const [row] = await db.select().from(loyaltyRules)
@@ -108,6 +118,7 @@ export async function awardPoints(
     throw new TRPCError({ code: "BAD_REQUEST", message: "points must be a positive integer" });
   }
   return db.transaction(async (tx) => {
+    await lockCustomerLedger(tx, input.tenantId, input.customerPhone);
     // Idempotency: one earn row per (tenant, order).
     if (input.orderId) {
       const [dup] = await tx.select({ id: loyaltyLedger.id, balanceAfter: loyaltyLedger.balanceAfter })
@@ -124,17 +135,34 @@ export async function awardPoints(
       .where(and(eq(loyaltyLedger.tenantId, input.tenantId), eq(loyaltyLedger.customerPhone, input.customerPhone)))
       .orderBy(desc(loyaltyLedger.createdAt), desc(loyaltyLedger.id)).limit(1);
     const balanceAfter = (latest?.balanceAfter ?? 0) + points;
-    const [row] = await tx.insert(loyaltyLedger).values({
-      tenantId: input.tenantId,
-      customerPhone: input.customerPhone,
-      entryType: "earn",
-      points,
-      debitAccount: LIABILITY_ACCOUNT,
-      creditAccount: customerAccount(input.customerPhone),
-      balanceAfter,
-      reason: input.reason.slice(0, 255),
-      orderId: input.orderId ?? null,
-    }).returning({ id: loyaltyLedger.id });
+    let row: { id: string } | undefined;
+    try {
+      [row] = await tx.insert(loyaltyLedger).values({
+        tenantId: input.tenantId,
+        customerPhone: input.customerPhone,
+        entryType: "earn",
+        points,
+        debitAccount: LIABILITY_ACCOUNT,
+        creditAccount: customerAccount(input.customerPhone),
+        balanceAfter,
+        reason: input.reason.slice(0, 255),
+        orderId: input.orderId ?? null,
+      }).returning({ id: loyaltyLedger.id });
+    } catch (err: any) {
+      // W30: unique backstop (tenant, phone, order, kind) — a concurrent or
+      // retried earn for the same order is an idempotent replay, never a dup.
+      if (input.orderId && (String(err?.code) === "23505" || /duplicate key/i.test(String(err?.message)))) {
+        const [dup] = await tx.select({ id: loyaltyLedger.id, balanceAfter: loyaltyLedger.balanceAfter })
+          .from(loyaltyLedger)
+          .where(and(
+            eq(loyaltyLedger.tenantId, input.tenantId),
+            eq(loyaltyLedger.orderId, input.orderId),
+            eq(loyaltyLedger.entryType, "earn"),
+          )).limit(1);
+        if (dup) return { id: dup.id, balanceAfter: dup.balanceAfter, applied: false };
+      }
+      throw err;
+    }
     return { id: row?.id ?? null, balanceAfter, applied: true };
   });
 }
@@ -149,6 +177,7 @@ export async function redeemPoints(
     throw new TRPCError({ code: "BAD_REQUEST", message: "points must be a positive integer" });
   }
   return db.transaction(async (tx) => {
+    await lockCustomerLedger(tx, input.tenantId, input.customerPhone);
     if (input.orderId) {
       const [dup] = await tx.select({ id: loyaltyLedger.id, balanceAfter: loyaltyLedger.balanceAfter })
         .from(loyaltyLedger)
@@ -167,18 +196,56 @@ export async function redeemPoints(
     if (balance < points) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `Insufficient points balance (${balance})` });
     }
+    // W30 (V3#9): the merchant redemption cap is enforced HERE, not just in
+    // the advisory previewRedemption — when the redeem is tied to an order,
+    // the discount value (points × pointsValueCents) may never exceed
+    // redemptionCapPercent % of that order's total (integer cents, floor).
+    if (input.orderId) {
+      const rules = await getLoyaltyRules(tx as unknown as Db, input.tenantId);
+      const [order] = await tx.select({ totalAmount: orders.totalAmount })
+        .from(orders)
+        .where(and(eq(orders.id, input.orderId), eq(orders.tenantId, input.tenantId)))
+        .limit(1)
+        .catch(() => []);
+      if (order) {
+        const orderCents = toMinorUnitsExact(order.totalAmount);
+        const capCents = Math.floor((orderCents * rules.redemptionCapPercent) / 100);
+        const discountCents = points * rules.pointsValueCents;
+        if (discountCents > capCents) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Redemption exceeds the ${rules.redemptionCapPercent}% cap for this order (max ${Math.floor(capCents / rules.pointsValueCents)} points)`,
+          });
+        }
+      }
+    }
     const balanceAfter = balance - points;
-    const [row] = await tx.insert(loyaltyLedger).values({
-      tenantId: input.tenantId,
-      customerPhone: input.customerPhone,
-      entryType: "redeem",
-      points,
-      debitAccount: customerAccount(input.customerPhone),
-      creditAccount: LIABILITY_ACCOUNT,
-      balanceAfter,
-      reason: input.reason.slice(0, 255),
-      orderId: input.orderId ?? null,
-    }).returning({ id: loyaltyLedger.id });
+    let row: { id: string } | undefined;
+    try {
+      [row] = await tx.insert(loyaltyLedger).values({
+        tenantId: input.tenantId,
+        customerPhone: input.customerPhone,
+        entryType: "redeem",
+        points,
+        debitAccount: customerAccount(input.customerPhone),
+        creditAccount: LIABILITY_ACCOUNT,
+        balanceAfter,
+        reason: input.reason.slice(0, 255),
+        orderId: input.orderId ?? null,
+      }).returning({ id: loyaltyLedger.id });
+    } catch (err: any) {
+      if (input.orderId && (String(err?.code) === "23505" || /duplicate key/i.test(String(err?.message)))) {
+        const [dup] = await tx.select({ id: loyaltyLedger.id, balanceAfter: loyaltyLedger.balanceAfter })
+          .from(loyaltyLedger)
+          .where(and(
+            eq(loyaltyLedger.tenantId, input.tenantId),
+            eq(loyaltyLedger.orderId, input.orderId),
+            eq(loyaltyLedger.entryType, "redeem"),
+          )).limit(1);
+        if (dup) return { id: dup.id, balanceAfter: dup.balanceAfter, applied: false };
+      }
+      throw err;
+    }
     return { id: row?.id ?? null, balanceAfter, applied: true };
   });
 }

@@ -121,8 +121,34 @@ export function registerOAuthRoutes(app: Express) {
     res.json({ user: user ?? null });
   });
 
-  // 5. Logout
-  app.post("/api/auth/logout", (_req: Request, res: Response) => {
+  // 5. Logout — W30 (V2#13): revoke the token's jti in the revocation
+  // registry so the bearer token dies immediately instead of remaining
+  // valid until its natural expiry (the cookie clear alone is client-side
+  // theatre — a copied token kept working for its full TTL).
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
+    try {
+      const cookieHeader = req.headers.cookie ?? "";
+      const cookies = Object.fromEntries(
+        cookieHeader.split(";").map(c => { const [k, ...v] = c.trim().split("="); return [k, v.join("=")]; })
+      );
+      const authHeader = req.headers.authorization ?? "";
+      const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
+      const token = cookies[SESSION_COOKIE] ?? cookies["session"] ?? bearer;
+      if (token) {
+        const payload = verifySessionToken(token);
+        if (payload?.jti) {
+          const { revokeSessionJti } = await import("./sdk");
+          await revokeSessionJti(
+            payload.jti,
+            payload.uid ?? null,
+            payload.exp ? new Date(payload.exp * 1000) : new Date(Date.now() + ONE_YEAR_MS),
+          );
+        }
+      }
+    } catch (err) {
+      // Logout must never fail loudly — the cookie is cleared regardless.
+      console.warn("[Auth] Logout revocation failed:", (err as Error)?.message);
+    }
     res.clearCookie(SESSION_COOKIE, { path: "/" });
     res.json({ ok: true });
   });

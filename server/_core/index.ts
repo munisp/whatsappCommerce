@@ -312,11 +312,60 @@ async function startServer() {
     const key = (req.params as Record<string, string>)[0];
     if (!key) { res.status(400).send("Missing storage key"); return; }
     try {
+      // W30 (V3#17): storage objects are no longer world-readable. Access
+      // requires EITHER an authenticated session OR a key-bound capability
+      // token (?cap=…, minted server-side for shared evidence links).
+      let authorized = false;
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (user) authorized = true;
+      if (!authorized) {
+        const cap = typeof req.query.cap === "string" ? req.query.cap : "";
+        if (cap) {
+          const { verifyCapabilityToken } = await import("../services/capabilityTokens");
+          if (verifyCapabilityToken(cap, "storage_cap", key)) authorized = true;
+        }
+      }
+      if (!authorized) {
+        res.status(401).json({ error: "Authentication required to access storage objects" });
+        return;
+      }
       const { stream, contentType } = await storageServe(key);
-      res.set("Content-Type", contentType);
-      res.set("Cache-Control", "public, max-age=31536000, immutable");
-      stream.pipe(res);
-      stream.on("error", () => { if (!res.headersSent) res.status(404).end(); });
+      // W30 (V3#17): never trust the stored (client-supplied) Content-Type —
+      // sniff the first bytes; force attachment for types that could script
+      // on the app origin (HTML/SVG/XML/JS — stored-XSS vector).
+      const { servedContentPolicy } = await import("../services/storageSecurity");
+      const chunks: Buffer[] = [];
+      let headDone = false;
+      stream.on("data", (chunk: Buffer) => {
+        if (!headDone) {
+          chunks.push(chunk);
+          const head = Buffer.concat(chunks);
+          if (head.length >= 512) {
+            headDone = true;
+            const policy = servedContentPolicy(contentType, head);
+            res.set("Content-Type", policy.contentType);
+            res.set("Content-Disposition", policy.disposition);
+            res.set("X-Content-Type-Options", "nosniff");
+            // No more public/immutable caching — objects are authenticated.
+            res.set("Cache-Control", "private, no-store");
+            for (const c of chunks) res.write(c);
+            chunks.length = 0;
+          }
+        } else {
+          res.write(chunk);
+        }
+      });
+      stream.on("end", () => {
+        if (!headDone) {
+          const policy = servedContentPolicy(contentType, Buffer.alloc(0));
+          res.set("Content-Type", policy.contentType);
+          res.set("Content-Disposition", policy.disposition);
+          res.set("X-Content-Type-Options", "nosniff");
+          res.set("Cache-Control", "private, no-store");
+        }
+        res.end();
+      });
+      stream.on("error", () => { if (!res.headersSent) res.status(404).end(); else res.end(); });
     } catch {
       res.status(404).send("Not found");
     }
@@ -846,9 +895,11 @@ async function startServer() {
         updatedAt: now,
       }).where(eq(logisticsShipments.id, shipment.id));
       if (newStatus === "delivered" && shipment.escrowTxId) {
-        await db.update(escrowTransactions).set({
-          state: "delivery_confirmed", deliveryConfirmedAt: now, updatedAt: now,
-        }).where(and(eq(escrowTransactions.id, shipment.escrowTxId), eq(escrowTransactions.state, "escrow_held")));
+        // === W30 escrow-lifecycle === shared helper: flipping to
+        // delivery_confirmed ALWAYS resets the buyer-protection deadline
+        // (verify-v1 #14 — previously the window could be ~zero here).
+        const { confirmEscrowDelivery } = await import("../services/escrowLifecycle");
+        await confirmEscrowDelivery(db, { escrowTxId: shipment.escrowTxId, at: now });
         await db.update(orders).set({ status: "delivered", updatedAt: now }).where(eq(orders.id, shipment.orderId));
       }
       // Push a WhatsApp status update to the buyer (non-blocking).
@@ -1743,6 +1794,31 @@ async function startServer() {
   app.post("/ussd", async (req, res) => {
     res.type("text/plain");
     try {
+      // W30 (V2#6): the gateway authenticates with a shared secret header.
+      // Fail-closed in production (env.ts refuses to boot without it); in
+      // non-prod an unset secret keeps the endpoint open for local dev with
+      // a loud warning — but NEVER when the secret is configured and wrong.
+      const ussdSecret = (process.env.USSD_GATEWAY_SECRET ?? "").trim();
+      if (ussdSecret) {
+        const presented = String(req.headers["x-ussd-gateway-key"] ?? "");
+        const { timingSafeEqual } = await import("crypto");
+        const a = Buffer.from(presented);
+        const b = Buffer.from(ussdSecret);
+        if (a.length !== b.length || !timingSafeEqual(a, b)) {
+          return res.status(401).send("END Unauthorized gateway");
+        }
+      } else {
+        console.warn("[ussd] USSD_GATEWAY_SECRET unset — endpoint unauthenticated (non-prod only)");
+      }
+      // W30 (V2#6): fixed-window rate limit per calling gateway IP.
+      const { checkRateLimit } = await import("./rateLimit");
+      const { isProd } = await import("./env");
+      const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+      const decision = await checkRateLimit(`ussd:${ip}`, 60, 60, isProd);
+      if (!decision.allowed) {
+        res.status(429).set("Retry-After", String(decision.retryAfter));
+        return res.send("END Too many requests. Please try again later.");
+      }
       const { sessionId, serviceCode, phoneNumber, text } = (req.body ?? {}) as Record<string, string>;
       if (!sessionId || !phoneNumber) {
         return res.status(400).send("END Missing sessionId or phoneNumber");
@@ -1771,68 +1847,33 @@ async function startServer() {
         sql`buyer_confirm_deadline < ${now.toISOString()}`,
       ));
       let confirmed = 0;
+      // === W30 escrow-lifecycle ===
+      // verify-v1 #13: this cron used to re-implement settlement as separate
+      // non-transactional statements (state flip, then wallet credit) with NO
+      // platform-fee leg and NO TigerBeetle ledger commit — a crash mid-way
+      // stranded escrows settled-but-uncredited. It now delegates to the SAME
+      // hardened settleEscrowAtomic used by buyerConfirm / SLA scan: one DB
+      // transaction (flip + merchant net credit + platform fee leg) plus the
+      // ledger commit, with saga compensation on post-capture failure.
+      const { settleEscrowAtomic, EscrowSettlementError, compensateEscrowSettlementFailure } = await import("../routers/escrow");
       for (const escrow of expired) {
-        if (cfg.custodyMode === "psp") {
-          // Single guarded state transition FIRST — only the run that actually
-          // flips delivery_confirmed → settled may credit the wallet. This
-          // makes the credit idempotent across concurrent/duplicate runs.
-          const transitioned = await db.update(escrowTransactions).set({
-            state: "settled", autoConfirmed: true, settledAt: now, updatedAt: now,
-          }).where(and(eq(escrowTransactions.id, escrow.id), eq(escrowTransactions.state, "delivery_confirmed")))
-            .returning({ id: escrowTransactions.id });
-          if (transitioned.length === 0) continue;
-
-          // Use the STORED net merchant amount — never recompute the fee here.
-          // F5: remainder-aware — after a partial refund only (net − refunded)
-          // may be released; never more than remains held.
-          const autoMeta = (escrow.metadata ?? {}) as Record<string, unknown>;
-          const alreadyRefundedAuto = parseFloat(String(autoMeta.refundedAmount ?? "0")) || 0;
-          const netAmount = Math.max(0, Math.round((parseFloat(escrow.netMerchantAmount) - alreadyRefundedAuto) * 100) / 100);
-          if (netAmount <= 0) {
-            await db.update(orders).set({ paymentStatus: "completed", updatedAt: now }).where(eq(orders.id, escrow.orderId));
-            confirmed++;
-            continue;
+        try {
+          const result = await settleEscrowAtomic(db, escrow.id, {
+            autoConfirmed: true,
+            allowedFromStates: ["delivery_confirmed"],
+            descriptionPrefix: "Auto-confirm (buyer window expired)",
+          });
+          if (!result.transitioned) continue; // concurrent run already settled it
+        } catch (settleErr: any) {
+          if (settleErr instanceof EscrowSettlementError) {
+            await compensateEscrowSettlementFailure(db, {
+              escrowId: escrow.id,
+              pendingIds: settleErr.capturedPendingIds,
+              reason: settleErr.message,
+            }).catch((compErr) => console.error("[escrow-auto-confirm] compensation failed:", compErr));
           }
-          const [wallet] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, escrow.tenantId));
-          if (wallet) {
-            const before = parseFloat(wallet.availableBalance);
-            const after = before + netAmount;
-            const walletTxId = randomUUID();
-            // Ledger row first (immutable audit trail), then the balance update.
-            await db.insert(walletTransactions).values({
-              id: walletTxId,
-              walletId: wallet.id,
-              tenantId: escrow.tenantId,
-              type: "escrow_release",
-              amount: netAmount.toFixed(2),
-              balanceBefore: before.toFixed(2),
-              balanceAfter: after.toFixed(2),
-              currency: wallet.currency,
-              orderId: escrow.orderId,
-              escrowTxId: escrow.id,
-              description: `Escrow auto-confirmed (buyer window expired) for order ${escrow.orderId}`,
-              reference: `AUTOCONFIRM-${escrow.id.slice(0, 8).toUpperCase()}`,
-              createdAt: now,
-            });
-            await db.update(merchantWallets).set({
-              escrowBalance: sql`GREATEST(escrow_balance - ${netAmount.toFixed(2)}, 0)`,
-              availableBalance: sql`available_balance + ${netAmount.toFixed(2)}`,
-              totalEarned: sql`total_earned + ${netAmount.toFixed(2)}`,
-              updatedAt: now,
-            }).where(eq(merchantWallets.id, wallet.id));
-            await db.update(escrowTransactions)
-              .set({ merchantWalletTxId: walletTxId, updatedAt: now })
-              .where(eq(escrowTransactions.id, escrow.id));
-          } else {
-            console.error(`[escrow-auto-confirm] escrow ${escrow.id} settled but tenant ${escrow.tenantId} has NO merchant wallet — credit skipped, needs reconciliation`);
-          }
-        } else {
-          const bankRef = `ESCROW-AUTO-${escrow.id.slice(0, 8).toUpperCase()}-${Date.now()}`;
-          const transitioned = await db.update(escrowTransactions).set({
-            state: "release_instructed", autoConfirmed: true, releaseInstructedAt: now, bankRef, updatedAt: now,
-          }).where(and(eq(escrowTransactions.id, escrow.id), eq(escrowTransactions.state, "delivery_confirmed")))
-            .returning({ id: escrowTransactions.id });
-          if (transitioned.length === 0) continue;
+          console.error(`[escrow-auto-confirm] settlement failed for escrow ${escrow.id}:`, settleErr?.message ?? settleErr);
+          continue;
         }
         await db.update(orders).set({ paymentStatus: "completed", updatedAt: now }).where(eq(orders.id, escrow.orderId));
         confirmed++;
@@ -1859,14 +1900,23 @@ async function startServer() {
       const dailyRate = parseFloat(cfg.floatYieldRate) / 365;
       const dailyIncome = totalBalance * dailyRate;
       const today = new Date().toISOString().slice(0, 10);
-      await db.insert(floatIncomeEntries).values({
+      // === W30 feature-ring (V3#13) ===
+      // unique(float_income_entries.date) makes repeat runs conflict — the
+      // skip is honest, never a double-accrual. NOTE: this accrual is a
+      // PROJECTION ONLY — no wallet/account is credited here (that requires
+      // a real yield settlement rail); the row is labelled accordingly.
+      const inserted = await db.insert(floatIncomeEntries).values({
         id: crypto.randomUUID(), date: today,
         totalEscrowBalance: totalBalance.toFixed(2),
         dailyYieldRate: dailyRate.toFixed(8),
         incomeAmount: dailyIncome.toFixed(4),
         currency: "NGN", createdAt: new Date(),
-      });
-      return res.json({ ok: true, date: today, income: dailyIncome.toFixed(4) });
+      }).onConflictDoNothing({ target: floatIncomeEntries.date }).returning({ id: floatIncomeEntries.id });
+      if (inserted.length === 0) {
+        return res.json({ ok: true, skipped: "already accrued today", date: today, projectionOnly: true });
+      }
+      return res.json({ ok: true, date: today, income: dailyIncome.toFixed(4), projectionOnly: true, note: "projection only — no wallet credited" });
+      // === END W30 feature-ring ===
     } catch (err: any) {
       console.error("[float-income]", err);
       return res.status(500).json({ error: err?.message });
@@ -3239,7 +3289,11 @@ function drawBbox(img,id){
       const driftLogPath = path.join(process.cwd(), "services/ml-stack/data/lakehouse/drift_log.json");
       const { existsSync: _existsSync } = await import("fs");
       if (!_existsSync(driftLogPath)) {
-        return res.json({ ok: true, skipped: true, reason: "drift_log.json not found" });
+        // W30 (V3#7): report the skip loudly and honestly — the drift job has
+        // never produced a log in this deployment, so there is nothing to
+        // alert on. This is NOT a successful drift check.
+        console.warn("[drift-alert] skipped: drift_log.json not found — ml-stack drift job has not run in this deployment");
+        return res.json({ ok: true, checked: false, skipped: true, reason: "drift_log.json not found — ml-stack drift job has not run in this deployment" });
       }
       const { readFileSync } = await import("fs");
       const raw = readFileSync(driftLogPath, "utf-8");
@@ -3540,10 +3594,15 @@ function drawBbox(img,id){
       const body = req.body as { transferState?: string; fulfilment?: string };
 
       // ── FSPIOP-Signature validation ──────────────────────────────────────
-      // In production with mTLS: verify the FSPIOP-Signature header using the
-      // sender DFSP's JWS public key from the Mojaloop Connection Manager.
-      // Here we enforce that the header is present when MOJALOOP_VALIDATE_SIG=true.
-      if (process.env.MOJALOOP_VALIDATE_SIG === "true") {
+      // W30 (V2#9): JWS validation is DEFAULT ON. It can only be disabled
+      // with an explicit MOJALOOP_VALIDATE_SIG=false, and only outside
+      // production-like environments — in prod the flag is ignored and
+      // validation stays on. A key-fetch failure REJECTS the callback
+      // (fail closed — previously it "allowed with warning").
+      const { isProd: mojaIsProd } = await import("./env");
+      const sigDisabled =
+        (process.env.MOJALOOP_VALIDATE_SIG ?? "").trim().toLowerCase() === "false" && !mojaIsProd;
+      if (!sigDisabled) {
         if (!fspiopSignature || !fspiopDate || !fspiop) {
           console.warn("[mojaloop-callback] Missing FSPIOP headers — rejecting");
           return res.status(401).json({ error: "Missing FSPIOP-Signature, FSPIOP-Date, or FSPIOP-Source" });
@@ -3552,21 +3611,25 @@ function drawBbox(img,id){
         try {
           const publicKeyUrl = `${process.env.MOJALOOP_MCM_URL ?? 'http://mojaloop-hub:3001'}/dfsps/${fspiop}/jwsKey`;
           const pkRes = await fetch(publicKeyUrl, { signal: AbortSignal.timeout(3000) }).catch(() => null);
-          if (pkRes?.ok) {
-            const { publicKey } = await pkRes.json() as { publicKey: string };
-            const { createVerify } = await import('crypto');
-            const verifier = createVerify('SHA256');
-            const parts = fspiopSignature.split('.');
-            if (parts.length === 3) {
-              verifier.update(`${parts[0]}.${parts[1]}`);
-              const sigValid = verifier.verify(publicKey, parts[2], 'base64url');
-              if (!sigValid) return res.status(401).json({ error: 'Invalid FSPIOP-Signature' });
-            }
-          } else {
-            console.warn('[mojaloop-callback] Could not fetch DFSP public key from MCM, allowing with warning');
+          if (!pkRes?.ok) {
+            // Fail closed: without the DFSP key we cannot authenticate the
+            // callback — reject (retryable) instead of trusting it.
+            console.error('[mojaloop-callback] Could not fetch DFSP public key from MCM — rejecting (fail closed)');
+            return res.status(503).json({ error: 'DFSP key fetch failed — callback rejected' });
           }
+          const { publicKey } = await pkRes.json() as { publicKey: string };
+          const { createVerify } = await import('crypto');
+          const verifier = createVerify('SHA256');
+          const parts = fspiopSignature.split('.');
+          if (parts.length !== 3) {
+            return res.status(401).json({ error: 'Malformed FSPIOP-Signature' });
+          }
+          verifier.update(`${parts[0]}.${parts[1]}`);
+          const sigValid = verifier.verify(publicKey, parts[2], 'base64url');
+          if (!sigValid) return res.status(401).json({ error: 'Invalid FSPIOP-Signature' });
         } catch (jwsErr: any) {
-          console.warn('[mojaloop-callback] JWS verification error:', jwsErr.message);
+          console.error('[mojaloop-callback] JWS verification error — rejecting (fail closed):', jwsErr.message);
+          return res.status(401).json({ error: 'FSPIOP-Signature verification failed' });
         }
       }
       const db = await getDb();

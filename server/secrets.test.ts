@@ -250,7 +250,7 @@ describe("SECRETS_MASTER_KEY production boot gate", () => {
   const BOOT_VARS = [
     "DATABASE_URL", "POSTGRES_URL", "JWT_SECRET", "KEYCLOAK_URL",
     "APP_URL", "REDIS_URL", "REDIS_TLS_URL", "SECRETS_MASTER_KEY",
-    "KYC_SERVICE_API_KEY", "KYC_INTERNAL_API_KEY",
+    "KYC_SERVICE_API_KEY", "KYC_INTERNAL_API_KEY", "INTERNAL_API_KEY",
   ];
   let saved: Record<string, string | undefined>;
   beforeEach(() => {
@@ -273,7 +273,9 @@ describe("SECRETS_MASTER_KEY production boot gate", () => {
     process.env.APP_URL = "https://app.example";
     process.env.REDIS_URL = "redis://localhost:6379";
     process.env.KYC_SERVICE_API_KEY = "kyc-live-test-key";
+    process.env.INTERNAL_API_KEY = "internal-test-key"; // W30: REQUIRED_BY_ENV
     process.env.WHATSAPP_VERIFY_TOKEN = "wa-verify-test-token-0123456789"; // A4-04 prod boot gate
+    process.env.USSD_GATEWAY_SECRET = "ussd-test-secret"; // W30 merge: D's /ussd prod boot gate
   }
 
   it("refuses to boot in production without SECRETS_MASTER_KEY", async () => {

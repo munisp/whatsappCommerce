@@ -55,8 +55,16 @@ afterEach(() => {
 });
 
 describe("repaymentReference", () => {
-  it("matches cr-{accountId}-{yyyymmdd}-{rand}", () => {
-    expect(repaymentReference("acct-1", NOW)).toMatch(/^cr-acct-1-20250310-\d{6}$/);
+  it("is deterministic per (mandate, amount, outstanding) — W30 double-submit guard", () => {
+    const marker = { mandateId: "m-1", amountCents: 4_000, outstandingCents: 10_000 };
+    const a = repaymentReference("acct-1", NOW, marker);
+    const b = repaymentReference("acct-1", NOW, marker);
+    expect(a).toBe(b);
+    expect(a).toMatch(/^cr-acct-1-20250310-[0-9a-f]{12}$/);
+    // Different amount or outstanding marker → different reference.
+    expect(repaymentReference("acct-1", NOW, { ...marker, amountCents: 5_000 })).not.toBe(a);
+    expect(repaymentReference("acct-1", NOW, { ...marker, outstandingCents: 9_000 })).not.toBe(a);
+    expect(repaymentReference("acct-1", NOW, { ...marker, mandateId: "m-2" })).not.toBe(a);
   });
 });
 
@@ -67,7 +75,7 @@ describe("applyMandateRepaymentTx — charge-first", () => {
     __setMandateProvidersForTests(async () => [entry] as any);
     const res = await applyMandateRepaymentTx(db, { accountId: "acct-1", amountCents: 4_000 }, NOW);
     expect(res).toMatchObject({ ok: true, mode: "mandate", status: "success", outstandingAfter: 6_000 });
-    expect((res as any).reference).toMatch(/^cr-acct-1-20250310-\d{6}$/);
+    expect((res as any).reference).toMatch(/^cr-acct-1-20250310-[0-9a-f]{12}$/);
     // Provider received the repayment metadata contract.
     expect(entry.provider.chargeMandate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -163,10 +171,32 @@ describe("applyMandateRepaymentTx — charge-first", () => {
     const res = await applyMandateRepaymentTx(db, { accountId: "acct-1", amountCents: 1_000 }, NOW);
     expect(res).toMatchObject({ ok: true, mode: "mandate", status: "pending", outstandingAfter: 10_000 });
     expect(store.accounts[0].outstandingCents).toBe(10_000); // NOT settled
-    expect(store.webhookEvents).toHaveLength(1); // claim kept — never blind-retried
+    // Claim kept — never blind-retried; W30 pending marker also kept while
+    // the provider outcome is unknown (released by the reconciler).
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment")).toHaveLength(1);
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment_pending")).toHaveLength(1);
     const charge = store.mandateCharges.find((c) => c.status === "pending");
     expect(charge).toBeDefined();
     expect(charge?.amountCents).toBe(1_000);
+  });
+
+  it("W30: concurrent double-submit charges the mandate exactly once", async () => {
+    const { db, store } = seedWithMandate();
+    const entry = mandateProvider();
+    __setMandateProvidersForTests(async () => [entry] as any);
+    const [a, b] = await Promise.all([
+      applyMandateRepaymentTx(db, { accountId: "acct-1", amountCents: 4_000 }, NOW),
+      applyMandateRepaymentTx(db, { accountId: "acct-1", amountCents: 4_000 }, NOW),
+    ]);
+    const outcomes = [a, b];
+    // Exactly one provider charge; the loser gets the truthful duplicate verdict.
+    expect(entry.provider.chargeMandate).toHaveBeenCalledTimes(1);
+    expect(outcomes.filter((r) => r.ok)).toHaveLength(1);
+    expect(outcomes.filter((r) => !r.ok && r.reason === "duplicate")).toHaveLength(1);
+    // Exactly one settlement; outstanding moved once; no stranded markers.
+    expect(store.accounts[0].outstandingCents).toBe(6_000);
+    expect(store.ledger.filter((l) => l.kind === "repayment")).toHaveLength(1);
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment_pending")).toHaveLength(0);
   });
 
   it("refuses over-repayment BEFORE any provider charge (double-submit guard)", async () => {

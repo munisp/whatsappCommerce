@@ -66,7 +66,7 @@ const KYB_DEGRADED = {
   reasons: ["sanctions screening degraded (list unavailable) — manual review required"],
 } as any;
 
-const ENV_KEYS = ["COMPLIANCE_REGISTRY_PROVIDER", "SANCTIONS_LIST_URL"] as const;
+const ENV_KEYS = ["COMPLIANCE_REGISTRY_PROVIDER", "SANCTIONS_LIST_URL", "KYB_SCREENING_DISABLED"] as const;
 let savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -74,6 +74,7 @@ beforeEach(() => {
   for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
   process.env.COMPLIANCE_REGISTRY_PROVIDER = "stub";
   delete process.env.SANCTIONS_LIST_URL;
+  delete process.env.KYB_SCREENING_DISABLED;
   vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
 });
 
@@ -116,9 +117,10 @@ describe("A3-F01 KYB wiring", () => {
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
 
-  it("provider disabled + no SANCTIONS_LIST_URL → screening skipped, legacy approval preserved", async () => {
-    process.env.COMPLIANCE_REGISTRY_PROVIDER = "disabled";
-    delete process.env.SANCTIONS_LIST_URL;
+  it("KYB_SCREENING_DISABLED=true (non-prod) → screening skipped, legacy approval preserved", async () => {
+    // W30 merge (V2#10): the legacy provider-gated default is gone — screening
+    // is default-ON and is skipped ONLY via the explicit non-prod escape hatch.
+    process.env.KYB_SCREENING_DISABLED = "true";
     const { db } = makeDb([[appRow], []]);
     vi.mocked(getDb).mockResolvedValue(db);
     const caller = kycRouter.createCaller(ADMIN);

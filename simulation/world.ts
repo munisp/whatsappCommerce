@@ -600,6 +600,23 @@ export async function bootWorld(): Promise<World> {
           // supplier profiles are dropped; the two seeded tenants stay.
           await world.db.delete(schema.supplierProfiles).where(ne(schema.supplierProfiles.tenantId, SUPPLIER_TENANT_ID));
           await world.db.delete(schema.tenants).where(notInArray(schema.tenants.id, [TENANT_ID, SUPPLIER_TENANT_ID]));
+          // === W30 auth-gates === the seed state now includes an APPROVED
+          // KYB application for both seed tenants: the W30 KYB gate is a
+          // hard precondition on money surfaces (createHold / withdrawal /
+          // credit.accept), and the pre-W30 journeys exercise those rails
+          // with the seed tenants. Journeys that need an UNVERIFIED tenant
+          // (J174) create a fresh one.
+          for (const tid of [TENANT_ID, SUPPLIER_TENANT_ID]) {
+            await world.db.insert(schema.kycApplications).values({
+              id: `kyb-seed-${tid}`,
+              tenantId: tid,
+              type: "kyb",
+              status: "approved",
+              applicantName: "Sim Owner",
+              businessName: tid,
+            }).onConflictDoNothing();
+          }
+          // === END W30 auth-gates ===
           // Supplier profile back to its seeded ACTIVE state (J59 may pause it).
           await world.db
             .update(schema.supplierProfiles)
@@ -717,6 +734,26 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.odooIntegrations);
           await world.db.delete(schema.twentyIntegrations);
         } catch { /* integration tables not present */ }
+        // === W30 loans-credit (Coder A) isolation: funding-leg rows (FK
+        // child of merchant_loans — delete BEFORE the loan wipe below) and
+        // the platform funding facility (wiped by the W14 reset above) are
+        // restored so J139–J141 + J162–J164 always exercise the real
+        // funded-disbursement path with a deterministic commitment.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.merchantLoanFunding);
+          await world.db.delete(schema.creditFacilities);
+          await world.db.insert(schema.creditFacilities).values({
+            id: "f30f30f3-0000-4000-8000-000000000030",
+            lenderName: "Sim Platform Lending SPV",
+            facilityRef: "PLATFORM-MICROLOANS",
+            commitmentCents: 1_000_000_000_00, // ₦1,000,000,000
+            currency: "NGN",
+            advanceRateBps: 10_000,
+            status: "active",
+          }).onConflictDoNothing();
+        } catch { /* w30 tables not migrated yet */ }
+        // === END W30 loans-credit ===
         // W27 credit isolation: merchant credit scores, micro-loans,
         // repayments and certificates created by J138–J141 never leak
         // between journeys (no FKs to tenants; delete order: repayments
@@ -891,6 +928,36 @@ async function seedWorld(world: World): Promise<void> {
   if (!cfg) {
     await db.insert(schema.escrowConfig).values({ id: 1, custodyMode: "pssp" });
   }
+
+  // === W30 merge seam: KYB screening default in the SIM ===
+  // D made KYB registry+sanctions screening default-ON in kyc.review
+  // (V2#10, fail closed). The sim has no live registry/sanctions provider,
+  // and pre-W30 journeys (J57–J69, J102) approve applications that carry no
+  // registry fields. Use the explicit NON-PROD escape hatch so those
+  // approve-flow journeys behave as before; the fail-closed semantics are
+  // covered by unit tests (kycKybWiring/sanctions) and the KYB money gates
+  // by J174/J177 via requireApprovedKyb (a separate flag).
+  process.env.KYB_SCREENING_DISABLED ??= "true";
+  // === END W30 merge seam ===
+
+  // === W30 loans-credit (Coder A) ===
+  // Platform wholesale facility funding the micro-loan book (verify-v1 #12):
+  // every disbursement now atomically decrements credit_facilities
+  // .commitment_cents (insufficient → honest rejection) and posts the
+  // TigerBeetle funding leg. Seed one deterministic lender facility so the
+  // loan journeys (J139–J141, J162–J164) exercise the real funding path.
+  try {
+    await db.insert(schema.creditFacilities).values({
+      id: "f30f30f3-0000-4000-8000-000000000030",
+      lenderName: "Sim Platform Lending SPV",
+      facilityRef: "PLATFORM-MICROLOANS",
+      commitmentCents: 1_000_000_000_00, // ₦1,000,000,000
+      currency: "NGN",
+      advanceRateBps: 10_000,
+      status: "active",
+    }).onConflictDoNothing();
+  } catch { /* w30 table not migrated yet */ }
+  // === END W30 loans-credit ===
 
   // ── Wave 8: supplier tenant + B2B network ────────────────────────────────
   await db.insert(schema.tenants).values({

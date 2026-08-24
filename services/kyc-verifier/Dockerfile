@@ -12,7 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-ENV VLM_MOCK_MODE=true
+# W30 (V3#2): the image must NOT bake in mock mode — real document vision is
+# the default. Dev/test enables the mock via an explicit compose override
+# (VLM_MOCK_MODE=true on the kyc-verifier service in docker-compose.yml).
+ENV VLM_MOCK_MODE=false
 ENV PORT=8001
 
 EXPOSE 8001

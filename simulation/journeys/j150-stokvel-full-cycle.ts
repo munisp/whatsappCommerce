@@ -10,7 +10,7 @@
 import { and, eq } from "drizzle-orm";
 import { TENANT_ID, assert, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { adminCaller } from "./helpers";
+import { adminCaller, seedCompletedPayment } from "./helpers";
 
 export const journey: Journey = {
   id: "J150",
@@ -36,9 +36,16 @@ export const journey: Journey = {
 
     const prefix = circle.id.slice(0, 8);
     const payouts: any[] = [];
+    // W30 (V1#1): contributions now require a VERIFIED payment reference —
+    // each member pays through the payment rails (a completed payment intent,
+    // exactly what the paystack webhook leaves behind) and contributes with
+    // the real reference.
     for (let cycle = 1; cycle <= 3; cycle++) {
-      for (const p of phones) {
-        await world.text(p, `stokvel contribute ${prefix}`);
+      for (let i = 0; i < phones.length; i++) {
+        const p = phones[i];
+        const ref = `stkpay-${circle.id.slice(0, 8)}-${cycle}-${i}`;
+        await seedCompletedPayment(world, { reference: ref, amountCents: 50_000, customerId: p });
+        await world.text(p, `stokvel contribute ${prefix} ${ref}`);
         const reply = bodyText(world.outbound.lastOfType("text", p));
         assert(reply.includes("Contribution") || reply.includes("already recorded"), `contribution ack for ${p} (got: ${reply})`);
       }

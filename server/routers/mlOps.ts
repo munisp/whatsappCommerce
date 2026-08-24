@@ -8,7 +8,6 @@ import fs from "fs";
 import path from "path";
 import { load as yamlLoad } from "js-yaml";
 import { spawn } from "child_process";
-import { seededRng } from "../../shared/prng";
 
 const MLRUNS_DIR = path.join(process.cwd(), "services/ml-stack/mlruns");
 
@@ -112,27 +111,41 @@ function getRunsForExperiment(experimentId: string): Array<{
   return runs.sort((a, b) => b.startTime - a.startTime);
 }
 
-// ─── Simulated drift metrics (production: read from DuckDB warehouse) ─────────
-function generateDriftTimeSeries(baseDate: number, points = 14): Array<{
-  timestamp: number; psi: number; klDivergence: number; ksStatistic: number; label: string;
-}> {
-  const series = [];
-  // Deterministic: seeded from baseDate so the drift series is reproducible
-  // (no unseeded Math.random in production paths).
-  const rng = seededRng(`mlops-drift:${baseDate}:${points}`);
-  for (let i = points - 1; i >= 0; i--) {
-    const ts = baseDate - i * 24 * 3600 * 1000;
-    // Simulate gradually increasing drift over time
-    const trend = i < 5 ? (5 - i) * 0.03 : 0;
-    series.push({
-      timestamp: ts,
-      psi: parseFloat((0.02 + trend + rng() * 0.04).toFixed(4)),
-      klDivergence: parseFloat((0.01 + trend * 0.5 + rng() * 0.02).toFixed(4)),
-      ksStatistic: parseFloat((0.05 + trend * 0.3 + rng() * 0.03).toFixed(4)),
-      label: new Date(ts).toISOString().slice(0, 10),
-    });
+// ─── Drift metrics (W30, V3#7: real data or honest unavailable) ─────────────
+// Previously this served a SIMULATED series presented as real. Now: the
+// series is derived from the drift log written by the ml-stack drift job;
+// when the log is absent (ml-stack not deployed / no drift run yet) the
+// procedure reports available:false and the UI renders an honest
+// unavailable state instead of fabricated metrics.
+type DriftAlertRow = { model: string; feature: string; psi: number; threshold: number; isDrifted: boolean; computedAt: string };
+
+function readDriftLogRows(): DriftAlertRow[] | null {
+  const driftLogPath = path.join(process.cwd(), "services/ml-stack/data/lakehouse/drift_log.json");
+  try {
+    return JSON.parse(fs.readFileSync(driftLogPath, "utf-8")) as DriftAlertRow[];
+  } catch (e: any) {
+    if (e?.code === "ENOENT") return null;
+    console.error("[mlOps] failed to read drift log:", e?.message ?? e);
+    throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "drift log unreadable" });
   }
-  return series;
+}
+
+/** Build a daily PSI series (max PSI per model per day) from real drift-log rows. */
+function driftSeriesFromLog(rows: DriftAlertRow[], days: number): Array<{
+  timestamp: number; psi: number; klDivergence: number | null; ksStatistic: number | null; label: string;
+}> {
+  const cutoff = Date.now() - days * 24 * 3600 * 1000;
+  const byDay = new Map<string, { timestamp: number; psi: number }>();
+  for (const r of rows) {
+    const ts = Date.parse(r.computedAt);
+    if (!Number.isFinite(ts) || ts < cutoff) continue;
+    const label = new Date(ts).toISOString().slice(0, 10);
+    const existing = byDay.get(label);
+    if (!existing || r.psi > existing.psi) byDay.set(label, { timestamp: ts, psi: r.psi });
+  }
+  return Array.from(byDay.entries())
+    .map(([label, v]) => ({ timestamp: v.timestamp, psi: v.psi, klDivergence: null as number | null, ksStatistic: null as number | null, label }))
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
 
 export const mlOpsRouter = router({
@@ -190,23 +203,40 @@ export const mlOpsRouter = router({
     return status;
   }),
 
-  // Drift metrics time series (reads from DuckDB warehouse in production)
+  // Drift metrics time series — derived from the real drift log; honest
+  // unavailable when the ml-stack drift job has never run (W30, V3#7).
   getDriftMetrics: protectedProcedure
     .input(z.object({ modelName: z.string().optional(), days: z.number().min(1).max(90).default(14) }))
     .query(async ({ input }) => {
-      const baseDate = Date.now();
-      const series = generateDriftTimeSeries(baseDate, input.days);
+      const rows = readDriftLogRows();
+      const modelName = input.modelName ?? "fraud_detection";
+      if (!rows) {
+        return {
+          available: false as const,
+          reason: "drift log not found — the ml-stack drift job has not run in this deployment (services/ml-stack/data/lakehouse/drift_log.json is absent from the runtime image)",
+          modelName,
+          series: [] as Array<{ timestamp: number; psi: number; klDivergence: number | null; ksStatistic: number | null; label: string }>,
+          summary: null,
+        };
+      }
+      const filtered = input.modelName ? rows.filter((r) => r.model === input.modelName) : rows;
+      const series = driftSeriesFromLog(filtered.length ? filtered : rows, input.days);
       const latest = series[series.length - 1];
       return {
-        modelName: input.modelName ?? "fraud_detection",
+        available: true as const,
+        modelName,
         series,
-        summary: {
-          currentPsi: latest.psi,
-          currentKlDivergence: latest.klDivergence,
-          currentKsStatistic: latest.ksStatistic,
-          alertLevel: latest.psi > 0.2 ? "critical" : latest.psi > 0.1 ? "warning" : "healthy",
-          retrainRecommended: latest.psi > 0.2,
-        },
+        summary: latest
+          ? {
+              currentPsi: latest.psi,
+              // The drift log records PSI only; KL/KS are not computed by the
+              // current drift job — reported as null, never simulated.
+              currentKlDivergence: null as number | null,
+              currentKsStatistic: null as number | null,
+              alertLevel: latest.psi > 0.2 ? "critical" : latest.psi > 0.1 ? "warning" : "healthy",
+              retrainRecommended: latest.psi > 0.2,
+            }
+          : null,
       };
     }),
 

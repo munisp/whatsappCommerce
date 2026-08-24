@@ -27,17 +27,21 @@
  * dueAt + DEFAULT_GRACE_DAYS as 'defaulted'; a defaulted loan blocks new
  * offers until fully repaid (manual repayments remain possible).
  */
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import {
+  creditFacilities,
+  merchantLoanFunding,
   merchantLoanRepayments,
   merchantLoans,
   merchantWallets,
   walletTransactions,
+  type CreditFacility,
   type MerchantLoan,
 } from "../../../drizzle/schema";
 import { minorUnitsToString, toMinorUnitsExact } from "../../../shared/escrowAmounts";
 import { getMerchantScore } from "../creditScore";
 import { getDb } from "../../db";
+import { ledgerBridgeRequest, LedgerBridgeError } from "../ledgerBridge";
 import type { DbHandle, TxHandle } from "./accounts";
 
 // ── Constants (deterministic; tunable only via code, documented above) ──────
@@ -166,8 +170,28 @@ export async function getLoanOffers(
 // ── Accept + disburse ───────────────────────────────────────────────────────
 
 export type AcceptLoanResult =
-  | { ok: true; loan: MerchantLoan; walletTxId: string }
-  | { ok: false; reason: "existing_loan" | "no_offer" | "principal_exceeds_offer" | "wallet_unavailable" };
+  | { ok: true; loan: MerchantLoan; walletTxId: string; deduped?: boolean }
+  | { ok: false; reason: "existing_loan" | "no_offer" | "principal_exceeds_offer" | "wallet_unavailable" | "insufficient_funding" };
+
+/** Deterministic TigerBeetle idempotency reference for the funding leg. */
+export function loanFundingRef(loanId: string): string {
+  return `loanfund:${loanId}`.slice(0, 64);
+}
+
+/** Postgres unique-violation on the open-loan partial index (0088)? */
+function isOpenLoanUniqueViolation(err: any): boolean {
+  const seen = new Set<any>();
+  let cur: any = err;
+  while (cur && typeof cur === "object" && !seen.has(cur)) {
+    seen.add(cur);
+    if (String(cur.code ?? "") === "23505") {
+      const where = `${cur.constraint ?? ""} ${cur.constraint_name ?? ""} ${cur.message ?? ""}`;
+      if (where.includes("merchant_loans_open_uniq")) return true;
+    }
+    cur = cur.cause;
+  }
+  return false;
+}
 
 /**
  * Accept an offer: creates the loan and disburses the principal to the
@@ -204,69 +228,183 @@ export async function acceptLoanTx(
   const outstandingCents = args.principalCents + feeCents;
   const dueAt = new Date(now.getTime() + offer.termDays * 24 * 3600 * 1000);
 
-  return db.transaction(async (tx) => {
-    const [loan] = await tx
-      .insert(merchantLoans)
-      .values({
-        tenantId: args.tenantId,
-        merchantId: args.merchantId,
-        status: "active",
-        principalCents: args.principalCents,
-        feeCents,
-        outstandingCents,
-        repaymentPct: offer.repaymentPct,
-        scoreAtAccept: offersRes.score,
-        tier: offer.tier,
-        disbursedAt: now,
-        dueAt,
-      })
-      .returning();
-
-    // Wallet rails: find-or-create the merchant wallet, then credit.
-    let [wallet] = await tx
-      .select()
-      .from(merchantWallets)
-      .where(eq(merchantWallets.tenantId, args.merchantId))
-      .limit(1);
-    if (!wallet) {
-      [wallet] = await tx
+  // W30 (verify-v1 #3 + #12): the whole disbursement is ONE transaction,
+  // serialized per-merchant by a FOR UPDATE lock on the merchant wallet row
+  // (find-or-create first so there is always a row to lock) and backstopped
+  // by the partial unique index merchant_loans_open_uniq (0088). The
+  // existing-loan check is RE-RUN inside the lock; a loser that still races
+  // the index (23505) is translated below into an idempotent return of the
+  // existing loan. The funding leg decrements a lender facility atomically
+  // and posts the TigerBeetle transfer BEFORE the wallet credit — no more
+  // unbacked minted balance; insufficient commitment rejects honestly.
+  let result: AcceptLoanResult;
+  try {
+    result = await db.transaction(async (tx) => {
+      // Wallet rails: find-or-create the merchant wallet, then LOCK the row.
+      await tx
         .insert(merchantWallets)
         .values({ tenantId: args.merchantId })
-        .returning();
-    }
-    if (!wallet) return { ok: false as const, reason: "wallet_unavailable" as const };
+        .onConflictDoNothing();
+      const [wallet] = await tx
+        .select()
+        .from(merchantWallets)
+        .where(eq(merchantWallets.tenantId, args.merchantId))
+        .limit(1)
+        .for("update");
+      if (!wallet) return { ok: false as const, reason: "wallet_unavailable" as const };
 
-    const beforeCents = toMinorUnitsExact(wallet.availableBalance);
-    const afterCents = beforeCents + args.principalCents;
-    const [wtx] = await tx
-      .insert(walletTransactions)
-      .values({
-        walletId: wallet.id,
+      // In-lock re-check: one open loan per merchant (the check above the tx
+      // is only an offer-sizing read; THIS is the race-safe verdict).
+      const [openLoan] = await tx
+        .select()
+        .from(merchantLoans)
+        .where(and(
+          eq(merchantLoans.tenantId, args.tenantId),
+          eq(merchantLoans.merchantId, args.merchantId),
+          inArray(merchantLoans.status, ["active", "defaulted"]),
+        ))
+        .limit(1);
+      if (openLoan) return { ok: false as const, reason: "existing_loan" as const };
+
+      // ── Funding leg (verify-v1 #12): lock + atomically decrement a lender
+      // wholesale facility. Deterministic pick: oldest active facility with
+      // sufficient remaining commitment.
+      const [facility] = await tx
+        .select()
+        .from(creditFacilities)
+        .where(and(
+          eq(creditFacilities.status, "active"),
+          gte(creditFacilities.commitmentCents, args.principalCents),
+        ))
+        .orderBy(asc(creditFacilities.createdAt), asc(creditFacilities.id))
+        .limit(1)
+        .for("update");
+      if (!facility) return { ok: false as const, reason: "insufficient_funding" as const };
+      const [funded] = await tx
+        .update(creditFacilities)
+        .set({
+          commitmentCents: sql`${creditFacilities.commitmentCents} - ${args.principalCents}`,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(creditFacilities.id, facility.id),
+          gte(creditFacilities.commitmentCents, args.principalCents),
+        ))
+        .returning();
+      if (!funded) return { ok: false as const, reason: "insufficient_funding" as const };
+
+      const [loan] = await tx
+        .insert(merchantLoans)
+        .values({
+          tenantId: args.tenantId,
+          merchantId: args.merchantId,
+          status: "active",
+          principalCents: args.principalCents,
+          feeCents,
+          outstandingCents,
+          repaymentPct: offer.repaymentPct,
+          scoreAtAccept: offersRes.score,
+          tier: offer.tier,
+          disbursedAt: now,
+          dueAt,
+        })
+        .returning();
+
+      // Durable funding-leg record + TigerBeetle entry (escrow.ts:301-318
+      // pattern: ledger BEFORE wallet credit; a bridge failure throws and
+      // rolls the whole disbursement back — honest, nothing moved).
+      const ledgerRef = loanFundingRef(loan.id);
+      await tx.insert(merchantLoanFunding).values({
+        loanId: loan.id,
         tenantId: args.tenantId,
-        type: "loan_disbursement",
-        amount: minorUnitsToString(args.principalCents),
-        balanceBefore: minorUnitsToString(beforeCents),
-        balanceAfter: minorUnitsToString(afterCents),
-        currency: wallet.currency,
-        description: `Micro-loan disbursement (tier ${offer.tier}, loan ${loan.id})`,
-        reference: `loandisb:${loan.id}`,
-        metadata: { loanId: loan.id, tier: offer.tier, scoreAtAccept: offersRes.score },
-      })
-      .returning();
-    await tx
-      .update(merchantWallets)
-      .set({
-        availableBalance: minorUnitsToString(afterCents),
-        updatedAt: now,
-      })
-      .where(eq(merchantWallets.id, wallet.id));
-    const [updated] = await tx
-      .update(merchantLoans)
-      .set({ walletTxId: wtx.id, updatedAt: now })
-      .where(eq(merchantLoans.id, loan.id))
-      .returning();
-    return { ok: true as const, loan: updated, walletTxId: wtx.id };
-  });
+        facilityId: facility.id,
+        principalCents: args.principalCents,
+        ledgerRef,
+      });
+      await postLoanFundingTransfer(facility, wallet.id, args.principalCents, ledgerRef);
+
+      const beforeCents = toMinorUnitsExact(wallet.availableBalance);
+      const afterCents = beforeCents + args.principalCents;
+      const [wtx] = await tx
+        .insert(walletTransactions)
+        .values({
+          walletId: wallet.id,
+          tenantId: args.tenantId,
+          type: "loan_disbursement",
+          amount: minorUnitsToString(args.principalCents),
+          balanceBefore: minorUnitsToString(beforeCents),
+          balanceAfter: minorUnitsToString(afterCents),
+          currency: wallet.currency,
+          description: `Micro-loan disbursement (tier ${offer.tier}, loan ${loan.id})`,
+          reference: `loandisb:${loan.id}`,
+          metadata: { loanId: loan.id, tier: offer.tier, scoreAtAccept: offersRes.score, facilityId: facility.id },
+        })
+        .returning();
+      await tx
+        .update(merchantWallets)
+        .set({
+          availableBalance: minorUnitsToString(afterCents),
+          updatedAt: now,
+        })
+        .where(eq(merchantWallets.id, wallet.id));
+      const [updated] = await tx
+        .update(merchantLoans)
+        .set({ walletTxId: wtx.id, updatedAt: now })
+        .where(eq(merchantLoans.id, loan.id))
+        .returning();
+      return { ok: true as const, loan: updated, walletTxId: wtx.id };
+    });
+  } catch (err: any) {
+    // 23505 on merchant_loans_open_uniq: a concurrent accept won the insert
+    // race — the disbursement above rolled back (no wallet credit, no
+    // facility decrement, no funding row). Return the winner's loan.
+    if (isOpenLoanUniqueViolation(err)) {
+      const [existing] = await db
+        .select()
+        .from(merchantLoans)
+        .where(and(
+          eq(merchantLoans.tenantId, args.tenantId),
+          eq(merchantLoans.merchantId, args.merchantId),
+          inArray(merchantLoans.status, ["active", "defaulted"]),
+        ))
+        .limit(1);
+      if (existing) {
+        return { ok: true, loan: existing, walletTxId: existing.walletTxId ?? "", deduped: true };
+      }
+    }
+    throw err;
+  }
+  return result;
+}
+
+/**
+ * Post the double-entry funding leg to the ledger bridge (integer cents,
+ * deterministic idempotency key `loanfund:<loanId>`). A 400/409 means the
+ * transfer is already recorded for this key (idempotent replay) — a no-op,
+ * NOT an error. Unreachable/5xx throws: the disbursement transaction rolls
+ * back so no unbacked balance is ever minted.
+ */
+async function postLoanFundingTransfer(
+  facility: Pick<CreditFacility, "id">,
+  walletId: string,
+  principalCents: number,
+  ledgerRef: string,
+): Promise<void> {
+  try {
+    await ledgerBridgeRequest("/transfer", "POST", {
+      debit_account_id: `credit-facility:${facility.id}`,
+      credit_account_id: `merchant-wallet:${walletId}`,
+      amount: principalCents,
+      ledger: 1,
+      code: 1,
+      idempotency_key: ledgerRef,
+    });
+  } catch (err: any) {
+    if (err instanceof LedgerBridgeError && err.status != null && [400, 409].includes(err.status)) {
+      return; // already posted under this idempotency key
+    }
+    throw err;
+  }
 }
 
 export async function acceptLoan(args: {
@@ -281,14 +419,34 @@ export async function acceptLoan(args: {
 
 // ── Repayment application (shared by sweep + manual repayments) ─────────────
 
+/**
+ * W30 (verify-v1 #4): the ONE locked repayment helper shared by the sweep
+ * and manual repayments. Race-hardened:
+ *   1. The loan row is re-read FOR UPDATE inside the tx — every repayment
+ *      serializes on it and computes from the FRESH outstanding.
+ *   2. The wallet row is locked FOR UPDATE before the debit.
+ *   3. The debit is a CONDITIONAL DECREMENT (`available_balance >= debit`),
+ *      never an absolute SET from a stale read.
+ *   4. The loan outstanding is a guarded decrement in the SAME transaction
+ *      (`outstanding_cents >= debit`, GREATEST-clamped) — ledger, balance
+ *      and outstanding can never diverge.
+ */
 async function applyRepaymentAmountTx(
   tx: TxHandle,
-  loan: MerchantLoan,
+  loanId: string,
   amountCents: number,
   meta: { source: "sale_deduction" | "manual"; reference: string; orderId?: string | null; saleWalletTxId?: string | null },
   now: Date,
 ): Promise<{ ok: boolean; outstandingAfter: number; repaid: boolean }> {
-  if (amountCents <= 0) return { ok: false, outstandingAfter: loan.outstandingCents, repaid: false };
+  // (1) Lock the loan row — serializes sweep vs manual on the fresh state.
+  const [loan] = await tx
+    .select()
+    .from(merchantLoans)
+    .where(eq(merchantLoans.id, loanId))
+    .limit(1)
+    .for("update");
+  if (!loan) return { ok: false, outstandingAfter: 0, repaid: false };
+  if (amountCents <= 0) return { ok: false, outstandingAfter: loan.outstandingCents, repaid: loan.outstandingCents === 0 };
 
   // Idempotency: a recorded repayment reference means this deduction ran.
   const dup = await tx
@@ -300,17 +458,34 @@ async function applyRepaymentAmountTx(
     return { ok: false, outstandingAfter: loan.outstandingCents, repaid: loan.outstandingCents === 0 };
   }
 
+  // (2) Lock the wallet row before reading the balance.
   const [wallet] = await tx
     .select()
     .from(merchantWallets)
     .where(eq(merchantWallets.tenantId, loan.merchantId))
-    .limit(1);
+    .limit(1)
+    .for("update");
   if (!wallet) return { ok: false, outstandingAfter: loan.outstandingCents, repaid: false };
 
   const availCents = toMinorUnitsExact(wallet.availableBalance);
-  const debit = Math.min(amountCents, availCents);
-  if (debit <= 0) return { ok: false, outstandingAfter: loan.outstandingCents, repaid: false };
-  const afterCents = availCents - debit;
+  const debit = Math.min(amountCents, availCents, loan.outstandingCents);
+  if (debit <= 0) return { ok: false, outstandingAfter: loan.outstandingCents, repaid: loan.outstandingCents === 0 };
+
+  // (3) Conditional decrement — the guard, not a stale read, decides.
+  const [debited] = await tx
+    .update(merchantWallets)
+    .set({
+      availableBalance: sql`${merchantWallets.availableBalance} - ${minorUnitsToString(debit)}`,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(merchantWallets.id, wallet.id),
+      sql`${merchantWallets.availableBalance} >= ${minorUnitsToString(debit)}`,
+    ))
+    .returning();
+  if (!debited) return { ok: false, outstandingAfter: loan.outstandingCents, repaid: false };
+  const afterCents = toMinorUnitsExact(debited.availableBalance);
+  const beforeCents = afterCents + debit;
 
   const [wtx] = await tx
     .insert(walletTransactions)
@@ -319,7 +494,7 @@ async function applyRepaymentAmountTx(
       tenantId: loan.tenantId,
       type: "loan_repayment",
       amount: minorUnitsToString(debit),
-      balanceBefore: minorUnitsToString(availCents),
+      balanceBefore: minorUnitsToString(beforeCents),
       balanceAfter: minorUnitsToString(afterCents),
       currency: wallet.currency,
       orderId: meta.orderId ?? null,
@@ -328,10 +503,6 @@ async function applyRepaymentAmountTx(
       metadata: { loanId: loan.id, source: meta.source, saleWalletTxId: meta.saleWalletTxId ?? null },
     })
     .returning();
-  await tx
-    .update(merchantWallets)
-    .set({ availableBalance: minorUnitsToString(afterCents), updatedAt: now })
-    .where(eq(merchantWallets.id, wallet.id));
 
   await tx.insert(merchantLoanRepayments).values({
     loanId: loan.id,
@@ -343,16 +514,31 @@ async function applyRepaymentAmountTx(
     reference: meta.reference,
   });
 
-  const outstandingAfter = Math.max(0, loan.outstandingCents - debit);
-  const repaid = outstandingAfter === 0;
-  await tx
+  // (4) Guarded outstanding decrement in the same transaction.
+  const [updatedLoan] = await tx
     .update(merchantLoans)
     .set({
-      outstandingCents: outstandingAfter,
-      ...(repaid ? { status: "repaid" as const, repaidAt: now } : {}),
+      outstandingCents: sql`GREATEST(0, ${merchantLoans.outstandingCents} - ${debit})`,
       updatedAt: now,
     })
-    .where(eq(merchantLoans.id, loan.id));
+    .where(and(
+      eq(merchantLoans.id, loan.id),
+      sql`${merchantLoans.outstandingCents} >= ${debit}`,
+    ))
+    .returning();
+  if (!updatedLoan) {
+    // Cannot happen while the loan row lock is held (debit <= outstanding),
+    // but fail honestly rather than diverge the ledger.
+    throw new Error(`[microLoans] outstanding guard refused repayment for loan ${loan.id}`);
+  }
+  const outstandingAfter = updatedLoan.outstandingCents;
+  const repaid = outstandingAfter === 0;
+  if (repaid) {
+    await tx
+      .update(merchantLoans)
+      .set({ status: "repaid" as const, repaidAt: now, updatedAt: now })
+      .where(and(eq(merchantLoans.id, loan.id), eq(merchantLoans.outstandingCents, 0)));
+  }
   return { ok: true, outstandingAfter, repaid };
 }
 
@@ -368,7 +554,10 @@ export async function repayLoanManualTx(
       return { ok: false, outstandingAfter: loan?.outstandingCents ?? 0, repaid: false };
     }
     const amount = Math.min(args.amountCents, loan.outstandingCents);
-    return applyRepaymentAmountTx(tx, loan, amount, {
+    // Deterministic once the loan+wallet locks are held (W30): a retry with
+    // the same timestamp is deduped by merchant_loan_repayments_ref_uniq; a
+    // concurrent sweep serializes on the loan row lock inside the helper.
+    return applyRepaymentAmountTx(tx, loan.id, amount, {
       source: "manual",
       reference: `loanmanual:${loan.id}:${now.getTime()}:${amount}`.slice(0, 160),
     }, now);
@@ -428,7 +617,7 @@ export async function runLoanRepaymentSweepTx(
         const deduction = deductionForSale(saleCents, fresh.repaymentPct, fresh.outstandingCents);
         const ref = loanRepaymentRef(fresh.id, credit.id);
         const applied = await db.transaction(async (tx) =>
-          applyRepaymentAmountTx(tx, fresh, deduction, {
+          applyRepaymentAmountTx(tx, fresh.id, deduction, {
             source: "sale_deduction",
             reference: ref,
             orderId: credit.orderId ?? null,

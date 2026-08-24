@@ -102,6 +102,7 @@ export default function EscrowDashboard() {
   const [historyEscrowId, setHistoryEscrowId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<"release" | "refund" | null>(null);
+  const [bulkReason, setBulkReason] = useState("");
 
   const { data: stats, isLoading: statsLoading } = trpc.escrow.getStats.useQuery();
   const { data: config, isLoading: configLoading, refetch: refetchConfig } = trpc.escrow.getConfig.useQuery();
@@ -713,6 +714,14 @@ export default function EscrowDashboard() {
             }
             {" "}This action cannot be undone.
           </AlertDialogDescription>
+          {/* W30: bulk money movement requires a recorded reason (audit). */}
+          <div className="mt-3">
+            <Input
+              placeholder="Reason (required, e.g. ops reconciliation batch 2026-02)"
+              value={bulkReason}
+              onChange={(e) => setBulkReason(e.target.value)}
+            />
+          </div>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={() => setBulkAction(null)}>Cancel</AlertDialogCancel>
@@ -720,9 +729,9 @@ export default function EscrowDashboard() {
             className={bulkAction === "refund" ? "bg-red-600 hover:bg-red-700" : "bg-green-700 hover:bg-green-600"}
             onClick={() => {
               if (!bulkAction) return;
-              bulkUpdate.mutate({ escrowIds: Array.from(selectedIds), action: bulkAction });
+              bulkUpdate.mutate({ escrowIds: Array.from(selectedIds), action: bulkAction, reason: bulkReason.trim() });
             }}
-            disabled={bulkUpdate.isPending}
+            disabled={bulkUpdate.isPending || bulkReason.trim().length < 3}
           >
             {bulkUpdate.isPending ? "Processing…" : bulkAction === "release" ? `Release ${selectedIds.size}` : `Refund ${selectedIds.size}`}
           </AlertDialogAction>

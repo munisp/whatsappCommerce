@@ -106,8 +106,24 @@ export async function issueVouchers(db: Db, input: {
   }
 
   const apply = async (tx: Db) => {
-    const [program] = await tx.select().from(voucherPrograms).where(eq(voucherPrograms.id, programId)).limit(1);
+    // W30 (V3#10): lock the program row FOR UPDATE so the budget check +
+    // issuedCents decrement serialize against concurrent issuances (the
+    // read-then-check below raced under READ COMMITTED).
+    const locked = await tx.execute(
+      sql`SELECT * FROM voucher_programs WHERE id = ${programId} FOR UPDATE`,
+    ).catch(() => null);
+    const program = ((locked as unknown as Record<string, unknown>[])?.[0] as any)
+      ?? (await tx.select().from(voucherPrograms).where(eq(voucherPrograms.id, programId)).limit(1))[0];
     if (!program) throw new VoucherError("NOT_FOUND", "program not found");
+    // Normalize raw-row snake_case when the FOR UPDATE path was used.
+    if (program.issued_cents != null && program.issuedCents == null) {
+      program.issuedCents = Number(program.issued_cents);
+      program.budgetCents = Number(program.budget_cents);
+      program.tenantId = program.tenant_id;
+      program.eligiblePhones = program.eligible_phones;
+      program.eligibleCategories = program.eligible_categories;
+      program.expiresAt = program.expires_at;
+    }
     if (program.status !== "active") throw new VoucherError("INACTIVE", `program is ${program.status}`);
     const currency = input.currency ?? program.currency;
     if (currency !== program.currency) throw new VoucherError("BAD_INPUT", "currency mismatch with program");

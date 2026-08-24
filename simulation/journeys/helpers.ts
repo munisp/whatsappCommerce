@@ -107,6 +107,34 @@ export async function createChatOrderViaNlp(
   };
 }
 
+/**
+ * W30: seed a locally CONFIRMED payment record (payment_intents, status
+ * 'completed') so hasVerifiedPayment verifies the reference via the
+ * 'record' path — the same state a real paystack webhook leaves behind.
+ */
+export async function seedCompletedPayment(
+  world: World,
+  opts: { reference: string; amountCents: number; tenantId?: string; customerId?: string; currency?: string },
+): Promise<void> {
+  const schema = await import("../../drizzle/schema");
+  const now = new Date();
+  await world.db.insert(schema.paymentIntents).values({
+    id: crypto.randomUUID(),
+    tenantId: opts.tenantId ?? TENANT_ID,
+    orderId: `seed-${opts.reference}`.slice(0, 36),
+    customerId: (opts.customerId ?? "sim-customer").slice(0, 36),
+    amount: (opts.amountCents / 100).toFixed(2),
+    currency: opts.currency ?? "NGN",
+    provider: "paystack",
+    status: "completed",
+    providerPaymentId: opts.reference,
+    idempotencyKey: `seed:${opts.reference}`,
+    completedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
 /** Drive the REAL paystack webhook for a payment reference. */
 export async function paystackChargeSuccess(
   world: World,

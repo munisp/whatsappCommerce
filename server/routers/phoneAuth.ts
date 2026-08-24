@@ -17,35 +17,75 @@
  */
 
 import { z } from "zod";
-import { router, publicProcedure, protectedProcedure } from "../_core/trpc";
+import { router, publicProcedure, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { phoneOtpSessions, users } from "../../drizzle/schema";
 import { eq, and, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { createHash, randomInt } from "crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { ENV } from "../_core/env";
 import { sendOtpEmail } from "../services/email/resend";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function generateOtp(): string {
+export function generateOtp(): string {
   // Cryptographically secure 6-digit OTP
   return String(randomInt(100000, 999999));
 }
 
-function hashOtp(otp: string): string {
-  // SHA-256 hash of OTP (fast enough for 6-digit codes, bcrypt is overkill here).
-  // W26 security: FAIL CLOSED when the salt secret is missing — a well-known
-  // fallback salt would let anyone precompute valid OTP hashes.
-  const salt = ENV.jwtSecret || process.env.OTP_HASH_SALT || "";
-  if (!salt) {
+/**
+ * W30 (f9-f10 F10-1): dedicated OTP pepper. OTP_HASH_SALT is preferred;
+ * JWT_SECRET remains as the fallback so existing deployments keep working.
+ * FAIL CLOSED when neither is configured — a well-known fallback salt would
+ * let anyone precompute valid OTP hashes.
+ */
+export function otpPepper(env: NodeJS.ProcessEnv = process.env): string {
+  const pepper = env.OTP_HASH_SALT || ENV.jwtSecret || "";
+  if (!pepper) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message: "OTP hashing salt is not configured (JWT_SECRET/OTP_HASH_SALT)",
+      message: "OTP hashing salt is not configured (OTP_HASH_SALT/JWT_SECRET)",
     });
   }
-  return createHash("sha256").update(otp + salt).digest("hex");
+  return pepper;
+}
+
+/**
+ * W30 OTP hash upgrade: v2 = "v2:<perOtpSaltHex>:<HMAC-SHA256(pepper, salt|otp)>".
+ * The dedicated pepper keys the HMAC and a fresh random per-OTP salt defeats
+ * rainbow-table / batch brute-force of the 10^6 code space if the DB leaks.
+ * v1 (legacy single SHA-256 of otp+pepper) hashes remain VERIFIABLE
+ * (migration-safe) but are never produced anymore.
+ */
+export function hashOtp(otp: string, pepper: string = otpPepper()): string {
+  const salt = randomBytes(16).toString("hex");
+  const mac = createHmac("sha256", pepper).update(`${salt}|${otp}`).digest("hex");
+  return `v2:${salt}:${mac}`;
+}
+
+/** Legacy v1 hash — kept ONLY for verifying pre-upgrade rows. */
+function hashOtpV1(otp: string, pepper: string): string {
+  return createHash("sha256").update(otp + pepper).digest("hex");
+}
+
+/**
+ * Migration-safe OTP verification. Accepts v2 (salted HMAC) and v1 (legacy
+ * unsalted SHA-256) stored hashes. Constant-time comparison on the digest.
+ */
+export function verifyOtpHash(stored: string, otp: string, pepper: string = otpPepper()): boolean {
+  if (stored.startsWith("v2:")) {
+    const [, salt, mac] = stored.split(":");
+    if (!salt || !mac) return false;
+    const candidate = createHmac("sha256", pepper).update(`${salt}|${otp}`).digest();
+    const expected = Buffer.from(mac, "hex");
+    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+  }
+  // v1 legacy row
+  const candidate = hashOtpV1(otp, pepper);
+  const a = Buffer.from(candidate, "utf8");
+  const b = Buffer.from(stored, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 // ── OTP attempt caps (W26 security) ──────────────────────────────────────────
@@ -69,14 +109,14 @@ function bumpPhoneCounter(map: Map<string, { windowStart: number; count: number 
   return entry.count <= limit;
 }
 
-function normalisePhone(phone: string): string {
+export function normalisePhone(phone: string): string {
   // Strip spaces, dashes, parentheses; ensure E.164 format
   let p = phone.replace(/[\s\-()]+/g, "");
   if (!p.startsWith("+")) p = "+" + p;
   return p;
 }
 
-async function sendWhatsAppOtp(phone: string, otp: string): Promise<void> {
+export async function sendWhatsAppOtp(phone: string, otp: string): Promise<void> {
   const token = process.env.WAC_WHATSAPP_TOKEN;
   const phoneId = process.env.WAC_WHATSAPP_PHONE_ID;
   const templateName = process.env.WAC_WHATSAPP_OTP_TEMPLATE || "wac_otp";
@@ -256,8 +296,7 @@ export const phoneAuthRouter = router({
         });
       }
 
-      const expectedHash = hashOtp(input.otp);
-      if (session.otpHash !== expectedHash) {
+      if (!verifyOtpHash(session.otpHash, input.otp)) {
         // W26 security: per-phone hourly verify cap (fresh sessions cannot
         // reset the per-session attempt counter to brute-force the code).
         if (!bumpPhoneCounter(phoneVerifyAttempts, session.phone, MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR)) {
@@ -411,5 +450,32 @@ export const phoneAuthRouter = router({
       if (input.whatsappNotifMarketing !== undefined) update.whatsappNotifMarketing = input.whatsappNotifMarketing;
       await db.update(users).set(update).where(eq(users.id, ctx.user.id));
       return { ok: true };
+    }),
+
+  /**
+   * W30 step-up (V2#2): request a fresh OTP challenge to the tenant admin
+   * phone for a gated action (payout change, large withdrawal, owner grant,
+   * payment override). The returned challengeId + the OTP received on the
+   * admin phone are then passed to the gated mutation, which consumes the
+   * challenge exactly once (services/stepUp.ts).
+   */
+  stepUpRequest: protectedProcedure
+    .input(z.object({
+      tenantId: z.string().min(1),
+      purpose: z.enum(["payout_change", "withdrawal", "owner_grant", "payment_override"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      // Only a member of the tenant (or platform admin) may trigger a
+      // challenge for it — the OTP still goes to the tenant admin phone, so
+      // this leaks nothing the caller doesn't already control.
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { issueStepUpChallenge } = await import("../services/stepUp");
+      return issueStepUpChallenge(db, {
+        tenantId: input.tenantId,
+        userId: ctx.user.id,
+        purpose: input.purpose,
+      });
     }),
 });

@@ -10,7 +10,7 @@
 import { and, eq } from "drizzle-orm";
 import { TENANT_ID, assert, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { adminCaller } from "./helpers";
+import { adminCaller, seedCompletedPayment } from "./helpers";
 
 export const journey: Journey = {
   id: "J151",
@@ -33,8 +33,10 @@ export const journey: Journey = {
     });
     const prefix = circle.id.slice(0, 8);
 
-    // Member A contributes through WhatsApp — no payout yet (B outstanding).
-    await world.text(payer, `stokvel contribute ${prefix}`);
+    // Member A contributes through WhatsApp with a VERIFIED payment ref
+    // (W30: unverified contributions stay pending) — no payout yet (B outstanding).
+    await seedCompletedPayment(world, { reference: "stk-missed-a-1", amountCents: 20_000, customerId: payer });
+    await world.text(payer, `stokvel contribute ${prefix} stk-missed-a-1`);
     const ack = bodyText(world.outbound.lastOfType("text", payer));
     assert(ack.includes("Waiting on the other members"), `partial cycle waits (got: ${ack})`);
     let payouts = await world.db.select().from(schema.stokvelPayouts)

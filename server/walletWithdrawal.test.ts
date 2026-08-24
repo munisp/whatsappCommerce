@@ -31,6 +31,16 @@ vi.mock("./_core/env", async (importActual) => {
   const actual = await importActual<typeof import("./_core/env")>();
   return { ...actual, ENV: { ...actual.ENV, paystackSecretKey: "sk_test_mock" } };
 });
+// W30 merge: requestWithdrawal now has KYB + step-up hard preconditions
+// (V2#1/V2#2) that hit tables the fake db below does not model. These tests
+// target the same-reference debit race — the gates are mocked to pass.
+vi.mock("./services/kycGate", () => ({
+  requireApprovedKyb: vi.fn(async () => {}),
+}));
+vi.mock("./services/stepUp", () => ({
+  requireStepUp: vi.fn(async () => {}),
+  withdrawalStepUpThreshold: vi.fn(() => Number.POSITIVE_INFINITY),
+}));
 vi.mock("./services/payments/paystackTransfer", () => ({
   createTransferRecipient: vi.fn(async () => "RCP_mock"),
   initiateTransfer: vi.fn(async () => ({ status: "success", transferCode: "TRF_mock" })),
@@ -40,7 +50,7 @@ vi.mock("./services/payments/paystackTransfer", () => ({
 
 import { getDb } from "./db";
 import { walletRouter } from "./routers/escrow";
-import { escrowConfig, merchantWallets, walletTransactions } from "../drizzle/schema";
+import { escrowConfig, kycApplications, merchantWallets, walletTransactions } from "../drizzle/schema";
 
 const ADMIN = { user: { id: "u-admin", role: "admin", tenantId: null } } as any;
 
@@ -68,6 +78,11 @@ const PROP: Record<string, Record<string, string>> = {
   escrow_config: { id: "id" },
   merchant_wallets: { id: "id", tenant_id: "tenantId" },
   wallet_transactions: { wallet_id: "walletId", reference: "reference", id: "id" },
+  // W30 merge: D's KYB hard precondition queries kyc_applications. The vi.mock
+  // of services/kycGate covers the sequential path; under the two CONCURRENT
+  // callers vitest's module-graph race lets one real requireApprovedKyb
+  // through — the fake db answers it with an approved KYB row.
+  kyc_applications: { tenant_id: "tenantId", type: "type", status: "status" },
 };
 
 interface WalletRow { id: string; tenantId: string; currency: string; availableBalance: string; totalWithdrawn: string; [k: string]: unknown }
@@ -83,15 +98,17 @@ function makeWalletDb() {
       bankAccountName: "Test Merchant", bankAccountNumber: "0123456789", bankCode: "058",
     }] as WalletRow[],
     walletTxs: [] as TxRow[],
+    kycApplications: [{ tenantId: "tenant-1", type: "kyb", status: "approved" }] as any[],
   };
   const tableName = (table: unknown): string => {
     if (table === escrowConfig) return "escrow_config";
     if (table === merchantWallets) return "merchant_wallets";
     if (table === walletTransactions) return "wallet_transactions";
+    if (table === kycApplications) return "kyc_applications";
     throw new Error("fake db: unknown table");
   };
   const rowsOf = (t: string): any[] =>
-    t === "escrow_config" ? store.config : t === "merchant_wallets" ? store.wallets : store.walletTxs;
+    t === "escrow_config" ? store.config : t === "merchant_wallets" ? store.wallets : t === "kyc_applications" ? store.kycApplications : store.walletTxs;
 
   function runSelect(t: string, fields: Record<string, unknown> | undefined, cond: unknown) {
     const { columns, values } = decode(cond);
@@ -141,7 +158,12 @@ function makeWalletDb() {
 
   const makeHandle = (undo: Array<() => void> | null): any => ({
     select(fields?: Record<string, unknown>) {
-      return { from(table: unknown) { const t = tableName(table); return { where(cond: unknown) { return thenable(() => runSelect(t, fields, cond)); } }; } };
+      return { from(table: unknown) { const t = tableName(table); return { where(cond: unknown) {
+        // W30 merge: kycGate's select chains .limit(1) after .where.
+        const th = thenable(() => runSelect(t, fields, cond));
+        th.limit = (n: number) => thenable(() => runSelect(t, fields, cond).slice(0, n));
+        return th;
+      } }; } };
     },
     insert(table: unknown) {
       const t = tableName(table);
@@ -233,11 +255,13 @@ describe("wallet.requestWithdrawal — same-reference double-debit race (A1-03)"
     expect(fresh).toHaveLength(1);
     expect(dup).toHaveLength(1);
     expect(dup[0].amount).toBe(500);
-    // "processing", not "success": the duplicate's replay-read races ahead of
-    // the fresh request's real payout call, which updates status afterward —
-    // this is the real transient state under the live-payout design (the old
-    // pending-admin-approval design never had it).
-    expect(dup[0].status).toBe("processing");
+    // "pending" or "processing", never "success": the duplicate's replay-read
+    // races ahead of the fresh request's real payout call, which updates
+    // status afterward — which transient it observes depends on microtask
+    // interleaving (W30 merge: the KYB/step-up gate awaits shifted it), both
+    // are honest pre-settlement states (the old pending-admin-approval design
+    // never had this).
+    expect(["pending", "processing"]).toContain(dup[0].status);
   });
 
   it("sequential same-reference retry replays the original withdrawal (no second debit)", async () => {

@@ -26,6 +26,7 @@
  *   flagged `sponsored: true` for disclosure, and capped per page by
  *   GEO_SPONSORED_MAX_PER_PAGE (default 2).
  */
+import crypto from "crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   kycApplications,
@@ -33,6 +34,7 @@ import {
   products,
   productTaxonomy,
   sponsoredListings,
+  sponsoredSpendEvents,
   tenants,
 } from "../../drizzle/schema";
 
@@ -232,6 +234,8 @@ export interface SponsoredCandidate {
   centerLng: number;
   radiusKm: number;
   bidCents: number;
+  /** DB listing id (present on DB-loaded candidates; absent in pure fixtures). */
+  listingId?: string;
 }
 
 export interface DiscoverOptions {
@@ -439,11 +443,16 @@ export async function loadDiscoveryData(db: Db): Promise<{
   const tenantById = new Map(tenantRows.map((t) => [t.id as string, t]));
 
   // KYB: tenant is verified when it has an approved type='kyb' application.
+  // W30 (V2#11): FAIL CLOSED on query error — previously a DB error was
+  // swallowed to zero rows and kybVerified collapsed to `null`, which the
+  // downstream filter treated as "include". Now an errored/empty lookup
+  // marks every candidate UNVERIFIED (excluded by the kybVerified filter).
+  let kybLookupFailed = false;
   const kybRows = (await db
     .select({ tenantId: kycApplications.tenantId, status: kycApplications.status })
     .from(kycApplications)
     .where(and(inArray(kycApplications.tenantId, tenantIds), eq(kycApplications.type, "kyb")))
-    .catch(() => [])) as Record<string, unknown>[];
+    .catch(() => { kybLookupFailed = true; return []; })) as Record<string, unknown>[];
   const kybApproved = new Set(
     kybRows.filter((r) => r.status === "approved").map((r) => r.tenantId as string),
   );
@@ -489,7 +498,9 @@ export async function loadDiscoveryData(db: Db): Promise<{
           .filter((x): x is string => typeof x === "string" && !!x)
           .map((x) => x.toLowerCase()),
       ),
-      kybVerified: kybApproved.size > 0 ? kybApproved.has(tid) : null,
+      // W30 (V2#11): never `null` — unknown/errored lookups are UNVERIFIED.
+      // A lookup failure excludes every candidate (fail closed).
+      kybVerified: kybLookupFailed ? false : kybApproved.has(tid),
       trustScore: trustScores.get(tid) ?? null, // W27: review-driven provider hook (default none)
       openHours: r.openHours,
       serviceRadiusKm: r.serviceRadiusKm != null ? toNum(r.serviceRadiusKm) : null,
@@ -497,6 +508,7 @@ export async function loadDiscoveryData(db: Db): Promise<{
   }
 
   const now = new Date();
+  const today = now.toISOString().slice(0, 10);
   const listingRows = (await db
     .select()
     .from(sponsoredListings)
@@ -504,7 +516,10 @@ export async function loadDiscoveryData(db: Db): Promise<{
     .catch(() => [])) as Record<string, unknown>[];
   const sponsored: SponsoredCandidate[] = [];
   for (const r of listingRows) {
-    if (toNum(r.spentTodayCents) >= toNum(r.dailyBudgetCents)) continue;
+    // W30 (V2#16): the budget cap is enforced against TODAY's spend only —
+    // spent_on_date gives the counter its lazy daily reset (no cron needed).
+    const spentToday = (r.spentOnDate as string | null) === today ? toNum(r.spentTodayCents) : 0;
+    if (spentToday >= toNum(r.dailyBudgetCents)) continue;
     if (r.startsAt && new Date(r.startsAt as string) > now) continue;
     if (r.endsAt && new Date(r.endsAt as string) < now) continue;
     sponsored.push({
@@ -514,10 +529,76 @@ export async function loadDiscoveryData(db: Db): Promise<{
       centerLng: toNum(r.centerLng),
       radiusKm: toNum(r.radiusKm),
       bidCents: toNum(r.bidCents),
+      listingId: r.id as string,
     });
   }
 
   return { merchants, sponsored };
+}
+
+// ─── W30 (V2#16): sponsored spend writer ────────────────────────────────────
+/**
+ * Debit the daily budget for every sponsored placement actually SERVED in a
+ * discover page. For each listing:
+ *   1. a guarded conditional UPDATE atomically debits bidCents and lazily
+ *      resets the counter when the date rolled over — the daily cap is
+ *      enforced at serve time and can never be raced past more than one
+ *      in-flight serve;
+ *   2. an honest billing row (sponsored_spend_events) records the charge,
+ *      keyed by a unique reference so retries never double-bill.
+ * When the guarded update loses the cap race, the placement is NOT billed
+ * (no row, no debit) — we never charge for budget we couldn't claim.
+ */
+export async function recordSponsoredServed(
+  db: Db,
+  served: Array<{ listingId: string; tenantId: string; bidCents: number }>,
+  now: Date = new Date(),
+): Promise<{ debited: number; skipped: number }> {
+  const today = now.toISOString().slice(0, 10);
+  let debited = 0;
+  let skipped = 0;
+  for (const s of served) {
+    const bid = Math.max(0, Math.round(s.bidCents));
+    if (bid === 0) { skipped++; continue; } // zero-bid placement: no charge
+    const { sql } = await import("drizzle-orm");
+    const updated = (await db.execute(sql`
+      UPDATE sponsored_listings
+      SET spent_today_cents = CASE WHEN spent_on_date = ${today} THEN spent_today_cents + ${bid} ELSE ${bid} END,
+          spent_on_date = ${today},
+          updated_at = now()
+      WHERE id = ${s.listingId}
+        AND status = 'active'
+        AND (spent_on_date IS DISTINCT FROM ${today} OR spent_today_cents + ${bid} <= daily_budget_cents)
+      RETURNING id
+    `).catch(() => [])) as unknown as Array<{ id: string }>;
+    if (!updated[0]) { skipped++; continue; } // cap reached concurrently — not billed
+    const reference = `sponsored-serve:${s.listingId}:${today}:${crypto.randomUUID()}`;
+    await db.insert(sponsoredSpendEvents).values({
+      listingId: s.listingId,
+      tenantId: s.tenantId,
+      spendDate: today,
+      kind: "serve",
+      amountCents: bid,
+      reference,
+    }).onConflictDoNothing();
+    debited++;
+  }
+  return { debited, skipped };
+}
+
+/**
+ * Daily reset sweep (idempotent): zero counters whose date has rolled over.
+ * The serve/read paths already handle the rollover lazily — this exists for
+ * operators/schedulers that want the table to reflect the reset eagerly.
+ */
+export async function resetSponsoredSpendDaily(db: Db, now: Date = new Date()): Promise<number> {
+  const today = now.toISOString().slice(0, 10);
+  const { ne, and, isNotNull } = await import("drizzle-orm");
+  const rows = await db.update(sponsoredListings)
+    .set({ spentTodayCents: 0, updatedAt: now })
+    .where(and(isNotNull(sponsoredListings.spentOnDate), ne(sponsoredListings.spentOnDate, today)))
+    .returning({ id: sponsoredListings.id });
+  return rows.length;
 }
 
 /**
@@ -528,7 +609,23 @@ export async function discoverNearby(
   db: Db,
 ): Promise<DiscoverResult> {
   const data = await loadDiscoveryData(db);
-  return discoverNearbyPure(opts, data);
+  const result = discoverNearbyPure(opts, data);
+  // W30 (V2#16): real spend writer — debit the daily budget for every
+  // sponsored placement actually served on this page, with honest billing
+  // rows. Fire-and-collect: billing failures never break discovery, but are
+  // logged loudly (a serve without a debit is revenue leakage, not a 500).
+  const servedIds = new Set(result.items.filter((i) => i.sponsored).map((i) => i.tenantId));
+  if (servedIds.size > 0) {
+    const served = data.sponsored
+      .filter((s) => s.listingId && servedIds.has(s.tenantId))
+      .map((s) => ({ listingId: s.listingId!, tenantId: s.tenantId, bidCents: s.bidCents }));
+    if (served.length > 0) {
+      await recordSponsoredServed(db, served).catch((err) => {
+        console.error(`[geoDiscovery] sponsored spend debit failed (${served.length} serves unbilled): ${err?.message ?? err}`);
+      });
+    }
+  }
+  return result;
 }
 
 /** Taxonomy menu tree from product_taxonomy (global + all tenants). */

@@ -82,6 +82,8 @@ export default function MerchantWallet() {
   );
   const utils = trpc.useUtils();
 
+  const stepUpRequest = trpc.phoneAuth.stepUpRequest.useMutation();
+  const updateBankDetails = trpc.wallet.updatePayoutBankDetails.useMutation();
   const withdraw = trpc.wallet.requestWithdrawal.useMutation({
     onSuccess: (data) => {
       toast.success(`Withdrawal of ${formatNGN(data.amount)} initiated. Ref: ${data.reference}`);
@@ -421,14 +423,33 @@ export default function MerchantWallet() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setWithdrawOpen(false)}>Cancel</Button>
             <Button
-              disabled={withdraw.isPending || !withdrawAmount || toNum(withdrawAmount) <= 0 || !resolvedAccount}
-              onClick={() => withdraw.mutate({
-                tenantId,
-                amount: toNum(withdrawAmount),
-                bankAccountNumber: bankAccount || undefined,
-                bankCode: bankCode || undefined,
-                bankAccountName: resolvedAccount?.accountName,
-              })}>
+              disabled={withdraw.isPending || !withdrawAmount || toNum(withdrawAmount) <= 0 || (!resolvedAccount && !wallet?.bankAccountNumber)}
+              onClick={async () => {
+                try {
+                  // Changing the payout destination is a separate, audited,
+                  // step-up-gated action (W30) — an OTP is sent to the tenant
+                  // admin phone before the new bank details are saved.
+                  if (bankAccount && bankCode && resolvedAccount) {
+                    const challenge = await stepUpRequest.mutateAsync({ tenantId, purpose: "payout_change" });
+                    const otp = window.prompt(
+                      `Enter the 6-digit verification code sent to the tenant admin phone (${challenge.phoneHint})`
+                    );
+                    if (!otp) return;
+                    await updateBankDetails.mutateAsync({
+                      tenantId,
+                      bankAccountName: resolvedAccount.accountName,
+                      bankAccountNumber: bankAccount,
+                      bankCode,
+                      stepUpChallengeId: challenge.challengeId,
+                      stepUpOtp: otp,
+                    });
+                    toast.success("Payout bank details updated.");
+                  }
+                  withdraw.mutate({ tenantId, amount: toNum(withdrawAmount) });
+                } catch (e: any) {
+                  toast.error(e.message ?? "Step-up verification failed");
+                }
+              }}>
               {withdraw.isPending ? "Processing…" : "Submit Withdrawal"}
             </Button>
           </DialogFooter>

@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { protectedProcedure, adminProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { escrowSlaConfig, escrowTransactions, escrowDisputes } from "../../drizzle/schema";
+import { escrowSlaConfig, escrowTransactions, escrowDisputes, orders } from "../../drizzle/schema";
 import { eq, isNull, and, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { emitNotification } from "./notifications";
-import { settleEscrowAtomic } from "./escrow";
+import { settleEscrowAtomic, refundEscrowAtomic } from "./escrow";
+import { notifyOwner } from "../_core/notification";
 
 // ─── SLA status helpers ───────────────────────────────────────────────────────
 export type SlaStatus = "ok" | "warning" | "overdue" | "no_deadline";
@@ -68,7 +69,7 @@ export async function getEffectiveSlaConfig(db: NonNullable<Awaited<ReturnType<t
 // disputes are never auto-resolved.
 export async function runSlaScan() {
   const db = await getDb();
-  if (!db) return { scanned: 0, warned: 0, overdue: 0, settled: 0, skippedDisputed: 0 };
+  if (!db) return { scanned: 0, warned: 0, overdue: 0, settled: 0, skippedDisputed: 0, skippedUndelivered: 0, refunded: 0 };
 
   // Get all active escrows (held state)
   const activeEscrows = await db
@@ -80,6 +81,8 @@ export async function runSlaScan() {
   let overdue = 0;
   let settled = 0;
   let skippedDisputed = 0;
+  let skippedUndelivered = 0;
+  let refunded = 0;
 
   for (const escrow of activeEscrows) {
     // The escrow's SLA clock is the buyer-confirmation deadline (the column
@@ -115,6 +118,69 @@ export async function runSlaScan() {
         continue;
       }
 
+      // ── W30 (verify-v1 #6): NEVER auto-release money for an order that was
+      // not actually delivered. The old scan looked only at escrow state, so
+      // unshipped/cancelled orders were auto-paid to the merchant once the
+      // payment-time deadline elapsed.
+      const [order] = escrow.orderId
+        ? await db.select({ id: orders.id, status: orders.status }).from(orders).where(eq(orders.id, escrow.orderId)).limit(1)
+        : [undefined];
+
+      // Cancelled order → the buyer must get their money back, never the
+      // merchant. Route through the hardened atomic refund helper.
+      if (order?.status === "cancelled") {
+        const refund = await refundEscrowAtomic(db, escrow.id, {
+          reason: `Order ${escrow.orderId} was cancelled — SLA scan auto-refund to buyer`,
+        });
+        if (refund.success) {
+          refunded++;
+          await db.update(orders).set({ paymentStatus: "refunded", updatedAt: new Date() })
+            .where(eq(orders.id, escrow.orderId));
+          await emitNotification({
+            tenantId: escrow.tenantId,
+            type: "escrow_refunded",
+            title: "Escrow Refunded (Order Cancelled)",
+            body: `Order #${escrow.orderId ?? escrow.id.slice(0, 8)} was cancelled; ₦${refund.refundedAmount.toLocaleString()} recorded as refunded to the buyer.`,
+            metadata: { escrowId: escrow.id, autoRefund: true },
+          });
+        } else {
+          console.error(`[sla-scan] cancel-refund failed for escrow ${escrow.id}: ${refund.error}`);
+        }
+        continue;
+      }
+
+      // Escrows flagged for a refund sweep (e.g. cancel-time refund failure)
+      // are retried here, never released.
+      const escMeta = (escrow.metadata ?? {}) as Record<string, unknown>;
+      if (escMeta.refundSweepRequired === true) {
+        const refund = await refundEscrowAtomic(db, escrow.id, {
+          reason: `Refund sweep for escrow ${escrow.id} (flagged at order cancellation)`,
+        });
+        if (refund.success) {
+          refunded++;
+          await db.update(escrowTransactions).set({
+            metadata: { ...escMeta, refundSweepRequired: false, refundSweepCompletedAt: new Date().toISOString() },
+            updatedAt: new Date(),
+          }).where(eq(escrowTransactions.id, escrow.id));
+        } else {
+          console.error(`[sla-scan] refund sweep failed for escrow ${escrow.id}: ${refund.error}`);
+        }
+        continue;
+      }
+
+      // Not delivered → SKIP and alert. An escrow in delivery_confirmed with
+      // a non-delivered order is inconsistent too — skip either way unless
+      // the order is recorded delivered.
+      const delivered = order?.status === "delivered";
+      if (!delivered) {
+        skippedUndelivered++;
+        await notifyOwner({
+          title: `SLA auto-release BLOCKED — order not delivered (escrow ${escrow.id.slice(0, 8)})`,
+          content: `Escrow ${escrow.id} (order ${escrow.orderId ?? "unknown"}, tenant ${escrow.tenantId}, state ${escrow.state}) breached its buyer-confirmation deadline but the order status is "${order?.status ?? "missing"}" — NOT delivered. Auto-release was skipped to protect the buyer. Investigate fulfilment or cancel/refund the order.`,
+        }).catch(() => {/* non-fatal */});
+        continue;
+      }
+
       overdue++;
       // Atomic guarded release: state transition + merchant wallet credit +
       // wallet ledger entry in a single transaction (PSP mode). In PSSP mode
@@ -137,7 +203,7 @@ export async function runSlaScan() {
     }
   }
 
-  return { scanned: activeEscrows.length, warned, overdue, settled, skippedDisputed };
+  return { scanned: activeEscrows.length, warned, overdue, settled, skippedDisputed, skippedUndelivered, refunded };
 }
 
 // ─── tRPC router ─────────────────────────────────────────────────────────────

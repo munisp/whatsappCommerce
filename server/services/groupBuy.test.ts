@@ -43,6 +43,6 @@ describe("formatDealForWhatsApp", () => {
     const won = formatDealForWhatsApp({ ...base, status: "confirmed" }, "X", 100, "NGN");
     expect(won).toContain("UNLOCKED");
     const lost = formatDealForWhatsApp({ ...base, status: "expired" }, "X", 100, "NGN");
-    expect(lost).toContain("refunded/voided");
+    expect(lost).toContain("refunded or voided");
   });
 });
