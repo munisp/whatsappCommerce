@@ -7,64 +7,64 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016808228",
-      "profileName": "Sim User 8228",
-      "inboundId": "wamid.sim.in.text.00335",
-      "at": 1787348812767,
+      "phone": "2348017909058",
+      "profileName": "Sim User 9058",
+      "inboundId": "wamid.sim.in.text.00333",
+      "at": 1787560109688,
       "kind": "text",
       "text": "digest on weekly"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00335",
-      "at": 1787348812776
+      "wamid": "wamid.sim.in.text.00333",
+      "at": 1787560109692
     },
     {
       "dir": "out",
-      "phone": "2348016808228",
-      "wamid": "wamid.sim.000564",
+      "phone": "2348017909058",
+      "wamid": "wamid.sim.000560",
       "statuses": [
         "sent"
       ],
-      "at": 1787348812786,
+      "at": 1787560109704,
       "kind": "text",
       "body": "🔔 Sales digest ON (weekly). You'll get your weekly summary here on WhatsApp. Reply \"digest off\" to stop."
     },
     {
       "dir": "out",
-      "phone": "2348016808228",
-      "wamid": "wamid.sim.000565",
+      "phone": "2348017909058",
+      "wamid": "wamid.sim.000561",
       "statuses": [
         "sent"
       ],
-      "at": 1787348813325,
+      "at": 1787560110253,
       "kind": "text",
       "body": "📊 You made ₦127,300 this week, up 237% vs last week (15 orders). Reply \"export\" for a tax-ready report."
     },
     {
       "dir": "in",
-      "phone": "2348016808228",
-      "profileName": "Sim User 8228",
-      "inboundId": "wamid.sim.in.text.00336",
-      "at": 1787348814185,
+      "phone": "2348017909058",
+      "profileName": "Sim User 9058",
+      "inboundId": "wamid.sim.in.text.00334",
+      "at": 1787560111111,
       "kind": "text",
       "text": "sales summary"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00336",
-      "at": 1787348814188
+      "wamid": "wamid.sim.in.text.00334",
+      "at": 1787560111115
     },
     {
       "dir": "out",
-      "phone": "2348016808228",
-      "wamid": "wamid.sim.000566",
+      "phone": "2348017909058",
+      "wamid": "wamid.sim.000562",
       "statuses": [
         "sent"
       ],
-      "at": 1787348814198,
+      "at": 1787560111127,
       "kind": "text",
       "body": "📊 You made ₦127,300 this week, up 237% vs last week (15 orders). Reply \"export\" for a tax-ready report.\nExpenses this week: ₦0."
     }

@@ -317,7 +317,17 @@ async function startServer() {
       // token (?cap=…, minted server-side for shared evidence links).
       let authorized = false;
       const user = await sdk.authenticateRequest(req).catch(() => null);
-      if (user) authorized = true;
+      if (user) {
+        // W30 hotfix2: an authenticated session used to read ANY storage key.
+        // Tenant-scoped namespaces (key = <ns>/<tenantId>/…) now require the
+        // session tenant (or a membership) to match the key's tenant —
+        // platform admins bypass. Non-scoped namespaces keep the prior
+        // session-authenticated behavior; the capability-token path below is
+        // untouched (already bound to the exact key).
+        const { keyTenantScope, sessionMayReadScopedKey } = await import("../services/storageSecurity");
+        const scope = keyTenantScope(key);
+        if (!scope || sessionMayReadScopedKey(user as any, scope)) authorized = true;
+      }
       if (!authorized) {
         const cap = typeof req.query.cap === "string" ? req.query.cap : "";
         if (cap) {
@@ -1858,6 +1868,19 @@ async function startServer() {
       const { settleEscrowAtomic, EscrowSettlementError, compensateEscrowSettlementFailure } = await import("../routers/escrow");
       for (const escrow of expired) {
         try {
+          // === W30 hotfix (verify-v1 #11) ===
+          // Delivery confirmation sourced from a mock/local/unverified courier
+          // in production is not independent delivery evidence — never
+          // auto-settle; skip + alert (buyer confirm or admin review only).
+          const escMeta = (escrow.metadata ?? {}) as Record<string, unknown>;
+          if (escMeta.buyerProtection === "courier_unverified") {
+            const { notifyOwner } = await import("../_core/notification");
+            await notifyOwner({
+              title: `Auto-confirm BLOCKED — unverified courier (escrow ${escrow.id.slice(0, 8)})`,
+              content: `Escrow ${escrow.id} (order ${escrow.orderId ?? "unknown"}, tenant ${escrow.tenantId}) passed its buyer-confirmation deadline, but delivery was self-reported by a mock/local/unverified courier. Auto-confirm settlement was skipped. Require buyer confirmation or manual admin review.`,
+            }).catch(() => {/* non-fatal */});
+            continue;
+          }
           const result = await settleEscrowAtomic(db, escrow.id, {
             autoConfirmed: true,
             allowedFromStates: ["delivery_confirmed"],
@@ -2169,12 +2192,15 @@ async function startServer() {
     }
   });
 
-  // ── GET /api/scheduled/generate-invoices ──────────────────────────────────
+  // ── GET|POST /api/scheduled/generate-invoices ─────────────────────────────
   // Generates due monthly subscription invoices for active tenants that do not
   // yet have one for the current billing period. Same insert logic as
   // server/routers/invoice.ts `generate` (subscription branch).
+  // W30 hotfix: POST alias added so the cron scheduler (services/scheduler,
+  // which invokes with POST + cron JWT) reaches this route — the scheduler
+  // allowlist + k8s/cron-scheduler.yaml now cover it (monthly cadence).
   // After deploy: manus-heartbeat create --name generate-invoices --cron "0 0 1 1 * *" --path /api/scheduled/generate-invoices
-  app.get("/api/scheduled/generate-invoices", async (req, res) => {
+  const generateInvoicesHandler = async (req: any, res: any) => {
     try {
       const user = await sdk.authenticateRequest(req).catch(() => null);
       if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
@@ -2237,7 +2263,9 @@ async function startServer() {
       console.error("[generate-invoices]", err);
       return res.status(500).json({ error: err?.message });
     }
-  });
+  };
+  app.get("/api/scheduled/generate-invoices", generateInvoicesHandler);
+  app.post("/api/scheduled/generate-invoices", generateInvoicesHandler);
 
   // ── SLA Heartbeat ─────────────────────────────────────────────────────────
   app.post("/api/scheduled/sla-scan", async (req, res) => {

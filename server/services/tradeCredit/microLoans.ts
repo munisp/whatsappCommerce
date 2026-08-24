@@ -22,10 +22,11 @@
  * Principal is additionally clamped to [MIN_LOAN_CENTS, MAX_LOAN_CENTS].
  *
  * Outstanding-balance caps: at most ONE non-terminal loan per merchant
- * (active or defaulted blocks new offers), and principal may never exceed
- * MAX_LOAN_CENTS. Late/default: the sweep marks loans past
- * dueAt + DEFAULT_GRACE_DAYS as 'defaulted'; a defaulted loan blocks new
- * offers until fully repaid (manual repayments remain possible).
+ * (active or disbursed blocks new offers — EXACTLY the partial unique index
+ * 0088 set, so the lock-check and the index backstop cover the same rows),
+ * and principal may never exceed MAX_LOAN_CENTS. Late/default: the sweep
+ * marks loans past dueAt + DEFAULT_GRACE_DAYS as 'defaulted' (manual
+ * repayments remain possible).
  */
 import { and, asc, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import {
@@ -140,7 +141,7 @@ export async function getLoanOffersTx(
     .where(and(
       eq(merchantLoans.tenantId, tenantId),
       eq(merchantLoans.merchantId, merchantId),
-      inArray(merchantLoans.status, ["active", "defaulted"]),
+      inArray(merchantLoans.status, ["active", "disbursed", "defaulted"]),
     ))
     .limit(1);
   const activeLoan = open[0] ?? null;
@@ -261,7 +262,13 @@ export async function acceptLoanTx(
         .where(and(
           eq(merchantLoans.tenantId, args.tenantId),
           eq(merchantLoans.merchantId, args.merchantId),
-          inArray(merchantLoans.status, ["active", "defaulted"]),
+          // W30 hotfix: the blocking set is EXACTLY the partial unique
+          // index set as widened by 0099 (active, disbursed, defaulted) so this in-lock re-check and
+          // the index backstop cover the same rows (previously "defaulted"
+          // was checked here but not indexed, and "disbursed" was indexed
+          // but not checked — a disbursed-state loser re-threw instead of
+          // idempotent return).
+          inArray(merchantLoans.status, ["active", "disbursed", "defaulted"]),
         ))
         .limit(1);
       if (openLoan) return { ok: false as const, reason: "existing_loan" as const };
@@ -365,7 +372,7 @@ export async function acceptLoanTx(
         .where(and(
           eq(merchantLoans.tenantId, args.tenantId),
           eq(merchantLoans.merchantId, args.merchantId),
-          inArray(merchantLoans.status, ["active", "defaulted"]),
+          inArray(merchantLoans.status, ["active", "disbursed", "defaulted"]),
         ))
         .limit(1);
       if (existing) {

@@ -88,6 +88,13 @@ const stores: Record<string, Record<string, unknown>[]> = {
   payment_gateway_configs: [],
   refunds: [refundB],
   order_items: [],
+  // W30 hotfix (F7 residual): an ANALYST membership in Tenant B — money-moving
+  // mutations must reject it even though assertTenantAccess (role-agnostic)
+  // would have passed.
+  tenant_memberships: [
+    { id: "mem-b-analyst", tenantId: TENANT_B, userId: "101", role: "analyst", invitedBy: null, createdAt: new Date() },
+    { id: "mem-b-owner", tenantId: TENANT_B, userId: "102", role: "owner", invitedBy: null, createdAt: new Date() },
+  ],
   escrow_timeline_attachments: [],
   odoo_integrations: [],
   twenty_integrations: [],
@@ -305,6 +312,12 @@ const callerB = appRouter.createCaller(makeCtx(makeUser("user", TENANT_B, "merch
 const callerAdmin = appRouter.createCaller(makeCtx(makeUser("admin", null, "platform-admin")));
 // Unauthenticated
 const callerAnon = appRouter.createCaller(makeCtx(null));
+// W30 hotfix (F7 residual): Tenant B staff with an ANALYST membership and an
+// OWNER membership (membership rows live in the tenant_memberships store).
+// makeUser() gives every non-admin id=2, so these callers need distinct ids
+// matching their tenant_memberships.userId rows.
+const callerAnalystB = appRouter.createCaller(makeCtx({ ...makeUser("user", TENANT_B, "analyst-b"), id: 101 }));
+const callerOwnerB = appRouter.createCaller(makeCtx({ ...makeUser("user", null, "owner-b"), id: 102 }));
 
 const FORBIDDEN = { code: "FORBIDDEN" } as const;
 
@@ -387,6 +400,54 @@ describe("multi-tenant isolation: escrow", () => {
   it("control: Tenant A merchant reads their own escrow by order", async () => {
     const row = await callerA.escrow.getByOrder({ orderId: orderA.id });
     expect(row?.tenantId).toBe(TENANT_A);
+  });
+});
+
+// ═══ 1b. MONEY-GATE BREADTH (W30 hotfix, F7 residual) ════════════════════════
+// Money-moving mutations must require owner|operator (or admin) — an analyst
+// membership is role-agnostic-pass under assertTenantAccess and must be
+// REJECTED on every one of these paths.
+describe("money-gate breadth: analyst membership cannot move money", () => {
+  it("escrow.confirmDelivery rejects an analyst of the owning tenant", async () => {
+    await expect(
+      callerAnalystB.escrow.confirmDelivery({ escrowId: escrowB.id }),
+    ).rejects.toMatchObject(FORBIDDEN);
+  });
+
+  it("orderCrud.refund rejects an analyst of the owning tenant", async () => {
+    await expect(
+      callerAnalystB.orderCrud.refund({ orderId: orderB.id, amount: 10, reason: "analyst attempt" }),
+    ).rejects.toMatchObject(FORBIDDEN);
+  });
+
+  it("orderCrud.processRefund rejects an analyst of the owning tenant", async () => {
+    await expect(
+      callerAnalystB.orderCrud.processRefund({ refundId: refundB.id, action: "approved" }),
+    ).rejects.toMatchObject(FORBIDDEN);
+  });
+
+  it("orderCrud.confirmRefundProcessed rejects an analyst of the owning tenant", async () => {
+    await expect(
+      callerAnalystB.orderCrud.confirmRefundProcessed({ refundId: refundB.id, evidence: "analyst attempt" }),
+    ).rejects.toMatchObject(FORBIDDEN);
+  });
+
+  it("wholesale.updateOrderStatus rejects an analyst of the owning tenant", async () => {
+    await expect(
+      callerAnalystB.wholesale.updateOrderStatus({
+        tenantId: TENANT_B,
+        orderId: "123e4567-e89b-42d3-a456-426614174000",
+        status: "paid",
+      }),
+    ).rejects.toMatchObject(FORBIDDEN);
+  });
+
+  it("control: an OWNER membership reaches escrow.confirmDelivery", async () => {
+    // The escrow describe block's positive control already transitioned this
+    // fixture — reset it so the owner path is exercised from escrow_held.
+    escrowB.state = "escrow_held";
+    const updated = await callerOwnerB.escrow.confirmDelivery({ escrowId: escrowB.id });
+    expect(updated.state).toBe("delivery_confirmed");
   });
 });
 

@@ -666,6 +666,20 @@
       "when": 1786990010000,
       "tag": "0097_delivery_pin_hash_width",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1786990030000,
+      "tag": "0098_refund_status_vocab",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1786990050000,
+      "tag": "0099_loan_open_uniq_include_defaulted",
+      "breakpoints": true
     }
   ]
 }

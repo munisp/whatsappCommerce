@@ -58,11 +58,12 @@ export const journey: Journey = {
 
     const sweep1 = await sweepGroupDealsTx(world.db);
     assert(sweep1.expired === 1, `sweep expired the deal (got ${sweep1.expired})`);
-    // W30 (V1#10): honest refund outcomes — the captured hold has NO linked
-    // escrow row and no automated provider refund exists for it, so the real
-    // outcome is refund_failed (reconciliation surface), NEVER auto-refunded.
-    assert(sweep1.refunded === 0, `no fake refunds (got ${sweep1.refunded})`);
-    assert(sweep1.refundFailed === 1, `captured hold honestly refund_failed (got ${sweep1.refundFailed})`);
+    // W30 hotfix (verify-v1 #9): the captured hold's verified paymentRef now
+    // gets a REAL provider refund (executeProviderRefundByReference). The
+    // paystack adapter queues refunds, so the honest outcome is
+    // refund_initiated — counted as a real refund, never a fake "refunded".
+    assert(sweep1.refunded === 1, `provider refund initiated (got ${sweep1.refunded})`);
+    assert(sweep1.refundFailed === 0, `no failed refunds (got ${sweep1.refundFailed})`);
     assert(sweep1.voided === 1, `auth-only hold voided (got ${sweep1.voided})`);
 
     const [fresh] = await world.db.select().from(schema.groupDeals).where(eq(schema.groupDeals.id, deal.id)).limit(1);
@@ -73,14 +74,15 @@ export const journey: Journey = {
       .from(schema.groupDealParticipants)
       .where(eq(schema.groupDealParticipants.dealId, deal.id));
     const byPhone = new Map(participants.map((p) => [p.customerPhone, p.status]));
-    assert(byPhone.get(payer) === "refund_failed", `payer honestly refund_failed (got ${byPhone.get(payer)})`);
+    assert(byPhone.get(payer) === "refund_initiated", `payer honestly refund_initiated (got ${byPhone.get(payer)})`);
     assert(byPhone.get(authee) === "voided", `auth-only participant voided (got ${byPhone.get(authee)})`);
 
-    // Reconciliation surface lists the failed refund with its paymentRef.
+    // Reconciliation surface exists and does NOT list the payer — their
+    // provider refund was really initiated (no recon needed).
     const { listRefundFailuresTx } = await import("../../server/services/groupBuy");
     const failures = await listRefundFailuresTx(world.db, { tenantId: TENANT_ID });
-    assert(failures.some((f) => f.dealId === deal.id && f.customerPhone === payer && f.paymentRef === payRef),
-      "refund_failed hold visible on the reconciliation surface");
+    assert(!failures.some((f) => f.dealId === deal.id && f.customerPhone === payer),
+      "initiated refund is not on the failure surface");
 
     // ── 3. Idempotence: a second sweep changes nothing ───────────────────
     const sweep2 = await sweepGroupDealsTx(world.db);
@@ -103,6 +105,6 @@ export const journey: Journey = {
     // Participant-scoped public view still works and is minimal — and honest.
     const pub = await publicCaller();
     const mine = await pub.groupBuy.myParticipation({ dealId: deal.id, customerPhone: payer });
-    assert(mine.status === "refund_failed", "public participation view shows the honest refund failure");
+    assert(mine.status === "refund_initiated", "public participation view shows the honest initiated refund");
   },
 };

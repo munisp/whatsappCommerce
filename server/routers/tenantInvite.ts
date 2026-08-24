@@ -187,17 +187,37 @@ export const tenantInviteRouter = router({
 
       if (!tenant) throw new Error("Tenant not found");
 
+      // W30 hotfix2: resend previously minted an UNREGISTERED 72h token that
+      // validate() always rejected ("Invite token is not registered") — a
+      // dead link. Resent invites now get a registered jti with the SAME
+      // single-use ≤24h semantics as create().
+      const jti = randomUUID();
       const token = jwt.sign(
-        { type: "portal_invite", tenantId: input.tenantId, tenantName: tenant.name, issuedBy: ctx.user.id },
+        {
+          type: "portal_invite",
+          jti,
+          tenantId: input.tenantId,
+          tenantName: tenant.name,
+          issuedBy: ctx.user.id,
+        },
         ENV.jwtSecret,
-        { expiresIn: "72h" }
+        { expiresIn: `${INVITE_EXPIRY_HOURS}h` }
       );
+
+      const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
+      await db.insert(tenantInviteTokens).values({
+        jti,
+        tenantId: input.tenantId,
+        issuedBy: String(ctx.user.id),
+        expiresAt,
+      });
 
       const portalUrl = `${ENV.appUrl}/portal/login?token=${token}`;
 
       return {
         sent: true,
         portalUrl,
+        expiresAt: expiresAt.toISOString(),
         whatsappPhoneNumberId: tenant.whatsappPhoneNumberId,
         message: `Invite resent to ${tenant.name} (${tenant.whatsappPhoneNumberId})`,
       };

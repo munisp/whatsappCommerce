@@ -397,6 +397,10 @@ export const mlOpsRouter = router({
   }),
 
   // ── Model Performance: rolling precision/recall/F1 from agentEvents ──────────
+  // HONESTY NOTE (W30 hotfix): these are PROXY metrics derived from agent
+  // events (confidence scores + escalation flags), NOT evaluated model
+  // quality against labeled ground truth. The UI must label them as such
+  // (see client MLOpsDashboard "Live Model Performance" disclaimer).
   getModelPerformance: protectedProcedure
     .input(z.object({ windowHours: z.number().min(1).max(168).default(24) }).optional())
     .query(async ({ input }) => {

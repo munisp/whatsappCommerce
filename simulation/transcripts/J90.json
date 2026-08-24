@@ -7,159 +7,159 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016225040",
-      "profileName": "Sim User 5040",
-      "inboundId": "wamid.sim.in.text.00285",
-      "at": 1787348708781,
+      "phone": "2348016983057",
+      "profileName": "Sim User 3057",
+      "inboundId": "wamid.sim.in.text.00283",
+      "at": 1787560002129,
       "kind": "text",
       "text": "2 jollof rice and 1 chicken j90"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00285",
-      "at": 1787348708784
+      "wamid": "wamid.sim.in.text.00283",
+      "at": 1787560002132
     },
     {
       "dir": "out",
-      "phone": "2348016225040",
-      "wamid": "wamid.sim.000440",
+      "phone": "2348016983057",
+      "wamid": "wamid.sim.000436",
       "statuses": [
         "sent"
       ],
-      "at": 1787348708819,
+      "at": 1787560002163,
       "kind": "text",
       "body": "✅ 2 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348016225040",
-      "profileName": "Sim User 5040",
-      "inboundId": "wamid.sim.in.text.00286",
-      "at": 1787348709325,
+      "phone": "2348016983057",
+      "profileName": "Sim User 3057",
+      "inboundId": "wamid.sim.in.text.00284",
+      "at": 1787560002673,
       "kind": "text",
       "text": "confirm my order j90"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00286",
-      "at": 1787348709333
+      "wamid": "wamid.sim.in.text.00284",
+      "at": 1787560002678
     },
     {
       "dir": "out",
-      "phone": "2348016225040",
-      "wamid": "wamid.sim.000441",
+      "phone": "2348016983057",
+      "wamid": "wamid.sim.000437",
       "statuses": [
         "sent"
       ],
-      "at": 1787348709361,
+      "at": 1787560002700,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦8,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348016225040",
-      "profileName": "Sim User 5040",
-      "inboundId": "wamid.sim.in.text.00287",
-      "at": 1787348709868,
+      "phone": "2348016983057",
+      "profileName": "Sim User 3057",
+      "inboundId": "wamid.sim.in.text.00285",
+      "at": 1787560003220,
       "kind": "text",
       "text": "1 cash on delivery"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00287",
-      "at": 1787348709872
+      "wamid": "wamid.sim.in.text.00285",
+      "at": 1787560003224
     },
     {
       "dir": "out",
-      "phone": "2348016225040",
-      "wamid": "wamid.sim.000442",
+      "phone": "2348016983057",
+      "wamid": "wamid.sim.000438",
       "statuses": [
         "sent"
       ],
-      "at": 1787348709906,
+      "at": 1787560003260,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MT3H9UYR*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦8,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💵 *Cash on pickup* — please have ₦8,000.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/2a0bbac9-994f-4cd3-96c2-fc3be809d182.r8Bj8o9vtRi0hmF7oRzVujz-"
+      "body": "🧾 *Pickup Order ORD-MT6Z2LYK*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦8,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💵 *Cash on pickup* — please have ₦8,000.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/d49084d4-4008-43f3-bfbd-4130ab98eb46._cTvlvSQpWlFxiqQKLw93l4o"
     },
     {
       "dir": "out",
-      "phone": "2348016225040",
-      "wamid": "wamid.sim.000443",
+      "phone": "2348016983057",
+      "wamid": "wamid.sim.000439",
       "statuses": [
         "sent"
       ],
-      "at": 1787348709910,
+      "at": 1787560003266,
       "kind": "interactive",
-      "body": "Order ORD-MT3H9UYR — manage it here:",
+      "body": "Order ORD-MT6Z2LYK — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:2a0bbac9-994f-4cd3-96c2-fc3be809d182",
+          "id": "order_track:d49084d4-4008-43f3-bfbd-4130ab98eb46",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:2a0bbac9-994f-4cd3-96c2-fc3be809d182",
+          "id": "order_pay:d49084d4-4008-43f3-bfbd-4130ab98eb46",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:2a0bbac9-994f-4cd3-96c2-fc3be809d182",
+          "id": "order_cancel:d49084d4-4008-43f3-bfbd-4130ab98eb46",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348014285508",
-      "profileName": "Sim User 5508",
-      "inboundId": "wamid.sim.in.text.00288",
-      "at": 1787348710424,
+      "phone": "2348016780681",
+      "profileName": "Sim User 0681",
+      "inboundId": "wamid.sim.in.text.00286",
+      "at": 1787560003781,
       "kind": "text",
-      "text": "RIDER_CONFIRM ORD-MT3H9UYR 5000"
+      "text": "RIDER_CONFIRM ORD-MT6Z2LYK 5000"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00288",
-      "at": 1787348710428
+      "wamid": "wamid.sim.in.text.00286",
+      "at": 1787560003784
     },
     {
       "dir": "out",
-      "phone": "2348014285508",
-      "wamid": "wamid.sim.000444",
+      "phone": "2348016780681",
+      "wamid": "wamid.sim.000440",
       "statuses": [
         "sent"
       ],
-      "at": 1787348710458,
+      "at": 1787560003807,
       "kind": "text",
-      "body": "✅ Recorded 5000.00 for ORD-MT3H9UYR. Remaining balance: 3000.00."
+      "body": "✅ Recorded 5000.00 for ORD-MT6Z2LYK. Remaining balance: 3000.00."
     },
     {
       "dir": "in",
-      "phone": "2348014285508",
-      "profileName": "Sim User 5508",
-      "inboundId": "wamid.sim.in.text.00289",
-      "at": 1787348710979,
+      "phone": "2348016780681",
+      "profileName": "Sim User 0681",
+      "inboundId": "wamid.sim.in.text.00287",
+      "at": 1787560004338,
       "kind": "text",
-      "text": "RIDER_CONFIRM ORD-MT3H9UYR 3000"
+      "text": "RIDER_CONFIRM ORD-MT6Z2LYK 3000"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00289",
-      "at": 1787348710983
+      "wamid": "wamid.sim.in.text.00287",
+      "at": 1787560004342
     },
     {
       "dir": "out",
-      "phone": "2348014285508",
-      "wamid": "wamid.sim.000445",
+      "phone": "2348016780681",
+      "wamid": "wamid.sim.000441",
       "statuses": [
         "sent"
       ],
-      "at": 1787348711003,
+      "at": 1787560004362,
       "kind": "text",
-      "body": "✅ Cash for ORD-MT3H9UYR fully collected (8000.00). State: cash_collected."
+      "body": "✅ Cash for ORD-MT6Z2LYK fully collected (8000.00). State: cash_collected."
     }
   ]
 }

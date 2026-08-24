@@ -155,7 +155,10 @@ describe("runSlaScan — W30 order-status guard (verify-v1 #6)", () => {
     const [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
     expect(escrow.state).toBe("refunded");
     const [order] = await db.select().from(schema.orders).where(eq(schema.orders.id, orderId));
-    expect(order.paymentStatus).toBe("refunded");
+    // W30 hotfix (verify-v1 #9): no provider payment exists in this unit
+    // fixture, so the honest order payment status is "refund_recorded"
+    // (internal ledger refund only — never claimed as returned to a bank).
+    expect(order.paymentStatus).toBe("refund_recorded");
     // Refund wallet ledger entry recorded (money moved out of escrow).
     const txs = await db.select().from(schema.walletTransactions).where(eq(schema.walletTransactions.escrowTxId, escrowId));
     expect(txs.some((t) => t.type === "escrow_refund")).toBe(true);
@@ -173,6 +176,21 @@ describe("runSlaScan — W30 order-status guard (verify-v1 #6)", () => {
     expect(notifyOwner).toHaveBeenCalled();
     const alertArg = notifyOwner.mock.calls[0]?.[0] as { title?: string };
     expect(String(alertArg?.title ?? "")).toContain("BLOCKED");
+  });
+
+  it("SKIPS + ALERTS a courier_unverified escrow even when the order is delivered (verify-v1 #11 hotfix)", async () => {
+    notifyOwner.mockClear();
+    const { escrowId } = await seedOrderWithEscrow({
+      orderStatus: "delivered", escrowState: "delivery_confirmed", overdueDeadline: true,
+      metadata: { buyerProtection: "courier_unverified" },
+    });
+    const res = await runSlaScan();
+    expect(res.skippedCourierUnverified).toBeGreaterThanOrEqual(1);
+    const [escrow] = await db.select().from(schema.escrowTransactions).where(eq(schema.escrowTransactions.id, escrowId));
+    expect(escrow.state).toBe("delivery_confirmed"); // NEVER auto-settled
+    expect(notifyOwner).toHaveBeenCalled();
+    const titles = notifyOwner.mock.calls.map((c) => String((c[0] as { title?: string })?.title ?? ""));
+    expect(titles.some((t) => t.includes("unverified courier"))).toBe(true);
   });
 
   it("SETTLES an overdue escrow whose order IS delivered", async () => {

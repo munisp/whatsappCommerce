@@ -62,7 +62,9 @@ export const journey: Journey = {
     assert(escA.state === "refunded", `cancelled-order escrow refunded (got ${escA.state})`);
     const [ordA] = await world.db.select().from(schema.orders)
       .where(eq(schema.orders.id, a.order.orderId)).limit(1);
-    assert(ordA.paymentStatus === "refunded", `cancelled order payment refunded (got ${ordA.paymentStatus})`);
+    // W30 hotfix (verify-v1 #9): the SLA cancel-refund now also executes the
+    // provider refund — paystack queues refunds → honest "refund_initiated".
+    assert(ordA.paymentStatus === "refund_initiated", `cancelled order payment honestly refund_initiated (got ${ordA.paymentStatus})`);
     assert(scan.refunded >= 1, `scan reports refunded >= 1 (got ${scan.refunded})`);
 
     // B: undelivered order → escrow UNTOUCHED (still escrow_held), skipped.

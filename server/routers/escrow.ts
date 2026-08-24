@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, adminProcedure, router, assertTenantAccess, moneyProcedure } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, router, assertTenantAccess, assertMoneyAccess, moneyProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import {
@@ -867,7 +867,12 @@ export const escrowRouter = router({
       // Only the merchant that owns this escrow (their tenant) or an admin may
       // mark delivery confirmed — previously any authenticated user could
       // transition ANY tenant's escrow.
-      assertTenantAccess(ctx.user, escrow.tenantId);
+      // W30 hotfix (F7 residual): delivery confirmation starts the escrow
+      // release clock — money-moving, so an ANALYST membership is not enough
+      // (owner|operator or admin; assertTenantAccess was role-agnostic).
+      // Buyer-facing delivery surfaces (logistics PIN / medusa order bridge)
+      // never call this tRPC path — this is the merchant back-office op.
+      await assertMoneyAccess(ctx.user, escrow.tenantId);
       if (!["escrow_held"].includes(escrow.state)) throw new Error(`Cannot confirm delivery in state: ${escrow.state}`);
 
       const deadline = new Date(Date.now() + cfg.buyerConfirmWindowHours * 3600 * 1000);

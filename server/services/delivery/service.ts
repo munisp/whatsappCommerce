@@ -257,8 +257,22 @@ export async function applyDeliveryStatus(
     // 2. Escrow tie-in via the SHARED helper (W30 — verify-v1 #14): moving
     //    escrow_held → delivery_confirmed ALWAYS resets the buyer-protection
     //    deadline from the moment of delivery.
+    //    W30 hotfix (verify-v1 #11): in production-like deployments a
+    //    "delivered" status sourced from a mock/local/merchant-self-reported
+    //    courier is NOT independent delivery evidence. The escrow still
+    //    advances (the real buyer can confirm + settle) but is flagged
+    //    metadata.buyerProtection="courier_unverified" so the SLA scan and
+    //    the auto-confirm cron NEVER auto-settle it — they skip + alert.
+    const prodLike = process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
+    const adapter = getCourierAdapter(delivery.courier);
+    const courierVerified = !prodLike || adapter?.escrowTrusted === true;
+    if (!courierVerified) {
+      console.warn(
+        `[delivery] courier_unverified: "${delivery.courier}" self-reported delivery for order ${delivery.orderId} in ${process.env.NODE_ENV} — escrow flagged, auto-settlement disabled (buyer confirm or admin review required)`,
+      );
+    }
     const { confirmEscrowDelivery } = await import("../escrowLifecycle");
-    await confirmEscrowDelivery(db, { orderId: delivery.orderId, at: new Date(at) });
+    await confirmEscrowDelivery(db, { orderId: delivery.orderId, at: new Date(at), courierVerified });
 
     // 3. Loyalty points vest on delivery (idempotent).
     await awardPointsForOrder(db, delivery.tenantId, delivery.orderId).catch(() => {});

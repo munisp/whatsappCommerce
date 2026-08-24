@@ -1431,3 +1431,45 @@ spec:
                 limits:
                   cpu: "100m"
                   memory: "128Mi"
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-generate-invoices
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "0 0 1 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/generate-invoices"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"

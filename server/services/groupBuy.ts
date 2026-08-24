@@ -18,7 +18,7 @@
  * (claim-first), so concurrent joins serialize on the row lock and
  * currentQty is never read-then-written. All money INTEGER CENTS.
  */
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
   groupDeals,
@@ -280,13 +280,13 @@ export async function expireGroupDealTx(
   db: DbHandle,
   dealId: string,
   now: Date = new Date(),
-): Promise<{ refunded: number; voided: number; refundFailed: number }> {
+): Promise<{ refunded: number; refundRecorded: number; voided: number; refundFailed: number }> {
   const transitioned = await db
     .update(groupDeals)
     .set({ status: "expired", updatedAt: now })
     .where(and(eq(groupDeals.id, dealId), eq(groupDeals.status, "open"), sql`${groupDeals.deadline} <= ${now.toISOString()}`))
     .returning({ id: groupDeals.id });
-  if (transitioned.length !== 1) return { refunded: 0, voided: 0, refundFailed: 0 };
+  if (transitioned.length !== 1) return { refunded: 0, refundRecorded: 0, voided: 0, refundFailed: 0 };
 
   const held = await db
     .select()
@@ -294,6 +294,7 @@ export async function expireGroupDealTx(
     .where(and(eq(groupDealParticipants.dealId, dealId), eq(groupDealParticipants.status, "held")));
 
   let refunded = 0;
+  let refundRecorded = 0;
   let voided = 0;
   let refundFailed = 0;
   for (const p of held) {
@@ -302,7 +303,7 @@ export async function expireGroupDealTx(
     // missing escrow row → `refund_failed` (reconciliation surface via
     // listRefundFailures + the paymentRef on the row) — NEVER auto-"refunded"
     // on failure. Authorization-only holds (no paymentRef) are voided.
-    let finalStatus: "refunded" | "voided" | "refund_failed";
+    let finalStatus: "refunded" | "refund_initiated" | "refund_recorded" | "voided" | "refund_failed";
     if (!p.paymentRef) {
       finalStatus = "voided";
     } else {
@@ -321,14 +322,39 @@ export async function expireGroupDealTx(
           });
           escrowRefunded = r.success === true;
         }
-        // No escrow row → custody is on the payment rail; no automated
-        // provider refund exists for this hold, so the honest outcome is
-        // refund_failed (ops reconciles via paymentRef).
       } catch (err: any) {
         console.error(`[groupBuy] escrow refund failed for participant=${p.id}: ${err?.message}`);
         escrowRefunded = false;
       }
-      finalStatus = escrowRefunded ? "refunded" : "refund_failed";
+      // W30 hotfix (verify-v1 #9): the internal escrow refund alone does not
+      // return PSP-custodied money — execute the REAL provider refund against
+      // the participant's verified paymentRef (best-effort). Honest outcomes:
+      //   provider confirmed  → refunded
+      //   provider queued     → refund_initiated
+      //   internal ledger only → refund_recorded (provider path unavailable)
+      //   nothing moved        → refund_failed (reconciliation surface)
+      let providerOutcome: import("./payments/refunds").ProviderRefundOutcome = { executed: false, status: "no_provider_refund", error: "not attempted" };
+      try {
+        const { executeProviderRefundByReference } = await import("./payments/refunds");
+        providerOutcome = await executeProviderRefundByReference(db as any, {
+          tenantId: p.tenantId,
+          reference: p.paymentRef,
+          amountCents: p.amountCents,
+          currency: p.currency ?? "NGN",
+          reason: `group_deal_expired:${dealId}`,
+          metadata: { groupDealParticipantId: p.id, dealId },
+        });
+      } catch (err: any) {
+        console.error(`[groupBuy] provider refund failed for participant=${p.id}: ${err?.message}`);
+        providerOutcome = { executed: false, status: "failed", error: String(err?.message ?? err) };
+      }
+      if (providerOutcome.executed) {
+        finalStatus = providerOutcome.status === "processed" ? "refunded" : "refund_initiated";
+      } else if (escrowRefunded) {
+        finalStatus = "refund_recorded";
+      } else {
+        finalStatus = "refund_failed";
+      }
     }
     const upd = await db
       .update(groupDealParticipants)
@@ -336,17 +362,20 @@ export async function expireGroupDealTx(
       .where(and(eq(groupDealParticipants.id, p.id), eq(groupDealParticipants.status, "held")))
       .returning({ id: groupDealParticipants.id });
     if (upd.length === 1) {
-      if (finalStatus === "refunded") refunded += 1;
+      if (finalStatus === "refunded" || finalStatus === "refund_initiated") refunded += 1;
+      else if (finalStatus === "refund_recorded") refundRecorded += 1;
       else if (finalStatus === "refund_failed") refundFailed += 1;
       else voided += 1;
     }
   }
-  return { refunded, voided, refundFailed };
+  return { refunded, refundRecorded, voided, refundFailed };
 }
 
-/** Reconciliation surface: participants whose refund could not be executed. */
+/** Reconciliation surface: participants whose refund could not be executed
+ * at the provider (never returned to the buyer's bank) — hard failures plus
+ * internal-ledger-only refunds awaiting a provider leg. */
 export async function listRefundFailuresTx(db: DbHandle, args: { tenantId?: string } = {}) {
-  const conds = [eq(groupDealParticipants.status, "refund_failed")];
+  const conds = [inArray(groupDealParticipants.status, ["refund_failed", "refund_recorded"])];
   if (args.tenantId) conds.push(eq(groupDealParticipants.tenantId, args.tenantId));
   return db.select().from(groupDealParticipants).where(and(...conds));
 }
@@ -358,7 +387,7 @@ export async function listRefundFailuresTx(db: DbHandle, args: { tenantId?: stri
 export async function sweepGroupDealsTx(
   db: DbHandle,
   now: Date = new Date(),
-): Promise<{ confirmed: number; expired: number; participantsConfirmed: number; refunded: number; voided: number; refundFailed: number }> {
+): Promise<{ confirmed: number; expired: number; participantsConfirmed: number; refunded: number; refundRecorded: number; voided: number; refundFailed: number }> {
   const due = await db
     .select()
     .from(groupDeals)
@@ -367,6 +396,7 @@ export async function sweepGroupDealsTx(
   let expired = 0;
   let participantsConfirmed = 0;
   let refunded = 0;
+  let refundRecorded = 0;
   let voided = 0;
   let refundFailed = 0;
   for (const deal of due) {
@@ -379,15 +409,16 @@ export async function sweepGroupDealsTx(
     } else {
       const r = await expireGroupDealTx(db, deal.id, now);
       // Only count when the row actually transitioned (first sweeper wins).
-      if (r.refunded + r.voided + r.refundFailed > 0 || (await getGroupDealTx(db, deal.id))?.status === "expired") {
-        expired += r.refunded + r.voided + r.refundFailed > 0 ? 1 : 0;
+      if (r.refunded + r.refundRecorded + r.voided + r.refundFailed > 0 || (await getGroupDealTx(db, deal.id))?.status === "expired") {
+        expired += r.refunded + r.refundRecorded + r.voided + r.refundFailed > 0 ? 1 : 0;
         refunded += r.refunded;
+        refundRecorded += r.refundRecorded;
         voided += r.voided;
         refundFailed += r.refundFailed;
       }
     }
   }
-  return { confirmed, expired, participantsConfirmed, refunded, voided, refundFailed };
+  return { confirmed, expired, participantsConfirmed, refunded, refundRecorded, voided, refundFailed };
 }
 
 /** Cancel an open deal (merchant action) — behaves like expiry for holds. */
