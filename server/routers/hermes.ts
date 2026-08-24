@@ -18,7 +18,9 @@ import { hermesConfigs, hermesEventLog, hermesPODrafts, hermesHealthLog } from "
 import { eq, desc, and, sql, gte, asc } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
-const HERMES_BRIDGE_URL = process.env.HERMES_BRIDGE_URL ?? "http://localhost:8095";
+// W30 (V3#4): default port corrected to the hermes-bridge service port
+// (8096; 8095 is ledger-bridge). Compose/k8s set the internal DNS name.
+const HERMES_BRIDGE_URL = process.env.HERMES_BRIDGE_URL ?? "http://localhost:8096";
 const HERMES_SKILLS_URL = process.env.HERMES_SKILLS_URL ?? "http://localhost:8097";
 // Shared secret for service-to-service calls. hermes-bridge (/hermes/ingest,
 // /hermes/approval) and hermes-skills (/skills/*) require the
@@ -232,11 +234,14 @@ export const hermesRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
 
+      // "approved_email_failed" is the retryable state left by a previous
+      // approval whose supplier-email dispatch failed (W30, V3#4) — allow a
+      // retry instead of stranding the PO.
       const [po] = await db.select().from(hermesPODrafts)
         .where(and(
           eq(hermesPODrafts.poId, input.poId),
           eq(hermesPODrafts.approvalToken, input.approvalToken),
-          eq(hermesPODrafts.status, "pending"),
+          sql`${hermesPODrafts.status} IN ('pending','approved_email_failed')`,
         ))
         .limit(1);
 
@@ -244,12 +249,17 @@ export const hermesRouter = router({
 
       // Update status
       await db.update(hermesPODrafts)
-        .set({ status: "approved", approvedAt: Date.now(), approvedBy: String(ctx.user.id), note: input.note ?? null })
+        .set({ status: "approved", approvedAt: Math.floor(Date.now() / 1000), approvedBy: String(ctx.user.id), note: input.note ?? null })
         .where(eq(hermesPODrafts.poId, input.poId));
 
-      // Trigger supplier email via hermes-skills
+      // Trigger supplier email via hermes-skills. W30 (V3#4): a dispatch
+      // failure is propagated honestly — the PO moves to the retryable
+      // "approved_email_failed" state and the caller is told the email did
+      // NOT go out, instead of reporting unconditional success.
+      let emailSent = false;
+      let emailError: string | null = null;
       try {
-        await fetch(`${HERMES_SKILLS_URL}/skills/po-approved`, {
+        const emailRes = await fetch(`${HERMES_SKILLS_URL}/skills/po-approved`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...INTERNAL_HEADERS },
           body: JSON.stringify({
@@ -268,9 +278,27 @@ export const hermesRouter = router({
           }),
           signal: AbortSignal.timeout(10000),
         });
+        if (emailRes.ok) {
+          emailSent = true;
+        } else {
+          emailError = `hermes-skills responded HTTP ${emailRes.status}`;
+        }
       } catch (e) {
-        // Non-fatal: PO is approved, email will retry
-        console.error("[hermes] supplier email trigger failed:", e);
+        emailError = String((e as Error)?.message ?? e);
+      }
+
+      if (!emailSent) {
+        console.error("[hermes] supplier email trigger failed:", emailError);
+        await db.update(hermesPODrafts)
+          .set({ status: "approved_email_failed" })
+          .where(eq(hermesPODrafts.poId, input.poId));
+        return {
+          success: false,
+          poId: input.poId,
+          error: "supplier_email_failed",
+          message: `PO approved but the supplier email could not be dispatched (${emailError}). The PO is in the retryable 'approved_email_failed' state — re-approve to retry the email.`,
+          retryable: true,
+        };
       }
 
       return { success: true, poId: input.poId };
@@ -299,7 +327,7 @@ export const hermesRouter = router({
       if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "PO not found or already processed" });
 
       await db.update(hermesPODrafts)
-        .set({ status: "rejected", approvedAt: Date.now(), approvedBy: String(ctx.user.id), note: input.reason ?? null })
+        .set({ status: "rejected", approvedAt: Math.floor(Date.now() / 1000), approvedBy: String(ctx.user.id), note: input.reason ?? null })
         .where(eq(hermesPODrafts.poId, input.poId));
 
       return { success: true };

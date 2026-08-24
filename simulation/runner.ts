@@ -202,6 +202,36 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j160-medusa-storefront-toggle"),
     import("./journeys/j161-medusa-order-bridge"),
     // === END W28 medusa-storefront ===
+    // === W30 loans-credit (Coder A) ===
+    import("./journeys/j162-loan-concurrent-accept"),
+    import("./journeys/j163-loan-repayment-race"),
+    import("./journeys/j164-loan-funding-leg"),
+    import("./journeys/j165-mandate-double-submit"),
+    // === END W30 loans-credit ===
+    // === W30 escrow-lifecycle (Coder B) ===
+    import("./journeys/j166-sla-order-status-guard"),
+    import("./journeys/j167-cancel-paid-order-refund"),
+    import("./journeys/j168-dispute-refund-executed"),
+    import("./journeys/j169-delivery-window-cron-settle"),
+    // === END W30 escrow-lifecycle ===
+    // === W30 feature-ring (Coder C) ===
+    import("./journeys/j170-stokvel-verified-money"),
+    import("./journeys/j171-insurance-groupbuy-honesty"),
+    import("./journeys/j172-loyalty-voucher-locks"),
+    import("./journeys/j173-commissions-invoice-sponsored"),
+    // === END W30 feature-ring ===
+    // === W30 auth-gates (Coder D) ===
+    import("./journeys/j174-kyb-money-gates"),
+    import("./journeys/j175-stepup-and-roles"),
+    import("./journeys/j176-session-and-invite-guards"),
+    import("./journeys/j177-screening-guards"),
+    // === END W30 auth-gates ===
+    // === W30 deploy-observability (Coder E) ===
+    import("./journeys/j178-scheduler-compose-boot"),
+    import("./journeys/j179-kyc-hermes-honesty"),
+    import("./journeys/j180-dashboard-honesty"),
+    import("./journeys/j181-recon-checklist"),
+    // === END W30 deploy-observability ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

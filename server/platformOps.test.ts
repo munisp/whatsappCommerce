@@ -119,7 +119,9 @@ describe("webhook dedupe ledger", () => {
     set("REDIS_URL", "redis://localhost:6379");
     set("SECRETS_MASTER_KEY", Buffer.alloc(32, 7).toString("base64"));
     set("KYC_SERVICE_API_KEY", "kyc-live-test-key");
+    set("INTERNAL_API_KEY", "internal-test-key"); // W30: REQUIRED_BY_ENV
     set("WHATSAPP_VERIFY_TOKEN", "wa-verify-test-token-0123456789"); // A4-04 prod boot gate
+    set("USSD_GATEWAY_SECRET", "ussd-test-secret"); // W30 merge: D's /ussd prod boot gate
     vi.resetModules();
     try {
       const { claimWebhookEvent: prodClaim } = await import("./services/webhookDedupe");
@@ -289,7 +291,7 @@ describe("usage metering + quotas", () => {
 // ── 4. Env boot gate ─────────────────────────────────────────────────────────
 
 describe("env boot gate", () => {
-  const BOOT_VARS = ["DATABASE_URL", "POSTGRES_URL", "JWT_SECRET", "KEYCLOAK_URL", "APP_URL", "REDIS_URL", "REDIS_TLS_URL", "KYC_SERVICE_API_KEY", "KYC_INTERNAL_API_KEY"];
+  const BOOT_VARS = ["DATABASE_URL", "POSTGRES_URL", "JWT_SECRET", "KEYCLOAK_URL", "APP_URL", "REDIS_URL", "REDIS_TLS_URL", "KYC_SERVICE_API_KEY", "KYC_INTERNAL_API_KEY", "INTERNAL_API_KEY", "USSD_GATEWAY_SECRET"];
   let saved: Record<string, string | undefined>;
   beforeEach(() => {
     saved = Object.fromEntries(BOOT_VARS.concat("NODE_ENV").map(k => [k, process.env[k]]));
@@ -305,6 +307,7 @@ describe("env boot gate", () => {
     for (const k of BOOT_VARS) delete process.env[k];
     process.env.NODE_ENV = ""; // production semantics
     process.env.JWT_SECRET = "a-strong-secret"; // isolate the REQUIRED_BY_ENV gate
+    process.env.USSD_GATEWAY_SECRET = "ussd-test-secret"; // W30 merge: satisfy D's /ussd gate so the REQUIRED gate fires
     vi.resetModules();
     await expect(import("./_core/env")).rejects.toThrow(
       /missing required environment variables: DATABASE_URL, KEYCLOAK_URL, APP_URL, REDIS_URL/,
@@ -331,7 +334,9 @@ describe("env boot gate", () => {
     process.env.REDIS_URL = "redis://localhost:6379";
     process.env.SECRETS_MASTER_KEY = Buffer.alloc(32, 7).toString("base64");
     process.env.KYC_SERVICE_API_KEY = "kyc-live-test-key";
+    process.env.INTERNAL_API_KEY = "internal-test-key"; // W30: REQUIRED_BY_ENV
     process.env.WHATSAPP_VERIFY_TOKEN = "wa-verify-test-token-0123456789"; // A4-04 prod boot gate
+    process.env.USSD_GATEWAY_SECRET = "ussd-test-secret"; // W30 merge: D's /ussd prod boot gate
     vi.resetModules();
     const mod = await import("./_core/env");
     expect(mod.REQUIRED_BY_ENV.DATABASE_URL).toBe("postgres://x");

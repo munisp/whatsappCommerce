@@ -50,6 +50,18 @@ export interface PaymentProvider {
   fetchStatus(reference: string, creds: unknown): Promise<{ status: 'pending' | 'success' | 'failed'; amountCents: number }>;
   testConnection(creds: unknown): Promise<{ ok: boolean; detail?: string }>;
 
+  /* -------- OPTIONAL refund capability (w30) -------- */
+  /**
+   * Refund a previously confirmed charge back to the buyer. `ctx.reference`
+   * is the ORIGINAL payment reference (provider transaction reference), not a
+   * new id. Returns status "processed" only when the provider has accepted
+   * the refund for execution; "pending" when the provider queued it; never
+   * report "processed" when money movement was not actually initiated.
+   * Adapters without a real refund API MUST omit this method — callers then
+   * use honest "refund_recorded" vocabulary instead of claiming a payout.
+   */
+  refund?(ctx: RefundCtx, creds: unknown): Promise<RefundResult>;
+
   /* -------- OPTIONAL mandate capability (w13) -------- */
   /** True when the adapter supports recurring/auto-debit mandates. */
   supportsMandates?: boolean;
@@ -67,6 +79,29 @@ export interface PaymentProvider {
   chargeMandate?(ctx: MandateChargeCtx, creds: unknown): Promise<MandateChargeResult>;
   /** Revoke a mandate. Best-effort where the provider lacks a true revoke. */
   revokeMandate?(mandateRef: string, creds: unknown): Promise<{ ok: boolean }>;
+}
+
+/* ------------------------------------------------------------------ */
+/* REFUND operations — w30.                                            */
+/* ------------------------------------------------------------------ */
+
+export interface RefundCtx {
+  tenantId: string;
+  /** Original provider payment reference being refunded. */
+  reference: string;
+  amountCents: number;
+  currency: string;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RefundResult {
+  ok: boolean;
+  /** "processed" = provider accepted/executed; "pending" = queued; "failed". */
+  status: "processed" | "pending" | "failed";
+  refundReference?: string;
+  provider: string;
+  error?: string;
 }
 
 /* ------------------------------------------------------------------ */

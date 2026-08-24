@@ -23,6 +23,9 @@ function makeDb(rows: any[] = [tenantRow]) {
         where: vi.fn(() => ({ limit: vi.fn(() => p), then: (r: any, j: any) => p.then(r, j) })),
       })),
     })),
+    // W30 merge: invite tokens are now registered in tenant_invite_tokens
+    // (single-use registry) — the create path inserts the jti row.
+    insert: vi.fn(() => ({ values: vi.fn(async () => {}) })),
   } as any;
 }
 

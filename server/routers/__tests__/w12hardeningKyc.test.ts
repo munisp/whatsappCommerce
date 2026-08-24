@@ -11,10 +11,15 @@
  *  - the gate applies only to approval (rejection is unaffected);
  *  - review stays admin-only.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 
 vi.mock("../../db", () => ({ getDb: vi.fn() }));
 vi.mock("../../storage", () => ({ storagePut: vi.fn(async () => ({ url: "https://cdn.example.com/file", key: "k" })) }));
+// W30 merge (V2#10): KYB screening is default-ON in kyc.review. These tests
+// target the W12.1 document gate, not screening — skip screening via the
+// explicit non-prod escape hatch.
+process.env.KYB_SCREENING_DISABLED = "true";
+afterAll(() => { delete process.env.KYB_SCREENING_DISABLED; });
 
 import { getDb } from "../../db";
 import { kycRouter } from "../kyc";

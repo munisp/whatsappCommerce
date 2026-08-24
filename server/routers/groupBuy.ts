@@ -120,6 +120,16 @@ export const groupBuyRouter = router({
       return sweepGroupDealsTx(db);
     }),
 
+  /** W30 (V1#10): reconciliation surface — holds whose refund never executed. */
+  refundFailures: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1) }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await dbOrThrow();
+      const { listRefundFailuresTx } = await import("../services/groupBuy");
+      return listRefundFailuresTx(db, { tenantId: input.tenantId });
+    }),
+
   // ── Customer: join + live progress (hardened public) ────────────────────
   getDealPublic: publicProcedure
     .input(z.object({ dealId: z.string().uuid() }))

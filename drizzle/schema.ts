@@ -1020,6 +1020,9 @@ export const refunds = pgTable("refunds", {
   reason: text("reason"),
   status: refundStatusEnum("status").notNull().default("pending"),
   processedAt: timestamp("processedAt"),
+  // === W30 escrow-lifecycle === (verify-v1 #9: provider refund execution)
+  providerReference: varchar("providerReference", { length: 256 }),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
   updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 }, (t) => [
@@ -1375,6 +1378,8 @@ export const escrowTransactions = pgTable("escrow_transactions", {
   index("escrow_tenant_idx").on(t.tenantId),
   index("escrow_state_idx").on(t.state),
   index("escrow_created_idx").on(t.createdAt),
+  // === W30 escrow-lifecycle === (mig 0091: SLA scan / auto-confirm selection)
+  index("escrow_state_deadline_idx").on(t.state, t.buyerConfirmDeadline),
 ]);
 
 // ─── Merchant Wallets (PSP mode) ──────────────────────────────────────────────
@@ -1462,8 +1467,9 @@ export const logisticsShipments = pgTable("logistics_shipments", {
   failedAt: timestamp("failed_at"),
   returnedAt: timestamp("returned_at"),
   // 4-digit PIN the rider must collect from the buyer at handover
-  // (see logistics.createShipment / simulateDelivery).
-  deliveryPin: varchar("delivery_pin", { length: 8 }),
+  // (see logistics.createShipment / simulateDelivery). W30 (V3#17): stores
+  // the keyed HMAC-SHA256 hash ("pinv1:"+64hex), widened to 80 in 0097.
+  deliveryPin: varchar("delivery_pin", { length: 80 }),
   // Webhook audit trail (array of raw payloads)
   webhookPayloads: jsonb("webhook_payloads").default([]).notNull(),
   providerResponse: jsonb("provider_response"),
@@ -1519,6 +1525,8 @@ export const floatIncomeEntries = pgTable("float_income_entries", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("float_income_date_idx").on(t.date),
+  // W30 (V3#13): at most one accrual per day — repeat runs conflict, never double-accrue.
+  uniqueIndex("float_income_date_uniq").on(t.date),
 ]);
 
 // ─── Type Exports ─────────────────────────────────────────────────────────────
@@ -1921,6 +1929,8 @@ export const marketplaceCommissions = pgTable("marketplace_commissions", {
   index("marketplace_commissions_seller_idx").on(t.sellerId),
   index("marketplace_commissions_order_idx").on(t.orderId),
   index("marketplace_commissions_status_idx").on(t.status),
+  // W30 (V3#12): exactly one commission row per order.
+  uniqueIndex("marketplace_commissions_order_uniq").on(t.orderId),
 ]);
 
 // ── Cross-Border / Mobile Money ───────────────────────────────────────────────
@@ -2562,7 +2572,8 @@ export const hermesEventLog = pgTable("hermes_event_log", {
 ]);
 export type HermesEventLog = typeof hermesEventLog.$inferSelect;
 
-export const hermesPOStatusEnum = pgEnum("hermes_po_status", ["pending", "approved", "rejected", "sent"]);
+// W30 (Coder E): + "approved_email_failed" (retryable email-dispatch failure).
+export const hermesPOStatusEnum = pgEnum("hermes_po_status", ["pending", "approved", "rejected", "sent", "approved_email_failed"]);
 export const hermesPODrafts = pgTable("hermes_po_drafts", {
   poId: varchar("poId", { length: 36 }).primaryKey(),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
@@ -3655,6 +3666,8 @@ export const sponsoredListings = pgTable("sponsored_listings", {
   radiusKm:         numeric("radius_km", { precision: 8, scale: 3 }).notNull().default("10"),
   dailyBudgetCents: integer("daily_budget_cents").notNull(),
   spentTodayCents:  integer("spent_today_cents").notNull().default(0),
+  // W30: date (YYYY-MM-DD, UTC) the counter belongs to — lazy daily reset.
+  spentOnDate:      varchar("spent_on_date", { length: 10 }),
   bidCents:         integer("bid_cents").notNull().default(0),
   status:           varchar("status", { length: 16 }).notNull().default("draft"),
   startsAt:         timestamp("starts_at"),
@@ -4030,6 +4043,10 @@ export const loyaltyLedger = pgTable("loyalty_ledger", {
   index("loyalty_ledger_tenant_idx").on(t.tenantId),
   index("loyalty_ledger_customer_idx").on(t.tenantId, t.customerPhone),
   index("loyalty_ledger_order_idx").on(t.orderId),
+  // W30 (V3#9): dup earn/redeem backstop per order.
+  uniqueIndex("loyalty_ledger_tenant_phone_order_kind_uniq")
+    .on(t.tenantId, t.customerPhone, t.orderId, t.entryType)
+    .where(sql`order_id IS NOT NULL`),
 ]);
 export type LoyaltyLedgerEntry = typeof loyaltyLedger.$inferSelect;
 export type NewLoyaltyLedgerEntry = typeof loyaltyLedger.$inferInsert;
@@ -4535,3 +4552,92 @@ export const medusaOrderLinks = pgTable("medusa_order_links", {
 export type MedusaOrderLink = typeof medusaOrderLinks.$inferSelect;
 export type NewMedusaOrderLink = typeof medusaOrderLinks.$inferInsert;
 // === END W28 medusa-storefront ===
+
+// === W30 loans-credit (Coder A) ===
+// merchant_loan_funding: funding leg for every micro-loan disbursement
+// (verify-v1 #12 — no more unbacked minted wallet balance). acceptLoanTx
+// atomically decrements credit_facilities.commitment_cents (guarded UPDATE,
+// insufficient commitment → honest rejection) and records the leg here in
+// the same transaction as the wallet credit. ledger_ref is the deterministic
+// TigerBeetle idempotency reference `loanfund:<loanId>`. One row per loan.
+// See drizzle/0089_merchant_loan_funding.sql.
+export const merchantLoanFunding = pgTable("merchant_loan_funding", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  loanId: uuid("loan_id").notNull().references(() => merchantLoans.id),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  facilityId: uuid("facility_id").notNull().references(() => creditFacilities.id),
+  principalCents: integer("principal_cents").notNull(),
+  ledgerRef: varchar("ledger_ref", { length: 64 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("merchant_loan_funding_loan_uniq").on(t.loanId),
+  index("merchant_loan_funding_facility_idx").on(t.facilityId),
+]);
+export type MerchantLoanFunding = typeof merchantLoanFunding.$inferSelect;
+export type NewMerchantLoanFunding = typeof merchantLoanFunding.$inferInsert;
+// === END W30 loans-credit ===
+// === W30 escrow-lifecycle ===
+// === W30 feature-ring ===
+// Sponsored spend billing ledger (V2#16): one row per served sponsored
+// placement, debited atomically against sponsored_listings.spent_today_cents
+// (guarded conditional UPDATE at serve time in services/geoDiscovery.ts).
+// `reference` is the idempotency key (unique) so retries never double-bill.
+export const sponsoredSpendEvents = pgTable("sponsored_spend_events", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  listingId:   uuid("listing_id").notNull(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  spendDate:   varchar("spend_date", { length: 10 }).notNull(), // YYYY-MM-DD (UTC)
+  kind:        varchar("kind", { length: 16 }).notNull().default("serve"),
+  amountCents: integer("amount_cents").notNull(),
+  reference:   varchar("reference", { length: 160 }).notNull(),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("sponsored_spend_reference_uniq").on(t.reference),
+  index("sponsored_spend_listing_idx").on(t.listingId, t.spendDate),
+]);
+export type SponsoredSpendEvent = typeof sponsoredSpendEvents.$inferSelect;
+export type NewSponsoredSpendEvent = typeof sponsoredSpendEvents.$inferInsert;
+// === END W30 feature-ring ===
+// === W30 auth-gates ===
+
+// Step-up authentication challenges (V2#2): a fresh OTP to the tenant admin
+// phone is required for payout-destination changes, withdrawals above the
+// configured threshold, owner role grants, and payment admin overrides.
+// Single-use, short-lived, attempt-capped. OTP stored as a keyed hash only.
+export const stepUpChallenges = pgTable("step_up_challenges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  /** e.g. "payout_change" | "withdrawal" | "owner_grant" | "payment_override" */
+  purpose: varchar("purpose", { length: 40 }).notNull(),
+  /** v2 per-OTP-salted HMAC-SHA256 of the code — never the code itself. */
+  otpHash: varchar("otp_hash", { length: 160 }).notNull(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  consumedAt: timestamp("consumed_at"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("step_up_challenges_tenant_purpose_idx").on(t.tenantId, t.purpose, t.createdAt),
+  index("step_up_challenges_user_idx").on(t.userId, t.createdAt),
+]);
+export type StepUpChallenge = typeof stepUpChallenges.$inferSelect;
+export type NewStepUpChallenge = typeof stepUpChallenges.$inferInsert;
+
+// Tenant invite magic-link registry (V2#13): every minted invite token is
+// recorded by jti; validation marks it consumed exactly once (single-use)
+// and the TTL is capped at 24h. Tokens not in the registry (pre-migration
+// links) are rejected in production-like environments.
+export const tenantInviteTokens = pgTable("tenant_invite_tokens", {
+  jti: varchar("jti", { length: 64 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  issuedBy: varchar("issued_by", { length: 36 }),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("tenant_invite_tokens_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type TenantInviteToken = typeof tenantInviteTokens.$inferSelect;
+export type NewTenantInviteToken = typeof tenantInviteTokens.$inferInsert;
+// === END W30 auth-gates ===

@@ -404,13 +404,33 @@ export const infraRouter = router({
 
   // ── Reconciliation ───────────────────────────────────────────────────────────
   triggerReconciliation: adminProcedure.mutation(async () => {
+    // W30 (V3#8): fail loudly with an actionable setup hint — a dead recon
+    // button must tell the operator WHY and how to fix the wiring.
+    if (!process.env.RECON_WORKER_URL) {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "recon worker not configured: set RECON_WORKER_URL on the platform " +
+          "service (compose default: http://recon-worker:8096; k8s: " +
+          "http://recon-worker.whatsapp-commerce.svc.cluster.local:8096) " +
+          "and ensure the recon-worker service is running.",
+      });
+    }
+    let lastError: string | null = null;
     try {
       const res = await fetch(`${ENV.reconWorkerUrl}/recon/trigger`, {
         method: "POST", signal: AbortSignal.timeout(30_000),
       });
       if (res.ok) return res.json();
-    } catch (e) { console.warn("[Recon] Trigger failed:", e); }
-    return { status: "failed", error: "recon_worker_unavailable" };
+      lastError = `recon-worker responded HTTP ${res.status}`;
+    } catch (e) {
+      lastError = String((e as Error)?.message ?? e);
+      console.warn("[Recon] Trigger failed:", e);
+    }
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `reconciliation trigger failed: recon-worker unreachable at ${ENV.reconWorkerUrl} (${lastError}). Check that the recon-worker service is up and RECON_WORKER_URL points at it.`,
+    });
   }),
 
   getLastReconciliation: adminProcedure.query(async () => {

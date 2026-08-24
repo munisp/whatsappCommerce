@@ -238,7 +238,9 @@ services:
     image: ghcr.io/tigerbeetle/tigerbeetle:latest
     command: ["start", "--addresses=0.0.0.0:3000", "--development", "/data/0_0.tigerbeetle"]
     ports:
-      - "3000:3000"
+      # Host port 3001 (was 3000, which collided with the platform service).
+      # In-cluster traffic uses the internal DNS name tigerbeetle:3000.
+      - "${TIGERBEETLE_HOST_PORT:-3001}:3000"
     volumes:
       - tigerbeetle_data:/data
     depends_on:
@@ -265,11 +267,81 @@ services:
       # PG pool size per replica (see docs/PERF.md for the 100k math).
       PG_POOL_MAX: ${PG_POOL_MAX:-10}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
+      # ── W30 boot-gate completeness (server/_core/env.ts REQUIRED_BY_ENV) ──
+      # Dev-safe defaults so `docker compose up platform` boots out of the box;
+      # OVERRIDE every one of these in any real deployment (see env.example.txt).
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://keycloak:8080}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      # base64-encoded 32 bytes ("dev-master-key-0123456789abcde") — dev only.
+      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-ZGV2LW1hc3Rlci1rZXktMDEyMzQ1Njc4OWFiY2Rl}
+      # Dev-only KYC service key (must match the kyc-verifier sidecar env).
+      KYC_SERVICE_API_KEY: ${KYC_SERVICE_API_KEY:-dev-only-kyc-key-change-in-prod}
+      # Dev-only Meta webhook verification token (never the public demo value).
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-dev-only-wa-verify-token-change-in-prod}
+      # ── W30 service wiring (V3#4/#8): internal DNS, not localhost ──
+      HERMES_BRIDGE_URL: ${HERMES_BRIDGE_URL:-http://hermes-bridge:8096}
+      RECON_WORKER_URL: ${RECON_WORKER_URL:-http://recon-worker:8096}
+      ML_STACK_URL: ${ML_STACK_URL:-http://ml-inference:8099}
+      # Mojaloop webhook signature validation — ON by default (V3 align D#14).
+      # The bundled mojaloop-simulator is a DEV-ONLY stub; point MOJALOOP_API_URL
+      # at a real Mojaloop deployment for anything beyond local development.
+      MOJALOOP_VALIDATE_SIG: ${MOJALOOP_VALIDATE_SIG:-true}
+      # Shared service-to-service secret forwarded as X-Internal-Token.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+      # Cron scheduler auth secret (HS256) used by the scheduler service to
+      # call /api/scheduled/* routes. Empty disables local cron auth; the
+      # dev default matches the scheduler service below — override in prod.
+      CRON_JWT: ${CRON_JWT:-dev-only-cron-secret-change-in-prod}
+      # KYC document-verification sidecar (internal DNS; mock only in dev).
+      KYC_SERVICE_URL: ${KYC_SERVICE_URL:-http://kyc-verifier:8001}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─── KYC document-verification sidecar (Python) ───────────────────────────
+  # The image default is VLM_MOCK_MODE=false (real vision via Ollama/GPT-4V).
+  # DEV-ONLY: compose explicitly opts into the mock below so a local stack
+  # boots without a VLM backend; REMOVE the override (and set OLLAMA_URL or
+  # OPENAI_API_KEY) in any real deployment. The platform boot gate probes
+  # /health and refuses to serve in production while the sidecar reports mock.
+  kyc-verifier:
+    build:
+      context: ./services/kyc-verifier
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8001"
+      VLM_MOCK_MODE: ${VLM_MOCK_MODE:-true} # DEV-ONLY override — see above
+      KYC_INTERNAL_API_KEY: ${KYC_SERVICE_API_KEY:-dev-only-kyc-key-change-in-prod}
+      OLLAMA_URL: ${OLLAMA_URL:-http://localhost:11434}
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:9092
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  # ─── Cron scheduler (W30, V3#3) ──────────────────────────────────────────
+  # Invokes every /api/scheduled/* route on its documented cadence with a
+  # locally-signed cron JWT. Route allowlist + cadences: services/scheduler/
+  # scheduler.mjs (kept in parity with server/_core/index.ts by journey J178).
+  scheduler:
+    build:
+      context: ./services/scheduler
+      dockerfile: Dockerfile
+    environment:
+      PLATFORM_URL: http://platform:3000
+      CRON_JWT: ${CRON_JWT:-dev-only-cron-secret-change-in-prod}
+      TICK_MS: "15000"
+    depends_on:
+      platform:
+        condition: service_started
     networks: [platform]
     logging: *default-logging
     restart: unless-stopped

@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, adminProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, adminProcedure, router, assertTenantAccess, moneyProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import {
   escrowTransactions, escrowConfig, escrowDisputes,
   merchantWallets, walletTransactions,
-  orders, customers, logisticsShipments, paymentIntents, paymentTransactions,
+  orders, customers, users, logisticsShipments, paymentIntents, paymentTransactions,
   type EscrowTransaction, type EscrowConfig,
 } from "../../drizzle/schema";
 import { escrowTimelineAttachments } from "../../drizzle/schema";
@@ -48,20 +48,65 @@ type DbOrTx = Pick<Db, "select" | "insert" | "update" | "delete" | "execute">;
 // ─── Authorization helpers ───────────────────────────────────────────────────
 type SessionUser = { id: number; role: string; email: string | null; phone: string | null; tenantId: string | null };
 
-/** Verify the caller is the buyer of the escrow's order (or an admin). */
-async function assertBuyerOrAdmin(db: DbOrTx, user: SessionUser, escrow: EscrowTransaction) {
+/**
+ * Verify the caller is the buyer of the escrow's order (or an admin).
+ *
+ * W30 (V2#14): a self-asserted string match is no longer sufficient. The
+ * caller must present EITHER:
+ *   1. a buyer capability token (signed, escrow-bound — minted server-side
+ *      for the order's verified buyer channel), OR
+ *   2. a session whose identity is VERIFIED: phone match requires the
+ *      user's phone to be phoneVerified (OTP-verified); email match
+ *      requires an IdP-backed login method (never the unverified
+ *      ENABLE_LOCAL_AUTH "local" path).
+ */
+async function assertBuyerOrAdmin(
+  db: DbOrTx,
+  user: SessionUser,
+  escrow: EscrowTransaction,
+  opts: { buyerToken?: string | null } = {},
+) {
   if (user.role === "admin") return;
+
+  // Path 1: escrow-bound buyer capability token.
+  if (opts.buyerToken) {
+    const { verifyCapabilityToken } = await import("../services/capabilityTokens");
+    if (verifyCapabilityToken(opts.buyerToken, "buyer_confirm", escrow.id)) return;
+    throw new TRPCError({ code: "FORBIDDEN", message: "Invalid or expired buyer confirmation token" });
+  }
+
   const [order] = await db.select().from(orders).where(eq(orders.id, escrow.orderId));
   const [customer] = order
     ? await db.select().from(customers).where(eq(customers.id, order.customerId))
     : [undefined];
+
+  // Load the caller's verification state — the session JWT's email/phone
+  // claims are self-asserted at login and don't prove channel ownership.
+  const [userRow] = await db
+    .select({ phoneVerified: users.phoneVerified, loginMethod: users.loginMethod })
+    .from(users)
+    .where(eq(users.id, user.id))
+    .limit(1)
+    .catch(() => [] as { phoneVerified: boolean; loginMethod: string | null }[]);
+
+  const digits = (p?: string | null) => (p ?? "").replace(/\D/g, "");
+  // Phone match only counts when the phone was OTP-verified.
+  const phoneMatch =
+    userRow?.phoneVerified === true &&
+    !!digits(user.phone) &&
+    digits(user.phone) === digits(customer?.whatsappPhone);
+  // Email match only counts for IdP-verified logins — the local dev bypass
+  // (ENABLE_LOCAL_AUTH) asserts any email without verification.
+  const idpBacked = !!userRow?.loginMethod && userRow.loginMethod !== "local";
   const userEmail = user.email?.trim().toLowerCase();
   const custEmail = customer?.email?.trim().toLowerCase();
-  const emailMatch = !!userEmail && !!custEmail && userEmail === custEmail;
-  const digits = (p?: string | null) => (p ?? "").replace(/\D/g, "");
-  const phoneMatch = !!digits(user.phone) && digits(user.phone) === digits(customer?.whatsappPhone);
+  const emailMatch = idpBacked && !!userEmail && !!custEmail && userEmail === custEmail;
+
   if (!emailMatch && !phoneMatch) {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Only the buyer of this order (or an admin) can confirm receipt" });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only the verified buyer of this order (or an admin) can confirm receipt",
+    });
   }
 }
 
@@ -685,6 +730,10 @@ export const escrowRouter = router({
       if (!db) throw new Error("DB unavailable");
       // Only the tenant that owns the order (or an admin) may create a hold.
       assertTenantAccess(ctx.user, input.tenantId);
+      // W30 (V2#1): KYB is a hard precondition for money surfaces — an
+      // unverified tenant must never take escrowed funds. Fail-closed.
+      const { requireApprovedKyb } = await import("../services/kycGate");
+      await requireApprovedKyb(input.tenantId, db);
       const cfg = await getEscrowConfig(db);
 
       // Idempotency: one hold per order, always — even when the caller
@@ -852,7 +901,13 @@ export const escrowRouter = router({
   // guarded UPDATE — the wallet is credited only when exactly one row
   // transitioned, inside the same DB transaction (no double-release).
   buyerConfirm: protectedProcedure
-    .input(z.object({ escrowId: z.string(), autoConfirmed: z.boolean().default(false) }))
+    .input(z.object({
+      escrowId: z.string(),
+      autoConfirmed: z.boolean().default(false),
+      // W30 (V2#14): optional escrow-bound buyer capability token — the
+      // verified-buyer alternative to a session identity match.
+      buyerToken: z.string().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
@@ -861,7 +916,7 @@ export const escrowRouter = router({
       if (!escrow) throw new TRPCError({ code: "NOT_FOUND", message: "Escrow not found" });
 
       // Only the buyer of this order (or an admin) can release the funds.
-      await assertBuyerOrAdmin(db, ctx.user, escrow);
+      await assertBuyerOrAdmin(db, ctx.user, escrow, { buyerToken: input.buyerToken ?? null });
       // Only admins/system processes may mark a confirmation as automatic —
       // a merchant must never be able to self-release with autoConfirmed.
       const autoConfirmed = ctx.user.role === "admin" ? input.autoConfirmed : false;
@@ -1168,9 +1223,10 @@ export const escrowRouter = router({
     .input(z.object({
       escrowIds: z.array(z.string()).min(1).max(100),
       action: z.enum(["release", "refund"]),
-      reason: z.string().optional(),
+      // W30 (verify-v2 #3): a bulk money movement must always carry a reason.
+      reason: z.string().min(3),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
 
@@ -1184,9 +1240,12 @@ export const escrowRouter = router({
           if (input.action === "release") {
             const result = await settleEscrowAtomic(db, escrow.id, {
               autoConfirmed: true,
-              // dispute_resolved is included so an admin can execute a
-              // "full_release_to_merchant" dispute resolution via bulk release.
-              allowedFromStates: ["delivery_confirmed", "escrow_held", "dispute_resolved"],
+              // W30 (verify-v2 #3): aligned with the single-row release path —
+              // delivery_confirmed ONLY. The old list (escrow_held,
+              // dispute_resolved) let bulk release skip the delivery
+              // checkpoint; dispute resolutions now execute their own
+              // settlement inside escrowDispute.review.
+              allowedFromStates: ["delivery_confirmed"],
               descriptionPrefix: "Bulk settlement",
             });
             if (!result.transitioned || !result.escrow) {
@@ -1206,7 +1265,7 @@ export const escrowRouter = router({
           } else {
             // Refund (always the full remaining amount in bulk operations)
             const result = await refundEscrowAtomic(db, escrow.id, {
-              reason: input.reason ?? "admin bulk operation",
+              reason: input.reason,
             });
             if (!result.success) {
               results.push({ id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` });
@@ -1239,6 +1298,20 @@ export const escrowRouter = router({
 
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;
+
+      // W30 (verify-v2 #3): bulk money movement is always audit-logged with
+      // the mandatory reason and per-row outcomes.
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: `escrow.bulk_${input.action}`,
+        entityType: "escrow_transaction",
+        entityId: input.escrowIds.join(",").slice(0, 128),
+        summary: `Bulk ${input.action} of ${input.escrowIds.length} escrow(s): ${succeeded} succeeded, ${failed} failed. Reason: ${input.reason}`,
+        before: { states: rows.map((r) => ({ id: r.id, state: r.state })) },
+        after: { results },
+      }).catch((e) => console.error("[escrow.bulkUpdateState] audit log failed:", e));
+
       return { results, succeeded, failed };
     }),
 });
@@ -1338,7 +1411,10 @@ export const escrowDisputeRouter = router({
       // Server-side resolver identity — never trust the client.
       const resolvedBy = ctx.user.email ?? ctx.user.name ?? String(ctx.user.id);
 
-      await db.update(escrowDisputes).set({
+      // ── W30 (verify-v1 #7): claim the dispute FIRST — a guarded UPDATE
+      // makes resolution consumable by exactly ONE terminal action; a
+      // concurrent double-resolve is a CONFLICT, never a double refund.
+      const claimed = await db.update(escrowDisputes).set({
         status: "resolved_" + (input.resolution.includes("merchant") ? "merchant" : "buyer") as any,
         resolution: input.resolution,
         refundAmount: input.refundAmount?.toFixed(2),
@@ -1346,16 +1422,84 @@ export const escrowDisputeRouter = router({
         resolverNotes: input.resolverNotes,
         resolvedAt: new Date(),
         updatedAt: new Date(),
-      }).where(eq(escrowDisputes.id, input.disputeId));
-
-      // Update escrow state — guarded so only a disputed escrow transitions.
-      await db.update(escrowTransactions).set({
-        state: "dispute_resolved",
-        updatedAt: new Date(),
       }).where(and(
-        eq(escrowTransactions.id, dispute.escrowTxId),
-        eq(escrowTransactions.state, "dispute_raised"),
-      ));
+        eq(escrowDisputes.id, input.disputeId),
+        sql`${escrowDisputes.status} NOT IN ('resolved_merchant', 'resolved_buyer')`,
+      )).returning({ id: escrowDisputes.id });
+      if (claimed.length === 0) {
+        throw new TRPCError({ code: "CONFLICT", message: "Dispute was resolved concurrently — exactly one resolution is allowed" });
+      }
+
+      // ── W30 (verify-v1 #7): EXECUTE the money movement the resolution
+      // promises — before W30 this flow only flipped rows and emailed the
+      // buyer "refund issued" while no money ever moved.
+      const [escrowRow] = await db.select().from(escrowTransactions)
+        .where(eq(escrowTransactions.id, dispute.escrowTxId)).limit(1);
+      let moneyOutcome: { moved: boolean; kind: "refund" | "release" | "none"; amount?: number; detail?: string } = { moved: false, kind: "none" };
+      if (escrowRow) {
+        if (input.resolution === "full_refund_to_buyer" || input.resolution === "partial_refund") {
+          const refund = await refundEscrowAtomic(db, escrowRow.id, {
+            reason: `Dispute ${dispute.id} resolved: ${input.resolution}${input.resolverNotes ? ` — ${input.resolverNotes}` : ""}`,
+            refundAmount: input.resolution === "partial_refund" ? input.refundAmount : undefined,
+          });
+          if (!refund.success) {
+            throw new TRPCError({ code: "CONFLICT", message: `Dispute refund could not be executed: ${refund.error}` });
+          }
+          moneyOutcome = { moved: true, kind: "refund", amount: refund.refundedAmount, detail: refund.fullRefund ? "full" : "partial" };
+          if (refund.fullRefund) {
+            await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
+              .where(eq(orders.id, dispute.orderId));
+          }
+          // PSP custody: the platform holds the buyer's money at the PSP — the
+          // internal escrow refund above must be matched by a REAL provider
+          // refund back to the buyer's payment instrument (verify-v1 #9).
+          if (escrowRow.custodyMode === "psp") {
+            const { executeProviderRefund } = await import("../services/payments/refunds");
+            const providerOutcome = await executeProviderRefund(db, {
+              tenantId: escrowRow.tenantId,
+              orderId: dispute.orderId,
+              amountCents: Math.round(refund.refundedAmount * 100),
+              currency: escrowRow.currency ?? "NGN",
+              reason: `Dispute ${dispute.id} ${input.resolution}`,
+            });
+            moneyOutcome.detail = `${moneyOutcome.detail}; provider refund: ${providerOutcome.executed ? providerOutcome.status : `not executed (${providerOutcome.error ?? providerOutcome.status})`}`;
+          }
+        } else if (input.resolution === "full_release_to_merchant") {
+          const settle = await settleEscrowAtomic(db, escrowRow.id, {
+            autoConfirmed: false,
+            // Dispute resolution releases directly from the disputed state —
+            // the dispute itself was the delivery checkpoint escalation.
+            allowedFromStates: ["dispute_raised", "dispute_resolved"],
+            descriptionPrefix: `Dispute ${dispute.id} resolved in merchant's favour`,
+          }).catch(async (settleErr) => {
+            if (settleErr instanceof EscrowSettlementError) {
+              await compensateEscrowSettlementFailure(db, {
+                escrowId: escrowRow.id,
+                pendingIds: settleErr.capturedPendingIds,
+                reason: settleErr.message,
+              }).catch((compErr) => console.error("[escrow.review] compensation failed:", compErr));
+            }
+            throw settleErr;
+          });
+          if (!settle.transitioned) {
+            throw new TRPCError({ code: "CONFLICT", message: `Dispute release could not be executed from escrow state: ${escrowRow.state}` });
+          }
+          moneyOutcome = { moved: true, kind: "release", detail: settle.newState };
+          await db.update(orders).set({ paymentStatus: "completed", updatedAt: new Date() })
+            .where(eq(orders.id, dispute.orderId));
+        } else {
+          // no_action: park the escrow in dispute_resolved for a later admin
+          // release/refund (bulk or single) — guarded, single transition.
+          await db.update(escrowTransactions).set({
+            state: "dispute_resolved",
+            updatedAt: new Date(),
+          }).where(and(
+            eq(escrowTransactions.id, dispute.escrowTxId),
+            eq(escrowTransactions.state, "dispute_raised"),
+          ));
+          moneyOutcome = { moved: false, kind: "none", detail: "no_action" };
+        }
+      }
 
       const [updated] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
       // Fire-and-forget: notify merchant of dispute resolution
@@ -1367,13 +1511,19 @@ export const escrowDisputeRouter = router({
         read: false, readAt: null, createdAt: new Date(),
       }).catch(() => {});
       // Fire-and-forget: send buyer email notification if email provided
+      // Buyer email is sent only AFTER the money movement above succeeded —
+      // and the copy describes what ACTUALLY happened (never "refund issued"
+      // when nothing moved). W30 (verify-v1 #7).
       if (input.buyerEmail) {
-        const outcomeLabel = input.resolution === "full_refund_to_buyer"
-          ? "Full refund issued to you"
-          : input.resolution === "full_release_to_merchant"
+        const providerNote = moneyOutcome.detail?.includes("provider refund:")
+          ? ` (${moneyOutcome.detail.split("provider refund:")[1]?.trim()})`
+          : "";
+        const outcomeLabel = moneyOutcome.kind === "refund"
+          ? (moneyOutcome.detail?.startsWith("full")
+              ? `Full refund of ₦${(moneyOutcome.amount ?? 0).toLocaleString()} has been executed${providerNote ? ` — refund to your payment method ${providerNote}` : ""}`
+              : `Partial refund of ₦${(moneyOutcome.amount ?? 0).toLocaleString()} has been executed${providerNote ? ` — refund to your payment method ${providerNote}` : ""}`)
+          : moneyOutcome.kind === "release"
           ? "Payment released to merchant (no refund)"
-          : input.resolution === "partial_refund"
-          ? `Partial refund of ₦${(input.refundAmount ?? 0).toLocaleString()} issued to you`
           : "No action taken";
         const emailBody = [
           "Dear Customer,",
@@ -1512,13 +1662,61 @@ export const walletRouter = router({
         .limit(input.limit);
     }),
 
-  requestWithdrawal: protectedProcedure
+  /**
+   * W30 (V2#2b): change the payout destination on file. This is a SEPARATE,
+   * audited, step-up-gated procedure — it was previously an inline side
+   * effect of requestWithdrawal, letting a single compromised session both
+   * redirect and drain the wallet in one call. Always requires a fresh
+   * step-up OTP to the tenant admin phone (purpose "payout_change").
+   */
+  updatePayoutBankDetails: moneyProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      bankAccountName: z.string().min(1),
+      bankAccountNumber: z.string().min(1),
+      bankCode: z.string().min(1),
+      stepUpChallengeId: z.string().uuid(),
+      stepUpOtp: z.string().length(6),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("DB unavailable");
+      const { requireStepUp } = await import("../services/stepUp");
+      await requireStepUp(db, {
+        required: true,
+        tenantId: input.tenantId,
+        userId: ctx.user.id,
+        purpose: "payout_change",
+        stepUpChallengeId: input.stepUpChallengeId,
+        stepUpOtp: input.stepUpOtp,
+      });
+      const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
+      await db.update(merchantWallets).set({
+        bankAccountName: input.bankAccountName,
+        bankAccountNumber: input.bankAccountNumber,
+        bankCode: input.bankCode,
+        updatedAt: new Date(),
+      }).where(eq(merchantWallets.id, wallet.id));
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "wallet.payoutDestinationChange",
+        entityType: "merchant_wallet",
+        entityId: wallet.id,
+        tenantId: input.tenantId,
+        summary: `Payout destination changed (step-up verified) to account …${input.bankAccountNumber.slice(-4)}`,
+        after: { bankAccountName: input.bankAccountName, bankAccountNumber: `…${input.bankAccountNumber.slice(-4)}`, bankCode: input.bankCode },
+      }).catch(() => {});
+      return { ok: true };
+    }),
+
+  requestWithdrawal: moneyProcedure
     .input(z.object({
       tenantId: z.string(),
       amount: z.number().positive(),
-      bankAccountName: z.string().optional(),
-      bankAccountNumber: z.string().optional(),
-      bankCode: z.string().optional(),
+      // W30 (V2#2): step-up challenge for withdrawals above the threshold.
+      stepUpChallengeId: z.string().uuid().optional(),
+      stepUpOtp: z.string().length(6).optional(),
       // Client-supplied idempotency key — retries with the same reference
       // return the existing withdrawal instead of double-debiting.
       reference: z.string().max(128).optional(),
@@ -1526,7 +1724,24 @@ export const walletRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // W30 (V2#2c): role-aware guard — moneyProcedure already enforced
+      // membership role owner|operator (analyst memberships can no longer
+      // withdraw); keep the tenant assertion for users.tenantId callers.
       assertTenantAccess(ctx.user, input.tenantId);
+      // W30 (V2#1): KYB hard precondition (fail-closed, cached by caller).
+      const { requireApprovedKyb } = await import("../services/kycGate");
+      await requireApprovedKyb(input.tenantId, db);
+      // W30 (V2#2a): withdrawals above the configured threshold require a
+      // fresh step-up OTP to the tenant admin phone.
+      const { requireStepUp, withdrawalStepUpThreshold } = await import("../services/stepUp");
+      await requireStepUp(db, {
+        required: input.amount > withdrawalStepUpThreshold(),
+        tenantId: input.tenantId,
+        userId: ctx.user.id,
+        purpose: "withdrawal",
+        stepUpChallengeId: input.stepUpChallengeId,
+        stepUpOtp: input.stepUpOtp,
+      });
       const cfg = await getEscrowConfig(db);
       if (cfg.custodyMode !== "psp") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Withdrawals are only available under PSP licence mode" });
       const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
@@ -1545,24 +1760,16 @@ export const walletRouter = router({
         };
       }
 
-      if (input.bankAccountNumber) {
-        await db.update(merchantWallets).set({
-          bankAccountName: input.bankAccountName,
-          bankAccountNumber: input.bankAccountNumber,
-          bankCode: input.bankCode,
-          updatedAt: new Date(),
-        }).where(eq(merchantWallets.id, wallet.id));
-      }
-
-      // Resolve the bank details to pay out to: freshly supplied ones, or
-      // whatever's already on file for this wallet from a prior withdrawal.
-      const payoutAccountName = input.bankAccountName ?? wallet.bankAccountName;
-      const payoutAccountNumber = input.bankAccountNumber ?? wallet.bankAccountNumber;
-      const payoutBankCode = input.bankCode ?? wallet.bankCode;
+      // W30 (V2#2b): the payout destination on file is used as-is. Changing
+      // it is a separate step-up-gated audited procedure
+      // (updatePayoutBankDetails) — never an inline side effect of a debit.
+      const payoutAccountName = wallet.bankAccountName;
+      const payoutAccountNumber = wallet.bankAccountNumber;
+      const payoutBankCode = wallet.bankCode;
       if (!payoutAccountNumber || !payoutBankCode || !payoutAccountName) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Bank account name, number, and bank code are required (either on this request or already on file)",
+          message: "No payout bank details on file — set them via escrow.updatePayoutBankDetails (requires step-up OTP) first",
         });
       }
       if (!ENV.paystackSecretKey) {
@@ -2180,3 +2387,5 @@ export const timelineAttachmentRouter = router({
         .orderBy(escrowTimelineAttachments.createdAt);
     }),
 });
+
+// === W30 escrow-lifecycle ===

@@ -176,6 +176,16 @@ function tenantRoleProcedure(roles: readonly MembershipRole[], label: string) {
 export const operatorProcedure = tenantRoleProcedure(["owner", "operator"], "operatorProcedure");
 export const analystProcedure = tenantRoleProcedure(["owner", "operator", "analyst"], "analystProcedure");
 
+/**
+ * W30 (V2#2c): role-aware guard for money-moving mutations. Same semantics
+ * as operatorProcedure (protectedProcedure + tenantId in input +
+ * assertTenantAccess + membership role owner|operator; platform admins
+ * bypass) under a name that makes the intent explicit at call sites:
+ * withdrawals, refunds, and escrow release paths must NEVER be reachable by
+ * an analyst membership. Read-only procedures keep using analystProcedure.
+ */
+export const moneyProcedure = tenantRoleProcedure(["owner", "operator"], "moneyProcedure");
+
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;

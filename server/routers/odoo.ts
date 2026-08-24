@@ -191,11 +191,25 @@ export const odooRouter = router({
    * when the server is unreachable or rejects the credentials.
    */
   testConnection: protectedProcedure
-    .input(z.object({ baseUrl: z.string(), database: z.string(), username: z.string(), apiKey: z.string() }))
+    .input(z.object({
+      // W30 (V2#8): syntactic URL validation at the schema boundary…
+      baseUrl: z.string().url(),
+      database: z.string(),
+      username: z.string(),
+      apiKey: z.string(),
+    }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
+      // W30 (V2#8): …plus SSRF guard — block loopback/private/link-local
+      // targets before fetching with credentials attached.
+      const { assertSafeOutboundUrl } = await import("../services/ssrfGuard");
+      try {
+        assertSafeOutboundUrl(input.baseUrl, "Odoo baseUrl");
+      } catch (err: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: err?.message ?? "Unsafe Odoo baseUrl" });
+      }
       const baseUrl = input.baseUrl.replace(/\/+$/, "");
       let status: "connected" | "error" = "error";
       let error: string | null = null;

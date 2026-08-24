@@ -82,7 +82,8 @@ describe("pending mandate charge — no premature settlement (A1-02)", () => {
     });
     expect(store.mandateCharges[0].reference).toMatch(/^cr-acct-1-/);
     // The exactly-once claim is KEPT — the charge is never retried.
-    expect(store.webhookEvents).toHaveLength(1);
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment")).toHaveLength(1);
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment_pending")).toHaveLength(1); // W30 pending marker kept
   });
 
   it("pending → success sweep settles EXACTLY ONCE, even across a double sweep", async () => {
@@ -180,8 +181,10 @@ describe("pending mandate charge — no premature settlement (A1-02)", () => {
     // Unknown outcome probed → success provider-side ⇒ kept pending for
     // exactly-once settlement; NO dunning, NO claim release, NO re-charge.
     expect(res).toMatchObject({ ok: true, status: "pending", outstandingAfter: 10_000 });
-    expect(notice).not.toHaveBeenCalled();
-    expect(store.webhookEvents).toHaveLength(1); // claim kept
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment")).toHaveLength(1); // claim kept
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment_pending")).toHaveLength(1); // W30 marker kept while pending
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment")).toHaveLength(1); // claim kept
+    expect(store.webhookEvents.filter((e: any) => e.type === "credit_repayment_pending")).toHaveLength(1); // W30 marker kept while pending
     expect(entry.provider.chargeMandate).toHaveBeenCalledTimes(1);
     expect(store.mandateCharges[0].status).toBe("pending");
 

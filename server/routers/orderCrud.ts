@@ -382,7 +382,43 @@ export const orderCrudRouter = router({
       await releaseReservations(db, input.orderId)
         .catch((e: unknown) => console.error("[orderCrud] reservation release error:", (e as Error)?.message));
 
-      return { ok: true };
+      // ── W30 (verify-v1 #8): cancelling a PAID order must never orphan its
+      // escrow. Before W30 the escrow stayed escrow_held and the SLA scan
+      // later auto-RELEASED it to the merchant — the buyer lost funds on a
+      // cancelled order. Now: find any active escrow for this order and run
+      // the real atomic refund; if the refund itself fails, flag the escrow
+      // for the SLA refund sweep so it can never be released to the merchant.
+      const { escrowTransactions } = await import("../../drizzle/schema");
+      const { inArray } = await import("drizzle-orm");
+      const [activeEscrow] = await db.select().from(escrowTransactions)
+        .where(and(
+          eq(escrowTransactions.orderId, input.orderId),
+          inArray(escrowTransactions.state, ["payment_received", "escrow_held", "delivery_confirmed", "dispute_raised"]),
+        ))
+        .limit(1);
+      let escrowRefunded = false;
+      if (activeEscrow) {
+        const { refundEscrowAtomic } = await import("./escrow");
+        const refund = await refundEscrowAtomic(db, activeEscrow.id, {
+          reason: `Order ${input.orderId} cancelled${input.reason ? `: ${input.reason}` : ""}`,
+        }).catch((e: unknown) => ({ success: false as const, error: (e as Error)?.message ?? String(e) }));
+        if (refund.success) {
+          escrowRefunded = true;
+          await db.update(orders).set({ paymentStatus: "refunded", updatedAt: new Date() })
+            .where(eq(orders.id, input.orderId));
+        } else {
+          // Mark for the refund sweep (runSlaScan retries flagged escrows and
+          // NEVER releases them) + alert — the escrow must not stay releasable.
+          const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
+          await db.update(escrowTransactions).set({
+            metadata: { ...meta, refundSweepRequired: true, refundSweepReason: `cancel-refund failed: ${"error" in refund ? refund.error : "unknown"}` },
+            updatedAt: new Date(),
+          }).where(eq(escrowTransactions.id, activeEscrow.id));
+          console.error(`[orderCrud] cancel of paid order ${input.orderId}: escrow refund failed (${"error" in refund ? refund.error : "?"}) — flagged for refund sweep`);
+        }
+      }
+
+      return { ok: true, escrowRefunded, refundSweepRequired: !!activeEscrow && !escrowRefunded };
     }),
 
   /** Initiate a refund */
@@ -485,7 +521,17 @@ export const orderCrudRouter = router({
         .limit(input.limit);
     }),
 
-  /** Approve/reject a refund */
+  /** Approve/reject a refund.
+   *
+   * W30 (verify-v1 #9): approval now EXECUTES the refund for real — before
+   * W30 this merely flipped a bookkeeping row and money never moved. For
+   * PSP-custody payments the provider's refund API is called (see
+   * services/payments/refunds.ts); the refund row reaches "processed" only
+   * when the provider actually accepted/confirmed the refund. Where no
+   * provider refund path exists (COD, manual, PSSP bank custody) the row is
+   * "approved" with an honest refundExecution marker — we never claim money
+   * was "returned to the buyer" until it is confirmed.
+   */
   processRefund: protectedProcedure
     .input(z.object({
       refundId: z.string(),
@@ -499,12 +545,104 @@ export const orderCrudRouter = router({
       const [refund] = await db.select().from(refunds).where(eq(refunds.id, input.refundId)).limit(1);
       if (!refund) throw new TRPCError({ code: "NOT_FOUND", message: "Refund not found" });
       assertTenantAccess(ctx.user, refund.tenantId);
+
+      if (input.action === "rejected") {
+        await db.update(refunds).set({ status: "rejected", processedAt: null, updatedAt: new Date() })
+          .where(eq(refunds.id, input.refundId));
+        return { ok: true, status: "rejected" };
+      }
+
+      // Approval → execute the provider refund against the ORIGINAL payment.
+      const [order] = await db.select().from(orders).where(eq(orders.id, refund.orderId)).limit(1);
+      const { executeProviderRefund } = await import("../services/payments/refunds");
+      const outcome = order
+        ? await executeProviderRefund(db, {
+            tenantId: refund.tenantId,
+            orderId: refund.orderId,
+            amountCents: Math.round(parseFloat(String(refund.amount)) * 100),
+            currency: refund.currency ?? order.currency ?? "NGN",
+            reason: refund.reason ?? undefined,
+          })
+        : { executed: false as const, status: "no_provider_refund" as const, error: "order not found" };
+
+      // "processed" is reachable ONLY via a provider-executed refund; queued
+      // provider refunds ("pending") and non-provider refunds keep honest
+      // "approved" state with the execution outcome recorded for recon.
+      const finalStatus = outcome.executed && outcome.status === "processed" ? "processed" : "approved";
       await db.update(refunds).set({
-        status: input.action,
-        processedAt: input.action === "approved" ? new Date() : null,
+        status: finalStatus,
+        processedAt: outcome.executed ? new Date() : null,
+        providerReference: outcome.refundReference ?? null,
         updatedAt: new Date(),
+        metadata: {
+          ...((refund.metadata as Record<string, unknown> | null) ?? {}),
+          refundExecution: {
+            at: new Date().toISOString(),
+            executed: outcome.executed,
+            providerStatus: outcome.status,
+            provider: outcome.provider ?? null,
+            refundReference: outcome.refundReference ?? null,
+            error: outcome.error ?? null,
+            // Honest vocab: recorded vs paid — never imply the buyer has the
+            // money until the provider confirms.
+            vocabulary: outcome.executed
+              ? (outcome.status === "processed" ? "refund_paid" : "refund_initiated")
+              : "refund_recorded",
+          },
+        },
       }).where(eq(refunds.id, input.refundId));
-      return { ok: true };
+
+      if (!outcome.executed && outcome.status === "failed") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Provider refund failed: ${outcome.error ?? "unknown"} — refund left pending, no approval recorded`,
+        });
+      }
+      return { ok: true, status: finalStatus, providerRefund: outcome };
+    }),
+
+  /**
+   * Confirm a provider refund has actually landed (W30 — verify-v1 #9):
+   * makes refunds.processed REACHABLE. Requires evidence (provider refund
+   * reference / webhook id / reconciliation note) — we never mark "processed"
+   * (money confirmed returned) without it.
+   */
+  confirmRefundProcessed: protectedProcedure
+    .input(z.object({
+      refundId: z.string(),
+      evidence: z.string().min(3),
+      providerReference: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const [refund] = await db.select().from(refunds).where(eq(refunds.id, input.refundId)).limit(1);
+      if (!refund) throw new TRPCError({ code: "NOT_FOUND", message: "Refund not found" });
+      assertTenantAccess(ctx.user, refund.tenantId);
+      if (refund.status !== "approved") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Only an approved refund can be confirmed processed (current: ${refund.status})` });
+      }
+      // Claim-first: only one confirmation transitions the row.
+      const claimed = await db.update(refunds).set({
+        status: "processed",
+        processedAt: new Date(),
+        providerReference: input.providerReference ?? refund.providerReference,
+        updatedAt: new Date(),
+        metadata: {
+          ...((refund.metadata as Record<string, unknown> | null) ?? {}),
+          processedConfirmation: {
+            at: new Date().toISOString(),
+            by: String(ctx.user.id),
+            evidence: input.evidence,
+            vocabulary: "refund_paid",
+          },
+        },
+      }).where(and(eq(refunds.id, input.refundId), eq(refunds.status, "approved")))
+        .returning({ id: refunds.id });
+      if (claimed.length === 0) {
+        throw new TRPCError({ code: "CONFLICT", message: "Refund status changed concurrently" });
+      }
+      return { ok: true, status: "processed" };
     }),
 });
 import { publishOrderEvent } from "../kafka";

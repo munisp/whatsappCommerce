@@ -7,6 +7,24 @@ import { getDb } from "../db";
 import { mobileMoneyTransactions } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
 
+/**
+ * W30 (V3#14): the MoMo façade has NO real provider integration — it only
+ * records rows. In production, without explicit provider configuration
+ * (MOBILE_MONEY_LIVE=true once a real SDK is wired), the rail FAILS CLOSED:
+ * initiate returns an honest "unavailable in this deployment" instead of
+ * fabricating a payment initiation. Non-production keeps the simulated rail
+ * clearly labelled as simulated (stats included).
+ */
+export function mobileMoneyLive(): boolean {
+  return (process.env.MOBILE_MONEY_LIVE ?? "").trim().toLowerCase() === "true";
+}
+
+function mobileMoneySimulated(): boolean {
+  return !mobileMoneyLive();
+}
+
+const SIM_LABEL = "SIMULATED — no real provider is configured; no money moved";
+
 export const mobileMoneyRouter = router({
   // ── Initiate MoMo Payment ────────────────────────────────────────────────
   initiate: protectedProcedure
@@ -22,16 +40,32 @@ export const mobileMoneyRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
+      // W30: fail closed in production when no real provider is configured.
+      if (mobileMoneySimulated() && (process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging")) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Mobile money is unavailable in this deployment — no provider is configured (MOBILE_MONEY_LIVE). No payment was initiated.",
+        });
+      }
+      const simulated = mobileMoneySimulated();
       const db = (await getDb())!;
       const id = randomUUID();
       const externalRef = input.reference ?? `MOMO-${Date.now().toString(36).toUpperCase()}`;
       const now = new Date();
       const { description: _d, reference: _r, ...insertInput } = input;
       await db.insert(mobileMoneyTransactions).values({
-        id, ...insertInput, externalRef, status: "initiated", createdAt: now, updatedAt: now,
+        id, ...insertInput, externalRef, status: "initiated",
+        providerResponse: simulated ? { simulated: true } : {},
+        createdAt: now, updatedAt: now,
       });
-      // In production: call provider SDK (MTN MoMo API, Safaricom Daraja, etc.)
-      return { id, externalRef, status: "initiated", message: `Payment of ${input.currency} ${input.amount} initiated via ${input.provider}` };
+      // When MOBILE_MONEY_LIVE=true a real provider SDK call goes here.
+      return {
+        id, externalRef, status: "initiated",
+        simulated,
+        message: simulated
+          ? `${SIM_LABEL}. Recorded initiation of ${input.currency} ${input.amount} via ${input.provider}.`
+          : `Payment of ${input.currency} ${input.amount} initiated via ${input.provider}`,
+      };
     }),
 
   // ── Webhook: Provider Callback ───────────────────────────────────────────
@@ -112,13 +146,19 @@ export const mobileMoneyRouter = router({
           totalVolume += parseFloat(t.amount);
         }
       }
+      const simulated = mobileMoneySimulated();
       return {
         total: txns.length,
         successful: txns.filter(t => t.status === "successful").length,
         failed: txns.filter(t => t.status === "failed").length,
         pending: txns.filter(t => t.status === "initiated" || t.status === "pending").length,
-        totalVolume: totalVolume.toFixed(2),
-        byProvider,
+        // W30: never present simulated rows as real processed volume.
+        totalVolume: simulated ? "0.00" : totalVolume.toFixed(2),
+        simulated,
+        volumeNote: simulated
+          ? `${SIM_LABEL} — volume is reported as 0 because no real rail processed these rows.`
+          : undefined,
+        byProvider: simulated ? {} : byProvider,
       };
     }),
 });

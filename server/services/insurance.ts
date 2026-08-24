@@ -40,6 +40,31 @@ export type Db = any;
 export { computePremiumCents, getInsuranceAdapterName } from "./insurance/adapters";
 export type { InsuranceAdapter, PremiumQuote, QuoteContext, PartnerPolicy, PartnerClaim };
 
+/**
+ * W30 (V1#2): honest deployment guard. The mock underwriter fabricates
+ * approvals — fine for dev/test, never acceptable in production. When only
+ * the mock adapter is available, the premium add-on is DISABLED in
+ * production (fail honestly at quote time) instead of selling cover whose
+ * claims can never really be paid by an underwriter.
+ */
+export function isMockOnlyDeployment(): boolean {
+  return getInsuranceAdapterName() === "mock";
+}
+
+export function insuranceAddonDisabledReason(): string | null {
+  // Read NODE_ENV dynamically so tests/ops can exercise the guard.
+  const prod = (process.env.NODE_ENV ?? "").trim() === "production";
+  if (isMockOnlyDeployment() && prod) {
+    return "Insurance add-ons are unavailable in this deployment — no underwriter is configured (INSURANCE_ADAPTER=mock).";
+  }
+  return null;
+}
+
+function assertAddonEnabled(): void {
+  const reason = insuranceAddonDisabledReason();
+  if (reason) throw new Error(reason);
+}
+
 async function loadAdapter(db: Db, tenantId: string): Promise<InsuranceAdapter> {
   const name = getInsuranceAdapterName();
   if (name !== "mock") throw new Error(`insurance adapter not available: ${name}`);
@@ -92,6 +117,7 @@ export async function quoteForOrder(db: Db, input: {
   tenantId: string; productId: string; orderId?: string; holderPhone?: string;
   orderAmountCents: number; currency?: string;
 }) {
+  assertAddonEnabled(); // W30: mock-only production deployment fails honestly at quote time
   const adapter = await loadAdapter(db, input.tenantId);
   const q = await adapter.quote(input.productId, {
     tenantId: input.tenantId, orderId: input.orderId, holderPhone: input.holderPhone,
@@ -168,14 +194,40 @@ export async function fileClaim(db: Db, input: {
   const adapter = await loadAdapter(db, input.tenantId);
   const result = await adapter.claim(policy.id, input.reason);
   const payoutCents = result.status === "approved" ? result.payoutCents : null;
+  // W30 (V1#2): an approved claim is NOT a paid claim. No money moves here —
+  // the mock adapter's "approved" becomes `pending_payout` (honest vocab) and
+  // the payout only lands via a real underwriter adapter or a manual ops
+  // confirm (confirmClaimPayout). resolvedAt stays null until then.
   const [claim] = await db.insert(insuranceClaims).values({
     tenantId: input.tenantId, policyId: policy.id, reason: input.reason,
     trigger: input.trigger ?? "manual",
-    status: result.status === "approved" ? "paid" : result.status,
-    payoutCents, resolvedAt: new Date(),
+    status: result.status === "approved" ? "pending_payout" : result.status,
+    payoutCents,
   }).returning();
   await db.update(insurancePolicies).set({ status: "claimed" }).where(eq(insurancePolicies.id, policy.id));
   return { claim, policy };
+}
+
+/**
+ * Manual ops payout confirm (W30): marks a `pending_payout` claim paid after
+ * ops has actually disbursed out-of-band. Guarded flip — only a pending
+ * claim can be confirmed, exactly once. `note` records the evidence
+ * (disbursement reference) for audit.
+ */
+export async function confirmClaimPayout(db: Db, input: {
+  tenantId: string; claimId: string; note: string;
+}) {
+  if (!input.note?.trim()) throw new Error("payout evidence note required");
+  const [claim] = await db.update(insuranceClaims).set({
+    status: "paid",
+    resolvedAt: new Date(),
+  }).where(and(
+    eq(insuranceClaims.id, input.claimId),
+    eq(insuranceClaims.tenantId, input.tenantId),
+    eq(insuranceClaims.status, "pending_payout"),
+  )).returning();
+  if (!claim) throw new Error("claim not found or not pending payout");
+  return claim;
 }
 
 /**

@@ -6,10 +6,22 @@ import { eq, and, gte, lte, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
-import { invoices, orders, tenants, paymentIntents } from "../../drizzle/schema";
+import { invoices, orders, tenants, paymentIntents, escrowConfig } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+/**
+ * W30 (V1#15): the profit-share commission rate is PLATFORM-SET (escrow_config
+ * platform_fee_rate, admin-managed), never client-supplied — a billed tenant
+ * generating their own invoice could previously pass commissionRate: 0.
+ */
+async function platformCommissionRate(db: Db): Promise<number> {
+  const [cfg] = await db.select({ rate: escrowConfig.platformFeeRate })
+    .from(escrowConfig).where(eq(escrowConfig.id, 1)).limit(1).catch(() => []);
+  const rate = Number(cfg?.rate ?? "0.03125");
+  return Number.isFinite(rate) && rate >= 0 ? rate : 0.03125;
+}
 
 /**
  * Confirm a Paystack-initiated invoice payment (called from the payment-
@@ -53,7 +65,11 @@ export const invoiceRouter = router({
       periodStart: z.string().datetime().optional(),
       periodEnd: z.string().datetime().optional(),
       subscriptionFee: z.number().optional(),
-      commissionRate: z.number().min(0).max(1).optional(), // e.g. 0.05 = 5%
+      // W30 (V1#15): the client-supplied commissionRate is DEPRECATED and
+      // IGNORED — the rate comes from platform config
+      // (escrow_config.platform_fee_rate). The field stays in the schema so
+      // older clients don't break, but it has no effect.
+      commissionRate: z.number().min(0).max(1).optional(),
       currency: z.string().default("NGN"),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -66,29 +82,49 @@ export const invoiceRouter = router({
 
       let subtotal = 0;
       let commissionAmount = 0;
+      let commissionRateUsed: number | null = null;
       let subscriptionFee = input.subscriptionFee ?? 0;
+      let effectiveCurrency = input.currency;
       const lineItems: Array<{ description: string; amount: number; currency: string }> = [];
 
       if (input.type === "profit_share") {
-        // Sum completed orders in period
-        const result = await db.execute(sql`
-          SELECT COALESCE(SUM(CAST("totalAmount" AS NUMERIC)), 0) AS revenue
+        // W30 (V1#15): revenue grouped BY CURRENCY — mixed-currency periods
+        // can never be summed as if one currency. A period with orders in
+        // more than one currency is rejected honestly.
+        const byCurrency = await db.execute(sql`
+          SELECT COALESCE(currency, 'NGN') AS currency,
+                 COALESCE(SUM(CAST("totalAmount" AS NUMERIC)), 0) AS revenue
           FROM orders
           WHERE "tenantId" = ${input.tenantId}
             AND "paymentStatus" = 'completed'
-            AND "createdAt" >= ${periodStart}
-            AND "createdAt" <= ${periodEnd}
+            AND "createdAt" >= ${periodStart.toISOString()}
+            AND "createdAt" <= ${periodEnd.toISOString()}
+          GROUP BY COALESCE(currency, 'NGN')
         `);
-        const revenue = Number((result as any[])[0]?.revenue ?? 0);
+        const rows = (byCurrency as any[]).filter((r) => Number(r.revenue) > 0);
+        const currencies = Array.from(new Set(rows.map((r) => String(r.currency))));
+        if (currencies.length > 1) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: `Mixed-currency revenue in period (${currencies.join(", ")}) — invoicing across currencies is not supported; split the period per currency.`,
+          });
+        }
+        const revenue = Number(rows[0]?.revenue ?? 0);
+        const revenueCurrency = currencies[0] ?? input.currency;
+        // Platform-set commission rate (admin-managed escrow_config) — the
+        // billed tenant no longer supplies their own rate.
+        const commissionRate = await platformCommissionRate(db);
+        commissionRateUsed = commissionRate;
         // Integer minor units: convert to cents first, then apply the rate
         // and round exactly once — no float commission drift (fee must be a
         // clean cent amount for the invoice total to reconcile).
         const revenueMinor = Math.round(revenue * 100);
-        const commissionMinor = Math.round(revenueMinor * (input.commissionRate ?? 0.05));
+        const commissionMinor = Math.round(revenueMinor * commissionRate);
         subtotal = revenueMinor / 100;
         commissionAmount = commissionMinor / 100;
-        lineItems.push({ description: `Revenue (${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()})`, amount: revenue, currency: input.currency });
-        lineItems.push({ description: `Platform commission (${((input.commissionRate ?? 0.05) * 100).toFixed(1)}%)`, amount: commissionAmount, currency: input.currency });
+        effectiveCurrency = revenueCurrency;
+        lineItems.push({ description: `Revenue (${periodStart.toLocaleDateString()} – ${periodEnd.toLocaleDateString()})`, amount: revenue, currency: revenueCurrency });
+        lineItems.push({ description: `Platform commission (${(commissionRate * 100).toFixed(2)}%, platform-set)`, amount: commissionAmount, currency: revenueCurrency });
       } else if (input.type === "subscription") {
         subscriptionFee = input.subscriptionFee ?? 0;
         lineItems.push({ description: `Monthly subscription fee`, amount: subscriptionFee, currency: input.currency });
@@ -110,11 +146,11 @@ export const invoiceRouter = router({
         periodStart,
         periodEnd,
         subtotal: subtotal.toFixed(2),
-        commissionRate: input.commissionRate?.toFixed(4),
+        commissionRate: commissionRateUsed?.toFixed(4),
         commissionAmount: commissionAmount.toFixed(2),
         subscriptionFee: subscriptionFee.toFixed(2),
         totalAmount: totalAmount.toFixed(2),
-        currency: input.currency,
+        currency: effectiveCurrency,
         lineItems,
         dueDate,
         createdAt: new Date(),

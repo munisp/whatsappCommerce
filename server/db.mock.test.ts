@@ -151,6 +151,7 @@ describe("escrow.bulkUpdateState (mocked DB)", () => {
     await expect(caller.escrow.bulkUpdateState({
       escrowIds: ["fake-id"],
       action: "release",
+      reason: "rbac test",
     })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
@@ -159,6 +160,7 @@ describe("escrow.bulkUpdateState (mocked DB)", () => {
     const result = await caller.escrow.bulkUpdateState({
       escrowIds: ["fake-id"],
       action: "release",
+      reason: "shape test",
     });
     expect(result).toHaveProperty("succeeded");
     expect(result).toHaveProperty("failed");
@@ -171,6 +173,7 @@ describe("escrow.bulkUpdateState (mocked DB)", () => {
     const result = await caller.escrow.bulkUpdateState({
       escrowIds: ["non-existent-id-xyz"],
       action: "release",
+      reason: "non-existent ids test",
     });
     expect(typeof result.succeeded).toBe("number");
     expect(typeof result.failed).toBe("number");

@@ -48,6 +48,12 @@ export const journey: Journey = {
     });
     assert(paused.status === "paused", "profile created paused");
 
+    // W30 merge: the world seed now grants BOTH seed tenants an approved KYB
+    // (W30 auth-gates reset banner). This journey's whole subject is the
+    // unverified→verified transition, so restore the pre-W30 starting state
+    // for the seeded supplier first (the reset re-seeds it for later journeys).
+    await world.db.delete(schema.kycApplications).where(eq(schema.kycApplications.tenantId, SUPPLIER_TENANT_ID));
+
     // Directory: seeded supplier present with kybVerified FALSE (no KYB app);
     // the paused unverified tenant is absent.
     const dir1 = await buyerCaller.procurement.listSuppliers({ tenantId: TENANT_ID });

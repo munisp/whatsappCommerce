@@ -8,7 +8,7 @@
 import { eq } from "drizzle-orm";
 import { TENANT_ID, assert, assertIncludes, bodyText, type World } from "../world";
 import type { Journey } from "../runner";
-import { publicCaller } from "./helpers";
+import { publicCaller, seedCompletedPayment } from "./helpers";
 
 export const journey: Journey = {
   id: "J149",
@@ -27,11 +27,20 @@ export const journey: Journey = {
       deadline: new Date(Date.now() + 3600_000),
     });
 
-    // ── 1. Two participants hold: one captured (paymentRef), one auth-only ─
+    // ── 1. Two participants hold: one captured (VERIFIED paymentRef), one auth-only ─
+    // W30 (V1#10): a paymentRef must verify against the payment rails — the
+    // payer's ref below is backed by a completed payment intent for the
+    // exact amount; a fabricated ref would now be rejected.
     const payer = world.newPhone("gp");
     const authee = world.newPhone("gq");
+    const payRef = `pay_${deal.id.slice(0, 8)}_1`;
+    await seedCompletedPayment(world, { reference: payRef, amountCents: 5 * 4_500_000, customerId: payer });
+    const fabricated = await joinGroupDealTx(world.db, {
+      dealId: deal.id, customerPhone: world.newPhone("gx"), quantity: 5, paymentRef: "pay_fabricated_nope",
+    });
+    assert(!fabricated.ok && fabricated.reason === "payment_not_verified", "fabricated paymentRef rejected");
     const j1 = await joinGroupDealTx(world.db, {
-      dealId: deal.id, customerPhone: payer, quantity: 5, paymentRef: `pay_${deal.id.slice(0, 8)}_1`,
+      dealId: deal.id, customerPhone: payer, quantity: 5, paymentRef: payRef,
     });
     const j2 = await joinGroupDealTx(world.db, {
       dealId: deal.id, customerPhone: authee, quantity: 3,
@@ -49,7 +58,11 @@ export const journey: Journey = {
 
     const sweep1 = await sweepGroupDealsTx(world.db);
     assert(sweep1.expired === 1, `sweep expired the deal (got ${sweep1.expired})`);
-    assert(sweep1.refunded === 1, `captured hold refunded (got ${sweep1.refunded})`);
+    // W30 (V1#10): honest refund outcomes — the captured hold has NO linked
+    // escrow row and no automated provider refund exists for it, so the real
+    // outcome is refund_failed (reconciliation surface), NEVER auto-refunded.
+    assert(sweep1.refunded === 0, `no fake refunds (got ${sweep1.refunded})`);
+    assert(sweep1.refundFailed === 1, `captured hold honestly refund_failed (got ${sweep1.refundFailed})`);
     assert(sweep1.voided === 1, `auth-only hold voided (got ${sweep1.voided})`);
 
     const [fresh] = await world.db.select().from(schema.groupDeals).where(eq(schema.groupDeals.id, deal.id)).limit(1);
@@ -60,13 +73,19 @@ export const journey: Journey = {
       .from(schema.groupDealParticipants)
       .where(eq(schema.groupDealParticipants.dealId, deal.id));
     const byPhone = new Map(participants.map((p) => [p.customerPhone, p.status]));
-    assert(byPhone.get(payer) === "refunded", `payer refunded (got ${byPhone.get(payer)})`);
+    assert(byPhone.get(payer) === "refund_failed", `payer honestly refund_failed (got ${byPhone.get(payer)})`);
     assert(byPhone.get(authee) === "voided", `auth-only participant voided (got ${byPhone.get(authee)})`);
+
+    // Reconciliation surface lists the failed refund with its paymentRef.
+    const { listRefundFailuresTx } = await import("../../server/services/groupBuy");
+    const failures = await listRefundFailuresTx(world.db, { tenantId: TENANT_ID });
+    assert(failures.some((f) => f.dealId === deal.id && f.customerPhone === payer && f.paymentRef === payRef),
+      "refund_failed hold visible on the reconciliation surface");
 
     // ── 3. Idempotence: a second sweep changes nothing ───────────────────
     const sweep2 = await sweepGroupDealsTx(world.db);
     assert(
-      sweep2.expired === 0 && sweep2.refunded === 0 && sweep2.voided === 0,
+      sweep2.expired === 0 && sweep2.refunded === 0 && sweep2.voided === 0 && sweep2.refundFailed === 0,
       `second sweep is a no-op (got ${JSON.stringify(sweep2)})`,
     );
 
@@ -79,11 +98,11 @@ export const journey: Journey = {
     await world.grantConsent(payer);
     await world.text(payer, `deal ${deal.id.slice(0, 8)}`);
     const reply = bodyText(world.outbound.lastOfType("text", payer));
-    assertIncludes(reply, "refunded/voided", "expiry notice over WhatsApp");
+    assertIncludes(reply, "refunded or voided", "honest expiry notice over WhatsApp");
 
-    // Participant-scoped public view still works and is minimal.
+    // Participant-scoped public view still works and is minimal — and honest.
     const pub = await publicCaller();
     const mine = await pub.groupBuy.myParticipation({ dealId: deal.id, customerPhone: payer });
-    assert(mine.status === "refunded", "public participation view shows refund");
+    assert(mine.status === "refund_failed", "public participation view shows the honest refund failure");
   },
 };

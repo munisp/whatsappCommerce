@@ -188,6 +188,10 @@ export const REQUIRED_BY_ENV: Record<string, string> = {
   // alias (the name used by server/routers/kyc.ts). Production refuses to
   // boot when unset or still the known insecure "dev-kyc-key".
   KYC_SERVICE_API_KEY: process.env.KYC_SERVICE_API_KEY ?? process.env.KYC_INTERNAL_API_KEY ?? "",
+  // W30 (V3#4): shared service-to-service secret (X-Internal-Token) used by
+  // hermes-bridge/skills, ml-inference, ai-agent and payment-orchestrator
+  // calls. Production refuses to boot without it; dev/test warn only.
+  INTERNAL_API_KEY: process.env.INTERNAL_API_KEY ?? "",
 };
 
 // ─── KYC pipeline fail-closed checks (production only) ─────────────────────
@@ -209,6 +213,68 @@ if (isProd) {
     throw new Error(
       '[ENV] FATAL: KYC_SERVICE_API_KEY is the known insecure default "dev-kyc-key". ' +
         "Set a strong, unique key before starting.",
+    );
+  }
+
+  // W30 (V3#2): the Python kyc-verifier sidecar runs in a SEPARATE process,
+  // so the VLM_MOCK_MODE check above (Node env only) cannot see it. Probe the
+  // sidecar's /health (which echoes vlm_mock_mode) and refuse to serve when
+  // the sidecar reports mock vision in production. Async because env.ts is
+  // evaluated synchronously at import; a sidecar that is not yet up logs a
+  // warning and is re-probed, but a sidecar that answers mock=true is fatal.
+  const kycUrl = (process.env.KYC_SERVICE_URL ?? "").trim();
+  if (kycUrl) {
+    const probe = async (attempt: number): Promise<void> => {
+      try {
+        const res = await fetch(`${kycUrl.replace(/\/$/, "")}/health`, {
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = (await res.json()) as { vlm_mock_mode?: boolean };
+        if (body.vlm_mock_mode === true) {
+          console.error(
+            "[ENV] FATAL: kyc-verifier sidecar reports vlm_mock_mode=true in " +
+              "production — the KYC document pipeline would verify against a " +
+              "mock. Restart the sidecar without VLM_MOCK_MODE=true.",
+          );
+          process.exit(1);
+        }
+      } catch (e) {
+        if (attempt < 5) {
+          // Sidecar may still be starting; retry with backoff.
+          setTimeout(() => void probe(attempt + 1), 5_000 * attempt).unref?.();
+        } else {
+          console.warn(
+            `[ENV] WARNING: could not probe kyc-verifier sidecar at ${kycUrl} ` +
+              `after ${attempt} attempts (${String((e as Error)?.message ?? e)}). ` +
+              "KYC verification calls will fail until it is reachable.",
+          );
+        }
+      }
+    };
+    void probe(1);
+  }
+}
+
+// ─── W30 auth-gates production checks ───────────────────────────────────────
+if (isProd) {
+  // V2#7: ENABLE_LOCAL_AUTH is a passwordless account-creation bypass for
+  // local development. It must NEVER be active in a production-like
+  // environment — boot-fatal (previously it was honored regardless of
+  // NODE_ENV, so one stray env var was a total account-takeover primitive).
+  if ((process.env.ENABLE_LOCAL_AUTH ?? "").trim().toLowerCase() === "true") {
+    throw new Error(
+      "[ENV] FATAL: ENABLE_LOCAL_AUTH=true in production — the passwordless " +
+        "local login bypass must never run outside local development. Unset it before starting.",
+    );
+  }
+  // V2#6: the /ussd gateway endpoint must authenticate the gateway via a
+  // shared secret header. Fail-closed: refuse to boot without the secret.
+  if (!(process.env.USSD_GATEWAY_SECRET ?? "").trim()) {
+    throw new Error(
+      "[ENV] FATAL: USSD_GATEWAY_SECRET is unset in production — the /ussd " +
+        "endpoint would accept unauthenticated session-driving requests. " +
+        "Set the shared secret issued by your USSD gateway before starting.",
     );
   }
 }

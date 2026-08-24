@@ -14,15 +14,19 @@
  */
 
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import jwt from "jsonwebtoken";
+import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { assertTenantAccess, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenants } from "../../drizzle/schema";
+import { tenants, tenantInviteTokens } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 
-const INVITE_EXPIRY_HOURS = 72; // 3 days
+// W30 (V2#13): invite links are single-use and live at most 24h (was 72h
+// default / 7d max, reusable by any bearer for the full lifetime).
+const INVITE_EXPIRY_HOURS = 24;
+const INVITE_MAX_EXPIRY_HOURS = 24;
 
 async function requireDb() {
   const db = await getDb();
@@ -37,7 +41,7 @@ export const tenantInviteRouter = router({
   create: protectedProcedure
     .input(z.object({
       tenantId: z.string().uuid(),
-      expiryHours: z.number().min(1).max(168).default(72),
+      expiryHours: z.number().min(1).max(INVITE_MAX_EXPIRY_HOURS).default(INVITE_EXPIRY_HOURS),
     }))
     .mutation(async ({ input, ctx }) => {
       // Only admins may mint invite links. Platform admins (role "admin")
@@ -58,10 +62,13 @@ export const tenantInviteRouter = router({
         throw new Error("Tenant not found");
       }
 
-      // Generate signed JWT magic link token
+      // Generate signed JWT magic link token with a registered jti — the
+      // registry row is what makes the link single-use at validate time.
+      const jti = randomUUID();
       const token = jwt.sign(
         {
           type: "portal_invite",
+          jti,
           tenantId: input.tenantId,
           tenantName: tenant.name,
           issuedBy: ctx.user.id,
@@ -71,6 +78,12 @@ export const tenantInviteRouter = router({
       );
 
       const expiresAt = new Date(Date.now() + input.expiryHours * 60 * 60 * 1000);
+      await db.insert(tenantInviteTokens).values({
+        jti,
+        tenantId: input.tenantId,
+        issuedBy: String(ctx.user.id),
+        expiresAt,
+      });
       const portalUrl = `${ENV.appUrl}/portal/login?token=${token}`;
 
       return {
@@ -99,6 +112,25 @@ export const tenantInviteRouter = router({
         }
 
         const db = await requireDb();
+
+        // W30 (V2#13): single-use — the jti must be registered, unexpired,
+        // and unconsumed; the consume is a guarded UPDATE so two concurrent
+        // validations of the same link can never both mint sessions.
+        if (!payload.jti || typeof payload.jti !== "string") {
+          throw new Error("Invite token is not registered (pre-registry links are no longer valid)");
+        }
+        const consumed = await db
+          .update(tenantInviteTokens)
+          .set({ consumedAt: new Date() })
+          .where(and(
+            eq(tenantInviteTokens.jti, payload.jti),
+            eq(tenantInviteTokens.tenantId, payload.tenantId),
+            isNull(tenantInviteTokens.consumedAt),
+          ))
+          .returning({ jti: tenantInviteTokens.jti });
+        if (consumed.length === 0) {
+          throw new Error("Invite link has already been used (or is unknown). Request a fresh invite.");
+        }
 
         const [tenant] = await db
           .select()

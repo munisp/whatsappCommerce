@@ -596,6 +596,76 @@
       "when": 1786989900000,
       "tag": "0087_medusa_order_links",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1786989910000,
+      "tag": "0088_merchant_loans_active_uniq",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1786989920000,
+      "tag": "0089_merchant_loan_funding",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1786989930000,
+      "tag": "0090_refund_provider_execution",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1786989940000,
+      "tag": "0091_escrow_sla_scan_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1786989950000,
+      "tag": "0092_w30_feature_ring_money_truth",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1786989960000,
+      "tag": "0093_w30_sponsored_spend",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1786989970000,
+      "tag": "0094_step_up_challenges",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1786989980000,
+      "tag": "0095_tenant_invite_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1786989990000,
+      "tag": "0096_hermes_po_email_failed",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1786990010000,
+      "tag": "0097_delivery_pin_hash_width",
+      "breakpoints": true
     }
   ]
 }

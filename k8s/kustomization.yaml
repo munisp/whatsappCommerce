@@ -22,6 +22,8 @@ resources:
   - postgres.yaml
   - redis.yaml
   - hermes-router.yaml
+  - hermes-bridge.yaml
+  - cron-scheduler.yaml
   # monitoring/ requires the Prometheus Operator CRDs (ServiceMonitor,
   # PrometheusRule). Apply separately:
   #   kubectl apply -f k8s/monitoring/

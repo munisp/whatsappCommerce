@@ -101,6 +101,11 @@ export function createCustomProvider(rawConfig: unknown): PaymentProvider {
   }
 
   async function call(path: string, init: RequestInit, creds: unknown): Promise<unknown> {
+    // W30 (V2#8): request-time SSRF guard (defense in depth — configs written
+    // before the write-time guard, or seeded directly, are still blocked)
+    // because this fetch carries the tenant's credential headers.
+    const { assertSafeOutboundUrl } = await import('../../ssrfGuard');
+    assertSafeOutboundUrl(config.baseUrl, `custom provider '${config.id}' baseUrl`);
     const res = await fetch(`${config.baseUrl}${path}`, {
       ...init,
       signal: AbortSignal.timeout(TIMEOUT_MS),

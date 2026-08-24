@@ -9,7 +9,9 @@
  * operatorProcedure (platform admins bypass; members need owner/operator).
  */
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { operatorProcedure, router } from "../_core/trpc";
+import { getDb } from "../db";
 import * as membership from "../services/membership";
 
 const roleEnum = z.enum(["owner", "operator", "analyst"]);
@@ -29,22 +31,49 @@ export const membershipRouter = router({
   /**
    * Add a staff member to a tenant. The first member of a tenant is forced
    * to 'owner'. Re-adding an existing member updates their role.
+   *
+   * W30 (V2#12): ordinary grants are capped at ≤ operator — an operator must
+   * never escalate anyone (including themselves) to owner. Granting owner
+   * requires the caller to be an owner (or platform admin) AND a fresh
+   * step-up OTP to the tenant admin phone (purpose "owner_grant").
    */
   add: operatorProcedure
     .input(
       tenantInput.extend({
         userId: z.union([z.string().min(1), z.number()]),
         role: roleEnum.optional(),
+        stepUpChallengeId: z.string().uuid().optional(),
+        stepUpOtp: z.string().length(6).optional(),
       }),
     )
-    .mutation(({ ctx, input }) =>
-      membership.addMember({
+    .mutation(async ({ ctx, input }) => {
+      if (input.role === "owner") {
+        const callerRole = ctx.user!.role === "admin" ? "admin" : ctx.membership?.role;
+        if (callerRole !== "admin" && callerRole !== "owner") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only an existing owner (or platform admin) can grant the owner role",
+          });
+        }
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        const { requireStepUp } = await import("../services/stepUp");
+        await requireStepUp(db, {
+          required: true,
+          tenantId: input.tenantId,
+          userId: ctx.user!.id,
+          purpose: "owner_grant",
+          stepUpChallengeId: input.stepUpChallengeId,
+          stepUpOtp: input.stepUpOtp,
+        });
+      }
+      return membership.addMember({
         tenantId: input.tenantId,
         userId: input.userId,
         role: input.role,
         invitedBy: ctx.user!.id,
-      }),
-    ),
+      });
+    }),
 
   /** Remove a staff member. The last owner of a tenant cannot be removed. */
   remove: operatorProcedure
