@@ -83,6 +83,17 @@ export interface DeliveryStatus {
 export interface CourierAdapter {
   readonly id: string;
   readonly displayName: string;
+  /**
+   * W30 hotfix (verify-v1 #11): true only for couriers with an INDEPENDENT,
+   * verifiable delivery feed (real carrier API / signed webhooks). Mock,
+   * local-dispatch and merchant-self-reported adapters are UNTRUSTED: in
+   * production-like deployments their "delivered" status must never, by
+   * itself, advance escrow toward auto-settlement — it is flagged
+   * metadata.buyerProtection="courier_unverified" instead (see
+   * services/escrowLifecycle.confirmEscrowDelivery). Undefined = untrusted
+   * (fail-closed).
+   */
+  readonly escrowTrusted?: boolean;
   quote(req: QuoteRequest): Promise<Quote>;
   book(req: BookRequest): Promise<Booking>;
   status(externalId: string): Promise<DeliveryStatus>;

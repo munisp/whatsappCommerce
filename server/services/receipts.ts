@@ -152,7 +152,10 @@ export async function sendOrderReceipt(
     total: Number(order.totalAmount),
     currency: order.currency,
     paymentRef,
-    deliveryPin: shipment?.deliveryPin ?? null,
+    // W30: PINs are stored hashed ("pinv1:…") — never print the hash; only
+    // legacy plaintext values are displayable (fresh PINs are sent at
+    // shipment creation time).
+    deliveryPin: shipment?.deliveryPin && !shipment.deliveryPin.startsWith("pinv1:") ? shipment.deliveryPin : null,
     trackingUrl: trackingUrlFor(order.id),
   });
 

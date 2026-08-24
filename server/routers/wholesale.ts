@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { wholesaleListings, wholesaleListingTiers, wholesaleOrders } from "../../drizzle/schema";
 import {
@@ -272,7 +272,11 @@ export const wholesaleRouter = router({
       status: z.enum(["pending", "confirmed", "paid", "fulfilled", "cancelled"]),
     }))
     .mutation(async ({ input, ctx }) => {
-      assertTenantAccess(ctx.user, input.tenantId);
+      // W30 hotfix (F7 residual): wholesale order status transitions
+      // (confirmed/paid/fulfilled/cancelled) drive trade-credit settlement
+      // and stock release — a supplier back-office money op, so an ANALYST
+      // membership must not reach it (owner|operator or admin).
+      await assertMoneyAccess(ctx.user, input.tenantId);
       const db = await dbOrThrow();
       const row = await updateWholesaleOrderStatusTx(db, input);
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });

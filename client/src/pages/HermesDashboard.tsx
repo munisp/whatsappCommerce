@@ -106,7 +106,13 @@ export default function HermesDashboard() {
     onError: (e) => toast.error(e.message),
   });
   const approvePO = trpc.hermes.approvePO.useMutation({
-    onSuccess: () => { toast.success("PO approved — supplier email queued"); poQueueQ.refetch(); },
+    onSuccess: (d) => {
+      // W30 (V3#4): approval can succeed while the supplier email fails —
+      // surface that honestly instead of claiming the email went out.
+      if (d.success) toast.success("PO approved — supplier email sent");
+      else toast.error(d.message ?? "PO approved but supplier email failed — retry from the queue");
+      poQueueQ.refetch();
+    },
     onError: (e) => toast.error(e.message),
   });
   const rejectPO = trpc.hermes.rejectPO.useMutation({

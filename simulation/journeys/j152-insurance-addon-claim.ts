@@ -82,8 +82,21 @@ export const journey: Journey = {
     });
     assert(result, "parametric event matched the active policy");
     assert(result!.claim.trigger === "parametric", "claim tagged parametric");
-    assert(result!.claim.status === "paid", `parametric claim auto-paid (got ${result!.claim.status})`);
+    // W30 (V1#2): approved ≠ paid — no money moved, so the claim waits at
+    // pending_payout until ops confirms a real disbursement.
+    assert(result!.claim.status === "pending_payout", `parametric claim honestly pending payout (got ${result!.claim.status})`);
     assert(result!.claim.payoutCents === 50_000, "payout = full coverage");
+    assert(result!.claim.resolvedAt == null, "unresolved until the payout lands");
+
+    // Ops confirms the payout with evidence → exactly one guarded flip.
+    const confirmed = await admin.insurance.confirmPayout({
+      tenantId: TENANT_ID, claimId: result!.claim.id, note: "ops disbursement ref DISB-152",
+    });
+    assert(confirmed.status === "paid" && confirmed.resolvedAt != null, "manual ops confirm marks paid");
+    const dup = await admin.insurance.confirmPayout({
+      tenantId: TENANT_ID, claimId: result!.claim.id, note: "again",
+    }).catch((e: any) => e);
+    assert(dup instanceof Error, "second payout confirm rejected");
 
     // Policy claimed; a second event is a no-op (idempotent).
     const [after] = await world.db.select().from(schema.insurancePolicies)

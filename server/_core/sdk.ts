@@ -569,6 +569,38 @@ class SDKServer {
       sessionToken = bearerToken;
     }
 
+    // W30 (V3#3): local cron fast-path. When CRON_JWT is configured, the
+    // shipped scheduler (services/scheduler) authenticates with an HS256
+    // token signed by that shared secret instead of the external OAuth
+    // GetUserInfoWithJwt exchange (which only exists on Manus-hosted
+    // deploys). Fail-closed: a token whose openId claims the cron_ prefix
+    // but fails verification or lacks task_uid is rejected outright.
+    const cronSecret = (process.env.CRON_JWT ?? "").trim();
+    if (cronSecret && sessionToken) {
+      try {
+        const { payload } = await jwtVerify(
+          sessionToken,
+          new TextEncoder().encode(cronSecret),
+          { algorithms: ["HS256"] },
+        );
+        const claims = payload as Record<string, unknown>;
+        if (isNonEmptyString(claims.openId) && claims.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
+          const taskUid = claims.task_uid ?? claims.taskUid;
+          if (!isNonEmptyString(taskUid)) {
+            throw ForbiddenError("Cron session missing task_uid");
+          }
+          return buildCronUser({
+            openId: claims.openId,
+            taskUid,
+            name: isNonEmptyString(claims.name) ? claims.name : "Cron Scheduler",
+          } as GetUserInfoWithJwtResponse);
+        }
+      } catch (e) {
+        if (e instanceof ForbiddenError) throw e;
+        // Not a cron token (or bad signature) — fall through to normal auth.
+      }
+    }
+
     const session = await this.verifySession(sessionToken);
 
     if (!session) {

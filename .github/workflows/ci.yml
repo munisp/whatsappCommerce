@@ -41,10 +41,9 @@ jobs:
       - name: Production dependency audit (blocking at high)
         run: npm audit --omit=dev --audit-level=high
 
-      # SOC2 controls self-check (CC4.4) — advisory only; a FAIL surfaces
-      # control drift without blocking delivery. Triage per docs/SOC2.
-      - name: SOC2 controls self-check (non-blocking)
-        continue-on-error: true
+      # SOC2 controls self-check (CC4.4) — REQUIRED (W30, V3#19): control
+      # drift now blocks the pipeline instead of passing silently.
+      - name: SOC2 controls self-check
         run: npx tsx scripts/soc2-check.ts
 
       - name: Job summary
@@ -118,3 +117,17 @@ jobs:
         if: steps.cv_changed.outputs.run == 'true'
         working-directory: services/visual-inventory/rust-bbox
         run: cargo check
+
+  # W30 (V3#19): build the platform + scheduler Docker images so a broken
+  # Dockerfile can never reach main undetected.
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build platform image
+        run: docker build -t whatsapp-commerce/platform:ci -f Dockerfile .
+
+      - name: Build scheduler image
+        run: docker build -t whatsapp-commerce/scheduler:ci services/scheduler

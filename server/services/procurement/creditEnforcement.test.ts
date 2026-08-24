@@ -94,14 +94,29 @@ describe("checkOrderSuspension — non-strict mode (dev/test default)", () => {
     warn.mockRestore();
   });
 
-  it("missing contract stays fail-open in BOTH modes (pre-merge safety)", async () => {
+  it("missing contract fails CLOSED in strict mode (W30 f2-f12 #6)", async () => {
     process.env.CREDIT_ENFORCEMENT_STRICT = "true";
     const orig = credit.isOrderAccessSuspended;
     // @ts-expect-error simulate pre-merge module shape
     delete credit.isOrderAccessSuspended;
     try {
       const res = await checkOrderSuspension("buyer-1", "supplier-1");
-      expect(res.suspended).toBe(false);
+      expect(res.suspended).toBe(true);
+      expect(res.unavailable).toBe(true);
+      expect(res.reason).toBe(CREDIT_STATUS_UNAVAILABLE_REASON);
+    } finally {
+      credit.isOrderAccessSuspended = orig;
+    }
+  });
+
+  it("missing contract stays fail-open in non-strict mode (pre-merge safety)", async () => {
+    delete process.env.CREDIT_ENFORCEMENT_STRICT;
+    const orig = credit.isOrderAccessSuspended;
+    // @ts-expect-error simulate pre-merge module shape
+    delete credit.isOrderAccessSuspended;
+    try {
+      const res = await checkOrderSuspension("buyer-1", "supplier-1");
+      expect(res).toEqual({ suspended: false, reason: null, outstandingCents: null });
     } finally {
       credit.isOrderAccessSuspended = orig;
     }

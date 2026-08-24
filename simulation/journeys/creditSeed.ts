@@ -64,6 +64,18 @@ export async function seedCreditMerchant(
   const createdAt = new Date(now.getTime() - tenureDays * 24 * 3600 * 1000 - 3600 * 1000);
   const orderTs = new Date(now.getTime() - 24 * 3600 * 1000); // inside the 90d window
 
+  // W30 merge: credit.accept is KYB-gated (V2#1) — seed an approved KYB
+  // application for the credit merchant, like the world seed does for the
+  // two seed tenants.
+  await world.db.insert(schema.kycApplications).values({
+    id: `kyb-seed-${CREDIT_MERCHANT_ID}`,
+    tenantId: CREDIT_MERCHANT_ID,
+    type: "kyb",
+    status: "approved",
+    applicantName: "Sim Owner",
+    businessName: CREDIT_MERCHANT_ID,
+  }).onConflictDoNothing();
+
   await world.db.insert(schema.tenants).values({
     id: CREDIT_MERCHANT_ID,
     name: CREDIT_MERCHANT_NAME,

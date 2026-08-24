@@ -6,9 +6,13 @@
  * flow:
  *
  *   1. EXACTLY-ONCE: the repayment reference
- *      `cr-{accountId}-{yyyymmdd}-{rand}` is claimed insert-first against
- *      the processed_webhook_events dedupe ledger (same claim pattern as
- *      webhookDedupe.claimWebhookEvent). A duplicate claim short-circuits
+ *      `cr-{accountId}-{yyyymmdd}-{sha256(mandate|amount|outstanding)[:12]}`
+ *      is DETERMINISTIC (W30 — a double-submit hashes to the same ref) and
+ *      claimed insert-first against the processed_webhook_events dedupe
+ *      ledger (same claim pattern as webhookDedupe.claimWebhookEvent),
+ *      guarded by a unique per-account pending marker (`crp:{accountId}`)
+ *      claimed first so concurrent calls collide and the loser gets the
+ *      in-flight 'duplicate' verdict. A duplicate claim short-circuits
  *      with reason 'duplicate' — the mandate is NEVER double-charged.
  *   2. chargeOnMandate (metadata { type:'credit_repayment', accountId }).
  *      On success the existing FIFO settlement path (applyRepaymentTx) runs
@@ -21,9 +25,9 @@
  *
  * Never throws into the caller.
  */
-import { randomInt } from "node:crypto";
-import { and, asc, eq, inArray, like } from "drizzle-orm";
-import { creditLedger, mandateCharges, paymentMandates, processedWebhookEvents } from "../../../drizzle/schema";
+import { createHash } from "node:crypto";
+import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
+import { creditAccounts, creditLedger, mandateCharges, paymentMandates, processedWebhookEvents } from "../../../drizzle/schema";
 import { getCreditAccountByIdTx, type TxHandle } from "./accounts";
 import { applyRepaymentTx } from "./repayment";
 import { chargeOnMandate, fetchMandateChargeStatus } from "../payments/mandates";
@@ -31,10 +35,37 @@ import { claimWebhookEvent } from "../webhookDedupe";
 import { captureException } from "../observability";
 import { redactPayload } from "../compliance/bureau";
 
-export function repaymentReference(accountId: string, now: Date = new Date()): string {
+/**
+ * W30 (verify-v1 #5): DETERMINISTIC repayment reference — a double-submitted
+ * repayment (same mandate, same amount, same outstanding marker) hashes to
+ * the SAME reference, so the exactly-once claim catches it (pre-fix a fresh
+ * randomInt per call made every double-submit a "new" repayment and the
+ * mandate was charged twice). No unseeded randomness.
+ */
+export function repaymentReference(
+  accountId: string,
+  now: Date = new Date(),
+  marker?: { mandateId: string; amountCents: number; outstandingCents: number },
+): string {
   const ymd = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const rand = randomInt(0, 1_000_000).toString().padStart(6, "0");
-  return `cr-${accountId}-${ymd}-${rand}`.slice(0, 128);
+  const material = marker
+    ? `${marker.mandateId}|${marker.amountCents}|${marker.outstandingCents}`
+    : accountId;
+  const hash = createHash("sha256").update(material).digest("hex").slice(0, 12);
+  return `cr-${accountId}-${ymd}-${hash}`.slice(0, 128);
+}
+
+/**
+ * Unique per-account pending marker (claim-first): exactly one mandate
+ * repayment may be in flight per credit account. A concurrent call (ANY
+ * amount) collides on this marker and returns the in-flight 'duplicate'
+ * result instead of charging the mandate a second time. Released once the
+ * repayment reaches a terminal local state (settled, definitive failure, or
+ * settlement-retry marker persisted); kept while the provider outcome is
+ * pending and released by the reconciler.
+ */
+export function pendingRepaymentMarkerRef(accountId: string): string {
+  return `crp:${accountId}`.slice(0, 128);
 }
 
 export type MandateRepaymentResult =
@@ -195,12 +226,9 @@ export async function applyMandateRepaymentTx(
     if (!Number.isFinite(amountCents) || amountCents <= 0) {
       return { ok: false, mode: "none", reason: "invalid_amount", outstandingAfter: account.outstandingCents };
     }
-    // Over-repayment guard BEFORE any provider charge: without it a
-    // double-submitted repayment (fresh random reference each call, so the
-    // exactly-once claim cannot catch it) would charge the mandate and only
-    // THEN be refused by applyRepaymentTx's claim-first guard — money moved
-    // with no settlement. Refuse up front instead; the provider is never
-    // called (no charge, no dunning notice).
+    // Over-repayment guard BEFORE any provider charge: refuse up front so
+    // the provider is never called (no charge, no dunning notice). The
+    // LOCKED re-check below closes the race in this unlocked read.
     if (amountCents > account.outstandingCents) {
       return { ok: false, mode: "none", reason: "exceeds_outstanding", outstandingAfter: account.outstandingCents };
     }
@@ -208,7 +236,44 @@ export async function applyMandateRepaymentTx(
       return { ok: false, mode: "fallback", reason: "no_active_mandate", outstandingAfter: account.outstandingCents };
     }
 
-    const reference = repaymentReference(account.id, now);
+    // W30 (verify-v1 #5): unique pending-marker claim FIRST — exactly one
+    // in-flight mandate repayment per account. A concurrent call (any
+    // amount) loses the claim and gets the truthful 'duplicate' verdict
+    // instead of a second provider charge.
+    const pendingRef = pendingRepaymentMarkerRef(account.id);
+    const pendingClaim = await claimWebhookEvent(db as any, {
+      id: pendingRef,
+      tenantId: account.buyerTenantId,
+      type: "credit_repayment_pending",
+    });
+    if (pendingClaim === "duplicate") {
+      return { ok: false, mode: "none", reason: "duplicate", outstandingAfter: account.outstandingCents };
+    }
+
+    // Locked over-repayment guard: conditional claim on the credit account
+    // row (decrements nothing; the guard re-checks outstanding atomically
+    // and the row lock serializes against concurrent settlements).
+    const [locked] = await (db as any)
+      .update(creditAccounts)
+      .set({ updatedAt: now })
+      .where(and(
+        eq(creditAccounts.id, account.id),
+        sql`${creditAccounts.outstandingCents} >= ${amountCents}`,
+      ))
+      .returning();
+    if (!locked) {
+      await releaseClaim(db, pendingRef);
+      const fresh = await getCreditAccountByIdTx(db, args.accountId);
+      return { ok: false, mode: "none", reason: "exceeds_outstanding", outstandingAfter: fresh?.outstandingCents ?? 0 };
+    }
+
+    // Deterministic reference (W30): a genuine double-submit hashes to the
+    // SAME reference and the exactly-once claim catches it.
+    const reference = repaymentReference(account.id, now, {
+      mandateId: account.mandateId,
+      amountCents,
+      outstandingCents: account.outstandingCents,
+    });
     // Exactly-once claim BEFORE the charge — a duplicate reference never
     // reaches the provider.
     const claim = await claimWebhookEvent(db as any, {
@@ -217,6 +282,7 @@ export async function applyMandateRepaymentTx(
       type: "credit_repayment",
     });
     if (claim === "duplicate") {
+      await releaseClaim(db, pendingRef);
       return { ok: false, mode: "none", reason: "duplicate", reference, outstandingAfter: account.outstandingCents };
     }
 
@@ -282,6 +348,7 @@ export async function applyMandateRepaymentTx(
         rawResponse: { error: charge.error ?? "charge_failed" },
       }, now);
       await releaseClaim(db, reference);
+      await releaseClaim(db, pendingRef); // terminal: no charge in flight
       await (noticeOverride ?? defaultDunningNotice)({
         buyerTenantId: account.buyerTenantId,
         accountId: account.id,
@@ -369,6 +436,7 @@ export async function applyMandateRepaymentTx(
         rawResponse: { status: "success", settlement: "refused" },
       }, now);
       await persistSettlementRetryMarker(db, account.id, reference, amountCents, now);
+      await releaseClaim(db, pendingRef); // retry marker owns the gap now
       return {
         ok: false,
         mode: "none",
@@ -390,6 +458,8 @@ export async function applyMandateRepaymentTx(
       providerStatus: "success",
       rawResponse: { status: "success" },
     }, now);
+    // Terminal success: settlement happened — release the pending marker.
+    await releaseClaim(db, pendingRef);
     return {
       ok: true,
       mode: "mandate",
@@ -406,6 +476,8 @@ export async function applyMandateRepaymentTx(
       severity: "error",
       extra: { accountId: args.accountId },
     });
+    // Best-effort: never strand the account behind a stale pending marker.
+    await releaseClaim(db, pendingRepaymentMarkerRef(args.accountId));
     return { ok: false, mode: "none", reason: "charge_failed", error: err?.message, outstandingAfter: 0 };
   }
 }
@@ -663,6 +735,8 @@ export async function reconcilePendingMandateCharges(
               .update(mandateCharges)
               .set({ status: "success", providerStatus: "success", updatedAt: now })
               .where(and(eq(mandateCharges.id, row.id), eq(mandateCharges.status, "pending")));
+            // Terminal: settled — release the W30 pending marker.
+            await releaseClaim(db, pendingRepaymentMarkerRef(row.accountId));
             result.settled += 1;
           } else {
             // Money confirmed at the provider but settlement refused —
@@ -687,6 +761,7 @@ export async function reconcilePendingMandateCharges(
             .returning();
           if (flipped) {
             await releaseClaim(db, row.reference);
+            await releaseClaim(db, pendingRepaymentMarkerRef(row.accountId));
             await (noticeOverride ?? defaultDunningNotice)({
               buyerTenantId: account.buyerTenantId,
               accountId: row.accountId,

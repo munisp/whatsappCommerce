@@ -69,7 +69,12 @@ export const creditRouter = router({
     .mutation(async ({ input, ctx }) => {
       const merchantId = input.merchantId ?? input.tenantId;
       assertMerchantAccess(ctx.user, input.tenantId, merchantId);
-      const result = await acceptLoanTx(await requireDb(), {
+      // W30 (V2#1): KYB is a hard precondition for taking on credit —
+      // fail-closed at the router level (tradeCredit internals untouched).
+      const db = await requireDb();
+      const { requireApprovedKyb } = await import("../services/kycGate");
+      await requireApprovedKyb(input.tenantId, db);
+      const result = await acceptLoanTx(db, {
         tenantId: input.tenantId,
         merchantId,
         principalCents: input.principalCents,

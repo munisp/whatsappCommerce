@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348013405376",
-      "profileName": "Sim User 5376",
-      "inboundId": "wamid.sim.in.text.00344",
-      "at": 1787348819203,
+      "phone": "2348012677755",
+      "profileName": "Sim User 7755",
+      "inboundId": "wamid.sim.in.text.00342",
+      "at": 1787560116181,
       "kind": "text",
       "text": "export"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00344",
-      "at": 1787348819206
+      "wamid": "wamid.sim.in.text.00342",
+      "at": 1787560116185
     },
     {
       "dir": "out",
-      "phone": "2348013405376",
-      "wamid": "wamid.sim.000573",
+      "phone": "2348012677755",
+      "wamid": "wamid.sim.000569",
       "statuses": [
         "sent"
       ],
-      "at": 1787348819215,
+      "at": 1787560116195,
       "kind": "text",
       "body": "📑 Your tax-ready sales & expense export lives in your tenant portal: http://localhost:4173/portal/bookkeeping — download CSV or PDF for any period (includes totals for banks/MFIs)."
     }

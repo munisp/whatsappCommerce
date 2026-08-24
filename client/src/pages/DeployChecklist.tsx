@@ -17,16 +17,23 @@ type CheckItem = {
 };
 
 function buildChecklist(origin: string): CheckItem[] {
+  // W30 (V3#3/#20): every /api/scheduled/* route requires a cron JWT
+  // (server/_core/sdk.ts). The shipped scheduler (services/scheduler, compose
+  // service `scheduler`, or k8s/cron-scheduler.yaml CronJobs) covers ALL
+  // routes automatically — prefer it. The crontab entries below mint a
+  // short-lived token per invocation via the scheduler's --print-token mode;
+  // CRON_JWT must be set in the environment that runs them.
   const cron = (schedule: string, path: string) =>
-    `(crontab -l 2>/dev/null; echo "${schedule} curl -fsS -X POST ${origin}${path}") | crontab -`;
+    `(crontab -l 2>/dev/null; echo '${schedule} curl -fsS -X POST -H "Authorization: Bearer $(CRON_JWT=$CRON_JWT node /app/services/scheduler/scheduler.mjs --print-token ${path})" ${origin}${path}') | crontab -`;
   return [
   // Deployment
   { id: "publish", category: "Deployment", title: "Deploy to production", description: "Deploy the app to your hosting platform (e.g. docker-compose up -d, or your provider's deploy pipeline) and verify it is reachable.", required: true },
   { id: "domain", category: "Deployment", title: "Configure custom domain (optional)", description: "Point your custom domain at your hosting provider and update ALLOWED_ORIGINS to match.", required: false },
 
   // Cron jobs
-  { id: "heartbeat", category: "Scheduled Jobs", title: "Activate inventory sync cron", description: "Add this crontab entry on your server after deploying to start the 5-minute Odoo stock sync.", command: cron("*/5 * * * *", "/api/scheduled/inventory-sync"), required: true },
-  { id: "heartbeat-invoice", category: "Scheduled Jobs", title: "Activate monthly invoice generation", description: "Add this crontab entry to auto-generate invoices on the 1st of each month at midnight UTC.", command: cron("0 0 1 * *", "/api/scheduled/generate-invoices"), required: false },
+  { id: "scheduler-service", category: "Scheduled Jobs", title: "Start the shipped cron scheduler (recommended)", description: "Covers ALL /api/scheduled/* routes (escrow auto-confirm, float income, loan repayment, digests, drift alerts, …) on their documented cadences with cron-JWT auth. Compose: starts automatically as the `scheduler` service. Kubernetes:", command: "kubectl apply -f k8s/cron-scheduler.yaml", required: true },
+  { id: "heartbeat", category: "Scheduled Jobs", title: "Activate inventory sync cron", description: "Only needed if you are NOT running the shipped scheduler above. Authenticated 5-minute Odoo stock sync (requires CRON_JWT in the environment).", command: cron("*/5 * * * *", "/api/scheduled/inventory-sync"), required: false },
+  { id: "heartbeat-escrow", category: "Scheduled Jobs", title: "Activate escrow auto-confirm cron", description: "Only needed without the shipped scheduler. Releases buyer-protection escrow holds whose confirmation window expired (money movement — must fire).", command: cron("*/10 * * * *", "/api/scheduled/escrow-auto-confirm"), required: true },
   { id: "heartbeat-ab-metrics", category: "Scheduled Jobs", title: "Activate A/B test metrics cron (ML Ops)", description: "Computes per-variant conversion rates and z-test p-values for running model A/B tests every 30 minutes.", command: cron("*/30 * * * *", "/api/scheduled/ab-test-metrics"), required: false },
   { id: "heartbeat-drift-alert", category: "Scheduled Jobs", title: "Activate drift alert cron (ML Ops)", description: "Reads drift_log.json every 6 hours and sends owner push notification when any feature PSI exceeds 0.2.", command: cron("0 */6 * * *", "/api/scheduled/drift-alert"), required: false },
   { id: "heartbeat-nightly-finetune", category: "Scheduled Jobs", title: "Activate nightly model fine-tune cron (ML Ops)", description: "Triggers the NLP fine-tune pipeline daily at 2 AM UTC to retrain on new conversation data.", command: cron("0 2 * * *", "/api/scheduled/nightly-finetune"), required: false },

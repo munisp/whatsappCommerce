@@ -1,0 +1,8 @@
+{
+  "id": "J177",
+  "title": "fraud block + confirm fail-closed + geo fail-closed + SSRF + mojaloop + PIN cap",
+  "feature": "payment screening guards + ssrfGuard + mojaloop JWS default-on + delivery PIN hardening",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

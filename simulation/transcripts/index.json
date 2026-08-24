@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-21T21:47:52.564Z",
+  "generatedAt": "2026-08-24T08:30:00.541Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -446,7 +446,7 @@
       "id": "J141",
       "title": "loan default path",
       "feature": "microLoans late/default handling + cure",
-      "pass": true,
+      "pass": false,
       "file": "J141.json",
       "messageCount": 0
     },
@@ -627,6 +627,70 @@
       "messageCount": 11
     },
     {
+      "id": "J162",
+      "title": "concurrent accepts → single loan",
+      "feature": "microLoans accept race hardening (verify-v1 #3)",
+      "pass": true,
+      "file": "J162.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J163",
+      "title": "sweep + manual repayment race → conservation",
+      "feature": "microLoans locked repayment helper (verify-v1 #4)",
+      "pass": true,
+      "file": "J163.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J164",
+      "title": "disbursement funding leg + insufficient facility rejected",
+      "feature": "microLoans funded disbursement (verify-v1 #12)",
+      "pass": true,
+      "file": "J164.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J165",
+      "title": "mandate double-submit → single charge",
+      "feature": "tradeCredit capture exactly-once (verify-v1 #5)",
+      "pass": true,
+      "file": "J165.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J166",
+      "title": "SLA scan: cancelled→refund, undelivered→skip",
+      "feature": "W30 runSlaScan order-status guard",
+      "pass": true,
+      "file": "J166.json",
+      "messageCount": 22
+    },
+    {
+      "id": "J167",
+      "title": "cancel of paid order → escrow refunded",
+      "feature": "W30 orderCrud.cancel escrow refund",
+      "pass": true,
+      "file": "J167.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J168",
+      "title": "dispute resolution executes provider refund",
+      "feature": "W30 dispute review money movement + processed reachable",
+      "pass": true,
+      "file": "J168.json",
+      "messageCount": 22
+    },
+    {
+      "id": "J169",
+      "title": "delivery window reset + cron settle atomic with fee leg",
+      "feature": "W30 confirmEscrowDelivery helper + auto-confirm cron",
+      "pass": true,
+      "file": "J169.json",
+      "messageCount": 12
+    },
+    {
       "id": "J17",
       "title": "visual product search",
       "feature": "vision match → product card",
@@ -635,12 +699,116 @@
       "messageCount": 6
     },
     {
+      "id": "J170",
+      "title": "stokvel verified contributions + real wallet payout",
+      "feature": "V1#1 remediation: verified payment refs, wallet-credited payouts, single-tx cycle advance",
+      "pass": true,
+      "file": "J170.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J171",
+      "title": "insurance/group-buy/mobile-money honesty + prod guards",
+      "feature": "V1#2 + V1#10 + V3#14 remediation: pending_payout, prod guards, verified joins",
+      "pass": true,
+      "file": "J171.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J172",
+      "title": "loyalty concurrent redeem + cap + voucher budget lock",
+      "feature": "V3#9 + V3#10 remediation: balance locks, in-redeem cap, budget FOR UPDATE",
+      "pass": true,
+      "file": "J172.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J173",
+      "title": "server-derived commissions + invoice config rate + sponsored spend cap",
+      "feature": "V3#12 + V1#15 + V2#16 remediation",
+      "pass": true,
+      "file": "J173.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J174",
+      "title": "KYB gate blocks withdrawal/hold/loan for unverified tenants",
+      "feature": "kycGate on createHold + requestWithdrawal + credit.accept",
+      "pass": true,
+      "file": "J174.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J175",
+      "title": "step-up OTP on payout change + withdrawal; owner grant gated; analyst blocked",
+      "feature": "stepUp challenges + updatePayoutBankDetails + moneyProcedure + membership role cap",
+      "pass": true,
+      "file": "J175.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J176",
+      "title": "local-auth guard + logout jti revoke + single-use invite + ussd auth",
+      "feature": "oauth logout revocation + tenantInvite registry + /ussd shared secret",
+      "pass": true,
+      "file": "J176.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J177",
+      "title": "fraud block + confirm fail-closed + geo fail-closed + SSRF + mojaloop + PIN cap",
+      "feature": "payment screening guards + ssrfGuard + mojaloop JWS default-on + delivery PIN hardening",
+      "pass": true,
+      "file": "J177.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J178",
+      "title": "compose boot-gate completeness + scheduler authenticated cron invocation",
+      "feature": "deploy/observability: bootable compose, cron scheduler with CRON_JWT auth",
+      "pass": true,
+      "file": "J178.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J179",
+      "title": "kyc mock guard + hermes wiring + approvePO email-failure honesty",
+      "feature": "deploy/observability: fail-closed kyc sidecar, honest hermes approval",
+      "pass": true,
+      "file": "J179.json",
+      "messageCount": 0
+    },
+    {
       "id": "J18",
       "title": "stock guard (race + OOS)",
       "feature": "reserveStock atomicity + waitlist",
-      "pass": true,
+      "pass": false,
       "file": "J18.json",
-      "messageCount": 26
+      "messageCount": 19
+    },
+    {
+      "id": "J180",
+      "title": "dashboards render empty-state / honest-unavailable, no fabrication",
+      "feature": "observability honesty: real queries or explicit empty states",
+      "pass": true,
+      "file": "J180.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J181",
+      "title": "recon wiring + checklist authenticated examples validity",
+      "feature": "deploy/observability: recon loud-fail, honest deploy checklist",
+      "pass": true,
+      "file": "J181.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J182",
+      "title": "unverified courier delivery never auto-settles escrow in prod",
+      "feature": "W30 hotfix courier escrowTrusted flag + scan/cron skip",
+      "pass": true,
+      "file": "J182.json",
+      "messageCount": 24
     },
     {
       "id": "J19",
@@ -656,7 +824,7 @@
       "feature": "consent gate + window routing + quality block",
       "pass": true,
       "file": "J20.json",
-      "messageCount": 31
+      "messageCount": 30
     },
     {
       "id": "J21",

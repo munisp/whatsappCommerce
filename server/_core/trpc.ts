@@ -173,8 +173,61 @@ function tenantRoleProcedure(roles: readonly MembershipRole[], label: string) {
   );
 }
 
+/**
+ * W30 hotfix (F7 residual): role-aware guard for money-moving mutations
+ * whose tenantId is resolved from a FETCHED ROW (escrow/refund/order) rather
+ * than carried in the procedure input — moneyProcedure covers the
+ * input-carried case, these call sites need the same owner|operator bar.
+ *
+ * Semantics: platform admins bypass; a tenant_memberships row must be
+ * owner|operator (analyst is NEVER enough for money movement); when no
+ * membership row exists, the legacy users.tenantId / memberships shortcuts
+ * pass exactly as assertTenantAccess allows (single-user legacy merchants).
+ */
+export async function assertMoneyAccess(
+  user: {
+    id: string | number;
+    role: string;
+    tenantId?: string | null;
+    memberships?: readonly string[] | null;
+  },
+  tenantId: string,
+): Promise<void> {
+  if (user.role === "admin") return;
+  let membership: TenantMembership | null = null;
+  try {
+    membership = await getMembership(user.id, tenantId);
+  } catch (err) {
+    console.error("[assertMoneyAccess] membership lookup failed:", (err as Error)?.message);
+    membership = null;
+  }
+  if (membership) {
+    if (membership.role === "owner" || membership.role === "operator") return;
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Money-moving actions require tenant role: owner or operator (you are ${membership.role})`,
+    });
+  }
+  if (user.tenantId && user.tenantId === tenantId) return;
+  if (Array.isArray(user.memberships) && user.memberships.includes(tenantId)) return;
+  throw new TRPCError({
+    code: "FORBIDDEN",
+    message: "You can only access your own tenant's data",
+  });
+}
+
 export const operatorProcedure = tenantRoleProcedure(["owner", "operator"], "operatorProcedure");
 export const analystProcedure = tenantRoleProcedure(["owner", "operator", "analyst"], "analystProcedure");
+
+/**
+ * W30 (V2#2c): role-aware guard for money-moving mutations. Same semantics
+ * as operatorProcedure (protectedProcedure + tenantId in input +
+ * assertTenantAccess + membership role owner|operator; platform admins
+ * bypass) under a name that makes the intent explicit at call sites:
+ * withdrawals, refunds, and escrow release paths must NEVER be reachable by
+ * an analyst membership. Read-only procedures keep using analystProcedure.
+ */
+export const moneyProcedure = tenantRoleProcedure(["owner", "operator"], "moneyProcedure");
 
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {

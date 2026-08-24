@@ -16,16 +16,18 @@ import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
 
-// Static chart data for visual richness
-const revenueData = [
-  { month: "Jan", revenue: 12400 }, { month: "Feb", revenue: 18200 }, { month: "Mar", revenue: 15800 },
-  { month: "Apr", revenue: 22100 }, { month: "May", revenue: 28400 }, { month: "Jun", revenue: 31200 },
-  { month: "Jul", revenue: 29800 },
-];
-const convData = [
-  { day: "Mon", bot: 142, human: 18 }, { day: "Tue", bot: 168, human: 22 }, { day: "Wed", bot: 155, human: 15 },
-  { day: "Thu", bot: 190, human: 28 }, { day: "Fri", bot: 210, human: 32 }, { day: "Sat", bot: 98, human: 12 }, { day: "Sun", bot: 76, human: 8 },
-];
+// W30 (V3#6): charts are fed by real analytics queries — never hardcoded
+// series. When a query returns no points we render an explicit empty state.
+
+function ChartEmptyState({ label }: { label: string }) {
+  return (
+    <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground gap-1">
+      <TrendingUp className="w-6 h-6 opacity-40" />
+      <p className="text-sm font-medium">No data yet</p>
+      <p className="text-xs">{label}</p>
+    </div>
+  );
+}
 
 export default function Dashboard() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
@@ -37,6 +39,10 @@ export default function Dashboard() {
     { enabled: !!DEMO_TENANT }
   );
   const { data: funnelData } = trpc.onboardingProgress.getFunnelAnalytics.useQuery();
+  const revenueTrendQ = trpc.analytics.revenueTrend.useQuery();
+  const convSplitQ = trpc.analytics.conversationSplitTrend.useQuery();
+  const revenueData = revenueTrendQ.data?.points ?? [];
+  const convData = convSplitQ.data?.points ?? [];
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const lowStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "low_stock").length ?? 0;
@@ -119,6 +125,9 @@ export default function Dashboard() {
           <Card className="bg-card border-border">
             <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Revenue Trend (USD)</CardTitle></CardHeader>
             <CardContent>
+              {revenueData.length === 0 ? (
+                <ChartEmptyState label="Completed (paid) order revenue for the last 7 months will appear here." />
+              ) : (
               <ResponsiveContainer width="100%" height={200}>
                 <AreaChart data={revenueData}>
                   <defs>
@@ -134,12 +143,16 @@ export default function Dashboard() {
                   <Area type="monotone" dataKey="revenue" stroke="oklch(0.65 0.18 160)" fill="url(#revGrad)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
           <Card className="bg-card border-border">
             <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Conversations (Bot vs Human)</CardTitle></CardHeader>
             <CardContent>
+              {convData.length === 0 ? (
+                <ChartEmptyState label="AI-handled vs human conversations for the last 7 days will appear here." />
+              ) : (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={convData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.25 0.015 220)" />
@@ -150,6 +163,7 @@ export default function Dashboard() {
                   <Bar dataKey="human" fill="oklch(0.60 0.18 200)" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
         </div>

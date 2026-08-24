@@ -238,9 +238,13 @@ export async function screenEntity(
     return { hit: matches.length > 0, matches, screenedAt, staleCache: true, source: "cache" };
   }
 
-  // 4. bundled dev fallback (can be disabled in prod)
+  // 4. bundled dev fallback (non-prod only)
+  // W30 (V2#15): fail-closed polarity — an UNSET NODE_ENV is treated as
+  // production (matching the env.ts/kycGate convention), so the 5-entry
+  // bundled stub list is usable ONLY in explicit development/test.
+  // Previously NODE_ENV-unset silently allowed the bundled stub.
   const allowBundled = (env.SANCTIONS_ALLOW_BUNDLED ?? "true") !== "false";
-  const isProd = env.NODE_ENV === "production";
+  const isProd = env.NODE_ENV !== "development" && env.NODE_ENV !== "test";
   if (allowBundled && !isProd) {
     const matches = matchEntries(input, BUNDLED_MINIMAL_LIST);
     return { hit: matches.length > 0, matches, screenedAt, source: "bundled" };

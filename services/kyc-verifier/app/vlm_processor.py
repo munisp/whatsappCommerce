@@ -42,7 +42,7 @@ class VLMProcessor:
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
         self.ollama_model = os.getenv("OLLAMA_VLM_MODEL", "llava:13b")
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
-        self.use_mock = os.getenv("VLM_MOCK_MODE", "true").lower() == "true"
+        self.use_mock = os.getenv("VLM_MOCK_MODE", "false").lower() == "true"
 
     async def analyze_document(
         self,

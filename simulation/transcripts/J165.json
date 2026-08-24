@@ -1,0 +1,8 @@
+{
+  "id": "J165",
+  "title": "mandate double-submit → single charge",
+  "feature": "tradeCredit capture exactly-once (verify-v1 #5)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

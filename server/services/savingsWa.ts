@@ -65,7 +65,7 @@ async function stokvelStatusReply(db: Db, tenantId: string, phone: string): Prom
   return lines.join("\n");
 }
 
-async function stokvelContributeReply(db: Db, tenantId: string, phone: string, idPrefix: string): Promise<string> {
+async function stokvelContributeReply(db: Db, tenantId: string, phone: string, idPrefix: string, paymentRef?: string): Promise<string> {
   const memberships = await db.select().from(stokvelMembers).where(and(
     eq(stokvelMembers.tenantId, tenantId), eq(stokvelMembers.phone, phone),
   ));
@@ -73,16 +73,29 @@ async function stokvelContributeReply(db: Db, tenantId: string, phone: string, i
   if (!match) return `No circle matching "${idPrefix}" found for your number. Reply 'stokvel' to list your circles.`;
   try {
     const res = await stokvel.recordContribution(db, {
-      tenantId, circleId: match.circleId, phone, paymentRef: `wa:${phone}`,
+      tenantId, circleId: match.circleId, phone, paymentRef,
     });
     const amount = fmtMajor(res.contribution.amountCents, "NGN");
     if (res.alreadyPaid) return `✅ Your ${amount} contribution for this cycle was already recorded. Thank you!`;
-    if (res.payout) {
-      return `✅ Contribution of ${amount} received — the cycle is complete! ` +
-        `🎉 Payout of ${fmtMajor(res.payout.amountCents, "NGN")} goes to ${res.payout.phone}.` +
-        (res.circleComplete ? " The circle has completed a full rotation." : "");
+    // W30 (V1#1): honest copy — a contribution only counts once its payment
+    // is VERIFIED; a payout is only announced once the wallet credit landed.
+    if (res.pending) {
+      return (
+        `⏳ Your ${amount} contribution is recorded as PENDING — it is not paid yet. ` +
+        `Pay through the shop's payment link, then reply 'stokvel contribute ${match.circleId.slice(0, 8)} <payment reference>' ` +
+        `so we can verify and record it.`
+      );
     }
-    return `✅ Contribution of ${amount} received. Waiting on the other members to complete this cycle.`;
+    if (res.payout) {
+      if (res.payout.status === "paid") {
+        return `✅ Contribution of ${amount} verified and received — the cycle is complete! ` +
+          `🎉 Payout of ${fmtMajor(res.payout.amountCents, "NGN")} has been credited to ${res.payout.phone}'s wallet.` +
+          (res.circleComplete ? " The circle has completed a full rotation." : "");
+      }
+      return `✅ Contribution of ${amount} verified and received — the cycle is complete! ` +
+        `⏳ The payout of ${fmtMajor(res.payout.amountCents, "NGN")} for ${res.payout.phone} is pending wallet credit and will be retried automatically.`;
+    }
+    return `✅ Contribution of ${amount} verified and received. Waiting on the other members to complete this cycle.`;
   } catch (e: any) {
     return `⚠️ Could not record your contribution: ${e?.message ?? e}`;
   }
@@ -113,7 +126,7 @@ async function insureBindReply(db: Db, tenantId: string, phone: string, productI
       `Policy ${policy.policyNumber}\n` +
       `Premium: ${fmtMajor(policy.premiumCents, policy.currency)} (added to order ${order.orderNumber})\n` +
       `Cover: up to ${fmtMajor(policy.coverageCents, policy.currency)}.\n` +
-      `If your delivery fails, your claim is paid out automatically.`
+      `If your delivery fails, a claim is filed automatically and paid out once approved by the insurer.`
     );
   } catch (e: any) {
     return `⚠️ Could not add insurance: ${e?.message ?? e}`;
@@ -150,8 +163,8 @@ export async function handleSavingsInbound(opts: {
   const text = opts.text.trim();
   let m: RegExpMatchArray | null;
 
-  if ((m = text.match(/^stokvel\s+contribute\s+([0-9a-f-]{4,36})$/i))) {
-    return { handled: true, reply: await stokvelContributeReply(db, tenantId, phone, m[1]) };
+  if ((m = text.match(/^stokvel\s+contribute\s+([0-9a-f-]{4,36})(?:\s+(\S{4,128}))?$/i))) {
+    return { handled: true, reply: await stokvelContributeReply(db, tenantId, phone, m[1], m[2]) };
   }
   if (/^(stokvel|savings|esusu|ajo|chama)\b/i.test(text)) {
     return { handled: true, reply: await stokvelStatusReply(db, tenantId, phone) };

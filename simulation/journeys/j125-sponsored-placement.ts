@@ -14,7 +14,7 @@ import {
   type World,
 } from "../world";
 import type { Journey } from "../runner";
-import { publicCaller, resetGeoDiscovery, tenantCaller } from "./helpers";
+import { approveKyb, publicCaller, resetGeoDiscovery, tenantCaller } from "./helpers";
 
 const SHOP = { lat: 6.5244, lng: 3.3792 }; // Sim Store — sponsored, big bid
 const LOC_B = { lat: 6.5255, lng: 3.3792 }; // Geo Boost B — sponsored, mid bid
@@ -62,6 +62,8 @@ export const journey: Journey = {
       [TENANT_C, LOC_C],
     ];
     for (const [tid, loc] of locs) {
+      // W30: discovery is KYB fail-closed — approve before publishing.
+      await approveKyb(world, tid);
       const caller = await tenantCaller(tid);
       await caller.geo.merchant.setLocation({
         latitude: loc.lat,

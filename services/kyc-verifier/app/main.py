@@ -76,7 +76,7 @@ async def verify_api_key(x_api_key: str = Header(...)):
 # ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "kyc-verifier", "version": "1.0.0"}
+    return {"status": "ok", "service": "kyc-verifier", "version": "1.0.0", "vlm_mock_mode": os.getenv("VLM_MOCK_MODE", "false").lower() == "true"}
 
 # ─── Document Verification ────────────────────────────────────────────────────
 @app.post("/verify/document", response_model=DocumentVerificationResult)

@@ -31,6 +31,8 @@ function setEnv(overrides: Record<string, string | undefined> = {}) {
     KYC_SERVICE_API_KEY: "kyc-live-key-0123456789abcdef",
     VLM_MOCK_MODE: undefined,
     WHATSAPP_VERIFY_TOKEN: "wa-verify-strong-unique-token",
+    USSD_GATEWAY_SECRET: "ussd-test-secret", // W30 merge: D's /ussd prod boot gate
+    INTERNAL_API_KEY: "internal-test-key", // W30 merge: E's REQUIRED_BY_ENV
     APISIX_ADMIN_URL: undefined,
     APISIX_ADMIN_KEY: undefined,
     OPENSEARCH_PASS: "opensearch-strong-pass",

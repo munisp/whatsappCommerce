@@ -1,0 +1,8 @@
+{
+  "id": "J178",
+  "title": "compose boot-gate completeness + scheduler authenticated cron invocation",
+  "feature": "deploy/observability: bootable compose, cron scheduler with CRON_JWT auth",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -128,7 +128,9 @@ describe("screenEntity sources", () => {
   it("dev fallback: bundled list used when no URL configured and no cache", async () => {
     const res = await screenEntity(
       { name: "Boko Haram" },
-      { env: {} as NodeJS.ProcessEnv, http: makeFakeHttp({ routes: {} }) },
+      // W30 merge: explicit test env — unset NODE_ENV is now treated as prod
+      // (fail-closed), which is exactly what these dev-fallback tests exclude.
+      { env: { NODE_ENV: "test" } as NodeJS.ProcessEnv, http: makeFakeHttp({ routes: {} }) },
     );
     expect(res.source).toBe("bundled");
     expect(res.hit).toBe(true);
@@ -137,7 +139,7 @@ describe("screenEntity sources", () => {
   it("dev fallback: bundled clean entity passes", async () => {
     const res = await screenEntity(
       { name: "Mama Ngozi Provisions" },
-      { env: {} as NodeJS.ProcessEnv, http: makeFakeHttp({ routes: {} }) },
+      { env: { NODE_ENV: "test" } as NodeJS.ProcessEnv, http: makeFakeHttp({ routes: {} }) },
     );
     expect(res.source).toBe("bundled");
     expect(res.hit).toBe(false);

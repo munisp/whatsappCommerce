@@ -726,6 +726,15 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
       data: { authorization_url: `${pay.paystackBaseUrl}/${ref}`, reference: ref },
     });
   }
+  // ── W30: refunds (POST /refund) — accepted = queued (status pending) ─────
+  if (url.hostname.includes("paystack.co") && url.pathname.endsWith("/refund")) {
+    const txRef = body?.transaction ?? "sim-ref";
+    return jsonResponse({
+      status: true,
+      message: "Refund has been queued for processing",
+      data: { transaction: { reference: txRef }, status: "pending" },
+    });
+  }
   // ── W13: mandate (off-session / tokenized) charges ───────────────────────
   if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/charge_authorization")) {
     if (pay.mandateChargeStatus != null) {

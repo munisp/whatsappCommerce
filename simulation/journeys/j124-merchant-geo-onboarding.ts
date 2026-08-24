@@ -10,7 +10,7 @@ import {
   type World,
 } from "../world";
 import type { Journey } from "../runner";
-import { publicCaller, resetGeoDiscovery, tenantCaller } from "./helpers";
+import { approveKyb, publicCaller, resetGeoDiscovery, tenantCaller } from "./helpers";
 
 const SHOP = { lat: 6.5244, lng: 3.3792 };
 const NEAR_CUSTOMER = { lat: 6.5514, lng: 3.3792 }; // ~3.0 km north
@@ -22,6 +22,8 @@ export const journey: Journey = {
   feature: "geo.merchant.setLocation/setDiscoverable",
   async run(world: World) {
     await resetGeoDiscovery(world);
+    // W30: discovery is KYB fail-closed — an approved KYB is required to appear.
+    await approveKyb(world, TENANT_ID);
     const { encodeGeohash } = await import("../../server/services/geoDiscovery");
 
     const merchant = await tenantCaller(TENANT_ID);

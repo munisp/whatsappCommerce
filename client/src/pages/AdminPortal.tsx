@@ -56,7 +56,7 @@ interface IntegrationCardProps {
   name: string;
   icon: React.ElementType;
   description: string;
-  status: "connected" | "disconnected" | "error" | "partial";
+  status: "connected" | "disconnected" | "error" | "partial" | "unknown";
   lastSync?: string | null;
   onConfigure: () => void;
   onSync?: () => void;
@@ -69,6 +69,8 @@ function IntegrationCard({ name, icon: Icon, description, status, lastSync, onCo
     disconnected: { color: "text-gray-400", bg: "border-gray-200", label: "Not Connected", icon: XCircle },
     error: { color: "text-red-500", bg: "border-red-200 bg-red-50/20", label: "Error", icon: AlertTriangle },
     partial: { color: "text-yellow-500", bg: "border-yellow-200 bg-yellow-50/20", label: "Partial", icon: AlertTriangle },
+    // W30 (V3#6): honest state when no live health signal feeds this card.
+    unknown: { color: "text-gray-400", bg: "border-gray-200", label: "Unknown — no live check", icon: AlertTriangle },
   }[status];
   const StatusIcon = statusConfig.icon;
 
@@ -137,13 +139,23 @@ function IntegrationsTab() {
   // Medusa sync
   const medusaSync = trpc.medusaOnboarding.stats?.useQuery?.(undefined, { enabled: !!selectedTenant });
 
+  // W30 (V3#6): live infrastructure health feeds the integration cards that
+  // have a real probe; cards without a probe render "Unknown — no live check"
+  // instead of a fabricated "connected".
+  const healthQ = trpc.infra.infraHealth.useQuery(undefined, { refetchInterval: 30_000 });
+  const live = (key: "keycloak" | "apisix" | "temporal" | "tigerBeetle") => {
+    const svc = healthQ.data?.services?.[key];
+    if (!svc) return "unknown" as const;
+    return svc.online ? ("connected" as const) : ("error" as const);
+  };
+
   const integrations = [
     {
       id: "whatsapp",
       name: "WhatsApp Business",
       icon: MessageSquare,
       description: "Meta Cloud API — inbound/outbound messaging, webhooks, media",
-      status: "connected" as const,
+      status: "unknown" as const,
       onConfigure: () => setConfiguring("whatsapp"),
     },
     {
@@ -161,7 +173,7 @@ function IntegrationsTab() {
       name: "Twenty CRM",
       icon: Users,
       description: "Contact and deal sync via Twenty GraphQL API",
-      status: "connected" as const,
+      status: "unknown" as const,
       onConfigure: () => setConfiguring("twenty"),
       onSync: () => twentySync?.mutate?.({ tenantId: selectedTenant }),
       syncing: twentySync?.isPending,
@@ -179,7 +191,7 @@ function IntegrationsTab() {
       name: "Keycloak IAM",
       icon: Key,
       description: "OIDC authentication, JWT validation, user provisioning",
-      status: "connected" as const,
+      status: live("keycloak"),
       onConfigure: () => setConfiguring("keycloak"),
     },
     {
@@ -187,7 +199,7 @@ function IntegrationsTab() {
       name: "APISIX Gateway",
       icon: Layers,
       description: "API gateway routing, rate limiting, WAF integration",
-      status: "connected" as const,
+      status: live("apisix"),
       onConfigure: () => setConfiguring("apisix"),
     },
     {
@@ -195,7 +207,7 @@ function IntegrationsTab() {
       name: "Temporal Workflows",
       icon: Workflow,
       description: "Durable workflow orchestration for payments and onboarding",
-      status: "connected" as const,
+      status: live("temporal"),
       onConfigure: () => setConfiguring("temporal"),
     },
     {
@@ -203,7 +215,7 @@ function IntegrationsTab() {
       name: "TigerBeetle Ledger",
       icon: CreditCard,
       description: "Financial ledger with double-entry accounting and atomicity",
-      status: "connected" as const,
+      status: live("tigerBeetle"),
       onConfigure: () => setConfiguring("tigerbeetle"),
     },
   ];
@@ -608,6 +620,13 @@ function FinanceTab() {
           </div>
         </CardHeader>
         <CardContent>
+          {/* W30 (V3#8): surface recon failures loudly (with setup hint from
+              the server) instead of a silently dead button. */}
+          {triggerRecon.isError && (
+            <div className="mb-3 p-3 rounded-lg border border-red-500/40 bg-red-500/10 text-sm text-red-400">
+              Reconciliation failed: {triggerRecon.error.message}
+            </div>
+          )}
           {lastRecon.data && (
             <div className="p-3 bg-muted/30 rounded-lg text-sm">
               <pre className="text-xs overflow-auto">{JSON.stringify(lastRecon.data, null, 2)}</pre>

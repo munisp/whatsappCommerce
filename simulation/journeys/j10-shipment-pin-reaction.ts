@@ -43,12 +43,15 @@ export const journey: Journey = {
       recipientAddress: { street: "12 Adeola Odeku Street", city: "Lagos", state: "Lagos", country: "NG" },
     });
     assert(shipment?.id, "shipment created");
-    assert(shipment.deliveryPin && /^\d{4}$/.test(shipment.deliveryPin), `4-digit PIN generated (got ${shipment.deliveryPin})`);
+    // W30 merge (V3#17): the shipment row stores only the keyed HMAC hash —
+    // the PLAINTEXT 4-digit PIN reaches the buyer via the push, never the DB.
+    assert(shipment.deliveryPin?.startsWith("pinv1:"), `stored PIN is the keyed hash, never plaintext (got ${shipment.deliveryPin})`);
 
     await world.waitFor(() => world.outbound.toPhone(phone).length > before, 8000, "buyer push sent");
     const push = bodyText(world.outbound.lastOfType("text", phone));
     assertIncludes(push, "delivery PIN", "buyer push mentions the delivery PIN");
-    assertIncludes(push, shipment.deliveryPin!, "push contains the actual PIN");
+    const pin = push.match(/delivery PIN is \*(\d{4})\*/)?.[1];
+    assert(pin && /^\d{4}$/.test(pin), "push contains the plaintext 4-digit PIN");
     assertIncludes(push, "Track your order", "push contains a tracking link");
 
     const [o] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, order.id)).limit(1);

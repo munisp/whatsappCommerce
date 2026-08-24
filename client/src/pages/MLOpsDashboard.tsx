@@ -120,12 +120,11 @@ export default function MLOpsDashboard() {
     onError: (e) => toast.error(e.message),
   });
 
+  // W30 (V3#7): the drift log records PSI only — KL/KS are never simulated.
   const driftChartData = useMemo(() =>
     (driftQ.data?.series ?? []).map(d => ({
       date: d.label,
       PSI: parseFloat(d.psi.toFixed(4)),
-      "KL Divergence": parseFloat(d.klDivergence.toFixed(4)),
-      "KS Statistic": parseFloat(d.ksStatistic.toFixed(4)),
     })),
     [driftQ.data]
   );
@@ -273,6 +272,13 @@ export default function MLOpsDashboard() {
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-sm text-white/70 flex items-center gap-2">
                 <Activity className="w-4 h-4 text-violet-400" /> Live Model Performance
+                {/* W30 hotfix: honest labeling — these are proxy metrics, not evaluated model quality */}
+                <span
+                  className="text-[10px] text-amber-400/80 border border-amber-400/30 rounded px-1.5 py-0.5"
+                  title="Precision/recall/F1 here are proxy metrics derived from agent events (confidence scores and escalation flags), not model quality evaluated against labeled ground truth."
+                >
+                  proxy metrics
+                </span>
               </CardTitle>
               <div className="flex items-center gap-2">
                 <span className="text-white/40 text-xs">Window:</span>
@@ -309,6 +315,10 @@ export default function MLOpsDashboard() {
                   </div>
                 </div>
               )}
+              {/* W30 hotfix: visible honesty disclaimer — proxy metrics, not evaluated model quality */}
+              <p className="text-[10px] text-white/35 mb-2">
+                Proxy metrics derived from agent events (confidence scores &amp; escalation flags) — not model quality evaluated against labeled ground truth.
+              </p>
               {perfBuckets.length > 0 ? (
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart data={perfBuckets} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
@@ -387,7 +397,7 @@ export default function MLOpsDashboard() {
                     <Activity className="w-4 h-4 text-amber-400" /> Feature Drift Metrics
                   </CardTitle>
                   <div className="flex items-center gap-3">
-                    {driftQ.data && <DriftAlertBadge level={driftQ.data.summary.alertLevel} />}
+                    {driftQ.data?.summary && <DriftAlertBadge level={driftQ.data.summary.alertLevel} />}
                     <Select value={driftDays.toString()} onValueChange={v => setDriftDays(parseInt(v))}>
                       <SelectTrigger className="w-24 h-8 bg-white/5 border-white/10 text-white text-xs">
                         <SelectValue />
@@ -402,7 +412,13 @@ export default function MLOpsDashboard() {
                 </div>
               </CardHeader>
               <CardContent>
-                {driftQ.data && (
+                {driftQ.data && driftQ.data.available === false && (
+                  <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    Drift metrics unavailable: {driftQ.data.reason}
+                  </div>
+                )}
+                {driftQ.data?.summary && (
                   <div className="grid grid-cols-3 gap-4 mb-4">
                     <div className="bg-white/5 rounded-lg p-3 text-center">
                       <p className="text-white/40 text-xs mb-1">PSI (latest)</p>
@@ -413,12 +429,12 @@ export default function MLOpsDashboard() {
                     </div>
                     <div className="bg-white/5 rounded-lg p-3 text-center">
                       <p className="text-white/40 text-xs mb-1">KL Divergence</p>
-                      <p className="text-lg font-bold text-blue-400">{driftQ.data.summary.currentKlDivergence.toFixed(4)}</p>
+                      <p className="text-lg font-bold text-blue-400">{driftQ.data.summary.currentKlDivergence == null ? "n/a" : driftQ.data.summary.currentKlDivergence.toFixed(4)}</p>
                       <p className="text-white/30 text-xs mt-1">lower is better</p>
                     </div>
                     <div className="bg-white/5 rounded-lg p-3 text-center">
                       <p className="text-white/40 text-xs mb-1">KS Statistic</p>
-                      <p className="text-lg font-bold text-purple-400">{driftQ.data.summary.currentKsStatistic.toFixed(4)}</p>
+                      <p className="text-lg font-bold text-purple-400">{driftQ.data.summary.currentKsStatistic == null ? "n/a" : driftQ.data.summary.currentKsStatistic.toFixed(4)}</p>
                       <p className="text-white/30 text-xs mt-1">distribution shift</p>
                     </div>
                   </div>
@@ -435,11 +451,9 @@ export default function MLOpsDashboard() {
                     <Legend wrapperStyle={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }} />
                     <ReferenceLine y={0.2} stroke="rgba(239,68,68,0.5)" strokeDasharray="4 4" label={{ value: "PSI threshold", fill: "rgba(239,68,68,0.6)", fontSize: 10 }} />
                     <Line type="monotone" dataKey="PSI" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="KL Divergence" stroke="#60a5fa" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="KS Statistic" stroke="#a78bfa" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
-                {driftQ.data?.summary.retrainRecommended && (
+                {driftQ.data?.summary?.retrainRecommended && (
                   <div className="mt-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-between">
                     <div className="flex items-center gap-2 text-red-400 text-sm">
                       <AlertTriangle className="w-4 h-4" />

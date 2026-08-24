@@ -50,7 +50,7 @@ export const journey: Journey = {
     });
     assert(res.ok === true && res.mode === "mandate", `repayment via mandate (${JSON.stringify(res)})`);
     const reference = (res as any).reference as string;
-    assert(new RegExp(`^cr-${CREDIT_ACCOUNT_ID}-\\d{8}-\\d{6}$`).test(reference), `reference shape cr-{accountId}-* (got ${reference})`);
+    assert(new RegExp(`^cr-${CREDIT_ACCOUNT_ID}-\\d{8}-[0-9a-f]{12}$`).test(reference), `reference shape cr-{accountId}-* (got ${reference})`);
 
     // The mock recorded the charge_authorization call with the exact reference.
     const charges = chargeAuthCalls(world);

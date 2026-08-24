@@ -20,6 +20,8 @@ const PROD_BOOT_ENV: Record<string, string> = {
   KYC_SERVICE_API_KEY: "w14-test-kyc-key",
   // A4-04: prod boot gate requires a non-default WhatsApp verify token.
   WHATSAPP_VERIFY_TOKEN: "wa-verify-test-token-0123456789",
+  USSD_GATEWAY_SECRET: "ussd-test-secret", // W30 merge: D's /ussd prod boot gate
+  INTERNAL_API_KEY: "internal-test-key", // W30 merge: E's REQUIRED_BY_ENV
 };
 
 async function importFreshEnv(overrides: Record<string, string | undefined>) {

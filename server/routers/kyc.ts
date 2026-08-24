@@ -17,9 +17,20 @@ import { runKybChecks, type KybCheckResult } from "../services/compliance";
 // or on a degraded sanctions result.
 const KYB_NOTE_RE = /\[kyb-screen\] recommendation=(auto_approve|manual_review|reject)/;
 
+/**
+ * W30 (V2#10): screening is DEFAULT ON. It can only be skipped with an
+ * explicit KYB_SCREENING_DISABLED=true, and only outside production-like
+ * environments — in prod the flag is ignored and screening always runs
+ * (fail closed). The legacy provider-gated default (screening off unless
+ * COMPLIANCE_REGISTRY_PROVIDER/SANCTIONS_LIST_URL was set) left the default
+ * deployment completely unscreened.
+ */
 function kybScreeningEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  const provider = (env.COMPLIANCE_REGISTRY_PROVIDER ?? "disabled").trim();
-  return provider !== "disabled" || Boolean(env.SANCTIONS_LIST_URL);
+  const disabled = (env.KYB_SCREENING_DISABLED ?? "").trim().toLowerCase() === "true";
+  const nodeEnv = env.NODE_ENV;
+  const prod = nodeEnv !== "development" && nodeEnv !== "test"; // fail closed on unset
+  if (disabled && !prod) return false;
+  return true;
 }
 
 async function runKybScreenFor(app: {

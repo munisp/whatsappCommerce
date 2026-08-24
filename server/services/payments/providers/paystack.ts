@@ -21,6 +21,8 @@ import type {
   PaymentInitiateCtx,
   PaymentInitiateResult,
   PaymentProvider,
+  RefundCtx,
+  RefundResult,
   WebhookNormalization,
 } from "./types";
 
@@ -156,6 +158,61 @@ export const paystackProvider: PaymentProvider = {
       return res.ok ? { ok: true } : { ok: false, detail: `HTTP ${res.status}` };
     } catch (err: any) {
       return { ok: false, detail: String(err?.message ?? err) };
+    }
+  },
+
+  /* -------- refund (w30) — POST /refund -------- */
+  /**
+   * Paystack refund API: refunds a successful transaction back to the
+   * customer's payment instrument. Paystack processes refunds
+   * asynchronously (status "pending" → webhook refund.processed/failed), so
+   * a 2xx acceptance maps to "pending" — the refund row is only marked
+   * "processed" once the provider confirms (webhook/admin verification).
+   */
+  async refund(ctx: RefundCtx, creds: unknown): Promise<RefundResult> {
+    const c = asCreds(creds);
+    if (!c.secretKey) {
+      return { ok: false, status: "failed", provider: "paystack", error: "missing secretKey" };
+    }
+    if (!ctx.reference) {
+      return { ok: false, status: "failed", provider: "paystack", error: "missing original payment reference" };
+    }
+    try {
+      const res = await fetch(`${PAYSTACK_BASE}/refund`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${c.secretKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transaction: ctx.reference,
+          // Paystack expects minor units (kobo); omit for a full refund only
+          // when no amount given — here the caller always passes the amount.
+          amount: Math.round(ctx.amountCents),
+          currency: ctx.currency,
+          merchant_note: ctx.reason ? ctx.reason.slice(0, 200) : "refund",
+        }),
+        signal: AbortSignal.timeout(INITIATE_TIMEOUT_MS),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        status?: boolean;
+        message?: string;
+        data?: { transaction?: { reference?: string }; status?: string };
+      };
+      if (!res.ok || data.status === false) {
+        return {
+          ok: false,
+          status: "failed",
+          provider: "paystack",
+          error: typeof data.message === "string" ? data.message : `HTTP ${res.status}`,
+        };
+      }
+      return {
+        ok: true,
+        // Paystack queues refunds — accepted != money already returned.
+        status: "pending",
+        refundReference: data.data?.transaction?.reference,
+        provider: "paystack",
+      };
+    } catch (err: any) {
+      return { ok: false, status: "failed", provider: "paystack", error: String(err?.message ?? err) };
     }
   },
 

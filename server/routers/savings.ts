@@ -13,7 +13,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
-import { assertTenantAccess, protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { adminProcedure, assertTenantAccess, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders } from "../../drizzle/schema";
 import * as stokvel from "../services/stokvel";
@@ -101,6 +101,15 @@ export const stokvelRouter = router({
     .mutation(async ({ ctx, input }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       return { missed: await stokvel.markMissedContributions(await dbOrThrow(), { tenantId: input.tenantId }) };
+    }),
+
+  /** W30 (V1#1): reconciliation surface — retry payouts whose wallet credit failed. */
+  retryPendingPayouts: protectedProcedure
+    .input(z.object({ ...tenantInput }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const r = await stokvel.retryPendingPayouts(await dbOrThrow(), { tenantId: input.tenantId });
+      return { settled: r.settled.length, stillPending: r.stillPending.length };
     }),
 
   /** Member capability token for public statement views (tenant staff only). */
@@ -195,15 +204,35 @@ export const insuranceRouter = router({
       try { return await insurance.fileClaim(await dbOrThrow(), { ...input, trigger: "manual" }); } catch (e) { svcError(e); }
     }),
 
-  /** Parametric event hook (server-to-server / cron callers). */
-  parametricEvent: protectedProcedure
+  /**
+   * Parametric event hook. W30 (V1#2): admin-only — a parametric event can
+   * file full-coverage claims against any active policy in the tenant, so it
+   * must never be callable by an ordinary tenant user. Real event sources
+   * (courier/weather webhooks) should call services/insurance
+   * .handleParametricEvent directly server-side.
+   */
+  parametricEvent: adminProcedure
     .input(z.object({
       ...tenantInput,
       event: z.object({ type: z.string().min(1).max(64), orderId: z.string().max(36).optional() }),
     }))
-    .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.tenantId);
+    .mutation(async ({ input }) => {
       try { return await insurance.handleParametricEvent(await dbOrThrow(), input); } catch (e) { svcError(e); }
+    }),
+
+  /**
+   * W30 (V1#2): manual ops payout confirm. Claims are never auto-paid — an
+   * approved claim sits at `pending_payout` until ops has actually disbursed
+   * (evidence note required) and confirms here. Guarded single flip.
+   */
+  confirmPayout: adminProcedure
+    .input(z.object({
+      ...tenantInput,
+      claimId: z.string().uuid(),
+      note: z.string().min(4).max(200),
+    }))
+    .mutation(async ({ input }) => {
+      try { return await insurance.confirmClaimPayout(await dbOrThrow(), input); } catch (e) { svcError(e); }
     }),
 
   listPolicies: protectedProcedure

@@ -130,6 +130,13 @@ vi.mock("./dapr", () => ({
   publishPaymentEvent: vi.fn(async () => {}),
   daprPublish: vi.fn(async () => {}),
 }));
+// W30 merge (V2#4): payment.confirm now FAILS CLOSED on an inconclusive
+// provider fetchStatus probe (admin override + step-up required). These storm
+// tests target dedupe/claim semantics, not the probe gate, and no provider is
+// configured for the fixture tenant — pin the probe to a conclusive success.
+vi.mock("./services/payments/verifyProviderStatus", () => ({
+  fetchProviderPaymentStatus: vi.fn(async () => ({ status: "success" })),
+}));
 
 // fetch mock: ledger-bridge calls are counted; event publishers succeed silently.
 const fetchMock = vi.fn(async (url: any, init?: any) => {

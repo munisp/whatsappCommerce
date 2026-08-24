@@ -25,6 +25,8 @@ function setEnv(overrides: Record<string, string | undefined> = {}) {
     KYC_SERVICE_API_KEY: "kyc-live-key-0123456789abcdef",
     // A4-04: prod boot gate requires a non-default WhatsApp verify token.
     WHATSAPP_VERIFY_TOKEN: "wa-verify-test-token-0123456789",
+    USSD_GATEWAY_SECRET: "ussd-test-secret", // W30 merge: D's /ussd prod boot gate
+    INTERNAL_API_KEY: "internal-test-key", // W30 merge: E's REQUIRED_BY_ENV
     VLM_MOCK_MODE: undefined,
     REQUIRE_PERMIFY: undefined,
     PERMIFY_URL: undefined,

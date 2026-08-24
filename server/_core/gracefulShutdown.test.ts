@@ -113,6 +113,8 @@ describe("unhandledRejection in production", () => {
     process.env.SECRETS_MASTER_KEY = Buffer.alloc(32, 7).toString("base64");
     process.env.KYC_SERVICE_API_KEY = "kyc-live-test-key";
     process.env.WHATSAPP_VERIFY_TOKEN = "wa-verify-test-token-0123456789";
+    process.env.USSD_GATEWAY_SECRET = "ussd-test-secret"; // W30 merge: D's /ussd prod boot gate
+    process.env.INTERNAL_API_KEY = "internal-test-key"; // W30 merge: E's REQUIRED_BY_ENV
     vi.resetModules();
     try {
       const { registerGracefulShutdown: registerProd } = await import("./gracefulShutdown");

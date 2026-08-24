@@ -8,28 +8,28 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000232",
+      "wamid": "wamid.sim.000228",
       "statuses": [
         "sent"
       ],
-      "at": 1787348530907,
+      "at": 1787559822472,
       "kind": "template",
       "templateName": "credit_due_reminder",
       "templateLanguage": "en",
-      "body": "₦200k · 2026-08-23"
+      "body": "₦200k · 2026-08-26"
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000233",
+      "wamid": "wamid.sim.000229",
       "statuses": [
         "sent"
       ],
-      "at": 1787348531525,
+      "at": 1787559823091,
       "kind": "template",
       "templateName": "credit_due_reminder",
       "templateLanguage": "en",
-      "body": "₦200k · 2026-08-23"
+      "body": "₦200k · 2026-08-26"
     }
   ]
 }

@@ -193,20 +193,11 @@ export async function applyMedusaFulfillment(
   // and out-of-order events are no-ops.
   let escrowAdvanced = false;
   if (newStatus === "delivered") {
-    const res = await db
-      .update(escrowTransactions)
-      .set({
-        state: "delivery_confirmed",
-        deliveryConfirmedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(escrowTransactions.orderId, orderId),
-        eq(escrowTransactions.state, "escrow_held"),
-      ))
-      .returning({ id: escrowTransactions.id })
-      .catch(() => []);
-    escrowAdvanced = res.length > 0;
+    // === W30 escrow-lifecycle === shared helper resets the buyer-protection
+    // deadline on every delivery_confirmed transition (verify-v1 #14).
+    const { confirmEscrowDelivery } = await import("../escrowLifecycle");
+    const res = await confirmEscrowDelivery(db, { orderId });
+    escrowAdvanced = res.transitioned.length > 0;
   }
 
   return { action: "updated", orderId, newStatus, escrowAdvanced };

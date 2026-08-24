@@ -42,13 +42,14 @@ export const journey: Journey = {
     );
 
     // ── Platform admin mints for tenant B ─────────────────────────────────
-    const inviteB = await admin.tenantInvite.create({ tenantId: tenantB, expiryHours: 72 });
+    // W30 merge: invite TTL is capped at 24h (V2#8 invite single-use+24h).
+    const inviteB = await admin.tenantInvite.create({ tenantId: tenantB, expiryHours: 24 });
     assert(inviteB.token && inviteB.tenantId === tenantB, "admin minted tenant-B invite");
     assert(inviteB.portalUrl.includes(inviteB.token), "portal URL carries the token");
     const invitePayload = jwt.verify(inviteB.token, JWT_SECRET_VALUE) as any;
     assert(invitePayload.type === "portal_invite", "invite token type is portal_invite");
     assert(invitePayload.tenantId === tenantB, "invite scoped to tenant B");
-    assert(invitePayload.exp - invitePayload.iat === 72 * 3600, "invite TTL = 72h");
+    assert(invitePayload.exp - invitePayload.iat === 24 * 3600, "invite TTL = 24h (W30 cap)");
 
     // ── Magic link validates into a session for the invited tenant ONLY ────
     const pub = await publicCaller();

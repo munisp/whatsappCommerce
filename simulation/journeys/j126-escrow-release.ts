@@ -53,6 +53,12 @@ export const journey: Journey = {
       await world.db.update(schema.escrowTransactions)
         .set({ buyerConfirmDeadline: new Date(Date.now() - 60_000) })
         .where(eq(schema.escrowTransactions.id, escrow.id));
+      // W30 (verify-v1 #6): the SLA scan now refuses to auto-release escrows
+      // whose order is not delivered — simulate fulfilment so this escrow is
+      // legitimately releasable.
+      await world.db.update(schema.orders)
+        .set({ status: "delivered" })
+        .where(eq(schema.orders.id, order.orderId));
 
       const walletBefore = await world.db.select().from(schema.merchantWallets)
         .where(eq(schema.merchantWallets.tenantId, TENANT_ID)).limit(1);

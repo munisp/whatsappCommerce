@@ -377,6 +377,35 @@ export const paymentRouter = router({
             summary: `High-risk payment flagged (score=${fraudRisk.fraudProbability.toFixed(2)}) — fraud case ${fraudCaseId ?? "n/a"} queued`,
             after: { fraudCaseId, riskLevel: fraudRisk.riskLevel, fraudScore: fraudRisk.fraudProbability },
           });
+
+          // W30 (V2#5): high risk BLOCKS before the ledger reserve — the
+          // previous behavior flagged metadata and then processed the
+          // payment anyway. Configurable via FRAUD_SCREEN_ACTION:
+          //   "block" (default) → intent failed, error surfaced
+          //   "flag"            → legacy flag-and-continue (non-prod only)
+          const action = (process.env.FRAUD_SCREEN_ACTION ?? "block").trim().toLowerCase();
+          const { isProd: fraudIsProd } = await import("../_core/env");
+          const shouldBlock = action !== "flag" || fraudIsProd;
+          if (shouldBlock) {
+            await database.update(paymentIntents)
+              .set({ status: "failed", failureReason: "fraud_screening_blocked", updatedAt: new Date() })
+              .where(eq(paymentIntents.id, paymentIntentId));
+            await writeAuditLog({
+              actorId: null,
+              actorRole: "system",
+              action: "payment.fraudBlock",
+              entityType: "payment_intent",
+              entityId: paymentIntentId,
+              tenantId: input.tenantId,
+              summary: `High-risk payment BLOCKED before ledger reserve (score=${fraudRisk.fraudProbability.toFixed(2)})`,
+              after: { riskLevel: fraudRisk.riskLevel, fraudScore: fraudRisk.fraudProbability, fraudCaseId },
+            });
+            await releaseIdempotencyLock(idempotencyKey).catch(() => {});
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Payment blocked by fraud screening. Please contact support if you believe this is an error.",
+            });
+          }
         }
 
         // Step 3: Ledger 2-phase commit — RESERVE the funds BEFORE the provider
@@ -542,8 +571,14 @@ export const paymentRouter = router({
       reference: z.string(),
       providerStatus: z.enum(["success", "failed", "abandoned"]),
       providerData: z.record(z.string(), z.unknown()).optional(),
+      // W30 (V2#4): when the live provider probe is inconclusive the confirm
+      // fails closed. An admin may override ONLY with an explicit reason +
+      // audit row + step-up OTP to the tenant admin phone.
+      overrideReason: z.string().min(10).max(500).optional(),
+      stepUpChallengeId: z.string().uuid().optional(),
+      stepUpOtp: z.string().length(6).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const database = await getDb();
       if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -584,7 +619,41 @@ export const paymentRouter = router({
           });
         }
         if (probe.status === "pending" || probe.status === "unknown") {
-          console.warn(`[payment.confirm] provider fetchStatus for ${input.reference} = ${probe.status} — proceeding on signed webhook verdict`);
+          // W30 (V2#4): FAIL CLOSED on an inconclusive provider probe. The
+          // only way through is an explicit admin override: a written reason
+          // + a step-up OTP (purpose "payment_override") + an audit row.
+          if (!input.overrideReason) {
+            console.error(`[payment.confirm] provider fetchStatus for ${input.reference} = ${probe.status} — refusing confirmation (fail closed)`);
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: `Provider probe is inconclusive (${probe.status}) — cannot confirm. An admin may override with an explicit overrideReason and step-up verification.`,
+            });
+          }
+          if (!input.stepUpChallengeId || !input.stepUpOtp) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Admin override of an inconclusive provider probe requires step-up verification (stepUp.request with purpose 'payment_override').",
+            });
+          }
+          const { consumeStepUpChallenge } = await import("../services/stepUp");
+          await consumeStepUpChallenge(database, {
+            challengeId: input.stepUpChallengeId,
+            otp: input.stepUpOtp,
+            userId: ctx.user.id,
+            tenantId: intent.tenantId,
+            purpose: "payment_override",
+          });
+          await writeAuditLog({
+            actorId: String(ctx.user.id),
+            actorRole: ctx.user.role,
+            action: "payment.confirmOverride",
+            entityType: "payment_intent",
+            entityId: intent.id,
+            tenantId: intent.tenantId,
+            summary: `Admin override of inconclusive provider probe (${probe.status}) for ${input.reference}: ${input.overrideReason}`,
+            after: { probeStatus: probe.status, overrideReason: input.overrideReason },
+          });
+          console.warn(`[payment.confirm] ADMIN OVERRIDE for ${input.reference} (probe=${probe.status}) by user ${ctx.user.id}: ${input.overrideReason}`);
         }
       }
 

@@ -81,7 +81,7 @@ export const journey: Journey = {
     // payment link).
     await world.waitFor(
       () => world.outbound.toPhone(loser).map((c) => bodyText(c)).join("\n").includes("stock"),
-      30000,
+      90000, // W30 merge seam: full-suite load pushed the loser reply past 30s twice (32s); event-based wait, budget raised
       "loser shortage reply",
     );
 

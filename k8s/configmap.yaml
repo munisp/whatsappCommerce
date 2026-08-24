@@ -11,4 +11,10 @@ data:
   AI_AGENT_URL: "http://ai-agent.whatsapp-commerce.svc.cluster.local:8090"
   COMMERCE_ENGINE_URL: "http://commerce-engine.whatsapp-commerce.svc.cluster.local:8083"
   LEDGER_BRIDGE_URL: "http://ledger-bridge.whatsapp-commerce.svc.cluster.local:8095"
+  # W30 service wiring (V3#4/#8): internal cluster DNS, not localhost.
+  HERMES_BRIDGE_URL: "http://hermes-bridge.whatsapp-commerce.svc.cluster.local:8096"
+  RECON_WORKER_URL: "http://recon-worker.whatsapp-commerce.svc.cluster.local:8096"
+  ML_STACK_URL: "http://ml-inference.whatsapp-commerce.svc.cluster.local:8099"
+  # Mojaloop webhook signature validation — on by default.
+  MOJALOOP_VALIDATE_SIG: "true"
 

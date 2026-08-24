@@ -72,7 +72,7 @@ describe("charge-success / settle-fail (W14)", () => {
     const res = await applyMandateRepaymentTx(db, { accountId: "acct-1", amountCents: 4_000 }, NOW);
     expect(res).toMatchObject({ ok: false, mode: "none", reason: "settlement_failed" });
     const reference = (res as any).reference as string;
-    expect(reference).toMatch(/^cr-acct-1-20250310-\d{6}$/);
+    expect(reference).toMatch(/^cr-acct-1-20250310-[0-9a-f]{12}$/);
 
     const errors = getRecentErrors(10);
     expect(errors).toHaveLength(1);

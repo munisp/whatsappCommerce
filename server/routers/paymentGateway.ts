@@ -472,6 +472,18 @@ export const paymentGatewayRouter = router({
         } catch {
           throw new TRPCError({ code: "BAD_REQUEST", message: "customConfig must be valid JSON" });
         }
+        // W30 (V2#8): a custom provider's baseUrl is later fetched with the
+        // tenant's credential headers attached (customHttp.call) — block
+        // loopback/private/link-local targets at config-write time.
+        const baseUrl = (input.customConfig as Record<string, unknown>).baseUrl;
+        if (typeof baseUrl === "string" && baseUrl) {
+          const { assertSafeOutboundUrl } = await import("../services/ssrfGuard");
+          try {
+            assertSafeOutboundUrl(baseUrl, "custom provider baseUrl");
+          } catch (err: any) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: err?.message ?? "Unsafe provider baseUrl" });
+          }
+        }
       }
       // Masked placeholder sent back by the UI means "keep the stored secret".
       // upsertTenantProviderConfig overwrites secret columns wholesale, so the

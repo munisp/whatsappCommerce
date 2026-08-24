@@ -108,9 +108,14 @@ export const journey: Journey = {
     assert(oodPush, "buyer received an out-for-delivery push");
 
     // The shipment carries a delivery PIN — the buyer hands it over at the door.
-    assert(shipment.deliveryPin, "delivery PIN issued at shipment creation");
+    // W30 merge (V3#17): the row stores only the keyed hash; the plaintext
+    // 4-digit PIN is in the buyer's shipment-created push.
+    assert(shipment.deliveryPin?.startsWith("pinv1:"), "stored PIN is the keyed hash");
+    const pinPush = world.outbound.findByBody("delivery PIN", phone).pop();
+    const deliveryPin = pinPush ? JSON.stringify(pinPush.body ?? pinPush).match(/delivery PIN is \*(\d{4})\*/)?.[1] : undefined;
+    assert(deliveryPin, "plaintext PIN recovered from the buyer push");
     const deliveredShipment = await merchant.logistics.simulateDelivery({
-      shipmentId: shipment.id, status: "delivered", pin: shipment.deliveryPin,
+      shipmentId: shipment.id, status: "delivered", pin: deliveryPin,
     });
     assert(deliveredShipment.status === "delivered" && deliveredShipment.deliveredAt, "shipment delivered with timestamp");
     await world.settle(400);

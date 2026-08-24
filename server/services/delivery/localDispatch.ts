@@ -82,6 +82,10 @@ export function quoteLocalDispatch(req: QuoteRequest): Quote {
 export const localDispatchAdapter: CourierAdapter = {
   id: "local_dispatch",
   displayName: "Local Moto Dispatch (built-in)",
+  // verify-v1 #11: merchant's own rider pool — delivery status is
+  // self-reported, never independently verifiable. In production this must
+  // not drive escrow auto-settlement.
+  escrowTrusted: false,
 
   async quote(req: QuoteRequest): Promise<Quote> {
     return quoteLocalDispatch(req);
