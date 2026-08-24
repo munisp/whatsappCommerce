@@ -34,6 +34,8 @@ import {
   UserPlus, Rocket, KeyRound, Building2, ScrollText,
   Paperclip, BarChart2, Cpu, Plug, SlidersHorizontal, Map, HeartPulse,
   ClipboardCheck, ShoppingCart, ShieldCheck, Wallet, Route, MapPin,
+  Sparkles, UsersRound, Star, Boxes, Landmark, Calculator, Gift,
+  PiggyBank, Umbrella, Ticket,
 } from "lucide-react";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -79,9 +81,13 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     icon: ShoppingBag,
     items: [
       { icon: Package,         label: "Products",        path: "/products" },
+      { icon: Sparkles,        label: "Catalog AI Drafts", path: "/catalog-ai-drafts" },
       { icon: Smartphone,      label: "WhatsApp Menu",   path: "/menu-builder" },
       { icon: Warehouse,       label: "Inventory",       path: "/inventory" },
       { icon: Store,           label: "Sales Channels",  path: "/sales-channels" },
+      { icon: Boxes,           label: "Wholesale",       path: "/wholesale" },
+      { icon: UsersRound,      label: "Group Deals",     path: "/group-deals" },
+      { icon: Star,            label: "Reviews",         path: "/reviews" },
     ],
   },
   {
@@ -121,6 +127,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: BarChart3,       label: "Orders",          path: "/orders" },
       { icon: AlertTriangle,   label: "Disputes",        path: "/disputes" },
       { icon: Truck,           label: "COD & Offline",   path: "/cod" },
+      { icon: Truck,           label: "Delivery",        path: "/delivery" },
     ],
   },
   {
@@ -134,6 +141,8 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: FileText,        label: "Invoices",        path: "/invoices" },
       { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money" },
       { icon: Wallet,          label: "Wallet",          path: "/portal/wallet" },
+      { icon: Landmark,        label: "Credit & Loans",  path: "/credit" },
+      { icon: Calculator,      label: "Bookkeeping",     path: "/portal/bookkeeping" },
     ],
   },
   {
@@ -155,7 +164,9 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: Users,           label: "Twenty CRM",      path: "/twenty-crm" },
       { icon: Users,           label: "CRM Pipeline",    path: "/crm" },
       { icon: Package,         label: "Odoo",            path: "/odoo-erp" },
+      { icon: Package,         label: "Odoo Settings",   path: "/portal/odoo" },
       { icon: ShoppingBag,     label: "Medusa",          path: "/medusa" },
+      { icon: ShoppingBag,     label: "Medusa Storefront", path: "/settings/medusa-storefront" },
     ],
   },
   {
@@ -169,6 +180,18 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
       { icon: Plug,            label: "Integration Settings", path: "/integration-settings" },
       { icon: SlidersHorizontal, label: "Tenant Settings", path: "/tenant-settings" },
       { icon: MapPin,          label: "Local Discovery",  path: "/settings/discovery" },
+      { icon: Store,           label: "Storefront",      path: "/settings/storefront" },
+    ],
+  },
+  {
+    id: "loyalty-rewards",
+    label: "Loyalty & Rewards",
+    icon: Gift,
+    items: [
+      { icon: Gift,            label: "Loyalty",         path: "/loyalty" },
+      { icon: PiggyBank,       label: "Savings Circles", path: "/savings-circles" },
+      { icon: Umbrella,        label: "Insurance",       path: "/insurance" },
+      { icon: Ticket,          label: "Vouchers",        path: "/vouchers" },
     ],
   },
 ];

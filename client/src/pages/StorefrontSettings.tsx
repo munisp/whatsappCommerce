@@ -5,7 +5,7 @@
  * default storefront language.
  */
 import { useEffect, useState } from "react";
-import { TenantPortalLayout } from "@/components/TenantPortalLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,7 @@ export default function StorefrontSettings() {
   const shopPath = slug ? `/shop/${slug}` : null;
 
   return (
-    <TenantPortalLayout>
+    <DashboardLayout>
       <div className="max-w-2xl space-y-6 p-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -169,6 +169,6 @@ export default function StorefrontSettings() {
           </Card>
         )}
       </div>
-    </TenantPortalLayout>
+    </DashboardLayout>
   );
 }

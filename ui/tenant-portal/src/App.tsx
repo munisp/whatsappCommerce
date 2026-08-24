@@ -76,6 +76,19 @@ const MerchantGeoSettings = lazy(() => import("@/pages/MerchantGeoSettings"));
 // === W27 storefront-i18n ===
 const Shop = lazy(() => import("@/pages/Shop"));
 const StorefrontSettings = lazy(() => import("@/pages/StorefrontSettings"));
+const CatalogAIDrafts = lazy(() => import("@/pages/CatalogAIDrafts"));
+const CreditDashboard = lazy(() => import("@/pages/CreditDashboard"));
+const DeliveryHub = lazy(() => import("@/pages/DeliveryHub"));
+const GroupDeals = lazy(() => import("@/pages/GroupDeals"));
+const InsurancePolicies = lazy(() => import("@/pages/InsurancePolicies"));
+const LoyaltyConfig = lazy(() => import("@/pages/LoyaltyConfig"));
+const ReviewsModeration = lazy(() => import("@/pages/ReviewsModeration"));
+const SavingsCircles = lazy(() => import("@/pages/SavingsCircles"));
+const VoucherPrograms = lazy(() => import("@/pages/VoucherPrograms"));
+const WholesaleMarketplace = lazy(() => import("@/pages/WholesaleMarketplace"));
+const MedusaStorefrontSettings = lazy(() => import("@/pages/MedusaStorefrontSettings"));
+const PortalBookkeeping = lazy(() => import("@/pages/portal/PortalBookkeeping"));
+const PortalOdooSettings = lazy(() => import("@/pages/portal/PortalOdooSettings"));
 
 function RouteFallback() {
   return (
@@ -178,6 +191,19 @@ function Router() {
         {/* === W27 storefront-i18n === */}
         <Route path="/shop/:slug" component={Shop} />
         <Route path="/settings/storefront" component={StorefrontSettings} />
+        <Route path="/catalog-ai-drafts" component={CatalogAIDrafts} />
+        <Route path="/credit" component={CreditDashboard} />
+        <Route path="/delivery" component={DeliveryHub} />
+        <Route path="/group-deals" component={GroupDeals} />
+        <Route path="/insurance" component={InsurancePolicies} />
+        <Route path="/loyalty" component={LoyaltyConfig} />
+        <Route path="/reviews" component={ReviewsModeration} />
+        <Route path="/savings-circles" component={SavingsCircles} />
+        <Route path="/vouchers" component={VoucherPrograms} />
+        <Route path="/wholesale" component={WholesaleMarketplace} />
+        <Route path="/settings/medusa-storefront" component={MedusaStorefrontSettings} />
+        <Route path="/portal/bookkeeping" component={PortalBookkeeping} />
+        <Route path="/portal/odoo" component={PortalOdooSettings} />
 
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />

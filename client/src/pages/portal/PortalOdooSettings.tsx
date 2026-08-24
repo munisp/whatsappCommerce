@@ -3,7 +3,7 @@
 // connection, sync mode (push | batch | ondemand), account mapping, enable
 // toggle, and the reconciliation queue (failed outbox rows + retry).
 import { useEffect, useState } from "react";
-import { TenantPortalLayout } from "@/components/TenantPortalLayout";
+import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -76,7 +76,7 @@ export default function PortalOdooSettings() {
   };
 
   return (
-    <TenantPortalLayout>
+    <DashboardLayout>
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Odoo ERP Sync</h1>
@@ -180,6 +180,6 @@ export default function PortalOdooSettings() {
           </CardContent>
         </Card>
       </div>
-    </TenantPortalLayout>
+    </DashboardLayout>
   );
 }
