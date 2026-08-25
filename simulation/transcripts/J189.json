@@ -1,0 +1,8 @@
+{
+  "id": "J189",
+  "title": "batch of 5 with 1 insufficient → 4 executed, per-item idempotency",
+  "feature": "W31 batch payments: single confirmation, isolated per-item txs, honest outcomes",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

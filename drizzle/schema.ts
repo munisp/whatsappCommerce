@@ -4641,3 +4641,217 @@ export const tenantInviteTokens = pgTable("tenant_invite_tokens", {
 export type TenantInviteToken = typeof tenantInviteTokens.$inferSelect;
 export type NewTenantInviteToken = typeof tenantInviteTokens.$inferInsert;
 // === END W30 auth-gates ===
+
+// === W31 vendor-bills (Coder A) ===
+// Vendor bills AP inbox (Melio-inspired). Capture sources: manual entry,
+// receipt-vision OCR on a photo/PDF, a forwarded WhatsApp supplier invoice,
+// or an Odoo pull. Status vocabulary is honest — a bill is 'paid' only when
+// the wallet debit has committed; partial settlement is 'partially_paid';
+// 'overdue' is set by the markOverdue sweep only after due_date has passed.
+export const vendorBills = pgTable("vendor_bills", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tenantId:       varchar("tenant_id", { length: 36 }).notNull(),
+  vendorName:     varchar("vendor_name", { length: 160 }).notNull(),
+  vendorContact:  jsonb("vendor_contact"), // { phone?, email?, bankAccount? }
+  billNumber:     varchar("bill_number", { length: 64 }),
+  description:    text("description"),
+  amountCents:    bigint("amount_cents", { mode: "number" }).notNull(),
+  currency:       varchar("currency", { length: 3 }).notNull().default("NGN"),
+  issueDate:      timestamp("issue_date"),
+  dueDate:        timestamp("due_date"),
+  // pending | scheduled | approved | paid | partially_paid | overdue | cancelled
+  status:         varchar("status", { length: 16 }).notNull().default("pending"),
+  paidCents:      bigint("paid_cents", { mode: "number" }).notNull().default(0),
+  captureSource:  varchar("capture_source", { length: 16 }).notNull().default("manual"), // photo|pdf|whatsapp|manual|odoo
+  captureMediaKey: varchar("capture_media_key", { length: 160 }),
+  ocrConfidence:  numeric("ocr_confidence"),
+  ocrRaw:         jsonb("ocr_raw"),
+  paymentRef:     varchar("payment_ref", { length: 128 }),
+  approvalId:     varchar("approval_id", { length: 64 }),
+  odooSyncState:  varchar("odoo_sync_state", { length: 16 }),
+  createdBy:      varchar("created_by", { length: 64 }),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("vendor_bills_tenant_status_idx").on(t.tenantId, t.status),
+  index("vendor_bills_tenant_due_idx").on(t.tenantId, t.dueDate),
+  uniqueIndex("vendor_bills_payment_ref_uniq").on(t.paymentRef),
+]);
+export type VendorBill = typeof vendorBills.$inferSelect;
+export type NewVendorBill = typeof vendorBills.$inferInsert;
+
+// Audit trail: every lifecycle transition appends an event row.
+export const vendorBillEvents = pgTable("vendor_bill_events", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  billId:    uuid("bill_id").notNull(),
+  event:     varchar("event", { length: 32 }).notNull(),
+  actor:     varchar("actor", { length: 64 }),
+  metadata:  jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("vendor_bill_events_bill_idx").on(t.billId, t.createdAt),
+]);
+export type VendorBillEvent = typeof vendorBillEvents.$inferSelect;
+export type NewVendorBillEvent = typeof vendorBillEvents.$inferInsert;
+// === END W31 vendor-bills ===
+
+// === W31 scheduled-batch (Coder B) ===
+// Payment scheduling + batch payments (Melio-inspired AP fundamentals).
+// scheduled_payments: a future wallet debit (vendor bill, payout, or ad-hoc
+// recipient) claimed by the /api/scheduled/execute-payments cron exactly once
+// (guarded pending→claimed UPDATE; wallet_tx reference `sched:<id>` is the
+// durable idempotency backstop via wallet_tx_wallet_ref_uniq).
+// NOTE (vendor_bill contract): kind='vendor_bill' rows reference Coder A's
+// vendor_bills table BY ID ONLY — no FK and no schema import, so this branch
+// compiles standalone; the bill is resolved lazily at execution time and a
+// missing vendor_bills table degrades honestly (execution still pays from the
+// wallet; the bill-side bookkeeping is skipped with a logged warning).
+// status vocabulary: pending | claimed | executed | failed | cancelled |
+// insufficient_funds (18 chars — column is varchar(20), wider than the
+// spec's nominal varchar(16) so the honest status never truncates).
+export const scheduledPayments = pgTable("scheduled_payments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(), // vendor_bill | payout | adhoc
+  targetId: varchar("target_id", { length: 64 }),
+  recipient: jsonb("recipient"),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).default("NGN").notNull(),
+  executeAt: timestamp("execute_at", { withTimezone: true }).notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  metadata: jsonb("metadata"),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("scheduled_payments_idem_uniq").on(t.idempotencyKey),
+  index("scheduled_payments_status_exec_idx").on(t.status, t.executeAt),
+  index("scheduled_payments_tenant_idx").on(t.tenantId, t.status),
+]);
+export type ScheduledPayment = typeof scheduledPayments.$inferSelect;
+export type NewScheduledPayment = typeof scheduledPayments.$inferInsert;
+
+// payment_batches: summary row for one batchPay confirmation; items are the
+// scheduled_payments rows with idempotency_key `batch:<batchId>:<idx>`.
+export const paymentBatches = pgTable("payment_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  totalCents: bigint("total_cents", { mode: "number" }).notNull(),
+  itemCount: integer("item_count").notNull(),
+  executedCount: integer("executed_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdBy: varchar("created_by", { length: 36 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("payment_batches_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type PaymentBatch = typeof paymentBatches.$inferSelect;
+export type NewPaymentBatch = typeof paymentBatches.$inferInsert;
+// === END W31 scheduled-batch ===
+
+// === W31 approvals (Coder C) ===
+// Threshold approval workflows: a tenant policy (tenant_approval_policies)
+// parks covered money actions (approval_requests) until an owner/operator
+// approves. threshold_cents = 0 → approvals OFF (honest semantics).
+// Single-consumption via guarded UPDATE ... WHERE status='pending'.
+export const approvalRequests = pgTable("approval_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** vendor_bill_payment | scheduled_payment | withdrawal | payout */
+  kind: varchar("kind", { length: 24 }).notNull(),
+  targetId: varchar("target_id", { length: 64 }),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  requestedBy: varchar("requested_by", { length: 36 }).notNull(),
+  approverRole: varchar("approver_role", { length: 16 }).notNull().default("owner"),
+  /** pending | approved | rejected | expired | executed */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  decidedBy: varchar("decided_by", { length: 36 }),
+  decidedAt: timestamp("decided_at"),
+  decisionNote: text("decision_note"),
+  stepUpChallengeId: varchar("step_up_challenge_id", { length: 36 }),
+  expiresAt: timestamp("expires_at").notNull(),
+  executedAt: timestamp("executed_at"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("approval_requests_tenant_status_idx").on(t.tenantId, t.status),
+  index("approval_requests_status_expires_idx").on(t.status, t.expiresAt),
+]);
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+export type NewApprovalRequest = typeof approvalRequests.$inferInsert;
+
+export const tenantApprovalPolicies = pgTable("tenant_approval_policies", {
+  tenantId: varchar("tenant_id", { length: 36 }).primaryKey(),
+  /** 0 = approvals disabled. */
+  thresholdCents: bigint("threshold_cents", { mode: "number" }).notNull().default(0),
+  /** Covered kinds; NULL/empty = all kinds. */
+  kinds: text("kinds").array(),
+  approverRole: varchar("approver_role", { length: 16 }).notNull().default("owner"),
+  expiryHours: integer("expiry_hours").notNull().default(72),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedBy: varchar("updated_by", { length: 36 }),
+});
+export type TenantApprovalPolicy = typeof tenantApprovalPolicies.$inferSelect;
+export type NewTenantApprovalPolicy = typeof tenantApprovalPolicies.$inferInsert;
+// === END W31 approvals ===
+
+// === W31 ar-invoices ===
+// AR invoices with PSP payment links + polite WA payment reminders.
+// invoice_no is a tenant-scoped sequence (unique per tenant); payment_link_ref
+// is the unique PSP reference the hosted payment link was minted with —
+// webhook/confirm resolution keys on it. Money recording happens ONLY after
+// verified provider status (hasVerifiedPayment); ar_invoice_payments.psp_reference
+// is unique so a replayed webhook can never double-record.
+export const arInvoices = pgTable("ar_invoices", {
+  id:             uuid("id").primaryKey().defaultRandom(),
+  tenantId:       varchar("tenant_id", { length: 36 }).notNull(),
+  customerName:   varchar("customer_name", { length: 200 }),
+  customerPhone:  varchar("customer_phone", { length: 20 }),
+  customerEmail:  varchar("customer_email", { length: 320 }),
+  invoiceNo:      integer("invoice_no").notNull(),
+  description:    text("description"),
+  amountCents:    bigint("amount_cents", { mode: "number" }).notNull(),
+  paidCents:      bigint("paid_cents", { mode: "number" }).notNull().default(0),
+  currency:       varchar("currency", { length: 3 }).notNull().default("NGN"),
+  dueDate:        timestamp("due_date"),
+  /** draft | sent | viewed | partially_paid | paid | overdue | cancelled */
+  status:         varchar("status", { length: 16 }).notNull().default("draft"),
+  paymentLinkRef: varchar("payment_link_ref", { length: 64 }),
+  pspReference:   varchar("psp_reference", { length: 128 }),
+  paymentUrl:     text("payment_url"),
+  sentAt:         timestamp("sent_at"),
+  viewedAt:       timestamp("viewed_at"),
+  paidAt:         timestamp("paid_at"),
+  reminderCount:  integer("reminder_count").notNull().default(0),
+  lastReminderAt: timestamp("last_reminder_at"),
+  metadata:       jsonb("metadata"),
+  createdAt:      timestamp("created_at").notNull().defaultNow(),
+  updatedAt:      timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("ar_invoices_tenant_no_uniq").on(t.tenantId, t.invoiceNo),
+  uniqueIndex("ar_invoices_payment_link_ref_uniq").on(t.paymentLinkRef),
+  index("ar_invoices_tenant_status_idx").on(t.tenantId, t.status),
+  index("ar_invoices_tenant_due_idx").on(t.tenantId, t.dueDate),
+]);
+export type ArInvoice = typeof arInvoices.$inferSelect;
+export type NewArInvoice = typeof arInvoices.$inferInsert;
+
+export const arInvoicePayments = pgTable("ar_invoice_payments", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  invoiceId:    uuid("invoice_id").notNull(),
+  amountCents:  bigint("amount_cents", { mode: "number" }).notNull(),
+  pspReference: varchar("psp_reference", { length: 128 }).notNull(),
+  /** recorded (verified provider payment recorded against the invoice) */
+  status:       varchar("status", { length: 16 }).notNull().default("recorded"),
+  recordedAt:   timestamp("recorded_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("ar_invoice_payments_psp_ref_uniq").on(t.pspReference),
+  index("ar_invoice_payments_invoice_idx").on(t.invoiceId),
+]);
+export type ArInvoicePayment = typeof arInvoicePayments.$inferSelect;
+export type NewArInvoicePayment = typeof arInvoicePayments.$inferInsert;
+// === END W31 ar-invoices ===

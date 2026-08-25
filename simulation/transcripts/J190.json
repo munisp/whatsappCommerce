@@ -1,0 +1,20 @@
+{
+  "id": "J190",
+  "title": "T-1 WhatsApp reminder sent once (metadata.remindedAt dedupe)",
+  "feature": "W31 scheduled payments: T-1 reminder with claim-before-send dedupe",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017807361",
+      "wamid": "wamid.sim.000697",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787635069613,
+      "kind": "text",
+      "body": "Reminder: your Scheduled payment — scheduled ad-hoc payment of NGN 7500.00 is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it."
+    }
+  ]
+}

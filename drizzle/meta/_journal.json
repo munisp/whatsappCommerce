@@ -680,6 +680,48 @@
       "when": 1786990050000,
       "tag": "0099_loan_open_uniq_include_defaulted",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1786990050001,
+      "tag": "0100_vendor_bills",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1786990050002,
+      "tag": "0101_vendor_bill_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1787000102000,
+      "tag": "0102_scheduled_batch_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1786990070000,
+      "tag": "0103_w31_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1786990070000,
+      "tag": "0104_ar_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1786990090000,
+      "tag": "0105_ar_invoice_payments",
+      "breakpoints": true
     }
   ]
 }

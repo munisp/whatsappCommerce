@@ -490,6 +490,16 @@ export async function bootWorld(): Promise<World> {
       waitFor,
 
       async resetJourneyState() {
+        // === W31 ar-invoices === wipe AR invoice tables + their payment
+        // intents so J193–J196 never leak reminders/payments into each other.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql } = await import("drizzle-orm");
+          await world.db.delete(schema.arInvoicePayments);
+          await world.db.delete(schema.arInvoices);
+          await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' = 'ar_invoice_payment'`);
+        } catch { /* W31 tables not migrated yet */ }
+        // === END W31 ar-invoices ===
         // Restore seed stock so journeys never starve each other.
         try {
           const { products } = await import("../drizzle/schema");
@@ -551,6 +561,14 @@ export async function bootWorld(): Promise<World> {
           mockMedusaAdapter.reset();
         } catch { /* w28 tables not migrated yet */ }
         // === END W28 medusa-storefront ===
+        // === W31 scheduled-batch (Coder B): scheduled payments and batch
+        // summaries never leak between journeys (J187–J190).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.scheduledPayments);
+          await world.db.delete(schema.paymentBatches);
+        } catch { /* w31 tables not migrated yet */ }
+        // === END W31 scheduled-batch ===
         // Wave 9 isolation: onboarding copilot sessions + the waOnboarding
         // in-memory pending-edit map never leak between journeys.
         try {
@@ -786,6 +804,14 @@ export async function bootWorld(): Promise<World> {
           resetOdooAdapters();
         } catch { /* odoo adapter unavailable */ }
         // === END W28 odoo-sync ===
+        // === W31 vendor-bills (Coder A) isolation: bills + audit events
+        // created by J183–J186 never leak between journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.vendorBillEvents);
+          await world.db.delete(schema.vendorBills);
+        } catch { /* w31 tables not migrated yet */ }
+        // === END W31 vendor-bills ===
         delete process.env.CATALOG_EXTRACTION_PROVIDER;
         delete process.env.CATALOG_EXTRACTION_ENDPOINT;
         delete process.env.CATALOG_EXTRACTION_API_KEY;

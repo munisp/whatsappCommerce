@@ -9,25 +9,25 @@
       "dir": "in",
       "phone": "2348099900000",
       "profileName": "Sim User 0000",
-      "inboundId": "wamid.sim.in.text.00396",
-      "at": 1787560159526,
+      "inboundId": "wamid.sim.in.text.00398",
+      "at": 1787635022643,
       "kind": "text",
       "text": "odoo status"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00396",
-      "at": 1787560159531
+      "wamid": "wamid.sim.in.text.00398",
+      "at": 1787635022646
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000633",
+      "wamid": "wamid.sim.000637",
       "statuses": [
         "sent"
       ],
-      "at": 1787560159551,
+      "at": 1787635022666,
       "kind": "text",
       "body": "📊 *Odoo sync status*\n• Connection: enabled (push mode)\n• Pending: 0\n• Synced: 0\n• Failed (needs attention): 0\n• Last connection test: OK"
     }

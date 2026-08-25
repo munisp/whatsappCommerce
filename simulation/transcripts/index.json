@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T08:30:00.541Z",
+  "generatedAt": "2026-08-25T05:18:00.515Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -446,7 +446,7 @@
       "id": "J141",
       "title": "loan default path",
       "feature": "microLoans late/default handling + cure",
-      "pass": false,
+      "pass": true,
       "file": "J141.json",
       "messageCount": 0
     },
@@ -782,9 +782,9 @@
       "id": "J18",
       "title": "stock guard (race + OOS)",
       "feature": "reserveStock atomicity + waitlist",
-      "pass": false,
+      "pass": true,
       "file": "J18.json",
-      "messageCount": 19
+      "messageCount": 26
     },
     {
       "id": "J180",
@@ -811,6 +811,62 @@
       "messageCount": 24
     },
     {
+      "id": "J183",
+      "title": "vendor bill pay in full",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J183.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J184",
+      "title": "vendor bill partial payments",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J184.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J185",
+      "title": "whatsapp bill capture",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J185.json",
+      "messageCount": 5
+    },
+    {
+      "id": "J186",
+      "title": "insufficient funds + overdue sweep",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J186.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J187",
+      "title": "scheduled vendor-bill payment executes once via cron; replay no-op",
+      "feature": "W31 scheduled payments: claim-before-send cron execution + sched:<id> idempotency",
+      "pass": true,
+      "file": "J187.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J188",
+      "title": "insufficient funds honesty → top-up → merchant retry → executed",
+      "feature": "W31 scheduled payments: honest insufficient_funds + retry after top-up",
+      "pass": true,
+      "file": "J188.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J189",
+      "title": "batch of 5 with 1 insufficient → 4 executed, per-item idempotency",
+      "feature": "W31 batch payments: single confirmation, isolated per-item txs, honest outcomes",
+      "pass": true,
+      "file": "J189.json",
+      "messageCount": 0
+    },
+    {
       "id": "J19",
       "title": "restock waitlist notify",
       "feature": "0→5 restock fan-out",
@@ -819,12 +875,76 @@
       "messageCount": 13
     },
     {
+      "id": "J190",
+      "title": "T-1 WhatsApp reminder sent once (metadata.remindedAt dedupe)",
+      "feature": "W31 scheduled payments: T-1 reminder with claim-before-send dedupe",
+      "pass": true,
+      "file": "J190.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J191",
+      "title": "approval policy parks withdrawal; approve executes once; second approve CONFLICT; step-up composes",
+      "feature": "W31 approvals: requireApprovalIfNeeded + decideApproval + withdrawal executor",
+      "pass": true,
+      "file": "J191.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J192",
+      "title": "reject moves nothing + audit; expiry sweep expires stale requests; threshold 0 = off",
+      "feature": "W31 approvals: reject path + sweepExpiredApprovals cron + honest policy-off semantics",
+      "pass": true,
+      "file": "J192.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J193",
+      "title": "AR invoice create → send link → customer pays in full",
+      "feature": "arInvoices create/send + paymentConfirm webhook rail → paid",
+      "pass": true,
+      "file": "J193.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J194",
+      "title": "AR invoice partial payments → partially_paid → paid; replay no-op",
+      "feature": "arInvoices partial accumulation + exactly-once recording",
+      "pass": true,
+      "file": "J194.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J195",
+      "title": "AR overdue sweep → 3-spaced reminders → stop",
+      "feature": "W31 AR reminders cron (max 3, 3d spacing, dedupe)",
+      "pass": true,
+      "file": "J195.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J196",
+      "title": "AR invoice cancel → link invalidated honestly",
+      "feature": "arInvoices cancel + honest 410 public surface + no silent money",
+      "pass": true,
+      "file": "J196.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J197",
+      "title": "approval gate across vendor bills + scheduled payments (merger seam)",
+      "feature": "W31 approvals × vendor-bills × scheduled-payments cross-branch wiring",
+      "pass": true,
+      "file": "J197.json",
+      "messageCount": 0
+    },
+    {
       "id": "J20",
       "title": "broadcast campaign",
       "feature": "consent gate + window routing + quality block",
       "pass": true,
       "file": "J20.json",
-      "messageCount": 30
+      "messageCount": 31
     },
     {
       "id": "J21",

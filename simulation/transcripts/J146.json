@@ -7,81 +7,81 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019293819",
-      "profileName": "Sim User 3819",
-      "inboundId": "wamid.sim.in.text.00364",
-      "at": 1787560138922,
+      "phone": "2348014196023",
+      "profileName": "Sim User 6023",
+      "inboundId": "wamid.sim.in.text.00366",
+      "at": 1787635002026,
       "kind": "text",
       "text": "wholesale preforms"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00364",
-      "at": 1787560138926
+      "wamid": "wamid.sim.in.text.00366",
+      "at": 1787635002029
     },
     {
       "dir": "out",
-      "phone": "2348019293819",
-      "wamid": "wamid.sim.000598",
+      "phone": "2348014196023",
+      "wamid": "wamid.sim.000602",
       "statuses": [
         "sent"
       ],
-      "at": 1787560138950,
+      "at": 1787635002058,
       "kind": "text",
-      "body": "🏪 *Wholesale marketplace* — “preforms”:\n1. *PET Preforms 500ml (bulk)* (MOQ 100)\n100+–499 units: NGN 45.00/unit; 500+ units: NGN 40.00/unit\nID: 9de50b93\n\nReply *buy <#> <qty>* to order (e.g. buy 1 100)."
+      "body": "🏪 *Wholesale marketplace* — “preforms”:\n1. *PET Preforms 500ml (bulk)* (MOQ 100)\n100+–499 units: NGN 45.00/unit; 500+ units: NGN 40.00/unit\nID: 3976abd6\n\nReply *buy <#> <qty>* to order (e.g. buy 1 100)."
     },
     {
       "dir": "in",
-      "phone": "2348019293819",
-      "profileName": "Sim User 3819",
-      "inboundId": "wamid.sim.in.text.00365",
-      "at": 1787560139468,
+      "phone": "2348014196023",
+      "profileName": "Sim User 6023",
+      "inboundId": "wamid.sim.in.text.00367",
+      "at": 1787635002570,
       "kind": "text",
       "text": "buy 1 50"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00365",
-      "at": 1787560139471
+      "wamid": "wamid.sim.in.text.00367",
+      "at": 1787635002574
     },
     {
       "dir": "out",
-      "phone": "2348019293819",
-      "wamid": "wamid.sim.000599",
+      "phone": "2348014196023",
+      "wamid": "wamid.sim.000603",
       "statuses": [
         "sent"
       ],
-      "at": 1787560139491,
+      "at": 1787635002596,
       "kind": "text",
       "body": "That quantity is below the minimum order quantity (MOQ) — check the listing and try a larger qty."
     },
     {
       "dir": "in",
-      "phone": "2348019293819",
-      "profileName": "Sim User 3819",
-      "inboundId": "wamid.sim.in.text.00366",
-      "at": 1787560140013,
+      "phone": "2348014196023",
+      "profileName": "Sim User 6023",
+      "inboundId": "wamid.sim.in.text.00368",
+      "at": 1787635003115,
       "kind": "text",
       "text": "buy 1 600"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00366",
-      "at": 1787560140019
+      "wamid": "wamid.sim.in.text.00368",
+      "at": 1787635003119
     },
     {
       "dir": "out",
-      "phone": "2348019293819",
-      "wamid": "wamid.sim.000600",
+      "phone": "2348014196023",
+      "wamid": "wamid.sim.000604",
       "statuses": [
         "sent"
       ],
-      "at": 1787560140048,
+      "at": 1787635003141,
       "kind": "text",
-      "body": "✅ Wholesale order placed: 600 units × NGN 40.00 = *NGN 24,000.00*\nOrder ref: 10785724. The wholesaler will confirm and arrange payment/fulfillment."
+      "body": "✅ Wholesale order placed: 600 units × NGN 40.00 = *NGN 24,000.00*\nOrder ref: f8e24e2f. The wholesaler will confirm and arrange payment/fulfillment."
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "id": "J187",
+  "title": "scheduled vendor-bill payment executes once via cron; replay no-op",
+  "feature": "W31 scheduled payments: claim-before-send cron execution + sched:<id> idempotency",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

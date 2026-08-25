@@ -735,6 +735,32 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
       data: { transaction: { reference: txRef }, status: "pending" },
     });
   }
+  // ── W31 approvals: Paystack Transfers (wallet withdrawal payouts) ─────
+  // createTransferRecipient / initiateTransfer / verifyTransfer — succeeds
+  // deterministically so approved withdrawals execute end-to-end in sim.
+  if (url.hostname.includes("paystack.co") && url.pathname.endsWith("/transferrecipient")) {
+    return jsonResponse({
+      status: true,
+      message: "Recipient created",
+      data: { recipient_code: `RCP_sim_${body?.account_number ?? "0000"}`, active: true },
+    });
+  }
+  if (url.hostname.includes("paystack.co") && url.pathname.endsWith("/transfer") && method === "POST") {
+    const ref = body?.reference ?? "sim-ref";
+    return jsonResponse({
+      status: true,
+      message: "Transfer has been queued",
+      data: { status: "success", transfer_code: `TRF_sim_${ref}`, reference: ref },
+    });
+  }
+  if (url.hostname.includes("paystack.co") && url.pathname.includes("/transfer/verify/")) {
+    const ref = decodeURIComponent(url.pathname.split("/transfer/verify/")[1] ?? "sim-ref");
+    return jsonResponse({
+      status: true,
+      message: "Transfer retrieved",
+      data: { status: "success", transfer_code: `TRF_sim_${ref}`, reference: ref },
+    });
+  }
   // ── W13: mandate (off-session / tokenized) charges ───────────────────────
   if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/charge_authorization")) {
     if (pay.mandateChargeStatus != null) {
