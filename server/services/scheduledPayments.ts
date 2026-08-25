@@ -19,6 +19,21 @@
  *    time inside try/catch so this branch compiles and runs standalone; when
  *    the table (or row) is absent the wallet payment still executes honestly
  *    and the bill-side bookkeeping is skipped with a logged warning.
+ *
+ * === W32 recurring-tiers (Coder B) ===
+ * Payout speed tiers (migration 0108, additive `speed` column):
+ *  - 'standard' (default): free; a due payment is executed by the next
+ *    execute-payments tick. Honest copy: "processed in the next batch" — no
+ *    fake T+1 promise (no next-business-day rail is integrated).
+ *  - 'instant': when execute_at<=now the payment is claimed and executed
+ *    INLINE in the schedule call. A platform fee (escrow_config
+ *    .instant_payout_fee_bps, integer cents, fee + net == gross) is deducted
+ *    from the SAME locked debit: the merchant wallet drops by the gross, the
+ *    recipient gets the net (wallet_tx `sched:<id>`, amount = net), and the
+ *    fee is credited to the deterministic platform fee wallet (wallet_tx
+ *    reference `schedfee:<id>`, unique-ref backstop) — mirrors the escrow
+ *    settleEscrowAtomic fee-leg pattern. The approvals gate composes first:
+ *    an instant payment parked by policy never moves money at schedule time.
  */
 import crypto from "crypto";
 import { and, desc, eq, gt, lte, sql, type SQL } from "drizzle-orm";
@@ -68,6 +83,46 @@ export interface SchedExecutionOutcome {
   outcome: "executed" | "insufficient_funds" | "failed" | "duplicate" | "pending_approval";
   walletTxId?: string;
   error?: string;
+  /** W32: instant fee leg (integer cents). Present only for speed='instant'. */
+  feeCents?: number;
+  netCents?: number;
+}
+
+// ─── W32 recurring-tiers: platform fee wallet + instant fee math ────────────
+// Deterministic platform fee wallet (same ids as server/routers/escrow.ts so
+// instant payout fees land in the SAME wallet as escrow settlement fees).
+export const PLATFORM_FEE_WALLET_ID = "platform-fee-wallet";
+const PLATFORM_FEE_TENANT_ID = "platform-fees";
+
+async function getOrCreatePlatformFeeWallet(db: DbOrTx) {
+  const [existing] = await db.select().from(merchantWallets).where(eq(merchantWallets.id, PLATFORM_FEE_WALLET_ID));
+  if (existing) return existing;
+  await db.insert(merchantWallets).values({
+    id: PLATFORM_FEE_WALLET_ID, tenantId: PLATFORM_FEE_TENANT_ID, currency: "NGN",
+    availableBalance: "0", escrowBalance: "0", totalEarned: "0", totalWithdrawn: "0",
+    custodyMode: "psp", isActive: true, createdAt: new Date(), updatedAt: new Date(),
+  }).onConflictDoNothing();
+  const [created] = await db.select().from(merchantWallets).where(eq(merchantWallets.id, PLATFORM_FEE_WALLET_ID));
+  return created!;
+}
+
+/**
+ * Instant payout fee in INTEGER CENTS from the platform config
+ * (escrow_config.instant_payout_fee_bps, migration 0108). Fee is capped at
+ * the gross so net is never negative; fee + net == gross always holds.
+ * Missing config row (pre-migration branch) degrades honestly to bps=0.
+ */
+export async function instantFeeCents(db: DbOrTx, grossCents: number): Promise<{ feeCents: number; netCents: number; bps: number }> {
+  let bps = 0;
+  try {
+    const res = await db.execute(sql`SELECT instant_payout_fee_bps FROM escrow_config WHERE id = 1`);
+    const row = (res as unknown as Record<string, unknown>[])[0];
+    bps = Math.max(0, parseInt(String(row?.instant_payout_fee_bps ?? "0"), 10) || 0);
+  } catch {
+    bps = 0; // column not migrated on this branch → no fee, honestly
+  }
+  const feeCents = Math.min(grossCents, Math.round((grossCents * bps) / 10_000));
+  return { feeCents, netCents: grossCents - feeCents, bps };
 }
 
 /**
@@ -82,6 +137,22 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
   if (!row) return { outcome: "failed", error: "scheduled payment not found" };
   if (row.status === "executed") return { outcome: "duplicate" };
   if (row.status !== "claimed") return { outcome: "failed", error: `cannot execute from status ${row.status}` };
+
+  // ─── W32 recurring-tiers seam: undecided approval marker guard ──────────
+  // Recurring-engine payments parked for a one-tap WA approval carry
+  // metadata.approvalId. While that approval is undecided the row must NEVER
+  // execute — even for kind='vendor_bill' (not covered by the adhoc/payout
+  // policy gate below). Re-park and surface pending_approval honestly.
+  {
+    const w32Meta = ((row.metadata ?? {}) as Record<string, unknown>);
+    if (w32Meta.approvalId && !w32Meta.approvalExecutedFor) {
+      await db.update(scheduledPayments)
+        .set({ status: "pending", executeAt: new Date(Date.now() + 15 * 60_000), updatedAt: new Date() })
+        .where(and(eq(scheduledPayments.id, row.id), eq(scheduledPayments.status, "claimed")));
+      return { outcome: "pending_approval" };
+    }
+  }
+  // ─── END W32 guard ───────────────────────────────────────────────────────
 
   // ─── W31 merger seam: approval gate for adhoc/payout kinds ──────────────
   // Adhoc payouts above the tenant's approval threshold never move money on
@@ -122,12 +193,17 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
   }
 
   const amountMajor = row.amountCents / 100;
+  // W32: instant tier carries a platform fee (integer cents, fee+net==gross)
+  // deducted from the same locked debit; standard is always free.
+  const isInstant = (row as { speed?: string }).speed === "instant";
+  const fee = isInstant ? await instantFeeCents(db, row.amountCents) : { feeCents: 0, netCents: row.amountCents, bps: 0 };
   const wallet = await getOrCreateWallet(db, row.tenantId);
   const walletTxId = crypto.randomUUID();
   try {
     await db.transaction(async (tx) => {
       // Atomic conditional debit — balance check and debit are one UPDATE, so
-      // concurrent executions can never double-spend or go negative.
+      // concurrent executions can never double-spend or go negative. The
+      // merchant always pays the GROSS; instant's fee comes out of it.
       const debited = await tx.execute(sql`
         UPDATE merchant_wallets
         SET available_balance = available_balance - ${amountMajor.toFixed(2)}::numeric,
@@ -143,17 +219,20 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
       const before = after + amountMajor;
       // wallet_tx_type enum has no vendor-payment value (additive-only schema
       // doctrine); the debit is typed "withdrawal" with the reference
-      // `sched:<id>` + metadata labelling it as a scheduled payment.
+      // `sched:<id>` + metadata labelling it as a scheduled payment. Instant
+      // rows record the NET amount (what the recipient gets) — the fee leg
+      // below accounts for the remainder (fee + net == gross).
+      const netMajor = fee.netCents / 100;
       await tx.insert(walletTransactions).values({
         id: walletTxId,
         walletId: wallet.id,
         tenantId: row.tenantId,
         type: "withdrawal",
-        amount: amountMajor.toFixed(2),
+        amount: netMajor.toFixed(2),
         balanceBefore: before.toFixed(2),
         balanceAfter: after.toFixed(2),
         currency: row.currency,
-        description: describePayment(row),
+        description: describePayment(row) + (isInstant ? " (instant)" : ""),
         reference: ref,
         metadata: {
           status: "completed",
@@ -162,9 +241,41 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
           kind: row.kind,
           targetId: row.targetId ?? null,
           recipient: row.recipient ?? null,
+          ...(isInstant ? { speed: "instant", grossCents: row.amountCents, feeCents: fee.feeCents, feeBps: fee.bps } : {}),
         },
         createdAt: new Date(),
       });
+      // W32 instant fee leg: credit the deterministic platform fee wallet in
+      // the SAME commit (mirrors settleEscrowAtomic). Reference `schedfee:<id>`
+      // is the idempotency backstop via wallet_tx_wallet_ref_uniq.
+      if (isInstant && fee.feeCents > 0) {
+        const platform = await getOrCreatePlatformFeeWallet(tx);
+        const plock = await tx.execute(sql`SELECT available_balance FROM merchant_wallets WHERE id = ${platform.id} FOR UPDATE`);
+        const prow = (plock as unknown as Record<string, unknown>[])[0];
+        const pBefore = parseFloat(String(prow.available_balance));
+        const feeMajor = fee.feeCents / 100;
+        await tx.insert(walletTransactions).values({
+          id: crypto.randomUUID(),
+          walletId: platform.id,
+          tenantId: PLATFORM_FEE_TENANT_ID,
+          // wallet_tx_type enum has no "fee_credit" value (additive-only
+          // doctrine); labelled via description + metadata like escrow fees.
+          type: "float_income",
+          amount: feeMajor.toFixed(2),
+          balanceBefore: pBefore.toFixed(2),
+          balanceAfter: (pBefore + feeMajor).toFixed(2),
+          currency: row.currency,
+          description: `Instant payout fee for scheduled payment ${row.id}`,
+          reference: `schedfee:${row.id}`,
+          metadata: { source: "platform_fee", feeKind: "instant_payout", scheduledPaymentId: row.id, tenantId: row.tenantId },
+          createdAt: new Date(),
+        });
+        await tx.update(merchantWallets).set({
+          availableBalance: sql`${merchantWallets.availableBalance} + ${feeMajor.toFixed(2)}::numeric`,
+          totalEarned: sql`${merchantWallets.totalEarned} + ${feeMajor.toFixed(2)}::numeric`,
+          updatedAt: new Date(),
+        }).where(eq(merchantWallets.id, platform.id));
+      }
       // Status flip INSIDE the same commit as the ledger write.
       const flipped = await tx.update(scheduledPayments)
         .set({ status: "executed", lastError: null, updatedAt: new Date() })
@@ -191,7 +302,7 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
     return { outcome: "failed", error: err instanceof Error ? err.message : String(err) };
   }
   await syncVendorBillBestEffort(db, row);
-  return { outcome: "executed", walletTxId };
+  return { outcome: "executed", walletTxId, ...(isInstant ? { feeCents: fee.feeCents, netCents: fee.netCents } : {}) };
 }
 
 class SchedInsufficientFundsError extends Error {
@@ -364,14 +475,17 @@ export interface ScheduleInput {
   executeAt: Date;
   idempotencyKey?: string;
   createdBy?: string | null;
+  /** W32: 'instant' claims+executes inline when executeAt<=now (fee applies). */
+  speed?: "standard" | "instant";
 }
 
 /** Schedule a future payment. Idempotent on idempotencyKey. */
-export async function schedulePayment(db: DbHandle, input: ScheduleInput): Promise<{ payment: typeof scheduledPayments.$inferSelect; duplicate: boolean }> {
+export async function schedulePayment(db: DbHandle, input: ScheduleInput): Promise<{ payment: typeof scheduledPayments.$inferSelect; duplicate: boolean; execution?: SchedExecutionOutcome }> {
   const key = input.idempotencyKey ?? `sched-req:${input.tenantId}:${crypto.randomUUID()}`;
   const [existing] = await db.select().from(scheduledPayments).where(eq(scheduledPayments.idempotencyKey, key));
   if (existing) return { payment: existing, duplicate: true };
   try {
+    const speed = input.speed ?? "standard";
     const [created] = await db.insert(scheduledPayments).values({
       id: crypto.randomUUID(),
       tenantId: input.tenantId,
@@ -383,10 +497,27 @@ export async function schedulePayment(db: DbHandle, input: ScheduleInput): Promi
       executeAt: input.executeAt,
       status: "pending",
       idempotencyKey: key,
+      speed,
       createdBy: input.createdBy ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     }).returning();
+    // ─── W32 instant tier: claim + execute INLINE when due ────────────────
+    // Standard rows wait for the next execute-payments tick (honest "next
+    // batch" semantics). Instant rows due now run through the exact same
+    // claim-before-send engine, so the approvals gate, the locked debit, the
+    // fee leg and the replay reconciliation are identical to a cron claim.
+    if (speed === "instant" && created.executeAt.getTime() <= Date.now()) {
+      const won = await db.update(scheduledPayments)
+        .set({ status: "claimed", attempts: sql`${scheduledPayments.attempts} + 1`, updatedAt: new Date() })
+        .where(and(eq(scheduledPayments.id, created.id), eq(scheduledPayments.status, "pending")))
+        .returning({ id: scheduledPayments.id });
+      if (won.length === 1) {
+        const execution = await executeClaimedPayment(db, created.id);
+        const [fresh] = await db.select().from(scheduledPayments).where(eq(scheduledPayments.id, created.id));
+        return { payment: fresh ?? created, duplicate: false, execution };
+      }
+    }
     return { payment: created, duplicate: false };
   } catch (err) {
     // Unique-key race → idempotent replay of the winner's row.

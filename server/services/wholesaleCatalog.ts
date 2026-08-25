@@ -19,6 +19,8 @@
 import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
+  merchantWallets,
+  walletTransactions,
   wholesaleListings,
   wholesaleListingTiers,
   wholesaleOrders,
@@ -382,3 +384,308 @@ export function formatListingForWhatsApp(
           .join("; ");
   return `${prefix}*${listing.title}* (MOQ ${listing.moq})\n${tierStr}\nID: ${listing.id.slice(0, 8)}`;
 }
+
+// === W32 earlypay-fx (Coder C): early-payment discounts on wholesale POs ===
+//
+// Doctrine:
+//  - Supplier-configured terms (discount_bps + discount_window_days +
+//    due_date) live ON the wholesale_orders row (migration 0109). The
+//    supplier offered the discount, so on an early pay the supplier is
+//    credited exactly the discounted amount — no hidden haircut, no
+//    platform skim on this leg.
+//  - Claim-first: earlyPay flips discount_applied via ONE guarded
+//    conditional UPDATE (status payable + NOT discount_applied + deadline
+//    still open) INSIDE the money transaction. A double-tap loses the
+//    guard → CONFLICT, never a double discount. The wallet ledger row
+//    (reference `earlypay:<orderId>`) is the durable idempotency backstop
+//    via wallet_tx_wallet_ref_uniq (0053).
+//  - All math integer cents; deadlines server-derived (never trust a
+//    client-supplied "still in window").
+
+/** Pure early-pay math — unit-testable, deterministic. */
+export function computeEarlyPayTerms(args: {
+  totalCents: number;
+  discountBps?: number | null;
+  discountWindowDays?: number | null;
+  dueDate?: Date | null;
+  createdAt: Date;
+  now?: Date;
+}): {
+  hasTerms: boolean;
+  deadline: Date | null;
+  saveCents: number;
+  payableCents: number;
+  available: boolean;
+} {
+  const now = args.now ?? new Date();
+  const bps = args.discountBps ?? null;
+  const windowDays = args.discountWindowDays ?? null;
+  if (!bps || bps <= 0 || !windowDays || windowDays <= 0) {
+    return { hasTerms: false, deadline: null, saveCents: 0, payableCents: args.totalCents, available: false };
+  }
+  // deadline = MIN(due_date, created_at + window) — never past the invoice due date.
+  const windowEnd = new Date(args.createdAt.getTime() + windowDays * 86_400_000);
+  const deadline = args.dueDate && args.dueDate.getTime() < windowEnd.getTime() ? args.dueDate : windowEnd;
+  const saveCents = Math.round((args.totalCents * bps) / 10_000);
+  return {
+    hasTerms: true,
+    deadline,
+    saveCents,
+    payableCents: args.totalCents - saveCents,
+    available: now.getTime() < deadline.getTime(),
+  };
+}
+
+/** Buyer-facing early-pay preview: "Pay by <deadline> to save ₦X" (server-derived). */
+export async function earlyPayPreviewTx(
+  db: DbHandle,
+  args: { buyerTenantId: string; orderId: string },
+): Promise<
+  | { ok: true; orderId: string; currency: string; totalCents: number; available: boolean;
+      deadline: Date | null; saveCents: number; payableCents: number; message: string }
+  | { ok: false; reason: "not_found" }
+> {
+  const [order] = await db.select().from(wholesaleOrders).where(eq(wholesaleOrders.id, args.orderId)).limit(1);
+  if (!order || order.buyerTenantId !== args.buyerTenantId) return { ok: false, reason: "not_found" };
+  // The STORED early_pay_deadline is authoritative (it's what the earlyPay
+  // claim guard checks in SQL) — never re-derive a different window here.
+  const hasTerms = (order.discountBps ?? 0) > 0 && order.earlyPayDeadline != null;
+  const saveCents = hasTerms ? Math.round((order.totalCents * order.discountBps!) / 10_000) : 0;
+  const t = {
+    hasTerms,
+    deadline: order.earlyPayDeadline ?? null,
+    saveCents,
+    payableCents: order.totalCents - saveCents,
+    available: hasTerms && order.earlyPayDeadline!.getTime() > Date.now(),
+  };
+  const payable = ["pending", "confirmed"].includes(order.status);
+  const available = t.hasTerms && t.available && payable && !order.discountApplied;
+  const message = !t.hasTerms
+    ? "No early-payment discount on this order"
+    : !payable
+      ? `Order is ${order.status} — early payment no longer applies`
+      : order.discountApplied
+        ? "Early-payment discount already applied"
+        : t.available
+          ? `Pay by ${t.deadline!.toISOString().slice(0, 10)} to save ${formatMajor(t.saveCents, order.currency)}`
+          : "Early-payment window has expired — full amount due";
+  return {
+    ok: true,
+    orderId: order.id,
+    currency: order.currency,
+    totalCents: order.totalCents,
+    available,
+    deadline: t.deadline,
+    saveCents: available ? t.saveCents : 0,
+    payableCents: available ? t.payableCents : order.totalCents,
+    message,
+  };
+}
+
+/** Supplier sets/refreshes the early-payment terms on a PO (pre-payment only). */
+export async function setWholesalePaymentTermsTx(
+  db: DbHandle,
+  args: {
+    tenantId: string; // supplier
+    orderId: string;
+    discountBps: number;
+    discountWindowDays: number;
+    dueDate?: Date | null;
+  },
+): Promise<{ ok: true; order: WholesaleOrder } | { ok: false; reason: "not_found" | "terms_locked" }> {
+  const [order] = await db.select().from(wholesaleOrders).where(eq(wholesaleOrders.id, args.orderId)).limit(1);
+  if (!order || order.tenantId !== args.tenantId) return { ok: false, reason: "not_found" };
+  // Terms are locked once money moved or the discount was claimed — a
+  // supplier must never reprice a PO the buyer already acted on.
+  if (!["pending", "confirmed"].includes(order.status) || order.discountApplied) {
+    return { ok: false, reason: "terms_locked" };
+  }
+  const t = computeEarlyPayTerms({
+    totalCents: order.totalCents,
+    discountBps: args.discountBps,
+    discountWindowDays: args.discountWindowDays,
+    dueDate: args.dueDate ?? null,
+    createdAt: order.createdAt,
+  });
+  const [row] = await db
+    .update(wholesaleOrders)
+    .set({
+      discountBps: Math.round(args.discountBps),
+      discountWindowDays: Math.round(args.discountWindowDays),
+      dueDate: args.dueDate ?? null,
+      earlyPayDeadline: t.deadline,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(wholesaleOrders.id, args.orderId),
+      eq(wholesaleOrders.tenantId, args.tenantId),
+      eq(wholesaleOrders.discountApplied, false),
+      sql`${wholesaleOrders.status} IN ('pending','confirmed')`,
+    ))
+    .returning();
+  if (!row) return { ok: false, reason: "terms_locked" };
+  return { ok: true, order: row };
+}
+
+export type EarlyPayResult =
+  | { ok: true; order: WholesaleOrder; chargedCents: number; saveCents: number; supplierCreditedCents: number; walletTxId: string }
+  | { ok: false; reason: "not_found" | "no_terms" | "window_expired" | "already_claimed" | "not_payable" | "insufficient_funds" };
+
+async function getOrCreateWalletLocal(db: any, tenantId: string) {
+  const [existing] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, tenantId));
+  if (existing) return existing;
+  const id = randomUUID();
+  await db.insert(merchantWallets).values({
+    id, tenantId, currency: "NGN",
+    availableBalance: "0", escrowBalance: "0",
+    totalEarned: "0", totalWithdrawn: "0",
+    custodyMode: "psp", isActive: true,
+    createdAt: new Date(), updatedAt: new Date(),
+  }).onConflictDoNothing();
+  const [created] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, tenantId));
+  return created!;
+}
+
+/**
+ * Pay a wholesale PO early with the supplier's configured discount.
+ * One DB transaction: claim-first guarded UPDATE (discount_applied false→
+ * true, status payable, deadline open) → locked conditional wallet debit of
+ * the DISCOUNTED amount from the buyer → supplier wallet credited the same
+ * discounted amount (their terms, honestly) → order → 'paid'. Any failure
+ * rolls the whole thing back, so a claim can never strand without payment.
+ */
+export async function earlyPayWholesaleOrderTx(
+  db: DbHandle,
+  args: { buyerTenantId: string; orderId: string },
+): Promise<EarlyPayResult> {
+  const [order] = await db.select().from(wholesaleOrders).where(eq(wholesaleOrders.id, args.orderId)).limit(1);
+  if (!order || order.buyerTenantId !== args.buyerTenantId) return { ok: false, reason: "not_found" };
+  if (order.discountApplied) return { ok: false, reason: "already_claimed" };
+  if (!["pending", "confirmed"].includes(order.status)) return { ok: false, reason: "not_payable" };
+  // STORED early_pay_deadline is authoritative (same value the claim guard
+  // checks in SQL inside the transaction below).
+  const hasTerms = (order.discountBps ?? 0) > 0 && order.earlyPayDeadline != null;
+  if (!hasTerms) return { ok: false, reason: "no_terms" };
+  if (order.earlyPayDeadline!.getTime() <= Date.now()) return { ok: false, reason: "window_expired" };
+  const saveCents = Math.round((order.totalCents * order.discountBps!) / 10_000);
+  const t = { saveCents, payableCents: order.totalCents - saveCents };
+
+  const buyerWallet = await getOrCreateWalletLocal(db, args.buyerTenantId);
+  const supplierWallet = await getOrCreateWalletLocal(db, order.tenantId);
+  const debitRef = `earlypay:${order.id}`;
+  const creditRef = `earlypay:${order.id}:supplier`;
+  const walletTxId = randomUUID();
+  const supplierTxId = randomUUID();
+  const payableMajor = (t.payableCents / 100).toFixed(2);
+
+  try {
+    const finalOrder = await db.transaction(async (tx: any) => {
+      // 1. Claim-first: exactly one early pay can ever win this guard.
+      const claimed = await tx
+        .update(wholesaleOrders)
+        .set({ discountApplied: true, discountCents: t.saveCents, updatedAt: new Date() })
+        .where(and(
+          eq(wholesaleOrders.id, order.id),
+          eq(wholesaleOrders.buyerTenantId, args.buyerTenantId),
+          eq(wholesaleOrders.discountApplied, false),
+          sql`${wholesaleOrders.status} IN ('pending','confirmed')`,
+          sql`${wholesaleOrders.earlyPayDeadline} IS NOT NULL AND ${wholesaleOrders.earlyPayDeadline} > now()`,
+        ))
+        .returning();
+      if (claimed.length !== 1) {
+        throw Object.assign(new Error("early-pay claim lost (already applied, not payable, or window expired)"), { code: "CONFLICT" });
+      }
+
+      // 2. Locked buyer wallet + conditional debit of the discounted amount.
+      const lockedBuyer = await tx.execute(sql`SELECT available_balance, currency FROM merchant_wallets WHERE id = ${buyerWallet.id} FOR UPDATE`);
+      if (!(lockedBuyer as unknown as Record<string, unknown>[])[0]) throw new Error("buyer wallet not found");
+      const debited = await tx.execute(sql`
+        UPDATE merchant_wallets
+        SET available_balance = available_balance - ${payableMajor}::numeric,
+            total_withdrawn = total_withdrawn + ${payableMajor}::numeric,
+            updated_at = now()
+        WHERE id = ${buyerWallet.id}
+          AND available_balance >= ${payableMajor}::numeric
+        RETURNING available_balance
+      `);
+      const drow = (debited as unknown as Record<string, unknown>[])[0];
+      if (!drow) {
+        throw Object.assign(new Error("INSUFFICIENT_FUNDS: buyer wallet cannot cover the discounted amount"), { code: "INSUFFICIENT_FUNDS" });
+      }
+      const buyerAfter = parseFloat(String(drow.available_balance));
+      const buyerBefore = buyerAfter + t.payableCents / 100;
+      await tx.insert(walletTransactions).values({
+        id: walletTxId,
+        walletId: buyerWallet.id,
+        tenantId: args.buyerTenantId,
+        type: "wholesale_trade",
+        amount: payableMajor,
+        balanceBefore: buyerBefore.toFixed(2),
+        balanceAfter: buyerAfter.toFixed(2),
+        currency: order.currency,
+        description: `Early payment for wholesale order ${order.id} (saved ${formatMajor(t.saveCents, order.currency)})`,
+        reference: debitRef,
+        metadata: { status: "executed", source: "wholesale_early_pay", orderId: order.id, saveCents: t.saveCents, grossCents: order.totalCents },
+        createdAt: new Date(),
+      });
+
+      // 3. Supplier credited the discounted amount — their configured terms.
+      const lockedSupplier = await tx.execute(sql`SELECT available_balance FROM merchant_wallets WHERE id = ${supplierWallet.id} FOR UPDATE`);
+      if (!(lockedSupplier as unknown as Record<string, unknown>[])[0]) throw new Error("supplier wallet not found");
+      const credited = await tx.execute(sql`
+        UPDATE merchant_wallets
+        SET available_balance = available_balance + ${payableMajor}::numeric,
+            total_earned = total_earned + ${payableMajor}::numeric,
+            updated_at = now()
+        WHERE id = ${supplierWallet.id}
+        RETURNING available_balance
+      `);
+      const crow = (credited as unknown as Record<string, unknown>[])[0];
+      const supplierAfter = parseFloat(String(crow.available_balance));
+      const supplierBefore = supplierAfter - t.payableCents / 100;
+      await tx.insert(walletTransactions).values({
+        id: supplierTxId,
+        walletId: supplierWallet.id,
+        tenantId: order.tenantId,
+        type: "wholesale_trade",
+        amount: payableMajor,
+        balanceBefore: supplierBefore.toFixed(2),
+        balanceAfter: supplierAfter.toFixed(2),
+        currency: order.currency,
+        description: `Early payment received for wholesale order ${order.id} (discount ${formatMajor(t.saveCents, order.currency)} per your terms)`,
+        reference: creditRef,
+        metadata: { status: "executed", source: "wholesale_early_pay_credit", orderId: order.id, discountCents: t.saveCents },
+        createdAt: new Date(),
+      });
+
+      // 4. Order paid honestly at the discounted amount.
+      const [paid] = await tx
+        .update(wholesaleOrders)
+        .set({ status: "paid", updatedAt: new Date() })
+        .where(and(eq(wholesaleOrders.id, order.id), eq(wholesaleOrders.discountApplied, true)))
+        .returning();
+      if (!paid) throw new Error("order status flip lost claim — rolling back");
+      return paid as WholesaleOrder;
+    });
+    return {
+      ok: true,
+      order: finalOrder,
+      chargedCents: t.payableCents,
+      saveCents: t.saveCents,
+      supplierCreditedCents: t.payableCents,
+      walletTxId,
+    };
+  } catch (err: any) {
+    if (err?.code === "INSUFFICIENT_FUNDS") return { ok: false, reason: "insufficient_funds" };
+    if (err?.code === "CONFLICT" || err?.code === "23505") {
+      // Double-tap: the claim guard (or the wallet_ref unique index backstop)
+      // rejected the second attempt — the first payment stands, exactly once.
+      const [cur] = await db.select().from(wholesaleOrders).where(eq(wholesaleOrders.id, order.id)).limit(1);
+      if (cur?.discountApplied) return { ok: false, reason: "already_claimed" };
+      if (!cur || !["pending", "confirmed"].includes(cur.status)) return { ok: false, reason: "not_payable" };
+      return { ok: false, reason: "window_expired" };
+    }
+    throw err;
+  }
+}
+// === END W32 earlypay-fx (wholesale early-pay) ===

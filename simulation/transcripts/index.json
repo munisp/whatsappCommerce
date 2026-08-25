@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T05:18:00.515Z",
+  "generatedAt": "2026-08-25T13:39:53.591Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -939,12 +939,76 @@
       "messageCount": 0
     },
     {
+      "id": "J198",
+      "title": "pay over time: bill paid in full, 3 installments captured",
+      "feature": "W32 pay-over-time installment bill pay",
+      "pass": true,
+      "file": "J198.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J199",
+      "title": "pay over time: ineligible rejection, failed capture dunning, early settle",
+      "feature": "W32 pay-over-time installment bill pay",
+      "pass": true,
+      "file": "J199.json",
+      "messageCount": 2
+    },
+    {
       "id": "J20",
       "title": "broadcast campaign",
       "feature": "consent gate + window routing + quality block",
       "pass": true,
       "file": "J20.json",
       "messageCount": 31
+    },
+    {
+      "id": "J200",
+      "title": "monthly recurring bill → cron creates bill + auto-pays under threshold → replay no-op",
+      "feature": "W32 recurring engine: crash-safe advance, recur:<ruleId>:<period> idempotency, auto-pay",
+      "pass": true,
+      "file": "J200.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J201",
+      "title": "above auto-pay threshold → WA approval → approve executes; pause/cancel stop runs",
+      "feature": "W32 recurring engine: approval parking + W31 approvals composition",
+      "pass": true,
+      "file": "J201.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J202",
+      "title": "instant payout executes inline with fee leg (fee+net==gross); standard waits for tick",
+      "feature": "W32 speed tiers: schedfee:<id> platform fee leg + honest next-batch standard",
+      "pass": true,
+      "file": "J202.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J203",
+      "title": "early pay within window → discounted debit; double-tap CONFLICT; after window unavailable",
+      "feature": "W32 early-payment discounts: claim-first guarded discount + honest supplier credit",
+      "pass": true,
+      "file": "J203.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J204",
+      "title": "FX quote → accept → execute with exact fee math; expired refusal; replay no-op",
+      "feature": "W32 FX payouts: deterministic labelled rates + guarded consume + Mojaloop delivery",
+      "pass": true,
+      "file": "J204.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J205",
+      "title": "FX payout with no live corridor → honest UNAVAILABLE, nothing moves",
+      "feature": "W32 FX payouts: corridor gate fails honestly — no simulated cross-border delivery",
+      "pass": true,
+      "file": "J205.json",
+      "messageCount": 0
     },
     {
       "id": "J21",

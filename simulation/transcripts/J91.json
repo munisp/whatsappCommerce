@@ -7,12 +7,12 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348017002899",
+      "phone": "2348013195260",
       "wamid": "wamid.sim.000446",
       "statuses": [
         "sent"
       ],
-      "at": 1787634871053,
+      "at": 1787664975917,
       "kind": "template",
       "templateName": "sim_broadcast",
       "templateLanguage": "en_US",
@@ -20,10 +20,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348017002899",
-      "profileName": "Sim User 2899",
+      "phone": "2348013195260",
+      "profileName": "Sim User 5260",
       "inboundId": "wamid.sim.in.text.00290",
-      "at": 1787634871060,
+      "at": 1787664975923,
       "kind": "text",
       "text": "I'm interested!"
     },
@@ -31,16 +31,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00290",
-      "at": 1787634871064
+      "at": 1787664975926
     },
     {
       "dir": "out",
-      "phone": "2348017002899",
+      "phone": "2348013195260",
       "wamid": "wamid.sim.000447",
       "statuses": [
         "sent"
       ],
-      "at": 1787634871093,
+      "at": 1787664975952,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

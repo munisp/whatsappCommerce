@@ -259,6 +259,20 @@ export async function loadJourneys(): Promise<Journey[]> {
     // === W31 merger seam ===
     import("./journeys/j197-approval-vendorbill-scheduled"),
     // === END W31 ar-invoices ===
+    // === W32 pay-over-time ===
+    import("./journeys/j198-pay-over-time-full-cycle"),
+    import("./journeys/j199-pay-over-time-rejections-settle"),
+    // === END W32 pay-over-time ===
+    // === W32 recurring-tiers ===
+    import("./journeys/j200-recurring-autopay"),
+    import("./journeys/j201-recurring-approval"),
+    import("./journeys/j202-speed-tiers"),
+    // === END W32 recurring-tiers ===
+    // === W32 earlypay-fx (Coder C) ===
+    import("./journeys/j203-earlypay-discount"),
+    import("./journeys/j204-fx-quote-accept-execute"),
+    import("./journeys/j205-fx-no-corridor"),
+    // === END W32 earlypay-fx ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

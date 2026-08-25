@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014568360",
-      "profileName": "Sim User 8360",
+      "phone": "2348015776237",
+      "profileName": "Sim User 6237",
       "inboundId": "wamid.sim.in.text.00007",
-      "at": 1787634571474,
+      "at": 1787664677438,
       "kind": "text",
       "text": "menu"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00007",
-      "at": 1787634571480
+      "at": 1787664677444
     },
     {
       "dir": "out",
-      "phone": "2348014568360",
+      "phone": "2348015776237",
       "wamid": "wamid.sim.000007",
       "statuses": [
         "sent"
       ],
-      "at": 1787634571531,
+      "at": 1787664677475,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -48,10 +48,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348014568360",
-      "profileName": "Sim User 8360",
+      "phone": "2348015776237",
+      "profileName": "Sim User 6237",
       "inboundId": "wamid.sim.in.btn.00008",
-      "at": 1787634572020,
+      "at": 1787664677986,
       "kind": "button_reply",
       "text": "Shop products",
       "payloadId": "menu_1"
@@ -60,16 +60,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00008",
-      "at": 1787634572026
+      "at": 1787664677992
     },
     {
       "dir": "out",
-      "phone": "2348014568360",
+      "phone": "2348015776237",
       "wamid": "wamid.sim.000008",
       "statuses": [
         "sent"
       ],
-      "at": 1787634572090,
+      "at": 1787664678047,
       "kind": "text",
       "body": "Sure — what would you like? We have Jollof Rice and more."
     }

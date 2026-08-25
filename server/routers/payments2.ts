@@ -35,12 +35,17 @@ export const scheduledPaymentsRouter = router({
       currency: z.string().length(3).optional(),
       executeAt: z.coerce.date(),
       idempotencyKey: z.string().max(160).optional(),
+      // === W32 recurring-tiers === 'instant' executes inline when due with a
+      // platform fee (escrow_config.instant_payout_fee_bps); 'standard' is
+      // free and runs on the next execute-payments batch.
+      speed: z.enum(["standard", "instant"]).optional(),
+      // === END W32 recurring-tiers ===
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       const svc = await import("../services/scheduledPayments");
-      const { payment, duplicate } = await svc.schedulePayment(db, {
+      const { payment, duplicate, execution } = await svc.schedulePayment(db, {
         tenantId: input.tenantId,
         kind: input.kind,
         targetId: input.targetId ?? null,
@@ -50,8 +55,20 @@ export const scheduledPaymentsRouter = router({
         executeAt: input.executeAt,
         idempotencyKey: input.idempotencyKey,
         createdBy: String(ctx.user.id),
+        speed: input.speed ?? "standard",
       });
-      return { id: payment.id, status: payment.status, executeAt: payment.executeAt, duplicate };
+      // Honest delivery copy: standard is processed in the next batch (no
+      // fake T+1 promise); instant reports the exact fee/net when executed.
+      return {
+        id: payment.id, status: payment.status, executeAt: payment.executeAt, duplicate,
+        speed: (payment as { speed?: string }).speed ?? "standard",
+        ...(execution?.feeCents !== undefined ? { feeCents: execution.feeCents, netCents: execution.netCents } : {}),
+        note: payment.status === "executed"
+          ? "Paid instantly"
+          : (payment as { speed?: string }).speed === "instant"
+            ? "Instant payout could not complete inline — it is queued honestly for the next batch"
+            : "Scheduled — processed in the next payment batch",
+      };
     }),
 
   /** Tenant-scoped list (analyst read-only allowed). */

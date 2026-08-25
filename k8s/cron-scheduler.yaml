@@ -1606,3 +1606,94 @@ spec:
                 limits:
                   cpu: "100m"
                   memory: "128Mi"
+---
+# === W32 installment due === 39th CronJob: daily pay-over-time installment
+# capture via the existing mandate rails + honest overdue dunning (see
+# server/services/payOverTime.ts). Cadence mirrors
+# services/scheduler/scheduler.mjs (parity asserted by J178).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-installment-due
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "0 0 8 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/installment-due"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W32 installment due ===
+---
+# === W32 recurring === (Coder B) — daily recurring bills / auto-pay sweep.
+# NOTE for merger: on this standalone branch this is the 39th CronJob; per
+# SPEC_W32 Coder A's installment-due cron takes #39 and this is #40 on the
+# merged branch — renumber in this comment only if needed (names are stable).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-recurring-run
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "0 7 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/recurring-run"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"

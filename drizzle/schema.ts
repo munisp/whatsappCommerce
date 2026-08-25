@@ -1313,6 +1313,8 @@ export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
   // === W27 credit (additive enum values; never reorder the above) ===
   "loan_disbursement", // micro-loan principal credited to merchant wallet
   "loan_repayment",    // micro-loan repayment debited from merchant wallet
+  // === W32 earlypay-fx (additive; never reorder the above) ===
+  "wholesale_trade",   // wholesale early-pay debit (buyer) / credit (supplier) legs
 ]);
 
 // ─── Escrow Config (platform-level) ──────────────────────────────────────────
@@ -1337,6 +1339,15 @@ export const escrowConfig = pgTable("escrow_config", {
   floatYieldRate: numeric("float_yield_rate", { precision: 6, scale: 4 }).default("0.08").notNull(),
   // Evidence scan
   minScanConfidence: numeric("min_scan_confidence", { precision: 4, scale: 2 }).default("0.70").notNull(),
+  // W32 pay-over-time (migration 0106): installment bill-pay platform config
+  payOverTimeMinScore: integer("pay_over_time_min_score").default(600).notNull(),
+  payOverTimeFeeBps: integer("pay_over_time_fee_bps").default(250).notNull(),
+  payOverTimeProrateEarlyFee: boolean("pay_over_time_prorate_early_fee").default(false).notNull(),
+  // === W32 recurring-tiers === instant payout fee in basis points (migration
+  // 0108, additive). Charged on speed='instant' scheduled payments; integer
+  // cents, credited to the platform fee wallet (reference `schedfee:<id>`).
+  instantPayoutFeeBps: integer("instant_payout_fee_bps").default(50).notNull(),
+  // === END W32 recurring-tiers ===
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
@@ -4140,6 +4151,14 @@ export const wholesaleOrders = pgTable("wholesale_orders", {
   creditScore:    integer("credit_score"),                         // platform score used at credit checkout
   orderId:        varchar("order_id", { length: 64 }),             // linked row in orders (existing rails)
   notes:          text("notes"),
+  // === W32 earlypay-fx (Coder C): supplier-configured early-payment terms ===
+  discountBps:        integer("discount_bps"),                     // e.g. 200 = 2% off for paying early
+  discountWindowDays: integer("discount_window_days"),             // window from createdAt to earn the discount
+  dueDate:            timestamp("due_date"),                       // final invoice due date
+  earlyPayDeadline:   timestamp("early_pay_deadline"),             // derived: MIN(dueDate, createdAt + window)
+  discountApplied:    boolean("discount_applied").notNull().default(false), // claim-first guard
+  discountCents:      bigint("discount_cents", { mode: "number" }),         // integer-cents saving actually applied
+  // === END W32 earlypay-fx (wholesale_orders columns) ===
   createdAt:      timestamp("created_at").notNull().defaultNow(),
   updatedAt:      timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -4669,6 +4688,7 @@ export const vendorBills = pgTable("vendor_bills", {
   paymentRef:     varchar("payment_ref", { length: 128 }),
   approvalId:     varchar("approval_id", { length: 64 }),
   odooSyncState:  varchar("odoo_sync_state", { length: 16 }),
+  metadata:       jsonb("metadata"), // W32 pay-over-time: { financing: "pay_over_time", planId, ... }
   createdBy:      varchar("created_by", { length: 64 }),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
   updatedAt:      timestamp("updated_at").notNull().defaultNow(),
@@ -4723,6 +4743,13 @@ export const scheduledPayments = pgTable("scheduled_payments", {
   attempts: integer("attempts").notNull().default(0),
   lastError: text("last_error"),
   metadata: jsonb("metadata"),
+  // === W32 recurring-tiers === payout speed tier (migration 0108, additive):
+  // 'standard' = free, executed by the next execute-payments tick (honest
+  // "processed in the next batch" — no fake T+1 promise); 'instant' = claimed
+  // and executed inline at schedule time when execute_at<=now, with a platform
+  // fee leg (wallet_tx `schedfee:<id>` to the platform fee wallet).
+  speed: varchar("speed", { length: 16 }).notNull().default("standard"), // standard | instant
+  // === END W32 recurring-tiers ===
   createdBy: varchar("created_by", { length: 36 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -4855,3 +4882,107 @@ export const arInvoicePayments = pgTable("ar_invoice_payments", {
 export type ArInvoicePayment = typeof arInvoicePayments.$inferSelect;
 export type NewArInvoicePayment = typeof arInvoicePayments.$inferInsert;
 // === END W31 ar-invoices ===
+
+// === W32 pay-over-time ===
+// installment_plans (migration 0106): pay-over-time vendor bill pay. The
+// vendor is paid IN FULL at origination from the platform lending facility
+// (microLoans-style locked funding leg); the merchant repays `installments`
+// equal slices of principal + flat fee (fee_bps from escrow_config) captured
+// via the existing mandate rails on the stored schedule. `schedule` entries:
+// {seq, dueAt, amountCents, principalCents, feeCents, status, paidAt} —
+// integer cents, status due|paid|overdue.
+export const installmentPlans = pgTable("installment_plans", {
+  id:                  uuid("id").primaryKey().defaultRandom(),
+  tenantId:            varchar("tenant_id", { length: 36 }).notNull(),
+  vendorBillId:        uuid("vendor_bill_id").notNull(),
+  principalCents:      bigint("principal_cents", { mode: "number" }).notNull(),
+  installments:        integer("installments").notNull(),
+  feeBps:              integer("fee_bps").notNull(),
+  perInstallmentCents: bigint("per_installment_cents", { mode: "number" }).notNull(),
+  currency:            varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** active | repaid | defaulted | cancelled */
+  status:              varchar("status", { length: 16 }).notNull().default("active"),
+  loanId:              uuid("loan_id"),
+  schedule:            jsonb("schedule"),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("installment_plans_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type InstallmentPlan = typeof installmentPlans.$inferSelect;
+export type NewInstallmentPlan = typeof installmentPlans.$inferInsert;
+// === END W32 pay-over-time ===
+
+// === W32 recurring-tiers (Coder B) ===
+// Recurring bills / auto-pay (Melio recurring) + payout speed tiers.
+// recurring_rules: a standing instruction to create a vendor bill
+// (capture_source='recurring' — additive source vocab on the W31 column) or
+// an ad-hoc scheduled_payment each period. The daily /api/scheduled/recurring-run
+// sweep claims due rules via a guarded UPDATE, creates the period's payment
+// with idempotency key `recur:<ruleId>:<period>`, auto-pays when the amount
+// is at-or-under auto_pay_under_cents AND the W31 approvals policy does not
+// park it, and advances next_run_at IN THE SAME DB TRANSACTION as the
+// creation so a crash between create and advance can never double-create a
+// period. Amounts above the auto-pay threshold park via
+// approvals.requireApprovalIfNeeded (kind "scheduled_payment") — one-tap
+// approve links into the W31 approvals flow.
+// cadence: weekly | monthly (monthly clamps day_of_month to the month's last
+// day). status: active | paused | cancelled (paused/cancelled rules are never
+// picked up; resuming an active rule whose next_run_at is in the past runs
+// exactly one period per sweep).
+export const recurringRules = pgTable("recurring_rules", {
+  id:                uuid("id").primaryKey().defaultRandom(),
+  tenantId:          varchar("tenant_id", { length: 36 }).notNull(),
+  kind:              varchar("kind", { length: 16 }).notNull(), // vendor_bill | adhoc
+  recipient:         jsonb("recipient"), // vendor/ad-hoc recipient descriptor
+  amountCents:       bigint("amount_cents", { mode: "number" }).notNull(),
+  currency:          varchar("currency", { length: 3 }).notNull().default("NGN"),
+  cadence:           varchar("cadence", { length: 16 }).notNull(), // weekly | monthly
+  dayOfMonth:        integer("day_of_month"),
+  autoPayUnderCents: bigint("auto_pay_under_cents", { mode: "number" }).notNull().default(0),
+  nextRunAt:         timestamp("next_run_at", { withTimezone: true }).notNull(),
+  status:            varchar("status", { length: 16 }).notNull().default("active"), // active | paused | cancelled
+  lastRunAt:         timestamp("last_run_at", { withTimezone: true }),
+  createdBy:         varchar("created_by", { length: 36 }),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("recurring_rules_status_next_idx").on(t.status, t.nextRunAt),
+  index("recurring_rules_tenant_idx").on(t.tenantId, t.status),
+]);
+export type RecurringRule = typeof recurringRules.$inferSelect;
+export type NewRecurringRule = typeof recurringRules.$inferInsert;
+// === END W32 recurring-tiers ===
+// === W32 earlypay-fx ===
+// Cross-border FX vendor payout quotes (Coder C). Status vocabulary:
+// quoted | accepted | expired | executed | failed. Fee math is integer
+// cents: fee_cents + net == amount_cents; total_cents = gross from_currency
+// debit. provider_ref UNIQUE — a replayed quote request can never mint two
+// provider quotes. wholesale_orders early-pay columns live inline on the
+// wholesale_orders table (see "W32 earlypay-fx (Coder C)" marker there).
+export const fxQuotes = pgTable("fx_quotes", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  fromCurrency: varchar("from_currency", { length: 3 }).notNull(),
+  toCurrency:   varchar("to_currency", { length: 3 }).notNull(),
+  amountCents:  bigint("amount_cents", { mode: "number" }).notNull(),  // gross debit in from_currency
+  rate:         numeric("rate", { precision: 20, scale: 8 }).notNull(), // to per 1 from
+  feeBps:       integer("fee_bps").notNull(),
+  feeCents:     bigint("fee_cents", { mode: "number" }).notNull(),
+  totalCents:   bigint("total_cents", { mode: "number" }).notNull(),   // total from_currency charged (== amountCents)
+  provider:     varchar("provider", { length: 24 }).notNull(),          // rate source: 'sim' | configured provider id
+  providerRef:  varchar("provider_ref", { length: 128 }).notNull(),
+  status:       varchar("status", { length: 16 }).notNull().default("quoted"), // quoted|accepted|expired|executed|failed
+  expiresAt:    timestamp("expires_at", { withTimezone: true }).notNull(),
+  payoutRef:    varchar("payout_ref", { length: 128 }),                 // Mojaloop transferId on executed
+  metadata:     jsonb("metadata"),
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+  acceptedAt:   timestamp("accepted_at"),
+  updatedAt:    timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("fx_quotes_provider_ref_uniq").on(t.providerRef),
+  index("fx_quotes_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type FxQuote = typeof fxQuotes.$inferSelect;
+export type NewFxQuote = typeof fxQuotes.$inferInsert;
+// === END W32 earlypay-fx ===

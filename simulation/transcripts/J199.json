@@ -1,0 +1,31 @@
+{
+  "id": "J199",
+  "title": "pay over time: ineligible rejection, failed capture dunning, early settle",
+  "feature": "W32 pay-over-time installment bill pay",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2349019900199",
+      "wamid": "wamid.sim.000706",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787665186111,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 1 of your pay-over-time plan (₦410.00 — sim: mandate charge declined (400)). We'll retry on the next collection run, or you can settle early from the dashboard. Your vendor was already paid in full."
+    },
+    {
+      "dir": "out",
+      "phone": "2349019900199",
+      "wamid": "wamid.sim.000707",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787665186551,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 1 of your pay-over-time plan (₦410.00 — sim: mandate charge declined (400)). We'll retry on the next collection run, or you can settle early from the dashboard. Your vendor was already paid in full."
+    }
+  ]
+}
