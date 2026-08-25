@@ -576,6 +576,14 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.fxQuotes);
         } catch { /* w32 tables not migrated yet */ }
         // === END W32 earlypay-fx ===
+        // === W33 tax-statements (Coder A): profiles/statements never leak
+        // between journeys (J206–J208).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.annualStatements);
+          await world.db.delete(schema.supplierTaxProfiles);
+        } catch { /* w33 tables not migrated yet */ }
+        // === END W33 tax-statements ===
         // Wave 9 isolation: onboarding copilot sessions + the waOnboarding
         // in-memory pending-edit map never leak between journeys.
         try {
@@ -819,6 +827,18 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.vendorBills);
         } catch { /* w31 tables not migrated yet */ }
         // === END W31 vendor-bills ===
+        // === W33 embedded-api === isolation: embedded clients, their API
+        // surface flag/limit env, and embedded-actor audit rows never leak
+        // between journeys (J212–J214).
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW33 } = await import("drizzle-orm");
+          await world.db.delete(schema.embeddedClients);
+          await world.db.execute(sqlW33`DELETE FROM audit_logs WHERE actor_id LIKE 'embedded:%'`);
+        } catch { /* w33 tables not migrated yet */ }
+        delete process.env.EMBEDDED_API_ENABLED;
+        delete process.env.EMBEDDED_API_RATE_LIMIT_PER_MIN;
+        // === END W33 embedded-api ===
         // === W32 pay-over-time === isolation: installment plans + their
         // exactly-once capture/settle claims never leak between journeys.
         // (Loans/funding/facility are already wiped+reseeded by the W30
@@ -839,6 +859,13 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.recurringRules);
         } catch { /* w32 tables not migrated yet */ }
         // === END W32 merger seam ===
+        // === W33 ai-qa-forecast === forecast snapshots never leak between
+        // journeys (J209–J211).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.cashflowForecasts);
+        } catch { /* w33 tables not migrated yet */ }
+        // === END W33 ai-qa-forecast ===
         delete process.env.CATALOG_EXTRACTION_PROVIDER;
         delete process.env.CATALOG_EXTRACTION_ENDPOINT;
         delete process.env.CATALOG_EXTRACTION_API_KEY;

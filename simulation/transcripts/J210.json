@@ -1,0 +1,8 @@
+{
+  "id": "J210",
+  "title": "forecast conservation + shortfall detection on real seeded outflows",
+  "feature": "W33 cashflowForecast: sum(lines)==totals, shortfall day exact",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

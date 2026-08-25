@@ -717,6 +717,22 @@ export async function handleConversationalInbound(opts: {
     console.warn("[useCases] savings inbound handler failed:", e?.message ?? e);
   }
 
+  // === W33 ai-qa-forecast (Coder B) ===
+  // Read-only AP/AR finance Q&A ("bills due this week", "who do I owe most",
+  // "invoice paid?", "expected inflows", "who owes me most", "cash
+  // forecast"). Deterministic keyword matching answers the 6 canonical
+  // intents even when the LLM layer is unavailable; every figure comes from
+  // a real tenant-scoped query (tenantId from this session, never the text).
+  // A miss falls through to the existing pipeline unchanged.
+  try {
+    const { handleFinanceQa } = await import("./financeQa");
+    const financeOutcome = await handleFinanceQa({ db, tenantId, phone, text });
+    if (financeOutcome) return financeOutcome;
+  } catch (e: any) {
+    console.warn("[useCases] finance Q&A handler failed:", e?.message ?? e);
+  }
+  // === END W33 ai-qa-forecast ===
+
   // ── 3. Active use-case flow (slot filling, support intake, …) ────────────
   if (session?.mode === "usecase" && session.activeUseCase && useCaseRegistry[session.activeUseCase]) {
     return runUseCase(deps, session, session.activeUseCase, text);

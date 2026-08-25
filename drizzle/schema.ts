@@ -1,5 +1,6 @@
 import {
   boolean,
+  date,
   decimal,
   doublePrecision,
   integer,
@@ -17,6 +18,7 @@ import {
   numeric,
   bigint,
   primaryKey,
+  char,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { uuid } from "drizzle-orm/pg-core";
@@ -4986,3 +4988,122 @@ export const fxQuotes = pgTable("fx_quotes", {
 export type FxQuote = typeof fxQuotes.$inferSelect;
 export type NewFxQuote = typeof fxQuotes.$inferInsert;
 // === END W32 earlypay-fx ===
+
+// === W33 tax-statements (Coder A) ===
+// Supplier tax profiles (Melio W-9 analog) + annual statements (1099 analog).
+// One profile per (tenant, supplier identity): supplier_tenant_id for
+// platform suppliers, vendor_ref for external vendors (vendor_bills vendors
+// without a tenant) — uniqueness enforced on COALESCE(supplier_tenant_id,
+// vendor_ref). Capture is OPTIONAL everywhere (KYB onboarding, vendor_bill
+// create). withholding_bps is INFORMATIONAL labelling only — no withholding
+// rail exists, so statements label the withheld portion without deducting it.
+export const supplierTaxProfiles = pgTable("supplier_tax_profiles", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  tenantId:         varchar("tenant_id", { length: 36 }).notNull(),
+  supplierTenantId: varchar("supplier_tenant_id", { length: 36 }),
+  vendorName:       varchar("vendor_name", { length: 160 }).notNull(),
+  vendorRef:        varchar("vendor_ref", { length: 128 }),
+  taxId:            varchar("tax_id", { length: 64 }),
+  taxIdType:        varchar("tax_id_type", { length: 16 }), // tin|vat|cac|nin|other
+  countryCode:      char("country_code", { length: 2 }),
+  withholdingBps:   integer("withholding_bps").notNull().default(0),
+  verifiedAt:       timestamp("verified_at", { withTimezone: true }),
+  metadata:         jsonb("metadata"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("supplier_tax_profiles_tenant_supplier_uniq")
+    .on(t.tenantId, sql`coalesce(${t.supplierTenantId}, ${t.vendorRef})`),
+  index("supplier_tax_profiles_tenant_idx").on(t.tenantId, t.vendorName),
+]);
+export type SupplierTaxProfile = typeof supplierTaxProfiles.$inferSelect;
+export type NewSupplierTaxProfile = typeof supplierTaxProfiles.$inferInsert;
+
+// Annual statements: one row per (tenant, supplier, year, currency) — mixed
+// currencies are NEVER summed across; each currency gets its own row.
+// Status vocabulary is honest: 'generated' only after the PDF file is
+// actually written to disk, 'sent' only after the WhatsApp document push
+// returns, 'viewed' when the supplier reads it. Regeneration is idempotent:
+// upsert on the unique key and replace the PDF file.
+export const annualStatements = pgTable("annual_statements", {
+  id:               uuid("id").primaryKey().defaultRandom(),
+  tenantId:         varchar("tenant_id", { length: 36 }).notNull(),
+  supplierTenantId: varchar("supplier_tenant_id", { length: 36 }),
+  vendorRef:        varchar("vendor_ref", { length: 128 }),
+  vendorName:       varchar("vendor_name", { length: 160 }).notNull(),
+  year:             integer("year").notNull(),
+  totalPaidCents:   bigint("total_paid_cents", { mode: "number" }).notNull().default(0),
+  paymentCount:     integer("payment_count").notNull().default(0),
+  currency:         varchar("currency", { length: 3 }).notNull(),
+  withholdingCents: bigint("withholding_cents", { mode: "number" }).notNull().default(0),
+  status:           varchar("status", { length: 16 }).notNull().default("generated"), // generated|sent|viewed
+  pdfPath:          varchar("pdf_path", { length: 256 }),
+  waMessageId:      varchar("wa_message_id", { length: 128 }),
+  generatedAt:      timestamp("generated_at").notNull().defaultNow(),
+  sentAt:           timestamp("sent_at"),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+  updatedAt:        timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("annual_statements_tenant_supplier_year_uniq")
+    .on(t.tenantId, sql`coalesce(${t.supplierTenantId}, ${t.vendorRef})`, t.year, t.currency),
+  index("annual_statements_tenant_year_idx").on(t.tenantId, t.year),
+]);
+export type AnnualStatement = typeof annualStatements.$inferSelect;
+export type NewAnnualStatement = typeof annualStatements.$inferInsert;
+// === END W33 tax-statements ===
+// === W33 ai-qa-forecast (Coder B) ===
+// cashflow_forecasts (migration 0113): honest snapshot of the latest computed
+// 30/60/90-day cash-flow projection per tenant. Every figure is derived from
+// real rows (scheduled_payments, recurring_rules, installment_plans,
+// vendor_bills, ar_invoices, escrow_transactions, wallet history) by
+// server/services/cashflowForecast.ts — a snapshot is stored ONLY from a real
+// computation, never hand-seeded. detail jsonb carries the per-line sources
+// (and labelled heuristics) so the stored totals are auditable: sum of detail
+// lines == inflow_cents/outflow_cents. Idempotent per (tenant, horizon, day):
+// migration 0113 adds a UNIQUE expression index on
+// (tenant_id, horizon_days, (generated_at::date)) and the service skips the
+// insert when today's snapshot already exists (unique-violation tolerant).
+export const cashflowForecasts = pgTable("cashflow_forecasts", {
+  id:           uuid("id").primaryKey().defaultRandom(),
+  tenantId:     varchar("tenant_id", { length: 36 }).notNull(),
+  horizonDays:  integer("horizon_days").notNull(), // 30 | 60 | 90
+  generatedAt:  timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  inflowCents:  bigint("inflow_cents", { mode: "number" }).notNull(),
+  outflowCents: bigint("outflow_cents", { mode: "number" }).notNull(),
+  netCents:     bigint("net_cents", { mode: "number" }).notNull(),
+  currency:     varchar("currency", { length: 3 }).notNull().default("NGN"),
+  shortfallAt:  date("shortfall_at"),
+  detail:       jsonb("detail"),
+}, (t) => [
+  index("cashflow_forecasts_tenant_idx").on(t.tenantId, t.generatedAt),
+]);
+export type CashflowForecast = typeof cashflowForecasts.$inferSelect;
+export type NewCashflowForecast = typeof cashflowForecasts.$inferInsert;
+// === END W33 ai-qa-forecast ===
+// === W33 embedded-api (Coder C) ===
+// Embedded AP-as-a-feature API clients (Melio's distribution play). Each row
+// is a partner-platform credential bound to exactly ONE tenant it serves
+// (partner platforms create per-merchant clients). api_key_hash stores ONLY
+// the SHA-256 hex digest of the API key — the plaintext key is returned once
+// at creation/rotation and never persisted. The embedded tenant context is
+// ALWAYS derived from this binding, never from request parameters.
+export const embeddedClients = pgTable("embedded_clients", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  partnerName: varchar("partner_name", { length: 160 }).notNull(),
+  /** SHA-256 hex digest of the API key (never the plaintext key). */
+  apiKeyHash:  varchar("api_key_hash", { length: 64 }).notNull(),
+  /** Subset of: bills:read bills:write payments:read payments:write invoices:read invoices:write */
+  scopes:      text("scopes").array().notNull(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  /** active | suspended */
+  status:      varchar("status", { length: 16 }).notNull().default("active"),
+  createdBy:   varchar("created_by", { length: 64 }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  lastUsedAt:  timestamp("last_used_at"),
+}, (t) => [
+  uniqueIndex("embedded_clients_api_key_hash_uniq").on(t.apiKeyHash),
+  index("embedded_clients_tenant_idx").on(t.tenantId),
+]);
+export type EmbeddedClient = typeof embeddedClients.$inferSelect;
+export type NewEmbeddedClient = typeof embeddedClients.$inferInsert;
+// === END W33 embedded-api ===

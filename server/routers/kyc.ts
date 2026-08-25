@@ -132,6 +132,10 @@ export const kycRouter = router({
       businessRegistrationNumber: z.string().optional(),
       businessCountry: z.string().optional(),
       businessType: z.string().optional(),
+      // === W33 tax-statements: OPTIONAL supplier tax capture ===
+      taxId: z.string().max(64).optional(),
+      taxIdType: z.enum(["tin", "vat", "cac", "nin", "other"]).optional(),
+      // === END W33 tax-statements ===
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -140,7 +144,8 @@ export const kycRouter = router({
         .where(eq(kycApplications.id, input.applicationId)).limit(1);
       if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "KYC application not found" });
       assertTenantAccess(ctx.user, app.tenantId);
-      const { applicationId, ...data } = input;
+      // W33: taxId/taxIdType are capture-only inputs, NOT kyc_applications columns.
+      const { applicationId, taxId: _taxId, taxIdType: _taxIdType, ...data } = input;
       await db.update(kycApplications)
         .set({ ...data, updatedAt: new Date() })
         .where(eq(kycApplications.id, applicationId));
@@ -162,7 +167,30 @@ export const kycRouter = router({
         // Advisory pre-fill only; never block the merchant's draft save.
         console.error("[kyc.updateApplication] KYB screening failed:", err);
       }
-      return { ok: true, kybScreen: screenNote };
+      // === W33 tax-statements: OPTIONAL capture — a supplier tenant that
+      // fills its tax identity during KYB gets a supplier_tax_profiles row
+      // (keyed to its own tenant id) so annual statements can label it.
+      // Advisory: capture failure never blocks the draft save.
+      let taxProfileCaptured = false;
+      if (input.taxId || input.taxIdType) {
+        try {
+          const { upsertSupplierTaxProfile } = await import("../services/supplierTaxStatements");
+          await upsertSupplierTaxProfile(db, {
+            tenantId: app.tenantId,
+            supplierTenantId: app.tenantId,
+            vendorName: merged.businessName ?? app.businessName ?? app.tenantId,
+            taxId: input.taxId ?? null,
+            taxIdType: input.taxIdType ?? null,
+            countryCode: merged.businessCountry ?? null,
+            actor: String(ctx.user.id),
+          });
+          taxProfileCaptured = true;
+        } catch (capErr) {
+          console.error("[kyc.updateApplication] W33 tax-profile capture failed:", capErr);
+        }
+      }
+      // === END W33 tax-statements ===
+      return { ok: true, kybScreen: screenNote, taxProfileCaptured };
     }),
 
   // Submit application for review

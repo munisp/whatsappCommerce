@@ -1,0 +1,8 @@
+{
+  "id": "J211",
+  "title": "forecast snapshot stored idempotently + dashboard empty state",
+  "feature": "W33 cashflow_forecasts: (tenant,horizon,day) idempotency, honest empty state",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -1,0 +1,8 @@
+{
+  "id": "J214",
+  "title": "embedded API audit actor embedded:<clientId> + strict tenant isolation",
+  "feature": "W33 embedded-api: audit trail + client-bound tenant context",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

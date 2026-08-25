@@ -83,6 +83,9 @@ export const SCHEDULE = [
   // === W32 recurring === daily recurring bills / auto-pay sweep.
   { path: "/api/scheduled/recurring-run", intervalMin: 1440 },
   // === END W32 recurring ===
+  // === W33 forecast === weekly cash-flow forecast snapshot sweep.
+  { path: "/api/scheduled/cashflow-forecast", intervalMin: 10080 },
+  // === END W33 forecast ===
 ];
 
 function b64url(buf) {

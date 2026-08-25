@@ -60,12 +60,51 @@ export const vendorBillsRouter = router({
         base64: z.string().min(1),
         mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
       }).optional(),
+      // === W33 tax-statements: OPTIONAL supplier tax capture ===
+      vendorRef: z.string().max(128).optional(),
+      taxProfile: z.object({
+        taxId: z.string().max(64).optional(),
+        taxIdType: z.enum(["tin", "vat", "cac", "nin", "other"]).optional(),
+        countryCode: z.string().length(2).optional(),
+        withholdingBps: z.number().int().min(0).max(10000).optional(),
+        phone: z.string().max(32).optional(),
+      }).optional(),
+      // === END W33 tax-statements ===
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       try {
-        const { tenantId, ...rest } = input;
-        return await createVendorBill(db, { ...rest, tenantId, actor: String(ctx.user.id) });
+        const { tenantId, vendorRef, taxProfile, ...rest } = input;
+        const created = await createVendorBill(db, { ...rest, tenantId, actor: String(ctx.user.id) });
+        // === W33 tax-statements: OPTIONAL capture — when the caller passes
+        // vendorRef/taxProfile the supplier profile is upserted (never
+        // required) and the bill is stamped with the stable vendor ref so
+        // annual statements aggregate under the same supplier identity.
+        if (vendorRef || taxProfile) {
+          try {
+            const { upsertSupplierTaxProfile } = await import("../services/supplierTaxStatements");
+            const { phone, ...tax } = taxProfile ?? {};
+            await upsertSupplierTaxProfile(db, {
+              tenantId,
+              vendorName: created.bill.vendorName ?? vendorRef ?? "unknown",
+              vendorRef: vendorRef ?? created.bill.vendorName ?? null,
+              ...tax,
+              metadata: phone ? { phone } : undefined,
+              actor: String(ctx.user.id),
+            });
+            if (vendorRef) {
+              const meta = { ...((created.bill.metadata as any) ?? {}), vendorRef };
+              await db.update(vendorBills).set({ metadata: meta, updatedAt: new Date() })
+                .where(and(eq(vendorBills.id, created.bill.id), eq(vendorBills.tenantId, tenantId)));
+              (created.bill as any).metadata = meta;
+            }
+          } catch (capErr) {
+            // Capture is advisory: never block a bill create on profile capture.
+            console.error("[vendorBills.create] W33 tax-profile capture failed:", capErr);
+          }
+        }
+        // === END W33 tax-statements ===
+        return created;
       } catch (e) { rethrow(e); }
     }),
 
