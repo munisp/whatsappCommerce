@@ -69,7 +69,8 @@ export interface CreateVendorBillInput {
   currency?: string;
   issueDate?: Date | null;
   dueDate?: Date | null;
-  captureSource?: "photo" | "pdf" | "whatsapp" | "manual" | "odoo";
+  // W32: 'recurring' added (recurring_rules engine creates these bills).
+  captureSource?: "photo" | "pdf" | "whatsapp" | "manual" | "odoo" | "recurring";
   captureMediaKey?: string | null;
   captureImage?: { base64: string; mimeType: "image/jpeg" | "image/png" | "image/webp" } | null;
   actor?: string | null;
@@ -195,6 +196,15 @@ export interface RecordPaymentResult {
   duplicate?: boolean;
   approvalRequired?: boolean;
   approvalId?: string;
+  // === W32 pay-over-time === (present only on the payOverTime path)
+  planId?: string;
+  loanId?: string;
+  installments?: number;
+  feeCents?: number;
+  totalRepayCents?: number;
+  schedule?: unknown[];
+  message?: string;
+  // === END W32 pay-over-time ===
 }
 
 /**
@@ -217,6 +227,9 @@ export async function recordVendorBillPayment(
     paymentRef?: string | null;
     actor?: string | null;
     approvalId?: string | null;
+    /** W32 pay-over-time: fund the FULL remaining balance from the platform
+     * lending facility and repay in installments (vendor paid in full today). */
+    payOverTime?: { installments: 3 | 6 | 12 } | null;
   },
 ): Promise<RecordPaymentResult> {
   const [bill] = await db.select().from(vendorBills)
@@ -275,6 +288,44 @@ export async function recordVendorBillPayment(
       // approvals module not on this branch yet → gate no-ops.
     }
   }
+
+  // === W32 pay-over-time ===
+  // Opt-in installment bill pay. Runs AFTER the approval gate above (the
+  // gate stays FIRST — above-threshold bills park in pending_approval even
+  // with payOverTime). The vendor is paid IN FULL from the platform lending
+  // facility (services/payOverTime.ts); the merchant wallet is NOT debited.
+  // When the option is absent this branch is inert and every behavior below
+  // is byte-for-byte the pre-W32 wallet path.
+  if (opts.payOverTime) {
+    if (amountCents !== remaining) {
+      throw Object.assign(
+        new Error("payOverTime funds the FULL remaining balance — partial amounts are not supported"),
+        { code: "BAD_REQUEST" },
+      );
+    }
+    const pot = await import("./payOverTime");
+    const res = await pot.payBillOverTime(db, {
+      tenantId: opts.tenantId,
+      billId: opts.billId,
+      installments: opts.payOverTime.installments,
+      actor: opts.actor ?? null,
+    });
+    // Same honest Odoo tail as the wallet path: enqueue the paid bill; the
+    // row stays queued when Odoo isn't configured.
+    try {
+      const [paidBill] = await db.select().from(vendorBills).where(eq(vendorBills.id, bill.id));
+      if (paidBill?.status === "paid") {
+        const { onVendorBillPaid } = await import("./odoo/sync");
+        await onVendorBillPaid(db, opts.tenantId, paidBill);
+        await db.update(vendorBills).set({ odooSyncState: "queued", updatedAt: new Date() })
+          .where(eq(vendorBills.id, bill.id));
+      }
+    } catch (e: any) {
+      console.warn("[vendorBills] odoo outbox enqueue failed (bill stays paid, sync pending):", e?.message);
+    }
+    return res;
+  }
+  // === END W32 pay-over-time ===
 
   // Deterministic reference: explicit caller ref (idempotency key) wins;
   // otherwise `vbill:<billId>` for a one-shot full payment, or

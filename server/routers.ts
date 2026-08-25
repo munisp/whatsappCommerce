@@ -297,6 +297,12 @@ export const appRouter = router({
   // === W31 ar-invoices (Coder D) ===
   arInvoices: arInvoicesRouter,
   // === END W31 ar-invoices ===
+  // === W32 recurring-tiers (Coder B) ===
+  recurringRules: recurringRulesRouter,
+  // === END W32 recurring-tiers ===
+  // === W32 earlypay-fx (Coder C) ===
+  fxPayouts: fxPayoutsRouter,
+  // === END W32 earlypay-fx ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -331,3 +337,10 @@ import { scheduledPaymentsRouter } from "./routers/payments2";
 // === W31 ar-invoices (Coder D) ===
 import { arInvoicesRouter } from "./routers/arInvoices";
 // === END W31 ar-invoices ===
+// === W32 recurring-tiers (Coder B) ===
+import { recurringRulesRouter } from "./routers/recurringRules";
+// === END W32 recurring-tiers ===
+
+// === W32 earlypay-fx (Coder C) ===
+import { fxPayoutsRouter } from "./routers/fxPayouts";
+// === END W32 earlypay-fx ===

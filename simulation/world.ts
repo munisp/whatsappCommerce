@@ -569,6 +569,13 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.paymentBatches);
         } catch { /* w31 tables not migrated yet */ }
         // === END W31 scheduled-batch ===
+        // === W32 earlypay-fx (Coder C): FX quotes never leak between
+        // journeys (J203–J205). wholesale_orders are already wiped above.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.fxQuotes);
+        } catch { /* w32 tables not migrated yet */ }
+        // === END W32 earlypay-fx ===
         // Wave 9 isolation: onboarding copilot sessions + the waOnboarding
         // in-memory pending-edit map never leak between journeys.
         try {
@@ -812,6 +819,26 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.vendorBills);
         } catch { /* w31 tables not migrated yet */ }
         // === END W31 vendor-bills ===
+        // === W32 pay-over-time === isolation: installment plans + their
+        // exactly-once capture/settle claims never leak between journeys.
+        // (Loans/funding/facility are already wiped+reseeded by the W30
+        // loans-credit block above; the platform facility seed is REUSED —
+        // no new facility seed here.)
+        try {
+          const schema = await import("../drizzle/schema");
+          const { inArray: inArr } = await import("drizzle-orm");
+          await world.db.delete(schema.installmentPlans);
+          await world.db.delete(schema.processedWebhookEvents)
+            .where(inArr(schema.processedWebhookEvents.type, ["pot_installment", "pot_settle"]));
+        } catch { /* w32 tables not migrated yet */ }
+        // === END W32 pay-over-time ===
+        // === W32 merger seam === recurring rules (B's journeys) never leak
+        // between journeys on the merged branch.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.recurringRules);
+        } catch { /* w32 tables not migrated yet */ }
+        // === END W32 merger seam ===
         delete process.env.CATALOG_EXTRACTION_PROVIDER;
         delete process.env.CATALOG_EXTRACTION_ENDPOINT;
         delete process.env.CATALOG_EXTRACTION_API_KEY;

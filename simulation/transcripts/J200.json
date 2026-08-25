@@ -1,0 +1,8 @@
+{
+  "id": "J200",
+  "title": "monthly recurring bill → cron creates bill + auto-pays under threshold → replay no-op",
+  "feature": "W32 recurring engine: crash-safe advance, recur:<ruleId>:<period> idempotency, auto-pay",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

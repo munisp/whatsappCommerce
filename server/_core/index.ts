@@ -2345,6 +2345,63 @@ async function startServer() {
   });
   // === END W31 AR reminders ===
 
+  // === W32 installment due ===
+  // ── POST /api/scheduled/installment-due (daily) ─────────────────────────
+  // Pay-over-time installment capture (Coder A): for every active/defaulted
+  // installment plan, due schedule entries are captured via the EXISTING
+  // mandate rails (chargeOnMandate + exactly-once claim, capture.ts pattern;
+  // deterministic ref `potcap:<planId>:<seq>`). A failed capture marks the
+  // installment honestly 'overdue' and sends a WhatsApp dunning notice —
+  // the claim is released so the NEXT sweep retries per the mandate rules
+  // (no blind same-tick retries). Loans past dueAt + grace flip to
+  // 'defaulted' (microLoans late/default handling) and the plan follows.
+  // Registered in services/scheduler/scheduler.mjs allowlist +
+  // k8s/cron-scheduler.yaml (cron-installment-due, daily).
+  // After deploy: manus-heartbeat create --name installment-due --cron "0 0 8 * * *" --path /api/scheduled/installment-due
+  app.post("/api/scheduled/installment-due", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runInstallmentCaptureSweep } = await import("../services/payOverTime");
+      const summary = await runInstallmentCaptureSweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[installment-due]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W32 installment due ===
+
+  // === W32 recurring ===
+  // ── POST /api/scheduled/recurring-run (daily) ──────────────────────────
+  // Recurring bills / auto-pay engine (W32 Coder B): claims due
+  // recurring_rules via a guarded UPDATE, creates the period's vendor_bill
+  // (capture_source='recurring') or adhoc scheduled_payment and advances
+  // next_run_at IN THE SAME transaction (crash-safe, idempotency key
+  // `recur:<ruleId>:<period>`), auto-pays at-or-under auto_pay_under_cents
+  // after the W31 approvals gate, and parks above-threshold periods behind a
+  // one-tap WA approval (approvals executor map, kind 'scheduled_payment').
+  // Registered in services/scheduler allowlist + k8s/cron-scheduler.yaml
+  // (cron-recurring-run, daily).
+  // After deploy: manus-heartbeat create --name recurring-run --cron "0 0 7 * * *" --path /api/scheduled/recurring-run
+  app.post("/api/scheduled/recurring-run", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runRecurringSweep } = await import("../services/recurringRules");
+      const summary = await runRecurringSweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[recurring-run]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W32 recurring ===
+
   // ── SLA Heartbeat ─────────────────────────────────────────────────────────
   app.post("/api/scheduled/sla-scan", async (req, res) => {
     try {

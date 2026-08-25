@@ -76,6 +76,13 @@ export const SCHEDULE = [
   // === END W31 approvals ===
   // === W31 AR reminders === daily overdue sweep + polite WA pay reminders.
   { path: "/api/scheduled/ar-reminders", intervalMin: 1440 },
+  // === W32 installment due === daily pay-over-time installment capture +
+  // honest overdue dunning (see server/services/payOverTime.ts).
+  { path: "/api/scheduled/installment-due", intervalMin: 1440 },
+  // === END W32 installment due ===
+  // === W32 recurring === daily recurring bills / auto-pay sweep.
+  { path: "/api/scheduled/recurring-run", intervalMin: 1440 },
+  // === END W32 recurring ===
 ];
 
 function b64url(buf) {

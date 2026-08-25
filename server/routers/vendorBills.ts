@@ -180,6 +180,11 @@ export const vendorBillsRouter = router({
       amountCents: z.number().int().positive().optional(), // defaults to remaining balance
       paymentRef: z.string().max(128).optional(),
       approvalId: z.string().max(64).optional(), // approval-execution bypass (W31 Coder C contract)
+      // === W32 pay-over-time === opt-in installment bill pay (3|6|12).
+      payOverTime: z.object({
+        installments: z.union([z.literal(3), z.literal(6), z.literal(12)]),
+      }).optional(),
+      // === END W32 pay-over-time ===
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await requireDb();
@@ -190,10 +195,47 @@ export const vendorBillsRouter = router({
           amountCents: input.amountCents ?? null,
           paymentRef: input.paymentRef ?? null,
           approvalId: input.approvalId ?? null,
+          payOverTime: input.payOverTime ?? null,
           actor: String(ctx.user.id),
         });
       } catch (e) { rethrow(e); }
     }),
+
+  // === W32 pay-over-time ===
+  /** List the tenant's installment plans (read-only). */
+  installmentPlans: analystProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const { listInstallmentPlans } = await import("../services/payOverTime");
+      return listInstallmentPlans(db, input.tenantId);
+    }),
+
+  /** Merchant's pay-over-time eligibility (score threshold + KYB). */
+  payOverTimeEligibility: analystProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const { checkPayOverTimeEligibility } = await import("../services/payOverTime");
+      return checkPayOverTimeEligibility(db, input.tenantId);
+    }),
+
+  /**
+   * Early-settle an active/defaulted plan: ONE mandate charge for the
+   * remaining balance. Fee policy per escrow_config
+   * (pay_over_time_prorate_early_fee; default full fee — documented in
+   * services/payOverTime.ts).
+   */
+  settlePlanEarly: moneyProcedure
+    .input(z.object({ tenantId: z.string(), planId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      try {
+        const { settlePlanEarly } = await import("../services/payOverTime");
+        return await settlePlanEarly(db, { tenantId: input.tenantId, planId: input.planId });
+      } catch (e) { rethrow(e); }
+    }),
+  // === END W32 pay-over-time ===
 
   /**
    * Overdue sweep (cron/scheduled): flip unpaid bills past due_date to

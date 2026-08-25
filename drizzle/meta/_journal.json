@@ -722,6 +722,41 @@
       "when": 1786990090000,
       "tag": "0105_ar_invoice_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1787500000000,
+      "tag": "0106_installment_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1787500100000,
+      "tag": "0107_recurring_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1787500200000,
+      "tag": "0108_payout_speed_tiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1787500300000,
+      "tag": "0109_po_payment_terms",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1787500400000,
+      "tag": "0110_fx_quotes",
+      "breakpoints": true
     }
   ]
 }

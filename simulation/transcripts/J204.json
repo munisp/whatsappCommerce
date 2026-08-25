@@ -1,0 +1,8 @@
+{
+  "id": "J204",
+  "title": "FX quote → accept → execute with exact fee math; expired refusal; replay no-op",
+  "feature": "W32 FX payouts: deterministic labelled rates + guarded consume + Mojaloop delivery",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}
