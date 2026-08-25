@@ -1,0 +1,8 @@
+{
+  "id": "J213",
+  "title": "embedded API enforcement: scopes, suspension, disabled flag 404, rate limit trips",
+  "feature": "W33 embedded-api: auth/scope/flag/rate-limit enforcement",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

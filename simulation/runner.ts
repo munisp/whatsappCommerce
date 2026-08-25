@@ -273,6 +273,21 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j204-fx-quote-accept-execute"),
     import("./journeys/j205-fx-no-corridor"),
     // === END W32 earlypay-fx ===
+    // === W33 tax-statements ===
+    import("./journeys/j206-tax-profile-annual-totals"),
+    import("./journeys/j207-tax-statement-pdf"),
+    import("./journeys/j208-tax-statement-send"),
+    // === END W33 tax-statements ===
+    // === W33 ai-qa-forecast (Coder B) ===
+    import("./journeys/j209-finance-qa-intents"),
+    import("./journeys/j210-forecast-conservation"),
+    import("./journeys/j211-forecast-snapshot-idempotent"),
+    // === END W33 ai-qa-forecast ===
+    // === W33 embedded-api ===
+    import("./journeys/j212-embedded-api-full-flow"),
+    import("./journeys/j213-embedded-api-scope-enforcement"),
+    import("./journeys/j214-embedded-api-tenant-isolation"),
+    // === END W33 embedded-api ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

@@ -1697,3 +1697,49 @@ spec:
                 limits:
                   cpu: "100m"
                   memory: "128Mi"
+---
+# === W33 forecast === (Coder B) — weekly cash-flow forecast snapshot sweep.
+# NOTE for merger: per SPEC_W33 this is CronJob #41 on the merged branch
+# (B takes #41). Stores the 30-day projection per tenant into
+# cashflow_forecasts (migration 0113), idempotent per (tenant, horizon, day).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-cashflow-forecast
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "0 6 * * 1"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/cashflow-forecast"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W33 forecast ===

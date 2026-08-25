@@ -2323,6 +2323,291 @@ async function startServer() {
   });
   // === END W31 scheduled payments ===
 
+  // === W33 embedded-api ===
+  // Embedded AP-as-a-feature HTTP surface (Melio's distribution play).
+  // /api/embedded/v1/* is an Express API-key surface (NOT tRPC): partners
+  // authenticate with a per-client API key, the tenant context is derived
+  // from the client binding (NEVER from request params/headers), and every
+  // endpoint is a THIN pass-through to the existing W31 services
+  // (vendorBills / scheduledPayments / arInvoices) — no money logic lives
+  // here. Bill pay goes through the SAME approval gate as in-app
+  // (requireApprovalIfNeeded inside recordVendorBillPayment) — embedded can
+  // never bypass it. Fail-closed: EMBEDDED_API_ENABLED defaults OFF and the
+  // whole surface 404s when disabled; enabling it exposes the surface.
+  {
+    type EmbeddedReq = express.Request & { embedded?: { client: any; tenantId: string; actor: string; db: any } };
+    const embedded = express.Router();
+
+    // 1. Feature flag — fail-closed default OFF (404, indistinguishable from
+    //    an unmounted route). Read per-request so ops can toggle without a
+    //    reboot; any value other than exactly "true" is OFF.
+    embedded.use((req, res, next) => {
+      if ((process.env.EMBEDDED_API_ENABLED ?? "false") !== "true") {
+        res.status(404).json({ error: "not-found" });
+        return;
+      }
+      next();
+    });
+
+    // 2. API-key auth: sha256(presented key) timing-safe-compared against the
+    //    stored digest (only digests persist — see services/embeddedApi.ts).
+    //    Unknown key and suspended client both fail 401 honestly. Per-client
+    //    rate limit reuses the fail-closed checkRateLimit (prod: limiter
+    //    outage → 503; never silently unlimited).
+    embedded.use(async (req: EmbeddedReq, res, next) => {
+      try {
+        const db = await getDb();
+        if (!db) { res.status(503).json({ error: "db-unavailable" }); return; }
+        const xKey = req.headers["x-api-key"];
+        const auth = req.headers["authorization"];
+        let presented = typeof xKey === "string" ? xKey.trim() : "";
+        if (!presented && typeof auth === "string" && auth.startsWith("Bearer ")) {
+          presented = auth.slice("Bearer ".length).trim();
+        }
+        if (!presented) { res.status(401).json({ error: "missing-api-key" }); return; }
+        const { resolveApiKey, embeddedActor } = await import("../services/embeddedApi");
+        const resolved = await resolveApiKey(db, presented);
+        if (!resolved) { res.status(401).json({ error: "invalid-api-key" }); return; }
+        if (resolved.suspended) { res.status(401).json({ error: "client-suspended" }); return; }
+        const { checkRateLimit } = await import("./rateLimit");
+        const limit = Math.max(1, Number(process.env.EMBEDDED_API_RATE_LIMIT_PER_MIN ?? 120) || 120);
+        const windowKey = `rl:embedded:${resolved.client.id}:${Math.floor(Date.now() / 60000)}`;
+        const decision = await checkRateLimit(windowKey, limit, 60, isProd);
+        if (!decision.allowed) {
+          res.setHeader("Retry-After", String(decision.retryAfter));
+          if (decision.error) {
+            res.status(503).json({ error: "rate-limiter-unavailable", retryAfter: decision.retryAfter });
+            return;
+          }
+          res.status(429).json({ error: "rate-limited", retryAfter: decision.retryAfter });
+          return;
+        }
+        if (decision.degraded) {
+          // Redis blind and fail-open (dev/test only — prod fails closed
+          // above): enforce the SAME per-client limit in-process so a blind
+          // limiter never means "unlimited" anywhere. Per-minute fixed window.
+          const g = globalThis as any;
+          const store: Map<string, { window: number; count: number }> =
+            g.__w33EmbeddedRlMem ?? (g.__w33EmbeddedRlMem = new Map());
+          const win = Math.floor(Date.now() / 60000);
+          const cur = store.get(resolved.client.id);
+          const next = cur && cur.window === win ? { window: win, count: cur.count + 1 } : { window: win, count: 1 };
+          store.set(resolved.client.id, next);
+          if (next.count > limit) {
+            res.setHeader("Retry-After", "60");
+            res.status(429).json({ error: "rate-limited", retryAfter: 60 });
+            return;
+          }
+        }
+        req.embedded = {
+          client: resolved.client,
+          tenantId: resolved.client.tenantId, // tenant ALWAYS from the binding
+          actor: embeddedActor(resolved.client), // embedded:<clientId>
+          db,
+        };
+        next();
+      } catch (err: any) {
+        console.error("[embedded-api] auth middleware failed:", err?.message);
+        res.status(500).json({ error: "embedded-auth-failed" });
+      }
+    });
+
+    // Scope guard: 403 with the missing scope named honestly.
+    const needScope = (scope: string) => async (req: EmbeddedReq, res: express.Response, next: express.NextFunction) => {
+      const { clientHasScope } = await import("../services/embeddedApi");
+      if (!req.embedded || !clientHasScope(req.embedded.client, scope as never)) {
+        res.status(403).json({ error: "scope-required", scope });
+        return;
+      }
+      next();
+    };
+
+    const mapServiceError = (res: express.Response, err: any, fallback: string) => {
+      const code = err?.code;
+      const msg = err?.message ?? fallback;
+      if (code === "NOT_FOUND" || code === "not-found") { res.status(404).json({ error: "not-found", message: msg }); return; }
+      if (code === "CONFLICT") { res.status(409).json({ error: "conflict", message: msg }); return; }
+      if (code === "BAD_REQUEST" || code === "invalid-amount") { res.status(400).json({ error: "bad-request", message: msg }); return; }
+      if (typeof msg === "string" && (msg.includes("required") || msg.includes("must be"))) {
+        res.status(400).json({ error: "bad-request", message: msg });
+        return;
+      }
+      console.error(`[embedded-api] ${fallback}:`, err);
+      res.status(500).json({ error: "internal", message: msg });
+    };
+
+    const audit = async (req: EmbeddedReq, action: string, entityType: string, entityId: string | null, summary: string) => {
+      const { writeAuditLog } = await import("../routers/audit");
+      await writeAuditLog({
+        tenantId: req.embedded!.tenantId,
+        actorId: req.embedded!.actor, // embedded:<clientId>
+        actorRole: "embedded",
+        action,
+        entityType,
+        entityId,
+        summary,
+      });
+    };
+
+    const parseDate = (v: unknown): Date | null => {
+      if (v == null) return null;
+      const d = new Date(String(v));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    // ── Bills (vendorBills pass-through) ─────────────────────────────────
+    embedded.get("/bills", needScope("bills:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { vendorBills } = await import("../../drizzle/schema");
+        const { and, desc, eq } = await import("drizzle-orm");
+        const conds = [eq(vendorBills.tenantId, req.embedded!.tenantId)];
+        if (typeof req.query.status === "string" && req.query.status) {
+          conds.push(eq(vendorBills.status, req.query.status));
+        }
+        const rows = await req.embedded!.db.select().from(vendorBills)
+          .where(and(...conds)).orderBy(desc(vendorBills.createdAt)).limit(200);
+        res.json({ bills: rows });
+      } catch (err: any) { mapServiceError(res, err, "list bills failed"); }
+    });
+
+    embedded.post("/bills", needScope("bills:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { createVendorBill } = await import("../services/vendorBills");
+        const body = req.body ?? {};
+        const created = await createVendorBill(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          vendorName: body.vendorName ?? null,
+          vendorContact: body.vendorContact ?? null,
+          billNumber: body.billNumber ?? null,
+          description: body.description ?? null,
+          amountCents: body.amountCents ?? null,
+          currency: body.currency ?? "NGN",
+          issueDate: parseDate(body.issueDate),
+          dueDate: parseDate(body.dueDate),
+          captureSource: "manual",
+          actor: req.embedded!.actor,
+        });
+        await audit(req, "embedded.bill.create", "vendor_bill", created.bill.id,
+          `Embedded bill ${created.bill.id} (${created.bill.vendorName}, ${created.bill.amountCents} cents ${created.bill.currency})`);
+        res.status(201).json(created);
+      } catch (err: any) { mapServiceError(res, err, "create bill failed"); }
+    });
+
+    embedded.get("/bills/:id", needScope("bills:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { vendorBills } = await import("../../drizzle/schema");
+        const { and, eq } = await import("drizzle-orm");
+        const [bill] = await req.embedded!.db.select().from(vendorBills)
+          .where(and(eq(vendorBills.id, req.params.id), eq(vendorBills.tenantId, req.embedded!.tenantId)));
+        if (!bill) { res.status(404).json({ error: "not-found" }); return; }
+        res.json({ bill });
+      } catch (err: any) { mapServiceError(res, err, "get bill failed"); }
+    });
+
+    // Bill pay goes through the SAME approval gate as in-app: above a tenant
+    // threshold the bill honestly parks pending_approval (approvalRequired:
+    // true, no money moves) and only an in-app approval executes it.
+    embedded.post("/bills/:id/pay", needScope("payments:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { recordVendorBillPayment } = await import("../services/vendorBills");
+        const body = req.body ?? {};
+        const result = await recordVendorBillPayment(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          billId: req.params.id,
+          amountCents: body.amountCents ?? null,
+          paymentRef: body.paymentRef ?? null,
+          actor: req.embedded!.actor,
+        });
+        await audit(req, "embedded.bill.pay", "vendor_bill", req.params.id,
+          `Embedded bill pay ${req.params.id} → ${result.status}${result.approvalRequired ? ` (approval ${result.approvalId})` : ""} ref ${result.paymentRef || "n/a"}`);
+        res.json(result);
+      } catch (err: any) { mapServiceError(res, err, "bill pay failed"); }
+    });
+
+    // ── Scheduled payments (scheduledPayments pass-through) ──────────────
+    embedded.post("/payments/schedule", needScope("payments:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { schedulePayment } = await import("../services/scheduledPayments");
+        const body = req.body ?? {};
+        const executeAt = parseDate(body.executeAt);
+        if (!executeAt) { res.status(400).json({ error: "bad-request", message: "executeAt (ISO date) is required" }); return; }
+        if (!Number.isInteger(body.amountCents) || body.amountCents <= 0) {
+          res.status(400).json({ error: "bad-request", message: "amountCents must be a positive integer" });
+          return;
+        }
+        const kind = ["vendor_bill", "payout", "adhoc"].includes(body.kind) ? body.kind : null;
+        if (!kind) { res.status(400).json({ error: "bad-request", message: "kind must be vendor_bill|payout|adhoc" }); return; }
+        const result = await schedulePayment(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          kind,
+          targetId: body.targetId ?? null,
+          recipient: body.recipient ?? null,
+          amountCents: body.amountCents,
+          currency: body.currency ?? "NGN",
+          executeAt,
+          idempotencyKey: body.idempotencyKey,
+          // scheduled_payments.created_by is varchar(36): the canonical actor
+          // (embedded:<clientId>, 45 chars) lives on the audit row below; the
+          // row marker is the same client id, dash-less, prefixed — 36 chars.
+          createdBy: `emb:${req.embedded!.client.id.replace(/-/g, "")}`,
+        });
+        await audit(req, "embedded.payment.schedule", "scheduled_payment", result.payment.id,
+          `Embedded scheduled ${kind} payment ${result.payment.id} (${body.amountCents} cents @ ${executeAt.toISOString()})${result.duplicate ? " (idempotent replay)" : ""}`);
+        res.status(result.duplicate ? 200 : 201).json(result);
+      } catch (err: any) { mapServiceError(res, err, "schedule payment failed"); }
+    });
+
+    embedded.get("/payments/:id", needScope("payments:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { scheduledPayments } = await import("../../drizzle/schema");
+        const { and, eq } = await import("drizzle-orm");
+        const [payment] = await req.embedded!.db.select().from(scheduledPayments)
+          .where(and(eq(scheduledPayments.id, req.params.id), eq(scheduledPayments.tenantId, req.embedded!.tenantId)));
+        if (!payment) { res.status(404).json({ error: "not-found" }); return; }
+        res.json({ payment });
+      } catch (err: any) { mapServiceError(res, err, "get payment failed"); }
+    });
+
+    // ── AR invoices (arInvoices pass-through) ────────────────────────────
+    embedded.get("/invoices", needScope("invoices:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { arInvoices } = await import("../../drizzle/schema");
+        const { and, desc, eq } = await import("drizzle-orm");
+        const conds = [eq(arInvoices.tenantId, req.embedded!.tenantId)];
+        if (typeof req.query.status === "string" && req.query.status) {
+          conds.push(eq(arInvoices.status, req.query.status));
+        }
+        const rows = await req.embedded!.db.select().from(arInvoices)
+          .where(and(...conds)).orderBy(desc(arInvoices.createdAt)).limit(200);
+        res.json({ invoices: rows });
+      } catch (err: any) { mapServiceError(res, err, "list invoices failed"); }
+    });
+
+    embedded.post("/invoices", needScope("invoices:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { createArInvoice } = await import("../services/arInvoices");
+        const body = req.body ?? {};
+        const inv = await createArInvoice(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          customerName: body.customerName ?? null,
+          customerPhone: body.customerPhone ?? null,
+          customerEmail: body.customerEmail ?? null,
+          description: body.description ?? null,
+          amountCents: body.amountCents,
+          currency: body.currency ?? "NGN",
+          dueDate: parseDate(body.dueDate),
+          metadata: { source: "embedded_api", clientId: req.embedded!.client.id },
+        });
+        await audit(req, "embedded.invoice.create", "ar_invoice", inv.id,
+          `Embedded AR invoice #${inv.invoiceNo} (${inv.amountCents} cents ${inv.currency})`);
+        res.status(201).json({ invoice: inv });
+      } catch (err: any) { mapServiceError(res, err, "create invoice failed"); }
+    });
+
+    app.use("/api/embedded/v1", embedded);
+  }
+  // === END W33 embedded-api ===
+
   // === W31 AR reminders ===
   // Daily: flip past-due AR invoices to overdue and send polite WhatsApp
   // payment reminders (max 3, 3-day spacing, claim-before-send dedupe via
@@ -2401,6 +2686,31 @@ async function startServer() {
     }
   });
   // === END W32 recurring ===
+
+  // === W33 forecast ===
+  // ── POST /api/scheduled/cashflow-forecast (weekly) ─────────────────────
+  // Cash-flow forecast snapshot sweep (W33 Coder B): stores the 30-day
+  // projection per tenant into cashflow_forecasts (migration 0113),
+  // idempotent per (tenant, horizon, day) — every figure computed from real
+  // rows; tenants with no data are skipped (no fabricated zero-rows).
+  // Registered in services/scheduler allowlist + k8s/cron-scheduler.yaml
+  // (cron-cashflow-forecast, weekly, #41 on the merged branch).
+  // After deploy: manus-heartbeat create --name cashflow-forecast --cron "0 0 6 * * 1" --path /api/scheduled/cashflow-forecast
+  app.post("/api/scheduled/cashflow-forecast", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runForecastSweep } = await import("../services/cashflowForecast");
+      const summary = await runForecastSweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[cashflow-forecast]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W33 forecast ===
 
   // ── SLA Heartbeat ─────────────────────────────────────────────────────────
   app.post("/api/scheduled/sla-scan", async (req, res) => {

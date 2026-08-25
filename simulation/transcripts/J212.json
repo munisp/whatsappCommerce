@@ -1,0 +1,8 @@
+{
+  "id": "J212",
+  "title": "embedded API full flow: bill create → pay parks at approval gate → owner approves → paid",
+  "feature": "W33 embedded-api: /api/embedded/v1 bills + approval-gate composition",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

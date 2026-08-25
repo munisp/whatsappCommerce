@@ -7,62 +7,62 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017648428",
-      "profileName": "Sim User 8428",
+      "phone": "2348017506860",
+      "profileName": "Sim User 6860",
       "inboundId": "wamid.sim.in.text.00291",
-      "at": 1787664994182,
+      "at": 1787670181049,
       "kind": "text",
-      "text": "i want ankara [97190dfb]"
+      "text": "i want ankara [e90db5ce]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00291",
-      "at": 1787664994185
+      "at": 1787670181057
     },
     {
       "dir": "out",
-      "phone": "2348017648428",
+      "phone": "2348017506860",
       "wamid": "wamid.sim.000472",
       "statuses": [
         "sent"
       ],
-      "at": 1787664994219,
+      "at": 1787670181088,
       "kind": "text",
       "body": "✅ 1 × Ankara Wax Print 6yd\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348017648428",
-      "profileName": "Sim User 8428",
+      "phone": "2348017506860",
+      "profileName": "Sim User 6860",
       "inboundId": "wamid.sim.in.text.00292",
-      "at": 1787664994727,
+      "at": 1787670181594,
       "kind": "text",
-      "text": "confirm please [97190dfb]"
+      "text": "confirm please [e90db5ce]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00292",
-      "at": 1787664994731
+      "at": 1787670181598
     },
     {
       "dir": "out",
-      "phone": "2348017648428",
+      "phone": "2348017506860",
       "wamid": "wamid.sim.000473",
       "statuses": [
         "sent"
       ],
-      "at": 1787664994755,
+      "at": 1787670181624,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Ankara Wax Print 6yd — ₦4,500.00 each\nSubtotal: ₦4,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348017648428",
-      "profileName": "Sim User 8428",
+      "phone": "2348017506860",
+      "profileName": "Sim User 6860",
       "inboundId": "wamid.sim.in.text.00293",
-      "at": 1787664995279,
+      "at": 1787670182147,
       "kind": "text",
       "text": "1"
     },
@@ -70,55 +70,55 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00293",
-      "at": 1787664995283
+      "at": 1787670182150
     },
     {
       "dir": "out",
-      "phone": "2348017648428",
+      "phone": "2348017506860",
       "wamid": "wamid.sim.000474",
       "statuses": [
         "sent"
       ],
-      "at": 1787664995318,
+      "at": 1787670182183,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MT8PKYCQ*\n1 × Ankara Wax Print 6yd — ₦4,500.00 each\n*Total: ₦4,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/1dc94940-928b-4a24-8cec-2c1aa974cb57\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/e30c2393-3179-46b3-ae2a-22401552e8ab.hT50yc55mrOWGD74SPYCGjEE"
+      "body": "🧾 *Pickup Order ORD-MT8SO4KB*\n1 × Ankara Wax Print 6yd — ₦4,500.00 each\n*Total: ₦4,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/ea7502f6-4ab4-4da7-b94c-af2f37b4fec2\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/7a70f48b-34ec-4341-9ac2-0062e6a2d179.2AawnOysDLJAXHS-Krg8Dzgz"
     },
     {
       "dir": "out",
-      "phone": "2348017648428",
+      "phone": "2348017506860",
       "wamid": "wamid.sim.000475",
       "statuses": [
         "sent"
       ],
-      "at": 1787664995322,
+      "at": 1787670182187,
       "kind": "interactive",
-      "body": "Order ORD-MT8PKYCQ — manage it here:",
+      "body": "Order ORD-MT8SO4KB — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:e30c2393-3179-46b3-ae2a-22401552e8ab",
+          "id": "order_track:7a70f48b-34ec-4341-9ac2-0062e6a2d179",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:e30c2393-3179-46b3-ae2a-22401552e8ab",
+          "id": "order_pay:7a70f48b-34ec-4341-9ac2-0062e6a2d179",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:e30c2393-3179-46b3-ae2a-22401552e8ab",
+          "id": "order_cancel:7a70f48b-34ec-4341-9ac2-0062e6a2d179",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348017648428",
+      "phone": "2348017506860",
       "wamid": "wamid.sim.000476",
       "statuses": [
         "sent"
       ],
-      "at": 1787664995839,
+      "at": 1787670182710,
       "kind": "text",
-      "body": "🧾 *J102 Adaeze Fabrics — Payment Receipt*\nOrder: ORD-MT8PKYCQ\n\n1 × Ankara Wax Print 6yd — ₦4,500.00\n\nSubtotal: ₦4,500.00\n*Total paid: ₦4,500.00*\nPayment ref: 1dc94940-928b-4a24-8cec-2c1aa974cb57\n\n🔎 Track your order: http://localhost:4173/track/e30c2393-3179-46b3-ae2a-22401552e8ab.hT50yc55mrOWGD74SPYCGjEE"
+      "body": "🧾 *J102 Adaeze Fabrics — Payment Receipt*\nOrder: ORD-MT8SO4KB\n\n1 × Ankara Wax Print 6yd — ₦4,500.00\n\nSubtotal: ₦4,500.00\n*Total paid: ₦4,500.00*\nPayment ref: ea7502f6-4ab4-4da7-b94c-af2f37b4fec2\n\n🔎 Track your order: http://localhost:4173/track/7a70f48b-34ec-4341-9ac2-0062e6a2d179.2AawnOysDLJAXHS-Krg8Dzgz"
     }
   ]
 }

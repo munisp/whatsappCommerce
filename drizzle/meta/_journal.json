@@ -757,6 +757,34 @@
       "when": 1787500400000,
       "tag": "0110_fx_quotes",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1787900000000,
+      "tag": "0111_supplier_tax_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1787900100000,
+      "tag": "0112_annual_statements",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1787900200000,
+      "tag": "0113_cashflow_forecasts",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1787900300000,
+      "tag": "0114_embedded_clients",
+      "breakpoints": true
     }
   ]
 }

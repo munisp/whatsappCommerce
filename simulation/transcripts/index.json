@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T13:39:53.591Z",
+  "generatedAt": "2026-08-25T15:06:31.704Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -1011,11 +1011,83 @@
       "messageCount": 0
     },
     {
+      "id": "J206",
+      "title": "supplier tax profile + annual totals conservation",
+      "feature": "W33 tax-statements",
+      "pass": true,
+      "file": "J206.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J207",
+      "title": "annual statement PDF honest generation + mixed currency",
+      "feature": "W33 tax-statements",
+      "pass": true,
+      "file": "J207.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J208",
+      "title": "statement send via WA push + viewed + idempotent regeneration",
+      "feature": "W33 tax-statements",
+      "pass": true,
+      "file": "J208.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J209",
+      "title": "WhatsApp finance Q&A: 6 canonical intents answer real figures",
+      "feature": "W33 financeQa: keyword fallback, tenant-scoped real queries, honest amounts",
+      "pass": true,
+      "file": "J209.json",
+      "messageCount": 27
+    },
+    {
       "id": "J21",
       "title": "template sync + create",
       "feature": "waTemplates statusSync/create/picker",
       "pass": true,
       "file": "J21.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J210",
+      "title": "forecast conservation + shortfall detection on real seeded outflows",
+      "feature": "W33 cashflowForecast: sum(lines)==totals, shortfall day exact",
+      "pass": true,
+      "file": "J210.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J211",
+      "title": "forecast snapshot stored idempotently + dashboard empty state",
+      "feature": "W33 cashflow_forecasts: (tenant,horizon,day) idempotency, honest empty state",
+      "pass": true,
+      "file": "J211.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J212",
+      "title": "embedded API full flow: bill create → pay parks at approval gate → owner approves → paid",
+      "feature": "W33 embedded-api: /api/embedded/v1 bills + approval-gate composition",
+      "pass": true,
+      "file": "J212.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J213",
+      "title": "embedded API enforcement: scopes, suspension, disabled flag 404, rate limit trips",
+      "feature": "W33 embedded-api: auth/scope/flag/rate-limit enforcement",
+      "pass": true,
+      "file": "J213.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J214",
+      "title": "embedded API audit actor embedded:<clientId> + strict tenant isolation",
+      "feature": "W33 embedded-api: audit trail + client-bound tenant context",
+      "pass": true,
+      "file": "J214.json",
       "messageCount": 0
     },
     {

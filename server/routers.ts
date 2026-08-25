@@ -103,6 +103,9 @@ import { membershipRouter } from "./routers/membership";
 // === W31 approvals (Coder C) ===
 import { approvalsRouter } from "./routers/approvals";
 // === END W31 approvals ===
+// === W33 embedded-api ===
+import { embeddedRouter } from "./routers/embedded";
+// === END W33 embedded-api ===
 import { erpProvisionRouter } from "./routers/erpProvision";
 import { embeddedSignupRouter } from "./routers/embeddedSignup";
 import { shopifyIntegrationRouter } from "./routers/shopifyIntegration";
@@ -159,6 +162,9 @@ export const appRouter = router({
   // === W31 approvals (Coder C) ===
   approvals: approvalsRouter,
   // === END W31 approvals ===
+  // === W33 embedded-api ===
+  embedded: embeddedRouter,
+  // === END W33 embedded-api ===
   tenant: tenantRouter,
   tenantConfig: tenantConfigRouter,
   product: productRouter,
@@ -303,6 +309,12 @@ export const appRouter = router({
   // === W32 earlypay-fx (Coder C) ===
   fxPayouts: fxPayoutsRouter,
   // === END W32 earlypay-fx ===
+  // === W33 tax-statements ===
+  taxStatements: taxStatementsRouter,
+  // === END W33 tax-statements ===
+  // === W33 ai-qa-forecast (Coder B) ===
+  cashflow: cashflowRouter,
+  // === END W33 ai-qa-forecast ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -344,3 +356,9 @@ import { recurringRulesRouter } from "./routers/recurringRules";
 // === W32 earlypay-fx (Coder C) ===
 import { fxPayoutsRouter } from "./routers/fxPayouts";
 // === END W32 earlypay-fx ===
+// === W33 tax-statements ===
+import { taxStatementsRouter } from "./routers/taxStatements";
+// === END W33 tax-statements ===
+// === W33 ai-qa-forecast (Coder B) ===
+import { cashflowRouter } from "./routers/cashflow";
+// === END W33 ai-qa-forecast ===
