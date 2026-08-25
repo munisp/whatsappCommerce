@@ -1473,3 +1473,136 @@ spec:
                 limits:
                   cpu: "100m"
                   memory: "128Mi"
+---
+
+---
+# === W31 scheduled payments === 36th CronJob: claim-before-send execution of
+# scheduled_payments + T-1 WhatsApp reminders (every 5 min). Cadence mirrors
+# services/scheduler/scheduler.mjs (parity asserted by J178).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-execute-payments
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/execute-payments"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+---
+# === W31 approvals (Coder C) — expiry sweep for pending approval requests ===
+# NOTE for merger: Coder B's execute-payments CronJob is the 36th on the
+# merged branch; this is the 37th. If both exist, keep both (distinct names).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-approvals-expiry
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "0 */15 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/approvals-expiry"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+---
+# === W31 AR reminders === (36th CronJob on this branch; spec numbering: D is
+# 38th only if B=36/C=37 land first — merger resolves sequential numbering)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-ar-reminders
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "0 0 9 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/ar-reminders"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"

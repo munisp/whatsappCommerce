@@ -1,0 +1,54 @@
+{
+  "id": "J185",
+  "title": "whatsapp bill capture",
+  "feature": "W31 vendor-bills AP inbox",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348019458028",
+      "profileName": "Sim User 8028",
+      "inboundId": "wamid.sim.in.img.00434",
+      "at": 1787635064325,
+      "kind": "image",
+      "mediaKind": "image",
+      "mediaId": "m-vb-stray",
+      "caption": "look at this"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.img.00434",
+      "at": 1787635064328
+    },
+    {
+      "dir": "in",
+      "phone": "2348019458028",
+      "profileName": "Sim User 8028",
+      "inboundId": "wamid.sim.in.img.00435",
+      "at": 1787635064884,
+      "kind": "image",
+      "mediaKind": "image",
+      "mediaId": "m-vb-185",
+      "caption": "bill from Adaeze"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.img.00435",
+      "at": 1787635064937
+    },
+    {
+      "dir": "out",
+      "phone": "2348019458028",
+      "wamid": "wamid.sim.000696",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787635065155,
+      "kind": "text",
+      "body": "🧾 Vendor bill captured: Adaeze Wholesale — ₦45,000 (ref INV-185).\nReply \"pay bill INV-185\" to pay it from your wallet."
+    }
+  ]
+}

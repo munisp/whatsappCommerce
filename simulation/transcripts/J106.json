@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018232595",
-      "profileName": "Sim User 2595",
-      "inboundId": "wamid.sim.in.img.00304",
-      "at": 1787560036692,
+      "phone": "2348016765366",
+      "profileName": "Sim User 5366",
+      "inboundId": "wamid.sim.in.img.00306",
+      "at": 1787634901017,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-j106-shelf"
@@ -18,43 +18,43 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00304",
-      "at": 1787560036696
+      "wamid": "wamid.sim.in.img.00306",
+      "at": 1787634901022
     },
     {
       "dir": "out",
-      "phone": "2348018232595",
-      "wamid": "wamid.sim.000490",
+      "phone": "2348016765366",
+      "wamid": "wamid.sim.000494",
       "statuses": [
         "sent"
       ],
-      "at": 1787560036726,
+      "at": 1787634901064,
       "kind": "text",
       "body": "📷 I counted: 50× J106 Rice 5kg, 18× J106 Beans 2kg, 12× J106 Garri 1kg. Reply APPLY to update stock or REVIEW to check first."
     },
     {
       "dir": "in",
-      "phone": "2348018232595",
-      "profileName": "Sim User 2595",
-      "inboundId": "wamid.sim.in.text.00305",
-      "at": 1787560037242,
+      "phone": "2348016765366",
+      "profileName": "Sim User 5366",
+      "inboundId": "wamid.sim.in.text.00307",
+      "at": 1787634901563,
       "kind": "text",
       "text": "APPLY"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00305",
-      "at": 1787560037246
+      "wamid": "wamid.sim.in.text.00307",
+      "at": 1787634901567
     },
     {
       "dir": "out",
-      "phone": "2348018232595",
-      "wamid": "wamid.sim.000491",
+      "phone": "2348016765366",
+      "wamid": "wamid.sim.000495",
       "statuses": [
         "sent"
       ],
-      "at": 1787560037265,
+      "at": 1787634901585,
       "kind": "text",
       "body": "✅ Updated stock for 1 item(s). 2 item(s) had lower confidence and were NOT applied — please review them in your dashboard. (1 excluded as too uncertain.)"
     }

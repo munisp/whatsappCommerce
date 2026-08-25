@@ -235,6 +235,30 @@ export async function loadJourneys(): Promise<Journey[]> {
     // === W30 hotfix-money ===
     import("./journeys/j182-unverified-courier-escrow"),
     // === END W30 hotfix-money ===
+    // === W31 vendor-bills ===
+    import("./journeys/j183-vendor-bill-pay-full"),
+    import("./journeys/j184-vendor-bill-partial"),
+    import("./journeys/j185-vendor-bill-whatsapp-capture"),
+    import("./journeys/j186-vendor-bill-insufficient-overdue"),
+    // === END W31 vendor-bills ===
+    // === W31 scheduled-batch ===
+    import("./journeys/j187-scheduled-payment-executes"),
+    import("./journeys/j188-scheduled-insufficient-retry"),
+    import("./journeys/j189-batch-payments"),
+    import("./journeys/j190-t1-reminder-dedupe"),
+    // === END W31 scheduled-batch ===
+    // === W31 approvals (Coder C) ===
+    import("./journeys/j191-approval-withdrawal-executes"),
+    import("./journeys/j192-approval-reject-expiry"),
+    // === END W31 approvals ===
+    // === W31 ar-invoices ===
+    import("./journeys/j193-ar-invoice-full-payment"),
+    import("./journeys/j194-ar-invoice-partial-payments"),
+    import("./journeys/j195-ar-invoice-overdue-reminders"),
+    import("./journeys/j196-ar-invoice-cancel-link-invalidated"),
+    // === W31 merger seam ===
+    import("./journeys/j197-approval-vendorbill-scheduled"),
+    // === END W31 ar-invoices ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

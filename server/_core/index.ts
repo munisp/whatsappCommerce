@@ -778,6 +778,15 @@ async function startServer() {
           if (!result.ok) {
             console.warn(`[paystack-webhook] ref=${ref} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
           }
+          // === W31 AR webhook hook ===
+          // After the PINNED confirmProviderPayment verified + completed the
+          // intent, record any AR-invoice payment keyed by this reference
+          // (= ar_invoices.payment_link_ref). Exactly-once, never throws.
+          if (result.ok) {
+            const { runArInvoiceWebhookHook } = await import("../services/arInvoices");
+            await runArInvoiceWebhookHook(db, { provider: "paystack", reference: ref });
+          }
+          // === END W31 AR webhook hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -846,6 +855,12 @@ async function startServer() {
           if (!result.ok) {
             console.warn(`[flutterwave-webhook] tx_ref=${txRef} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
           }
+          // === W31 AR webhook hook === (see paystack handler above)
+          if (result.ok) {
+            const { runArInvoiceWebhookHook } = await import("../services/arInvoices");
+            await runArInvoiceWebhookHook(db, { provider: "flutterwave", reference: txRef });
+          }
+          // === END W31 AR webhook hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -1713,6 +1728,19 @@ async function startServer() {
                     return { handled: false } as { handled: boolean };
                   });
                 if (expOutcome?.handled) return;
+                // === W31 vendor-bills (Coder A) ===
+                // Supplier invoice forward: an image whose caption starts
+                // with "bill"/"invoice" is captured into vendor_bills via the
+                // shared OCR pipeline; anything else falls through to the
+                // stocktake / visual-search chain unchanged.
+                const { handleInboundVendorBillImage } = await import("../services/vendorBills");
+                const vbOutcome = await handleInboundVendorBillImage({ tenantId, waPhoneNumber, mediaId, caption })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] vendor bill capture error:", e?.message);
+                    return { handled: false } as { handled: boolean };
+                  });
+                if (vbOutcome?.handled) return;
+                // === END W31 vendor-bills ===
                 // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
                 // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
                 // Runs BEFORE visual product search when enabled — a
@@ -2266,6 +2294,56 @@ async function startServer() {
   };
   app.get("/api/scheduled/generate-invoices", generateInvoicesHandler);
   app.post("/api/scheduled/generate-invoices", generateInvoicesHandler);
+
+  // === W31 scheduled payments ===
+  // ── POST /api/scheduled/execute-payments (every 5 min) ──────────────────
+  // Claim-before-send execution engine for scheduled_payments (W31 Coder B):
+  // each due row is claimed via a guarded pending→claimed UPDATE, then the
+  // wallet debit + wallet_tx ledger row (reference `sched:<id>`) + status
+  // flip commit in ONE transaction — money movement is never claimed before
+  // the ledger write commits. Honest insufficient_funds state is
+  // merchant-retryable via scheduledPayments.retry after a top-up; other
+  // failures retry with backoff and dead-letter after 5 attempts. The same
+  // tick sends T-1 WhatsApp reminders (metadata.remindedAt dedupe, claimed
+  // before send so no payment is reminded twice).
+  // After deploy: manus-heartbeat create --name execute-payments --cron "0 */5 * * * *" --path /api/scheduled/execute-payments
+  app.post("/api/scheduled/execute-payments", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runScheduledPaymentTick } = await import("../services/scheduledPayments");
+      const summary = await runScheduledPaymentTick(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[execute-payments]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W31 scheduled payments ===
+
+  // === W31 AR reminders ===
+  // Daily: flip past-due AR invoices to overdue and send polite WhatsApp
+  // payment reminders (max 3, 3-day spacing, claim-before-send dedupe via
+  // last_reminder_at). Registered in services/scheduler allowlist +
+  // k8s/cron-scheduler.yaml (cron-ar-reminders, daily).
+  // After deploy: manus-heartbeat create --name ar-reminders --cron "0 0 9 * * *" --path /api/scheduled/ar-reminders
+  app.post("/api/scheduled/ar-reminders", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runArReminderSweep } = await import("../services/arInvoices");
+      const result = await runArReminderSweep(db);
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[ar-reminders]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W31 AR reminders ===
 
   // ── SLA Heartbeat ─────────────────────────────────────────────────────────
   app.post("/api/scheduled/sla-scan", async (req, res) => {
@@ -3490,6 +3568,26 @@ function drawBbox(img,id){
       return res.status(500).json({ error: String(err) });
     }
   });
+
+  // === W31 approvals ===
+  // ── POST /api/scheduled/approvals-expiry — expire stale approval requests ──
+  // After deploy: manus-heartbeat create --name approvals-expiry --cron "0 */15 * * * *" --path /api/scheduled/approvals-expiry --description "Flip pending approval_requests past expires_at to expired and notify the requester (nothing ever moves on expiry)"
+  app.post("/api/scheduled/approvals-expiry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.json({ ok: true, expired: 0, reason: "db_unavailable" });
+      const { sweepExpiredApprovals } = await import("../services/approvals");
+      const expired = await sweepExpiredApprovals(db);
+      console.log(`[approvals-expiry] expired ${expired.length} approval requests`);
+      return res.json({ ok: true, expired: expired.length });
+    } catch (err: any) {
+      console.error("[approvals-expiry]", err);
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+  // === END W31 approvals ===
 
   // ── GET /health — lightweight liveness probe (no DB / external deps) ─────
   // Intended for k8s liveness/readiness probes and load-test warm checks.

@@ -1725,6 +1725,12 @@ export const walletRouter = router({
       // Client-supplied idempotency key — retries with the same reference
       // return the existing withdrawal instead of double-debiting.
       reference: z.string().max(128).optional(),
+      // === W31 approvals (Coder C) ===
+      // Execution leg of an approved withdrawal request: carries the
+      // approval id so the gates below know approval + step-up were already
+      // satisfied exactly once at decision time.
+      approvalId: z.string().uuid().optional(),
+      // === END W31 approvals ===
     }))
     .mutation(async ({ input, ctx }) => {
       const db = await getDb();
@@ -1736,17 +1742,63 @@ export const walletRouter = router({
       // W30 (V2#1): KYB hard precondition (fail-closed, cached by caller).
       const { requireApprovedKyb } = await import("../services/kycGate");
       await requireApprovedKyb(input.tenantId, db);
+      // === W31 approvals (Coder C) ===
+      // Threshold-approval gate — checked BEFORE step-up. When the tenant's
+      // approval policy covers 'withdrawal' at this amount, the call parks as
+      // an approval_requests row and returns an honest `pending_approval`
+      // (nothing debited); the approver's decision re-invokes THIS procedure
+      // with approvalId (the W31 withdrawal executor in this file). No policy
+      // / threshold 0 → requireApprovalIfNeeded is a no-op and every W30
+      // behavior below is unchanged. A replay carrying approvalId is
+      // validated against the approved row (tenant/kind/amount) and skips the
+      // step-up gate because the approver already completed step-up at
+      // decision time for above-threshold requests (compose, never bypass).
+      let w31ApprovedReplay = false;
+      if (!input.approvalId) {
+        const { requireApprovalIfNeeded } = await import("../services/approvals");
+        const w31Ref = input.reference
+          ?? `WD-${Date.now()}-${input.tenantId.slice(0, 6).toUpperCase()}-${crypto.randomUUID().slice(0, 8)}`;
+        const gate = await requireApprovalIfNeeded(
+          input.tenantId,
+          "withdrawal",
+          Math.round(input.amount * 100),
+          input.tenantId,
+          db,
+          { requestedBy: String(ctx.user.id), reference: w31Ref },
+        );
+        if (gate.approvalRequired) {
+          return {
+            success: true,
+            reference: w31Ref,
+            amount: input.amount,
+            status: "pending_approval",
+            approvalId: gate.approvalId,
+            duplicate: false,
+          };
+        }
+      } else {
+        const { assertApprovedWithdrawalReplay } = await import("../services/approvals");
+        await assertApprovedWithdrawalReplay(db, {
+          approvalId: input.approvalId,
+          tenantId: input.tenantId,
+          amountCents: Math.round(input.amount * 100),
+        });
+        w31ApprovedReplay = true;
+      }
+      // === END W31 approvals ===
       // W30 (V2#2a): withdrawals above the configured threshold require a
       // fresh step-up OTP to the tenant admin phone.
       const { requireStepUp, withdrawalStepUpThreshold } = await import("../services/stepUp");
-      await requireStepUp(db, {
-        required: input.amount > withdrawalStepUpThreshold(),
-        tenantId: input.tenantId,
-        userId: ctx.user.id,
-        purpose: "withdrawal",
-        stepUpChallengeId: input.stepUpChallengeId,
-        stepUpOtp: input.stepUpOtp,
-      });
+      if (!w31ApprovedReplay) {
+        await requireStepUp(db, {
+          required: input.amount > withdrawalStepUpThreshold(),
+          tenantId: input.tenantId,
+          userId: ctx.user.id,
+          purpose: "withdrawal",
+          stepUpChallengeId: input.stepUpChallengeId,
+          stepUpOtp: input.stepUpOtp,
+        });
+      }
       const cfg = await getEscrowConfig(db);
       if (cfg.custodyMode !== "psp") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Withdrawals are only available under PSP licence mode" });
       const wallet = await getOrCreateWallet(db, input.tenantId, "psp");
@@ -2394,3 +2446,47 @@ export const timelineAttachmentRouter = router({
 });
 
 // === W30 escrow-lifecycle ===
+
+// === W31 approvals (Coder C) ===
+// Withdrawal approval executor: registered with the W31 approvals service so
+// approvals.approve of a 'withdrawal' request re-invokes THIS router's
+// requestWithdrawal (the existing, locked escrow withdrawal path) as the
+// original requester, with the SAME idempotency reference parked in
+// approval.metadata.reference. approvalId marks the execution leg: the
+// approval + step-up gates were satisfied exactly once at decision time.
+// Executor-map contract for the merger — vendor_bill_payment (Coder A) and
+// scheduled_payment (Coder B) register their own executors in THEIR owning
+// router files under the same pattern; see server/services/approvals.ts.
+import { registerApprovalExecutor } from "../services/approvals";
+
+registerApprovalExecutor("withdrawal", async ({ approval, db }) => {
+  const meta = (approval.metadata as Record<string, unknown> | null) ?? {};
+  const reference = typeof meta.reference === "string"
+    ? meta.reference
+    : `WD-APR-${approval.id.slice(0, 8).toUpperCase()}`;
+  const uid = Number(approval.requestedBy);
+  if (!Number.isFinite(uid)) {
+    return { ok: false, detail: `requester ${approval.requestedBy} is not a user id` };
+  }
+  const [u] = await db.select().from(users).where(eq(users.id, uid));
+  if (!u) return { ok: false, detail: `requester user ${uid} no longer exists` };
+  // Replay as the requester: moneyProcedure re-checks their membership role
+  // at execution time — a demoted requester's approved withdrawal fails
+  // honestly instead of executing on stale authority.
+  const caller = walletRouter.createCaller({
+    user: { ...u, tenantId: approval.tenantId },
+    req: { protocol: "http", headers: {} },
+    res: { clearCookie: () => {} },
+  } as any);
+  const res = await caller.requestWithdrawal({
+    tenantId: approval.tenantId,
+    amount: approval.amountCents / 100,
+    reference,
+    approvalId: approval.id,
+  });
+  if (!res.success || res.status === "pending_approval") {
+    return { ok: false, reference: res.reference, detail: `unexpected withdrawal replay status ${res.status}` };
+  }
+  return { ok: true, reference: res.reference, detail: `withdrawal ${res.status}` };
+});
+// === END W31 approvals ===

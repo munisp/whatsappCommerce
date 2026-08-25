@@ -36,7 +36,7 @@ describe("WhatsApp feature simulation (181 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(182); // W30 hotfix: +J182 unverified-courier escrow guard
+    expect(journeys.length).toBe(197); // W31: +J183-J197 (incl. J197 merger-seam cross-feature approval wiring)
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

@@ -68,6 +68,14 @@ export const SCHEDULE = [
   { path: "/api/scheduled/hermes-health-snapshot", intervalMin: 5 },
   // Monthly subscription invoicing (cron "0 0 1 1 * *" ≈ every 30 days).
   { path: "/api/scheduled/generate-invoices", intervalMin: 43200 },
+  // === W31 scheduled payments === claim-before-send execution + T-1 reminders.
+  { path: "/api/scheduled/execute-payments", intervalMin: 5 },
+  // === END W31 scheduled payments ===
+  // === W31 approvals (Coder C) ===
+  { path: "/api/scheduled/approvals-expiry", intervalMin: 15 },
+  // === END W31 approvals ===
+  // === W31 AR reminders === daily overdue sweep + polite WA pay reminders.
+  { path: "/api/scheduled/ar-reminders", intervalMin: 1440 },
 ];
 
 function b64url(buf) {

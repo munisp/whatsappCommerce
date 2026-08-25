@@ -100,6 +100,9 @@ import { manufacturerProgramsRouter } from "./routers/manufacturerPrograms";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
+// === W31 approvals (Coder C) ===
+import { approvalsRouter } from "./routers/approvals";
+// === END W31 approvals ===
 import { erpProvisionRouter } from "./routers/erpProvision";
 import { embeddedSignupRouter } from "./routers/embeddedSignup";
 import { shopifyIntegrationRouter } from "./routers/shopifyIntegration";
@@ -153,6 +156,9 @@ export const appRouter = router({
       }),
   }),
   membership: membershipRouter,
+  // === W31 approvals (Coder C) ===
+  approvals: approvalsRouter,
+  // === END W31 approvals ===
   tenant: tenantRouter,
   tenantConfig: tenantConfigRouter,
   product: productRouter,
@@ -282,6 +288,15 @@ export const appRouter = router({
   // === W28 odoo-sync (Coder A) ===
   odooSync: odooSyncRouter,
   // === END W28 odoo-sync ===
+  // === W31 vendor-bills (Coder A) ===
+  vendorBills: vendorBillsRouter,
+  // === END W31 vendor-bills ===
+  // === W31 scheduled-batch (Coder B) ===
+  scheduledPayments: scheduledPaymentsRouter,
+  // === END W31 scheduled-batch ===
+  // === W31 ar-invoices (Coder D) ===
+  arInvoices: arInvoicesRouter,
+  // === END W31 ar-invoices ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -307,3 +322,12 @@ import { groupBuyRouter } from "./routers/groupBuy";
 // === W28 odoo-sync (Coder A) ===
 import { odooSyncRouter } from "./routers/odooSync";
 // === END W28 odoo-sync ===
+// === W31 vendor-bills (Coder A) ===
+import { vendorBillsRouter } from "./routers/vendorBills";
+// === END W31 vendor-bills ===
+// === W31 scheduled-batch (Coder B) ===
+import { scheduledPaymentsRouter } from "./routers/payments2";
+// === END W31 scheduled-batch ===
+// === W31 ar-invoices (Coder D) ===
+import { arInvoicesRouter } from "./routers/arInvoices";
+// === END W31 ar-invoices ===

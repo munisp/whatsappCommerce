@@ -7,92 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012295251",
-      "profileName": "Sim User 5251",
-      "inboundId": "wamid.sim.in.text.00174",
-      "at": 1787559840798,
-      "kind": "text",
-      "text": "menu"
-    },
-    {
-      "dir": "out",
-      "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00174",
-      "at": 1787559840802
-    },
-    {
-      "dir": "out",
-      "phone": "2348012295251",
-      "wamid": "wamid.sim.000290",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1787559840825,
-      "kind": "interactive",
-      "body": "Welcome to Sim Store! How can we help you today?",
-      "footer": "Tap an option, or reply with its number.",
-      "buttons": [
-        {
-          "id": "menu_1",
-          "title": "Shop products"
-        },
-        {
-          "id": "menu_2",
-          "title": "Track my order"
-        },
-        {
-          "id": "menu_3",
-          "title": "Talk to a human"
-        }
-      ]
-    },
-    {
-      "dir": "in",
-      "phone": "2348018793480",
-      "profileName": "Sim User 3480",
-      "inboundId": "wamid.sim.in.text.00175",
-      "at": 1787559841351,
-      "kind": "text",
-      "text": "menu"
-    },
-    {
-      "dir": "out",
-      "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00175",
-      "at": 1787559841354
-    },
-    {
-      "dir": "out",
-      "phone": "2348018793480",
-      "wamid": "wamid.sim.000291",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1787559841372,
-      "kind": "interactive",
-      "body": "Welcome to Sim Store! How can we help you today?",
-      "footer": "Tap an option, or reply with its number.",
-      "buttons": [
-        {
-          "id": "menu_1",
-          "title": "Shop products"
-        },
-        {
-          "id": "menu_2",
-          "title": "Track my order"
-        },
-        {
-          "id": "menu_3",
-          "title": "Talk to a human"
-        }
-      ]
-    },
-    {
-      "dir": "in",
-      "phone": "2348014653654",
-      "profileName": "Sim User 3654",
+      "phone": "2348016359237",
+      "profileName": "Sim User 9237",
       "inboundId": "wamid.sim.in.text.00176",
-      "at": 1787559841913,
+      "at": 1787634705836,
       "kind": "text",
       "text": "menu"
     },
@@ -100,16 +18,98 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00176",
-      "at": 1787559841917
+      "at": 1787634705840
     },
     {
       "dir": "out",
-      "phone": "2348014653654",
-      "wamid": "wamid.sim.000292",
+      "phone": "2348016359237",
+      "wamid": "wamid.sim.000294",
       "statuses": [
         "sent"
       ],
-      "at": 1787559841945,
+      "at": 1787634705858,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348014022041",
+      "profileName": "Sim User 2041",
+      "inboundId": "wamid.sim.in.text.00177",
+      "at": 1787634706388,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00177",
+      "at": 1787634706392
+    },
+    {
+      "dir": "out",
+      "phone": "2348014022041",
+      "wamid": "wamid.sim.000295",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787634706409,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348012152184",
+      "profileName": "Sim User 2184",
+      "inboundId": "wamid.sim.in.text.00178",
+      "at": 1787634706942,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00178",
+      "at": 1787634706946
+    },
+    {
+      "dir": "out",
+      "phone": "2348012152184",
+      "wamid": "wamid.sim.000296",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1787634706961,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
