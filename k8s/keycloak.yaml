@@ -117,6 +117,12 @@ spec:
         app.kubernetes.io/name: keycloak
         app.kubernetes.io/part-of: whatsapp-commerce-platform
         version: v1
+      # === W35 infra-receivers (Coder D) ===
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
+      # === END W35 infra-receivers ===
     spec:
       securityContext:
         # quay.io/keycloak/keycloak runs as the non-root kb-user (uid 1000).
@@ -159,6 +165,17 @@ spec:
               value: "false"
             - name: KC_HEALTH_ENABLED
               value: "true"
+            # === W35 infra-receivers (Coder D) ===
+            # Enable the metrics endpoint. HONEST DEVIATION from SPEC_W35
+            # ("management port 9000"): the pinned image is keycloak:24.0 —
+            # the 9000 management interface only exists in Keycloak 25+.
+            # In 24.x /metrics is served on the main HTTP port 8080, which
+            # is what the collector scrape job (deploy/otel/collector-config
+            # .yaml, job keycloak) and the annotations below target. If the
+            # image is upgraded to >=25, switch the scrape target to :9000.
+            - name: KC_METRICS_ENABLED
+              value: "true"
+            # === END W35 infra-receivers ===
           volumeMounts:
             # Keycloak writes hsperfdata/logs/import dir under data/.
             - name: keycloak-data

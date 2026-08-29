@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348011724549",
-      "profileName": "Sim User 4549",
+      "phone": "2348011132213",
+      "profileName": "Sim User 2213",
       "inboundId": "wamid.sim.in.text.00319",
-      "at": 1788015519276,
+      "at": 1788020521162,
       "kind": "text",
       "text": "fresh vegetables near me"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00319",
-      "at": 1788015519280
+      "at": 1788020521165
     },
     {
       "dir": "out",
-      "phone": "2348011724549",
+      "phone": "2348011132213",
       "wamid": "wamid.sim.000545",
       "statuses": [
         "sent"
       ],
-      "at": 1788015519303,
+      "at": 1788020521178,
       "kind": "text",
       "body": "To see businesses near you, tap 📎 → Location and share your current location."
     },
     {
       "dir": "in",
-      "phone": "2348011724549",
-      "profileName": "Sim User 4549",
+      "phone": "2348011132213",
+      "profileName": "Sim User 2213",
       "inboundId": "wamid.sim.in.loc.00320",
-      "at": 1788015519821,
+      "at": 1788020521706,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -45,25 +45,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.loc.00320",
-      "at": 1788015519825
+      "at": 1788020521708
     },
     {
       "dir": "out",
-      "phone": "2348011724549",
+      "phone": "2348011132213",
       "wamid": "wamid.sim.000546",
       "statuses": [
         "sent"
       ],
-      "at": 1788015519841,
+      "at": 1788020521721,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Lagos Plastics Manufacturing — plastics · 0.3 km\n2. Sim Store — sim · 0.6 km\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348011724549",
-      "profileName": "Sim User 4549",
+      "phone": "2348011132213",
+      "profileName": "Sim User 2213",
       "inboundId": "wamid.sim.in.text.00321",
-      "at": 1788015520367,
+      "at": 1788020522249,
       "kind": "text",
       "text": "fresh vegetables near me"
     },
@@ -71,77 +71,77 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00321",
-      "at": 1788015520371
+      "at": 1788020522252
     },
     {
       "dir": "out",
-      "phone": "2348011724549",
+      "phone": "2348011132213",
       "wamid": "wamid.sim.000547",
       "statuses": [
         "sent"
       ],
-      "at": 1788015520394,
+      "at": 1788020522266,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km"
     },
     {
       "dir": "in",
-      "phone": "2348011724549",
-      "profileName": "Sim User 4549",
+      "phone": "2348011132213",
+      "profileName": "Sim User 2213",
       "inboundId": "wamid.sim.in.text.00322",
-      "at": 1788015520911,
+      "at": 1788020522792,
       "kind": "text",
-      "text": "i want these [47803e66]"
+      "text": "i want these [8586f8b6]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00322",
-      "at": 1788015520915
+      "at": 1788020522795
     },
     {
       "dir": "out",
-      "phone": "2348011724549",
+      "phone": "2348011132213",
       "wamid": "wamid.sim.000548",
       "statuses": [
         "sent"
       ],
-      "at": 1788015520941,
+      "at": 1788020522808,
       "kind": "text",
       "body": "✅ 2 × Fresh Vegetables\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348011724549",
-      "profileName": "Sim User 4549",
+      "phone": "2348011132213",
+      "profileName": "Sim User 2213",
       "inboundId": "wamid.sim.in.text.00323",
-      "at": 1788015521457,
+      "at": 1788020523337,
       "kind": "text",
-      "text": "confirm please [47803e66]"
+      "text": "confirm please [8586f8b6]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00323",
-      "at": 1788015521461
+      "at": 1788020523339
     },
     {
       "dir": "out",
-      "phone": "2348011724549",
+      "phone": "2348011132213",
       "wamid": "wamid.sim.000549",
       "statuses": [
         "sent"
       ],
-      "at": 1788015521499,
+      "at": 1788020523356,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Fresh Vegetables — ₦1,200.00 each\nSubtotal: ₦2,400.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348011724549",
-      "profileName": "Sim User 4549",
+      "phone": "2348011132213",
+      "profileName": "Sim User 2213",
       "inboundId": "wamid.sim.in.text.00324",
-      "at": 1788015522008,
+      "at": 1788020523885,
       "kind": "text",
       "text": "1"
     },
@@ -149,41 +149,41 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00324",
-      "at": 1788015522012
+      "at": 1788020523888
     },
     {
       "dir": "out",
-      "phone": "2348011724549",
+      "phone": "2348011132213",
       "wamid": "wamid.sim.000550",
       "statuses": [
         "sent"
       ],
-      "at": 1788015522045,
+      "at": 1788020523909,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MTEI9YI9*\n2 × Fresh Vegetables — ₦1,200.00 each\n*Total: ₦2,400.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/f4394487-9c2f-4993-a9bf-d8771cb83516\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/2af5e82f-f4ce-4489-9bf1-7af85cf52bf8.tVeiorvQZsLVZQHpwalP7jE5"
+      "body": "🧾 *Pickup Order ORD-MTEL95Z1*\n2 × Fresh Vegetables — ₦1,200.00 each\n*Total: ₦2,400.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/19ee1ffc-e463-40d9-94c2-ebe08d533c92\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/f3632f26-fc49-4e09-a315-775b11fec289._D9LAkiJ08XJbA02qx-rbi6R"
     },
     {
       "dir": "out",
-      "phone": "2348011724549",
+      "phone": "2348011132213",
       "wamid": "wamid.sim.000551",
       "statuses": [
         "sent"
       ],
-      "at": 1788015522049,
+      "at": 1788020523912,
       "kind": "interactive",
-      "body": "Order ORD-MTEI9YI9 — manage it here:",
+      "body": "Order ORD-MTEL95Z1 — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:2af5e82f-f4ce-4489-9bf1-7af85cf52bf8",
+          "id": "order_track:f3632f26-fc49-4e09-a315-775b11fec289",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:2af5e82f-f4ce-4489-9bf1-7af85cf52bf8",
+          "id": "order_pay:f3632f26-fc49-4e09-a315-775b11fec289",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:2af5e82f-f4ce-4489-9bf1-7af85cf52bf8",
+          "id": "order_cancel:f3632f26-fc49-4e09-a315-775b11fec289",
           "title": "Cancel Order"
         }
       ]

@@ -1,0 +1,8 @@
+{
+  "id": "J226",
+  "title": "ml-stack python telemetry imports, parses traceparent, fails open honestly",
+  "feature": "W35 node-python-otel: ml-stack fail-open OTel",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

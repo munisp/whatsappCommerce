@@ -14,6 +14,12 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 
+// === W35 temporal-otel ===
+// Manual fail-open OTel interceptors (see otelInterceptors.ts): null unless
+// OTEL_ENABLED=true, so default behavior is byte-identical to pre-W35.
+import { createOtelWorkerInterceptors } from "./otelInterceptors";
+// === END W35 temporal-otel ===
+
 const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS ?? "localhost:7233";
 const TEMPORAL_NAMESPACE = process.env.TEMPORAL_NAMESPACE ?? "default";
 const TASK_QUEUE = "whatsapp-commerce";
@@ -181,6 +187,9 @@ async function main() {
       activities,
       maxConcurrentActivityTaskExecutions: 10,
       maxConcurrentWorkflowTaskExecutions: 5,
+      // === W35 temporal-otel ===
+      ...(createOtelWorkerInterceptors() ? { interceptors: createOtelWorkerInterceptors()! } : {}),
+      // === END W35 temporal-otel ===
     });
     console.log("[temporal-worker] Worker created, starting...");
     await worker.run();

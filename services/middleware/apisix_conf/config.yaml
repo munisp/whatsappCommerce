@@ -27,6 +27,21 @@ plugin_attr:
     export_addr:
       ip: 0.0.0.0
       port: 9091
+  # === W35 infra-receivers (Coder D) ===
+  # opentelemetry tracing → W34 collector (OTLP/HTTP :4318). Fail-open:
+  # APISIX batches spans; a down collector only drops batches on timeout,
+  # request handling is never blocked.
+  opentelemetry:
+    resource:
+      service.name: apisix
+    collector:
+      address: otel-collector:4318
+      request_timeout: 3
+    batch_span_processor:
+      drop_on_queue_full: true
+      max_queue_size: 1024
+      batch_timeout: 5
+  # === END W35 infra-receivers ===
 
 plugins:
   - jwt-auth
@@ -36,3 +51,6 @@ plugins:
   - cors
   - request-id
   - prometheus
+  # === W35 infra-receivers (Coder D) ===
+  - opentelemetry
+  # === END W35 infra-receivers ===

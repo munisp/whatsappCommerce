@@ -40,6 +40,13 @@ if str(_ML_STACK_DIR) not in sys.path:
 
 import model_io  # noqa: E402  (FRAUD_FEATURES, CREDIT_FEATURES, FRAUD_SEQ_LEN)
 
+# === W35 otel-ml-stack === lazy fail-open OTel (stdlib-safe import).
+try:
+    import telemetry as _ml_telemetry  # services/ml-stack/telemetry.py
+except Exception:  # pragma: no cover - fail-open
+    _ml_telemetry = None
+# === END W35 otel-ml-stack ===
+
 log = logging.getLogger("lakehouse-pipeline")
 logging.basicConfig(level=logging.INFO,
                     format='{"ts":"%(asctime)s","level":"%(levelname)s","msg":"%(message)s"}')
@@ -647,6 +654,17 @@ def run_model_training() -> dict:
 def run_full_pipeline(tenant_id: Optional[str] = None) -> dict:
     """Run the complete ETL → Feature Engineering → Training pipeline."""
     log.info("Starting full lakehouse pipeline (tenant=%s)", tenant_id or "all")
+    # === W35 otel-ml-stack === lakehouse.pipeline.run span (fail-open).
+    if _ml_telemetry is not None:
+        with _ml_telemetry.ml_span("lakehouse.pipeline.run",
+                                   {"tenant.id": tenant_id or "all",
+                                    "pipeline.type": "full"}):
+            return _run_full_pipeline_body(tenant_id)
+    return _run_full_pipeline_body(tenant_id)
+    # === END W35 otel-ml-stack ===
+
+
+def _run_full_pipeline_body(tenant_id: Optional[str] = None) -> dict:
     results = {}
 
     etl = run_etl(tenant_id)
@@ -682,6 +700,10 @@ def trigger_pipeline(pipeline_type: str = "full", tenant_id: Optional[str] = Non
 
 
 if __name__ == "__main__":
+    # === W35 otel-ml-stack === init (no-op unless OTEL_ENABLED=true).
+    if _ml_telemetry is not None:
+        _ml_telemetry.init_telemetry(service_name="lakehouse-pipeline")
+    # === END W35 otel-ml-stack ===
     pipeline_type = sys.argv[1] if len(sys.argv) > 1 else "full"
     tenant_id = sys.argv[2] if len(sys.argv) > 2 else None
     result = trigger_pipeline(pipeline_type, tenant_id)

@@ -21,6 +21,71 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+  # === W35 infra-receivers (Coder D) ===
+  # Prometheus scrape receiver: infra components that expose Prometheus
+  # metrics natively are scraped here and re-exported on :9464 alongside
+  # app OTLP metrics, so Prometheus/Grafana see one uniform surface.
+  # Honest contract: a component WITHOUT its metrics endpoint enabled shows
+  # up as a DOWN scrape target — never faked, never silently absent.
+  prometheus:
+    config:
+      scrape_configs:
+        # Keycloak management metrics; requires KC_METRICS_ENABLED=true
+        # (wired in k8s/keycloak.yaml + env.example W35 banner). HONEST
+        # DEVIATION from SPEC_W35: the spec's "management port 9000" only
+        # exists in Keycloak >=25; the pinned keycloak:24.0 image serves
+        # /metrics on the main HTTP port 8080 — scraped here. Switch to
+        # :9000 when the Keycloak image is upgraded.
+        - job_name: keycloak
+          metrics_path: /metrics
+          scrape_interval: 30s
+          static_configs:
+            - targets: [keycloak:8080]
+        # APISIX prometheus plugin export (plugin_attr.prometheus, :9091).
+        - job_name: apisix
+          metrics_path: /apisix/prometheus/metrics
+          scrape_interval: 30s
+          static_configs:
+            - targets: [apisix:9091]
+        # Permify serves /metrics on its REST port only when built/run with
+        # metrics enabled; the pinned permify/permify:latest does NOT expose
+        # it by default — this target will honestly report DOWN until a
+        # metrics-enabled Permify is deployed. Kept so wiring is ready.
+        - job_name: permify
+          metrics_path: /metrics
+          scrape_interval: 30s
+          static_configs:
+            - targets: [permify:3476]
+        # OpenSearch via the Aiven prometheus-exporter plugin (:9600). The
+        # pinned opensearchproject/opensearch:2.17.1 image does NOT bundle
+        # this plugin — honestly DOWN until the plugin is installed.
+        - job_name: opensearch
+          metrics_path: /_prometheus/metrics
+          scrape_interval: 30s
+          static_configs:
+            - targets: [opensearch:9600]
+        # TEMPORAL: SKIPPED (documented). No OTEL_TEMPORAL_METRICS_PORT SDK
+        # metrics endpoint is exposed by services/temporal-workflows in this
+        # wave — adding a static target would guarantee a permanent DOWN.
+        # When Coder C exposes one, add: targets: [temporal-worker:<port>].
+  # OpenAppSec log forwarding (filelog). The pinned collector image IS
+  # otel/opentelemetry-collector-contrib:0.110.0 (see k8s/otel-stack.yaml),
+  # which ships filelogreceiver — so this receiver IS supported. It is left
+  # COMMENTED-OUT (not active) because no shared log volume between the
+  # openappsec agent and otel-collector is provisioned in the current
+  # manifests; activating it without the mount would crash the collector
+  # on startup (missing include dir is fatal to filelog). To activate:
+  #   1. mount the openappsec log dir into the collector pod,
+  #   2. uncomment below,
+  #   3. add `filelog/openappsec` to a logs pipeline exporters: [otlp/jaeger]-equivalent
+  #      (a logs exporter such as opensearch/logging must also be added).
+  # filelog/openappsec:
+  #   include: [/var/log/openappsec/*.log]
+  #   start_at: end
+  #   operators:
+  #     - type: regex_parser
+  #       regex: '^(?P<time>\S+) (?P<severity>\S+) (?P<body>.*)$'
+  # === END W35 infra-receivers ===
 
 processors:
   # memory_limiter MUST be first: shed load before the collector OOMs.
@@ -103,4 +168,12 @@ service:
       receivers: [spanmetrics]
       processors: [memory_limiter, batch]
       exporters: [prometheus]
+    # === W35 infra-receivers (Coder D) ===
+    # Scraped infra metrics (keycloak/apisix/permify/opensearch) re-exported
+    # on :9464. W34 pipelines above are untouched (tail-sampling intact).
+    metrics/infra-scrape:
+      receivers: [prometheus]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+    # === END W35 infra-receivers ===
 # === END W34 otel-stack ===

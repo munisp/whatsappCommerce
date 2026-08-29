@@ -17,6 +17,44 @@
 import crypto from "crypto";
 import https from "https";
 
+// === W35 mojaloop-otel ===
+// Manual fail-open spans around each FSPIOP call (mojaloop.prepare |
+// mojaloop.fulfil | mojaloop.quote) + W3C traceparent injection reusing the
+// W34 injectTraceHeaders helper. Fail-open: any telemetry fault runs the
+// FSPIOP call bare; adapter behavior is unchanged when OTEL_ENABLED is unset.
+import { trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
+import { injectTraceHeaders, isTelemetryActive, noteTelemetryError } from "../../server/_core/telemetry";
+
+async function withMojaloopSpan<T>(op: "prepare" | "fulfil" | "quote" | "lookup", fn: () => Promise<T>): Promise<T> {
+  if (!isTelemetryActive()) return fn();
+  try {
+    const tracer = trace.getTracer("whatsapp-commerce-mojaloop");
+    return await tracer.startActiveSpan(
+      `mojaloop.${op}`,
+      { kind: SpanKind.CLIENT, attributes: { "peer.service": "mojaloop", "mojaloop.operation": op } },
+      async (span) => {
+        try {
+          const result = await fn();
+          span.setStatus({ code: SpanStatusCode.OK });
+          return result;
+        } catch (err) {
+          span.recordException(err as Error);
+          span.setStatus({ code: SpanStatusCode.ERROR });
+          (err as { __w35MojaloopCallError?: boolean }).__w35MojaloopCallError = true;
+          throw err;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  } catch (err) {
+    if (err && (err as { __w35MojaloopCallError?: boolean }).__w35MojaloopCallError) throw err;
+    noteTelemetryError("mojaloop-span", err);
+    return fn();
+  }
+}
+// === END W35 mojaloop-otel ===
+
 export interface MojaloopConfig {
   switchUrl: string;         // e.g. https://central-ledger.nibss.ng
   fspId: string;             // Your DFSP ID registered with the switch
@@ -94,16 +132,19 @@ export class MojaloopFSPIOPAdapter {
     identifier: string
   ): Promise<PartyLookupResult> {
     const url = `${this.config.switchUrl}/parties/${idType}/${identifier}`;
-    const headers = this._buildHeaders("GET", url);
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers,
+    // W35 mojaloop-otel: traceparent injected INSIDE the span so it carries
+    // the mojaloop.lookup span's context (injectTraceHeaders no-ops when
+    // telemetry is off).
+    const response = await withMojaloopSpan("lookup", async () => {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: injectTraceHeaders(this._buildHeaders("GET", url)),
+      });
+      if (!res.ok) {
+        throw new Error(`Party lookup failed: ${res.status} ${await res.text()}`);
+      }
+      return res;
     });
-
-    if (!response.ok) {
-      throw new Error(`Party lookup failed: ${response.status} ${await response.text()}`);
-    }
 
     const data = await response.json() as any;
     return {
@@ -135,16 +176,20 @@ export class MojaloopFSPIOPAdapter {
       note: req.note,
     };
 
-    const headers = this._buildHeaders("POST", url, JSON.stringify(body));
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
+    const bodyStr = JSON.stringify(body);
+    // W35 mojaloop-otel: headers (incl. traceparent) built inside the span;
+    // the !ok throw is inside too so the span records ERROR status.
+    const response = await withMojaloopSpan("quote", async () => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: injectTraceHeaders(this._buildHeaders("POST", url, bodyStr)),
+        body: bodyStr,
+      });
+      if (!res.ok) {
+        throw new Error(`Quote request failed: ${res.status} ${await res.text()}`);
+      }
+      return res;
     });
-
-    if (!response.ok) {
-      throw new Error(`Quote request failed: ${response.status} ${await response.text()}`);
-    }
 
     return response.json() as Promise<QuoteResponse>;
   }
@@ -164,16 +209,21 @@ export class MojaloopFSPIOPAdapter {
       expiration: req.expiration,
     };
 
-    const headers = this._buildHeaders("POST", url, JSON.stringify(body));
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
+    const bodyStr = JSON.stringify(body);
+    // FSPIOP transfer leg = prepare (POST /transfers); fulfil arrives via callback.
+    // W35 mojaloop-otel: headers (incl. traceparent) built inside the span;
+    // the !ok throw is inside too so the span records ERROR status.
+    const response = await withMojaloopSpan("prepare", async () => {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: injectTraceHeaders(this._buildHeaders("POST", url, bodyStr)),
+        body: bodyStr,
+      });
+      if (!res.ok) {
+        throw new Error(`Transfer failed: ${res.status} ${await res.text()}`);
+      }
+      return res;
     });
-
-    if (!response.ok) {
-      throw new Error(`Transfer failed: ${response.status} ${await response.text()}`);
-    }
 
     return response.json() as any;
   }
@@ -185,6 +235,26 @@ export class MojaloopFSPIOPAdapter {
   handleTransferCallback(transferId: string, body: any): { accepted: boolean; transferId: string } {
     const { transferState, fulfilment } = body;
     const accepted = transferState === "COMMITTED";
+    // === W35 mojaloop-otel === fulfil callback span (fail-open).
+    try {
+      if (isTelemetryActive()) {
+        const tracer = trace.getTracer("whatsapp-commerce-mojaloop");
+        const span = tracer.startSpan("mojaloop.fulfil", {
+          kind: SpanKind.SERVER,
+          attributes: {
+            "peer.service": "mojaloop",
+            "mojaloop.operation": "fulfil",
+            "mojaloop.transfer_id": transferId,
+            "mojaloop.transfer_state": String(transferState ?? ""),
+          },
+        });
+        span.setStatus({ code: accepted ? SpanStatusCode.OK : SpanStatusCode.ERROR });
+        span.end();
+      }
+    } catch (err) {
+      noteTelemetryError("mojaloop-fulfil-span", err);
+    }
+    // === END W35 mojaloop-otel ===
     return { accepted, transferId };
   }
 

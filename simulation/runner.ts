@@ -304,6 +304,18 @@ export async function loadJourneys(): Promise<Journey[]> {
     // === W34 wa-ops-alert (merger seam) ===
     import("./journeys/j222-wa-ops-alert"),
     // === END W34 wa-ops-alert ===
+    // === W35 node-python-otel (Coder C) ===
+    import("./journeys/j223-kafka-traceparent"),
+    import("./journeys/j224-temporal-otel-interceptors"),
+    import("./journeys/j225-mojaloop-spans"),
+    import("./journeys/j226-ml-stack-otel"),
+    // === END W35 node-python-otel ===
+    // === W35 infra-receivers (Coder D) ===
+    import("./journeys/j227-collector-infra-receivers"),
+    import("./journeys/j228-alert-rules-dashboards"),
+    import("./journeys/j229-mig0116-component-status"),
+    import("./journeys/j230-otel-stack-probes"),
+    // === END W35 infra-receivers ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	kafka "github.com/segmentio/kafka-go"
+	"github.com/whatsapp-commerce/otelx"
 )
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -278,13 +279,18 @@ func (g *Gateway) handleWebhookEvent(w http.ResponseWriter, r *http.Request) {
 // handleHealth returns service health
 func (g *Gateway) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"status":"ok","service":"event-gateway","version":"1.0.0","time":"%s"}`, time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(w, `{"status":"ok","service":"event-gateway","version":"1.0.0","time":"%s","otel_enabled":%t}`, time.Now().UTC().Format(time.RFC3339), otelx.Status()) // === W35 otel ===
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 func main() {
 	cfg := configFromEnv()
 	gw := NewGateway(cfg)
+
+	// === W35 otel ===
+	otelShutdown, _ := otelx.Init(context.Background(), "event-gateway")
+	defer func() { _ = otelShutdown(context.Background()) }()
+	// === END W35 otel ===
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /webhook", gw.handleWebhookVerification)
@@ -293,7 +299,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      otelx.Middleware("event-gateway")(mux), // === W35 otel ===
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

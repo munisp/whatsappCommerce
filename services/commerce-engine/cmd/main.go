@@ -12,6 +12,7 @@ import (
 	"github.com/whatsapp-commerce/commerce-engine/internal/config"
 	"github.com/whatsapp-commerce/commerce-engine/internal/handler"
 	"github.com/whatsapp-commerce/commerce-engine/internal/store"
+	"github.com/whatsapp-commerce/otelx"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +20,11 @@ func main() {
 	cfg := config.Load()
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
+
+	// === W35 otel ===
+	otelShutdown, _ := otelx.Init(context.Background(), "commerce-engine")
+	defer func() { _ = otelShutdown(context.Background()) }()
+	// === END W35 otel ===
 
 	db, err := store.NewPostgres(cfg.DatabaseURL)
 	if err != nil {
@@ -31,7 +37,7 @@ func main() {
 	r.Use(gin.Recovery())
 
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "commerce-engine"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "commerce-engine", "otel_enabled": otelx.Status()})
 	})
 
 	// Products & Catalog (projection reads)
@@ -57,7 +63,7 @@ func main() {
 	r.POST("/internal/sync/product", h.SyncProduct)
 	r.POST("/internal/sync/stock", h.SyncStockLevel)
 
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: otelx.Middleware("commerce-engine")(r)} // === W35 otel ===
 	go func() {
 		logger.Info("Commerce Engine starting", zap.String("port", cfg.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

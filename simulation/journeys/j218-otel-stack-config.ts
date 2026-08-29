@@ -95,7 +95,12 @@ export const journey: Journey = {
     for (const want of ["ReadinessFlapping", "Elevated5xx", "CronFailure", "EscrowSettleFailure", "PayoutLatencyHigh", "TenantErrorSpike", "ComponentDown"]) {
       assert(names.includes(want), `alert rule ${want} missing (have: ${names.join(",")})`);
     }
-    assert(names.length === 7, `expected exactly 7 alert rules, got ${names.length}`);
+    // === W35 merge fix === W34 asserted exactly 7 rules; W35 Coder D added 4
+    // (GoServiceDown, RustServiceDown, TemporalWorkflowFailures,
+    // TigerBeetleOpErrors) under the W35 banner in deploy/otel/alert-rules.yml.
+    // Keep the W34 seven required above; total is now 11.
+    assert(names.length === 11, `expected 11 alert rules (7 W34 + 4 W35), got ${names.length}`);
+    // === END W35 merge fix ===
 
     // 3b. Alertmanager routing: receivers + severity routing + inhibition.
     const am = readYaml("deploy/otel/alertmanager.yml");

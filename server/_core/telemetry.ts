@@ -210,6 +210,41 @@ export function tenantMetricClass(tenantId: string | null | undefined): string {
 
 // ── Bootstrap (lazy, fail-open) ──────────────────────────────────────────────
 
+// === W35 node-messaging-otel ===
+/**
+ * Lazily load the W35-sanctioned explicit instrumentations (kafkajs, ioredis,
+ * pg). Called ONLY from the OTEL_ENABLED=true branch of initTelemetry — when
+ * telemetry is disabled nothing is imported. Fail-open per package: a load or
+ * construction failure is recorded and that instrumentation is skipped.
+ */
+async function loadW35Instrumentations(): Promise<unknown[]> {
+  const out: unknown[] = [];
+  const loaders: Array<[string, () => Promise<unknown>]> = [
+    ["kafkajs", async () => {
+      const m = await import("@opentelemetry/instrumentation-kafkajs");
+      return new m.KafkaJsInstrumentation();
+    }],
+    ["ioredis", async () => {
+      const m = await import("@opentelemetry/instrumentation-ioredis");
+      return new m.IORedisInstrumentation();
+    }],
+    ["pg", async () => {
+      const m = await import("@opentelemetry/instrumentation-pg");
+      return new m.PgInstrumentation();
+    }],
+  ];
+  for (const [name, load] of loaders) {
+    try {
+      out.push(await load());
+    } catch (err) {
+      noteTelemetryError(`instrumentation-${name}`, err);
+    }
+  }
+  return out;
+}
+// === END W35 node-messaging-otel ===
+
+
 /**
  * Initialize the OTel NodeSDK when OTEL_ENABLED=true. Re-entrant: a changed
  * config (or toggled env) shuts the previous SDK down and starts fresh, so
@@ -267,7 +302,22 @@ export async function initTelemetry(): Promise<void> {
           getNodeAutoInstrumentations({
             // fs instrumentation is pure noise for a web service.
             "@opentelemetry/instrumentation-fs": { enabled: false },
+            // === W35 node-messaging-otel ===
+            // kafkajs / ioredis / pg are registered EXPLICITLY below from the
+            // sanctioned top-level pins (W35 Coder C) — disable the bundled
+            // copies here so each library is patched exactly once.
+            "@opentelemetry/instrumentation-kafkajs": { enabled: false },
+            "@opentelemetry/instrumentation-ioredis": { enabled: false },
+            "@opentelemetry/instrumentation-pg": { enabled: false },
+            // === END W35 node-messaging-otel ===
           }),
+          // === W35 node-messaging-otel ===
+          // Explicit messaging/DB instrumentation (sanctioned pins, peer-
+          // verified against @opentelemetry/api 1.9.1). Fail-open per import:
+          // a missing/broken package degrades to "uninstrumented", never a
+          // crashed init.
+          ...(await loadW35Instrumentations()),
+          // === END W35 node-messaging-otel ===
         ],
         resourceDetectors: [],
       };

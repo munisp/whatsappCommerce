@@ -2,7 +2,7 @@
   "id": "J218",
   "title": "otel-stack compose/k8s/dashboard/alert config validation",
   "feature": "W34 otel-stack: collector, Jaeger, Prometheus, Grafana, Alertmanager",
-  "pass": true,
+  "pass": false,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []
 }

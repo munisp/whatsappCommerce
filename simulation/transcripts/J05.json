@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016147601",
-      "profileName": "Sim User 7601",
+      "phone": "2348014722371",
+      "profileName": "Sim User 2371",
       "inboundId": "wamid.sim.in.text.00015",
-      "at": 1788015135130,
+      "at": 1788020156505,
       "kind": "text",
       "text": "one jollof rice please"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00015",
-      "at": 1788015135134
+      "at": 1788020156508
     },
     {
       "dir": "out",
-      "phone": "2348016147601",
+      "phone": "2348014722371",
       "wamid": "wamid.sim.000017",
       "statuses": [
         "sent"
       ],
-      "at": 1788015135173,
+      "at": 1788020156526,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348016147601",
-      "profileName": "Sim User 7601",
+      "phone": "2348014722371",
+      "profileName": "Sim User 2371",
       "inboundId": "wamid.sim.in.text.00016",
-      "at": 1788015135677,
+      "at": 1788020157051,
       "kind": "text",
       "text": "confirm it"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00016",
-      "at": 1788015135682
+      "at": 1788020157055
     },
     {
       "dir": "out",
-      "phone": "2348016147601",
+      "phone": "2348014722371",
       "wamid": "wamid.sim.000018",
       "statuses": [
         "sent"
       ],
-      "at": 1788015135713,
+      "at": 1788020157071,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348016147601",
-      "profileName": "Sim User 7601",
+      "phone": "2348014722371",
+      "profileName": "Sim User 2371",
       "inboundId": "wamid.sim.in.text.00017",
-      "at": 1788015136224,
+      "at": 1788020157595,
       "kind": "text",
       "text": "2"
     },
@@ -70,36 +70,36 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00017",
-      "at": 1788015136229
+      "at": 1788020157599
     },
     {
       "dir": "out",
-      "phone": "2348016147601",
+      "phone": "2348014722371",
       "wamid": "wamid.sim.000019",
       "statuses": [
         "sent"
       ],
-      "at": 1788015136259,
-      "kind": "text",
-      "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
-    },
-    {
-      "dir": "out",
-      "phone": "2348016147601",
-      "wamid": "wamid.sim.000020",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1788015136264,
+      "at": 1788020157618,
       "kind": "location_request",
       "body": "📍 Share your delivery location — or just type your full address here."
     },
     {
+      "dir": "out",
+      "phone": "2348014722371",
+      "wamid": "wamid.sim.000020",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1788020157620,
+      "kind": "text",
+      "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
+    },
+    {
       "dir": "in",
-      "phone": "2348016147601",
-      "profileName": "Sim User 7601",
+      "phone": "2348014722371",
+      "profileName": "Sim User 2371",
       "inboundId": "wamid.sim.in.loc.00018",
-      "at": 1788015136773,
+      "at": 1788020158141,
       "kind": "location",
       "lat": 6.4281,
       "lng": 3.4219,
@@ -110,41 +110,41 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.loc.00018",
-      "at": 1788015136778
+      "at": 1788020158144
     },
     {
       "dir": "out",
-      "phone": "2348016147601",
+      "phone": "2348014722371",
       "wamid": "wamid.sim.000021",
       "statuses": [
         "sent"
       ],
-      "at": 1788015136856,
+      "at": 1788020158172,
       "kind": "text",
-      "body": "🧾 *Delivery Order ORD-MTEI1P9E*\n1 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: Home, 12 Adeola Odeku Street, Victoria Island, Lagos\nSubtotal: ₦2,500.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,000.00*\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/f1dfa75b-4112-4295-98f8-2404ee37c80d\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/6ca9b45f-4e7a-4e56-b846-3d9f924f83a2.mfPyQfjWVe4QYdyKR6hcVyOb"
+      "body": "🧾 *Delivery Order ORD-MTEL1BRL*\n1 × Jollof Rice — ₦2,500.00 each\n📍 Deliver to: Home, 12 Adeola Odeku Street, Victoria Island, Lagos\nSubtotal: ₦2,500.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,000.00*\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/4abcb419-aa17-4a70-b006-4fa5b54e7cfa\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/2858ee0e-93fd-4691-a977-04fda45be521.E1745PZsSEEev6B3PtpuAFDU"
     },
     {
       "dir": "out",
-      "phone": "2348016147601",
+      "phone": "2348014722371",
       "wamid": "wamid.sim.000022",
       "statuses": [
         "sent"
       ],
-      "at": 1788015136938,
+      "at": 1788020158176,
       "kind": "interactive",
-      "body": "Order ORD-MTEI1P9E — manage it here:",
+      "body": "Order ORD-MTEL1BRL — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:6ca9b45f-4e7a-4e56-b846-3d9f924f83a2",
+          "id": "order_track:2858ee0e-93fd-4691-a977-04fda45be521",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:6ca9b45f-4e7a-4e56-b846-3d9f924f83a2",
+          "id": "order_pay:2858ee0e-93fd-4691-a977-04fda45be521",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:6ca9b45f-4e7a-4e56-b846-3d9f924f83a2",
+          "id": "order_cancel:2858ee0e-93fd-4691-a977-04fda45be521",
           "title": "Cancel Order"
         }
       ]

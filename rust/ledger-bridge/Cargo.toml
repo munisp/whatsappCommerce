@@ -25,3 +25,10 @@ tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4"
 deadpool-postgres = "0.14"
 dashmap = "6"
 config = "0.14"
+
+# === W35 otel ===
+opentelemetry = "0.30"
+opentelemetry_sdk = "0.30"
+opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = "0.31"
+# === END W35 otel ===

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T15:01:22.039Z",
+  "generatedAt": "2026-08-29T16:24:41.568Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -1118,7 +1118,7 @@
       "id": "J218",
       "title": "otel-stack compose/k8s/dashboard/alert config validation",
       "feature": "W34 otel-stack: collector, Jaeger, Prometheus, Grafana, Alertmanager",
-      "pass": true,
+      "pass": false,
       "file": "J218.json",
       "messageCount": 0
     },
@@ -1163,12 +1163,76 @@
       "messageCount": 1
     },
     {
+      "id": "J223",
+      "title": "kafka traceparent inject/extract round-trip + consume span continuation",
+      "feature": "W35 node-python-otel: kafkajs spans + W3C traceparent headers",
+      "pass": true,
+      "file": "J223.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J224",
+      "title": "temporal manual OTel interceptors: fail-open, span naming, header propagation",
+      "feature": "W35 node-python-otel: temporal-workflows manual interceptors",
+      "pass": true,
+      "file": "J224.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J225",
+      "title": "mojaloop adapter spans (quote/prepare/fulfil) + traceparent injection, fail-open",
+      "feature": "W35 node-python-otel: mojaloop FSPIOP adapter spans",
+      "pass": true,
+      "file": "J225.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J226",
+      "title": "ml-stack python telemetry imports, parses traceparent, fails open honestly",
+      "feature": "W35 node-python-otel: ml-stack fail-open OTel",
+      "pass": true,
+      "file": "J226.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J227",
+      "title": "W35 collector infra receivers + dapr/apisix/keycloak wiring",
+      "feature": "W35 infra-receivers: prometheus scrape receiver, dapr/apisix/keycloak otel",
+      "pass": true,
+      "file": "J227.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J228",
+      "title": "W35 alert rules (go/rust down, temporal, tigerbeetle) + dashboards",
+      "feature": "W35 infra-receivers: alert-rules w35 group + RED dashboards",
+      "pass": true,
+      "file": "J228.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J229",
+      "title": "mig 0116 telemetry_component_status: journal chain + PGlite apply",
+      "feature": "W35 infra-receivers: additive migration 0116",
+      "pass": true,
+      "file": "J229.json",
+      "messageCount": 0
+    },
+    {
       "id": "J23",
       "title": "window expiry nudge",
       "feature": "sessionWindow expiry cron (dedupe)",
       "pass": true,
       "file": "J23.json",
       "messageCount": 24
+    },
+    {
+      "id": "J230",
+      "title": "otel-stack probes: honest down on absent stack, up on 200",
+      "feature": "W35 infra-receivers: infraHealth otel-stack probes",
+      "pass": true,
+      "file": "J230.json",
+      "messageCount": 0
     },
     {
       "id": "J24",

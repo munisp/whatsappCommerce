@@ -15,3 +15,10 @@ use (
 	./services/event-gateway
 	./services/hermes-bridge
 )
+
+// === W35 otel ===
+use (
+	./shared/go/otelx
+	./services/visual-inventory/go-orchestrator
+)
+// === END W35 otel ===

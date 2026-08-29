@@ -171,6 +171,16 @@ export const ENV = {
     .split(",").map((s) => s.trim()).filter(Boolean),
   metricsToken: process.env.METRICS_TOKEN ?? "",
   // === END W34 otel-core ===
+  // === W35 otel-stack probes (Coder D) ===
+  // Base URLs for the observability-stack health probes appended to
+  // routers/infra.ts collectInfraComponentStatuses. All optional with
+  // compose-network defaults; a probe simply reports down when unreachable.
+  otelCollectorUrl: (process.env.OTEL_COLLECTOR_URL ?? "http://otel-collector:13133").replace(/\/+$/, ""),
+  jaegerUrl: (process.env.JAEGER_URL ?? "http://jaeger:16686").replace(/\/+$/, ""),
+  prometheusUrl: (process.env.PROMETHEUS_URL ?? "http://prometheus:9090").replace(/\/+$/, ""),
+  grafanaUrl: (process.env.GRAFANA_URL ?? "http://grafana:3000").replace(/\/+$/, ""),
+  alertmanagerUrl: (process.env.ALERTMANAGER_URL ?? "http://alertmanager:9093").replace(/\/+$/, ""),
+  // === END W35 otel-stack probes ===
 };
 
 // ─── Fail-closed startup checks (production-like envs — see isProd) ─────────

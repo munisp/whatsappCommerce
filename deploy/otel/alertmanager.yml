@@ -2,6 +2,13 @@
 # Alertmanager configuration for whatsappCommerce.
 # Receivers: email (SMTP via env) + webhook (WhatsApp ops bridge).
 # Routing: severity=critical -> webhook + email; severity=warning -> email.
+# === W35 infra-receivers (Coder D) ===
+# W35 rules (GoServiceDown, RustServiceDown, TemporalWorkflowFailures,
+# TigerBeetleOpErrors in alert-rules.yml group w35-infra-otel) reuse these
+# severity routes unchanged: critical -> critical-all (email + WhatsApp WA
+# bridge webhook), warning -> email-default. No new receivers were needed;
+# the WA bridge is the same W34 alertmanager-wa-bridge:9099/alerts endpoint.
+# === END W35 infra-receivers ===
 # Inhibition: a critical alert suppresses warning alerts with the same
 # alertname/namespace; ComponentDown suppresses dependent Elevated5xx noise
 # for the same platform.
