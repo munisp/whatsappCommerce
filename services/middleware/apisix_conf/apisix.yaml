@@ -10,4 +10,8 @@ routes:
     plugins:
       request-id: {}
       cors: {}
+      # === W35 infra-receivers (Coder D) ===
+      # Trace this route; plugin config lives in config.yaml plugin_attr.
+      opentelemetry: {}
+      # === END W35 infra-receivers ===
 #END

@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348013894615",
-      "profileName": "Sim User 4615",
+      "phone": "2348011390028",
+      "profileName": "Sim User 0028",
       "inboundId": "wamid.sim.in.loc.00325",
-      "at": 1788015523357,
+      "at": 1788020525125,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -19,25 +19,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.loc.00325",
-      "at": 1788015523362
+      "at": 1788020525127
     },
     {
       "dir": "out",
-      "phone": "2348013894615",
+      "phone": "2348011390028",
       "wamid": "wamid.sim.000552",
       "statuses": [
         "sent"
       ],
-      "at": 1788015523385,
+      "at": 1788020525144,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Sim Store — sim · 0.6 km\n2. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348013894615",
-      "profileName": "Sim User 4615",
+      "phone": "2348011390028",
+      "profileName": "Sim User 0028",
       "inboundId": "wamid.sim.in.loc.00326",
-      "at": 1788015523910,
+      "at": 1788020525676,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -46,16 +46,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.loc.00326",
-      "at": 1788015523915
+      "at": 1788020525679
     },
     {
       "dir": "out",
-      "phone": "2348013894615",
+      "phone": "2348011390028",
       "wamid": "wamid.sim.000553",
       "statuses": [
         "sent"
       ],
-      "at": 1788015523932,
+      "at": 1788020525692,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n2. ★ Sponsored: Geo Boost C — Local business · 0.8 km\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n4. Sim Store — sim · 0.6 km\n\nReply with a category to filter, or tell me what you're looking for."
     }

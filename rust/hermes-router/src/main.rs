@@ -552,6 +552,21 @@ async fn handle_ingest(
         );
     }
 
+    // === W35 otel ===
+    let span = tracing::info_span!(
+        "hermes.ingest",
+        component = "hermes-router",
+        http.route = "/ingest",
+        event_type = %event.event_type,
+        tenant_id = %event.tenant_id,
+    );
+    {
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        span.set_parent(extract_parent_context(&headers));
+    }
+    let _span_guard = span.enter();
+    // === END W35 otel ===
+
     let event_id = event.id.clone();
     tokio::spawn(route_event(state, event));
     (
@@ -560,17 +575,110 @@ async fn handle_ingest(
     )
 }
 
+
+// === W35 otel ===
+/// Extractor adapter over inbound HTTP headers for W3C tracecontext
+/// (`traceparent` is a lowercase string header — binding W35 contract).
+struct HeaderExtractor<'a>(&'a HeaderMap);
+
+impl opentelemetry::propagation::Extractor for HeaderExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).and_then(|v| v.to_str().ok())
+    }
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|k| k.as_str()).collect()
+    }
+}
+
+/// Extract the W3C parent context from inbound headers (empty context if absent).
+fn extract_parent_context(headers: &HeaderMap) -> opentelemetry::Context {
+    opentelemetry::global::get_text_map_propagator(|p| p.extract(&HeaderExtractor(headers)))
+}
+// === END W35 otel ===
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
+
+
+// === W35 otel ===
+/// Fail-open OTel init (SPEC_W35 Coder B). OTEL_ENABLED (default false) gates
+/// instrumentation; OTEL_EXPORTER_OTLP_ENDPOINT defaults to
+/// http://otel-collector:4318. Exporter build failure -> warn + fmt-only.
+/// Returns true when the OTLP tracer layer was installed.
+fn init_telemetry(service_name: &str, default_directive: Option<&str>) -> bool {
+    opentelemetry::global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
+    let enabled = std::env::var("OTEL_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    if !enabled {
+        let sub = tracing_subscriber::fmt().json();
+        if let Some(d) = default_directive {
+            sub.with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive(d.parse().expect("valid directive")),
+            )
+            .init();
+        } else {
+            sub.init();
+        }
+        return false;
+    }
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| "http://otel-collector:4318".to_string());
+    match build_otel_tracer(&endpoint, service_name) {
+        Ok(tracer) => {
+            use tracing_subscriber::prelude::*;
+            let mut filter = tracing_subscriber::EnvFilter::from_default_env();
+            if let Some(d) = default_directive {
+                filter = filter.add_directive(d.parse().expect("valid directive"));
+            }
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(tracing_subscriber::fmt::layer().json())
+                .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                .init();
+            true
+        }
+        Err(e) => {
+            tracing_subscriber::fmt().json().init();
+            tracing::warn!(error = %e, "W35 otel: exporter setup failed; continuing uninstrumented");
+            false
+        }
+    }
+}
+
+/// Build an OTLP/tonic span exporter and provider. Errors bubble up to
+/// init_telemetry, which falls back to fmt-only logging (fail-open).
+fn build_otel_tracer(
+    endpoint: &str,
+    service_name: &str,
+) -> Result<opentelemetry_sdk::trace::SdkTracer, opentelemetry_otlp::ExporterBuildError> {
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_otlp::WithExportConfig;
+    let exporter = opentelemetry_otlp::new_exporter()
+        .tonic()
+        .with_endpoint(endpoint.to_string())
+        .build_span_exporter()?;
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name(service_name.to_string())
+                .build(),
+        )
+        .build();
+    opentelemetry::global::set_tracer_provider(provider.clone());
+    Ok(provider.tracer(service_name.to_string()))
+}
+// === END W35 otel ===
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .json()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("hermes_router=info".parse()?),
-        )
-        .init();
+    // === W35 otel ===
+    let otel_enabled = init_telemetry("hermes-router", Some("hermes_router=info"));
+    info!(otel_enabled, "telemetry initialized");
+    // === END W35 otel ===
 
     let config = Config::from_env();
     info!(

@@ -6,6 +6,16 @@ metadata:
 spec:
   tracing:
     samplingRate: "1"
+    # === W35 infra-receivers (Coder D) ===
+    # OTLP traces → W34 collector gRPC :4317 (matches collector receivers).
+    # samplingRate "1" = 100% — DEV overlay setting; lower in prod overlays.
+    # zipkin block below is retained (harmless if zipkin is absent: spans to
+    # it fail async, never blocking app calls — dapr tracing is fail-open).
+    otel:
+      endpointAddress: otel-collector:4317
+      isSecure: false
+      protocol: grpc
+    # === END W35 infra-receivers ===
     zipkin:
       endpointAddress: http://zipkin:9411/api/v2/spans
   metric:

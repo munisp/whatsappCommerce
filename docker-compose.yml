@@ -398,8 +398,13 @@ services:
   # ─── Go Services ──────────────────────────────────────────────────────────
   api-gateway:
     build:
-      context: ./services/gateway
-      dockerfile: Dockerfile
+      # === W35 go build context (Coder D, for Coder A otelx) ===
+      # Widened to repo root: the service go.mod uses `replace ../../shared/go/otelx`,
+      # which escapes a per-service build context. Dockerfile paths are
+      # repo-root-relative (Coder A owns the Dockerfile contents).
+      # === END W35 go build context ===
+      context: .
+      dockerfile: services/gateway/Dockerfile
     ports:
       - "8080:8080"
     environment:
@@ -470,8 +475,13 @@ services:
 
   conversation-orchestrator:
     build:
-      context: ./services/conversation-orchestrator
-      dockerfile: Dockerfile
+      # === W35 go build context (Coder D, for Coder A otelx) ===
+      # Widened to repo root: the service go.mod uses `replace ../../shared/go/otelx`,
+      # which escapes a per-service build context. Dockerfile paths are
+      # repo-root-relative (Coder A owns the Dockerfile contents).
+      # === END W35 go build context ===
+      context: .
+      dockerfile: services/conversation-orchestrator/Dockerfile
     ports:
       - "8082:8082"
     environment:
@@ -495,8 +505,13 @@ services:
 
   commerce-engine:
     build:
-      context: ./services/commerce-engine
-      dockerfile: Dockerfile
+      # === W35 go build context (Coder D, for Coder A otelx) ===
+      # Widened to repo root: the service go.mod uses `replace ../../shared/go/otelx`,
+      # which escapes a per-service build context. Dockerfile paths are
+      # repo-root-relative (Coder A owns the Dockerfile contents).
+      # === END W35 go build context ===
+      context: .
+      dockerfile: services/commerce-engine/Dockerfile
     ports:
       - "8083:8083"
     environment:
@@ -520,8 +535,13 @@ services:
 
   payment-orchestrator:
     build:
-      context: ./services/payment-orchestrator
-      dockerfile: Dockerfile
+      # === W35 go build context (Coder D, for Coder A otelx) ===
+      # Widened to repo root: the service go.mod uses `replace ../../shared/go/otelx`,
+      # which escapes a per-service build context. Dockerfile paths are
+      # repo-root-relative (Coder A owns the Dockerfile contents).
+      # === END W35 go build context ===
+      context: .
+      dockerfile: services/payment-orchestrator/Dockerfile
     ports:
       - "8084:8084"
     environment:
@@ -636,8 +656,13 @@ services:
   # Go: Event Gateway — Kafka consumer → Hermes Cloud API forwarder
   hermes-bridge:
     build:
-      context: ./services/hermes-bridge
-      dockerfile: Dockerfile
+      # === W35 go build context (Coder D, for Coder A otelx) ===
+      # Widened to repo root: the service go.mod uses `replace ../../shared/go/otelx`,
+      # which escapes a per-service build context. Dockerfile paths are
+      # repo-root-relative (Coder A owns the Dockerfile contents).
+      # === END W35 go build context ===
+      context: .
+      dockerfile: services/hermes-bridge/Dockerfile
     ports:
       - "8096:8096"
     environment:

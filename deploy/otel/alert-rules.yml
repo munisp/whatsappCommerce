@@ -101,3 +101,64 @@ groups:
           summary: "Infra component down: {{ $labels.component }}"
           description: "infra_component_up{component={{ $labels.component }}} has been 0 for 5m. See Infra components dashboard."
 # === END W34 otel-stack ===
+
+# === W35 infra-receivers (Coder D) ===
+# Rules for the W35 full-mesh wave. Same honest-degradation contract as the
+# W34 block: every rule is real PromQL, but only as live as its metric.
+#   - GoServiceDown / RustServiceDown reference up{job=...}: no scrape jobs
+#     for the Go/Rust services exist this wave (they push OTLP, they are not
+#     scraped), so these rules evaluate EMPTY (inactive, not firing) until
+#     per-service scrape jobs or a workdesk exporter are added. This matches
+#     the spec's requested up==0 5m form without faking liveness.
+#   - Temporal/TigerBeetle rules read spanmetrics (otel_span_calls_total),
+#     which IS live whenever OTEL_ENABLED=true and spans flow.
+#   - Kafka consumer lag: NO lag exporter is deployed in this stack (no
+#     kube-state-metrics/kafka-lag-exporter), so no lag rule is added —
+#     a rule against a nonexistent metric would be placebo. Adding a lag
+#     exporter is follow-up work; this comment is the honest record.
+  - name: w35-infra-otel
+    interval: 30s
+    rules:
+      # Any Go service scrape target down for 5m (see header note: currently
+      # inert until Go services get scrape jobs).
+      - alert: GoServiceDown
+        expr: up{job=~"commerce-engine|conversation-orchestrator|crm-adapter|erp-adapter|event-gateway|gateway|hermes-bridge|notification-service|payment-orchestrator|visual-inventory|go-orchestrator"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Go service down: {{ $labels.job }}"
+          description: "Prometheus target for Go service {{ $labels.job }} has been down 5m. Check pod status and the Go Services RED dashboard."
+
+      # Any Rust service scrape target down for 5m (same inert-until-scraped
+      # caveat as GoServiceDown).
+      - alert: RustServiceDown
+        expr: up{job=~"event-processor|hermes-router|ledger-bridge|recon-worker|fluvio-consumer"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Rust service down: {{ $labels.job }}"
+          description: "Prometheus target for Rust service {{ $labels.job }} has been down 5m. Check pod status and the Rust Services RED dashboard."
+
+      # Temporal workflow/activity failures (spanmetrics-derived, live when
+      # OTEL_ENABLED=true). Any error span in 15m pages as warning.
+      - alert: TemporalWorkflowFailures
+        expr: sum(increase(otel_span_calls_total{span_name=~"temporal\\..+",status_code="STATUS_CODE_ERROR"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Temporal workflow/activity failures detected"
+          description: "Error spans named temporal.* increased in the last 15m. Check temporal-worker logs and the Tenant 360 temporal panels."
+
+      # TigerBeetle op errors — money rail, always critical.
+      - alert: TigerBeetleOpErrors
+        expr: sum(rate(otel_span_calls_total{span_name=~"tigerbeetle\\..+",status_code="STATUS_CODE_ERROR"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TigerBeetle operation errors"
+          description: "Error spans named tigerbeetle.* sustained for 5m. Ledger ops are failing — check ledger-bridge and tigerbeetle."
+# === END W35 infra-receivers ===

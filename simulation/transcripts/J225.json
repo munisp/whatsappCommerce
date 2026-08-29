@@ -1,0 +1,8 @@
+{
+  "id": "J225",
+  "title": "mojaloop adapter spans (quote/prepare/fulfil) + traceparent injection, fail-open",
+  "feature": "W35 node-python-otel: mojaloop FSPIOP adapter spans",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

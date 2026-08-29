@@ -92,7 +92,35 @@ async function checkKafka(): Promise<ServiceStatus> {
  * opensearch, fluvio, dapr, temporal, mlStack, reconWorker). Consumed by BOTH
  * the infraHealth tRPC procedure and the W34 infra_component_up Prometheus
  * gauge refresher — the gauge reuses these probes, it does not duplicate them.
+ * (W35: 5 otel-stack probes appended — see collectOtelStackStatuses; the
+ * list is honestly 20 components now.)
  */
+// === W35 otel-stack probes (Coder D) ===
+/**
+ * Observability-stack probes appended to the W34 15-component list (which
+ * becomes 20 via collectInfraComponentStatuses below). Exported separately
+ * so journeys (J230) can exercise the honest-down path directly.
+ * Honest-down contract: every probe is HTTP with a 3s timeout; when the
+ * stack is absent (default outside compose/k8s) these report
+ * {online:false, error} — never omitted, never faked up.
+ *   otelCollector: health_check extension :13133 (W34 collector config)
+ *   jaeger:        UI root :16686 (all-in-one serves / on the query port)
+ *   prometheus:    /-/healthy
+ *   grafana:       /api/health
+ *   alertmanager:  /-/healthy
+ */
+export async function collectOtelStackStatuses(): Promise<Record<string, ServiceStatus>> {
+  const [otelCollector, jaeger, prometheus, grafana, alertmanager] = await Promise.all([
+    ping(`${ENV.otelCollectorUrl}/`).catch((e) => ({ online: false, latencyMs: 0, error: String(e?.message ?? e) }) as ServiceStatus),
+    ping(`${ENV.jaegerUrl}/`).catch((e) => ({ online: false, latencyMs: 0, error: String(e?.message ?? e) }) as ServiceStatus),
+    ping(`${ENV.prometheusUrl}/-/healthy`).catch((e) => ({ online: false, latencyMs: 0, error: String(e?.message ?? e) }) as ServiceStatus),
+    ping(`${ENV.grafanaUrl}/api/health`).catch((e) => ({ online: false, latencyMs: 0, error: String(e?.message ?? e) }) as ServiceStatus),
+    ping(`${ENV.alertmanagerUrl}/-/healthy`).catch((e) => ({ online: false, latencyMs: 0, error: String(e?.message ?? e) }) as ServiceStatus),
+  ]);
+  return { otelCollector, jaeger, prometheus, grafana, alertmanager };
+}
+// === END W35 otel-stack probes ===
+
 export async function collectInfraComponentStatuses(): Promise<Record<string, ServiceStatus>> {
   const [
     postgres, redis, kafka, tigerBeetle, mojaloop,
@@ -125,10 +153,13 @@ export async function collectInfraComponentStatuses(): Promise<Record<string, Se
     ping(`${ENV.mlStackUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" }) as ServiceStatus),
     ping(`${ENV.reconWorkerUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" }) as ServiceStatus),
   ]);
+  // === W35 otel-stack probes (Coder D) === appended to the 15-component list.
+  const otelStack = await collectOtelStackStatuses();
   return {
     postgres, redis, kafka, tigerBeetle, mojaloop,
     apisix, keycloak, openappsec, permify, opensearch,
     fluvio, dapr, temporal, mlStack, reconWorker,
+    ...otelStack,
   };
 }
 // === END W34 otel-core ===

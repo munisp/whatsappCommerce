@@ -5120,3 +5120,21 @@ export const telemetryTenantAllowlist = pgTable("telemetry_tenant_allowlist", {
 export type TelemetryTenantAllowlistEntry = typeof telemetryTenantAllowlist.$inferSelect;
 export type NewTelemetryTenantAllowlistEntry = typeof telemetryTenantAllowlist.$inferInsert;
 // === END W34 otel-sidecars ===
+// === W35 infra-receivers (Coder D) ===
+// Latest honest health snapshot per telemetry component (otel-collector,
+// jaeger, prometheus, grafana, alertmanager, scraped infra targets).
+// tenant_id NULL = platform-scoped component (most are). Migration 0116.
+export const telemetryComponentStatus = pgTable("telemetry_component_status", {
+  id:        serial("id").primaryKey(),
+  tenantId:  varchar("tenant_id", { length: 36 }),
+  component: text("component").notNull(),
+  status:    text("status").notNull(),
+  checkedAt: timestamp("checked_at").notNull().defaultNow(),
+  payload:   jsonb("payload"),
+}, (t) => [
+  index("telemetry_component_status_component_idx").on(t.component),
+  index("telemetry_component_status_tenant_idx").on(t.tenantId),
+]);
+export type TelemetryComponentStatusEntry = typeof telemetryComponentStatus.$inferSelect;
+export type NewTelemetryComponentStatusEntry = typeof telemetryComponentStatus.$inferInsert;
+// === END W35 infra-receivers ===

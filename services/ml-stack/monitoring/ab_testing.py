@@ -19,6 +19,17 @@ import duckdb
 import numpy as np
 from scipy import stats
 
+# === W35 otel-ml-stack === lazy fail-open OTel (stdlib-safe import).
+import sys as _sys
+_ML_STACK_DIR = Path(__file__).resolve().parent.parent
+if str(_ML_STACK_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_ML_STACK_DIR))
+try:
+    import telemetry as _ml_telemetry  # services/ml-stack/telemetry.py
+except Exception:  # pragma: no cover - fail-open
+    _ml_telemetry = None
+# === END W35 otel-ml-stack ===
+
 LAKEHOUSE_DIR = Path(__file__).parent.parent / "data" / "lakehouse"
 
 
@@ -107,6 +118,15 @@ class ABTestManager:
         Evaluate A/B test statistical significance.
         Uses Mann-Whitney U test (non-parametric, suitable for score distributions).
         """
+        # === W35 otel-ml-stack === ml.ab.evaluate span (fail-open).
+        if _ml_telemetry is not None:
+            _ml_telemetry.init_telemetry(service_name="ml-monitoring")
+            with _ml_telemetry.ml_span("ml.ab.evaluate", {"ab.test_id": test_id}):
+                return self._evaluate_test_body(test_id, min_samples, alpha)
+        return self._evaluate_test_body(test_id, min_samples, alpha)
+        # === END W35 otel-ml-stack ===
+
+    def _evaluate_test_body(self, test_id: str, min_samples: int = 1000, alpha: float = 0.05) -> dict:
         df = self.duck.execute("""
             SELECT variant, score, actual_label FROM ab_observations WHERE test_id = ?
         """, [test_id]).df()
