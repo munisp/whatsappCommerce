@@ -17,7 +17,7 @@ pandas==2.2.3
 pyarrow==18.1.0
 
 # Database
-psycopg2-binary==2.9.10
+psycopg2-binary==2.9.12
 
 # ML runtimes (CPU)
 # NOTE: resolves to the +cpu wheel when the PyTorch CPU index above is passed.
