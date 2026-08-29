@@ -17,6 +17,11 @@ COPY . .
 # (VLM_MOCK_MODE=true on the kyc-verifier service in docker-compose.yml).
 ENV VLM_MOCK_MODE=false
 ENV PORT=8001
+# === W34 otel-sidecars === env passthrough only (telemetry fail-open,
+# disabled by default).
+ENV OTEL_ENABLED=false
+ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# === END W34 otel-sidecars ===
 
 EXPOSE 8001
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]

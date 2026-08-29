@@ -35,6 +35,8 @@ These have third-party review latency. Start them before any infra work.
 | 1.3 | Caddy multi-domain TLS | Platform | Certificates issuing for app + tenant domains; see docs/caddy-integration-analysis.md. |
 | 1.4 | Keycloak prod realm + SSO roles | Platform | Prod realm (not master), roles mapped, redirect URIs restricted to prod domains. |
 | 1.5 | Env matrix (below) populated | Platform | Every REQUIRED_BY_ENV var set; boot gate will REFUSE to start otherwise. |
+| 1.6 | W34 observability stack deployed | Platform | `k8s/otel-stack.yaml` (or compose block) up: otel-collector, jaeger, prometheus, grafana, alertmanager. Grafana admin password set (`GRAFANA_ADMIN_PASSWORD`); Alertmanager SMTP rendered from secrets; alert rules visible on Prometheus /alerts. See docs/OBSERVABILITY_W34.md. |
+| 1.7 | W34 WhatsApp ops bridge (optional) | Platform | Only if WhatsApp alerting wanted: set `ALERTMANAGER_WA_BRIDGE_ENABLED=true` + `OPS_ALERT_WHATSAPP`; verify bridge `/health` shows `enabled:true` and `dropped` not growing. Fail-open: disabling loses only the WhatsApp copy, email still fires. |
 
 ### Environment matrix
 

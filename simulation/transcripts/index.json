@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-25T15:06:31.704Z",
+  "generatedAt": "2026-08-29T15:01:22.039Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -1091,12 +1091,76 @@
       "messageCount": 0
     },
     {
+      "id": "J215",
+      "title": "OTel span w/ tenant.id baggage + x-trace-id + metrics increments",
+      "feature": "W34 otel-core: core instrumentation + RED metrics endpoint",
+      "pass": true,
+      "file": "J215.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J216",
+      "title": "traceparent propagation: scheduler→cron route + internal service call",
+      "feature": "W34 otel-core: W3C trace context propagation across services",
+      "pass": true,
+      "file": "J216.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J217",
+      "title": "telemetry fail-open with unreachable collector + honest status",
+      "feature": "W34 otel-core: fail-open telemetry, honest telemetryStatus",
+      "pass": true,
+      "file": "J217.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J218",
+      "title": "otel-stack compose/k8s/dashboard/alert config validation",
+      "feature": "W34 otel-stack: collector, Jaeger, Prometheus, Grafana, Alertmanager",
+      "pass": true,
+      "file": "J218.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J219",
+      "title": "alertmanager WhatsApp bridge: format → deliver, fail-open, disabled-default",
+      "feature": "W34 otel-stack: WhatsApp ops bridge",
+      "pass": true,
+      "file": "J219.json",
+      "messageCount": 0
+    },
+    {
       "id": "J22",
       "title": "CTWA campaign keyword",
       "feature": "ctwa attribution + action",
       "pass": true,
       "file": "J22.json",
       "messageCount": 6
+    },
+    {
+      "id": "J220",
+      "title": "python sidecars extract traceparent, fail-open OTel, honest /health telemetry status",
+      "feature": "W34 otel-sidecars: kyc-verifier / ai-agent OpenTelemetry",
+      "pass": true,
+      "file": "J220.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J221",
+      "title": "telemetry cardinality guard: collapse to 'other', audited admin allowlist, bounded labels",
+      "feature": "W34 otel-sidecars: telemetryCardinality + telemetry admin router",
+      "pass": true,
+      "file": "J221.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J222",
+      "title": "wa-ops-alert receiver: internal-token gate + zod + real WA send",
+      "feature": "W34 merger seam: /api/internal/wa-ops-alert for the ops bridge",
+      "pass": true,
+      "file": "J222.json",
+      "messageCount": 1
     },
     {
       "id": "J23",

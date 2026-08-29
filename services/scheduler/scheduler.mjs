@@ -19,7 +19,23 @@
  * The allowlist below is the SINGLE source of truth for route cadences —
  * keep it in sync with server/_core/index.ts (J178 asserts parity).
  */
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
+
+// === W34 otel-core ===
+// OTel-lite trace injector: each cron fire carries a W3C `traceparent` header
+// so the platform's cron route span links back to the scheduler fire. When
+// TRACEPARENT is set (k8s CronJob / external tracer), its trace id is reused
+// as the parent; otherwise a fresh root traceparent is generated per fire.
+// Zero dependencies, fail-open (a malformed TRACEPARENT falls back to fresh).
+export function makeTraceparent() {
+  const parent = (process.env.TRACEPARENT ?? "").trim();
+  const m = /^00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/.exec(parent);
+  const traceId = m ? m[1] : randomBytes(16).toString("hex");
+  const spanId = randomBytes(8).toString("hex");
+  return `00-${traceId}-${spanId}-01`;
+}
+// === END W34 otel-core ===
+
 
 const PLATFORM_URL = (process.env.PLATFORM_URL ?? "http://platform:3000").replace(/\/$/, "");
 const CRON_JWT = (process.env.CRON_JWT ?? "").trim();
@@ -116,7 +132,8 @@ export async function invokeRoute(path, { platformUrl = PLATFORM_URL, secret = C
   const token = signCronToken(secret, path);
   const res = await fetchImpl(`${platformUrl}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    // === W34 otel-core === traceparent propagation per cron fire.
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, traceparent: makeTraceparent() },
     body: "{}",
     signal: AbortSignal.timeout(120_000),
   });

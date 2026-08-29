@@ -1,0 +1,8 @@
+{
+  "id": "J215",
+  "title": "OTel span w/ tenant.id baggage + x-trace-id + metrics increments",
+  "feature": "W34 otel-core: core instrumentation + RED metrics endpoint",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

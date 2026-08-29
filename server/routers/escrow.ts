@@ -2,6 +2,8 @@ import { z } from "zod";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, adminProcedure, router, assertTenantAccess, assertMoneyAccess, moneyProcedure } from "../_core/trpc";
+// === W34 otel-core === money-rail RED metrics (fail-open recorders).
+import { recordEscrowSettlement, recordPayoutLatency } from "../_core/telemetry";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import {
@@ -309,8 +311,8 @@ export async function settleEscrowAtomic(
   // survives — these ids must be reversed by compensateEscrowSettlementFailure.
   const capturedPendingIds: string[] = [];
   try {
-  return await db.transaction(async (tx) => {
-    const targetState = cfg.custodyMode === "psp" ? "settled" : "release_instructed";
+  const txResult = await db.transaction(async (tx) => {
+    const targetState = (cfg.custodyMode === "psp" ? "settled" : "release_instructed") as "settled" | "release_instructed";
     const transitioned = await tx.update(escrowTransactions).set({
       state: targetState,
       buyerConfirmedAt: opts.autoConfirmed ? null : now,
@@ -397,7 +399,11 @@ export async function settleEscrowAtomic(
     }
     return { transitioned: true, newState: targetState, escrow };
   });
+  // === W34 otel-core === escrow_settlements_total{outcome} (fail-open recorder).
+  recordEscrowSettlement(txResult.transitioned ? "success" : "skipped");
+  return txResult;
   } catch (err) {
+    recordEscrowSettlement("error"); // === W34 otel-core ===
     // The PG transaction rolled back — but any ledger capture committed
     // BEFORE the failure survives the rollback. Surface the captured ids so
     // the caller can compensate (reverse) them.
@@ -648,6 +654,10 @@ export async function finalizeWalletWithdrawal(
       WHERE id = ${row.id} AND metadata->>'status' NOT IN ('completed', 'failed')
       RETURNING id
     `);
+    // === W34 otel-core === payout_latency histogram (initiation → terminal).
+    if ((claimed as unknown[]).length > 0) {
+      recordPayoutLatency("completed", Date.now() - new Date(row.createdAt as unknown as string).getTime());
+    }
     return { ok: (claimed as unknown[]).length > 0, action: "completed" };
   }
 
@@ -671,6 +681,8 @@ export async function finalizeWalletWithdrawal(
         updated_at = now()
     WHERE id = ${row.walletId}
   `);
+  // === W34 otel-core === payout_latency histogram (initiation → terminal).
+  recordPayoutLatency("failed", Date.now() - new Date(row.createdAt as unknown as string).getTime());
   return { ok: true, action: "refunded" };
 }
 

@@ -13,6 +13,8 @@
 
 import { z } from "zod";
 import { protectedProcedure, operatorProcedure, router, assertTenantAccess } from "../_core/trpc";
+// === W34 otel-core === traceparent propagation to hermes services.
+import { injectTraceHeaders } from "../_core/telemetry";
 import { getDb } from "../db";
 import { hermesConfigs, hermesEventLog, hermesPODrafts, hermesHealthLog } from "../../drizzle/schema";
 import { eq, desc, and, sql, gte, asc } from "drizzle-orm";
@@ -261,7 +263,8 @@ export const hermesRouter = router({
       try {
         const emailRes = await fetch(`${HERMES_SKILLS_URL}/skills/po-approved`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", ...INTERNAL_HEADERS },
+          // === W34 otel-core === traceparent propagation to hermes-skills.
+          headers: injectTraceHeaders({ "Content-Type": "application/json", ...INTERNAL_HEADERS }),
           body: JSON.stringify({
             po_id: po.poId,
             tenant_id: po.tenantId,
@@ -356,10 +359,11 @@ export const hermesRouter = router({
 
       const resp = await fetch(`${HERMES_BRIDGE_URL}/hermes/ingest`, {
         method: "POST",
-        headers: {
+        // === W34 otel-core === traceparent propagation to hermes-bridge.
+        headers: injectTraceHeaders({
           "Content-Type": "application/json",
           ...INTERNAL_HEADERS,
-        },
+        }),
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(10000),
       });

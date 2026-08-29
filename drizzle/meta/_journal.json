@@ -785,6 +785,13 @@
       "when": 1787900300000,
       "tag": "0114_embedded_clients",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1787900400000,
+      "tag": "0115_telemetry_tenant_allowlist",
+      "breakpoints": true
     }
   ]
 }

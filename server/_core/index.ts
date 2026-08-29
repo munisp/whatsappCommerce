@@ -27,6 +27,7 @@ import { getDb } from "../db";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { runInventorySyncHeartbeat } from "../services/inventorySync";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import crypto from "crypto";
 import { paymentTransactions, paymentIntents, walletTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { broadcastCampaigns, broadcastRecipients, twentyContacts } from "../../drizzle/schema";
@@ -57,6 +58,12 @@ import {
 } from "../services/metering";
 import { matchSettlements } from "../services/reconMatch";
 import { checkReadiness, readinessHttpStatus } from "../services/healthReady";
+// === W34 otel-core ===
+import {
+  initTelemetry, telemetryStatus,
+  recordHttpRequest, recordCronRun, renderMetrics, injectTraceHeaders,
+  expressTelemetryMiddleware,
+} from "./telemetry";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -70,6 +77,13 @@ export function broadcastConversationEvent(tenantId: string, event: object) {
     if (ws.readyState === WebSocket.OPEN) ws.send(msg);
   });
 }
+
+// === W34 wa-ops-alert (merger seam) === payload schema for the ops bridge.
+const waOpsAlertSchema = z.object({
+  to: z.string().regex(/^\+?[0-9]{8,15}$/, "to must be an E.164-ish WhatsApp number"),
+  body: z.string().min(1).max(4000),
+  kind: z.literal("ops-alert"),
+});
 
 /**
  * Platform ops: outbound sends at the webhook-dispatch layer are usage-metered
@@ -164,6 +178,92 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // === W34 otel-core === lazy, fail-open OTel bootstrap. Activated only when
+  // OTEL_ENABLED=true; init failure warns and continues (requests unaffected).
+  void initTelemetry().catch(() => { /* telemetry must never break boot */ });
+  // === W34 merger seam (otel-sidecars) === wire the persisted tenant
+  // allowlist (telemetry.setTenantAllowlist) into /api/metrics label guard.
+  void import("../services/telemetryCardinality")
+    .then((m) => m.registerMetricAllowlistProvider())
+    .catch(() => { /* fail-open: env-only labels */ });
+
+  // === W34 otel-core === inbound span + x-trace-id response header (from the
+  // request span; traceparent extraction links cron/internal callers) +
+  // inbound HTTP RED metrics. Registered FIRST so every route is covered.
+  // Never throws into the request path.
+  app.use((req, res, next) => {
+    expressTelemetryMiddleware(req, res, () => {
+      const t0 = Date.now();
+      res.on("finish", () => {
+        try {
+          const matched = (req as any).route?.path;
+          const route = typeof matched === "string" && matched
+            ? `${req.baseUrl ?? ""}${matched}`
+            : "unmatched";
+          const tenantHdr = req.headers["x-tenant-id"];
+          recordHttpRequest(
+            route,
+            res.statusCode,
+            typeof tenantHdr === "string" ? tenantHdr : null,
+            Date.now() - t0,
+          );
+        } catch { /* fail-open */ }
+      });
+      next();
+    });
+  });
+
+  // === W34 otel-core === cron_runs_total{route,result} for scheduled routes.
+  app.use("/api/scheduled", (req, res, next) => {
+    res.on("finish", () => {
+      try {
+        recordCronRun(req.path || "unknown", res.statusCode < 400 ? "ok" : "error");
+      } catch { /* fail-open */ }
+    });
+    next();
+  });
+
+  // === W34 otel-core === GET /api/metrics — Prometheus text exposition.
+  // Auth: METRICS_TOKEN bearer, X-Internal-Api-Key, or an admin session.
+  // Honest 503 when telemetry is disabled (no fake empty exposition).
+  app.get("/api/metrics", async (req, res) => {
+    try {
+      const status = telemetryStatus();
+      if (!status.enabled) {
+        res.status(503).json({ error: "telemetry-disabled", telemetry: status });
+        return;
+      }
+      let authed = false;
+      const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+      const metricsToken = (process.env.METRICS_TOKEN ?? "").trim();
+      const internalKey = (process.env.INTERNAL_API_KEY ?? "").trim();
+      const presentedInternal = (req.headers["x-internal-api-key"] as string | undefined)
+        ?? (req.headers["x-internal-token"] as string | undefined) ?? "";
+      const eq = (a: string, b: string) => {
+        const ba = Buffer.from(a); const bb = Buffer.from(b);
+        return ba.length > 0 && ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+      };
+      if (metricsToken && eq(bearer, metricsToken)) authed = true;
+      if (!authed && internalKey && eq(presentedInternal, internalKey)) authed = true;
+      if (!authed && bearer) {
+        try {
+          const user = await sdk.authenticateRequest(req);
+          authed = !!user && (user as any).role === "admin";
+        } catch { authed = false; }
+      }
+      if (!authed) {
+        res.status(401).json({ error: "metrics-auth-required" });
+        return;
+      }
+      res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+      res.send(await renderMetrics());
+    } catch (err: any) {
+      // Fail-open for the platform, honest for the scrape.
+      res.status(500).json({ error: "metrics-render-failed", detail: String(err?.message ?? err) });
+    }
+  });
+  // === END W34 otel-core ===
 
   // ── w11 payment provider adapter pack (flutterwave/stripe/monnify) ───────
   // Additive + non-blocking: a registration failure is reported via
@@ -1071,6 +1171,58 @@ async function startServer() {
       return res.status(503).json({ error: String(err?.message ?? err) });
     }
   });
+
+  // === W34 wa-ops-alert (merger seam) ===
+  // POST /api/internal/wa-ops-alert — platform-side receiver for the W34
+  // Alertmanager→WhatsApp ops bridge (deploy/otel/alertmanager-wa-bridge.mjs).
+  // Auth: X-Internal-Token (timing-safe vs INTERNAL_API_KEY) — FAIL-CLOSED:
+  // when INTERNAL_API_KEY is unset the endpoint is disabled (503). Rate-limited
+  // 30/min fail-closed. Honest 503 when WhatsApp env credentials are not
+  // configured (the bridge logs the drop and still 200s Alertmanager).
+  app.post("/api/internal/wa-ops-alert", async (req, res) => {
+    const internalKey = (process.env.INTERNAL_API_KEY ?? "").trim();
+    if (!internalKey) {
+      return res.status(503).json({ error: "wa-ops-alert disabled — INTERNAL_API_KEY is not configured" });
+    }
+    const presented = (req.headers["x-internal-token"] as string | undefined)
+      ?? (req.headers["x-internal-api-key"] as string | undefined) ?? "";
+    if (!timingSafeEqualStr(presented, internalKey)) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+    const parsed = waOpsAlertSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid-payload", detail: parsed.error.issues.map((i) => i.message).join("; ").slice(0, 300) });
+    }
+    // Rate limit: 30 ops alerts/min; fail-CLOSED in production, dev/test
+    // fail-open with a warning (consistent with the platform's other limiters
+    // — the sim/dev environments have no Redis).
+    try {
+      const { checkRateLimit } = await import("./rateLimit");
+      const windowKey = `rl:wa-ops-alert:${Math.floor(Date.now() / 60000)}`;
+      const decision = await checkRateLimit(windowKey, 30, 60, isProd);
+      if (!decision.allowed) {
+        return res.status(decision.error ? 503 : 429).json({ error: decision.error ? "rate-limiter-unavailable" : "rate-limited", retryAfter: decision.retryAfter });
+      }
+    } catch (rlErr: any) {
+      return res.status(503).json({ error: `rate-limiter-unavailable: ${String(rlErr?.message ?? rlErr)}` });
+    }
+    const waConfigured = !!((process.env.WAC_WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN) && (process.env.WAC_WHATSAPP_PHONE_ID || process.env.WHATSAPP_PHONE_NUMBER_ID));
+    if (!waConfigured) {
+      return res.status(503).json({ error: "whatsapp-not-configured", sent: false });
+    }
+    try {
+      const { sendWhatsAppText } = await import("../services/waSender");
+      const result = await sendWhatsAppText("default", parsed.data.to, parsed.data.body, { notifType: "ops_alert", skipLog: false });
+      if (!result.sent) {
+        return res.status(503).json({ error: "whatsapp-send-simulated", sent: false });
+      }
+      return res.status(200).json({ sent: true, wamids: result.wamids, chunks: result.chunks });
+    } catch (err: any) {
+      // Honest failure — the bridge counts this as a drop.
+      return res.status(502).json({ error: `whatsapp-send-failed: ${String(err?.message ?? err).slice(0, 200)}`, sent: false });
+    }
+  });
+  // === END W34 wa-ops-alert ===
 
   // ── WhatsApp Business API webhook (Meta) ──────────────────────────────────
   // GET: verification challenge from Meta
@@ -4274,7 +4426,8 @@ function drawBbox(img,id){
       try {
         const inferRes = await fetch(`${mlStackUrl}/predict`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // === W34 otel-core === traceparent propagation to ml-stack.
+          headers: injectTraceHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({
             tenant_id: tenantId ?? null,
             amount: totalAmount,

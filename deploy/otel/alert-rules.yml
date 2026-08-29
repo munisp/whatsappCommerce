@@ -1,0 +1,103 @@
+# === W34 otel-stack (Coder B) ===
+# Prometheus alert rules for whatsappCommerce.
+#
+# Metric names are BINDING assumptions on the platform /api/metrics surface
+# (Coder A): http_requests_total{route,status_class,tenant_class},
+# trpc_procedure_calls_total{result="error"} (errors) / trpc_procedure_calls_total (all),
+# escrow_settlements_total{outcome}, payout_latency_ms (histogram, *_bucket),
+# cron_runs_total{route,result}, infra_component_up{component} (x15),
+# readiness probe failures surface as http_requests_total on /health/ready
+# with status_class="5xx".
+#
+# Honest test note: J218 validates these exprs with a balanced-delimiter /
+# selector parser (not full PromQL); rules were also kept to std PromQL
+# constructs. No rule is a placeholder — every rule below is real, but each
+# is only as live as the metric it references: if A's metric names drift,
+# the rule evaluates empty (Prometheus shows it as inactive, NOT firing) —
+# this is the honest-degradation contract.
+groups:
+  - name: w34-platform
+    interval: 30s
+    rules:
+      # Readiness flapping: sustained 5xx on /health/ready over 5m.
+      - alert: ReadinessFlapping
+        expr: sum(rate(http_requests_total{route="/health/ready",status_class="5xx"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Platform readiness endpoint returning 5xx"
+          description: "/health/ready has served 5xx for 5m; orchestrator may restart pods. Check platform logs and infra components."
+
+      # Elevated 5xx across all routes (>5% of traffic for 5m).
+      - alert: Elevated5xx
+        expr: |
+          sum(rate(http_requests_total{status_class="5xx"}[5m]))
+            /
+          sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Elevated 5xx rate (>5% for 5m)"
+          description: "More than 5% of HTTP requests are failing. Check error logs and downstream components."
+
+      # Any cron route reporting result="error" in the last 15m.
+      - alert: CronFailure
+        expr: increase(cron_runs_total{result="error"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cron job failure: {{ $labels.route }}"
+          description: "Cron route {{ $labels.route }} recorded at least one error in the last 15m."
+
+      # Escrow settlement errors (money rail — always critical).
+      - alert: EscrowSettleFailure
+        expr: increase(escrow_settlements_total{outcome="error"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Escrow settlement failures detected"
+          description: "escrow_settlements_total{outcome=error} increased in the last 15m. Money movement is failing — page ops."
+
+      # Payout latency p95 > 30s sustained 10m.
+      - alert: PayoutLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(payout_latency_ms_bucket[10m])) by (le)) > 30000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Payout latency p95 above 30s"
+          description: "p95 payout latency has exceeded 30s for 10m. Check PSP connectivity and ledger-bridge."
+
+      # Per-tenant error spike: >3 sigma above the tenant's own 1h baseline.
+      # Allowlist-only: tenant_class is "other" for non-allowlisted tenants,
+      # so cardinality of this alert is bounded by OTEL_TENANT_METRIC_ALLOWLIST.
+      - alert: TenantErrorSpike
+        expr: |
+          (
+            sum by (tenant_class) (rate(trpc_procedure_calls_total{result="error"}[5m]))
+              -
+            avg_over_time(sum by (tenant_class) (rate(trpc_procedure_calls_total{result="error"}[5m]))[1h:5m])
+          )
+            >
+          3 * stddev_over_time(sum by (tenant_class) (rate(trpc_procedure_calls_total{result="error"}[5m]))[1h:5m])
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant error spike: {{ $labels.tenant_class }}"
+          description: "tRPC error rate for tenant_class={{ $labels.tenant_class }} is >3 sigma above its 1h baseline."
+
+      # Infra component down (infra_component_up gauge x15) for 5m.
+      - alert: ComponentDown
+        expr: infra_component_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Infra component down: {{ $labels.component }}"
+          description: "infra_component_up{component={{ $labels.component }}} has been 0 for 5m. See Infra components dashboard."
+# === END W34 otel-stack ===

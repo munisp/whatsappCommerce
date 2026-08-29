@@ -7,62 +7,62 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017344968",
-      "profileName": "Sim User 4968",
+      "phone": "2348018738101",
+      "profileName": "Sim User 8101",
       "inboundId": "wamid.sim.in.text.00422",
-      "at": 1787670342443,
+      "at": 1788015611131,
       "kind": "text",
-      "text": "i want these [91122b7e]"
+      "text": "i want these [82d7d726]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00422",
-      "at": 1787670342447
+      "at": 1788015611136
     },
     {
       "dir": "out",
-      "phone": "2348017344968",
+      "phone": "2348018738101",
       "wamid": "wamid.sim.000676",
       "statuses": [
         "sent"
       ],
-      "at": 1787670342468,
+      "at": 1788015611176,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348017344968",
-      "profileName": "Sim User 4968",
+      "phone": "2348018738101",
+      "profileName": "Sim User 8101",
       "inboundId": "wamid.sim.in.text.00423",
-      "at": 1787670342989,
+      "at": 1788015611679,
       "kind": "text",
-      "text": "confirm please [91122b7e]"
+      "text": "confirm please [82d7d726]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00423",
-      "at": 1787670342992
+      "at": 1788015611685
     },
     {
       "dir": "out",
-      "phone": "2348017344968",
+      "phone": "2348018738101",
       "wamid": "wamid.sim.000677",
       "statuses": [
         "sent"
       ],
-      "at": 1787670343016,
+      "at": 1788015611717,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348017344968",
-      "profileName": "Sim User 4968",
+      "phone": "2348018738101",
+      "profileName": "Sim User 8101",
       "inboundId": "wamid.sim.in.text.00424",
-      "at": 1787670343539,
+      "at": 1788015612232,
       "kind": "text",
       "text": "1"
     },
@@ -70,41 +70,41 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00424",
-      "at": 1787670343545
+      "at": 1788015612236
     },
     {
       "dir": "out",
-      "phone": "2348017344968",
+      "phone": "2348018738101",
       "wamid": "wamid.sim.000678",
       "statuses": [
         "sent"
       ],
-      "at": 1787670343583,
+      "at": 1788015612269,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MT8SRL3K*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/74c6b802-b3e8-49ba-a12a-bb14e3bb1017\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/c287b826-68de-4c6e-8277-778ff7526ddc.OVPCFGvsr32eVwUDZUKIT5Xz"
+      "body": "🧾 *Pickup Order ORD-MTEIBW4H*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/b65cef74-4682-4494-8658-7e26e74db536\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/8e0424c5-4f29-4573-a141-a80593dd418a.RJJIkMR5-csj5s3cSPz6LXPv"
     },
     {
       "dir": "out",
-      "phone": "2348017344968",
+      "phone": "2348018738101",
       "wamid": "wamid.sim.000679",
       "statuses": [
         "sent"
       ],
-      "at": 1787670343588,
+      "at": 1788015612278,
       "kind": "interactive",
-      "body": "Order ORD-MT8SRL3K — manage it here:",
+      "body": "Order ORD-MTEIBW4H — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:c287b826-68de-4c6e-8277-778ff7526ddc",
+          "id": "order_track:8e0424c5-4f29-4573-a141-a80593dd418a",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:c287b826-68de-4c6e-8277-778ff7526ddc",
+          "id": "order_pay:8e0424c5-4f29-4573-a141-a80593dd418a",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:c287b826-68de-4c6e-8277-778ff7526ddc",
+          "id": "order_cancel:8e0424c5-4f29-4573-a141-a80593dd418a",
           "title": "Cancel Order"
         }
       ]

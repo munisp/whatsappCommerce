@@ -589,6 +589,15 @@ class SDKServer {
           if (!isNonEmptyString(taskUid)) {
             throw ForbiddenError("Cron session missing task_uid");
           }
+          // === W34 otel-core === tag the (traceparent-linked) cron span. The
+          // scheduler sends a `traceparent` header per fire; http
+          // instrumentation extracts it, so the cron route span shares the
+          // scheduler fire's trace_id. Fail-open: tagging never blocks auth.
+          try {
+            const { tagActiveSpan } = await import("./telemetry");
+            tagActiveSpan({ "cron.route": String(taskUid), "cron.trigger": "scheduler" });
+          } catch { /* fail-open */ }
+          // === END W34 otel-core ===
           return buildCronUser({
             openId: claims.openId,
             taskUid,

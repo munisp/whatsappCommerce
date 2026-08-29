@@ -866,6 +866,16 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.cashflowForecasts);
         } catch { /* w33 tables not migrated yet */ }
         // === END W33 ai-qa-forecast ===
+        // === W34 otel-sidecars === the telemetry tenant allowlist and its
+        // admin audit rows never leak between journeys (J220–J221).
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW34 } = await import("drizzle-orm");
+          await world.db.delete(schema.telemetryTenantAllowlist);
+          await world.db.execute(sqlW34`DELETE FROM audit_logs WHERE action = 'telemetry.allowlist.set'`);
+        } catch { /* w34 tables not migrated yet */ }
+        delete process.env.OTEL_TENANT_METRIC_ALLOWLIST;
+        // === END W34 otel-sidecars ===
         delete process.env.CATALOG_EXTRACTION_PROVIDER;
         delete process.env.CATALOG_EXTRACTION_ENDPOINT;
         delete process.env.CATALOG_EXTRACTION_API_KEY;

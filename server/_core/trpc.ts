@@ -6,13 +6,35 @@ import type { TrpcContext } from "./context";
 import { ENV } from "./env";
 import { permifyCheck } from "../permify";
 import { getMembership, type MembershipRole, type TenantMembership } from "../services/membership";
+// === W34 otel-core ===
+import { traceProcedure } from "./telemetry";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
 });
 
+/**
+ * === W34 otel-core ===
+ * Telemetry middleware applied at the BASE procedure, so every procedure
+ * (public/protected/internal/admin/tenant-role) gets:
+ *   - a span named `trpc.<router>.<procedure>` with tenant.id (from the
+ *     AUTHENTICATED ctx.session user — never request params), user.role and
+ *     error status attributes, plus tenant.id W3C baggage;
+ *   - RED metrics (trpc_procedure_calls_total / trpc_procedure_duration_ms).
+ * Fail-open: telemetry exceptions are swallowed + counted inside
+ * traceProcedure; procedure behavior is unchanged.
+ */
+const telemetryMiddleware = t.middleware(async (opts) =>
+  traceProcedure(
+    opts.path,
+    opts.ctx,
+    () => opts.next(),
+    (result) => (result as { ok: boolean; error?: unknown }).ok ? null : ((result as { error?: Error }).error ?? new Error("trpc error")),
+  ),
+);
+
 export const router = t.router;
-export const publicProcedure = t.procedure;
+export const publicProcedure = t.procedure.use(telemetryMiddleware);
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
@@ -29,7 +51,7 @@ const requireUser = t.middleware(async opts => {
   });
 });
 
-export const protectedProcedure = t.procedure.use(requireUser);
+export const protectedProcedure = publicProcedure.use(requireUser); // W34: derives from publicProcedure so telemetryMiddleware wraps it
 
 /**
  * W26 security (F8/F10): internal service-to-service procedure gate.
@@ -78,7 +100,7 @@ export function assertInternalApiKey(ctx: Pick<TrpcContext, "req">): void {
   }
 }
 
-export const internalProcedure = t.procedure.use(
+export const internalProcedure = publicProcedure.use( // W34: telemetry-wrapped base
   t.middleware(async opts => {
     assertInternalApiKey(opts.ctx);
     return opts.next({ ctx: opts.ctx });
@@ -127,7 +149,7 @@ export function assertTenantAccess(
  * The resolved membership is exposed as ctx.membership.
  */
 function tenantRoleProcedure(roles: readonly MembershipRole[], label: string) {
-  return t.procedure.use(requireUser).use(
+  return publicProcedure.use(requireUser).use( // W34: telemetry-wrapped base
     t.middleware(async opts => {
       const { ctx, next } = opts;
       const user = ctx.user;
@@ -229,7 +251,7 @@ export const analystProcedure = tenantRoleProcedure(["owner", "operator", "analy
  */
 export const moneyProcedure = tenantRoleProcedure(["owner", "operator"], "moneyProcedure");
 
-export const adminProcedure = t.procedure.use(
+export const adminProcedure = publicProcedure.use( // W34: telemetry-wrapped base
   t.middleware(async opts => {
     const { ctx, next } = opts;
 

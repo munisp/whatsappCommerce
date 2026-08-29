@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
+// === W34 otel-core === traceparent propagation to the KYC sidecar.
+import { injectTraceHeaders } from "../_core/telemetry";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { kycApplications, kycDocuments, livenessChecks } from "../../drizzle/schema";
@@ -57,10 +59,11 @@ const KYC_API_KEY = process.env.KYC_INTERNAL_API_KEY ?? "dev-kyc-key";
 async function callKycService(path: string, options: RequestInit = {}) {
   const res = await fetch(`${KYC_SERVICE_URL}${path}`, {
     ...options,
-    headers: {
+    // === W34 otel-core === traceparent propagation to kyc-verifier.
+    headers: injectTraceHeaders({
       "x-api-key": KYC_API_KEY,
-      ...(options.headers ?? {}),
-    },
+      ...((options.headers ?? {}) as Record<string, string>),
+    }),
   });
   if (!res.ok) throw new Error(`KYC service error: ${res.status}`);
   return res.json();

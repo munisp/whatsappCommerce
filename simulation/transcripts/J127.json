@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017603549",
-      "profileName": "Sim User 3549",
+      "phone": "2348012328380",
+      "profileName": "Sim User 8380",
       "inboundId": "wamid.sim.in.aud.00330",
-      "at": 1787670259743,
+      "at": 1788015527416,
       "kind": "audio",
       "mediaKind": "audio",
       "mediaId": "m-j127-voice"
@@ -19,53 +19,53 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.aud.00330",
-      "at": 1787670259748
+      "at": 1788015527419
     },
     {
       "dir": "out",
-      "phone": "2348017603549",
+      "phone": "2348012328380",
       "wamid": "wamid.sim.000559",
       "statuses": [
         "sent"
       ],
-      "at": 1787670259769,
+      "at": 1788015527442,
       "kind": "interactive",
       "body": "🤖 *AI draft listing* (voice note)\n\n*Peak Milk 400g*\nPeak Milk evaporated milk, 400g tin.\nCategory: groceries\nSuggested price: NGN 1850.00\nTypical range: NGN 1000.00 – NGN 5000.00\n\nTap ✅ to publish to your catalog, or ❌ to discard. You can edit it in the tenant portal.",
       "buttons": [
         {
-          "id": "catalog_ai:publish:8c95536c-493a-4208-87dd-43cb386b2bd5",
+          "id": "catalog_ai:publish:73bf1b30-b03e-46e0-afa2-2ddc765c5716",
           "title": "✅ Publish"
         },
         {
-          "id": "catalog_ai:reject:8c95536c-493a-4208-87dd-43cb386b2bd5",
+          "id": "catalog_ai:reject:73bf1b30-b03e-46e0-afa2-2ddc765c5716",
           "title": "❌ Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348017603549",
-      "profileName": "Sim User 3549",
+      "phone": "2348012328380",
+      "profileName": "Sim User 8380",
       "inboundId": "wamid.sim.in.btn.00331",
-      "at": 1787670260290,
+      "at": 1788015527962,
       "kind": "button_reply",
       "text": "✅ Publish",
-      "payloadId": "catalog_ai:publish:8c95536c-493a-4208-87dd-43cb386b2bd5"
+      "payloadId": "catalog_ai:publish:73bf1b30-b03e-46e0-afa2-2ddc765c5716"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.btn.00331",
-      "at": 1787670260294
+      "at": 1788015527966
     },
     {
       "dir": "out",
-      "phone": "2348017603549",
+      "phone": "2348012328380",
       "wamid": "wamid.sim.000560",
       "statuses": [
         "sent"
       ],
-      "at": 1787670260312,
+      "at": 1788015527983,
       "kind": "text",
       "body": "✅ \"Peak Milk 400g\" is now live in your catalog at NGN 1850.00."
     }

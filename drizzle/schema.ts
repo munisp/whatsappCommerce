@@ -5107,3 +5107,16 @@ export const embeddedClients = pgTable("embedded_clients", {
 export type EmbeddedClient = typeof embeddedClients.$inferSelect;
 export type NewEmbeddedClient = typeof embeddedClients.$inferInsert;
 // === END W33 embedded-api ===
+// === W34 otel-sidecars (Coder C) ===
+// Tenant cardinality guard for /api/metrics: ONLY tenants in this allowlist
+// (union with the OTEL_TENANT_METRIC_ALLOWLIST env CSV) get a per-tenant
+// label value; all others collapse to tenant_class="other". This bounds
+// Prometheus label cardinality regardless of tenant count (J221).
+export const telemetryTenantAllowlist = pgTable("telemetry_tenant_allowlist", {
+  tenantId:  varchar("tenant_id", { length: 36 }).primaryKey(),
+  addedBy:   varchar("added_by", { length: 64 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+export type TelemetryTenantAllowlistEntry = typeof telemetryTenantAllowlist.$inferSelect;
+export type NewTelemetryTenantAllowlistEntry = typeof telemetryTenantAllowlist.$inferInsert;
+// === END W34 otel-sidecars ===

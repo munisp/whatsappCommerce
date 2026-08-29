@@ -32,8 +32,14 @@ from guardrails.guardrails import Guardrails
 
 try:  # package context (uvicorn api.main:app)
     from .internal_auth import require_internal_token
+    from .telemetry import (
+        init_telemetry, telemetry_status, extract_trace_id, agent_handle_span,
+    )
 except ImportError:  # script context (python main.py / uvicorn main:app)
     from internal_auth import require_internal_token
+    from telemetry import (
+        init_telemetry, telemetry_status, extract_trace_id, agent_handle_span,
+    )
 
 log = structlog.get_logger()
 
@@ -114,25 +120,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# === W34 otel-sidecars ===
+init_telemetry(app, service_name="ai-agent")
+
+@app.middleware("http")
+async def trace_echo_middleware(request, call_next):
+    """x-trace-id debug echo of the inbound traceparent trace id (stdlib-only,
+    works with OTel on or off) so callers can verify trace continuation."""
+    response = await call_next(request)
+    trace_id = extract_trace_id(request.headers)
+    if trace_id:
+        response.headers["x-trace-id"] = trace_id
+    return response
+# === END W34 otel-sidecars ===
+
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "ai-agent", "version": "1.0.0"}
+    # === W34 otel-sidecars === honest telemetry status alongside the
+    # existing health fields (telemetry is fail-open, default disabled).
+    return {"status": "ok", "service": "ai-agent", "version": "1.0.0",
+            "telemetry": telemetry_status()}
+    # === END W34 otel-sidecars ===
 
 
 @app.post("/intent", response_model=IntentResponse, dependencies=[Depends(require_internal_token)])
 async def classify_intent(req: IntentRequest):
     """Classify user intent and generate a conversational reply."""
     try:
-        orch = get_orchestrator(req.tenant_id)
-        inp = AgentInput(
-            tenant_id=req.tenant_id,
-            conversation_id=req.conversation_id,
-            customer_id=req.customer_id,
-            message=req.message,
-            flow_step=req.flow_step,
-        )
-        result = await orch.process(inp)
+        # === W34 otel-sidecars === manual span ai.agent.handle (tenant.id
+        # attr); honest no-op when OTel disabled.
+        with agent_handle_span(req.tenant_id, operation="intent"):
+        # === END W34 otel-sidecars ===
+            orch = get_orchestrator(req.tenant_id)
+            inp = AgentInput(
+                tenant_id=req.tenant_id,
+                conversation_id=req.conversation_id,
+                customer_id=req.customer_id,
+                message=req.message,
+                flow_step=req.flow_step,
+            )
+            result = await orch.process(inp)
         return IntentResponse(
             intent_type=result.intent_type,
             confidence=result.confidence,
@@ -152,9 +180,12 @@ async def classify_intent(req: IntentRequest):
 async def recommend_products(req: RecommendRequest):
     """Generate product recommendations based on conversation context."""
     try:
-        cfg = get_config()
-        commerce = CommerceTools(cfg.commerce_engine_url, req.tenant_id)
-        results = await commerce.search_products(req.context or "popular products", limit=req.limit)
+        # === W34 otel-sidecars === manual span ai.agent.handle (no-op when disabled).
+        with agent_handle_span(req.tenant_id, operation="recommend"):
+        # === END W34 otel-sidecars ===
+            cfg = get_config()
+            commerce = CommerceTools(cfg.commerce_engine_url, req.tenant_id)
+            results = await commerce.search_products(req.context or "popular products", limit=req.limit)
         return {"tenant_id": req.tenant_id, "recommendations": results.get("products", []), "count": results.get("count", 0)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -164,18 +195,21 @@ async def recommend_products(req: RecommendRequest):
 async def generate_handoff_summary(req: HandoffSummaryRequest):
     """Generate a structured handoff summary for human agents."""
     try:
-        ctx = await _memory.get_context(req.tenant_id, req.conversation_id, req.customer_id)
-        recent_messages = ctx.messages[-10:]
-        summary_lines = [f"Conversation ID: {req.conversation_id}", f"Customer ID: {req.customer_id}", ""]
-        if recent_messages:
-            summary_lines.append("Recent conversation:")
-            for msg in recent_messages:
-                role = "Customer" if msg.role == "user" else "Bot"
-                summary_lines.append(f"  [{role}]: {msg.content[:100]}")
-        if ctx.cart_id:
-            summary_lines.append(f"\nActive cart: {ctx.cart_id}")
-        if ctx.current_intent:
-            summary_lines.append(f"Last intent: {ctx.current_intent}")
+        # === W34 otel-sidecars === manual span ai.agent.handle (no-op when disabled).
+        with agent_handle_span(req.tenant_id, operation="handoff_summary"):
+        # === END W34 otel-sidecars ===
+            ctx = await _memory.get_context(req.tenant_id, req.conversation_id, req.customer_id)
+            recent_messages = ctx.messages[-10:]
+            summary_lines = [f"Conversation ID: {req.conversation_id}", f"Customer ID: {req.customer_id}", ""]
+            if recent_messages:
+                summary_lines.append("Recent conversation:")
+                for msg in recent_messages:
+                    role = "Customer" if msg.role == "user" else "Bot"
+                    summary_lines.append(f"  [{role}]: {msg.content[:100]}")
+            if ctx.cart_id:
+                summary_lines.append(f"\nActive cart: {ctx.cart_id}")
+            if ctx.current_intent:
+                summary_lines.append(f"Last intent: {ctx.current_intent}")
         return {
             "conversation_id": req.conversation_id,
             "summary": "\n".join(summary_lines),

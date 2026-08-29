@@ -25,6 +25,10 @@ from .models import (
     LivenessSessionRequest, LivenessFrameRequest, LivenessResult,
     KYCApplicationSummary,
 )
+# === W34 otel-sidecars === fail-open OpenTelemetry (OTEL_ENABLED default
+# false — telemetry.py is import-safe without any opentelemetry packages).
+from .telemetry import init_telemetry, telemetry_status, extract_trace_id
+# === END W34 otel-sidecars ===
 
 log = structlog.get_logger()
 
@@ -65,6 +69,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# === W34 otel-sidecars ===
+# Fail-open OTel bootstrap: no-op unless OTEL_ENABLED=true; init errors are
+# recorded (telemetry_status().last_error) and never raised.
+init_telemetry(app, service_name="kyc-verifier")
+
+@app.middleware("http")
+async def trace_echo_middleware(request, call_next):
+    """Debug/support echo: when the platform calls us with a W3C traceparent,
+    return its trace id as x-trace-id so callers (J220) can verify the trace
+    continues across the service boundary. Pure stdlib — works whether or not
+    OTel is enabled; never rejects a request."""
+    response = await call_next(request)
+    trace_id = extract_trace_id(request.headers)
+    if trace_id:
+        response.headers["x-trace-id"] = trace_id
+    return response
+# === END W34 otel-sidecars ===
+
 # ─── Auth dependency ──────────────────────────────────────────────────────────
 INTERNAL_API_KEY = os.getenv("KYC_INTERNAL_API_KEY", "dev-kyc-key-change-in-prod")
 
@@ -76,7 +98,13 @@ async def verify_api_key(x_api_key: str = Header(...)):
 # ─── Health ───────────────────────────────────────────────────────────────────
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "kyc-verifier", "version": "1.0.0", "vlm_mock_mode": os.getenv("VLM_MOCK_MODE", "false").lower() == "true"}
+    return {
+        "status": "ok", "service": "kyc-verifier", "version": "1.0.0",
+        "vlm_mock_mode": os.getenv("VLM_MOCK_MODE", "false").lower() == "true",
+        # === W34 otel-sidecars === honest telemetry status (fail-open).
+        "telemetry": telemetry_status(),
+        # === END W34 otel-sidecars ===
+    }
 
 # ─── Document Verification ────────────────────────────────────────────────────
 @app.post("/verify/document", response_model=DocumentVerificationResult)
