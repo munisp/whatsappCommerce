@@ -24,6 +24,9 @@ resources:
   - hermes-router.yaml
   - hermes-bridge.yaml
   - cron-scheduler.yaml
+  # === W34 otel-stack (Coder B) ===
+  - otel-stack.yaml
+  # === END W34 otel-stack ===
   # monitoring/ requires the Prometheus Operator CRDs (ServiceMonitor,
   # PrometheusRule). Apply separately:
   #   kubectl apply -f k8s/monitoring/

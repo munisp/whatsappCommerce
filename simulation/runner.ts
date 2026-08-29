@@ -288,6 +288,22 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j213-embedded-api-scope-enforcement"),
     import("./journeys/j214-embedded-api-tenant-isolation"),
     // === END W33 embedded-api ===
+    // === W34 otel-core (Coder A) ===
+    import("./journeys/j215-otel-trace-baggage-metrics"),
+    import("./journeys/j216-otel-propagation-chain"),
+    import("./journeys/j217-otel-fail-open"),
+    // === END W34 otel-core ===
+    // === W34 otel-stack (Coder B) ===
+    import("./journeys/j218-otel-stack-config"),
+    import("./journeys/j219-wa-bridge"),
+    // === END W34 otel-stack ===
+    // === W34 otel-sidecars (Coder C) ===
+    import("./journeys/j220-sidecar-traceparent"),
+    import("./journeys/j221-tenant-cardinality-guard"),
+    // === END W34 otel-sidecars ===
+    // === W34 wa-ops-alert (merger seam) ===
+    import("./journeys/j222-wa-ops-alert"),
+    // === END W34 wa-ops-alert ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

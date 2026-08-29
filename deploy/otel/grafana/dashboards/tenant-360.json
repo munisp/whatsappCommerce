@@ -1,0 +1,158 @@
+{
+  "title": "Tenant 360",
+  "uid": "w34-tenant-360",
+  "description": "=== W34 otel-sidecars (Coder C) === Per-tenant view: RED metrics for the selected allowlisted tenant (tenant_class label), trace link into Jaeger filtered by tenant.id, and an honest alert-history panel (live from the Alertmanager API; omitted when no Alertmanager datasource is configured — never static/fake data).",
+  "tags": ["w34", "otel", "tenant"],
+  "timezone": "utc",
+  "editable": true,
+  "graphTooltip": 1,
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(http_requests_total, tenant_class)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "sort": 1,
+        "description": "Only allowlisted tenants appear as themselves; all others are the single 'other' class (cardinality guard, server/services/telemetryCardinality.ts)."
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "Traces in Jaeger (tenant.id = $tenant)",
+      "type": "link",
+      "url": "/d/jaeger?var-tenant=$tenant",
+      "targetBlank": true,
+      "asDropdown": false,
+      "icon": "external link",
+      "tags": []
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Request rate (req/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{tenant_class=\"$tenant\"}[5m]))",
+          "legendFormat": "requests/s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "unit": "reqps" }, "overrides": [] },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Error ratio (5xx share)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{tenant_class=\"$tenant\",status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(http_requests_total{tenant_class=\"$tenant\"}[5m])), 1e-9)",
+          "legendFormat": "error ratio"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "percentunit",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.05 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p95 latency",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_ms_bucket{tenant_class=\"$tenant\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "ms",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 5000 } ] }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Requests by route (rate)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate(http_requests_total{tenant_class=\"$tenant\"}[5m]))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "tRPC procedures (rate by procedure)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (procedure) (rate(trpc_procedure_calls_total{tenant_class=\"$tenant\"}[5m]))",
+          "legendFormat": "{{procedure}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "id": 6,
+      "type": "text",
+      "title": "Traces",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 14 },
+      "options": {
+        "mode": "markdown",
+        "content": "### Distributed traces\n\nOpen [Jaeger](http://localhost:16686) and filter by span attribute `tenant.id=\"$tenant\"` (baggage `tenant.id` is set on every authenticated span by the platform tRPC middleware).\n\nPython sidecars (kyc-verifier, ai-agent) continue the same trace when the platform calls them with a `traceparent` header."
+      },
+      "transparent": true
+    },
+    {
+      "id": 7,
+      "type": "text",
+      "title": "Alert history",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 14 },
+      "options": {
+        "mode": "markdown",
+        "content": "### Alert history\n\nPer-tenant alerts (TenantErrorSpike) fire only for allowlisted tenants and are routed by Alertmanager. Alert history is queried live from the Alertmanager API (`/api/v2/alerts`, filter `tenant=\"$tenant\"`) — this panel is intentionally a pointer, not fabricated data: wire an Alertmanager datasource in Grafana to render it inline."
+      },
+      "transparent": true
+    }
+  ]
+}

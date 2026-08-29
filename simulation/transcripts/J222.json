@@ -1,0 +1,20 @@
+{
+  "id": "J222",
+  "title": "wa-ops-alert receiver: internal-token gate + zod + real WA send",
+  "feature": "W34 merger seam: /api/internal/wa-ops-alert for the ops bridge",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000721",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1788015681700,
+      "kind": "text",
+      "body": "[W34] TestAlert critical: Elevated5xx on platform"
+    }
+  ]
+}

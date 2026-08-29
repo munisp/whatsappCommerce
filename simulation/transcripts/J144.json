@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018671107",
-      "profileName": "Sim User 1107",
+      "phone": "2348018048486",
+      "profileName": "Sim User 8486",
       "inboundId": "wamid.sim.in.text.00359",
-      "at": 1787670289043,
+      "at": 1788015556465,
       "kind": "text",
       "text": "RATE 5 Amazing!"
     },
@@ -18,77 +18,77 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00359",
-      "at": 1787670289046
+      "at": 1788015556470
     },
     {
       "dir": "out",
-      "phone": "2348018671107",
+      "phone": "2348018048486",
       "wamid": "wamid.sim.000594",
       "statuses": [
         "sent"
       ],
-      "at": 1787670289065,
+      "at": 1788015556519,
       "kind": "text",
       "body": "Sorry — reviews are only for verified purchases. Once your order is delivered you can rate your experience (e.g. \"RATE 5 Great!\")."
     },
     {
       "dir": "in",
-      "phone": "2348018671107",
-      "profileName": "Sim User 1107",
+      "phone": "2348018048486",
+      "profileName": "Sim User 8486",
       "inboundId": "wamid.sim.in.text.00360",
-      "at": 1787670289588,
+      "at": 1788015557010,
       "kind": "text",
-      "text": "i want these [7cc34a0b]"
+      "text": "i want these [ae38a942]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00360",
-      "at": 1787670289591
+      "at": 1788015557014
     },
     {
       "dir": "out",
-      "phone": "2348018671107",
+      "phone": "2348018048486",
       "wamid": "wamid.sim.000595",
       "statuses": [
         "sent"
       ],
-      "at": 1787670289617,
+      "at": 1788015557037,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348018671107",
-      "profileName": "Sim User 1107",
+      "phone": "2348018048486",
+      "profileName": "Sim User 8486",
       "inboundId": "wamid.sim.in.text.00361",
-      "at": 1787670290132,
+      "at": 1788015557555,
       "kind": "text",
-      "text": "confirm please [7cc34a0b]"
+      "text": "confirm please [ae38a942]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00361",
-      "at": 1787670290137
+      "at": 1788015557559
     },
     {
       "dir": "out",
-      "phone": "2348018671107",
+      "phone": "2348018048486",
       "wamid": "wamid.sim.000596",
       "statuses": [
         "sent"
       ],
-      "at": 1787670290155,
+      "at": 1788015557582,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348018671107",
-      "profileName": "Sim User 1107",
+      "phone": "2348018048486",
+      "profileName": "Sim User 8486",
       "inboundId": "wamid.sim.in.text.00362",
-      "at": 1787670290682,
+      "at": 1788015558104,
       "kind": "text",
       "text": "1"
     },
@@ -96,51 +96,51 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00362",
-      "at": 1787670290685
+      "at": 1788015558107
     },
     {
       "dir": "out",
-      "phone": "2348018671107",
+      "phone": "2348018048486",
       "wamid": "wamid.sim.000597",
       "statuses": [
         "sent"
       ],
-      "at": 1787670290716,
+      "at": 1788015558156,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MT8SQGB2*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/7398aed0-92e9-424f-a81b-76edd8b6f984\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/d950ba2f-123d-4fa1-8d79-6b077d95b8c2.V4kuAbNdZRzY5dN-FMOkNP_U"
+      "body": "🧾 *Pickup Order ORD-MTEIAQD3*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/23ad2962-8b09-4b19-b9ac-790c2ffa6d5f\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/d687dc51-6772-4ebf-9336-707686a31d46.7uWfpNP0t8r0Pp2fDqqJ51DF"
     },
     {
       "dir": "out",
-      "phone": "2348018671107",
+      "phone": "2348018048486",
       "wamid": "wamid.sim.000598",
       "statuses": [
         "sent"
       ],
-      "at": 1787670290719,
+      "at": 1788015558161,
       "kind": "interactive",
-      "body": "Order ORD-MT8SQGB2 — manage it here:",
+      "body": "Order ORD-MTEIAQD3 — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:d950ba2f-123d-4fa1-8d79-6b077d95b8c2",
+          "id": "order_track:d687dc51-6772-4ebf-9336-707686a31d46",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:d950ba2f-123d-4fa1-8d79-6b077d95b8c2",
+          "id": "order_pay:d687dc51-6772-4ebf-9336-707686a31d46",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:d950ba2f-123d-4fa1-8d79-6b077d95b8c2",
+          "id": "order_cancel:d687dc51-6772-4ebf-9336-707686a31d46",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348018671107",
-      "profileName": "Sim User 1107",
+      "phone": "2348018048486",
+      "profileName": "Sim User 8486",
       "inboundId": "wamid.sim.in.text.00363",
-      "at": 1787670291229,
+      "at": 1788015558656,
       "kind": "text",
       "text": "RATE 5 Great jollof, fast pickup!"
     },
@@ -148,25 +148,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00363",
-      "at": 1787670291233
+      "at": 1788015558660
     },
     {
       "dir": "out",
-      "phone": "2348018671107",
+      "phone": "2348018048486",
       "wamid": "wamid.sim.000599",
       "statuses": [
         "sent"
       ],
-      "at": 1787670291258,
+      "at": 1788015558683,
       "kind": "text",
       "body": "⭐ Thanks for your 5-star review! It helps other buyers and the merchant improve."
     },
     {
       "dir": "in",
-      "phone": "2348018671107",
-      "profileName": "Sim User 1107",
+      "phone": "2348018048486",
+      "profileName": "Sim User 8486",
       "inboundId": "wamid.sim.in.text.00364",
-      "at": 1787670291776,
+      "at": 1788015559201,
       "kind": "text",
       "text": "RATE 4 Actually, a bit salty"
     },
@@ -174,25 +174,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00364",
-      "at": 1787670291780
+      "at": 1788015559205
     },
     {
       "dir": "out",
-      "phone": "2348018671107",
+      "phone": "2348018048486",
       "wamid": "wamid.sim.000600",
       "statuses": [
         "sent"
       ],
-      "at": 1787670291799,
+      "at": 1788015559228,
       "kind": "text",
       "body": "⭐ Thanks for your 4-star review! It helps other buyers and the merchant improve."
     },
     {
       "dir": "in",
-      "phone": "2348019098905",
-      "profileName": "Sim User 8905",
+      "phone": "2348012171358",
+      "profileName": "Sim User 1358",
       "inboundId": "wamid.sim.in.text.00365",
-      "at": 1787670292331,
+      "at": 1788015559755,
       "kind": "text",
       "text": "RATE 1 terrible"
     },
@@ -200,16 +200,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00365",
-      "at": 1787670292334
+      "at": 1788015559759
     },
     {
       "dir": "out",
-      "phone": "2348019098905",
+      "phone": "2348012171358",
       "wamid": "wamid.sim.000601",
       "statuses": [
         "sent"
       ],
-      "at": 1787670292353,
+      "at": 1788015559791,
       "kind": "text",
       "body": "Sorry — reviews are only for verified purchases. Once your order is delivered you can rate your experience (e.g. \"RATE 5 Great!\")."
     }

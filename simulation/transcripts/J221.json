@@ -1,0 +1,8 @@
+{
+  "id": "J221",
+  "title": "telemetry cardinality guard: collapse to 'other', audited admin allowlist, bounded labels",
+  "feature": "W34 otel-sidecars: telemetryCardinality + telemetry admin router",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

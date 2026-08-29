@@ -106,6 +106,9 @@ import { approvalsRouter } from "./routers/approvals";
 // === W33 embedded-api ===
 import { embeddedRouter } from "./routers/embedded";
 // === END W33 embedded-api ===
+// === W34 otel-sidecars (Coder C) ===
+import { telemetryRouter } from "./routers/telemetry";
+// === END W34 otel-sidecars ===
 import { erpProvisionRouter } from "./routers/erpProvision";
 import { embeddedSignupRouter } from "./routers/embeddedSignup";
 import { shopifyIntegrationRouter } from "./routers/shopifyIntegration";
@@ -315,6 +318,9 @@ export const appRouter = router({
   // === W33 ai-qa-forecast (Coder B) ===
   cashflow: cashflowRouter,
   // === END W33 ai-qa-forecast ===
+  // === W34 otel-sidecars (Coder C) ===
+  telemetry: telemetryRouter,
+  // === END W34 otel-sidecars ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";

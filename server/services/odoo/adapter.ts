@@ -26,6 +26,8 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../../db";
 import { odooConfigs } from "../../../drizzle/schema";
 import { decryptSecret } from "../crypto/secrets";
+// === W34 otel-core === traceparent propagation to Odoo.
+import { injectTraceHeaders } from "../../_core/telemetry";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -115,7 +117,7 @@ export class JsonRpcOdooAdapter implements OdooAdapter {
     this.callSeq += 1;
     const res = await fetch(`${this.cfg.url.replace(/\/+$/, "")}/jsonrpc`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: injectTraceHeaders({ "Content-Type": "application/json" }), // W34 otel-core: traceparent
       body: JSON.stringify({
         jsonrpc: "2.0",
         method: "call",

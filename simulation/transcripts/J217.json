@@ -1,0 +1,8 @@
+{
+  "id": "J217",
+  "title": "telemetry fail-open with unreachable collector + honest status",
+  "feature": "W34 otel-core: fail-open telemetry, honest telemetryStatus",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

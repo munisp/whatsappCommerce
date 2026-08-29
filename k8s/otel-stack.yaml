@@ -1,0 +1,1949 @@
+# === W34 otel-stack (Coder B) ===
+# Full observability stack for whatsappCommerce: OTel Collector, Jaeger,
+# Prometheus, Grafana (provisioned), Alertmanager, WhatsApp ops bridge.
+# Apply: kubectl apply -k k8s/  (namespace whatsapp-commerce must exist -
+# k8s/namespace.yaml provides it).
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  namespace: whatsapp-commerce
+data:
+  config.yaml: |
+    # === W34 otel-stack (Coder B) ===
+    # OpenTelemetry Collector configuration for whatsappCommerce.
+    #
+    # Pipeline: OTLP receivers (gRPC 4317 / HTTP 4318) -> memory_limiter -> batch
+    #           -> tail_sampling -> Jaeger (traces)
+    #           OTLP receivers -> batch -> Prometheus exporter :9464 (metrics)
+    #           OTLP receivers -> batch -> spanmetrics connector -> RED metrics
+    #                                      derived from spans -> Prometheus
+    #
+    # Tail sampling policy (documented, binding):
+    #   - 100% of spans with error status are kept (errors are rare and high-signal).
+    #   - 10% probabilistic baseline of OK spans (controls Jaeger storage cost).
+    #   - 100% of spans slower than 2s (latency outliers).
+    # Honest note: sampling is head-of-trace unaware for child spans arriving
+    # without their root in the same batch window; Jaeger may show partial traces
+    # for the 90% dropped baseline. This is accepted and documented here.
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    
+    processors:
+      # memory_limiter MUST be first: shed load before the collector OOMs.
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+      batch:
+        timeout: 5s
+        send_batch_size: 1024
+        send_batch_max_size: 2048
+      tail_sampling:
+        decision_wait: 10s
+        num_traces: 50000
+        expected_new_traces_per_sec: 100
+        policies:
+          - name: keep-all-errors
+            type: status_code
+            status_code:
+              status_codes: [ERROR]
+          - name: keep-slow-traces
+            type: latency
+            latency:
+              threshold_ms: 2000
+          - name: baseline-10pct-ok
+            type: probabilistic
+            probabilistic:
+              sampling_percentage: 10
+    
+    connectors:
+      # spanmetrics derives RED metrics (calls_total, duration histogram) from
+      # spans so RED dashboards work even where only traces are emitted.
+      spanmetrics:
+        histogram:
+          explicit:
+            buckets: [50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
+        dimensions:
+          - name: status.code
+          - name: tenant.id
+            default: other
+        namespace: otel_span
+    
+    exporters:
+      otlp/jaeger:
+        endpoint: jaeger:4317
+        tls:
+          insecure: true
+      prometheus:
+        endpoint: 0.0.0.0:9464
+        resource_to_telemetry_conversion:
+          enabled: true
+      logging:
+        loglevel: warn
+    
+    extensions:
+      # Runtime liveness endpoint (used by k8s httpGet probes; the distroless
+      # collector image has no shell, so compose uses a binary self-check).
+      health_check:
+        endpoint: 0.0.0.0:13133
+    
+    service:
+      extensions: [health_check]
+      telemetry:
+        logs:
+          level: warn
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, tail_sampling]
+          exporters: [otlp/jaeger, logging]
+        traces/spanmetrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [spanmetrics]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus, logging]
+        metrics/spanmetrics:
+          receivers: [spanmetrics]
+          processors: [memory_limiter, batch]
+          exporters: [prometheus]
+    # === END W34 otel-stack ===
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-prometheus-config
+  namespace: whatsapp-commerce
+data:
+  prometheus.yml: |
+    # === W34 otel-stack (Coder B) ===
+    # Prometheus scrape configuration for whatsappCommerce observability stack.
+    global:
+      scrape_interval: 30s
+      evaluation_interval: 30s
+      external_labels:
+        platform: whatsapp-commerce
+    
+    rule_files:
+      - /etc/prometheus/alert-rules.yml
+    
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: [alertmanager:9093]
+    
+    scrape_configs:
+      # Platform /api/metrics (Coder A, prom-client). Auth via METRICS_TOKEN bearer.
+      # The endpoint honestly 503s when telemetry is disabled — Prometheus will
+      # report the target down rather than scraping garbage.
+      - job_name: platform
+        metrics_path: /api/metrics
+        scheme: http
+        # Prometheus does not expand env vars in config; the token is mounted as
+        # a file (compose `configs:` renders it from METRICS_TOKEN).
+        bearer_token_file: /etc/prometheus/secrets/metrics_token
+        static_configs:
+          - targets: [platform:3000]
+      # Collector's Prometheus exporter (:9464) — spanmetrics-derived RED +
+      # forwarded OTel metrics.
+      - job_name: otel-collector
+        static_configs:
+          - targets: [otel-collector:9464]
+      # Alertmanager self-metrics (alert delivery health).
+      - job_name: alertmanager
+        static_configs:
+          - targets: [alertmanager:9093]
+      # Prometheus self.
+      - job_name: prometheus
+        static_configs:
+          - targets: [localhost:9090]
+    # === END W34 otel-stack ===
+  alert-rules.yml: |
+    # === W34 otel-stack (Coder B) ===
+    # Prometheus alert rules for whatsappCommerce.
+    #
+    # Metric names are BINDING assumptions on the platform /api/metrics surface
+    # (Coder A): http_requests_total{route,status_class,tenant_class},
+    # trpc_procedure_calls_total{result="error"} (errors) / trpc_procedure_calls_total (all),
+    # escrow_settlements_total{outcome}, payout_latency_ms (histogram, *_bucket),
+    # cron_runs_total{route,result}, infra_component_up{component} (x15),
+    # readiness probe failures surface as http_requests_total on /health/ready
+    # with status_class="5xx".
+    #
+    # Honest test note: J218 validates these exprs with a balanced-delimiter /
+    # selector parser (not full PromQL); rules were also kept to std PromQL
+    # constructs. No rule is a placeholder — every rule below is real, but each
+    # is only as live as the metric it references: if A's metric names drift,
+    # the rule evaluates empty (Prometheus shows it as inactive, NOT firing) —
+    # this is the honest-degradation contract.
+    groups:
+      - name: w34-platform
+        interval: 30s
+        rules:
+          # Readiness flapping: sustained 5xx on /health/ready over 5m.
+          - alert: ReadinessFlapping
+            expr: sum(rate(http_requests_total{route="/health/ready",status_class="5xx"}[5m])) > 0.1
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Platform readiness endpoint returning 5xx"
+              description: "/health/ready has served 5xx for 5m; orchestrator may restart pods. Check platform logs and infra components."
+    
+          # Elevated 5xx across all routes (>5% of traffic for 5m).
+          - alert: Elevated5xx
+            expr: |
+              sum(rate(http_requests_total{status_class="5xx"}[5m]))
+                /
+              sum(rate(http_requests_total[5m])) > 0.05
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Elevated 5xx rate (>5% for 5m)"
+              description: "More than 5% of HTTP requests are failing. Check error logs and downstream components."
+    
+          # Any cron route reporting result="error" in the last 15m.
+          - alert: CronFailure
+            expr: increase(cron_runs_total{result="error"}[15m]) > 0
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Cron job failure: {{ $labels.route }}"
+              description: "Cron route {{ $labels.route }} recorded at least one error in the last 15m."
+    
+          # Escrow settlement errors (money rail — always critical).
+          - alert: EscrowSettleFailure
+            expr: increase(escrow_settlements_total{outcome="error"}[15m]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Escrow settlement failures detected"
+              description: "escrow_settlements_total{outcome=error} increased in the last 15m. Money movement is failing — page ops."
+    
+          # Payout latency p95 > 30s sustained 10m.
+          - alert: PayoutLatencyHigh
+            expr: histogram_quantile(0.95, sum(rate(payout_latency_ms_bucket[10m])) by (le)) > 30000
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Payout latency p95 above 30s"
+              description: "p95 payout latency has exceeded 30s for 10m. Check PSP connectivity and ledger-bridge."
+    
+          # Per-tenant error spike: >3 sigma above the tenant's own 1h baseline.
+          # Allowlist-only: tenant_class is "other" for non-allowlisted tenants,
+          # so cardinality of this alert is bounded by OTEL_TENANT_METRIC_ALLOWLIST.
+          - alert: TenantErrorSpike
+            expr: |
+              (
+                sum by (tenant_class) (rate(trpc_procedure_calls_total{result="error"}[5m]))
+                  -
+                avg_over_time(sum by (tenant_class) (rate(trpc_procedure_calls_total{result="error"}[5m]))[1h:5m])
+              )
+                >
+              3 * stddev_over_time(sum by (tenant_class) (rate(trpc_procedure_calls_total{result="error"}[5m]))[1h:5m])
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Tenant error spike: {{ $labels.tenant_class }}"
+              description: "tRPC error rate for tenant_class={{ $labels.tenant_class }} is >3 sigma above its 1h baseline."
+    
+          # Infra component down (infra_component_up gauge x15) for 5m.
+          - alert: ComponentDown
+            expr: infra_component_up == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Infra component down: {{ $labels.component }}"
+              description: "infra_component_up{component={{ $labels.component }}} has been 0 for 5m. See Infra components dashboard."
+    # === END W34 otel-stack ===
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-alertmanager-config
+  namespace: whatsapp-commerce
+data:
+  alertmanager.yml: |
+    # === W34 otel-stack (Coder B) ===
+    # Alertmanager configuration for whatsappCommerce.
+    # Receivers: email (SMTP via env) + webhook (WhatsApp ops bridge).
+    # Routing: severity=critical -> webhook + email; severity=warning -> email.
+    # Inhibition: a critical alert suppresses warning alerts with the same
+    # alertname/namespace; ComponentDown suppresses dependent Elevated5xx noise
+    # for the same platform.
+    route:
+      receiver: email-default
+      group_by: [alertname, severity]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - matchers:
+            - severity = "critical"
+          receiver: critical-all
+          continue: true
+        - matchers:
+            - severity = "warning"
+          receiver: email-default
+    
+    receivers:
+      - name: email-default
+        email_configs:
+          - to: ${ALERT_EMAIL_TO}
+            from: ${ALERT_EMAIL_FROM}
+            smarthost: ${SMTP_HOST}:${SMTP_PORT}
+            auth_username: ${SMTP_USER}
+            auth_password: ${SMTP_PASSWORD}
+            require_tls: true
+      - name: critical-all
+        email_configs:
+          - to: ${ALERT_EMAIL_TO}
+            from: ${ALERT_EMAIL_FROM}
+            smarthost: ${SMTP_HOST}:${SMTP_PORT}
+            auth_username: ${SMTP_USER}
+            auth_password: ${SMTP_PASSWORD}
+            require_tls: true
+        webhook_configs:
+          # WhatsApp ops bridge (deploy/otel/alertmanager-wa-bridge.mjs).
+          # Fail-open: bridge down only loses the WhatsApp copy; email still fires.
+          - url: http://alertmanager-wa-bridge:9099/alerts
+            send_resolved: true
+            max_alerts: 20
+    
+    inhibit_rules:
+      # A critical alert suppresses same-name warnings.
+      - source_matchers:
+          - severity = "critical"
+        target_matchers:
+          - severity = "warning"
+        equal: [alertname]
+      # ComponentDown suppresses Elevated5xx noise (downstream symptom).
+      - source_matchers:
+          - alertname = "ComponentDown"
+        target_matchers:
+          - alertname = "Elevated5xx"
+        equal: []
+    # === END W34 otel-stack ===
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-provisioning
+  namespace: whatsapp-commerce
+data:
+  datasources.yaml: |
+    # === W34 otel-stack (Coder B) ===
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+        editable: false
+      - name: Jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger:16686
+        editable: false
+    # === END W34 otel-stack ===
+  dashboards.yaml: |
+    # === W34 otel-stack (Coder B) ===
+    apiVersion: 1
+    providers:
+      - name: w34-otel-stack
+        orgId: 1
+        folder: "W34 Observability"
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+    # === END W34 otel-stack ===
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-platform-red
+  namespace: whatsapp-commerce
+data:
+  platform-red.json: |
+    {
+      "uid": "w34-platform-red",
+      "title": "Platform RED",
+      "tags": [
+        "w34",
+        "otel"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "annotations": {
+        "list": []
+      },
+      "templating": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request rate by route",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route) (rate(http_requests_total[5m]))",
+              "legendFormat": "{{route}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Error ratio by route",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route) (rate(http_requests_total{status_class=\"5xx\"}[5m])) / sum by (route) (rate(http_requests_total[5m]))",
+              "legendFormat": "{{route}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Duration p50/p95 by route",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.50, sum by (le, route) (rate(http_request_duration_ms_bucket[5m])))",
+              "legendFormat": "p50 {{route}}"
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_ms_bucket[5m])))",
+              "legendFormat": "p95 {{route}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "tRPC calls by procedure",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (procedure) (rate(trpc_procedure_calls_total[5m]))",
+              "legendFormat": "{{procedure}}"
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "title": "tRPC error rate by procedure",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (procedure) (rate(trpc_procedure_calls_total{result="error"}[5m]))",
+              "legendFormat": "{{procedure}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Spanmetrics RED (collector-derived)",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 16,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (service_name) (rate(otel_span_calls_total[5m]))",
+              "legendFormat": "calls {{service_name}}"
+            }
+          ]
+        }
+      ],
+      "style": "dark"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-infra-components
+  namespace: whatsapp-commerce
+data:
+  infra-components.json: |
+    {
+      "uid": "w34-infra-components",
+      "title": "Infra components",
+      "tags": [
+        "w34",
+        "infra"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "annotations": {
+        "list": []
+      },
+      "templating": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Component up (x15)",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 6
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "#b06a6a"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "#7ba17b"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "#b06a6a",
+                    "value": null
+                  },
+                  {
+                    "color": "#7ba17b",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "background"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "infra_component_up",
+              "legendFormat": "{{component}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Component up timeline",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "infra_component_up",
+              "legendFormat": "{{component}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Component latency (probe) p95",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 14,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le, component) (rate(infra_component_latency_ms_bucket[5m])))",
+              "legendFormat": "{{component}}"
+            }
+          ]
+        }
+      ],
+      "style": "dark"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-money-rails
+  namespace: whatsapp-commerce
+data:
+  money-rails.json: |
+    {
+      "uid": "w34-money-rails",
+      "title": "Money rails",
+      "tags": [
+        "w34",
+        "money"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "annotations": {
+        "list": []
+      },
+      "templating": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Escrow settlements by outcome",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (outcome) (rate(escrow_settlements_total[15m]))",
+              "legendFormat": "{{outcome}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Payout latency p50/p95",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(payout_latency_ms_bucket[10m])))",
+              "legendFormat": "p50"
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(payout_latency_ms_bucket[10m])))",
+              "legendFormat": "p95"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Cron failures",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route) (increase(cron_runs_total{result=\"error\"}[15m]))",
+              "legendFormat": "{{route}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "Cron runs by result",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route, result) (rate(cron_runs_total[15m]))",
+              "legendFormat": "{{route}} {{result}}"
+            }
+          ]
+        }
+      ],
+      "style": "dark"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-tenant-explorer
+  namespace: whatsapp-commerce
+data:
+  tenant-explorer.json: |
+    {
+      "uid": "w34-tenant-explorer",
+      "title": "Tenant explorer",
+      "tags": [
+        "w34",
+        "tenant"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "annotations": {
+        "list": []
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "tenant",
+            "label": "Tenant",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "Prometheus"
+            },
+            "query": "label_values(trpc_procedure_calls_total, tenant_class)",
+            "refresh": 2,
+            "includeAll": false,
+            "multi": false,
+            "current": {}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Request rate \u2014 $tenant",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "reqps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route) (rate(http_requests_total{tenant_class=\"$tenant\"}[5m]))",
+              "legendFormat": "{{route}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Error rate \u2014 $tenant",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (procedure) (rate(trpc_procedure_calls_total{result=\"error\", tenant_class=\"$tenant\"}[5m]))",
+              "legendFormat": "{{procedure}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "Duration p95 \u2014 $tenant",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ms",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_ms_bucket{tenant_class=\"$tenant\"}[5m])))",
+              "legendFormat": "{{route}}"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "title": "tRPC calls \u2014 $tenant",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 8,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "ops",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 12,
+                "showPoints": "never"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (procedure) (rate(trpc_procedure_calls_total{tenant_class=\"$tenant\"}[5m]))",
+              "legendFormat": "{{procedure}}"
+            }
+          ]
+        }
+      ],
+      "style": "dark"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-wa-bridge-src
+  namespace: whatsapp-commerce
+data:
+  alertmanager-wa-bridge.mjs: |
+    // === W34 otel-stack (Coder B) ===
+    // alertmanager-wa-bridge — Alertmanager webhook receiver that forwards alerts
+    // to the ops WhatsApp number via the platform's internal send pipeline.
+    //
+    // HARD CONSTRAINTS (wave doctrine):
+    //   - stdlib ONLY (node:http / global fetch) — package.json/lockfiles frozen
+    //     for Coder B; no new deps may be introduced here.
+    //   - FAIL-OPEN: a failed/impossible delivery is logged + counted and the
+    //     process keeps running. Alertmanager always gets 200 for a parsed
+    //     webhook so a broken WhatsApp path can never create an Alertmanager
+    //     retry storm. Delivery health is honestly visible via /health.
+    //   - DISABLED BY DEFAULT: unless ALERTMANAGER_WA_BRIDGE_ENABLED === "true",
+    //     POST /alerts returns an honest 404 {error:"bridge-disabled"} (Alertmanager
+    //     should simply not be configured to route here; email still fires).
+    //
+    // Platform send contract: POST ${PLATFORM_API_URL}${WA_BRIDGE_SEND_PATH}
+    //   headers: X-Internal-Token: INTERNAL_API_KEY (platform internalProcedure
+    //   shared-secret pattern), Content-Type: application/json
+    //   body: { to: OPS_ALERT_WHATSAPP, body: <formatted text>, kind: "ops-alert" }
+    // If the platform endpoint is not yet deployed (404/5xx/network), the alert
+    // is dropped honestly: logged, counted in /health.dropped, never thrown.
+    import http from "node:http";
+    import { pathToFileURL } from "node:url";
+    
+    const ENABLED = () => process.env.ALERTMANAGER_WA_BRIDGE_ENABLED === "true";
+    const PORT = () => Number(process.env.WA_BRIDGE_PORT ?? 9099);
+    const PLATFORM_URL = () => (process.env.PLATFORM_API_URL ?? "http://platform:3000").replace(/\/$/, "");
+    const SEND_PATH = () => process.env.WA_BRIDGE_SEND_PATH ?? "/api/internal/wa-ops-alert";
+    const OPS_NUMBER = () => process.env.OPS_ALERT_WHATSAPP ?? "";
+    const startedAt = new Date().toISOString();
+    
+    // In-process delivery accounting for honest /health reporting.
+    const stats = {
+      received: 0,
+      delivered: 0,
+      dropped: 0,
+      lastError: null, // string | null
+      lastDeliveryAt: null, // ISO string | null
+    };
+    
+    /**
+     * Format an Alertmanager v4 webhook payload into a single WhatsApp-safe text
+     * message (plain text, no markdown tables — WhatsApp renders *bold* only).
+     */
+    export function formatAlertMessage(payload) {
+      const alerts = Array.isArray(payload?.alerts) ? payload.alerts : [];
+      const overall = payload?.status === "resolved" ? "RESOLVED" : "FIRING";
+      const lines = [`*${overall}* — ${alerts.length} alert(s)`];
+      for (const a of alerts.slice(0, 10)) {
+        const name = a?.labels?.alertname ?? "unknown";
+        const sev = a?.labels?.severity ?? "?";
+        const summary = a?.annotations?.summary ?? "";
+        lines.push(`• [${sev}] ${name}${summary ? ` — ${summary}` : ""}`);
+      }
+      if (alerts.length > 10) lines.push(`…and ${alerts.length - 10} more`);
+      const text = lines.join("\n");
+      // WhatsApp body cap safety: keep under 4000 chars.
+      return text.length > 4000 ? `${text.slice(0, 3990)}…` : text;
+    }
+    
+    /**
+     * Deliver a formatted message through the platform's internal send pipeline.
+     * Throws on transport/HTTP failure — callers must catch (fail-open).
+     */
+    export async function deliverViaPlatform(message, deps = {}) {
+      const fetchFn = deps.fetch ?? globalThis.fetch;
+      const to = deps.to ?? OPS_NUMBER();
+      if (!to) throw new Error("OPS_ALERT_WHATSAPP not configured");
+      const res = await fetchFn(`${deps.platformUrl ?? PLATFORM_URL()}${deps.sendPath ?? SEND_PATH()}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Internal-Token": deps.internalToken ?? process.env.INTERNAL_API_KEY ?? "",
+        },
+        body: JSON.stringify({ to, body: message, kind: "ops-alert" }),
+      });
+      if (!res.ok) throw new Error(`platform send failed: HTTP ${res.status}`);
+      return true;
+    }
+    
+    /**
+     * Handle one Alertmanager webhook body: format + deliver, fail-open.
+     * Returns { delivered: boolean, message } — never throws.
+     */
+    export async function handleAlertmanagerPayload(payload, deps = {}) {
+      stats.received++;
+      const message = formatAlertMessage(payload);
+      try {
+        await deliverViaPlatform(message, deps);
+        stats.delivered++;
+        stats.lastDeliveryAt = new Date().toISOString();
+        return { delivered: true, message };
+      } catch (err) {
+        stats.dropped++;
+        stats.lastError = String(err?.message ?? err);
+        console.error(`[wa-bridge] delivery failed (fail-open, alert dropped): ${stats.lastError}`);
+        console.error(`[wa-bridge] dropped alert body: ${message}`);
+        return { delivered: false, message, error: stats.lastError };
+      }
+    }
+    
+    function readBody(req) {
+      return new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+        req.on("data", (c) => {
+          size += c.length;
+          if (size > 1024 * 1024) {
+            reject(new Error("payload too large"));
+            req.destroy();
+            return;
+          }
+          chunks.push(c);
+        });
+        req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        req.on("error", reject);
+      });
+    }
+    
+    function json(res, status, obj) {
+      const body = JSON.stringify(obj);
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(body);
+    }
+    
+    export function createBridgeServer(deps = {}) {
+      return http.createServer(async (req, res) => {
+        try {
+          if (req.method === "GET" && req.url === "/health") {
+            // /health is always available, even when disabled — it is the honest
+            // surface that reports whether the bridge is actually on.
+            return json(res, 200, {
+              ok: true,
+              enabled: ENABLED(),
+              startedAt,
+              ...stats,
+            });
+          }
+          if (req.method === "POST" && req.url === "/alerts") {
+            if (!ENABLED()) {
+              return json(res, 404, { error: "bridge-disabled", hint: "set ALERTMANAGER_WA_BRIDGE_ENABLED=true to enable" });
+            }
+            const raw = await readBody(req);
+            let payload;
+            try {
+              payload = JSON.parse(raw);
+            } catch {
+              return json(res, 400, { error: "invalid-json" });
+            }
+            const result = await handleAlertmanagerPayload(payload, deps);
+            // Always 200 for parsed webhooks (fail-open: Alertmanager must not
+            // retry-storm when the WhatsApp path is down). Delivery outcome is
+            // in the body + /health.
+            return json(res, 200, { ok: true, delivered: result.delivered });
+          }
+          return json(res, 404, { error: "not-found" });
+        } catch (err) {
+          // Last-resort fail-open: log and 200 so Alertmanager never loops.
+          console.error("[wa-bridge] unhandled error (fail-open):", err);
+          return json(res, 200, { ok: true, delivered: false, error: "internal-failopen" });
+        }
+      });
+    }
+    
+    // Start only when executed directly (journeys import functions without a listener).
+    if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+      const server = createBridgeServer();
+      server.listen(PORT(), () => {
+        console.log(`[wa-bridge] listening on :${PORT()} enabled=${ENABLED()}`);
+      });
+    }
+    // === END W34 otel-stack ===
+---
+# --- Workloads + Services ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: whatsapp-commerce
+  labels: {app: otel-collector}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: otel-collector}}
+  template:
+    metadata: {labels: {app: otel-collector}}
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.110.0
+          args: ["--config=/etc/otelcol/config.yaml"]
+          ports:
+            - {containerPort: 4317}
+            - {containerPort: 4318}
+            - {containerPort: 9464}
+            - {containerPort: 13133}
+          readinessProbe:
+            httpGet: {path: /, port: 13133}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: {path: /, port: 13133}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests: {memory: 256Mi, cpu: 100m}
+            limits: {memory: 768Mi, cpu: 500m}
+          volumeMounts:
+            - {name: config, mountPath: /etc/otelcol, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: otel-collector-config}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: otel-collector, namespace: whatsapp-commerce}
+spec:
+  selector: {app: otel-collector}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317}
+    - {name: otlp-http, port: 4318, targetPort: 4318}
+    - {name: prom, port: 9464, targetPort: 9464}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: whatsapp-commerce
+  labels: {app: jaeger}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: jaeger}}
+  template:
+    metadata: {labels: {app: jaeger}}
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.62
+          env:
+            - {name: COLLECTOR_OTLP_ENABLED, value: "true"}
+          ports:
+            - {containerPort: 16686}
+            - {containerPort: 4317}
+          readinessProbe:
+            httpGet: {path: /, port: 14269}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: {memory: 256Mi, cpu: 100m}
+            limits: {memory: 1Gi, cpu: 500m}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: jaeger, namespace: whatsapp-commerce}
+spec:
+  selector: {app: jaeger}
+  ports:
+    - {name: ui, port: 16686, targetPort: 16686}
+    - {name: otlp-grpc, port: 4317, targetPort: 4317}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: whatsapp-commerce
+  labels: {app: prometheus}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: prometheus}}
+  template:
+    metadata: {labels: {app: prometheus}}
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.53.4
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.retention.time=15d
+          ports:
+            - {containerPort: 9090}
+          readinessProbe:
+            httpGet: {path: /-/healthy, port: 9090}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: {memory: 512Mi, cpu: 200m}
+            limits: {memory: 2Gi, cpu: "1"}
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus, readOnly: true}
+            - {name: data, mountPath: /prometheus}
+      volumes:
+        - name: config
+          configMap: {name: otel-prometheus-config}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: prometheus, namespace: whatsapp-commerce}
+spec:
+  selector: {app: prometheus}
+  ports:
+    - {name: http, port: 9090, targetPort: 9090}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-tenant-360
+  namespace: whatsapp-commerce
+  # === W34 otel-sidecars (Coder C) dashboard, configmap+mount added by merger ===
+data:
+  tenant-360.json: |
+    {
+      "title": "Tenant 360",
+      "uid": "w34-tenant-360",
+      "description": "=== W34 otel-sidecars (Coder C) === Per-tenant view: RED metrics for the selected allowlisted tenant (tenant_class label), trace link into Jaeger filtered by tenant.id, and an honest alert-history panel (live from the Alertmanager API; omitted when no Alertmanager datasource is configured — never static/fake data).",
+      "tags": ["w34", "otel", "tenant"],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-6h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "tenant",
+            "label": "Tenant",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "query": "label_values(http_requests_total, tenant_class)",
+            "refresh": 2,
+            "includeAll": false,
+            "multi": false,
+            "sort": 1,
+            "description": "Only allowlisted tenants appear as themselves; all others are the single 'other' class (cardinality guard, server/services/telemetryCardinality.ts)."
+          }
+        ]
+      },
+      "links": [
+        {
+          "title": "Traces in Jaeger (tenant.id = $tenant)",
+          "type": "link",
+          "url": "/d/jaeger?var-tenant=$tenant",
+          "targetBlank": true,
+          "asDropdown": false,
+          "icon": "external link",
+          "tags": []
+        }
+      ],
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Request rate (req/s)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_requests_total{tenant_class=\"$tenant\"}[5m]))",
+              "legendFormat": "requests/s"
+            }
+          ],
+          "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "unit": "reqps" }, "overrides": [] },
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Error ratio (5xx share)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_requests_total{tenant_class=\"$tenant\",status_class=\"5xx\"}[5m])) / clamp_min(sum(rate(http_requests_total{tenant_class=\"$tenant\"}[5m])), 1e-9)",
+              "legendFormat": "error ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "unit": "percentunit",
+              "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.05 } ] }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "p95 latency",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_ms_bucket{tenant_class=\"$tenant\"}[5m])) by (le))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "unit": "ms",
+              "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 1000 }, { "color": "red", "value": 5000 } ] }
+            },
+            "overrides": []
+          },
+          "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Requests by route (rate)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route) (rate(http_requests_total{tenant_class=\"$tenant\"}[5m]))",
+              "legendFormat": "{{route}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "tRPC procedures (rate by procedure)",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (procedure) (rate(trpc_procedure_calls_total{tenant_class=\"$tenant\"}[5m]))",
+              "legendFormat": "{{procedure}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1, "showPoints": "never" } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+        },
+        {
+          "id": 6,
+          "type": "text",
+          "title": "Traces",
+          "gridPos": { "h": 4, "w": 12, "x": 0, "y": 14 },
+          "options": {
+            "mode": "markdown",
+            "content": "### Distributed traces\n\nOpen [Jaeger](http://localhost:16686) and filter by span attribute `tenant.id=\"$tenant\"` (baggage `tenant.id` is set on every authenticated span by the platform tRPC middleware).\n\nPython sidecars (kyc-verifier, ai-agent) continue the same trace when the platform calls them with a `traceparent` header."
+          },
+          "transparent": true
+        },
+        {
+          "id": 7,
+          "type": "text",
+          "title": "Alert history",
+          "gridPos": { "h": 4, "w": 12, "x": 12, "y": 14 },
+          "options": {
+            "mode": "markdown",
+            "content": "### Alert history\n\nPer-tenant alerts (TenantErrorSpike) fire only for allowlisted tenants and are routed by Alertmanager. Alert history is queried live from the Alertmanager API (`/api/v2/alerts`, filter `tenant=\"$tenant\"`) — this panel is intentionally a pointer, not fabricated data: wire an Alertmanager datasource in Grafana to render it inline."
+          },
+          "transparent": true
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: whatsapp-commerce
+  labels: {app: grafana}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: grafana}}
+  template:
+    metadata: {labels: {app: grafana}}
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.2
+          env:
+            - {name: GF_SECURITY_ADMIN_USER, valueFrom: {secretKeyRef: {name: otel-grafana-admin, key: username, optional: true}}}
+            - {name: GF_SECURITY_ADMIN_PASSWORD, valueFrom: {secretKeyRef: {name: otel-grafana-admin, key: password, optional: true}}}
+            - {name: GF_USERS_ALLOW_SIGN_UP, value: "false"}
+          ports:
+            - {containerPort: 3000}
+          readinessProbe:
+            httpGet: {path: /api/health, port: 3000}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            requests: {memory: 256Mi, cpu: 100m}
+            limits: {memory: 512Mi, cpu: 500m}
+          volumeMounts:
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/datasources, subPath: datasources.yaml, readOnly: true}
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/dashboards, subPath: dashboards.yaml, readOnly: true}
+            - {name: dash-red, mountPath: /var/lib/grafana/dashboards/platform-red.json, subPath: platform-red.json, readOnly: true}
+            - {name: dash-infra, mountPath: /var/lib/grafana/dashboards/infra-components.json, subPath: infra-components.json, readOnly: true}
+            - {name: dash-money, mountPath: /var/lib/grafana/dashboards/money-rails.json, subPath: money-rails.json, readOnly: true}
+            - {name: dash-tenant, mountPath: /var/lib/grafana/dashboards/tenant-explorer.json, subPath: tenant-explorer.json, readOnly: true}
+            - {name: dash-tenant360, mountPath: /var/lib/grafana/dashboards/tenant-360.json, subPath: tenant-360.json, readOnly: true} # W34 merger: C's tenant-360
+            - {name: data, mountPath: /var/lib/grafana}
+      volumes:
+        - name: provisioning
+          configMap: {name: otel-grafana-provisioning}
+        - name: dash-red
+          configMap: {name: otel-grafana-dashboard-platform-red}
+        - name: dash-infra
+          configMap: {name: otel-grafana-dashboard-infra-components}
+        - name: dash-money
+          configMap: {name: otel-grafana-dashboard-money-rails}
+        - name: dash-tenant
+          configMap: {name: otel-grafana-dashboard-tenant-explorer}
+        - name: dash-tenant360
+          configMap: {name: otel-grafana-dashboard-tenant-360}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: grafana, namespace: whatsapp-commerce}
+spec:
+  selector: {app: grafana}
+  ports:
+    - {name: http, port: 3000, targetPort: 3000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: whatsapp-commerce
+  labels: {app: alertmanager}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: alertmanager}}
+  template:
+    metadata: {labels: {app: alertmanager}}
+    spec:
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+          env:
+            # NOTE: alertmanager.yml on disk keeps ${...} placeholders in k8s;
+            # wire real SMTP creds via a sealed Secret + envsubst sidecar, or
+            # render this ConfigMap from your secrets manager before apply.
+            # (compose renders it with sed; k8s path is documented, not faked.)
+            - {name: ALERT_EMAIL_TO, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: to, optional: true}}}
+          ports:
+            - {containerPort: 9093}
+          readinessProbe:
+            httpGet: {path: /-/healthy, port: 9093}
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests: {memory: 64Mi, cpu: 50m}
+            limits: {memory: 256Mi, cpu: 200m}
+          volumeMounts:
+            - {name: config, mountPath: /etc/alertmanager, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: otel-alertmanager-config}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: alertmanager, namespace: whatsapp-commerce}
+spec:
+  selector: {app: alertmanager}
+  ports:
+    - {name: http, port: 9093, targetPort: 9093}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager-wa-bridge
+  namespace: whatsapp-commerce
+  labels: {app: alertmanager-wa-bridge}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: alertmanager-wa-bridge}}
+  template:
+    metadata: {labels: {app: alertmanager-wa-bridge}}
+    spec:
+      containers:
+        - name: wa-bridge
+          image: node:22-alpine
+          command: ["node", "/app/alertmanager-wa-bridge.mjs"]
+          env:
+            - {name: ALERTMANAGER_WA_BRIDGE_ENABLED, value: "false"}  # disabled-default; set "true" to enable
+            - {name: WA_BRIDGE_PORT, value: "9099"}
+            - {name: PLATFORM_API_URL, value: "http://platform:3000"}
+            - {name: INTERNAL_API_KEY, valueFrom: {secretKeyRef: {name: platform-internal, key: INTERNAL_API_KEY, optional: true}}}
+            - {name: OPS_ALERT_WHATSAPP, valueFrom: {secretKeyRef: {name: platform-internal, key: OPS_ALERT_WHATSAPP, optional: true}}}
+          ports:
+            - {containerPort: 9099}
+          readinessProbe:
+            httpGet: {path: /health, port: 9099}
+            initialDelaySeconds: 3
+            periodSeconds: 15
+          resources:
+            requests: {memory: 64Mi, cpu: 50m}
+            limits: {memory: 128Mi, cpu: 100m}
+          volumeMounts:
+            - {name: src, mountPath: /app, readOnly: true}
+      volumes:
+        - name: src
+          configMap: {name: otel-wa-bridge-src}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: alertmanager-wa-bridge, namespace: whatsapp-commerce}
+spec:
+  selector: {app: alertmanager-wa-bridge}
+  ports:
+    - {name: http, port: 9099, targetPort: 9099}
+# === END W34 otel-stack ===

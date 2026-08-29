@@ -1,0 +1,106 @@
+# === W34 otel-stack (Coder B) ===
+# OpenTelemetry Collector configuration for whatsappCommerce.
+#
+# Pipeline: OTLP receivers (gRPC 4317 / HTTP 4318) -> memory_limiter -> batch
+#           -> tail_sampling -> Jaeger (traces)
+#           OTLP receivers -> batch -> Prometheus exporter :9464 (metrics)
+#           OTLP receivers -> batch -> spanmetrics connector -> RED metrics
+#                                      derived from spans -> Prometheus
+#
+# Tail sampling policy (documented, binding):
+#   - 100% of spans with error status are kept (errors are rare and high-signal).
+#   - 10% probabilistic baseline of OK spans (controls Jaeger storage cost).
+#   - 100% of spans slower than 2s (latency outliers).
+# Honest note: sampling is head-of-trace unaware for child spans arriving
+# without their root in the same batch window; Jaeger may show partial traces
+# for the 90% dropped baseline. This is accepted and documented here.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # memory_limiter MUST be first: shed load before the collector OOMs.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    expected_new_traces_per_sec: 100
+    policies:
+      - name: keep-all-errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: keep-slow-traces
+        type: latency
+        latency:
+          threshold_ms: 2000
+      - name: baseline-10pct-ok
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+connectors:
+  # spanmetrics derives RED metrics (calls_total, duration histogram) from
+  # spans so RED dashboards work even where only traces are emitted.
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
+    dimensions:
+      - name: status.code
+      - name: tenant.id
+        default: other
+    namespace: otel_span
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:9464
+    resource_to_telemetry_conversion:
+      enabled: true
+  logging:
+    loglevel: warn
+
+extensions:
+  # Runtime liveness endpoint (used by k8s httpGet probes; the distroless
+  # collector image has no shell, so compose uses a binary self-check).
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, tail_sampling]
+      exporters: [otlp/jaeger, logging]
+    traces/spanmetrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [spanmetrics]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, logging]
+    metrics/spanmetrics:
+      receivers: [spanmetrics]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]
+# === END W34 otel-stack ===

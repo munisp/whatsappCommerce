@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015165086",
-      "profileName": "Sim User 5086",
+      "phone": "2348014757247",
+      "profileName": "Sim User 7247",
       "inboundId": "wamid.sim.in.loc.00317",
-      "at": 1787670250003,
+      "at": 1788015517809,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792,
@@ -21,25 +21,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.loc.00317",
-      "at": 1787670250007
+      "at": 1788015517813
     },
     {
       "dir": "out",
-      "phone": "2348015165086",
+      "phone": "2348014757247",
       "wamid": "wamid.sim.000543",
       "statuses": [
         "sent"
       ],
-      "at": 1787670250028,
+      "at": 1788015517835,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348015165086",
-      "profileName": "Sim User 5086",
+      "phone": "2348014757247",
+      "profileName": "Sim User 7247",
       "inboundId": "wamid.sim.in.text.00318",
-      "at": 1787670250548,
+      "at": 1788015518353,
       "kind": "text",
       "text": "Sim"
     },
@@ -47,16 +47,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00318",
-      "at": 1787670250552
+      "at": 1788015518356
     },
     {
       "dir": "out",
-      "phone": "2348015165086",
+      "phone": "2348014757247",
       "wamid": "wamid.sim.000544",
       "statuses": [
         "sent"
       ],
-      "at": 1787670250575,
+      "at": 1788015518387,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km"
     }

@@ -19,6 +19,10 @@ volumes:
   keycloak_db_data:
   temporal_db_data:
   permify_db_data:
+  # === W34 otel-stack (Coder B) ===
+  prometheus_data:
+  grafana_data:
+  # === END W34 otel-stack ===
 
 services:
   # ─── Infrastructure ────────────────────────────────────────────────────────
@@ -713,3 +717,170 @@ services:
     networks: [platform]
     logging: *default-logging
     restart: unless-stopped
+
+  # === W34 otel-stack (Coder B) ===
+  # Observability stack: OTel Collector, Jaeger, Prometheus, Grafana,
+  # Alertmanager, WhatsApp ops bridge. All telemetry is fail-OPEN for the
+  # platform — nothing here sits on the request path. Honest healthchecks:
+  # distroless images (collector, jaeger) have no shell/curl, so their
+  # compose healthchecks are binary/config self-checks; runtime liveness is
+  # covered by Prometheus `up` + alert rules (k8s uses real HTTP probes).
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.110.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel/collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "9464:9464"   # Prometheus exporter (spanmetrics RED)
+      - "13133:13133" # health_check extension
+    healthcheck:
+      # Distroless image: no shell/wget. Validates config+binary are intact.
+      test: ["CMD", "/otelcol-contrib", "validate", "--config", "/etc/otelcol/config.yaml"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "14317:4317"  # OTLP gRPC ingest (from collector)
+    healthcheck:
+      # Distroless image: binary self-check (no shell). UI liveness is
+      # scraped externally via Prometheus blackbox/“up” signals.
+      test: ["CMD", "/go/bin/all-in-one-linux", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.4
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./deploy/otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/otel/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      otel-collector:
+        condition: service_started
+      alertmanager:
+        condition: service_started
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin-change-in-prod}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./deploy/otel/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/otel/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    # Alertmanager does not expand env vars in its config; render the template
+    # with sed at container start (busybox sh is present in this image).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        sed -e "s|\$${ALERT_EMAIL_TO}|$${ALERT_EMAIL_TO}|g" \
+            -e "s|\$${ALERT_EMAIL_FROM}|$${ALERT_EMAIL_FROM}|g" \
+            -e "s|\$${SMTP_HOST}|$${SMTP_HOST}|g" \
+            -e "s|\$${SMTP_PORT}|$${SMTP_PORT}|g" \
+            -e "s|\$${SMTP_USER}|$${SMTP_USER}|g" \
+            -e "s|\$${SMTP_PASSWORD}|$${SMTP_PASSWORD}|g" \
+            /etc/alertmanager/alertmanager.tmpl.yml > /tmp/alertmanager.yml && \
+        exec /bin/alertmanager --config.file=/tmp/alertmanager.yml
+    environment:
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-ops@example.com}
+      ALERT_EMAIL_FROM: ${ALERT_EMAIL_FROM:-alertmanager@example.com}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    volumes:
+      - ./deploy/otel/alertmanager.yml:/etc/alertmanager/alertmanager.tmpl.yml:ro
+    ports:
+      - "9093:9093"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+
+  alertmanager-wa-bridge:
+    # Stdlib-only Node service (deploy/otel/alertmanager-wa-bridge.mjs) —
+    # no build step, no new deps. DISABLED by default (honest 404 on /alerts
+    # until ALERTMANAGER_WA_BRIDGE_ENABLED=true).
+    image: node:22-alpine
+    working_dir: /app
+    command: ["node", "alertmanager-wa-bridge.mjs"]
+    volumes:
+      - ./deploy/otel/alertmanager-wa-bridge.mjs:/app/alertmanager-wa-bridge.mjs:ro
+    environment:
+      ALERTMANAGER_WA_BRIDGE_ENABLED: ${ALERTMANAGER_WA_BRIDGE_ENABLED:-false}
+      WA_BRIDGE_PORT: "9099"
+      PLATFORM_API_URL: http://platform:3000
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
+      OPS_ALERT_WHATSAPP: ${OPS_ALERT_WHATSAPP:-}
+    ports:
+      - "9099:9099"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:9099/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      alertmanager:
+        condition: service_started
+    networks: [platform]
+    logging: *default-logging
+    restart: unless-stopped
+  # === END W34 otel-stack ===

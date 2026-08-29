@@ -27,6 +27,8 @@ import { ENV } from "../_core/env";
 import { TRPCError } from "@trpc/server";
 import { daprHealthCheck } from "../dapr";
 import * as observability from "../services/observability";
+// === W34 otel-core === health probes carry trace context outbound.
+import { injectTraceHeaders } from "../_core/telemetry";
 
 // ── Health check helpers ──────────────────────────────────────────────────────
 
@@ -35,7 +37,7 @@ type ServiceStatus = { online: boolean; latencyMs: number; error?: string; detai
 async function ping(url: string, timeoutMs = 3000, headers: Record<string, string> = {}): Promise<ServiceStatus> {
   const t0 = Date.now();
   try {
-    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    const resp = await fetch(url, { headers: injectTraceHeaders({ ...headers }), signal: AbortSignal.timeout(timeoutMs) });
     const latencyMs = Date.now() - t0;
     let details: unknown;
     try {
@@ -83,49 +85,61 @@ async function checkKafka(): Promise<ServiceStatus> {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
+// === W34 otel-core ===
+/**
+ * Single source of truth for the 15 infra component probes (postgres, redis,
+ * kafka, tigerBeetle, mojaloop, apisix, keycloak, openappsec, permify,
+ * opensearch, fluvio, dapr, temporal, mlStack, reconWorker). Consumed by BOTH
+ * the infraHealth tRPC procedure and the W34 infra_component_up Prometheus
+ * gauge refresher — the gauge reuses these probes, it does not duplicate them.
+ */
+export async function collectInfraComponentStatuses(): Promise<Record<string, ServiceStatus>> {
+  const [
+    postgres, redis, kafka, tigerBeetle, mojaloop,
+    apisix, keycloak, openappsec, permify, opensearch,
+    fluvio, dapr, temporal, mlStack, reconWorker,
+  ] = await Promise.all([
+    checkPostgres(),
+    checkRedis(),
+    checkKafka(),
+    ping(`${ENV.ledgerBridgeHealthUrl}/health`),
+    ping(`${ENV.mojaloopUrl}/health`),
+    ENV.apisixAdminKey
+      ? ping(`${ENV.apisixAdminUrl}/apisix/admin/routes`, 3000, { "X-API-KEY": ENV.apisixAdminKey })
+      : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
+    ping(`${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}/protocol/openid-connect/certs`),
+    ENV.openappsecUrl
+      ? ping(`${ENV.openappsecUrl}/api/v1/health`, 3000, ENV.openappsecToken ? { Authorization: `Bearer ${ENV.openappsecToken}` } : {})
+      : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
+    ENV.permifyUrl
+      ? ping(`${ENV.permifyUrl}/healthz`)
+      : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
+    ENV.opensearchUrl
+      ? ping(`${ENV.opensearchUrl}/_cluster/health`, 3000, {
+          Authorization: "Basic " + Buffer.from(`${ENV.opensearchUser}:${ENV.opensearchPass}`).toString("base64"),
+        })
+      : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
+    ping(`${ENV.fluvioConsumerUrl}/health`),
+    daprHealthCheck().then((d) => ({ online: d.online, latencyMs: d.latencyMs ?? 0, error: d.error } as ServiceStatus)),
+    ping(`${ENV.appUrl}/api/health/temporal`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" }) as ServiceStatus),
+    ping(`${ENV.mlStackUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" }) as ServiceStatus),
+    ping(`${ENV.reconWorkerUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" }) as ServiceStatus),
+  ]);
+  return {
+    postgres, redis, kafka, tigerBeetle, mojaloop,
+    apisix, keycloak, openappsec, permify, opensearch,
+    fluvio, dapr, temporal, mlStack, reconWorker,
+  };
+}
+// === END W34 otel-core ===
+
 export const infraRouter = router({
 
   // ── Full infrastructure health (original infraHealth + new services) ─────────
   infraHealth: protectedProcedure.query(async () => {
-    const [
-      postgres, redis, kafka, tigerBeetle, mojaloop,
-      apisix, keycloak, openappsec, permify, opensearch,
-      fluvio, dapr, temporal, mlStack, reconWorker,
-    ] = await Promise.all([
-      checkPostgres(),
-      checkRedis(),
-      checkKafka(),
-      ping(`${ENV.ledgerBridgeHealthUrl}/health`),
-      ping(`${ENV.mojaloopUrl}/health`),
-      ENV.apisixAdminKey
-        ? ping(`${ENV.apisixAdminUrl}/apisix/admin/routes`, 3000, { "X-API-KEY": ENV.apisixAdminKey })
-        : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
-      ping(`${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}/protocol/openid-connect/certs`),
-      ENV.openappsecUrl
-        ? ping(`${ENV.openappsecUrl}/api/v1/health`, 3000, ENV.openappsecToken ? { Authorization: `Bearer ${ENV.openappsecToken}` } : {})
-        : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
-      ENV.permifyUrl
-        ? ping(`${ENV.permifyUrl}/healthz`)
-        : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
-      ENV.opensearchUrl
-        ? ping(`${ENV.opensearchUrl}/_cluster/health`, 3000, {
-            Authorization: "Basic " + Buffer.from(`${ENV.opensearchUser}:${ENV.opensearchPass}`).toString("base64"),
-          })
-        : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
-      ping(`${ENV.fluvioConsumerUrl}/health`),
-      daprHealthCheck(),
-      ping(`${ENV.appUrl}/api/health/temporal`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
-      ping(`${ENV.mlStackUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
-      ping(`${ENV.reconWorkerUrl}/health`).catch(() => ({ online: false, latencyMs: 0, error: "not_configured" })),
-    ]);
-    return {
-      checkedAt: Date.now(),
-      services: {
-        postgres, redis, kafka, tigerBeetle, mojaloop,
-        apisix, keycloak, openappsec, permify, opensearch,
-        fluvio, dapr, temporal, mlStack, reconWorker,
-      },
-    };
+    // === W34 otel-core === probes factored into collectInfraComponentStatuses.
+    const services = await collectInfraComponentStatuses();
+    return { checkedAt: Date.now(), services };
   }),
 
   // ── WAF Events ──────────────────────────────────────────────────────────────

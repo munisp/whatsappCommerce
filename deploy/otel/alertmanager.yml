@@ -1,0 +1,60 @@
+# === W34 otel-stack (Coder B) ===
+# Alertmanager configuration for whatsappCommerce.
+# Receivers: email (SMTP via env) + webhook (WhatsApp ops bridge).
+# Routing: severity=critical -> webhook + email; severity=warning -> email.
+# Inhibition: a critical alert suppresses warning alerts with the same
+# alertname/namespace; ComponentDown suppresses dependent Elevated5xx noise
+# for the same platform.
+route:
+  receiver: email-default
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: critical-all
+      continue: true
+    - matchers:
+        - severity = "warning"
+      receiver: email-default
+
+receivers:
+  - name: email-default
+    email_configs:
+      - to: ${ALERT_EMAIL_TO}
+        from: ${ALERT_EMAIL_FROM}
+        smarthost: ${SMTP_HOST}:${SMTP_PORT}
+        auth_username: ${SMTP_USER}
+        auth_password: ${SMTP_PASSWORD}
+        require_tls: true
+  - name: critical-all
+    email_configs:
+      - to: ${ALERT_EMAIL_TO}
+        from: ${ALERT_EMAIL_FROM}
+        smarthost: ${SMTP_HOST}:${SMTP_PORT}
+        auth_username: ${SMTP_USER}
+        auth_password: ${SMTP_PASSWORD}
+        require_tls: true
+    webhook_configs:
+      # WhatsApp ops bridge (deploy/otel/alertmanager-wa-bridge.mjs).
+      # Fail-open: bridge down only loses the WhatsApp copy; email still fires.
+      - url: http://alertmanager-wa-bridge:9099/alerts
+        send_resolved: true
+        max_alerts: 20
+
+inhibit_rules:
+  # A critical alert suppresses same-name warnings.
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: [alertname]
+  # ComponentDown suppresses Elevated5xx noise (downstream symptom).
+  - source_matchers:
+      - alertname = "ComponentDown"
+    target_matchers:
+      - alertname = "Elevated5xx"
+    equal: []
+# === END W34 otel-stack ===

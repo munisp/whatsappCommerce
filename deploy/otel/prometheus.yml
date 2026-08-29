@@ -1,0 +1,42 @@
+# === W34 otel-stack (Coder B) ===
+# Prometheus scrape configuration for whatsappCommerce observability stack.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    platform: whatsapp-commerce
+
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+scrape_configs:
+  # Platform /api/metrics (Coder A, prom-client). Auth via METRICS_TOKEN bearer.
+  # The endpoint honestly 503s when telemetry is disabled — Prometheus will
+  # report the target down rather than scraping garbage.
+  - job_name: platform
+    metrics_path: /api/metrics
+    scheme: http
+    # Prometheus does not expand env vars in config; the token is mounted as
+    # a file (compose `configs:` renders it from METRICS_TOKEN).
+    bearer_token_file: /etc/prometheus/secrets/metrics_token
+    static_configs:
+      - targets: [platform:3000]
+  # Collector's Prometheus exporter (:9464) — spanmetrics-derived RED +
+  # forwarded OTel metrics.
+  - job_name: otel-collector
+    static_configs:
+      - targets: [otel-collector:9464]
+  # Alertmanager self-metrics (alert delivery health).
+  - job_name: alertmanager
+    static_configs:
+      - targets: [alertmanager:9093]
+  # Prometheus self.
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
+# === END W34 otel-stack ===
