@@ -19,7 +19,23 @@
  * The allowlist below is the SINGLE source of truth for route cadences —
  * keep it in sync with server/_core/index.ts (J178 asserts parity).
  */
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
+
+// === W34 otel-core ===
+// OTel-lite trace injector: each cron fire carries a W3C `traceparent` header
+// so the platform's cron route span links back to the scheduler fire. When
+// TRACEPARENT is set (k8s CronJob / external tracer), its trace id is reused
+// as the parent; otherwise a fresh root traceparent is generated per fire.
+// Zero dependencies, fail-open (a malformed TRACEPARENT falls back to fresh).
+export function makeTraceparent() {
+  const parent = (process.env.TRACEPARENT ?? "").trim();
+  const m = /^00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/.exec(parent);
+  const traceId = m ? m[1] : randomBytes(16).toString("hex");
+  const spanId = randomBytes(8).toString("hex");
+  return `00-${traceId}-${spanId}-01`;
+}
+// === END W34 otel-core ===
+
 
 const PLATFORM_URL = (process.env.PLATFORM_URL ?? "http://platform:3000").replace(/\/$/, "");
 const CRON_JWT = (process.env.CRON_JWT ?? "").trim();
@@ -68,6 +84,24 @@ export const SCHEDULE = [
   { path: "/api/scheduled/hermes-health-snapshot", intervalMin: 5 },
   // Monthly subscription invoicing (cron "0 0 1 1 * *" ≈ every 30 days).
   { path: "/api/scheduled/generate-invoices", intervalMin: 43200 },
+  // === W31 scheduled payments === claim-before-send execution + T-1 reminders.
+  { path: "/api/scheduled/execute-payments", intervalMin: 5 },
+  // === END W31 scheduled payments ===
+  // === W31 approvals (Coder C) ===
+  { path: "/api/scheduled/approvals-expiry", intervalMin: 15 },
+  // === END W31 approvals ===
+  // === W31 AR reminders === daily overdue sweep + polite WA pay reminders.
+  { path: "/api/scheduled/ar-reminders", intervalMin: 1440 },
+  // === W32 installment due === daily pay-over-time installment capture +
+  // honest overdue dunning (see server/services/payOverTime.ts).
+  { path: "/api/scheduled/installment-due", intervalMin: 1440 },
+  // === END W32 installment due ===
+  // === W32 recurring === daily recurring bills / auto-pay sweep.
+  { path: "/api/scheduled/recurring-run", intervalMin: 1440 },
+  // === END W32 recurring ===
+  // === W33 forecast === weekly cash-flow forecast snapshot sweep.
+  { path: "/api/scheduled/cashflow-forecast", intervalMin: 10080 },
+  // === END W33 forecast ===
 ];
 
 function b64url(buf) {
@@ -98,7 +132,8 @@ export async function invokeRoute(path, { platformUrl = PLATFORM_URL, secret = C
   const token = signCronToken(secret, path);
   const res = await fetchImpl(`${platformUrl}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    // === W34 otel-core === traceparent propagation per cron fire.
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, traceparent: makeTraceparent() },
     body: "{}",
     signal: AbortSignal.timeout(120_000),
   });

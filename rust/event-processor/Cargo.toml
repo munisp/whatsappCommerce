@@ -26,3 +26,10 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 axum = { version = "0.7", features = ["json"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+# === W35 otel ===
+opentelemetry = "0.30"
+opentelemetry_sdk = "0.30"
+opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = "0.31"
+# === END W35 otel ===

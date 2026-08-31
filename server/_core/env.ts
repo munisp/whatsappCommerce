@@ -158,6 +158,29 @@ export const ENV = {
   // phoneAuth.ts's WhatsApp OTP sender.
   resendApiKey: process.env.RESEND_API_KEY ?? "",
   resendFromEmail: process.env.RESEND_FROM_EMAIL ?? "WhatsApp Commerce <onboarding@resend.dev>",
+  // === W34 otel-core ===
+  // OpenTelemetry + Prometheus metrics. ALL OPTIONAL and off by default:
+  //   OTEL_ENABLED                  'true' activates the OTel SDK (default false)
+  //   OTEL_EXPORTER_OTLP_ENDPOINT   OTLP/HTTP collector base (default http://otel-collector:4318)
+  //   OTEL_TENANT_METRIC_ALLOWLIST  csv of tenant ids allowed as metric labels
+  //                                 (cardinality guard; empty = platform-aggregate only)
+  //   METRICS_TOKEN                 bearer token for /api/metrics (cron/internal)
+  otelEnabled: (process.env.OTEL_ENABLED ?? "").trim().toLowerCase() === "true",
+  otelExporterEndpoint: (process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://otel-collector:4318").replace(/\/+$/, ""),
+  otelTenantMetricAllowlist: (process.env.OTEL_TENANT_METRIC_ALLOWLIST ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean),
+  metricsToken: process.env.METRICS_TOKEN ?? "",
+  // === END W34 otel-core ===
+  // === W35 otel-stack probes (Coder D) ===
+  // Base URLs for the observability-stack health probes appended to
+  // routers/infra.ts collectInfraComponentStatuses. All optional with
+  // compose-network defaults; a probe simply reports down when unreachable.
+  otelCollectorUrl: (process.env.OTEL_COLLECTOR_URL ?? "http://otel-collector:13133").replace(/\/+$/, ""),
+  jaegerUrl: (process.env.JAEGER_URL ?? "http://jaeger:16686").replace(/\/+$/, ""),
+  prometheusUrl: (process.env.PROMETHEUS_URL ?? "http://prometheus:9090").replace(/\/+$/, ""),
+  grafanaUrl: (process.env.GRAFANA_URL ?? "http://grafana:3000").replace(/\/+$/, ""),
+  alertmanagerUrl: (process.env.ALERTMANAGER_URL ?? "http://alertmanager:9093").replace(/\/+$/, ""),
+  // === END W35 otel-stack probes ===
 };
 
 // ─── Fail-closed startup checks (production-like envs — see isProd) ─────────

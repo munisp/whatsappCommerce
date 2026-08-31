@@ -1,0 +1,53 @@
+{
+  "id": "J201",
+  "title": "above auto-pay threshold → WA approval → approve executes; pause/cancel stop runs",
+  "feature": "W32 recurring engine: approval parking + W31 approvals composition",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348012010001",
+      "wamid": "wamid.sim.000708",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1788020641671,
+      "kind": "text",
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 8b4e3b43) and it pays immediately."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012010001",
+      "wamid": "wamid.sim.000709",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1788020642103,
+      "kind": "text",
+      "body": "Reminder: your Scheduled payment — scheduled ad-hoc payment of NGN 50000.00 is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012010001",
+      "wamid": "wamid.sim.000710",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1788020642536,
+      "kind": "text",
+      "body": "Your scheduled_payment of 50000.00 was approved and executed. Ref 8b4e3b43."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012010001",
+      "wamid": "wamid.sim.000711",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1788020642979,
+      "kind": "text",
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 96267979) and it pays immediately."
+    }
+  ]
+}

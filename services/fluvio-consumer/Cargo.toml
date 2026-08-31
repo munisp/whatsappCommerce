@@ -28,6 +28,13 @@ axum = { version = "0.8", features = ["json"] }
 # Fluvio client (feature-gated — only used when FLUVIO_ENDPOINT is set)
 fluvio = { version = "0.50", optional = true }
 
+# === W35 otel ===
+opentelemetry = "0.30"
+opentelemetry_sdk = "0.30"
+opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = "0.31"
+# === END W35 otel ===
+
 [features]
 default = []
 fluvio-enabled = ["fluvio"]

@@ -15,6 +15,7 @@ import (
 "github.com/whatsapp-commerce/gateway/internal/middleware"
 "github.com/whatsapp-commerce/gateway/internal/proxy"
 "github.com/whatsapp-commerce/gateway/internal/ratelimit"
+"github.com/whatsapp-commerce/otelx"
 "go.uber.org/zap"
 )
 
@@ -67,6 +68,11 @@ func main() {
 cfg := config.Load()
 logger, _ := zap.NewProduction()
 defer logger.Sync()
+
+// === W35 otel ===
+otelShutdown, _ := otelx.Init(context.Background(), "gateway")
+defer func() { _ = otelShutdown(context.Background()) }()
+// === END W35 otel ===
 
 if cfg.Env == "development" {
 gin.SetMode(gin.DebugMode)
@@ -144,6 +150,7 @@ r.Use(middleware.PermifyAuthz(cfg, logger))
 r.GET("/health", func(c *gin.Context) {
 c.JSON(http.StatusOK, gin.H{
 "status": "ok", "service": "gateway",
+"otel_enabled": otelx.Status(),
 "ts": time.Now().UTC(),
 "middleware": gin.H{
 "keycloak":   cfg.Keycloak.URL != "",
@@ -298,7 +305,7 @@ logger.Info("apisix.bootstrap.ok")
 
 srv := &http.Server{
 Addr:         ":" + cfg.Port,
-Handler:      r,
+Handler:      otelx.Middleware("gateway")(r), // === W35 otel ===
 ReadTimeout:  15 * time.Second,
 WriteTimeout: 30 * time.Second,
 IdleTimeout:  60 * time.Second,

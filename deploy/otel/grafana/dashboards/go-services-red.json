@@ -1,0 +1,219 @@
+{
+  "uid": "w35-go-services-red",
+  "title": "Go Services RED",
+  "description": "=== W35 infra-receivers (Coder D) === RED metrics for the Go services, derived from the collector spanmetrics connector (otel_span_*). Honest-empty: with OTEL_ENABLED=false (default) or an uninstrumented service these panels are empty \u2014 empty means no spans received, never fabricated data.",
+  "tags": [
+    "w35",
+    "otel",
+    "go"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Go services reporting spans (last 5m)",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count by (service_name) (rate(otel_span_calls_total{service_name=~\"commerce-engine|conversation-orchestrator|crm-adapter|erp-adapter|event-gateway|gateway|hermes-bridge|notification-service|payment-orchestrator|visual-inventory|go-orchestrator\"}[5m]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Request rate by service (spans/s)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (rate(otel_span_calls_total{service_name=~\"commerce-engine|conversation-orchestrator|crm-adapter|erp-adapter|event-gateway|gateway|hermes-bridge|notification-service|payment-orchestrator|visual-inventory|go-orchestrator\"}[5m]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error rate by service (error spans/s)",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service_name) (rate(otel_span_calls_total{service_name=~\"commerce-engine|conversation-orchestrator|crm-adapter|erp-adapter|event-gateway|gateway|hermes-bridge|notification-service|payment-orchestrator|visual-inventory|go-orchestrator\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "p95 span duration by service",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(otel_span_duration_milliseconds_bucket{service_name=~\"commerce-engine|conversation-orchestrator|crm-adapter|erp-adapter|event-gateway|gateway|hermes-bridge|notification-service|payment-orchestrator|visual-inventory|go-orchestrator\"}[5m])))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    }
+  ]
+}

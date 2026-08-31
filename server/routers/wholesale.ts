@@ -10,7 +10,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, moneyProcedure, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { wholesaleListings, wholesaleListingTiers, wholesaleOrders } from "../../drizzle/schema";
 import {
@@ -23,6 +23,9 @@ import {
   listWholesaleOrdersTx,
   updateWholesaleOrderStatusTx,
   computeTieredPrice,
+  earlyPayPreviewTx,
+  setWholesalePaymentTermsTx,
+  earlyPayWholesaleOrderTx,
 } from "../services/wholesaleCatalog";
 import { getMerchantScoreGuarded } from "../services/creditScoreClient";
 
@@ -291,4 +294,73 @@ export const wholesaleRouter = router({
       const db = await dbOrThrow();
       return getMerchantScoreGuarded(input.supplierTenantId, input.tenantId, db);
     }),
+
+  // === W32 earlypay-fx (Coder C): early-payment discounts ===
+
+  /** Supplier configures early-payment terms on a PO (pre-payment only). */
+  setPaymentTerms: moneyProcedure
+    .input(z.object({
+      tenantId: z.string().min(1), // supplier
+      orderId: z.string().uuid(),
+      discountBps: z.number().int().min(1).max(5000),
+      discountWindowDays: z.number().int().min(1).max(365),
+      dueDate: z.coerce.date().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      await assertMoneyAccess(ctx.user, input.tenantId);
+      const db = await dbOrThrow();
+      const r = await setWholesalePaymentTermsTx(db, input);
+      if (!r.ok) {
+        throw new TRPCError({
+          code: r.reason === "not_found" ? "NOT_FOUND" : "CONFLICT",
+          message: r.reason === "not_found" ? "Order not found" : "Payment terms are locked (order already paid or discount claimed)",
+        });
+      }
+      return r;
+    }),
+
+  /**
+   * Buyer-facing early-pay surface: server-derived "Pay by <deadline> to
+   * save ₦X" (integer cents). After the window the discount is honestly
+   * unavailable (saveCents 0, payableCents = full total).
+   */
+  earlyPayPreview: protectedProcedure
+    .input(z.object({ tenantId: z.string().min(1), orderId: z.string().uuid() }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await dbOrThrow();
+      const r = await earlyPayPreviewTx(db, { buyerTenantId: input.tenantId, orderId: input.orderId });
+      if (!r.ok) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      return r;
+    }),
+
+  /**
+   * Buyer pays a PO early at the discounted amount. Claim-first guarded
+   * UPDATE — a double-tap is a CONFLICT, never a double discount. The
+   * supplier is credited the discounted amount per their configured terms.
+   */
+  earlyPay: moneyProcedure
+    .input(z.object({ tenantId: z.string().min(1), orderId: z.string().uuid() }))
+    .mutation(async ({ input, ctx }) => {
+      await assertMoneyAccess(ctx.user, input.tenantId);
+      const db = await dbOrThrow();
+      const r = await earlyPayWholesaleOrderTx(db, { buyerTenantId: input.tenantId, orderId: input.orderId });
+      if (!r.ok) {
+        const code =
+          r.reason === "not_found" ? "NOT_FOUND"
+          : r.reason === "already_claimed" ? "CONFLICT"
+          : "BAD_REQUEST";
+        const msg = {
+          no_terms: "No early-payment discount terms on this order",
+          window_expired: "Early-payment window has expired — full amount due via the normal payment path",
+          already_claimed: "Early-payment discount already applied to this order",
+          not_payable: "Order status cannot accept an early payment",
+          insufficient_funds: "INSUFFICIENT_FUNDS: wallet balance too low for the discounted amount",
+          not_found: "Order not found",
+        }[r.reason];
+        throw new TRPCError({ code, message: msg });
+      }
+      return r;
+    }),
+  // === END W32 earlypay-fx (wholesale router) ===
 });

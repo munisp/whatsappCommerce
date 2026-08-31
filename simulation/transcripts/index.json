@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-24T08:30:00.541Z",
+  "generatedAt": "2026-08-29T16:24:41.568Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -446,7 +446,7 @@
       "id": "J141",
       "title": "loan default path",
       "feature": "microLoans late/default handling + cure",
-      "pass": false,
+      "pass": true,
       "file": "J141.json",
       "messageCount": 0
     },
@@ -782,9 +782,9 @@
       "id": "J18",
       "title": "stock guard (race + OOS)",
       "feature": "reserveStock atomicity + waitlist",
-      "pass": false,
+      "pass": true,
       "file": "J18.json",
-      "messageCount": 19
+      "messageCount": 26
     },
     {
       "id": "J180",
@@ -811,6 +811,62 @@
       "messageCount": 24
     },
     {
+      "id": "J183",
+      "title": "vendor bill pay in full",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J183.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J184",
+      "title": "vendor bill partial payments",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J184.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J185",
+      "title": "whatsapp bill capture",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J185.json",
+      "messageCount": 5
+    },
+    {
+      "id": "J186",
+      "title": "insufficient funds + overdue sweep",
+      "feature": "W31 vendor-bills AP inbox",
+      "pass": true,
+      "file": "J186.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J187",
+      "title": "scheduled vendor-bill payment executes once via cron; replay no-op",
+      "feature": "W31 scheduled payments: claim-before-send cron execution + sched:<id> idempotency",
+      "pass": true,
+      "file": "J187.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J188",
+      "title": "insufficient funds honesty → top-up → merchant retry → executed",
+      "feature": "W31 scheduled payments: honest insufficient_funds + retry after top-up",
+      "pass": true,
+      "file": "J188.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J189",
+      "title": "batch of 5 with 1 insufficient → 4 executed, per-item idempotency",
+      "feature": "W31 batch payments: single confirmation, isolated per-item txs, honest outcomes",
+      "pass": true,
+      "file": "J189.json",
+      "messageCount": 0
+    },
+    {
       "id": "J19",
       "title": "restock waitlist notify",
       "feature": "0→5 restock fan-out",
@@ -819,12 +875,172 @@
       "messageCount": 13
     },
     {
+      "id": "J190",
+      "title": "T-1 WhatsApp reminder sent once (metadata.remindedAt dedupe)",
+      "feature": "W31 scheduled payments: T-1 reminder with claim-before-send dedupe",
+      "pass": true,
+      "file": "J190.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J191",
+      "title": "approval policy parks withdrawal; approve executes once; second approve CONFLICT; step-up composes",
+      "feature": "W31 approvals: requireApprovalIfNeeded + decideApproval + withdrawal executor",
+      "pass": true,
+      "file": "J191.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J192",
+      "title": "reject moves nothing + audit; expiry sweep expires stale requests; threshold 0 = off",
+      "feature": "W31 approvals: reject path + sweepExpiredApprovals cron + honest policy-off semantics",
+      "pass": true,
+      "file": "J192.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J193",
+      "title": "AR invoice create → send link → customer pays in full",
+      "feature": "arInvoices create/send + paymentConfirm webhook rail → paid",
+      "pass": true,
+      "file": "J193.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J194",
+      "title": "AR invoice partial payments → partially_paid → paid; replay no-op",
+      "feature": "arInvoices partial accumulation + exactly-once recording",
+      "pass": true,
+      "file": "J194.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J195",
+      "title": "AR overdue sweep → 3-spaced reminders → stop",
+      "feature": "W31 AR reminders cron (max 3, 3d spacing, dedupe)",
+      "pass": true,
+      "file": "J195.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J196",
+      "title": "AR invoice cancel → link invalidated honestly",
+      "feature": "arInvoices cancel + honest 410 public surface + no silent money",
+      "pass": true,
+      "file": "J196.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J197",
+      "title": "approval gate across vendor bills + scheduled payments (merger seam)",
+      "feature": "W31 approvals × vendor-bills × scheduled-payments cross-branch wiring",
+      "pass": true,
+      "file": "J197.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J198",
+      "title": "pay over time: bill paid in full, 3 installments captured",
+      "feature": "W32 pay-over-time installment bill pay",
+      "pass": true,
+      "file": "J198.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J199",
+      "title": "pay over time: ineligible rejection, failed capture dunning, early settle",
+      "feature": "W32 pay-over-time installment bill pay",
+      "pass": true,
+      "file": "J199.json",
+      "messageCount": 2
+    },
+    {
       "id": "J20",
       "title": "broadcast campaign",
       "feature": "consent gate + window routing + quality block",
       "pass": true,
       "file": "J20.json",
-      "messageCount": 30
+      "messageCount": 31
+    },
+    {
+      "id": "J200",
+      "title": "monthly recurring bill → cron creates bill + auto-pays under threshold → replay no-op",
+      "feature": "W32 recurring engine: crash-safe advance, recur:<ruleId>:<period> idempotency, auto-pay",
+      "pass": true,
+      "file": "J200.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J201",
+      "title": "above auto-pay threshold → WA approval → approve executes; pause/cancel stop runs",
+      "feature": "W32 recurring engine: approval parking + W31 approvals composition",
+      "pass": true,
+      "file": "J201.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J202",
+      "title": "instant payout executes inline with fee leg (fee+net==gross); standard waits for tick",
+      "feature": "W32 speed tiers: schedfee:<id> platform fee leg + honest next-batch standard",
+      "pass": true,
+      "file": "J202.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J203",
+      "title": "early pay within window → discounted debit; double-tap CONFLICT; after window unavailable",
+      "feature": "W32 early-payment discounts: claim-first guarded discount + honest supplier credit",
+      "pass": true,
+      "file": "J203.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J204",
+      "title": "FX quote → accept → execute with exact fee math; expired refusal; replay no-op",
+      "feature": "W32 FX payouts: deterministic labelled rates + guarded consume + Mojaloop delivery",
+      "pass": true,
+      "file": "J204.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J205",
+      "title": "FX payout with no live corridor → honest UNAVAILABLE, nothing moves",
+      "feature": "W32 FX payouts: corridor gate fails honestly — no simulated cross-border delivery",
+      "pass": true,
+      "file": "J205.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J206",
+      "title": "supplier tax profile + annual totals conservation",
+      "feature": "W33 tax-statements",
+      "pass": true,
+      "file": "J206.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J207",
+      "title": "annual statement PDF honest generation + mixed currency",
+      "feature": "W33 tax-statements",
+      "pass": true,
+      "file": "J207.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J208",
+      "title": "statement send via WA push + viewed + idempotent regeneration",
+      "feature": "W33 tax-statements",
+      "pass": true,
+      "file": "J208.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J209",
+      "title": "WhatsApp finance Q&A: 6 canonical intents answer real figures",
+      "feature": "W33 financeQa: keyword fallback, tenant-scoped real queries, honest amounts",
+      "pass": true,
+      "file": "J209.json",
+      "messageCount": 27
     },
     {
       "id": "J21",
@@ -832,6 +1048,86 @@
       "feature": "waTemplates statusSync/create/picker",
       "pass": true,
       "file": "J21.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J210",
+      "title": "forecast conservation + shortfall detection on real seeded outflows",
+      "feature": "W33 cashflowForecast: sum(lines)==totals, shortfall day exact",
+      "pass": true,
+      "file": "J210.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J211",
+      "title": "forecast snapshot stored idempotently + dashboard empty state",
+      "feature": "W33 cashflow_forecasts: (tenant,horizon,day) idempotency, honest empty state",
+      "pass": true,
+      "file": "J211.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J212",
+      "title": "embedded API full flow: bill create → pay parks at approval gate → owner approves → paid",
+      "feature": "W33 embedded-api: /api/embedded/v1 bills + approval-gate composition",
+      "pass": true,
+      "file": "J212.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J213",
+      "title": "embedded API enforcement: scopes, suspension, disabled flag 404, rate limit trips",
+      "feature": "W33 embedded-api: auth/scope/flag/rate-limit enforcement",
+      "pass": true,
+      "file": "J213.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J214",
+      "title": "embedded API audit actor embedded:<clientId> + strict tenant isolation",
+      "feature": "W33 embedded-api: audit trail + client-bound tenant context",
+      "pass": true,
+      "file": "J214.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J215",
+      "title": "OTel span w/ tenant.id baggage + x-trace-id + metrics increments",
+      "feature": "W34 otel-core: core instrumentation + RED metrics endpoint",
+      "pass": true,
+      "file": "J215.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J216",
+      "title": "traceparent propagation: scheduler→cron route + internal service call",
+      "feature": "W34 otel-core: W3C trace context propagation across services",
+      "pass": true,
+      "file": "J216.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J217",
+      "title": "telemetry fail-open with unreachable collector + honest status",
+      "feature": "W34 otel-core: fail-open telemetry, honest telemetryStatus",
+      "pass": true,
+      "file": "J217.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J218",
+      "title": "otel-stack compose/k8s/dashboard/alert config validation",
+      "feature": "W34 otel-stack: collector, Jaeger, Prometheus, Grafana, Alertmanager",
+      "pass": false,
+      "file": "J218.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J219",
+      "title": "alertmanager WhatsApp bridge: format → deliver, fail-open, disabled-default",
+      "feature": "W34 otel-stack: WhatsApp ops bridge",
+      "pass": true,
+      "file": "J219.json",
       "messageCount": 0
     },
     {
@@ -843,12 +1139,100 @@
       "messageCount": 6
     },
     {
+      "id": "J220",
+      "title": "python sidecars extract traceparent, fail-open OTel, honest /health telemetry status",
+      "feature": "W34 otel-sidecars: kyc-verifier / ai-agent OpenTelemetry",
+      "pass": true,
+      "file": "J220.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J221",
+      "title": "telemetry cardinality guard: collapse to 'other', audited admin allowlist, bounded labels",
+      "feature": "W34 otel-sidecars: telemetryCardinality + telemetry admin router",
+      "pass": true,
+      "file": "J221.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J222",
+      "title": "wa-ops-alert receiver: internal-token gate + zod + real WA send",
+      "feature": "W34 merger seam: /api/internal/wa-ops-alert for the ops bridge",
+      "pass": true,
+      "file": "J222.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J223",
+      "title": "kafka traceparent inject/extract round-trip + consume span continuation",
+      "feature": "W35 node-python-otel: kafkajs spans + W3C traceparent headers",
+      "pass": true,
+      "file": "J223.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J224",
+      "title": "temporal manual OTel interceptors: fail-open, span naming, header propagation",
+      "feature": "W35 node-python-otel: temporal-workflows manual interceptors",
+      "pass": true,
+      "file": "J224.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J225",
+      "title": "mojaloop adapter spans (quote/prepare/fulfil) + traceparent injection, fail-open",
+      "feature": "W35 node-python-otel: mojaloop FSPIOP adapter spans",
+      "pass": true,
+      "file": "J225.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J226",
+      "title": "ml-stack python telemetry imports, parses traceparent, fails open honestly",
+      "feature": "W35 node-python-otel: ml-stack fail-open OTel",
+      "pass": true,
+      "file": "J226.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J227",
+      "title": "W35 collector infra receivers + dapr/apisix/keycloak wiring",
+      "feature": "W35 infra-receivers: prometheus scrape receiver, dapr/apisix/keycloak otel",
+      "pass": true,
+      "file": "J227.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J228",
+      "title": "W35 alert rules (go/rust down, temporal, tigerbeetle) + dashboards",
+      "feature": "W35 infra-receivers: alert-rules w35 group + RED dashboards",
+      "pass": true,
+      "file": "J228.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J229",
+      "title": "mig 0116 telemetry_component_status: journal chain + PGlite apply",
+      "feature": "W35 infra-receivers: additive migration 0116",
+      "pass": true,
+      "file": "J229.json",
+      "messageCount": 0
+    },
+    {
       "id": "J23",
       "title": "window expiry nudge",
       "feature": "sessionWindow expiry cron (dedupe)",
       "pass": true,
       "file": "J23.json",
       "messageCount": 24
+    },
+    {
+      "id": "J230",
+      "title": "otel-stack probes: honest down on absent stack, up on 200",
+      "feature": "W35 infra-receivers: infraHealth otel-stack probes",
+      "pass": true,
+      "file": "J230.json",
+      "messageCount": 0
     },
     {
       "id": "J24",

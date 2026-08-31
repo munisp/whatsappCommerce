@@ -680,6 +680,125 @@
       "when": 1786990050000,
       "tag": "0099_loan_open_uniq_include_defaulted",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1786990050001,
+      "tag": "0100_vendor_bills",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1786990050002,
+      "tag": "0101_vendor_bill_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1787000102000,
+      "tag": "0102_scheduled_batch_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1786990070000,
+      "tag": "0103_w31_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1786990070000,
+      "tag": "0104_ar_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1786990090000,
+      "tag": "0105_ar_invoice_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1787500000000,
+      "tag": "0106_installment_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1787500100000,
+      "tag": "0107_recurring_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1787500200000,
+      "tag": "0108_payout_speed_tiers",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1787500300000,
+      "tag": "0109_po_payment_terms",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1787500400000,
+      "tag": "0110_fx_quotes",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1787900000000,
+      "tag": "0111_supplier_tax_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1787900100000,
+      "tag": "0112_annual_statements",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1787900200000,
+      "tag": "0113_cashflow_forecasts",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1787900300000,
+      "tag": "0114_embedded_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1787900400000,
+      "tag": "0115_telemetry_tenant_allowlist",
+      "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1787900500000,
+      "tag": "0116_telemetry_component_status",
+      "breakpoints": true
     }
   ]
 }

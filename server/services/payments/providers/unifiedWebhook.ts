@@ -185,6 +185,21 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
       );
     }
 
+    // === W31 AR webhook hook ===
+    // After the pinned confirmProviderPayment verified + completed the
+    // payment, record any AR-invoice payment keyed by this reference
+    // (ar_invoices.payment_link_ref). Exactly-once (unique psp_reference),
+    // never throws into the webhook ack.
+    if (result.ok) {
+      try {
+        const { runArInvoiceWebhookHook } = await import("../../arInvoices");
+        await runArInvoiceWebhookHook(db, { provider: providerId, reference: norm.reference });
+      } catch (err: any) {
+        console.warn(`[unified-payment-webhook] AR hook ${norm.reference}: ${err?.message}`);
+      }
+    }
+    // === END W31 AR webhook hook ===
+
     // W23 (additive): a fresh webhook confirmation also lands on the
     // compliance audit trail — previously only the admin payment.confirm
     // procedure wrote one, leaving webhook-confirmed payments unaudited.

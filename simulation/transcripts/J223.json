@@ -1,0 +1,8 @@
+{
+  "id": "J223",
+  "title": "kafka traceparent inject/extract round-trip + consume span continuation",
+  "feature": "W35 node-python-otel: kafkajs spans + W3C traceparent headers",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

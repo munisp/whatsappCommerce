@@ -50,7 +50,7 @@ vi.mock("./services/payments/paystackTransfer", () => ({
 
 import { getDb } from "./db";
 import { walletRouter } from "./routers/escrow";
-import { escrowConfig, kycApplications, merchantWallets, walletTransactions } from "../drizzle/schema";
+import { approvalRequests, escrowConfig, kycApplications, merchantWallets, tenantApprovalPolicies, walletTransactions } from "../drizzle/schema";
 
 const ADMIN = { user: { id: "u-admin", role: "admin", tenantId: null } } as any;
 
@@ -83,6 +83,11 @@ const PROP: Record<string, Record<string, string>> = {
   // callers vitest's module-graph race lets one real requireApprovedKyb
   // through — the fake db answers it with an approved KYB row.
   kyc_applications: { tenant_id: "tenantId", type: "type", status: "status" },
+  // W31 merge: C's approval gate queries tenant_approval_policies before any
+  // money moves; the fake answers "no policy" (empty store) so the W30 path
+  // runs unchanged (threshold 0 / absent policy = gate no-op).
+  tenant_approval_policies: { tenant_id: "tenantId" },
+  approval_requests: { tenant_id: "tenantId", id: "id" },
 };
 
 interface WalletRow { id: string; tenantId: string; currency: string; availableBalance: string; totalWithdrawn: string; [k: string]: unknown }
@@ -99,16 +104,20 @@ function makeWalletDb() {
     }] as WalletRow[],
     walletTxs: [] as TxRow[],
     kycApplications: [{ tenantId: "tenant-1", type: "kyb", status: "approved" }] as any[],
+    approvalPolicies: [] as any[],
+    approvalRequests: [] as any[],
   };
   const tableName = (table: unknown): string => {
     if (table === escrowConfig) return "escrow_config";
     if (table === merchantWallets) return "merchant_wallets";
     if (table === walletTransactions) return "wallet_transactions";
     if (table === kycApplications) return "kyc_applications";
+    if (table === tenantApprovalPolicies) return "tenant_approval_policies";
+    if (table === approvalRequests) return "approval_requests";
     throw new Error("fake db: unknown table");
   };
   const rowsOf = (t: string): any[] =>
-    t === "escrow_config" ? store.config : t === "merchant_wallets" ? store.wallets : t === "kyc_applications" ? store.kycApplications : store.walletTxs;
+    t === "escrow_config" ? store.config : t === "merchant_wallets" ? store.wallets : t === "kyc_applications" ? store.kycApplications : t === "tenant_approval_policies" ? store.approvalPolicies : t === "approval_requests" ? store.approvalRequests : store.walletTxs;
 
   function runSelect(t: string, fields: Record<string, unknown> | undefined, cond: unknown) {
     const { columns, values } = decode(cond);

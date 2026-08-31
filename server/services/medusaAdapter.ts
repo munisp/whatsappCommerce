@@ -6,6 +6,9 @@
  * platform works out-of-the-box without a separate Medusa server.
  */
 
+// === W34 otel-core === traceparent propagation to Medusa.
+import { injectTraceHeaders } from "../_core/telemetry";
+
 const MEDUSA_URL = process.env.MEDUSA_API_URL ?? "";
 const MEDUSA_ADMIN_KEY = process.env.MEDUSA_ADMIN_API_KEY ?? "";
 const MEDUSA_PUBLISHABLE_KEY = process.env.MEDUSA_PUBLISHABLE_KEY ?? "";
@@ -28,7 +31,7 @@ async function medusaFetch<T>(
   } else {
     headers["x-publishable-api-key"] = MEDUSA_PUBLISHABLE_KEY;
   }
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers: injectTraceHeaders(headers) }); // W34 otel-core: traceparent propagation
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Medusa API ${path} → ${res.status}: ${text}`);

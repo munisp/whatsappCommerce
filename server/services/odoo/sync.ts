@@ -41,7 +41,10 @@ import { getOdooAdapter, type OdooAdapter } from "./adapter";
 
 type Db = any;
 
-export type OdooEntityType = "sale" | "expense" | "payout" | "loan_disbursement";
+export type OdooEntityType = "sale" | "expense" | "payout" | "loan_disbursement"
+  // === W31 vendor-bills (Coder A) ===
+  | "vendor_bill_payment";
+  // === END W31 vendor-bills ===
 
 // ─── Payload builders (integer cents) ───────────────────────────────────────
 
@@ -85,6 +88,25 @@ export function buildExpensePayload(expense: any) {
     mediaId: expense.mediaId ?? null,
   };
 }
+
+// === W31 vendor-bills (Coder A) ===
+/** Paid vendor bill → Odoo vendor bill + outbound payment. */
+export function buildVendorBillPaymentPayload(bill: any) {
+  return {
+    kind: "vendor_bill_payment" as const,
+    billId: bill.id,
+    reference: bill.paymentRef ?? `vbill:${bill.id}`,
+    vendorName: bill.vendorName ?? "Unknown vendor",
+    amountCents: bill.amountCents,
+    paidCents: bill.paidCents,
+    currency: bill.currency ?? "NGN",
+    billNumber: bill.billNumber ?? null,
+    note: bill.description ?? null,
+    expenseDate: bill.issueDate ? new Date(bill.issueDate).toISOString().slice(0, 10) : null,
+    dueDate: bill.dueDate ? new Date(bill.dueDate).toISOString().slice(0, 10) : null,
+  };
+}
+// === END W31 vendor-bills ===
 
 export function buildPayoutPayload(tx: any) {
   return {
@@ -170,6 +192,17 @@ export async function onExpenseConfirmed(
 export async function onOrderPaid(db: Db, tenantId: string, order: any): Promise<void> {
   await hookEnqueue(db, tenantId, "sale", order.id, buildSalePayload(order));
 }
+
+// === W31 vendor-bills (Coder A) ===
+/**
+ * Called when a vendor bill reaches 'paid'. Enqueues an outbox row
+ * (exactly-once via the entity unique constraint); when Odoo isn't
+ * configured the row stays queued honestly — never a fake success.
+ */
+export async function onVendorBillPaid(db: Db, tenantId: string, bill: any): Promise<void> {
+  await hookEnqueue(db, tenantId, "vendor_bill_payment", bill.id, buildVendorBillPaymentPayload(bill));
+}
+// === END W31 vendor-bills ===
 
 /** Called when a merchant withdrawal (payout) is recorded. */
 export async function onPayout(db: Db, tenantId: string, walletTx: any): Promise<void> {
@@ -382,6 +415,31 @@ async function deliver(
       });
       return `payment:${paymentId}`;
     }
+    // === W31 vendor-bills (Coder A) ===
+    case "vendor_bill_payment": {
+      // Post the vendor bill, then record the outbound payment against it.
+      const { billId } = await adapter.createVendorBill({
+        vendorName: p.vendorName,
+        reference: p.reference,
+        amountCents: p.amountCents,
+        currency: p.currency,
+        category: "vendor_bill",
+        note: p.note,
+        expenseDate: p.expenseDate,
+        accountMapping,
+      });
+      const { paymentId } = await adapter.createPayment({
+        paymentType: "outbound",
+        reference: p.reference,
+        amountCents: p.paidCents ?? p.amountCents,
+        currency: p.currency,
+        partnerName: p.vendorName,
+        memo: `vendor bill payment${p.billNumber ? ` (${p.billNumber})` : ""}`,
+        accountMapping,
+      });
+      return `bill:${billId};payment:${paymentId}`;
+    }
+    // === END W31 vendor-bills ===
     default:
       throw new Error(`unknown entityType ${row.entityType}`);
   }

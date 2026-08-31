@@ -39,6 +39,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/whatsapp-commerce/otelx"
 )
 
 // ─── Configuration ────────────────────────────────────────────────────────────
@@ -604,6 +605,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"status":          "ok",
 		"service":         "hermes-bridge",
+		"otel_enabled":    otelx.Status(), // === W35 otel ===
 		"uptime_seconds":  time.Since(s.startTime).Seconds(),
 		"circuit_breaker": s.processor.hermes.circuitBreaker.StateString(),
 		"events_processed": s.processor.hermes.processed.Load(),
@@ -740,6 +742,12 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := configFromEnv()
+
+	// === W35 otel ===
+	otelShutdown, _ := otelx.Init(context.Background(), "hermes-bridge")
+	defer func() { _ = otelShutdown(context.Background()) }()
+	// === END W35 otel ===
+
 	logger.Info("hermes-bridge starting",
 		"port", cfg.Port,
 		"hermes_url", cfg.HermesAgentURL,
@@ -758,7 +766,7 @@ func main() {
 	srv := NewServer(cfg, processor, logger)
 	httpServer := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      srv.routes(),
+		Handler:      otelx.Middleware("hermes-bridge")(srv.routes()), // === W35 otel ===
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,

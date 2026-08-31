@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { router, protectedProcedure, internalProcedure, assertTenantAccess } from "../_core/trpc";
+// === W34 otel-core === traceparent propagation to ml-stack.
+import { injectTraceHeaders } from "../_core/telemetry";
 import { getDb } from "../db";
 import { channelMessages, ussdSessions as ussdSessionsTable } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -189,7 +191,8 @@ export const channelsRouter = router({
       try {
         const nlpRes = await fetch(`${mlStackUrl}/nlp/intent`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // === W34 otel-core === traceparent propagation to ml-stack.
+          headers: injectTraceHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({ text: input.body, tenant_id: input.tenantId }),
           signal: AbortSignal.timeout(3000),
         });

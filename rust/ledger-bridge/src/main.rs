@@ -335,6 +335,13 @@ impl TigerBeetleClient {
     }
 
     /// Create an account in TigerBeetle.
+    // === W35 otel ===
+    #[tracing::instrument(
+        name = "tigerbeetle.create_account",
+        skip(self),
+        fields(db.system = "tigerbeetle", tb.operation = "create_account")
+    )]
+    // === END W35 otel ===
     async fn create_account(&self, id: u128, ledger: u32, code: u16) -> Result<(), String> {
         let payload = serde_json::json!({
             "cluster_id": self.cluster_id,
@@ -363,6 +370,13 @@ impl TigerBeetleClient {
     /// Reserve funds (create a pending transfer) with an explicit timeout so
     /// orphaned reservations auto-void instead of locking funds forever.
     #[allow(clippy::too_many_arguments)]
+    // === W35 otel ===
+    #[tracing::instrument(
+        name = "tigerbeetle.create_pending_transfer",
+        skip(self),
+        fields(db.system = "tigerbeetle", tb.operation = "create_pending_transfer")
+    )]
+    // === END W35 otel ===
     async fn create_pending_transfer(
         &self, id: u128, debit_account: u128, credit_account: u128,
         amount_minor: u64, ledger: u32, code: u16, timeout_secs: u32,
@@ -392,6 +406,13 @@ impl TigerBeetleClient {
     }
 
     /// Post a pending transfer (commit).
+    // === W35 otel ===
+    #[tracing::instrument(
+        name = "tigerbeetle.post_pending_transfer",
+        skip(self),
+        fields(db.system = "tigerbeetle", tb.operation = "post_pending_transfer")
+    )]
+    // === END W35 otel ===
     async fn post_pending_transfer(&self, pending_id: u128, post_id: u128) -> Result<(), String> {
         let payload = serde_json::json!({
             "cluster_id": self.cluster_id,
@@ -414,6 +435,13 @@ impl TigerBeetleClient {
     }
 
     /// Void a pending transfer.
+    // === W35 otel ===
+    #[tracing::instrument(
+        name = "tigerbeetle.void_pending_transfer",
+        skip(self),
+        fields(db.system = "tigerbeetle", tb.operation = "void_pending_transfer")
+    )]
+    // === END W35 otel ===
     async fn void_pending_transfer(&self, pending_id: u128, void_id: u128) -> Result<(), String> {
         let payload = serde_json::json!({
             "cluster_id": self.cluster_id,
@@ -436,6 +464,13 @@ impl TigerBeetleClient {
     }
 
     /// Single-phase posted transfer (used for compensating reversals).
+    // === W35 otel ===
+    #[tracing::instrument(
+        name = "tigerbeetle.create_posted_transfer",
+        skip(self),
+        fields(db.system = "tigerbeetle", tb.operation = "create_posted_transfer")
+    )]
+    // === END W35 otel ===
     async fn create_posted_transfer(
         &self, id: u128, debit_account: u128, credit_account: u128,
         amount_minor: u64, ledger: u32, code: u16,
@@ -1374,9 +1409,87 @@ fn rand_u128() -> u128 {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+
+// === W35 otel ===
+/// Fail-open OTel init (SPEC_W35 Coder B). OTEL_ENABLED (default false) gates
+/// instrumentation; OTEL_EXPORTER_OTLP_ENDPOINT defaults to
+/// http://otel-collector:4318. Exporter build failure -> warn + fmt-only.
+/// Returns true when the OTLP tracer layer was installed.
+fn init_telemetry(service_name: &str, default_directive: Option<&str>) -> bool {
+    opentelemetry::global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
+    let enabled = std::env::var("OTEL_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    if !enabled {
+        let sub = tracing_subscriber::fmt().json();
+        if let Some(d) = default_directive {
+            sub.with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive(d.parse().expect("valid directive")),
+            )
+            .init();
+        } else {
+            sub.init();
+        }
+        return false;
+    }
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| "http://otel-collector:4318".to_string());
+    match build_otel_tracer(&endpoint, service_name) {
+        Ok(tracer) => {
+            use tracing_subscriber::prelude::*;
+            let mut filter = tracing_subscriber::EnvFilter::from_default_env();
+            if let Some(d) = default_directive {
+                filter = filter.add_directive(d.parse().expect("valid directive"));
+            }
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(tracing_subscriber::fmt::layer().json())
+                .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                .init();
+            true
+        }
+        Err(e) => {
+            tracing_subscriber::fmt().json().init();
+            tracing::warn!(error = %e, "W35 otel: exporter setup failed; continuing uninstrumented");
+            false
+        }
+    }
+}
+
+/// Build an OTLP/tonic span exporter and provider. Errors bubble up to
+/// init_telemetry, which falls back to fmt-only logging (fail-open).
+fn build_otel_tracer(
+    endpoint: &str,
+    service_name: &str,
+) -> Result<opentelemetry_sdk::trace::SdkTracer, opentelemetry_otlp::ExporterBuildError> {
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_otlp::WithExportConfig;
+    let exporter = opentelemetry_otlp::new_exporter()
+        .tonic()
+        .with_endpoint(endpoint.to_string())
+        .build_span_exporter()?;
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name(service_name.to_string())
+                .build(),
+        )
+        .build();
+    opentelemetry::global::set_tracer_provider(provider.clone());
+    Ok(provider.tracer(service_name.to_string()))
+}
+// === END W35 otel ===
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt().json().init();
+    // === W35 otel ===
+    let otel_enabled = init_telemetry("ledger-bridge", None);
+    info!(otel_enabled, "telemetry initialized");
+    // === END W35 otel ===
     let cfg = Config::from_env();
 
     // Fail loudly on a malformed TigerBeetle sidecar address — silently

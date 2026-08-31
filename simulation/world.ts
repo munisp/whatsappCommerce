@@ -490,6 +490,16 @@ export async function bootWorld(): Promise<World> {
       waitFor,
 
       async resetJourneyState() {
+        // === W31 ar-invoices === wipe AR invoice tables + their payment
+        // intents so J193–J196 never leak reminders/payments into each other.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql } = await import("drizzle-orm");
+          await world.db.delete(schema.arInvoicePayments);
+          await world.db.delete(schema.arInvoices);
+          await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' = 'ar_invoice_payment'`);
+        } catch { /* W31 tables not migrated yet */ }
+        // === END W31 ar-invoices ===
         // Restore seed stock so journeys never starve each other.
         try {
           const { products } = await import("../drizzle/schema");
@@ -551,6 +561,29 @@ export async function bootWorld(): Promise<World> {
           mockMedusaAdapter.reset();
         } catch { /* w28 tables not migrated yet */ }
         // === END W28 medusa-storefront ===
+        // === W31 scheduled-batch (Coder B): scheduled payments and batch
+        // summaries never leak between journeys (J187–J190).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.scheduledPayments);
+          await world.db.delete(schema.paymentBatches);
+        } catch { /* w31 tables not migrated yet */ }
+        // === END W31 scheduled-batch ===
+        // === W32 earlypay-fx (Coder C): FX quotes never leak between
+        // journeys (J203–J205). wholesale_orders are already wiped above.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.fxQuotes);
+        } catch { /* w32 tables not migrated yet */ }
+        // === END W32 earlypay-fx ===
+        // === W33 tax-statements (Coder A): profiles/statements never leak
+        // between journeys (J206–J208).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.annualStatements);
+          await world.db.delete(schema.supplierTaxProfiles);
+        } catch { /* w33 tables not migrated yet */ }
+        // === END W33 tax-statements ===
         // Wave 9 isolation: onboarding copilot sessions + the waOnboarding
         // in-memory pending-edit map never leak between journeys.
         try {
@@ -786,6 +819,63 @@ export async function bootWorld(): Promise<World> {
           resetOdooAdapters();
         } catch { /* odoo adapter unavailable */ }
         // === END W28 odoo-sync ===
+        // === W31 vendor-bills (Coder A) isolation: bills + audit events
+        // created by J183–J186 never leak between journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.vendorBillEvents);
+          await world.db.delete(schema.vendorBills);
+        } catch { /* w31 tables not migrated yet */ }
+        // === END W31 vendor-bills ===
+        // === W33 embedded-api === isolation: embedded clients, their API
+        // surface flag/limit env, and embedded-actor audit rows never leak
+        // between journeys (J212–J214).
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW33 } = await import("drizzle-orm");
+          await world.db.delete(schema.embeddedClients);
+          await world.db.execute(sqlW33`DELETE FROM audit_logs WHERE actor_id LIKE 'embedded:%'`);
+        } catch { /* w33 tables not migrated yet */ }
+        delete process.env.EMBEDDED_API_ENABLED;
+        delete process.env.EMBEDDED_API_RATE_LIMIT_PER_MIN;
+        // === END W33 embedded-api ===
+        // === W32 pay-over-time === isolation: installment plans + their
+        // exactly-once capture/settle claims never leak between journeys.
+        // (Loans/funding/facility are already wiped+reseeded by the W30
+        // loans-credit block above; the platform facility seed is REUSED —
+        // no new facility seed here.)
+        try {
+          const schema = await import("../drizzle/schema");
+          const { inArray: inArr } = await import("drizzle-orm");
+          await world.db.delete(schema.installmentPlans);
+          await world.db.delete(schema.processedWebhookEvents)
+            .where(inArr(schema.processedWebhookEvents.type, ["pot_installment", "pot_settle"]));
+        } catch { /* w32 tables not migrated yet */ }
+        // === END W32 pay-over-time ===
+        // === W32 merger seam === recurring rules (B's journeys) never leak
+        // between journeys on the merged branch.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.recurringRules);
+        } catch { /* w32 tables not migrated yet */ }
+        // === END W32 merger seam ===
+        // === W33 ai-qa-forecast === forecast snapshots never leak between
+        // journeys (J209–J211).
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.cashflowForecasts);
+        } catch { /* w33 tables not migrated yet */ }
+        // === END W33 ai-qa-forecast ===
+        // === W34 otel-sidecars === the telemetry tenant allowlist and its
+        // admin audit rows never leak between journeys (J220–J221).
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW34 } = await import("drizzle-orm");
+          await world.db.delete(schema.telemetryTenantAllowlist);
+          await world.db.execute(sqlW34`DELETE FROM audit_logs WHERE action = 'telemetry.allowlist.set'`);
+        } catch { /* w34 tables not migrated yet */ }
+        delete process.env.OTEL_TENANT_METRIC_ALLOWLIST;
+        // === END W34 otel-sidecars ===
         delete process.env.CATALOG_EXTRACTION_PROVIDER;
         delete process.env.CATALOG_EXTRACTION_ENDPOINT;
         delete process.env.CATALOG_EXTRACTION_API_KEY;

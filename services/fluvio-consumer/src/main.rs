@@ -157,11 +157,16 @@ async fn run_consumer_loop(config: Arc<Config>, client: Arc<reqwest::Client>) {
                             let events: Vec<PlatformEvent> = records
                                 .iter()
                                 .enumerate()
-                                .map(|(i, r)| PlatformEvent {
-                                    topic: topic.clone(),
-                                    offset: offset + i as i64,
-                                    payload: r.clone(),
-                                    received_at: now,
+                                .map(|(i, r)| {
+                                    // === W35 otel ===
+                                    let _span_guard = consume_span(topic, offset + i as i64, r);
+                                    // === END W35 otel ===
+                                    PlatformEvent {
+                                        topic: topic.clone(),
+                                        offset: offset + i as i64,
+                                        payload: r.clone(),
+                                        received_at: now,
+                                    }
                                 })
                                 .collect();
 
@@ -195,6 +200,39 @@ async fn run_consumer_loop(config: Arc<Config>, client: Arc<reqwest::Client>) {
     }
 }
 
+
+// === W35 otel ===
+/// Extract the W3C `traceparent` (lowercase string header — binding W35
+/// contract with the Kafka/Node producers) from a record's metadata/headers.
+fn extract_traceparent(record: &serde_json::Value) -> Option<String> {
+    record
+        .pointer("/headers/traceparent")
+        .or_else(|| record.pointer("/metadata/traceparent"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+/// Start a `fluvio.consume` span for one record, continuing the producer
+/// trace when a traceparent header is present. Returns the span guard.
+fn consume_span(topic: &str, offset: i64, record: &serde_json::Value) -> tracing::span::EnteredSpan {
+    let span = tracing::info_span!(
+        "fluvio.consume",
+        messaging.system = "fluvio",
+        messaging.destination = %topic,
+        messaging.offset = offset,
+    );
+    if let Some(tp) = extract_traceparent(record) {
+        use tracing_opentelemetry::OpenTelemetrySpanExt;
+        let mut carrier = std::collections::HashMap::new();
+        carrier.insert("traceparent".to_string(), tp);
+        let parent_cx =
+            opentelemetry::global::get_text_map_propagator(|p| p.extract(&carrier));
+        span.set_parent(parent_cx);
+    }
+    span.entered()
+}
+// === END W35 otel ===
+
 // ─── Health Endpoint ──────────────────────────────────────────────────────────
 
 async fn health() -> axum::response::Json<serde_json::Value> {
@@ -207,16 +245,88 @@ async fn health() -> axum::response::Json<serde_json::Value> {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+
+// === W35 otel ===
+/// Fail-open OTel init (SPEC_W35 Coder B). OTEL_ENABLED (default false) gates
+/// instrumentation; OTEL_EXPORTER_OTLP_ENDPOINT defaults to
+/// http://otel-collector:4318. Exporter build failure -> warn + fmt-only.
+/// Returns true when the OTLP tracer layer was installed.
+fn init_telemetry(service_name: &str, default_directive: Option<&str>) -> bool {
+    opentelemetry::global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
+    let enabled = std::env::var("OTEL_ENABLED")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+    if !enabled {
+        let sub = tracing_subscriber::fmt().json();
+        if let Some(d) = default_directive {
+            sub.with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive(d.parse().expect("valid directive")),
+            )
+            .init();
+        } else {
+            sub.init();
+        }
+        return false;
+    }
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| "http://otel-collector:4318".to_string());
+    match build_otel_tracer(&endpoint, service_name) {
+        Ok(tracer) => {
+            use tracing_subscriber::prelude::*;
+            let mut filter = tracing_subscriber::EnvFilter::from_default_env();
+            if let Some(d) = default_directive {
+                filter = filter.add_directive(d.parse().expect("valid directive"));
+            }
+            tracing_subscriber::registry()
+                .with(filter)
+                .with(tracing_subscriber::fmt::layer().json())
+                .with(tracing_opentelemetry::layer().with_tracer(tracer))
+                .init();
+            true
+        }
+        Err(e) => {
+            tracing_subscriber::fmt().json().init();
+            tracing::warn!(error = %e, "W35 otel: exporter setup failed; continuing uninstrumented");
+            false
+        }
+    }
+}
+
+/// Build an OTLP/tonic span exporter and provider. Errors bubble up to
+/// init_telemetry, which falls back to fmt-only logging (fail-open).
+fn build_otel_tracer(
+    endpoint: &str,
+    service_name: &str,
+) -> Result<opentelemetry_sdk::trace::SdkTracer, opentelemetry_otlp::ExporterBuildError> {
+    use opentelemetry::trace::TracerProvider;
+    use opentelemetry_otlp::WithExportConfig;
+    let exporter = opentelemetry_otlp::new_exporter()
+        .tonic()
+        .with_endpoint(endpoint.to_string())
+        .build_span_exporter()?;
+    let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name(service_name.to_string())
+                .build(),
+        )
+        .build();
+    opentelemetry::global::set_tracer_provider(provider.clone());
+    Ok(provider.tracer(service_name.to_string()))
+}
+// === END W35 otel ===
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("fluvio_consumer=info".parse()?),
-        )
-        .json()
-        .init();
+    // === W35 otel ===
+    let otel_enabled = init_telemetry("fluvio-consumer", Some("fluvio_consumer=info"));
+    info!(otel_enabled, "telemetry initialized");
+    // === END W35 otel ===
 
     let config = Arc::new(Config::from_env());
     let client = Arc::new(

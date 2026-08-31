@@ -24,3 +24,10 @@ config = "0.14"
 axum = { version = "0.7", features = ["json"] }
 tower-http = { version = "0.6", features = ["trace"] }
 csv = "1"
+
+# === W35 otel ===
+opentelemetry = "0.30"
+opentelemetry_sdk = "0.30"
+opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "trace"] }
+tracing-opentelemetry = "0.31"
+# === END W35 otel ===

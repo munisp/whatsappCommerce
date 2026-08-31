@@ -100,6 +100,15 @@ import { manufacturerProgramsRouter } from "./routers/manufacturerPrograms";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
+// === W31 approvals (Coder C) ===
+import { approvalsRouter } from "./routers/approvals";
+// === END W31 approvals ===
+// === W33 embedded-api ===
+import { embeddedRouter } from "./routers/embedded";
+// === END W33 embedded-api ===
+// === W34 otel-sidecars (Coder C) ===
+import { telemetryRouter } from "./routers/telemetry";
+// === END W34 otel-sidecars ===
 import { erpProvisionRouter } from "./routers/erpProvision";
 import { embeddedSignupRouter } from "./routers/embeddedSignup";
 import { shopifyIntegrationRouter } from "./routers/shopifyIntegration";
@@ -153,6 +162,12 @@ export const appRouter = router({
       }),
   }),
   membership: membershipRouter,
+  // === W31 approvals (Coder C) ===
+  approvals: approvalsRouter,
+  // === END W31 approvals ===
+  // === W33 embedded-api ===
+  embedded: embeddedRouter,
+  // === END W33 embedded-api ===
   tenant: tenantRouter,
   tenantConfig: tenantConfigRouter,
   product: productRouter,
@@ -282,6 +297,30 @@ export const appRouter = router({
   // === W28 odoo-sync (Coder A) ===
   odooSync: odooSyncRouter,
   // === END W28 odoo-sync ===
+  // === W31 vendor-bills (Coder A) ===
+  vendorBills: vendorBillsRouter,
+  // === END W31 vendor-bills ===
+  // === W31 scheduled-batch (Coder B) ===
+  scheduledPayments: scheduledPaymentsRouter,
+  // === END W31 scheduled-batch ===
+  // === W31 ar-invoices (Coder D) ===
+  arInvoices: arInvoicesRouter,
+  // === END W31 ar-invoices ===
+  // === W32 recurring-tiers (Coder B) ===
+  recurringRules: recurringRulesRouter,
+  // === END W32 recurring-tiers ===
+  // === W32 earlypay-fx (Coder C) ===
+  fxPayouts: fxPayoutsRouter,
+  // === END W32 earlypay-fx ===
+  // === W33 tax-statements ===
+  taxStatements: taxStatementsRouter,
+  // === END W33 tax-statements ===
+  // === W33 ai-qa-forecast (Coder B) ===
+  cashflow: cashflowRouter,
+  // === END W33 ai-qa-forecast ===
+  // === W34 otel-sidecars (Coder C) ===
+  telemetry: telemetryRouter,
+  // === END W34 otel-sidecars ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -307,3 +346,25 @@ import { groupBuyRouter } from "./routers/groupBuy";
 // === W28 odoo-sync (Coder A) ===
 import { odooSyncRouter } from "./routers/odooSync";
 // === END W28 odoo-sync ===
+// === W31 vendor-bills (Coder A) ===
+import { vendorBillsRouter } from "./routers/vendorBills";
+// === END W31 vendor-bills ===
+// === W31 scheduled-batch (Coder B) ===
+import { scheduledPaymentsRouter } from "./routers/payments2";
+// === END W31 scheduled-batch ===
+// === W31 ar-invoices (Coder D) ===
+import { arInvoicesRouter } from "./routers/arInvoices";
+// === END W31 ar-invoices ===
+// === W32 recurring-tiers (Coder B) ===
+import { recurringRulesRouter } from "./routers/recurringRules";
+// === END W32 recurring-tiers ===
+
+// === W32 earlypay-fx (Coder C) ===
+import { fxPayoutsRouter } from "./routers/fxPayouts";
+// === END W32 earlypay-fx ===
+// === W33 tax-statements ===
+import { taxStatementsRouter } from "./routers/taxStatements";
+// === END W33 tax-statements ===
+// === W33 ai-qa-forecast (Coder B) ===
+import { cashflowRouter } from "./routers/cashflow";
+// === END W33 ai-qa-forecast ===

@@ -34,6 +34,17 @@ DELTA_DIR = LAKEHOUSE_DIR / "delta"
 for d in [LAKEHOUSE_DIR, FEATURE_STORE_DIR, DELTA_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
+# === W35 otel-ml-stack === lazy fail-open OTel (stdlib-safe import).
+import sys as _sys
+_ML_STACK_DIR = Path(__file__).resolve().parent.parent
+if str(_ML_STACK_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_ML_STACK_DIR))
+try:
+    import telemetry as _ml_telemetry  # services/ml-stack/telemetry.py
+except Exception:  # pragma: no cover - fail-open
+    _ml_telemetry = None
+# === END W35 otel-ml-stack ===
+
 
 class LakehousePipeline:
     """
@@ -338,6 +349,16 @@ class LakehousePipeline:
         Run the complete ETL pipeline: extract → ingest → compute features → export snapshot.
         Returns a summary dict with row counts and timing.
         """
+        # === W35 otel-ml-stack === lakehouse.pipeline.run span (fail-open).
+        if _ml_telemetry is not None:
+            _ml_telemetry.init_telemetry(service_name="lakehouse-pipeline")
+            with _ml_telemetry.ml_span("lakehouse.pipeline.run",
+                                       {"pipeline.days_back": str(days_back)}):
+                return self._run_full_pipeline_body(days_back)
+        return self._run_full_pipeline_body(days_back)
+        # === END W35 otel-ml-stack ===
+
+    def _run_full_pipeline_body(self, days_back: int = 30) -> dict:
         import time as _time
         t0 = _time.time()
         raw_df = self.extract_from_postgres(days_back=days_back)

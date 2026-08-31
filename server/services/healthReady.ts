@@ -15,6 +15,8 @@
  */
 
 import { sql } from "drizzle-orm";
+// === W34 otel-core === traceparent propagation on readiness probes.
+import { injectTraceHeaders } from "../_core/telemetry";
 import { getDb } from "../db";
 import { getRedis } from "../redis";
 import { ENV } from "../_core/env";
@@ -89,7 +91,7 @@ async function checkKeycloak(): Promise<ComponentCheck> {
 async function checkTigerBeetle(): Promise<ComponentCheck> {
   const t0 = Date.now();
   try {
-    const res = await fetch(`${ENV.ledgerBridgeUrl}/health`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).catch(() => null);
+    const res = await fetch(`${ENV.ledgerBridgeUrl}/health`, { headers: injectTraceHeaders({}), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).catch(() => null); // W34 otel-core: traceparent
     return res?.ok
       ? { ok: true, latencyMs: Date.now() - t0 }
       : { ok: false, latencyMs: Date.now() - t0, error: `ledger-bridge returned ${res?.status ?? "unreachable"}` };

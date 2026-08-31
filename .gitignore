@@ -123,3 +123,7 @@ rust/*/target/
 !simulation/render/dist
 !simulation/render/dist/
 !simulation/render/dist/index.html
+# === W33 tax-statements ===
+# Runtime-generated annual-statement PDFs (regenerated on demand; never committed).
+data/tax-statements/
+# === END W33 tax-statements ===

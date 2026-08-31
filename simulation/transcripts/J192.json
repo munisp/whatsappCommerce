@@ -1,0 +1,8 @@
+{
+  "id": "J192",
+  "title": "reject moves nothing + audit; expiry sweep expires stale requests; threshold 0 = off",
+  "feature": "W31 approvals: reject path + sweepExpiredApprovals cron + honest policy-off semantics",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

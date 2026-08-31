@@ -24,3 +24,7 @@ psycopg2-binary==2.9.10
 torch==2.5.1
 onnxruntime==1.20.1
 scikit-learn==1.6.0
+
+# === W35 otel-ml-stack === fail-open OTel (lazy; loaded only when OTEL_ENABLED=true)
+opentelemetry-sdk==1.37.0
+opentelemetry-exporter-otlp-proto-http==1.37.0

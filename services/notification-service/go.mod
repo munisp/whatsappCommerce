@@ -57,3 +57,9 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// === W35 otel ===
+// SKIPPED (W35): this module has no Go sources (go.mod/go.sum stub only) —
+// there is no main.go / HTTP server to instrument. otel deps intentionally
+// NOT added; instrument when the service implementation lands.
+// === END W35 otel ===

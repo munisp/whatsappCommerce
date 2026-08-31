@@ -1,0 +1,8 @@
+{
+  "id": "J202",
+  "title": "instant payout executes inline with fee leg (fee+net==gross); standard waits for tick",
+  "feature": "W32 speed tiers: schedfee:<id> platform fee leg + honest next-batch standard",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/whatsapp-commerce/conversation-orchestrator/internal/handler"
 	"github.com/whatsapp-commerce/conversation-orchestrator/internal/orchestrator"
 	"github.com/whatsapp-commerce/conversation-orchestrator/internal/store"
+	"github.com/whatsapp-commerce/otelx"
 	"go.uber.org/zap"
 )
 
@@ -20,6 +21,11 @@ func main() {
 	cfg := config.Load()
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
+
+	// === W35 otel ===
+	otelShutdown, _ := otelx.Init(context.Background(), "conversation-orchestrator")
+	defer func() { _ = otelShutdown(context.Background()) }()
+	// === END W35 otel ===
 
 	db, err := store.NewPostgres(cfg.DatabaseURL)
 	if err != nil {
@@ -33,7 +39,7 @@ func main() {
 	r.Use(gin.Recovery())
 
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "conversation-orchestrator"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "conversation-orchestrator", "otel_enabled": otelx.Status()})
 	})
 
 	// Conversation CRUD
@@ -47,7 +53,7 @@ func main() {
 	r.POST("/internal/process-message", h.ProcessInboundMessage)
 	r.POST("/internal/process-event", h.ProcessEvent)
 
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: otelx.Middleware("conversation-orchestrator")(r)} // === W35 otel ===
 	go func() {
 		logger.Info("Conversation Orchestrator starting", zap.String("port", cfg.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

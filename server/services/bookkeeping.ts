@@ -111,6 +111,10 @@ export interface SalesSummary {
   /** rounded % change vs previous period; null when previous period was 0. */
   changePct: number | null;
   currency: string;
+  // === W31 vendor-bills (Coder A): overdue AP snapshot for the digest ===
+  vendorBillsOverdueCount?: number;
+  vendorBillsOverdueCents?: number;
+  // === END W31 vendor-bills ===
 }
 
 async function sumPaidOrders(db: Db, tenantId: string, from: Date, to: Date): Promise<{ cents: number; count: number; currency: string }> {
@@ -142,6 +146,16 @@ export async function computeSalesSummary(
   const cur = await sumPaidOrders(db, tenantId, p.from, p.to);
   const prev = await sumPaidOrders(db, tenantId, p.prevFrom, p.prevTo);
   const changePct = prev.cents > 0 ? Math.round(((cur.cents - prev.cents) / prev.cents) * 100) : null;
+  // === W31 vendor-bills (Coder A): overdue bills surface in the digest ===
+  let vendorBillsOverdueCount = 0;
+  let vendorBillsOverdueCents = 0;
+  try {
+    const { overdueBillSummary } = await import("./vendorBills");
+    const overdue = await overdueBillSummary(db, tenantId, now);
+    vendorBillsOverdueCount = overdue.count;
+    vendorBillsOverdueCents = overdue.totalCents;
+  } catch { /* vendor_bills table not migrated yet */ }
+  // === END W31 vendor-bills ===
   return {
     tenantId,
     frequency,
@@ -154,6 +168,8 @@ export async function computeSalesSummary(
     prevOrderCount: prev.count,
     changePct,
     currency: cur.currency,
+    vendorBillsOverdueCount,
+    vendorBillsOverdueCents,
   };
 }
 
@@ -173,7 +189,12 @@ export function renderDigestMessage(s: SalesSummary): string {
   } else {
     trend = `, flat vs ${prevSpan}`;
   }
-  return `📊 You made ${amount} ${span}${trend} (${ordersTxt}). Reply "export" for a tax-ready report.`;
+  // === W31 vendor-bills (Coder A): honest overdue AP line ===
+  const overdue = (s.vendorBillsOverdueCount ?? 0) > 0
+    ? ` ⚠️ ${s.vendorBillsOverdueCount} vendor bill${s.vendorBillsOverdueCount === 1 ? "" : "s"} overdue (${formatNaira(s.vendorBillsOverdueCents ?? 0, s.currency)}). Reply "bills" to review.`
+    : "";
+  // === END W31 vendor-bills ===
+  return `📊 You made ${amount} ${span}${trend} (${ordersTxt}).${overdue} Reply "export" for a tax-ready report.`;
 }
 
 // ─── Digest prefs + scheduled sends ─────────────────────────────────────────

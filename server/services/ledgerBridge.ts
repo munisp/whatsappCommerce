@@ -7,6 +7,8 @@
  * to avoid changing its battle-tested behavior.
  */
 import { ENV } from "../_core/env";
+// === W34 otel-core === traceparent propagation to the TigerBeetle ledger-bridge.
+import { injectTraceHeaders } from "../_core/telemetry";
 
 export class LedgerBridgeError extends Error {
   status: number | null;
@@ -23,7 +25,7 @@ export async function ledgerBridgeRequest(path: string, method = "GET", body?: u
   try {
     res = await fetch(url, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : {},
+      headers: injectTraceHeaders(body ? { "Content-Type": "application/json" } : {}),
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(8000),
     });

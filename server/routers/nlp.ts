@@ -10,6 +10,8 @@ import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, internalProcedure, router, assertTenantAccess } from "../_core/trpc";
+// === W34 otel-core === traceparent propagation (internal ml call).
+import { injectTraceHeaders } from "../_core/telemetry";
 import { getDb } from "../db";
 import { invokeLLM } from "../_core/llm";
 import {
@@ -344,7 +346,8 @@ export async function createChatOrder(
   try {
     const fraudResp = await fetch(`http://localhost:${process.env.PORT ?? 3000}/api/ml/predict`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // === W34 otel-core === traceparent propagation on the internal ml call.
+      headers: injectTraceHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         tenantId: opts.tenantId,
         amount: total,

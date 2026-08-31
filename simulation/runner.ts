@@ -235,6 +235,87 @@ export async function loadJourneys(): Promise<Journey[]> {
     // === W30 hotfix-money ===
     import("./journeys/j182-unverified-courier-escrow"),
     // === END W30 hotfix-money ===
+    // === W31 vendor-bills ===
+    import("./journeys/j183-vendor-bill-pay-full"),
+    import("./journeys/j184-vendor-bill-partial"),
+    import("./journeys/j185-vendor-bill-whatsapp-capture"),
+    import("./journeys/j186-vendor-bill-insufficient-overdue"),
+    // === END W31 vendor-bills ===
+    // === W31 scheduled-batch ===
+    import("./journeys/j187-scheduled-payment-executes"),
+    import("./journeys/j188-scheduled-insufficient-retry"),
+    import("./journeys/j189-batch-payments"),
+    import("./journeys/j190-t1-reminder-dedupe"),
+    // === END W31 scheduled-batch ===
+    // === W31 approvals (Coder C) ===
+    import("./journeys/j191-approval-withdrawal-executes"),
+    import("./journeys/j192-approval-reject-expiry"),
+    // === END W31 approvals ===
+    // === W31 ar-invoices ===
+    import("./journeys/j193-ar-invoice-full-payment"),
+    import("./journeys/j194-ar-invoice-partial-payments"),
+    import("./journeys/j195-ar-invoice-overdue-reminders"),
+    import("./journeys/j196-ar-invoice-cancel-link-invalidated"),
+    // === W31 merger seam ===
+    import("./journeys/j197-approval-vendorbill-scheduled"),
+    // === END W31 ar-invoices ===
+    // === W32 pay-over-time ===
+    import("./journeys/j198-pay-over-time-full-cycle"),
+    import("./journeys/j199-pay-over-time-rejections-settle"),
+    // === END W32 pay-over-time ===
+    // === W32 recurring-tiers ===
+    import("./journeys/j200-recurring-autopay"),
+    import("./journeys/j201-recurring-approval"),
+    import("./journeys/j202-speed-tiers"),
+    // === END W32 recurring-tiers ===
+    // === W32 earlypay-fx (Coder C) ===
+    import("./journeys/j203-earlypay-discount"),
+    import("./journeys/j204-fx-quote-accept-execute"),
+    import("./journeys/j205-fx-no-corridor"),
+    // === END W32 earlypay-fx ===
+    // === W33 tax-statements ===
+    import("./journeys/j206-tax-profile-annual-totals"),
+    import("./journeys/j207-tax-statement-pdf"),
+    import("./journeys/j208-tax-statement-send"),
+    // === END W33 tax-statements ===
+    // === W33 ai-qa-forecast (Coder B) ===
+    import("./journeys/j209-finance-qa-intents"),
+    import("./journeys/j210-forecast-conservation"),
+    import("./journeys/j211-forecast-snapshot-idempotent"),
+    // === END W33 ai-qa-forecast ===
+    // === W33 embedded-api ===
+    import("./journeys/j212-embedded-api-full-flow"),
+    import("./journeys/j213-embedded-api-scope-enforcement"),
+    import("./journeys/j214-embedded-api-tenant-isolation"),
+    // === END W33 embedded-api ===
+    // === W34 otel-core (Coder A) ===
+    import("./journeys/j215-otel-trace-baggage-metrics"),
+    import("./journeys/j216-otel-propagation-chain"),
+    import("./journeys/j217-otel-fail-open"),
+    // === END W34 otel-core ===
+    // === W34 otel-stack (Coder B) ===
+    import("./journeys/j218-otel-stack-config"),
+    import("./journeys/j219-wa-bridge"),
+    // === END W34 otel-stack ===
+    // === W34 otel-sidecars (Coder C) ===
+    import("./journeys/j220-sidecar-traceparent"),
+    import("./journeys/j221-tenant-cardinality-guard"),
+    // === END W34 otel-sidecars ===
+    // === W34 wa-ops-alert (merger seam) ===
+    import("./journeys/j222-wa-ops-alert"),
+    // === END W34 wa-ops-alert ===
+    // === W35 node-python-otel (Coder C) ===
+    import("./journeys/j223-kafka-traceparent"),
+    import("./journeys/j224-temporal-otel-interceptors"),
+    import("./journeys/j225-mojaloop-spans"),
+    import("./journeys/j226-ml-stack-otel"),
+    // === END W35 node-python-otel ===
+    // === W35 infra-receivers (Coder D) ===
+    import("./journeys/j227-collector-infra-receivers"),
+    import("./journeys/j228-alert-rules-dashboards"),
+    import("./journeys/j229-mig0116-component-status"),
+    import("./journeys/j230-otel-stack-probes"),
+    // === END W35 infra-receivers ===
   ]);
   return mods.map((m) => m.journey as Journey);
 }

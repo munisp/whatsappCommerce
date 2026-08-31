@@ -48,6 +48,13 @@ if str(_ML_STACK_DIR) not in sys.path:
 
 import model_io  # noqa: E402
 
+# === W35 otel-ml-stack === lazy fail-open OTel (stdlib-safe import).
+try:
+    import telemetry as _ml_telemetry  # services/ml-stack/telemetry.py
+except Exception:  # pragma: no cover - fail-open
+    _ml_telemetry = None
+# === END W35 otel-ml-stack ===
+
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -185,6 +192,15 @@ async def update_lakehouse_run(run_id: str, status: str, duration_ms: int = None
 
 def run_fraud_inference(features: list[float]) -> tuple[float, str, str]:
     """Run fraud inference. Returns (probability, risk_level, source)."""
+    # === W35 otel-ml-stack === ml.inference span (fail-open).
+    if _ml_telemetry is not None:
+        with _ml_telemetry.ml_span("ml.inference", {"ml.model": "fraud"}):
+            return _run_fraud_inference_body(features)
+    return _run_fraud_inference_body(features)
+    # === END W35 otel-ml-stack ===
+
+
+def _run_fraud_inference_body(features: list[float]) -> tuple[float, str, str]:
     bundle = _models.get("fraud")
     if bundle:
         try:
@@ -298,6 +314,10 @@ class LakehouseTriggerRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("ML Inference Server starting (CPU mode)")
+    # === W35 otel-ml-stack === init (no-op unless OTEL_ENABLED=true; fail-open).
+    if _ml_telemetry is not None:
+        _ml_telemetry.init_telemetry(app=app, service_name="ml-inference")
+    # === END W35 otel-ml-stack ===
     load_models()
     yield
     log.info("ML Inference Server shutting down")
@@ -329,6 +349,11 @@ async def health():
             "intent": _model_versions.get("intent", "heuristic-fallback"),
         },
         "cpu_mode": True,
+        # === W35 otel-ml-stack === honest telemetry status.
+        "telemetry": _ml_telemetry.telemetry_status() if _ml_telemetry is not None
+        else {"enabled": False, "active": False, "exporter": None, "endpoint": None,
+              "last_error": "telemetry module unavailable"},
+        # === END W35 otel-ml-stack ===
     }
 
 
@@ -383,9 +408,15 @@ async def _run_prediction(req: PredictRequest) -> dict:
 
 
 @app.post("/predict")
-async def predict(req: PredictRequest):
+async def predict(req: PredictRequest, request: Request):
     """Fraud detection + credit scoring."""
+    # === W35 otel-ml-stack === traceparent extraction (trace continuation).
+    if _ml_telemetry is not None:
+        with _ml_telemetry.ml_span("ml.inference", {"ml.endpoint": "predict"},
+                                   headers=request.headers):
+            return await _run_prediction(req)
     return await _run_prediction(req)
+    # === END W35 otel-ml-stack ===
 
 
 @app.post("/predict/fraud")

@@ -12,6 +12,7 @@ import (
 	"github.com/whatsapp-commerce/payment-orchestrator/internal/config"
 	"github.com/whatsapp-commerce/payment-orchestrator/internal/handler"
 	"github.com/whatsapp-commerce/payment-orchestrator/internal/store"
+	"github.com/whatsapp-commerce/otelx"
 	"go.uber.org/zap"
 )
 
@@ -19,6 +20,11 @@ func main() {
 	cfg := config.Load()
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
+
+	// === W35 otel ===
+	otelShutdown, _ := otelx.Init(context.Background(), "payment-orchestrator")
+	defer func() { _ = otelShutdown(context.Background()) }()
+	// === END W35 otel ===
 
 	db, err := store.NewPostgres(cfg.DatabaseURL)
 	if err != nil {
@@ -34,7 +40,7 @@ func main() {
 	r.Use(handler.AuthMiddleware(cfg, logger))
 
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "payment-orchestrator"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "payment-orchestrator", "otel_enabled": otelx.Status()})
 	})
 
 	r.POST("/payments/initiate", h.InitiatePayment)
@@ -45,7 +51,7 @@ func main() {
 	// Mojaloop async callback (forwarded from webhook-ingestor)
 	r.POST("/webhooks/mojaloop/callback/:tenant_slug", h.HandleMojaloopCallback)
 
-	srv := &http.Server{Addr: ":" + cfg.Port, Handler: r}
+	srv := &http.Server{Addr: ":" + cfg.Port, Handler: otelx.Middleware("payment-orchestrator")(r)} // === W35 otel ===
 	go func() {
 		logger.Info("Payment Orchestrator starting", zap.String("port", cfg.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

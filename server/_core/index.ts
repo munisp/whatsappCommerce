@@ -27,6 +27,7 @@ import { getDb } from "../db";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { runInventorySyncHeartbeat } from "../services/inventorySync";
 import { sql } from "drizzle-orm";
+import { z } from "zod";
 import crypto from "crypto";
 import { paymentTransactions, paymentIntents, walletTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { broadcastCampaigns, broadcastRecipients, twentyContacts } from "../../drizzle/schema";
@@ -57,6 +58,12 @@ import {
 } from "../services/metering";
 import { matchSettlements } from "../services/reconMatch";
 import { checkReadiness, readinessHttpStatus } from "../services/healthReady";
+// === W34 otel-core ===
+import {
+  initTelemetry, telemetryStatus,
+  recordHttpRequest, recordCronRun, renderMetrics, injectTraceHeaders,
+  expressTelemetryMiddleware,
+} from "./telemetry";
 
 // ── Conversation WebSocket broadcast ─────────────────────────────────────────
 // Map of tenantId → Set of connected clients
@@ -70,6 +77,13 @@ export function broadcastConversationEvent(tenantId: string, event: object) {
     if (ws.readyState === WebSocket.OPEN) ws.send(msg);
   });
 }
+
+// === W34 wa-ops-alert (merger seam) === payload schema for the ops bridge.
+const waOpsAlertSchema = z.object({
+  to: z.string().regex(/^\+?[0-9]{8,15}$/, "to must be an E.164-ish WhatsApp number"),
+  body: z.string().min(1).max(4000),
+  kind: z.literal("ops-alert"),
+});
 
 /**
  * Platform ops: outbound sends at the webhook-dispatch layer are usage-metered
@@ -164,6 +178,92 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+
+  // === W34 otel-core === lazy, fail-open OTel bootstrap. Activated only when
+  // OTEL_ENABLED=true; init failure warns and continues (requests unaffected).
+  void initTelemetry().catch(() => { /* telemetry must never break boot */ });
+  // === W34 merger seam (otel-sidecars) === wire the persisted tenant
+  // allowlist (telemetry.setTenantAllowlist) into /api/metrics label guard.
+  void import("../services/telemetryCardinality")
+    .then((m) => m.registerMetricAllowlistProvider())
+    .catch(() => { /* fail-open: env-only labels */ });
+
+  // === W34 otel-core === inbound span + x-trace-id response header (from the
+  // request span; traceparent extraction links cron/internal callers) +
+  // inbound HTTP RED metrics. Registered FIRST so every route is covered.
+  // Never throws into the request path.
+  app.use((req, res, next) => {
+    expressTelemetryMiddleware(req, res, () => {
+      const t0 = Date.now();
+      res.on("finish", () => {
+        try {
+          const matched = (req as any).route?.path;
+          const route = typeof matched === "string" && matched
+            ? `${req.baseUrl ?? ""}${matched}`
+            : "unmatched";
+          const tenantHdr = req.headers["x-tenant-id"];
+          recordHttpRequest(
+            route,
+            res.statusCode,
+            typeof tenantHdr === "string" ? tenantHdr : null,
+            Date.now() - t0,
+          );
+        } catch { /* fail-open */ }
+      });
+      next();
+    });
+  });
+
+  // === W34 otel-core === cron_runs_total{route,result} for scheduled routes.
+  app.use("/api/scheduled", (req, res, next) => {
+    res.on("finish", () => {
+      try {
+        recordCronRun(req.path || "unknown", res.statusCode < 400 ? "ok" : "error");
+      } catch { /* fail-open */ }
+    });
+    next();
+  });
+
+  // === W34 otel-core === GET /api/metrics — Prometheus text exposition.
+  // Auth: METRICS_TOKEN bearer, X-Internal-Api-Key, or an admin session.
+  // Honest 503 when telemetry is disabled (no fake empty exposition).
+  app.get("/api/metrics", async (req, res) => {
+    try {
+      const status = telemetryStatus();
+      if (!status.enabled) {
+        res.status(503).json({ error: "telemetry-disabled", telemetry: status });
+        return;
+      }
+      let authed = false;
+      const bearer = (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+      const metricsToken = (process.env.METRICS_TOKEN ?? "").trim();
+      const internalKey = (process.env.INTERNAL_API_KEY ?? "").trim();
+      const presentedInternal = (req.headers["x-internal-api-key"] as string | undefined)
+        ?? (req.headers["x-internal-token"] as string | undefined) ?? "";
+      const eq = (a: string, b: string) => {
+        const ba = Buffer.from(a); const bb = Buffer.from(b);
+        return ba.length > 0 && ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+      };
+      if (metricsToken && eq(bearer, metricsToken)) authed = true;
+      if (!authed && internalKey && eq(presentedInternal, internalKey)) authed = true;
+      if (!authed && bearer) {
+        try {
+          const user = await sdk.authenticateRequest(req);
+          authed = !!user && (user as any).role === "admin";
+        } catch { authed = false; }
+      }
+      if (!authed) {
+        res.status(401).json({ error: "metrics-auth-required" });
+        return;
+      }
+      res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
+      res.send(await renderMetrics());
+    } catch (err: any) {
+      // Fail-open for the platform, honest for the scrape.
+      res.status(500).json({ error: "metrics-render-failed", detail: String(err?.message ?? err) });
+    }
+  });
+  // === END W34 otel-core ===
 
   // ── w11 payment provider adapter pack (flutterwave/stripe/monnify) ───────
   // Additive + non-blocking: a registration failure is reported via
@@ -778,6 +878,15 @@ async function startServer() {
           if (!result.ok) {
             console.warn(`[paystack-webhook] ref=${ref} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
           }
+          // === W31 AR webhook hook ===
+          // After the PINNED confirmProviderPayment verified + completed the
+          // intent, record any AR-invoice payment keyed by this reference
+          // (= ar_invoices.payment_link_ref). Exactly-once, never throws.
+          if (result.ok) {
+            const { runArInvoiceWebhookHook } = await import("../services/arInvoices");
+            await runArInvoiceWebhookHook(db, { provider: "paystack", reference: ref });
+          }
+          // === END W31 AR webhook hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -846,6 +955,12 @@ async function startServer() {
           if (!result.ok) {
             console.warn(`[flutterwave-webhook] tx_ref=${txRef} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
           }
+          // === W31 AR webhook hook === (see paystack handler above)
+          if (result.ok) {
+            const { runArInvoiceWebhookHook } = await import("../services/arInvoices");
+            await runArInvoiceWebhookHook(db, { provider: "flutterwave", reference: txRef });
+          }
+          // === END W31 AR webhook hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -1056,6 +1171,58 @@ async function startServer() {
       return res.status(503).json({ error: String(err?.message ?? err) });
     }
   });
+
+  // === W34 wa-ops-alert (merger seam) ===
+  // POST /api/internal/wa-ops-alert — platform-side receiver for the W34
+  // Alertmanager→WhatsApp ops bridge (deploy/otel/alertmanager-wa-bridge.mjs).
+  // Auth: X-Internal-Token (timing-safe vs INTERNAL_API_KEY) — FAIL-CLOSED:
+  // when INTERNAL_API_KEY is unset the endpoint is disabled (503). Rate-limited
+  // 30/min fail-closed. Honest 503 when WhatsApp env credentials are not
+  // configured (the bridge logs the drop and still 200s Alertmanager).
+  app.post("/api/internal/wa-ops-alert", async (req, res) => {
+    const internalKey = (process.env.INTERNAL_API_KEY ?? "").trim();
+    if (!internalKey) {
+      return res.status(503).json({ error: "wa-ops-alert disabled — INTERNAL_API_KEY is not configured" });
+    }
+    const presented = (req.headers["x-internal-token"] as string | undefined)
+      ?? (req.headers["x-internal-api-key"] as string | undefined) ?? "";
+    if (!timingSafeEqualStr(presented, internalKey)) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+    const parsed = waOpsAlertSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid-payload", detail: parsed.error.issues.map((i) => i.message).join("; ").slice(0, 300) });
+    }
+    // Rate limit: 30 ops alerts/min; fail-CLOSED in production, dev/test
+    // fail-open with a warning (consistent with the platform's other limiters
+    // — the sim/dev environments have no Redis).
+    try {
+      const { checkRateLimit } = await import("./rateLimit");
+      const windowKey = `rl:wa-ops-alert:${Math.floor(Date.now() / 60000)}`;
+      const decision = await checkRateLimit(windowKey, 30, 60, isProd);
+      if (!decision.allowed) {
+        return res.status(decision.error ? 503 : 429).json({ error: decision.error ? "rate-limiter-unavailable" : "rate-limited", retryAfter: decision.retryAfter });
+      }
+    } catch (rlErr: any) {
+      return res.status(503).json({ error: `rate-limiter-unavailable: ${String(rlErr?.message ?? rlErr)}` });
+    }
+    const waConfigured = !!((process.env.WAC_WHATSAPP_TOKEN || process.env.WHATSAPP_TOKEN) && (process.env.WAC_WHATSAPP_PHONE_ID || process.env.WHATSAPP_PHONE_NUMBER_ID));
+    if (!waConfigured) {
+      return res.status(503).json({ error: "whatsapp-not-configured", sent: false });
+    }
+    try {
+      const { sendWhatsAppText } = await import("../services/waSender");
+      const result = await sendWhatsAppText("default", parsed.data.to, parsed.data.body, { notifType: "ops_alert", skipLog: false });
+      if (!result.sent) {
+        return res.status(503).json({ error: "whatsapp-send-simulated", sent: false });
+      }
+      return res.status(200).json({ sent: true, wamids: result.wamids, chunks: result.chunks });
+    } catch (err: any) {
+      // Honest failure — the bridge counts this as a drop.
+      return res.status(502).json({ error: `whatsapp-send-failed: ${String(err?.message ?? err).slice(0, 200)}`, sent: false });
+    }
+  });
+  // === END W34 wa-ops-alert ===
 
   // ── WhatsApp Business API webhook (Meta) ──────────────────────────────────
   // GET: verification challenge from Meta
@@ -1713,6 +1880,19 @@ async function startServer() {
                     return { handled: false } as { handled: boolean };
                   });
                 if (expOutcome?.handled) return;
+                // === W31 vendor-bills (Coder A) ===
+                // Supplier invoice forward: an image whose caption starts
+                // with "bill"/"invoice" is captured into vendor_bills via the
+                // shared OCR pipeline; anything else falls through to the
+                // stocktake / visual-search chain unchanged.
+                const { handleInboundVendorBillImage } = await import("../services/vendorBills");
+                const vbOutcome = await handleInboundVendorBillImage({ tenantId, waPhoneNumber, mediaId, caption })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] vendor bill capture error:", e?.message);
+                    return { handled: false } as { handled: boolean };
+                  });
+                if (vbOutcome?.handled) return;
+                // === END W31 vendor-bills ===
                 // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
                 // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
                 // Runs BEFORE visual product search when enabled — a
@@ -2266,6 +2446,423 @@ async function startServer() {
   };
   app.get("/api/scheduled/generate-invoices", generateInvoicesHandler);
   app.post("/api/scheduled/generate-invoices", generateInvoicesHandler);
+
+  // === W31 scheduled payments ===
+  // ── POST /api/scheduled/execute-payments (every 5 min) ──────────────────
+  // Claim-before-send execution engine for scheduled_payments (W31 Coder B):
+  // each due row is claimed via a guarded pending→claimed UPDATE, then the
+  // wallet debit + wallet_tx ledger row (reference `sched:<id>`) + status
+  // flip commit in ONE transaction — money movement is never claimed before
+  // the ledger write commits. Honest insufficient_funds state is
+  // merchant-retryable via scheduledPayments.retry after a top-up; other
+  // failures retry with backoff and dead-letter after 5 attempts. The same
+  // tick sends T-1 WhatsApp reminders (metadata.remindedAt dedupe, claimed
+  // before send so no payment is reminded twice).
+  // After deploy: manus-heartbeat create --name execute-payments --cron "0 */5 * * * *" --path /api/scheduled/execute-payments
+  app.post("/api/scheduled/execute-payments", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runScheduledPaymentTick } = await import("../services/scheduledPayments");
+      const summary = await runScheduledPaymentTick(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[execute-payments]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W31 scheduled payments ===
+
+  // === W33 embedded-api ===
+  // Embedded AP-as-a-feature HTTP surface (Melio's distribution play).
+  // /api/embedded/v1/* is an Express API-key surface (NOT tRPC): partners
+  // authenticate with a per-client API key, the tenant context is derived
+  // from the client binding (NEVER from request params/headers), and every
+  // endpoint is a THIN pass-through to the existing W31 services
+  // (vendorBills / scheduledPayments / arInvoices) — no money logic lives
+  // here. Bill pay goes through the SAME approval gate as in-app
+  // (requireApprovalIfNeeded inside recordVendorBillPayment) — embedded can
+  // never bypass it. Fail-closed: EMBEDDED_API_ENABLED defaults OFF and the
+  // whole surface 404s when disabled; enabling it exposes the surface.
+  {
+    type EmbeddedReq = express.Request & { embedded?: { client: any; tenantId: string; actor: string; db: any } };
+    const embedded = express.Router();
+
+    // 1. Feature flag — fail-closed default OFF (404, indistinguishable from
+    //    an unmounted route). Read per-request so ops can toggle without a
+    //    reboot; any value other than exactly "true" is OFF.
+    embedded.use((req, res, next) => {
+      if ((process.env.EMBEDDED_API_ENABLED ?? "false") !== "true") {
+        res.status(404).json({ error: "not-found" });
+        return;
+      }
+      next();
+    });
+
+    // 2. API-key auth: sha256(presented key) timing-safe-compared against the
+    //    stored digest (only digests persist — see services/embeddedApi.ts).
+    //    Unknown key and suspended client both fail 401 honestly. Per-client
+    //    rate limit reuses the fail-closed checkRateLimit (prod: limiter
+    //    outage → 503; never silently unlimited).
+    embedded.use(async (req: EmbeddedReq, res, next) => {
+      try {
+        const db = await getDb();
+        if (!db) { res.status(503).json({ error: "db-unavailable" }); return; }
+        const xKey = req.headers["x-api-key"];
+        const auth = req.headers["authorization"];
+        let presented = typeof xKey === "string" ? xKey.trim() : "";
+        if (!presented && typeof auth === "string" && auth.startsWith("Bearer ")) {
+          presented = auth.slice("Bearer ".length).trim();
+        }
+        if (!presented) { res.status(401).json({ error: "missing-api-key" }); return; }
+        const { resolveApiKey, embeddedActor } = await import("../services/embeddedApi");
+        const resolved = await resolveApiKey(db, presented);
+        if (!resolved) { res.status(401).json({ error: "invalid-api-key" }); return; }
+        if (resolved.suspended) { res.status(401).json({ error: "client-suspended" }); return; }
+        const { checkRateLimit } = await import("./rateLimit");
+        const limit = Math.max(1, Number(process.env.EMBEDDED_API_RATE_LIMIT_PER_MIN ?? 120) || 120);
+        const windowKey = `rl:embedded:${resolved.client.id}:${Math.floor(Date.now() / 60000)}`;
+        const decision = await checkRateLimit(windowKey, limit, 60, isProd);
+        if (!decision.allowed) {
+          res.setHeader("Retry-After", String(decision.retryAfter));
+          if (decision.error) {
+            res.status(503).json({ error: "rate-limiter-unavailable", retryAfter: decision.retryAfter });
+            return;
+          }
+          res.status(429).json({ error: "rate-limited", retryAfter: decision.retryAfter });
+          return;
+        }
+        if (decision.degraded) {
+          // Redis blind and fail-open (dev/test only — prod fails closed
+          // above): enforce the SAME per-client limit in-process so a blind
+          // limiter never means "unlimited" anywhere. Per-minute fixed window.
+          const g = globalThis as any;
+          const store: Map<string, { window: number; count: number }> =
+            g.__w33EmbeddedRlMem ?? (g.__w33EmbeddedRlMem = new Map());
+          const win = Math.floor(Date.now() / 60000);
+          const cur = store.get(resolved.client.id);
+          const next = cur && cur.window === win ? { window: win, count: cur.count + 1 } : { window: win, count: 1 };
+          store.set(resolved.client.id, next);
+          if (next.count > limit) {
+            res.setHeader("Retry-After", "60");
+            res.status(429).json({ error: "rate-limited", retryAfter: 60 });
+            return;
+          }
+        }
+        req.embedded = {
+          client: resolved.client,
+          tenantId: resolved.client.tenantId, // tenant ALWAYS from the binding
+          actor: embeddedActor(resolved.client), // embedded:<clientId>
+          db,
+        };
+        next();
+      } catch (err: any) {
+        console.error("[embedded-api] auth middleware failed:", err?.message);
+        res.status(500).json({ error: "embedded-auth-failed" });
+      }
+    });
+
+    // Scope guard: 403 with the missing scope named honestly.
+    const needScope = (scope: string) => async (req: EmbeddedReq, res: express.Response, next: express.NextFunction) => {
+      const { clientHasScope } = await import("../services/embeddedApi");
+      if (!req.embedded || !clientHasScope(req.embedded.client, scope as never)) {
+        res.status(403).json({ error: "scope-required", scope });
+        return;
+      }
+      next();
+    };
+
+    const mapServiceError = (res: express.Response, err: any, fallback: string) => {
+      const code = err?.code;
+      const msg = err?.message ?? fallback;
+      if (code === "NOT_FOUND" || code === "not-found") { res.status(404).json({ error: "not-found", message: msg }); return; }
+      if (code === "CONFLICT") { res.status(409).json({ error: "conflict", message: msg }); return; }
+      if (code === "BAD_REQUEST" || code === "invalid-amount") { res.status(400).json({ error: "bad-request", message: msg }); return; }
+      if (typeof msg === "string" && (msg.includes("required") || msg.includes("must be"))) {
+        res.status(400).json({ error: "bad-request", message: msg });
+        return;
+      }
+      console.error(`[embedded-api] ${fallback}:`, err);
+      res.status(500).json({ error: "internal", message: msg });
+    };
+
+    const audit = async (req: EmbeddedReq, action: string, entityType: string, entityId: string | null, summary: string) => {
+      const { writeAuditLog } = await import("../routers/audit");
+      await writeAuditLog({
+        tenantId: req.embedded!.tenantId,
+        actorId: req.embedded!.actor, // embedded:<clientId>
+        actorRole: "embedded",
+        action,
+        entityType,
+        entityId,
+        summary,
+      });
+    };
+
+    const parseDate = (v: unknown): Date | null => {
+      if (v == null) return null;
+      const d = new Date(String(v));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
+    // ── Bills (vendorBills pass-through) ─────────────────────────────────
+    embedded.get("/bills", needScope("bills:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { vendorBills } = await import("../../drizzle/schema");
+        const { and, desc, eq } = await import("drizzle-orm");
+        const conds = [eq(vendorBills.tenantId, req.embedded!.tenantId)];
+        if (typeof req.query.status === "string" && req.query.status) {
+          conds.push(eq(vendorBills.status, req.query.status));
+        }
+        const rows = await req.embedded!.db.select().from(vendorBills)
+          .where(and(...conds)).orderBy(desc(vendorBills.createdAt)).limit(200);
+        res.json({ bills: rows });
+      } catch (err: any) { mapServiceError(res, err, "list bills failed"); }
+    });
+
+    embedded.post("/bills", needScope("bills:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { createVendorBill } = await import("../services/vendorBills");
+        const body = req.body ?? {};
+        const created = await createVendorBill(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          vendorName: body.vendorName ?? null,
+          vendorContact: body.vendorContact ?? null,
+          billNumber: body.billNumber ?? null,
+          description: body.description ?? null,
+          amountCents: body.amountCents ?? null,
+          currency: body.currency ?? "NGN",
+          issueDate: parseDate(body.issueDate),
+          dueDate: parseDate(body.dueDate),
+          captureSource: "manual",
+          actor: req.embedded!.actor,
+        });
+        await audit(req, "embedded.bill.create", "vendor_bill", created.bill.id,
+          `Embedded bill ${created.bill.id} (${created.bill.vendorName}, ${created.bill.amountCents} cents ${created.bill.currency})`);
+        res.status(201).json(created);
+      } catch (err: any) { mapServiceError(res, err, "create bill failed"); }
+    });
+
+    embedded.get("/bills/:id", needScope("bills:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { vendorBills } = await import("../../drizzle/schema");
+        const { and, eq } = await import("drizzle-orm");
+        const [bill] = await req.embedded!.db.select().from(vendorBills)
+          .where(and(eq(vendorBills.id, req.params.id), eq(vendorBills.tenantId, req.embedded!.tenantId)));
+        if (!bill) { res.status(404).json({ error: "not-found" }); return; }
+        res.json({ bill });
+      } catch (err: any) { mapServiceError(res, err, "get bill failed"); }
+    });
+
+    // Bill pay goes through the SAME approval gate as in-app: above a tenant
+    // threshold the bill honestly parks pending_approval (approvalRequired:
+    // true, no money moves) and only an in-app approval executes it.
+    embedded.post("/bills/:id/pay", needScope("payments:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { recordVendorBillPayment } = await import("../services/vendorBills");
+        const body = req.body ?? {};
+        const result = await recordVendorBillPayment(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          billId: req.params.id,
+          amountCents: body.amountCents ?? null,
+          paymentRef: body.paymentRef ?? null,
+          actor: req.embedded!.actor,
+        });
+        await audit(req, "embedded.bill.pay", "vendor_bill", req.params.id,
+          `Embedded bill pay ${req.params.id} → ${result.status}${result.approvalRequired ? ` (approval ${result.approvalId})` : ""} ref ${result.paymentRef || "n/a"}`);
+        res.json(result);
+      } catch (err: any) { mapServiceError(res, err, "bill pay failed"); }
+    });
+
+    // ── Scheduled payments (scheduledPayments pass-through) ──────────────
+    embedded.post("/payments/schedule", needScope("payments:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { schedulePayment } = await import("../services/scheduledPayments");
+        const body = req.body ?? {};
+        const executeAt = parseDate(body.executeAt);
+        if (!executeAt) { res.status(400).json({ error: "bad-request", message: "executeAt (ISO date) is required" }); return; }
+        if (!Number.isInteger(body.amountCents) || body.amountCents <= 0) {
+          res.status(400).json({ error: "bad-request", message: "amountCents must be a positive integer" });
+          return;
+        }
+        const kind = ["vendor_bill", "payout", "adhoc"].includes(body.kind) ? body.kind : null;
+        if (!kind) { res.status(400).json({ error: "bad-request", message: "kind must be vendor_bill|payout|adhoc" }); return; }
+        const result = await schedulePayment(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          kind,
+          targetId: body.targetId ?? null,
+          recipient: body.recipient ?? null,
+          amountCents: body.amountCents,
+          currency: body.currency ?? "NGN",
+          executeAt,
+          idempotencyKey: body.idempotencyKey,
+          // scheduled_payments.created_by is varchar(36): the canonical actor
+          // (embedded:<clientId>, 45 chars) lives on the audit row below; the
+          // row marker is the same client id, dash-less, prefixed — 36 chars.
+          createdBy: `emb:${req.embedded!.client.id.replace(/-/g, "")}`,
+        });
+        await audit(req, "embedded.payment.schedule", "scheduled_payment", result.payment.id,
+          `Embedded scheduled ${kind} payment ${result.payment.id} (${body.amountCents} cents @ ${executeAt.toISOString()})${result.duplicate ? " (idempotent replay)" : ""}`);
+        res.status(result.duplicate ? 200 : 201).json(result);
+      } catch (err: any) { mapServiceError(res, err, "schedule payment failed"); }
+    });
+
+    embedded.get("/payments/:id", needScope("payments:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { scheduledPayments } = await import("../../drizzle/schema");
+        const { and, eq } = await import("drizzle-orm");
+        const [payment] = await req.embedded!.db.select().from(scheduledPayments)
+          .where(and(eq(scheduledPayments.id, req.params.id), eq(scheduledPayments.tenantId, req.embedded!.tenantId)));
+        if (!payment) { res.status(404).json({ error: "not-found" }); return; }
+        res.json({ payment });
+      } catch (err: any) { mapServiceError(res, err, "get payment failed"); }
+    });
+
+    // ── AR invoices (arInvoices pass-through) ────────────────────────────
+    embedded.get("/invoices", needScope("invoices:read"), async (req: EmbeddedReq, res) => {
+      try {
+        const { arInvoices } = await import("../../drizzle/schema");
+        const { and, desc, eq } = await import("drizzle-orm");
+        const conds = [eq(arInvoices.tenantId, req.embedded!.tenantId)];
+        if (typeof req.query.status === "string" && req.query.status) {
+          conds.push(eq(arInvoices.status, req.query.status));
+        }
+        const rows = await req.embedded!.db.select().from(arInvoices)
+          .where(and(...conds)).orderBy(desc(arInvoices.createdAt)).limit(200);
+        res.json({ invoices: rows });
+      } catch (err: any) { mapServiceError(res, err, "list invoices failed"); }
+    });
+
+    embedded.post("/invoices", needScope("invoices:write"), async (req: EmbeddedReq, res) => {
+      try {
+        const { createArInvoice } = await import("../services/arInvoices");
+        const body = req.body ?? {};
+        const inv = await createArInvoice(req.embedded!.db, {
+          tenantId: req.embedded!.tenantId,
+          customerName: body.customerName ?? null,
+          customerPhone: body.customerPhone ?? null,
+          customerEmail: body.customerEmail ?? null,
+          description: body.description ?? null,
+          amountCents: body.amountCents,
+          currency: body.currency ?? "NGN",
+          dueDate: parseDate(body.dueDate),
+          metadata: { source: "embedded_api", clientId: req.embedded!.client.id },
+        });
+        await audit(req, "embedded.invoice.create", "ar_invoice", inv.id,
+          `Embedded AR invoice #${inv.invoiceNo} (${inv.amountCents} cents ${inv.currency})`);
+        res.status(201).json({ invoice: inv });
+      } catch (err: any) { mapServiceError(res, err, "create invoice failed"); }
+    });
+
+    app.use("/api/embedded/v1", embedded);
+  }
+  // === END W33 embedded-api ===
+
+  // === W31 AR reminders ===
+  // Daily: flip past-due AR invoices to overdue and send polite WhatsApp
+  // payment reminders (max 3, 3-day spacing, claim-before-send dedupe via
+  // last_reminder_at). Registered in services/scheduler allowlist +
+  // k8s/cron-scheduler.yaml (cron-ar-reminders, daily).
+  // After deploy: manus-heartbeat create --name ar-reminders --cron "0 0 9 * * *" --path /api/scheduled/ar-reminders
+  app.post("/api/scheduled/ar-reminders", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runArReminderSweep } = await import("../services/arInvoices");
+      const result = await runArReminderSweep(db);
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[ar-reminders]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W31 AR reminders ===
+
+  // === W32 installment due ===
+  // ── POST /api/scheduled/installment-due (daily) ─────────────────────────
+  // Pay-over-time installment capture (Coder A): for every active/defaulted
+  // installment plan, due schedule entries are captured via the EXISTING
+  // mandate rails (chargeOnMandate + exactly-once claim, capture.ts pattern;
+  // deterministic ref `potcap:<planId>:<seq>`). A failed capture marks the
+  // installment honestly 'overdue' and sends a WhatsApp dunning notice —
+  // the claim is released so the NEXT sweep retries per the mandate rules
+  // (no blind same-tick retries). Loans past dueAt + grace flip to
+  // 'defaulted' (microLoans late/default handling) and the plan follows.
+  // Registered in services/scheduler/scheduler.mjs allowlist +
+  // k8s/cron-scheduler.yaml (cron-installment-due, daily).
+  // After deploy: manus-heartbeat create --name installment-due --cron "0 0 8 * * *" --path /api/scheduled/installment-due
+  app.post("/api/scheduled/installment-due", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runInstallmentCaptureSweep } = await import("../services/payOverTime");
+      const summary = await runInstallmentCaptureSweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[installment-due]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W32 installment due ===
+
+  // === W32 recurring ===
+  // ── POST /api/scheduled/recurring-run (daily) ──────────────────────────
+  // Recurring bills / auto-pay engine (W32 Coder B): claims due
+  // recurring_rules via a guarded UPDATE, creates the period's vendor_bill
+  // (capture_source='recurring') or adhoc scheduled_payment and advances
+  // next_run_at IN THE SAME transaction (crash-safe, idempotency key
+  // `recur:<ruleId>:<period>`), auto-pays at-or-under auto_pay_under_cents
+  // after the W31 approvals gate, and parks above-threshold periods behind a
+  // one-tap WA approval (approvals executor map, kind 'scheduled_payment').
+  // Registered in services/scheduler allowlist + k8s/cron-scheduler.yaml
+  // (cron-recurring-run, daily).
+  // After deploy: manus-heartbeat create --name recurring-run --cron "0 0 7 * * *" --path /api/scheduled/recurring-run
+  app.post("/api/scheduled/recurring-run", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runRecurringSweep } = await import("../services/recurringRules");
+      const summary = await runRecurringSweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[recurring-run]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W32 recurring ===
+
+  // === W33 forecast ===
+  // ── POST /api/scheduled/cashflow-forecast (weekly) ─────────────────────
+  // Cash-flow forecast snapshot sweep (W33 Coder B): stores the 30-day
+  // projection per tenant into cashflow_forecasts (migration 0113),
+  // idempotent per (tenant, horizon, day) — every figure computed from real
+  // rows; tenants with no data are skipped (no fabricated zero-rows).
+  // Registered in services/scheduler allowlist + k8s/cron-scheduler.yaml
+  // (cron-cashflow-forecast, weekly, #41 on the merged branch).
+  // After deploy: manus-heartbeat create --name cashflow-forecast --cron "0 0 6 * * 1" --path /api/scheduled/cashflow-forecast
+  app.post("/api/scheduled/cashflow-forecast", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runForecastSweep } = await import("../services/cashflowForecast");
+      const summary = await runForecastSweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[cashflow-forecast]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W33 forecast ===
 
   // ── SLA Heartbeat ─────────────────────────────────────────────────────────
   app.post("/api/scheduled/sla-scan", async (req, res) => {
@@ -3491,6 +4088,26 @@ function drawBbox(img,id){
     }
   });
 
+  // === W31 approvals ===
+  // ── POST /api/scheduled/approvals-expiry — expire stale approval requests ──
+  // After deploy: manus-heartbeat create --name approvals-expiry --cron "0 */15 * * * *" --path /api/scheduled/approvals-expiry --description "Flip pending approval_requests past expires_at to expired and notify the requester (nothing ever moves on expiry)"
+  app.post("/api/scheduled/approvals-expiry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.json({ ok: true, expired: 0, reason: "db_unavailable" });
+      const { sweepExpiredApprovals } = await import("../services/approvals");
+      const expired = await sweepExpiredApprovals(db);
+      console.log(`[approvals-expiry] expired ${expired.length} approval requests`);
+      return res.json({ ok: true, expired: expired.length });
+    } catch (err: any) {
+      console.error("[approvals-expiry]", err);
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+  // === END W31 approvals ===
+
   // ── GET /health — lightweight liveness probe (no DB / external deps) ─────
   // Intended for k8s liveness/readiness probes and load-test warm checks.
   app.get("/health", (_req, res) => {
@@ -3809,7 +4426,8 @@ function drawBbox(img,id){
       try {
         const inferRes = await fetch(`${mlStackUrl}/predict`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          // === W34 otel-core === traceparent propagation to ml-stack.
+          headers: injectTraceHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify({
             tenant_id: tenantId ?? null,
             amount: totalAmount,

@@ -28,3 +28,10 @@ structlog>=24.0.0
 tenacity>=9.0.0
 tiktoken>=0.7.0
 
+# === W34 otel-sidecars === OpenTelemetry (exact pins; fail-open,
+# OTEL_ENABLED default false)
+opentelemetry-sdk==1.38.0
+opentelemetry-exporter-otlp-proto-http==1.38.0
+opentelemetry-instrumentation-fastapi==0.59b0
+# === END W34 otel-sidecars ===
+

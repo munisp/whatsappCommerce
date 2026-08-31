@@ -18,6 +18,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	// === W35 otel ===
+	"github.com/whatsapp-commerce/otelx"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	// === END W35 otel ===
 	"github.com/whatsapp-commerce/payment-orchestrator/internal/config"
 	"github.com/whatsapp-commerce/payment-orchestrator/internal/store"
 	"go.uber.org/zap"
@@ -442,6 +448,15 @@ func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 // reserveLedger creates a pending TigerBeetle entry via the ledger bridge.
 // Non-2xx responses and responses without a pending_id are ERRORS.
 func (h *Handler) reserveLedger(ctx context.Context, intent store.PaymentIntentRow) (string, error) {
+	// === W35 otel ===
+	ctx, span := otel.Tracer("payment-orchestrator").Start(ctx, "tigerbeetle.reserve",
+		trace.WithAttributes(
+			attribute.String("db.system", "tigerbeetle"),
+			attribute.String("tb.operation", "reserve"),
+			attribute.String("tenant.id", intent.TenantID.String()),
+		))
+	defer span.End()
+	// === END W35 otel ===
 	body, _ := json.Marshal(map[string]interface{}{
 		"action":          "reserve",
 		"account_id":      intent.TenantID.String(),
@@ -481,6 +496,15 @@ func (h *Handler) ledgerSettle(ctx context.Context, path, pendingID string) erro
 	if pendingID == "" || h.cfg.LedgerBridgeURL == "" {
 		return nil
 	}
+	// === W35 otel ===
+	op := strings.TrimPrefix(path, "/ledger/")
+	ctx, span := otel.Tracer("payment-orchestrator").Start(ctx, "tigerbeetle."+op,
+		trace.WithAttributes(
+			attribute.String("db.system", "tigerbeetle"),
+			attribute.String("tb.operation", op),
+		))
+	defer span.End()
+	// === END W35 otel ===
 	body, _ := json.Marshal(map[string]interface{}{"pending_id": pendingID})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.cfg.LedgerBridgeURL+path, bytes.NewReader(body))
 	if err != nil {

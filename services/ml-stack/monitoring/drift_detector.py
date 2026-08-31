@@ -22,6 +22,17 @@ import pandas as pd
 from scipy import stats
 from scipy.special import kl_div
 
+# === W35 otel-ml-stack === lazy fail-open OTel (stdlib-safe import).
+import sys as _sys
+_ML_STACK_DIR = Path(__file__).resolve().parent.parent
+if str(_ML_STACK_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_ML_STACK_DIR))
+try:
+    import telemetry as _ml_telemetry  # services/ml-stack/telemetry.py
+except Exception:  # pragma: no cover - fail-open
+    _ml_telemetry = None
+# === END W35 otel-ml-stack ===
+
 LAKEHOUSE_DIR = Path(__file__).parent.parent / "data" / "lakehouse"
 
 
@@ -107,6 +118,19 @@ class DriftDetector:
         current_scores: np.ndarray,
     ) -> dict:
         """Check output score distribution shift"""
+        # === W35 otel-ml-stack === ml.drift.check span (fail-open).
+        if _ml_telemetry is not None:
+            _ml_telemetry.init_telemetry(service_name="ml-monitoring")
+            with _ml_telemetry.ml_span("ml.drift.check", {"drift.kind": "prediction"}):
+                return self._check_prediction_drift_body(reference_scores, current_scores)
+        return self._check_prediction_drift_body(reference_scores, current_scores)
+        # === END W35 otel-ml-stack ===
+
+    def _check_prediction_drift_body(
+        self,
+        reference_scores: np.ndarray,
+        current_scores: np.ndarray,
+    ) -> dict:
         psi = compute_psi(reference_scores, current_scores)
         ks_stat, p_value = compute_ks_statistic(reference_scores, current_scores)
 

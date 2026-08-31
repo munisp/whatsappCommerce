@@ -39,6 +39,8 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+
+	"github.com/whatsapp-commerce/otelx" // === W35 otel ===
 )
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -238,10 +240,11 @@ type Server struct {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "ok",
-		"service": "visual-inventory-orchestrator",
-		"version": "1.0.0",
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":       "ok",
+		"service":      "visual-inventory-orchestrator",
+		"version":      "1.0.0",
+		"otel_enabled": otelx.Status(), // === W35 otel ===
 	})
 }
 
@@ -344,6 +347,11 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
+	// === W35 otel ===
+	otelShutdown, _ := otelx.Init(context.Background(), "visual-inventory-orchestrator")
+	defer func() { _ = otelShutdown(context.Background()) }()
+	// === END W35 otel ===
+
 	cfg := loadConfig()
 	srv := &Server{
 		cfg:     cfg,
@@ -365,7 +373,7 @@ func main() {
 
 	server := &http.Server{
 		Addr:         addr,
-		Handler:      mux,
+		Handler:      otelx.Middleware("visual-inventory-orchestrator")(mux), // === W35 otel ===
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 200 * time.Second,
 		IdleTimeout:  120 * time.Second,
