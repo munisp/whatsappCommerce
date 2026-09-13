@@ -8,7 +8,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-collector-config
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   config.yaml: |
     # === W34 otel-stack (Coder B) ===
@@ -43,40 +43,64 @@ data:
       prometheus:
         config:
           scrape_configs:
-            # Keycloak management metrics; requires KC_METRICS_ENABLED=true
-            # (wired in k8s/keycloak.yaml + env.example W35 banner). HONEST
-            # DEVIATION from SPEC_W35: the spec's "management port 9000" only
-            # exists in Keycloak >=25; the pinned keycloak:24.0 image serves
-            # /metrics on the main HTTP port 8080 — scraped here. Switch to
-            # :9000 when the Keycloak image is upgraded.
+            # Keycloak management metrics. KC_METRICS_ENABLED=true is now set
+            # on the shared StatefulSet (namespace `keycloak`). CORRECTION to
+            # the note this replaces: that claimed port 9000 only exists in
+            # Keycloak >=25 and that 8080 was the real metrics port on this
+            # 24.0 image - both wrong, confirmed live: 8080/metrics is a 404,
+            # 9000/metrics returns 200 with real data, same as every other
+            # Keycloak version. Use the keycloak-metrics Service (not the main
+            # keycloak Service, which only declares port 80/8080 at all).
             - job_name: keycloak
               metrics_path: /metrics
               scrape_interval: 30s
               static_configs:
-                - targets: [keycloak:8080]
-            # APISIX prometheus plugin export (plugin_attr.prometheus, :9091).
+                - targets: [keycloak-metrics.keycloak.svc.cluster.local:9000]
+            # APISIX prometheus plugin export. Confirmed connection refused on
+            # :9091 (appsec-apisix-dev-prometheus-metrics service exists but
+            # nothing listens - the plugin isn't enabled on this instance).
             - job_name: apisix
               metrics_path: /apisix/prometheus/metrics
               scrape_interval: 30s
               static_configs:
-                - targets: [apisix:9091]
-            # Permify serves /metrics on its REST port only when built/run with
-            # metrics enabled; the pinned permify/permify:latest does NOT expose
-            # it by default — this target will honestly report DOWN until a
-            # metrics-enabled Permify is deployed. Kept so wiring is ready.
-            - job_name: permify
-              metrics_path: /metrics
-              scrape_interval: 30s
-              static_configs:
-                - targets: [permify:3476]
-            # OpenSearch via the Aiven prometheus-exporter plugin (:9600). The
-            # pinned opensearchproject/opensearch:2.17.1 image does NOT bundle
-            # this plugin — honestly DOWN until the plugin is installed.
+                - targets: [appsec-apisix-dev-prometheus-metrics.appsec-apisix-dev.svc.cluster.local:9091]
+            # Permify: PERMANENTLY UNSUPPORTED, not deferred - removed rather
+            # than left as a guaranteed-DOWN target. Confirmed live via
+            # `permify serve --help` (ghcr.io/permify/permify:v1.3.5, the
+            # real shared instance) that there is no Prometheus-scrapable
+            # /metrics endpoint at all, at any config. The only telemetry flag
+            # is --meter-enabled, an OTLP *push* exporter that defaults to
+            # Permify's own telemetry.permify.co SaaS - not something this
+            # receiver can pull from. Same category as Neo4j Community /
+            # TigerBeetle / Cassandra. permify-postgres (its plain Postgres,
+            # not Permify itself) DOES have a postgres_exporter now - see the
+            # permify-postgres job below.
+            # OpenSearch via the Aiven prometheus-exporter plugin, same REST
+            # port as the main API (not a separate :9600 - that port has
+            # nothing behind it on the shared instance; confirmed 400 on
+            # :9200 too, meaning the plugin itself isn't installed). Shared
+            # instance is `shared-cluster-master` in namespace `opensearch`.
             - job_name: opensearch
               metrics_path: /_prometheus/metrics
               scrape_interval: 30s
               static_configs:
-                - targets: [opensearch:9600]
+                - targets: [shared-cluster-master.opensearch.svc.cluster.local:9200]
+            # whatsapp-commerce's own custom RED metrics (http_requests_total,
+            # trpc_procedure_calls_total, escrow_settlements_total, etc. -
+            # server/_core/telemetry.ts's promRegistry). These are separate
+            # from the OTLP span pipeline above: the app exposes them itself
+            # at GET /api/metrics, gated behind METRICS_TOKEN (set via
+            # `kubectl set env deployment/server -n whatsapp-commerce
+            # METRICS_TOKEN=...`, matching the bearer_token below) since it's
+            # cross-namespace and otherwise unauthenticated. Cross-namespace
+            # FQDN required: the stack lives in `otel`, the app in
+            # `whatsapp-commerce`.
+            - job_name: whatsapp-commerce-platform
+              metrics_path: /api/metrics
+              scrape_interval: 30s
+              bearer_token: "02db7b2863b3a2ecffb4ffedf7913764a1a71d8e01feb04d811a3881f16d31cb"
+              static_configs:
+                - targets: [server.whatsapp-commerce.svc.cluster.local:3000]
             # TEMPORAL: SKIPPED (documented). No OTEL_TEMPORAL_METRICS_PORT SDK
             # metrics endpoint is exposed by services/temporal-workflows in this
             # wave — adding a static target would guarantee a permanent DOWN.
@@ -136,7 +160,9 @@ data:
           explicit:
             buckets: [50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s, 10s]
         dimensions:
-          - name: status.code
+          # status.code is NOT listed here: spanmetricsconnector includes it
+          # as a default dimension automatically, and explicitly redeclaring
+          # it is a hard startup error ("duplicate dimension name status.code").
           - name: tenant.id
             default: other
         namespace: otel_span
@@ -195,7 +221,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-prometheus-config
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   prometheus.yml: |
     # === W34 otel-stack (Coder B) ===
@@ -239,6 +265,170 @@ data:
       - job_name: prometheus
         static_configs:
           - targets: [localhost:9090]
+      # pg-oracle's CNPG instance-manager built-in metrics (port 9187,
+      # confirmed live via direct curl to the pod) - cross-namespace target,
+      # needs the full Service DNS name (short names only resolve within
+      # the same namespace as this Prometheus pod, which lives in `otel`).
+      # Routed via a new Service (pg-oracle-metrics), since none of CNPG's
+      # own operator-managed Services (pg-oracle-r/-ro/-rw) expose this
+      # port - see apps/postgres-oracle-newwave-dev/main.tf in the
+      # newwave_platform_terraform repo.
+      - job_name: pg-oracle
+        static_configs:
+          - targets: [pg-oracle-metrics.postgres-oracle.svc.cluster.local:9187]
+      # Kafka broker JMX metrics (port 9404, jmx_prometheus_javaagent running
+      # in-process in the broker JVM - see clusters/newwave-dev/shared-infra/
+      # kafka-cluster.yaml in newwave_platform_terraform). No new Service
+      # needed: mojaloop-kafka-cluster-kafka-brokers is already a headless
+      # Service, so the pod's own DNS name resolves directly. Single broker
+      # today (dual-role-0) - hardcoded; would need Kubernetes SD instead of
+      # a static target if this ever becomes a multi-broker cluster.
+      - job_name: kafka
+        static_configs:
+          - targets: [mojaloop-kafka-cluster-dual-role-0.mojaloop-kafka-cluster-kafka-brokers.kafka.svc.cluster.local:9404]
+      # Redis has no built-in Prometheus support - redis_exporter sidecar
+      # deployed alongside it (clusters/newwave-dev/shared-infra/
+      # redis-exporter.yaml), authenticates with the same REDIS_PASSWORD
+      # secret the real Redis clients use. Confirmed live: redis_up 1.
+      - job_name: redis
+        static_configs:
+          - targets: [redis-exporter.redis.svc.cluster.local:9121]
+      # mojaloop's MySQL - mysqld_exporter sidecar (clusters/newwave-dev/
+      # shared-infra/mysql-exporter.yaml). Confirmed live: mysql_up 1.
+      - job_name: mysql
+        static_configs:
+          - targets: [mysql-exporter.mojaloop-database.svc.cluster.local:9104]
+      # mojaloop's cl-mongodb (central-ledger Mongo replica set) -
+      # mongodb_exporter sidecar (clusters/newwave-dev/shared-infra/
+      # mongodb-exporter.yaml). Confirmed live: mongodb_up 1.
+      - job_name: mongodb
+        static_configs:
+          - targets: [mongodb-exporter.mojaloop.svc.cluster.local:9216]
+      # 6 more CNPG Postgres clusters found on a full cluster sweep -
+      # pg-oracle wasn't the only one. Same built-in metrics port (9187),
+      # same missing-Service gap, same fix pattern across every one.
+      - job_name: pg-54agent
+        static_configs:
+          - targets: [pg-54agent-metrics.54agent.svc.cluster.local:9187]
+      - job_name: pg-54link-dev
+        static_configs:
+          - targets: [pg-54link-dev-metrics.54link-dev.svc.cluster.local:9187]
+      - job_name: pg-ucard
+        static_configs:
+          - targets: [pg-ucard-metrics.ucard.svc.cluster.local:9187]
+      - job_name: pg-ndsep
+        static_configs:
+          - targets: [pg-ndsep-metrics.ndsep.svc.cluster.local:9187]
+      - job_name: pg-vpp
+        static_configs:
+          - targets: [pg-vpp-metrics.vpp.svc.cluster.local:9187]
+      - job_name: pg-meridian
+        static_configs:
+          - targets: [pg-meridian-metrics.meridian.svc.cluster.local:9187]
+      # mojaloop's 3 other Redis deployments, beyond the standalone `redis`
+      # namespace instance already covered above. All run with no auth
+      # (confirmed live). proxy-cache-redis is a real 6-node Redis Cluster;
+      # only the leader Service is scraped here as a representative sample.
+      - job_name: mojaloop-auth-svc-redis
+        static_configs:
+          - targets: [auth-svc-redis-exporter.mojaloop.svc.cluster.local:9121]
+      - job_name: mojaloop-proxy-cache-redis
+        static_configs:
+          - targets: [proxy-cache-redis-exporter.mojaloop.svc.cluster.local:9121]
+      - job_name: mojaloop-ttksims-redis
+        static_configs:
+          - targets: [ttksims-redis-exporter.mojaloop.svc.cluster.local:9121]
+      # mojaloop's second Mongo replica set (Testing Toolkit's own), beyond
+      # cl-mongodb already covered above.
+      - job_name: ttk-mongodb
+        static_configs:
+          - targets: [ttk-mongodb-exporter.mojaloop.svc.cluster.local:9216]
+      # Qdrant has built-in Prometheus metrics, fully open on its existing
+      # Service - no new Service or exporter needed. Confirmed live.
+      - job_name: qdrant
+        static_configs:
+          - targets: [qdrant.qdrant.svc.cluster.local:6333]
+      # MinIO has built-in Prometheus metrics too, but the cluster-metrics
+      # endpoint requires a bearer token - generated via `mc admin
+      # prometheus generate` (a long-lived JWT signed with MinIO's root
+      # credentials), stored as the minio-prometheus-token Secret (see the
+      # Prometheus Deployment's new `secrets` volume above). Confirmed live.
+      - job_name: minio
+        metrics_path: /minio/v2/metrics/cluster
+        bearer_token_file: /etc/prometheus/secrets/token
+        static_configs:
+          - targets: [minio.minio.svc.cluster.local:9000]
+      # Temporal's own Elasticsearch (visibility store) - elasticsearch_exporter
+      # sidecar (clusters/newwave-dev/shared-infra/
+      # temporal-elasticsearch-exporter.yaml). Confirmed live: real cluster
+      # health data returned, no auth needed.
+      - job_name: temporal-elasticsearch
+        static_configs:
+          - targets: [temporal-elasticsearch-exporter.temporal.svc.cluster.local:9114]
+      # keycloak-postgresql's dedicated exporter (see keycloak-postgres-exporter.yaml
+      # in newwave_platform_terraform/clusters/newwave-dev/shared-infra/).
+      - job_name: keycloak-postgres
+        static_configs:
+          - targets: [keycloak-postgres-exporter.keycloak.svc.cluster.local:9187]
+      # permify-postgres's dedicated exporter (Terraform-managed, see
+      # apps/permify-newwave-dev/main.tf). Permify itself has no Prometheus
+      # support - see the note above where its job_name was removed.
+      - job_name: permify-postgres
+        static_configs:
+          - targets: [permify-postgres-exporter.permify.svc.cluster.local:9187]
+      # apisix-etcd-dev: real etcd cluster backing APISIX's config store.
+      # Headless Service (clusterIP: None, no declared port) - DNS still
+      # resolves to the 3 pod IPs directly, confirmed live on :2379/metrics
+      # (etcd serves Prometheus metrics on its client port by default).
+      - job_name: etcd
+        static_configs:
+          - targets: [apisix-etcd-dev.appsec-apisix-dev.svc.cluster.local:2379]
+      # dapr control-plane services, both confirmed live on :9090/metrics.
+      - job_name: dapr-placement-server
+        static_configs:
+          - targets: [dapr-placement-server.dapr-system.svc.cluster.local:9090]
+      - job_name: dapr-scheduler-server
+        static_configs:
+          - targets: [dapr-scheduler-server.dapr-system.svc.cluster.local:9090]
+      # Final cluster-wide sweep (all namespaces): every remaining app with
+      # its own dedicated Postgres/Redis/Mongo, each Terraform-tracked in
+      # apps/<app>-newwave-dev/main.tf. gds, paymenthub and fineract are
+      # confirmed live-scaled to 0 replicas across their ENTIRE namespace
+      # (not just the DB) - honestly DOWN, not a wiring bug; will read `up`
+      # again the moment someone scales those apps back on.
+      - job_name: farmer-data-collection-postgres
+        static_configs:
+          - targets: [postgres-exporter.farmer-data-collection.svc.cluster.local:9187]
+      - job_name: gds-postgres
+        static_configs:
+          - targets: [postgres-exporter.gds.svc.cluster.local:9187]
+      - job_name: insurance-demo-postgres
+        static_configs:
+          - targets: [postgres-exporter.insurance-platform-demo.svc.cluster.local:9187]
+      - job_name: insurance-demo-redis
+        static_configs:
+          - targets: [redis-exporter.insurance-platform-demo.svc.cluster.local:9121]
+      - job_name: lanai-postgres
+        static_configs:
+          - targets: [postgres-exporter.lanai.svc.cluster.local:9187]
+      - job_name: novu-mongodb
+        static_configs:
+          - targets: [mongodb-exporter.novu.svc.cluster.local:9216]
+      - job_name: novu-redis
+        static_configs:
+          - targets: [redis-exporter.novu.svc.cluster.local:9121]
+      - job_name: nsep-demo-postgres
+        static_configs:
+          - targets: [postgres-exporter.nsep-demo.svc.cluster.local:9187]
+      - job_name: paymenthub-postgres
+        static_configs:
+          - targets: [postgres-exporter.paymenthub.svc.cluster.local:9187]
+      - job_name: tourismpay-postgres
+        static_configs:
+          - targets: [postgres-exporter.tourismpay.svc.cluster.local:9187]
+      - job_name: fineract-postgres
+        static_configs:
+          - targets: [postgres-exporter.fineract.svc.cluster.local:9187]
     # === END W34 otel-stack ===
   alert-rules.yml: |
     # === W34 otel-stack (Coder B) ===
@@ -410,7 +600,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-alertmanager-config
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   alertmanager.yml: |
     # === W34 otel-stack (Coder B) ===
@@ -485,22 +675,35 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-grafana-provisioning
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   datasources.yaml: |
     # === W34 otel-stack (Coder B) ===
     apiVersion: 1
     datasources:
+      # uid pinned explicitly: every provisioned dashboard's panels/variables
+      # reference datasource uid "Prometheus"/"Jaeger" literally (matching
+      # the name, a common Grafana convention) - without pinning it here,
+      # Grafana auto-generates a random uid instead, and every one of those
+      # references silently points at a datasource that doesn't exist.
       - name: Prometheus
+        uid: Prometheus
         type: prometheus
         access: proxy
         url: http://prometheus:9090
         isDefault: true
         editable: false
       - name: Jaeger
+        uid: Jaeger
         type: jaeger
         access: proxy
         url: http://jaeger:16686
+        editable: false
+      - name: Loki
+        uid: Loki
+        type: loki
+        access: proxy
+        url: http://loki:3100
         editable: false
     # === END W34 otel-stack ===
   dashboards.yaml: |
@@ -523,7 +726,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-grafana-dashboard-platform-red
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   platform-red.json: |
     {
@@ -774,7 +977,7 @@ data:
           "targets": [
             {
               "refId": "A",
-              "expr": "sum by (procedure) (rate(trpc_procedure_calls_total{result="error"}[5m]))",
+              "expr": "sum by (procedure) (rate(trpc_procedure_calls_total{result=\"error\"}[5m]))",
               "legendFormat": "{{procedure}}"
             }
           ]
@@ -832,7 +1035,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-grafana-dashboard-infra-components
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   infra-components.json: |
     {
@@ -1015,7 +1218,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-grafana-dashboard-money-rails
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   money-rails.json: |
     {
@@ -1234,7 +1437,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-grafana-dashboard-tenant-explorer
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   tenant-explorer.json: |
     {
@@ -1266,7 +1469,7 @@ data:
               "type": "prometheus",
               "uid": "Prometheus"
             },
-            "query": "label_values(trpc_procedure_calls_total, tenant_class)",
+            "query": "label_values(http_requests_total, tenant_class)",
             "refresh": 2,
             "includeAll": false,
             "multi": false,
@@ -1463,7 +1666,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-wa-bridge-src
-  namespace: whatsapp-commerce
+  namespace: otel
 data:
   alertmanager-wa-bridge.mjs: |
     // === W34 otel-stack (Coder B) ===
@@ -1489,10 +1692,11 @@ data:
     // is dropped honestly: logged, counted in /health.dropped, never thrown.
     import http from "node:http";
     import { pathToFileURL } from "node:url";
+    import { realpathSync } from "node:fs";
     
     const ENABLED = () => process.env.ALERTMANAGER_WA_BRIDGE_ENABLED === "true";
     const PORT = () => Number(process.env.WA_BRIDGE_PORT ?? 9099);
-    const PLATFORM_URL = () => (process.env.PLATFORM_API_URL ?? "http://platform:3000").replace(/\/$/, "");
+    const PLATFORM_URL = () => (process.env.PLATFORM_API_URL ?? "http://server.whatsapp-commerce.svc.cluster.local:3000").replace(/\/$/, "");
     const SEND_PATH = () => process.env.WA_BRIDGE_SEND_PATH ?? "/api/internal/wa-ops-alert";
     const OPS_NUMBER = () => process.env.OPS_ALERT_WHATSAPP ?? "";
     const startedAt = new Date().toISOString();
@@ -1631,7 +1835,21 @@ data:
     }
     
     // Start only when executed directly (journeys import functions without a listener).
-    if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    // realpathSync matters here: this file is reached through a Kubernetes
+    // ConfigMap mount, itself a symlink chain (mountPath -> ..data/<key>) for
+    // atomic updates - comparing raw argv[1] against import.meta.url (which
+    // Node resolves through symlinks) never matches there, silently skipping
+    // server startup entirely.
+    const isMainModule = () => {
+      if (!process.argv[1]) return false;
+      try {
+        return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+      } catch {
+        return false;
+      }
+    };
+
+    if (isMainModule()) {
       const server = createBridgeServer();
       server.listen(PORT(), () => {
         console.log(`[wa-bridge] listening on :${PORT()} enabled=${ENABLED()}`);
@@ -1644,7 +1862,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: otel-collector
-  namespace: whatsapp-commerce
+  namespace: otel
   labels: {app: otel-collector}
 spec:
   replicas: 1
@@ -1680,7 +1898,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: otel-collector, namespace: whatsapp-commerce}
+metadata: {name: otel-collector, namespace: otel}
 spec:
   selector: {app: otel-collector}
   ports:
@@ -1692,7 +1910,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: jaeger
-  namespace: whatsapp-commerce
+  namespace: otel
   labels: {app: jaeger}
 spec:
   replicas: 1
@@ -1702,7 +1920,7 @@ spec:
     spec:
       containers:
         - name: jaeger
-          image: jaegertracing/all-in-one:1.62
+          image: jaegertracing/all-in-one:1.62.0
           env:
             - {name: COLLECTOR_OTLP_ENABLED, value: "true"}
           ports:
@@ -1718,7 +1936,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: jaeger, namespace: whatsapp-commerce}
+metadata: {name: jaeger, namespace: otel}
 spec:
   selector: {app: jaeger}
   ports:
@@ -1729,7 +1947,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
-  namespace: whatsapp-commerce
+  namespace: otel
   labels: {app: prometheus}
 spec:
   replicas: 1
@@ -1755,15 +1973,24 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/prometheus, readOnly: true}
             - {name: data, mountPath: /prometheus}
+            # No secrets volume existed at all before this - the pre-existing
+            # `platform` job's bearer_token_file has been silently broken
+            # this whole time as a result (confirmed live: "no such file or
+            # directory"). Left that job itself alone (unrelated, pre-
+            # existing, not otherwise touched tonight) but the volume this
+            # adds is now real, for minio's own token below.
+            - {name: secrets, mountPath: /etc/prometheus/secrets, readOnly: true}
       volumes:
         - name: config
           configMap: {name: otel-prometheus-config}
         - name: data
           emptyDir: {}
+        - name: secrets
+          secret: {secretName: minio-prometheus-token}
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: prometheus, namespace: whatsapp-commerce}
+metadata: {name: prometheus, namespace: otel}
 spec:
   selector: {app: prometheus}
   ports:
@@ -1773,7 +2000,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-grafana-dashboard-tenant-360
-  namespace: whatsapp-commerce
+  namespace: otel
   # === W34 otel-sidecars (Coder C) dashboard, configmap+mount added by merger ===
 data:
   tenant-360.json: |
@@ -2315,8 +2542,682 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: otel-grafana-dashboard-newwave-fleet
+  namespace: otel
+data:
+  newwave-fleet-dashboard.json: |
+    {
+      "uid": "newwave-fleet",
+      "title": "Newwave Shared Infra Fleet",
+      "description": "Single-pane view of every shared/data-layer resource wired for Prometheus metrics across the kind-newwave-dev cluster: all Postgres instances (CNPG + plain), Redis, MongoDB, MySQL, Kafka, Elasticsearch, MinIO, Qdrant, etcd, Dapr, and Keycloak. Data source: the Prometheus deployed in the `otel` namespace.",
+      "tags": [
+        "fleet",
+        "infra",
+        "shared-resources"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": true,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "annotations": {
+        "list": []
+      },
+      "templating": {
+        "list": []
+      },
+      "panels": [
+        {
+          "id": 100,
+          "title": "Newwave Shared Infra Fleet",
+          "type": "text",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 2
+          },
+          "options": {
+            "mode": "markdown",
+            "content": "Every shared data-layer resource this cluster's apps depend on, in one place. Green = up, red = down. Postgres/Redis/MongoDB/MySQL boxes reflect the *database itself* answering (not just the exporter pod being alive) \u2014 a box can be red while its own scrape still succeeds, meaning the exporter is fine but the database behind it isn't. `gds`, `paymenthub` and `fineract` show red by design: those namespaces are currently scaled to 0 replicas."
+          }
+        },
+        {
+          "id": 1,
+          "title": "Fleet health \u2014 every scrape target",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 2,
+            "w": 24,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "#b06a6a"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "#7ba17b"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "#b06a6a",
+                    "value": null
+                  },
+                  {
+                    "color": "#7ba17b",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "NO DATA"
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "reduceOptions": {
+              "values": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "up{job=~\"pg-oracle|pg-54agent|pg-54link-dev|pg-ucard|pg-ndsep|pg-vpp|pg-meridian|keycloak-postgres|permify-postgres|farmer-data-collection-postgres|gds-postgres|insurance-demo-postgres|lanai-postgres|nsep-demo-postgres|paymenthub-postgres|tourismpay-postgres|fineract-postgres|redis|mojaloop-auth-svc-redis|mojaloop-proxy-cache-redis|mojaloop-ttksims-redis|insurance-demo-redis|novu-redis|mongodb|ttk-mongodb|novu-mongodb|mysql|kafka|qdrant|minio|temporal-elasticsearch|etcd|dapr-placement-server|dapr-scheduler-server\"}",
+              "legendFormat": "{{job}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Healthy targets over time",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 11,
+            "w": 24,
+            "h": 6
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 15,
+                "lineWidth": 2
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(up{job=~\"pg-oracle|pg-54agent|pg-54link-dev|pg-ucard|pg-ndsep|pg-vpp|pg-meridian|keycloak-postgres|permify-postgres|farmer-data-collection-postgres|gds-postgres|insurance-demo-postgres|lanai-postgres|nsep-demo-postgres|paymenthub-postgres|tourismpay-postgres|fineract-postgres|redis|mojaloop-auth-svc-redis|mojaloop-proxy-cache-redis|mojaloop-ttksims-redis|insurance-demo-redis|novu-redis|mongodb|ttk-mongodb|novu-mongodb|mysql|kafka|qdrant|minio|temporal-elasticsearch|etcd|dapr-placement-server|dapr-scheduler-server\"})",
+              "legendFormat": "targets scraping OK"
+            },
+            {
+              "refId": "B",
+              "expr": "count(up{job=~\"pg-oracle|pg-54agent|pg-54link-dev|pg-ucard|pg-ndsep|pg-vpp|pg-meridian|keycloak-postgres|permify-postgres|farmer-data-collection-postgres|gds-postgres|insurance-demo-postgres|lanai-postgres|nsep-demo-postgres|paymenthub-postgres|tourismpay-postgres|fineract-postgres|redis|mojaloop-auth-svc-redis|mojaloop-proxy-cache-redis|mojaloop-ttksims-redis|insurance-demo-redis|novu-redis|mongodb|ttk-mongodb|novu-mongodb|mysql|kafka|qdrant|minio|temporal-elasticsearch|etcd|dapr-placement-server|dapr-scheduler-server\"})",
+              "legendFormat": "total targets"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "title": "Postgres fleet (17 instances) \u2014 database itself, not just the exporter",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 17,
+            "w": 24,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "#b06a6a"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "#7ba17b"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "#b06a6a",
+                    "value": null
+                  },
+                  {
+                    "color": "#7ba17b",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "NO DATA"
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "reduceOptions": {
+              "values": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "pg_up",
+              "legendFormat": "{{job}}",
+              "instant": true
+            },
+            {
+              "refId": "B",
+              "expr": "cnpg_collector_up",
+              "legendFormat": "{{job}}",
+              "instant": true
+            }
+          ],
+          "description": "Two metric families combined: CNPG's built-in exporter (pg-oracle/54agent/54link-dev/ucard/ndsep/vpp/meridian) reports cnpg_collector_up, not pg_up - it's a different implementation from the community postgres_exporter sidecar used for the other 10 instances."
+        },
+        {
+          "id": 11,
+          "title": "Redis fleet (6 instances)",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 12,
+            "h": 6
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "#b06a6a"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "#7ba17b"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "#b06a6a",
+                    "value": null
+                  },
+                  {
+                    "color": "#7ba17b",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "NO DATA"
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "reduceOptions": {
+              "values": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "redis_up",
+              "legendFormat": "{{job}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "title": "MongoDB fleet (3 instances)",
+          "type": "stat",
+          "gridPos": {
+            "x": 12,
+            "y": 24,
+            "w": 12,
+            "h": 6
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "#b06a6a"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "#7ba17b"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "#b06a6a",
+                    "value": null
+                  },
+                  {
+                    "color": "#7ba17b",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "NO DATA"
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "reduceOptions": {
+              "values": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "mongodb_up{cluster_role=\"mongod\"}",
+              "legendFormat": "{{job}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "title": "MySQL (mojaloop) & other shared infra \u2014 scrape health",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 30,
+            "w": 24,
+            "h": 7
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "#b06a6a"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "#7ba17b"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "#b06a6a",
+                    "value": null
+                  },
+                  {
+                    "color": "#7ba17b",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "NO DATA"
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "reduceOptions": {
+              "values": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "mysql_up",
+              "legendFormat": "mysql",
+              "instant": true
+            },
+            {
+              "refId": "B",
+              "expr": "up{job=~\"kafka|qdrant|minio|temporal-elasticsearch|etcd|dapr-placement-server|dapr-scheduler-server\"}",
+              "legendFormat": "{{job}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "title": "Keycloak & app-level (via otel-collector re-export)",
+          "type": "stat",
+          "gridPos": {
+            "x": 0,
+            "y": 37,
+            "w": 24,
+            "h": 5
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "DOWN",
+                      "color": "#b06a6a"
+                    },
+                    "1": {
+                      "text": "UP",
+                      "color": "#7ba17b"
+                    }
+                  }
+                }
+              ],
+              "thresholds": {
+                "steps": [
+                  {
+                    "color": "#b06a6a",
+                    "value": null
+                  },
+                  {
+                    "color": "#7ba17b",
+                    "value": 1
+                  }
+                ]
+              },
+              "noValue": "NO DATA"
+            },
+            "overrides": []
+          },
+          "options": {
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "colorMode": "background",
+            "reduceOptions": {
+              "values": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "up{exported_job=~\"keycloak|apisix|opensearch|whatsapp-commerce-platform\"}",
+              "legendFormat": "{{exported_job}}",
+              "instant": true
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "title": "Postgres connections (numbackends)",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 42,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 2
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "pg_stat_database_numbackends",
+              "legendFormat": "{{job}} / {{datname}}"
+            }
+          ]
+        },
+        {
+          "id": 21,
+          "title": "Redis connected clients",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 12,
+            "y": 42,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 2
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "redis_connected_clients",
+              "legendFormat": "{{job}}"
+            }
+          ]
+        },
+        {
+          "id": 30,
+          "title": "Recent errors across the fleet (Loki)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 50,
+            "w": 24,
+            "h": 10
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=~\".+\"} | detected_level=\"error\"",
+              "maxLines": 200
+            }
+          ]
+        },
+        {
+          "id": 31,
+          "title": "Log volume by namespace (Loki)",
+          "type": "timeseries",
+          "gridPos": {
+            "x": 0,
+            "y": 60,
+            "w": 24,
+            "h": 8
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "drawStyle": "bars",
+                "fillOpacity": 50,
+                "stacking": {
+                  "mode": "normal"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (namespace) (count_over_time({namespace=~\".+\"}[5m]))",
+              "legendFormat": "{{namespace}}"
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: otel-grafana-dashboard-go-services-red
-  namespace: whatsapp-commerce
+  namespace: otel
   # === W35 infra-receivers (Coder D) dashboard ===
 data:
   go-services-red.json: |
@@ -2544,7 +3445,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: otel-grafana-dashboard-rust-services-red
-  namespace: whatsapp-commerce
+  namespace: otel
   # === W35 infra-receivers (Coder D) dashboard ===
 data:
   rust-services-red.json: |
@@ -2772,7 +3673,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  namespace: whatsapp-commerce
+  namespace: otel
   labels: {app: grafana}
 spec:
   replicas: 1
@@ -2797,8 +3698,13 @@ spec:
             requests: {memory: 256Mi, cpu: 100m}
             limits: {memory: 512Mi, cpu: 500m}
           volumeMounts:
-            - {name: provisioning, mountPath: /etc/grafana/provisioning/datasources, subPath: datasources.yaml, readOnly: true}
-            - {name: provisioning, mountPath: /etc/grafana/provisioning/dashboards, subPath: dashboards.yaml, readOnly: true}
+            # mountPath targets the file itself, not its parent directory:
+            # Grafana's base image already ships these as real directories,
+            # so subPath-mounting a single ConfigMap key AT the directory
+            # path fails at the OCI runtime level ("not a directory") - the
+            # mount has to land on a specific filename inside it instead.
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/datasources/datasources.yaml, subPath: datasources.yaml, readOnly: true}
+            - {name: provisioning, mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml, subPath: dashboards.yaml, readOnly: true}
             - {name: dash-red, mountPath: /var/lib/grafana/dashboards/platform-red.json, subPath: platform-red.json, readOnly: true}
             - {name: dash-infra, mountPath: /var/lib/grafana/dashboards/infra-components.json, subPath: infra-components.json, readOnly: true}
             - {name: dash-money, mountPath: /var/lib/grafana/dashboards/money-rails.json, subPath: money-rails.json, readOnly: true}
@@ -2808,6 +3714,8 @@ spec:
             - {name: dash-go-red, mountPath: /var/lib/grafana/dashboards/go-services-red.json, subPath: go-services-red.json, readOnly: true}
             - {name: dash-rust-red, mountPath: /var/lib/grafana/dashboards/rust-services-red.json, subPath: rust-services-red.json, readOnly: true}
             # === END W35 infra-receivers ===
+            # Fleet-wide shared infra dashboard (source of truth: github.com/AfroNG/monitoring_dashboard).
+            - {name: dash-fleet, mountPath: /var/lib/grafana/dashboards/newwave-fleet-dashboard.json, subPath: newwave-fleet-dashboard.json, readOnly: true}
             - {name: data, mountPath: /var/lib/grafana}
       volumes:
         - name: provisioning
@@ -2828,22 +3736,37 @@ spec:
         - name: dash-rust-red
           configMap: {name: otel-grafana-dashboard-rust-services-red}
         # === END W35 infra-receivers ===
+        - name: dash-fleet
+          configMap: {name: otel-grafana-dashboard-newwave-fleet}
         - name: data
           emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: grafana, namespace: whatsapp-commerce}
+metadata: {name: grafana, namespace: otel}
 spec:
   selector: {app: grafana}
   ports:
     - {name: http, port: 3000, targetPort: 3000}
 ---
+# PREREQUISITE (not expressed here - secret values don't belong in git): an
+# `otel-alert-smtp` Secret must exist in this namespace (otel) with keys
+# to/from/host/port/user/password - real Resend SMTP relay credentials, not
+# placeholders. `from` uses upi.dev (confirmed live via a real Resend send:
+# verified with Resend, not just DNS-routable) - a dedicated Resend API key
+# for this domain, not the whatsapp-commerce app's own key. Created via:
+#   kubectl create secret generic otel-alert-smtp -n otel \
+#     --from-literal=to=<alert recipient email> \
+#     --from-literal=from="Newwave Alerts <alerts@upi.dev>" \
+#     --from-literal=host=smtp.resend.com \
+#     --from-literal=port=587 \
+#     --from-literal=user=resend \
+#     --from-literal=password=<the upi.dev Resend API key>
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: alertmanager
-  namespace: whatsapp-commerce
+  namespace: otel
   labels: {app: alertmanager}
 spec:
   replicas: 1
@@ -2854,14 +3777,32 @@ spec:
       containers:
         - name: alertmanager
           image: prom/alertmanager:v0.27.0
+          # Alertmanager does not expand ${...} in its own config - render the
+          # ConfigMap-mounted template with sed at container start (busybox sh
+          # is present in this image), same approach docker-compose already
+          # uses for local dev (see docker-compose.yml's alertmanager service).
+          # Real values: Resend's SMTP relay (smtp.resend.com, username
+          # literally "resend", password = a dedicated Resend API key),
+          # sending from upi.dev - confirmed verified with Resend via a real
+          # test send (not just a domain the org owns for HTTP routing).
+          command: ["/bin/sh", "-c"]
           args:
-            - --config.file=/etc/alertmanager/alertmanager.yml
+            - |
+              sed -e "s|\${ALERT_EMAIL_TO}|$ALERT_EMAIL_TO|g" \
+                  -e "s|\${ALERT_EMAIL_FROM}|$ALERT_EMAIL_FROM|g" \
+                  -e "s|\${SMTP_HOST}|$SMTP_HOST|g" \
+                  -e "s|\${SMTP_PORT}|$SMTP_PORT|g" \
+                  -e "s|\${SMTP_USER}|$SMTP_USER|g" \
+                  -e "s|\${SMTP_PASSWORD}|$SMTP_PASSWORD|g" \
+                  /etc/alertmanager/alertmanager.yml > /tmp/alertmanager.yml && \
+              exec /bin/alertmanager --config.file=/tmp/alertmanager.yml
           env:
-            # NOTE: alertmanager.yml on disk keeps ${...} placeholders in k8s;
-            # wire real SMTP creds via a sealed Secret + envsubst sidecar, or
-            # render this ConfigMap from your secrets manager before apply.
-            # (compose renders it with sed; k8s path is documented, not faked.)
-            - {name: ALERT_EMAIL_TO, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: to, optional: true}}}
+            - {name: ALERT_EMAIL_TO, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: to}}}
+            - {name: ALERT_EMAIL_FROM, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: from}}}
+            - {name: SMTP_HOST, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: host}}}
+            - {name: SMTP_PORT, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: port}}}
+            - {name: SMTP_USER, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: user}}}
+            - {name: SMTP_PASSWORD, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: password}}}
           ports:
             - {containerPort: 9093}
           readinessProbe:
@@ -2879,7 +3820,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: alertmanager, namespace: whatsapp-commerce}
+metadata: {name: alertmanager, namespace: otel}
 spec:
   selector: {app: alertmanager}
   ports:
@@ -2889,7 +3830,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: alertmanager-wa-bridge
-  namespace: whatsapp-commerce
+  namespace: otel
   labels: {app: alertmanager-wa-bridge}
 spec:
   replicas: 1
@@ -2904,7 +3845,11 @@ spec:
           env:
             - {name: ALERTMANAGER_WA_BRIDGE_ENABLED, value: "false"}  # disabled-default; set "true" to enable
             - {name: WA_BRIDGE_PORT, value: "9099"}
-            - {name: PLATFORM_API_URL, value: "http://platform:3000"}
+            # Cross-namespace: this stack lives in `otel`, the app in
+            # `whatsapp-commerce` - and the actual Service is named `server`,
+            # not `platform` (which never existed; harmless only because
+            # ALERTMANAGER_WA_BRIDGE_ENABLED defaults to false).
+            - {name: PLATFORM_API_URL, value: "http://server.whatsapp-commerce.svc.cluster.local:3000"}
             - {name: INTERNAL_API_KEY, valueFrom: {secretKeyRef: {name: platform-internal, key: INTERNAL_API_KEY, optional: true}}}
             - {name: OPS_ALERT_WHATSAPP, valueFrom: {secretKeyRef: {name: platform-internal, key: OPS_ALERT_WHATSAPP, optional: true}}}
           ports:
@@ -2924,7 +3869,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: alertmanager-wa-bridge, namespace: whatsapp-commerce}
+metadata: {name: alertmanager-wa-bridge, namespace: otel}
 spec:
   selector: {app: alertmanager-wa-bridge}
   ports:
