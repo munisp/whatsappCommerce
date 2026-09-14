@@ -632,6 +632,71 @@ data:
               summary: "TigerBeetle operation errors"
               description: "Error spans named tigerbeetle.* sustained for 5m. Ledger ops are failing — check ledger-bridge and tigerbeetle."
     # === END W35 infra-receivers ===
+    # === W40 pod-health + blackbox-probed component alerts ===
+    # Added once kube-state-metrics (real pod status/restarts, every namespace)
+    # and blackbox-exporter (real up/down for Permify/TigerBeetle/Temporal,
+    # none of which expose native Prometheus metrics) went live - the
+    # namespace dashboards built on this same data had no corresponding
+    # alerts until now.
+      - name: w40-pod-health
+        interval: 30s
+        rules:
+          # Active crash-looping: >3 container restarts in 15m, cluster-wide.
+          # Deliberately a *rate* threshold, not a raw restart count - a pod
+          # with a high historical count that has since stabilized (common
+          # after a node reboot weeks ago) must not page; only genuinely
+          # recent, repeated restarting should.
+          - alert: PodCrashLooping
+            expr: increase(kube_pod_container_status_restarts_total[15m]) > 3
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod crash-looping: {{ $labels.namespace }}/{{ $labels.pod }}"
+              description: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} restarted more than 3 times in the last 15m. Check the {{ $labels.namespace }} namespace dashboard's logs panel."
+
+          # Sustained Failed phase, cluster-wide. Pending is deliberately
+          # excluded - normal during scheduling/image pulls; Failed is a
+          # definitively bad terminal state.
+          - alert: PodFailed
+            expr: kube_pod_status_phase{phase="Failed"} == 1
+            for: 15m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod in Failed state: {{ $labels.namespace }}/{{ $labels.pod }}"
+              description: "{{ $labels.namespace }}/{{ $labels.pod }} has been in Failed phase for 15m. Check the {{ $labels.namespace }} namespace dashboard."
+
+          # Permify/TigerBeetle/Temporal have no native Prometheus metrics -
+          # these are the same blackbox-exporter probes the HealthPoint
+          # dashboard's middleware panels already show live.
+          - alert: PermifyDown
+            expr: probe_success{job="blackbox-permify"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Permify unreachable"
+              description: "blackbox-exporter's HTTP check against Permify's /healthz has failed for 5m. ReBAC checks are silently falling back to the Postgres path - check permify pods."
+
+          - alert: TigerBeetleUnreachable
+            expr: probe_success{job="blackbox-tigerbeetle"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "TigerBeetle mTLS proxy unreachable"
+              description: "blackbox-exporter's mutual-TLS handshake against the TigerBeetle stunnel has failed for 5m - the same endpoint healthpoint's own tunnel connects to. Check the tigerbeetle-stunnel deployment and the tigerbeetle namespace dashboard."
+
+          - alert: TemporalProxyUnreachable
+            expr: probe_success{job="blackbox-temporal"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Temporal secure proxy unreachable"
+              description: "blackbox-exporter's TLS handshake against temporal-secure-proxy has failed for 5m. Workflow dispatch for any app using Temporal (including healthpoint's IDR workflow) is at risk - check the temporal-secure-proxy deployment."
+    # === END W40 pod-health + blackbox-probed component alerts ===
 ---
 apiVersion: v1
 kind: ConfigMap
