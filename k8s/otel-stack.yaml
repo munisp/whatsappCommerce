@@ -3336,11 +3336,72 @@ data:
         },
         {
           "id": 10,
+          "type": "stat",
+          "title": "Middleware: Keycloak",
+          "description": "up{exported_job=\"keycloak\"} - the auth server healthpoint depends on for OIDC.",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 6, "w": 6, "x": 0, "y": 30},
+          "targets": [{"refId": "A", "expr": "up{exported_job=\"keycloak\"}"}],
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 11,
+          "title": "Middleware: Postgres (pg-oracle)",
+          "type": "stat",
+          "description": "up{job=\"pg-oracle\"} - healthpoint's DATABASE_URL points at the shared pg-oracle instance (apps/healthpoint-newwave-dev/main.tf), not a dedicated DB.",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 6, "w": 6, "x": 6, "y": 30},
+          "targets": [{"refId": "A", "expr": "up{job=\"pg-oracle\"}"}],
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 12,
+          "title": "Middleware: Redis (shared)",
+          "type": "stat",
+          "description": "up{job=\"redis\"} - healthpoint's REDIS_URL points at the shared redis-master instance (used for Redlock and session cache), not a dedicated Redis.",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 6, "w": 6, "x": 12, "y": 30},
+          "targets": [{"refId": "A", "expr": "up{job=\"redis\"}"}],
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 13,
+          "title": "Middleware: MinIO (shared)",
+          "type": "stat",
+          "description": "up{job=\"minio\"} - healthpoint's S3_ENDPOINT points at the shared MinIO instance (dispute attachments/exports), not a dedicated bucket store.",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 6, "w": 6, "x": 18, "y": 30},
+          "targets": [{"refId": "A", "expr": "up{job=\"minio\"}"}],
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 14,
+          "title": "Middleware: Temporal - not instrumented",
+          "type": "text",
+          "gridPos": {"h": 3, "w": 24, "x": 0, "y": 36},
+          "options": {"mode": "markdown", "content": "**Temporal** (via `temporal-secure-proxy`, used for the IDR dispute workflow) has no Prometheus scrape target in this cluster - `temporal-frontend` itself is not exposed as a metric, only its Elasticsearch visibility store (`temporal-elasticsearch`) is. There is currently no honest way to show Temporal's own up/down state here; this is a real gap, not a hidden panel."}
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Outbound calls to Keycloak (by status)",
+          "description": "http_client_request_duration_seconds{server_address=...} - the only outbound dependency currently visible with a target-service label. No MinIO/Postgres/Redis/Temporal calls have shown up under this metric family recently (healthpoint doesn't auto-instrument those clients the way it does fetch/HTTP).",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 39},
+          "targets": [{"refId": "A", "expr": "sum by (server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{exported_job=\"healthpoint-api\"}[5m]))", "legendFormat": "{{server_address}} ({{http_response_status_code}})"}],
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+        },
+        {
+          "id": 16,
           "type": "table",
           "title": "Pod status (namespace: healthpoint)",
           "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod - each pod appears once.",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 47},
           "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_status_phase{namespace=\"healthpoint\"} == 1"}],
           "transformations": [
             {"id": "organize", "options": {"excludeByName": {"Time": true, "Value": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "phase": "Phase"}}}
@@ -3353,12 +3414,12 @@ data:
           }
         },
         {
-          "id": 11,
+          "id": 17,
           "type": "table",
           "title": "Container restarts (namespace: healthpoint)",
           "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 47},
           "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_container_status_restarts_total{namespace=\"healthpoint\"}"}],
           "transformations": [
             {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "container": "Container", "Value": "Restarts"}}}
@@ -3369,13 +3430,4809 @@ data:
           }
         },
         {
-          "id": 12,
+          "id": 18,
           "title": "Pod logs (namespace: healthpoint)",
           "type": "logs",
-          "gridPos": {"x": 0, "y": 38, "w": 24, "h": 12},
+          "gridPos": {"x": 0, "y": 55, "w": 24, "h": 12},
           "datasource": {"type": "loki", "uid": "Loki"},
           "options": {"showTime": true, "showLabels": true, "wrapLogMessages": true, "sortOrder": "Descending"},
           "targets": [{"refId": "A", "expr": "{namespace=\"healthpoint\"}", "maxLines": 500}]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-fc-cvff-api
+  namespace: otel
+data:
+  blueeco-fc-cvff-api.json: |
+    {
+      "title": "BlueEco FC CVFF API",
+      "uid": "w37-blueeco-fc-cvff-api",
+      "description": "Service health for blueeco-fc-cvff-api (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Inbound request rate (req/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{exported_job=\"blueeco-fc-cvff-api\"}[5m]))",
+              "legendFormat": "Inbound request rate (req/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Inbound 5xx ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_server_request_duration_seconds_count{exported_job=\"blueeco-fc-cvff-api\",http_response_status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_request_duration_seconds_count{exported_job=\"blueeco-fc-cvff-api\"}[5m])), 1e-9)",
+              "legendFormat": "Inbound 5xx ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Inbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{exported_job=\"blueeco-fc-cvff-api\"}[5m])))",
+              "legendFormat": "Inbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Inbound requests by route",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{exported_job=\"blueeco-fc-cvff-api\"}[5m]))",
+              "legendFormat": "{{http_route}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Inbound 5xx by route",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{exported_job=\"blueeco-fc-cvff-api\",http_response_status_code=~\"5..\"}[5m]))",
+              "legendFormat": "{{http_route}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Outbound call rate (calls/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-api\"}[5m]))",
+              "legendFormat": "Outbound call rate (calls/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Outbound error ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-api\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-api\"}[5m])), 1e-9)",
+              "legendFormat": "Outbound error ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "Outbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"blueeco-fc-cvff-api\"}[5m])))",
+              "legendFormat": "Outbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Outbound calls by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 14
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-api\"}[5m]))",
+              "legendFormat": "{{span_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Outbound errors by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-api\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{span_name}} errors/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "DB operation rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 22
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (db_system_name) (rate(db_client_operation_duration_seconds_count{exported_job=\"blueeco-fc-cvff-api\"}[5m]))",
+              "legendFormat": "{{db_system_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "DB operation p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 22
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{exported_job=\"blueeco-fc-cvff-api\"}[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 30
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 14,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 30
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 15,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 38,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-fc-cvff-worker
+  namespace: otel
+data:
+  blueeco-fc-cvff-worker.json: |
+    {
+      "title": "BlueEco FC CVFF Worker",
+      "uid": "w37-blueeco-fc-cvff-worker",
+      "description": "Service health for blueeco-fc-cvff-worker (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Outbound call rate (calls/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-worker\"}[5m]))",
+              "legendFormat": "Outbound call rate (calls/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Outbound error ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-worker\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-worker\"}[5m])), 1e-9)",
+              "legendFormat": "Outbound error ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Outbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"blueeco-fc-cvff-worker\"}[5m])))",
+              "legendFormat": "Outbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Outbound calls by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-worker\"}[5m]))",
+              "legendFormat": "{{span_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Outbound errors by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-fc-cvff-worker\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{span_name}} errors/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "DB operation rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (db_system_name) (rate(db_client_operation_duration_seconds_count{exported_job=\"blueeco-fc-cvff-worker\"}[5m]))",
+              "legendFormat": "{{db_system_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "DB operation p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{exported_job=\"blueeco-fc-cvff-worker\"}[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-fc-declaration-scorer
+  namespace: otel
+data:
+  blueeco-fc-declaration-scorer.json: |
+    {
+      "title": "BlueEco FC Declaration Scorer",
+      "uid": "w37-blueeco-fc-declaration-scorer",
+      "description": "Service health for blueeco-fc-declaration-scorer (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Telemetry dropped (rate)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(telemetry_dropped_total{exported_job=\"blueeco-fc-declaration-scorer\"}[5m]))",
+              "legendFormat": "Telemetry dropped (rate)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "orange"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 14,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-fc-intent-api
+  namespace: otel
+data:
+  blueeco-fc-intent-api.json: |
+    {
+      "title": "BlueEco FC Intent API",
+      "uid": "w37-blueeco-fc-intent-api",
+      "description": "Service health for blueeco-fc-intent-api (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "DB operation rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (db_system_name) (rate(db_client_operation_duration_seconds_count{exported_job=\"blueeco-fc-intent-api\"}[5m]))",
+              "legendFormat": "{{db_system_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "DB operation p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{exported_job=\"blueeco-fc-intent-api\"}[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-fc-mojaloop-adapter
+  namespace: otel
+data:
+  blueeco-fc-mojaloop-adapter.json: |
+    {
+      "title": "BlueEco FC Mojaloop Adapter",
+      "uid": "w37-blueeco-fc-mojaloop-adapter",
+      "description": "Service health for blueeco-fc-mojaloop-adapter (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "DB operation rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (db_system_name) (rate(db_client_operation_duration_seconds_count{exported_job=\"blueeco-fc-mojaloop-adapter\"}[5m]))",
+              "legendFormat": "{{db_system_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "DB operation p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{exported_job=\"blueeco-fc-mojaloop-adapter\"}[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "DB operation errors",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (pgx_operation_type) (rate(db_client_operation_errors_total{exported_job=\"blueeco-fc-mojaloop-adapter\"}[5m]))",
+              "legendFormat": "{{pgx_operation_type}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 5,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-fc-outbox-publisher
+  namespace: otel
+data:
+  blueeco-fc-outbox-publisher.json: |
+    {
+      "title": "BlueEco FC Outbox Publisher",
+      "uid": "w37-blueeco-fc-outbox-publisher",
+      "description": "Service health for blueeco-fc-outbox-publisher (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Outbound call rate (calls/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-outbox-publisher\"}[5m]))",
+              "legendFormat": "Outbound call rate (calls/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Outbound error ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-outbox-publisher\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"blueeco-fc-outbox-publisher\"}[5m])), 1e-9)",
+              "legendFormat": "Outbound error ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Outbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"blueeco-fc-outbox-publisher\"}[5m])))",
+              "legendFormat": "Outbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Outbound calls by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-fc-outbox-publisher\"}[5m]))",
+              "legendFormat": "{{span_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Outbound errors by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-fc-outbox-publisher\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{span_name}} errors/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "DB operation rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (db_system_name) (rate(db_client_operation_duration_seconds_count{exported_job=\"blueeco-fc-outbox-publisher\"}[5m]))",
+              "legendFormat": "{{db_system_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "DB operation p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{exported_job=\"blueeco-fc-outbox-publisher\"}[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-fc-stamps-intake
+  namespace: otel
+data:
+  blueeco-fc-stamps-intake.json: |
+    {
+      "title": "BlueEco FC Stamps Intake",
+      "uid": "w37-blueeco-fc-stamps-intake",
+      "description": "Service health for blueeco-fc-stamps-intake (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "DB operation rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (db_system_name) (rate(db_client_operation_duration_seconds_count{exported_job=\"blueeco-fc-stamps-intake\"}[5m]))",
+              "legendFormat": "{{db_system_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "DB operation p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(db_client_operation_duration_seconds_bucket{exported_job=\"blueeco-fc-stamps-intake\"}[5m])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-mrv-api
+  namespace: otel
+data:
+  blueeco-mrv-api.json: |
+    {
+      "title": "BlueEco MRV API",
+      "uid": "w37-blueeco-mrv-api",
+      "description": "Service health for blueeco-mrv-api (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Outbound call rate (calls/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-mrv-api\"}[5m]))",
+              "legendFormat": "Outbound call rate (calls/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Outbound error ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-mrv-api\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"blueeco-mrv-api\"}[5m])), 1e-9)",
+              "legendFormat": "Outbound error ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Outbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"blueeco-mrv-api\"}[5m])))",
+              "legendFormat": "Outbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Outbound calls by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-mrv-api\"}[5m]))",
+              "legendFormat": "{{span_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Outbound errors by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-mrv-api\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{span_name}} errors/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeco-pi-outbox-publisher
+  namespace: otel
+data:
+  blueeco-pi-outbox-publisher.json: |
+    {
+      "title": "BlueEco PI Outbox Publisher",
+      "uid": "w37-blueeco-pi-outbox-publisher",
+      "description": "Service health for blueeco-pi-outbox-publisher (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Outbound call rate (calls/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-pi-outbox-publisher\"}[5m]))",
+              "legendFormat": "Outbound call rate (calls/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Outbound error ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"blueeco-pi-outbox-publisher\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"blueeco-pi-outbox-publisher\"}[5m])), 1e-9)",
+              "legendFormat": "Outbound error ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Outbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"blueeco-pi-outbox-publisher\"}[5m])))",
+              "legendFormat": "Outbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Outbound calls by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-pi-outbox-publisher\"}[5m]))",
+              "legendFormat": "{{span_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Outbound errors by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"blueeco-pi-outbox-publisher\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{span_name}} errors/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-blueeconomy-stats-api
+  namespace: otel
+data:
+  blueeconomy-stats-api.json: |
+    {
+      "title": "BlueEconomy Stats API",
+      "uid": "w37-blueeconomy-stats-api",
+      "description": "Service health for blueeconomy/blueeconomy-stats-api (namespace: blueeconomy). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "blueeconomy"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Request rate (req/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(stats_api_requests_total{exported_job=\"blueeconomy/blueeconomy-stats-api\"}[5m]))",
+              "legendFormat": "Request rate (req/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "5xx ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(stats_api_requests_total{exported_job=\"blueeconomy/blueeconomy-stats-api\",code=~\"5..\"}[5m])) / clamp_min(sum(rate(stats_api_requests_total{exported_job=\"blueeconomy/blueeconomy-stats-api\"}[5m])), 1e-9)",
+              "legendFormat": "5xx ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Requests by route",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (route) (rate(stats_api_requests_total{exported_job=\"blueeconomy/blueeconomy-stats-api\"}[5m]))",
+              "legendFormat": "{{route}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "table",
+          "title": "Pod status (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"blueeconomy\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 5,
+          "type": "table",
+          "title": "Container restarts (namespace: blueeconomy)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"blueeconomy\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "title": "Pod logs (namespace: blueeconomy)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"blueeconomy\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-grafana-dashboard-ndsep-api
+  namespace: otel
+data:
+  ndsep-api.json: |
+    {
+      "title": "NDSEP API",
+      "uid": "w37-ndsep-api",
+      "description": "Service health for ndsep-api (namespace: ndsep). Panels reflect exactly what this service's own instrumentation emits - no data is fabricated where a panel type doesn't apply (e.g. a service with no inbound HTTP metrics gets no inbound-request panels). Pod status, container restarts, and logs are always real regardless of app-level instrumentation maturity.",
+      "tags": [
+        "w37",
+        "otel",
+        "ndsep"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Inbound request rate (req/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_server_duration_milliseconds_count{exported_job=\"ndsep-api\"}[5m]))",
+              "legendFormat": "Inbound request rate (req/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Inbound 5xx ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(http_server_duration_milliseconds_count{exported_job=\"ndsep-api\",http_response_status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_duration_milliseconds_count{exported_job=\"ndsep-api\"}[5m])), 1e-9)",
+              "legendFormat": "Inbound 5xx ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Inbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_duration_milliseconds_bucket{exported_job=\"ndsep-api\"}[5m])))",
+              "legendFormat": "Inbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Inbound requests by route",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (http_route) (rate(http_server_duration_milliseconds_count{exported_job=\"ndsep-api\"}[5m]))",
+              "legendFormat": "{{http_route}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Inbound 5xx by route",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (http_route) (rate(http_server_duration_milliseconds_count{exported_job=\"ndsep-api\",http_response_status_code=~\"5..\"}[5m]))",
+              "legendFormat": "{{http_route}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "stat",
+          "title": "Outbound call rate (calls/s)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"ndsep-api\"}[5m]))",
+              "legendFormat": "Outbound call rate (calls/s)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Outbound error ratio",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=\"ndsep-api\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"ndsep-api\"}[5m])), 1e-9)",
+              "legendFormat": "Outbound error ratio"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 8,
+          "type": "stat",
+          "title": "Outbound p95 duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"ndsep-api\"}[5m])))",
+              "legendFormat": "Outbound p95 duration"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "purple"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Outbound calls by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 14
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"ndsep-api\"}[5m]))",
+              "legendFormat": "{{span_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Outbound errors by span",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"ndsep-api\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{span_name}} errors/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Node.js event loop utilization",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 22
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "avg by (host_name) (nodejs_eventloop_utilization_ratio{exported_job=\"ndsep-api\"})",
+              "legendFormat": "{{host_name}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "V8 heap used vs limit",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 22
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "avg by (host_name) (v8js_memory_heap_used_bytes{exported_job=\"ndsep-api\"})",
+              "legendFormat": "{{host_name}} used"
+            },
+            {
+              "refId": "B",
+              "expr": "avg by (host_name) (v8js_memory_heap_limit_bytes{exported_job=\"ndsep-api\"})",
+              "legendFormat": "{{host_name}} limit"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "GC pause duration (p95)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 30
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(v8js_gc_duration_seconds_bucket{exported_job=\"ndsep-api\"}[5m])))",
+              "legendFormat": "p95 GC pause"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Event loop delay (mean/p99)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 30
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "avg by (host_name) (nodejs_eventloop_delay_mean_seconds{exported_job=\"ndsep-api\"})",
+              "legendFormat": "{{host_name}} mean"
+            },
+            {
+              "refId": "B",
+              "expr": "avg by (host_name) (nodejs_eventloop_delay_p99_seconds{exported_job=\"ndsep-api\"})",
+              "legendFormat": "{{host_name}} p99"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 15,
+          "type": "table",
+          "title": "Pod status (namespace: ndsep)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 38
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"ndsep\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 16,
+          "type": "table",
+          "title": "Container restarts (namespace: ndsep)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 38
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"ndsep\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 17,
+          "title": "Pod logs (namespace: ndsep)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 46,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"ndsep\"}",
+              "maxLines": 500
+            }
+          ]
         }
       ]
     }
@@ -3884,6 +8741,17 @@ spec:
             # Fleet-wide shared infra dashboard (source of truth: github.com/AfroNG/monitoring_dashboard).
             - {name: dash-fleet, mountPath: /var/lib/grafana/dashboards/newwave-fleet-dashboard.json, subPath: newwave-fleet-dashboard.json, readOnly: true}
             - {name: dash-healthpoint, mountPath: /var/lib/grafana/dashboards/healthpoint.json, subPath: healthpoint.json, readOnly: true}
+            - {name: dash-bfccvff-api, mountPath: /var/lib/grafana/dashboards/blueeco-fc-cvff-api.json, subPath: blueeco-fc-cvff-api.json, readOnly: true}
+            - {name: dash-bfccvff-worker, mountPath: /var/lib/grafana/dashboards/blueeco-fc-cvff-worker.json, subPath: blueeco-fc-cvff-worker.json, readOnly: true}
+            - {name: dash-bfcdeclaration-scorer, mountPath: /var/lib/grafana/dashboards/blueeco-fc-declaration-scorer.json, subPath: blueeco-fc-declaration-scorer.json, readOnly: true}
+            - {name: dash-bfcintent-api, mountPath: /var/lib/grafana/dashboards/blueeco-fc-intent-api.json, subPath: blueeco-fc-intent-api.json, readOnly: true}
+            - {name: dash-bfcmojaloop-adapter, mountPath: /var/lib/grafana/dashboards/blueeco-fc-mojaloop-adapter.json, subPath: blueeco-fc-mojaloop-adapter.json, readOnly: true}
+            - {name: dash-bfcoutbox-publisher, mountPath: /var/lib/grafana/dashboards/blueeco-fc-outbox-publisher.json, subPath: blueeco-fc-outbox-publisher.json, readOnly: true}
+            - {name: dash-bfcstamps-intake, mountPath: /var/lib/grafana/dashboards/blueeco-fc-stamps-intake.json, subPath: blueeco-fc-stamps-intake.json, readOnly: true}
+            - {name: dash-bmrv-api, mountPath: /var/lib/grafana/dashboards/blueeco-mrv-api.json, subPath: blueeco-mrv-api.json, readOnly: true}
+            - {name: dash-bpi-outbox-publisher, mountPath: /var/lib/grafana/dashboards/blueeco-pi-outbox-publisher.json, subPath: blueeco-pi-outbox-publisher.json, readOnly: true}
+            - {name: dash-blueeconomy-stats-api, mountPath: /var/lib/grafana/dashboards/blueeconomy-stats-api.json, subPath: blueeconomy-stats-api.json, readOnly: true}
+            - {name: dash-ndsep-api, mountPath: /var/lib/grafana/dashboards/ndsep-api.json, subPath: ndsep-api.json, readOnly: true}
             - {name: data, mountPath: /var/lib/grafana}
       volumes:
         - name: provisioning
@@ -3908,6 +8776,17 @@ spec:
           configMap: {name: otel-grafana-dashboard-newwave-fleet}
         - name: dash-healthpoint
           configMap: {name: otel-grafana-dashboard-healthpoint}
+        - {name: dash-bfccvff-api, configMap: {name: otel-grafana-dashboard-blueeco-fc-cvff-api}}
+        - {name: dash-bfccvff-worker, configMap: {name: otel-grafana-dashboard-blueeco-fc-cvff-worker}}
+        - {name: dash-bfcdeclaration-scorer, configMap: {name: otel-grafana-dashboard-blueeco-fc-declaration-scorer}}
+        - {name: dash-bfcintent-api, configMap: {name: otel-grafana-dashboard-blueeco-fc-intent-api}}
+        - {name: dash-bfcmojaloop-adapter, configMap: {name: otel-grafana-dashboard-blueeco-fc-mojaloop-adapter}}
+        - {name: dash-bfcoutbox-publisher, configMap: {name: otel-grafana-dashboard-blueeco-fc-outbox-publisher}}
+        - {name: dash-bfcstamps-intake, configMap: {name: otel-grafana-dashboard-blueeco-fc-stamps-intake}}
+        - {name: dash-bmrv-api, configMap: {name: otel-grafana-dashboard-blueeco-mrv-api}}
+        - {name: dash-bpi-outbox-publisher, configMap: {name: otel-grafana-dashboard-blueeco-pi-outbox-publisher}}
+        - {name: dash-blueeconomy-stats-api, configMap: {name: otel-grafana-dashboard-blueeconomy-stats-api}}
+        - {name: dash-ndsep-api, configMap: {name: otel-grafana-dashboard-ndsep-api}}
         - name: data
           emptyDir: {}
 ---
