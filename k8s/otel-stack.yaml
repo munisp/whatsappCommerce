@@ -386,6 +386,15 @@ data:
           - {source_labels: [__address__], target_label: __param_target}
           - {source_labels: [__param_target], target_label: instance}
           - {target_label: __address__, replacement: blackbox-exporter.otel.svc.cluster.local:9115}
+      - job_name: blackbox-temporal
+        metrics_path: /probe
+        params: {module: [tcp_tls_verify_only]}
+        static_configs:
+          - targets: ["temporal-secure-proxy.temporal.svc.cluster.local:8444"]
+        relabel_configs:
+          - {source_labels: [__address__], target_label: __param_target}
+          - {source_labels: [__param_target], target_label: instance}
+          - {target_label: __address__, replacement: blackbox-exporter.otel.svc.cluster.local:9115}
       # Temporal's own Elasticsearch (visibility store) - elasticsearch_exporter
       # sidecar (clusters/newwave-dev/shared-infra/
       # temporal-elasticsearch-exporter.yaml). Confirmed live: real cluster
@@ -3406,7 +3415,7 @@ data:
           "type": "stat",
           "description": "up{job=\"kafka\"} - the shared mojaloop-kafka-cluster broker healthpoint's IDR event consumer (idr.dispute.events/idr.payments/idr.audit) connects to.",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 6, "w": 8, "x": 0, "y": 36},
+          "gridPos": {"h": 6, "w": 6, "x": 0, "y": 36},
           "targets": [{"refId": "A", "expr": "up{job=\"kafka\"}"}],
           "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
           "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
@@ -3417,7 +3426,7 @@ data:
           "type": "stat",
           "description": "probe_success{job=\"blackbox-permify\"} - blackbox-exporter doing a real HTTP GET against Permify's own /healthz (Permify has no Prometheus metrics of its own).",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 6, "w": 8, "x": 8, "y": 36},
+          "gridPos": {"h": 6, "w": 6, "x": 6, "y": 36},
           "targets": [{"refId": "A", "expr": "probe_success{job=\"blackbox-permify\"}"}],
           "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
           "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
@@ -3428,8 +3437,19 @@ data:
           "type": "stat",
           "description": "probe_success{job=\"blackbox-tigerbeetle\"} - blackbox-exporter doing a real mutual-TLS handshake against the same mTLS proxy healthpoint's own tunnel connects to (TigerBeetle's binary protocol has no Prometheus metrics of its own).",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 6, "w": 8, "x": 16, "y": 36},
+          "gridPos": {"h": 6, "w": 6, "x": 12, "y": 36},
           "targets": [{"refId": "A", "expr": "probe_success{job=\"blackbox-tigerbeetle\"}"}],
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 14,
+          "title": "Middleware: Temporal",
+          "type": "stat",
+          "description": "probe_success{job=\"blackbox-temporal\"} - blackbox-exporter doing a real TLS handshake, verified against the real CA, against temporal-secure-proxy (temporal-frontend itself has no Prometheus metrics; this confirms the proxy is up and terminating TLS correctly, not that the Bearer-token/gRPC path behind it works end to end).",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 6, "w": 6, "x": 18, "y": 36},
+          "targets": [{"refId": "A", "expr": "probe_success{job=\"blackbox-temporal\"}"}],
           "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
           "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
         },
@@ -3441,17 +3461,10 @@ data:
           "options": {"mode": "markdown", "content": "**Ollama (LLM backend)** and **Resend (lead notification email)** are wired up and were verified working when connected (a real model check / a real end-to-end test), but neither has a probe/metric here yet - both are one-off/on-demand calls rather than a standing connection, so there's no single endpoint to keep polling the way Permify/TigerBeetle's health checks do."}
         },
         {
-          "id": 14,
-          "title": "Middleware: Temporal - not instrumented",
-          "type": "text",
-          "gridPos": {"h": 3, "w": 24, "x": 0, "y": 46},
-          "options": {"mode": "markdown", "content": "**Temporal** (via `temporal-secure-proxy`, used for the IDR dispute workflow) has no Prometheus scrape target in this cluster - `temporal-frontend` itself is not exposed as a metric, only its Elasticsearch visibility store (`temporal-elasticsearch`) is. There is currently no honest way to show Temporal's own up/down state here; this is a real gap, not a hidden panel."}
-        },
-        {
           "id": 19,
           "title": "Middleware: still not wired up",
           "type": "text",
-          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 49},
+          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 46},
           "options": {"mode": "markdown", "content": "**SendGrid / SMTP / Twilio** (`server/notifications.ts`) - none of their env vars are set. Unlike everything else on this page, these are alternate notification channels that need real third-party account credentials (a SendGrid account, an SMTP relay, a Twilio account) - not something to wire up from cluster access alone."}
         },
         {
@@ -3460,7 +3473,7 @@ data:
           "title": "Outbound calls to Keycloak (by status)",
           "description": "http_client_request_duration_seconds{server_address=...} - the only outbound dependency currently visible with a target-service label. No MinIO/Postgres/Redis/Temporal calls have shown up under this metric family recently (healthpoint doesn't auto-instrument those clients the way it does fetch/HTTP).",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 53},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 50},
           "targets": [{"refId": "A", "expr": "sum by (server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{exported_job=\"healthpoint-api\"}[5m]))", "legendFormat": "{{server_address}} ({{http_response_status_code}})"}],
           "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
         },
@@ -3470,7 +3483,7 @@ data:
           "title": "Pod status (namespace: healthpoint)",
           "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod - each pod appears once.",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 61},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 58},
           "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_status_phase{namespace=\"healthpoint\"} == 1"}],
           "transformations": [
             {"id": "organize", "options": {"excludeByName": {"Time": true, "Value": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "phase": "Phase"}}}
@@ -3488,7 +3501,7 @@ data:
           "title": "Container restarts (namespace: healthpoint)",
           "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 61},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 58},
           "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_container_status_restarts_total{namespace=\"healthpoint\"}"}],
           "transformations": [
             {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "container": "Container", "Value": "Restarts"}}}
@@ -3502,7 +3515,7 @@ data:
           "id": 18,
           "title": "Pod logs (namespace: healthpoint)",
           "type": "logs",
-          "gridPos": {"x": 0, "y": 69, "w": 24, "h": 12},
+          "gridPos": {"x": 0, "y": 66, "w": 24, "h": 12},
           "datasource": {"type": "loki", "uid": "Loki"},
           "options": {"showTime": true, "showLabels": true, "wrapLogMessages": true, "sortOrder": "Descending"},
           "targets": [{"refId": "A", "expr": "{namespace=\"healthpoint\"}", "maxLines": 500}]

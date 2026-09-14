@@ -14,6 +14,17 @@
 #   kubectl get secret healthpoint-tigerbeetle -n healthpoint -o json | \
 #     python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({'apiVersion':'v1','kind':'Secret','metadata':{'name':'blackbox-tigerbeetle-mtls','namespace':'otel'},'data':d['data']}))" | \
 #     kubectl apply -f -
+#   - temporal-secure-proxy (namespace temporal) terminates TLS with a real
+#     server cert and does its own Bearer-token check at the app layer
+#     (nginx, not mTLS) before proxying gRPC to temporal-frontend - so this
+#     probe only confirms the proxy is up and terminating TLS correctly
+#     (server cert validated against the real CA), not that the token/gRPC
+#     path itself works end to end. CA copied (server cert only, no token
+#     or key involved) into a `blackbox-temporal-ca` Secret in THIS
+#     namespace. Created via:
+#   kubectl get secret temporal-tls -n temporal -o json | \
+#     python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({'apiVersion':'v1','kind':'Secret','metadata':{'name':'blackbox-temporal-ca','namespace':'otel'},'data':{'ca.crt':d['data']['ca.crt']}}))" | \
+#     kubectl apply -f -
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -37,6 +48,14 @@ data:
             cert_file: /etc/blackbox_exporter/tigerbeetle-mtls/client.crt
             key_file: /etc/blackbox_exporter/tigerbeetle-mtls/client.key
             server_name: tigerbeetle.newfire.app
+      tcp_tls_verify_only:
+        prober: tcp
+        timeout: 5s
+        tcp:
+          tls: true
+          tls_config:
+            ca_file: /etc/blackbox_exporter/temporal-ca/ca.crt
+            server_name: temporal-frontend.temporal.svc.cluster.local
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -59,6 +78,7 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/blackbox_exporter}
             - {name: tigerbeetle-mtls, mountPath: /etc/blackbox_exporter/tigerbeetle-mtls, readOnly: true}
+            - {name: temporal-ca, mountPath: /etc/blackbox_exporter/temporal-ca, readOnly: true}
           resources:
             requests: {memory: 32Mi, cpu: 25m}
             limits: {memory: 128Mi, cpu: 200m}
@@ -67,6 +87,8 @@ spec:
           configMap: {name: blackbox-exporter-config}
         - name: tigerbeetle-mtls
           secret: {secretName: blackbox-tigerbeetle-mtls}
+        - name: temporal-ca
+          secret: {secretName: blackbox-temporal-ca}
 ---
 apiVersion: v1
 kind: Service
