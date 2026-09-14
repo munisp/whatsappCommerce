@@ -1905,6 +1905,11 @@ spec:
     - {name: otlp-grpc, port: 4317, targetPort: 4317}
     - {name: otlp-http, port: 4318, targetPort: 4318}
     - {name: prom, port: 9464, targetPort: 9464}
+    # health_check extension (otel-collector-config) - listens fine on the
+    # pod itself, but wasn't reachable via the Service's ClusterIP until this
+    # port was added here (found via ComponentDown alerts + whatsapp-commerce's
+    # infra_component_up probe timing out against the FQDN on :13133).
+    - {name: health, port: 13133, targetPort: 13133}
 ---
 apiVersion: apps/v1
 kind: Deployment
