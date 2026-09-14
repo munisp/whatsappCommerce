@@ -3795,7 +3795,7 @@ spec:
                   -e "s|\${SMTP_USER}|$SMTP_USER|g" \
                   -e "s|\${SMTP_PASSWORD}|$SMTP_PASSWORD|g" \
                   /etc/alertmanager/alertmanager.yml > /tmp/alertmanager.yml && \
-              exec /bin/alertmanager --config.file=/tmp/alertmanager.yml
+              exec /bin/alertmanager --config.file=/tmp/alertmanager.yml --web.external-url=https://alertmanager.newfire.app
           env:
             - {name: ALERT_EMAIL_TO, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: to}}}
             - {name: ALERT_EMAIL_FROM, valueFrom: {secretKeyRef: {name: otel-alert-smtp, key: from}}}
