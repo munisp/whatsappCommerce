@@ -3367,6 +3367,15 @@ data:
             "defaults": {"custom": {"cellOptions": {"type": "color-background"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 6}]}},
             "overrides": []
           }
+        },
+        {
+          "id": 12,
+          "title": "Pod logs (namespace: healthpoint)",
+          "type": "logs",
+          "gridPos": {"x": 0, "y": 38, "w": 24, "h": 12},
+          "datasource": {"type": "loki", "uid": "Loki"},
+          "options": {"showTime": true, "showLabels": true, "wrapLogMessages": true, "sortOrder": "Descending"},
+          "targets": [{"refId": "A", "expr": "{namespace=\"healthpoint\"}", "maxLines": 500}]
         }
       ]
     }
