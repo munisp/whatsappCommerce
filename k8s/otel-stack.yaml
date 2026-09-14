@@ -3379,18 +3379,36 @@ data:
           "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
         },
         {
+          "id": 20,
+          "title": "Middleware: Kafka",
+          "type": "stat",
+          "description": "up{job=\"kafka\"} - the shared mojaloop-kafka-cluster broker healthpoint's IDR event consumer (idr.dispute.events/idr.payments/idr.audit) connects to.",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 6, "w": 6, "x": 0, "y": 36},
+          "targets": [{"refId": "A", "expr": "up{job=\"kafka\"}"}],
+          "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}], "noValue": "NO DATA"}, "overrides": []},
+          "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 21,
+          "title": "Middleware: connected, no live metric available",
+          "type": "text",
+          "gridPos": {"h": 6, "w": 18, "x": 6, "y": 36},
+          "options": {"mode": "markdown", "content": "These are wired up and were verified working when connected (startup logs / a real end-to-end test), but none expose a Prometheus target in this cluster, so there's no live up/down signal to show here - that's a monitoring gap, not a connectivity gap:\n\n- **Permify** - `[authz] Permify schema bootstrapped successfully` on every startup\n- **TigerBeetle** - `[startup] TigerBeetle mTLS tunnel is ready` on every startup (real mTLS handshake against the live proxy)\n- **Ollama (LLM backend)** - reachable with a real model loaded, checked directly from inside the pod\n- **Resend (lead notification email)** - a real end-to-end test lead delivered a real email"}
+        },
+        {
           "id": 14,
           "title": "Middleware: Temporal - not instrumented",
           "type": "text",
-          "gridPos": {"h": 3, "w": 24, "x": 0, "y": 36},
+          "gridPos": {"h": 3, "w": 24, "x": 0, "y": 42},
           "options": {"mode": "markdown", "content": "**Temporal** (via `temporal-secure-proxy`, used for the IDR dispute workflow) has no Prometheus scrape target in this cluster - `temporal-frontend` itself is not exposed as a metric, only its Elasticsearch visibility store (`temporal-elasticsearch`) is. There is currently no honest way to show Temporal's own up/down state here; this is a real gap, not a hidden panel."}
         },
         {
           "id": 19,
-          "title": "Middleware: built but not wired up yet",
+          "title": "Middleware: still not wired up",
           "type": "text",
-          "gridPos": {"h": 6, "w": 24, "x": 0, "y": 39},
-          "options": {"mode": "markdown", "content": "These integrations exist in the healthpoint codebase but have **no credentials/URL configured** in this deployment, so each one no-ops or falls back by its own design - not bugs, just not connected yet:\n\n- **Kafka** (`server/events/kafka-consumer.ts`) - `KAFKA_BROKERS` unset -> `\"KAFKA_BROKERS not set — consumer disabled\"`, consumer never starts\n- **Permify** (`server/authz.ts`) - `PERMIFY_URL` unset -> `checkPermify()` always returns `null`, silently falls back to a Postgres-based ReBAC check\n- **TigerBeetle** (`server/tigerbeetle.ts`) - gated behind `TIGERBEETLE_ENABLED=true`, which isn't set\n- **Resend email** (`server/email.ts`) - `RESEND_API_KEY` unset -> `getResend()` returns `null`\n- **SendGrid / SMTP / Twilio** (`server/notifications.ts`) - none of their env vars are set\n- **LLM backend** (`server/_core/llm.ts`) - no `OLLAMA_BASE_URL` / `LLM_API_URL`+`LLM_API_KEY` / `OPENAI_API_KEY` configured"}
+          "gridPos": {"h": 4, "w": 24, "x": 0, "y": 45},
+          "options": {"mode": "markdown", "content": "**SendGrid / SMTP / Twilio** (`server/notifications.ts`) - none of their env vars are set. Unlike everything else on this page, these are alternate notification channels that need real third-party account credentials (a SendGrid account, an SMTP relay, a Twilio account) - not something to wire up from cluster access alone."}
         },
         {
           "id": 15,
@@ -3398,7 +3416,7 @@ data:
           "title": "Outbound calls to Keycloak (by status)",
           "description": "http_client_request_duration_seconds{server_address=...} - the only outbound dependency currently visible with a target-service label. No MinIO/Postgres/Redis/Temporal calls have shown up under this metric family recently (healthpoint doesn't auto-instrument those clients the way it does fetch/HTTP).",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 45},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 49},
           "targets": [{"refId": "A", "expr": "sum by (server_address, http_response_status_code) (rate(http_client_request_duration_seconds_count{exported_job=\"healthpoint-api\"}[5m]))", "legendFormat": "{{server_address}} ({{http_response_status_code}})"}],
           "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
         },
@@ -3408,7 +3426,7 @@ data:
           "title": "Pod status (namespace: healthpoint)",
           "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod - each pod appears once.",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 53},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 57},
           "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_status_phase{namespace=\"healthpoint\"} == 1"}],
           "transformations": [
             {"id": "organize", "options": {"excludeByName": {"Time": true, "Value": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "phase": "Phase"}}}
@@ -3426,7 +3444,7 @@ data:
           "title": "Container restarts (namespace: healthpoint)",
           "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
           "datasource": {"type": "prometheus", "uid": "Prometheus"},
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 53},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 57},
           "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_container_status_restarts_total{namespace=\"healthpoint\"}"}],
           "transformations": [
             {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "container": "Container", "Value": "Restarts"}}}
@@ -3440,7 +3458,7 @@ data:
           "id": 18,
           "title": "Pod logs (namespace: healthpoint)",
           "type": "logs",
-          "gridPos": {"x": 0, "y": 61, "w": 24, "h": 12},
+          "gridPos": {"x": 0, "y": 65, "w": 24, "h": 12},
           "datasource": {"type": "loki", "uid": "Loki"},
           "options": {"showTime": true, "showLabels": true, "wrapLogMessages": true, "sortOrder": "Descending"},
           "targets": [{"refId": "A", "expr": "{namespace=\"healthpoint\"}", "maxLines": 500}]
