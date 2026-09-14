@@ -9212,6 +9212,23 @@ data:
       ]
     }
 ---
+# Persistent storage for Grafana's own internal DB (folders, org/user prefs,
+# star settings, annotations). Previously an emptyDir, which meant every pod
+# restart (this file gets applied/Grafana restarted often) silently wiped
+# folder UIDs - dashboards themselves survived (re-provisioned fresh from the
+# ConfigMap JSON, which pins their own uid), but any bookmarked/cached link
+# to a folder page broke with a fresh random UID each time. Confirmed live:
+# hit exactly this after a routine restart.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: otel
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 1Gi}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -9309,7 +9326,7 @@ spec:
         - {name: dash-ndsep-api, configMap: {name: otel-grafana-dashboard-ndsep-api}}
         - {name: dash-54link-dev, configMap: {name: otel-grafana-dashboard-54link-dev}}
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim: {claimName: grafana-data}
 ---
 apiVersion: v1
 kind: Service
