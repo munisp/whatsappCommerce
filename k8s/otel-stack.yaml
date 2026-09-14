@@ -8322,6 +8322,443 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: otel-grafana-dashboard-54link-dev
+  namespace: otel
+data:
+  54link-dev.json: |
+    {
+      "title": "54link-dev (namespace)",
+      "uid": "w38-54link-dev",
+      "description": "All 31 services in the 54link-dev namespace, as a single namespace-wide view rather than one dashboard per service. Most sit at 0 replicas as their baseline (a demo/test namespace scaled up on demand) - the Dapr sidecar tracing config (Dapr Configuration 'daprsystem' in this namespace, wired 2026-09-14) exports real request-level data to the shared otel-collector for any of them the moment they're scaled up, with zero app code changes. Verified end to end on core-accounts. RED panels below aggregate across whichever of the 31 are currently emitting - empty when everything's at rest, which is the honest, expected state.",
+      "tags": [
+        "w38",
+        "otel",
+        "54link-dev",
+        "dapr"
+      ],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Services currently emitting data",
+          "description": "count(count by (exported_job)(otel_span_calls_total{exported_job=~\"<31 known service names>\"})) - how many of the 31 are actively running and traced right now, out of 31.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "count(count by (exported_job) (otel_span_calls_total{exported_job=~\"ai-ml-inference|beneficial-ownership-go|bulk-payments-rs|business-service|channels-agents|channels-messaging|cheque-clearing-go|communication-hub|compliance-fraud|compliance-regulatory|compliance-risk|core-accounts|core-cards|core-deposits|core-lending|core-payments|customer-management|customer-pricing|dormancy-management-rs|employee-service|eod-processor-go|erp-integration|esusu-service|etherisc-service|fee-management-go|identity-auth|infra-database|interest-rate-engine-go|ledger-gl|ledger-reconciliation|mandate-management-go\"}))",
+              "legendFormat": "active / 31"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Pods currently running",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 8,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "count(kube_pod_status_phase{namespace=\"54link-dev\", phase=\"Running\"} == 1)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Combined error ratio",
+          "description": "Across whichever services are currently emitting - status_code=STATUS_CODE_ERROR share of all traced calls.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 8,
+            "x": 16,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(otel_span_calls_total{exported_job=~\"ai-ml-inference|beneficial-ownership-go|bulk-payments-rs|business-service|channels-agents|channels-messaging|cheque-clearing-go|communication-hub|compliance-fraud|compliance-regulatory|compliance-risk|core-accounts|core-cards|core-deposits|core-lending|core-payments|customer-management|customer-pricing|dormancy-management-rs|employee-service|eod-processor-go|erp-integration|esusu-service|etherisc-service|fee-management-go|identity-auth|infra-database|interest-rate-engine-go|ledger-gl|ledger-reconciliation|mandate-management-go\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=~\"ai-ml-inference|beneficial-ownership-go|bulk-payments-rs|business-service|channels-agents|channels-messaging|cheque-clearing-go|communication-hub|compliance-fraud|compliance-regulatory|compliance-risk|core-accounts|core-cards|core-deposits|core-lending|core-payments|customer-management|customer-pricing|dormancy-management-rs|employee-service|eod-processor-go|erp-integration|esusu-service|etherisc-service|fee-management-go|identity-auth|infra-database|interest-rate-engine-go|ledger-gl|ledger-reconciliation|mandate-management-go\"}[5m])), 1e-9)"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.02
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "textMode": "auto"
+          }
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Request rate by service",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (exported_job) (rate(otel_span_calls_total{exported_job=~\"ai-ml-inference|beneficial-ownership-go|bulk-payments-rs|business-service|channels-agents|channels-messaging|cheque-clearing-go|communication-hub|compliance-fraud|compliance-regulatory|compliance-risk|core-accounts|core-cards|core-deposits|core-lending|core-payments|customer-management|customer-pricing|dormancy-management-rs|employee-service|eod-processor-go|erp-integration|esusu-service|etherisc-service|fee-management-go|identity-auth|infra-database|interest-rate-engine-go|ledger-gl|ledger-reconciliation|mandate-management-go\"}[5m]))",
+              "legendFormat": "{{exported_job}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Errors by service",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 6
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (exported_job) (rate(otel_span_calls_total{exported_job=~\"ai-ml-inference|beneficial-ownership-go|bulk-payments-rs|business-service|channels-agents|channels-messaging|cheque-clearing-go|communication-hub|compliance-fraud|compliance-regulatory|compliance-risk|core-accounts|core-cards|core-deposits|core-lending|core-payments|customer-management|customer-pricing|dormancy-management-rs|employee-service|eod-processor-go|erp-integration|esusu-service|etherisc-service|fee-management-go|identity-auth|infra-database|interest-rate-engine-go|ledger-gl|ledger-reconciliation|mandate-management-go\",status_code=\"STATUS_CODE_ERROR\"}[5m]))",
+              "legendFormat": "{{exported_job}} errors/s"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "red"
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "table",
+          "title": "Pod status (namespace: 54link-dev)",
+          "description": "Source: kube-state-metrics. All 31 services' pods in one table - most rows are absent when scaled to 0, which is expected.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 0,
+            "y": 14
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_status_phase{namespace=\"54link-dev\"} == 1"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Value": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "phase": "Phase"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "Running": {
+                      "color": "green",
+                      "index": 0
+                    },
+                    "Succeeded": {
+                      "color": "green",
+                      "index": 1
+                    },
+                    "Pending": {
+                      "color": "orange",
+                      "index": 2
+                    },
+                    "Failed": {
+                      "color": "red",
+                      "index": 3
+                    },
+                    "Unknown": {
+                      "color": "red",
+                      "index": 4
+                    }
+                  }
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Phase"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Container restarts (namespace: 54link-dev)",
+          "description": "Source: kube-state-metrics. Only shows rows for pods that currently exist - most services are absent while scaled to 0.",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "instant": true,
+              "expr": "kube_pod_container_status_restarts_total{namespace=\"54link-dev\"}"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "__name__": true,
+                  "instance": true,
+                  "job": true,
+                  "namespace": true,
+                  "uid": true
+                },
+                "renameByName": {
+                  "pod": "Pod",
+                  "container": "Container",
+                  "Value": "Restarts"
+                }
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "cellOptions": {
+                  "type": "color-background"
+                }
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 6
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "title": "Logs (namespace: 54link-dev)",
+          "type": "logs",
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 24,
+            "h": 12
+          },
+          "datasource": {
+            "type": "loki",
+            "uid": "Loki"
+          },
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "wrapLogMessages": true,
+            "sortOrder": "Descending"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{namespace=\"54link-dev\"}",
+              "maxLines": 500
+            }
+          ]
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: otel-grafana-dashboard-go-services-red
   namespace: otel
   # === W35 infra-receivers (Coder D) dashboard ===
@@ -8834,6 +9271,7 @@ spec:
             - {name: dash-bpi-outbox-publisher, mountPath: /var/lib/grafana/dashboards/blueeco-pi-outbox-publisher.json, subPath: blueeco-pi-outbox-publisher.json, readOnly: true}
             - {name: dash-blueeconomy-stats-api, mountPath: /var/lib/grafana/dashboards/blueeconomy-stats-api.json, subPath: blueeconomy-stats-api.json, readOnly: true}
             - {name: dash-ndsep-api, mountPath: /var/lib/grafana/dashboards/ndsep-api.json, subPath: ndsep-api.json, readOnly: true}
+            - {name: dash-54link-dev, mountPath: /var/lib/grafana/dashboards/54link-dev.json, subPath: 54link-dev.json, readOnly: true}
             - {name: data, mountPath: /var/lib/grafana}
       volumes:
         - name: provisioning
@@ -8869,6 +9307,7 @@ spec:
         - {name: dash-bpi-outbox-publisher, configMap: {name: otel-grafana-dashboard-blueeco-pi-outbox-publisher}}
         - {name: dash-blueeconomy-stats-api, configMap: {name: otel-grafana-dashboard-blueeconomy-stats-api}}
         - {name: dash-ndsep-api, configMap: {name: otel-grafana-dashboard-ndsep-api}}
+        - {name: dash-54link-dev, configMap: {name: otel-grafana-dashboard-54link-dev}}
         - name: data
           emptyDir: {}
 ---
