@@ -1,0 +1,79 @@
+# blackbox-exporter - standard Prometheus tool for turning a plain HTTP/TCP
+# endpoint into a real probe_success metric, for the two healthpoint
+# dependencies that don't expose their own Prometheus metrics at all:
+#   - Permify has a real /healthz (confirmed live: {"status":"SERVING"}),
+#     just not in Prometheus exposition format.
+#   - TigerBeetle's own protocol has no HTTP/metrics surface whatsoever -
+#     the tcp_tls_connect module probes the same mTLS stunnel endpoint
+#     (173.66.76.192:32052) already confirmed reachable, verifying the TLS
+#     handshake succeeds (not a full TigerBeetle protocol-level read). The
+#     stunnel enforces mutual TLS (verify=2), so this probe needs its own
+#     copy of the client identity healthpoint already uses, in a
+#     `blackbox-tigerbeetle-mtls` Secret in THIS namespace (otel) - reused,
+#     not regenerated. Created via:
+#   kubectl get secret healthpoint-tigerbeetle -n healthpoint -o json | \
+#     python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps({'apiVersion':'v1','kind':'Secret','metadata':{'name':'blackbox-tigerbeetle-mtls','namespace':'otel'},'data':d['data']}))" | \
+#     kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blackbox-exporter-config
+  namespace: otel
+data:
+  config.yml: |
+    modules:
+      http_2xx:
+        prober: http
+        timeout: 5s
+        http:
+          preferred_ip_protocol: "ip4"
+      tcp_tls_connect:
+        prober: tcp
+        timeout: 5s
+        tcp:
+          tls: true
+          tls_config:
+            ca_file: /etc/blackbox_exporter/tigerbeetle-mtls/ca.crt
+            cert_file: /etc/blackbox_exporter/tigerbeetle-mtls/client.crt
+            key_file: /etc/blackbox_exporter/tigerbeetle-mtls/client.key
+            server_name: tigerbeetle.newfire.app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blackbox-exporter
+  namespace: otel
+  labels: {app: blackbox-exporter}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: blackbox-exporter}}
+  template:
+    metadata: {labels: {app: blackbox-exporter}}
+    spec:
+      containers:
+        - name: blackbox-exporter
+          image: prom/blackbox-exporter:v0.25.0
+          args: ["--config.file=/etc/blackbox_exporter/config.yml"]
+          ports:
+            - {containerPort: 9115}
+          volumeMounts:
+            - {name: config, mountPath: /etc/blackbox_exporter}
+            - {name: tigerbeetle-mtls, mountPath: /etc/blackbox_exporter/tigerbeetle-mtls, readOnly: true}
+          resources:
+            requests: {memory: 32Mi, cpu: 25m}
+            limits: {memory: 128Mi, cpu: 200m}
+      volumes:
+        - name: config
+          configMap: {name: blackbox-exporter-config}
+        - name: tigerbeetle-mtls
+          secret: {secretName: blackbox-tigerbeetle-mtls}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: blackbox-exporter
+  namespace: otel
+spec:
+  selector: {app: blackbox-exporter}
+  ports:
+    - {name: http, port: 9115, targetPort: 9115}
