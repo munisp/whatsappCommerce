@@ -3221,6 +3221,119 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: otel-grafana-dashboard-healthpoint
+  namespace: otel
+data:
+  healthpoint.json: |
+    {
+      "title": "HealthPoint",
+      "uid": "w36-healthpoint",
+      "description": "HealthPoint (healthpoint-api) service health. Only SPAN_KIND_CLIENT spans are emitted by this service's auto-instrumentation (outbound HTTP calls to Keycloak/MinIO/Temporal/Redis, etc.) - there is no inbound SPAN_KIND_SERVER data, so request-rate/error panels here measure healthpoint's own outbound dependency calls, not inbound traffic to healthpoint itself. Node.js process health (event loop, V8 heap/GC) is real per-process data.",
+      "tags": ["w36", "otel", "healthpoint"],
+      "timezone": "utc",
+      "editable": true,
+      "graphTooltip": 1,
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Outbound call rate (req/s)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
+          "targets": [{"refId": "A", "expr": "sum(rate(otel_span_calls_total{exported_job=\"healthpoint-api\"}[5m]))", "legendFormat": "calls/s"}],
+          "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "blue"}, "unit": "reqps"}, "overrides": []},
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Outbound error ratio",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
+          "targets": [{"refId": "A", "expr": "sum(rate(otel_span_calls_total{exported_job=\"healthpoint-api\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"healthpoint-api\"}[5m])), 1e-9)", "legendFormat": "error ratio"}],
+          "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.02}, {"color": "red", "value": 0.1}]}}, "overrides": []},
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Outbound call p95 duration",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
+          "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"healthpoint-api\"}[5m])))", "legendFormat": "p95 ms"}],
+          "fieldConfig": {"defaults": {"unit": "ms", "color": {"mode": "fixed", "fixedColor": "purple"}}, "overrides": []},
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Outbound calls by method",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+          "targets": [{"refId": "A", "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"healthpoint-api\"}[5m]))", "legendFormat": "{{span_name}}"}],
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Outbound errors over time",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+          "targets": [{"refId": "A", "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"healthpoint-api\",status_code=\"STATUS_CODE_ERROR\"}[5m]))", "legendFormat": "{{span_name}} errors/s"}],
+          "fieldConfig": {"defaults": {"unit": "reqps", "color": {"mode": "fixed", "fixedColor": "red"}}, "overrides": []}
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Node.js event loop utilization",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+          "targets": [{"refId": "A", "expr": "avg by (host_name) (nodejs_eventloop_utilization_ratio{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}}"}],
+          "fieldConfig": {"defaults": {"unit": "percentunit", "max": 1, "min": 0}, "overrides": []}
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "V8 heap used vs limit",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+          "targets": [
+            {"refId": "A", "expr": "avg by (host_name) (v8js_memory_heap_used_bytes{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}} used"},
+            {"refId": "B", "expr": "avg by (host_name) (v8js_memory_heap_limit_bytes{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}} limit"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "GC pause duration (p95)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
+          "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(v8js_gc_duration_seconds_bucket{exported_job=\"healthpoint-api\"}[5m])))", "legendFormat": "p95 GC pause"}],
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Event loop delay (mean / p99)",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
+          "targets": [
+            {"refId": "A", "expr": "avg by (host_name) (nodejs_eventloop_delay_mean_seconds{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}} mean"},
+            {"refId": "B", "expr": "avg by (host_name) (nodejs_eventloop_delay_p99_seconds{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}} p99"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: otel-grafana-dashboard-go-services-red
   namespace: otel
   # === W35 infra-receivers (Coder D) dashboard ===
@@ -3721,6 +3834,7 @@ spec:
             # === END W35 infra-receivers ===
             # Fleet-wide shared infra dashboard (source of truth: github.com/AfroNG/monitoring_dashboard).
             - {name: dash-fleet, mountPath: /var/lib/grafana/dashboards/newwave-fleet-dashboard.json, subPath: newwave-fleet-dashboard.json, readOnly: true}
+            - {name: dash-healthpoint, mountPath: /var/lib/grafana/dashboards/healthpoint.json, subPath: healthpoint.json, readOnly: true}
             - {name: data, mountPath: /var/lib/grafana}
       volumes:
         - name: provisioning
@@ -3743,6 +3857,8 @@ spec:
         # === END W35 infra-receivers ===
         - name: dash-fleet
           configMap: {name: otel-grafana-dashboard-newwave-fleet}
+        - name: dash-healthpoint
+          configMap: {name: otel-grafana-dashboard-healthpoint}
         - name: data
           emptyDir: {}
 ---
