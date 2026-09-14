@@ -358,6 +358,12 @@ data:
         bearer_token_file: /etc/prometheus/secrets/token
         static_configs:
           - targets: [minio.minio.svc.cluster.local:9000]
+      # kube-state-metrics (k8s/kube-state-metrics.yaml) - real pod/deployment
+      # state (kube_pod_status_phase, kube_pod_container_status_restarts_total,
+      # etc), not derivable from up{} alone.
+      - job_name: kube-state-metrics
+        static_configs:
+          - targets: [kube-state-metrics.otel.svc.cluster.local:8080]
       # Temporal's own Elasticsearch (visibility store) - elasticsearch_exporter
       # sidecar (clusters/newwave-dev/shared-infra/
       # temporal-elasticsearch-exporter.yaml). Confirmed live: real cluster
@@ -3242,7 +3248,7 @@ data:
           "id": 1,
           "type": "stat",
           "title": "Outbound call rate (req/s)",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 6, "w": 8, "x": 0, "y": 0},
           "targets": [{"refId": "A", "expr": "sum(rate(otel_span_calls_total{exported_job=\"healthpoint-api\"}[5m]))", "legendFormat": "calls/s"}],
           "fieldConfig": {"defaults": {"color": {"mode": "fixed", "fixedColor": "blue"}, "unit": "reqps"}, "overrides": []},
@@ -3252,7 +3258,7 @@ data:
           "id": 2,
           "type": "stat",
           "title": "Outbound error ratio",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 6, "w": 8, "x": 8, "y": 0},
           "targets": [{"refId": "A", "expr": "sum(rate(otel_span_calls_total{exported_job=\"healthpoint-api\",status_code=\"STATUS_CODE_ERROR\"}[5m])) / clamp_min(sum(rate(otel_span_calls_total{exported_job=\"healthpoint-api\"}[5m])), 1e-9)", "legendFormat": "error ratio"}],
           "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.02}, {"color": "red", "value": 0.1}]}}, "overrides": []},
@@ -3262,7 +3268,7 @@ data:
           "id": 3,
           "type": "stat",
           "title": "Outbound call p95 duration",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 6, "w": 8, "x": 16, "y": 0},
           "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(otel_span_duration_milliseconds_bucket{exported_job=\"healthpoint-api\"}[5m])))", "legendFormat": "p95 ms"}],
           "fieldConfig": {"defaults": {"unit": "ms", "color": {"mode": "fixed", "fixedColor": "purple"}}, "overrides": []},
@@ -3272,7 +3278,7 @@ data:
           "id": 4,
           "type": "timeseries",
           "title": "Outbound calls by method",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
           "targets": [{"refId": "A", "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"healthpoint-api\"}[5m]))", "legendFormat": "{{span_name}}"}],
           "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
@@ -3281,7 +3287,7 @@ data:
           "id": 5,
           "type": "timeseries",
           "title": "Outbound errors over time",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
           "targets": [{"refId": "A", "expr": "sum by (span_name) (rate(otel_span_calls_total{exported_job=\"healthpoint-api\",status_code=\"STATUS_CODE_ERROR\"}[5m]))", "legendFormat": "{{span_name}} errors/s"}],
           "fieldConfig": {"defaults": {"unit": "reqps", "color": {"mode": "fixed", "fixedColor": "red"}}, "overrides": []}
@@ -3290,7 +3296,7 @@ data:
           "id": 6,
           "type": "timeseries",
           "title": "Node.js event loop utilization",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
           "targets": [{"refId": "A", "expr": "avg by (host_name) (nodejs_eventloop_utilization_ratio{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}}"}],
           "fieldConfig": {"defaults": {"unit": "percentunit", "max": 1, "min": 0}, "overrides": []}
@@ -3299,7 +3305,7 @@ data:
           "id": 7,
           "type": "timeseries",
           "title": "V8 heap used vs limit",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
           "targets": [
             {"refId": "A", "expr": "avg by (host_name) (v8js_memory_heap_used_bytes{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}} used"},
@@ -3311,7 +3317,7 @@ data:
           "id": 8,
           "type": "timeseries",
           "title": "GC pause duration (p95)",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
           "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(v8js_gc_duration_seconds_bucket{exported_job=\"healthpoint-api\"}[5m])))", "legendFormat": "p95 GC pause"}],
           "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
@@ -3320,13 +3326,47 @@ data:
           "id": 9,
           "type": "timeseries",
           "title": "Event loop delay (mean / p99)",
-          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
           "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
           "targets": [
             {"refId": "A", "expr": "avg by (host_name) (nodejs_eventloop_delay_mean_seconds{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}} mean"},
             {"refId": "B", "expr": "avg by (host_name) (nodejs_eventloop_delay_p99_seconds{exported_job=\"healthpoint-api\"})", "legendFormat": "{{host_name}} p99"}
           ],
           "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+        },
+        {
+          "id": 10,
+          "type": "table",
+          "title": "Pod status (namespace: healthpoint)",
+          "description": "Source: kube-state-metrics (kube_pod_status_phase). Filtered to the current active phase per pod - each pod appears once.",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30},
+          "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_status_phase{namespace=\"healthpoint\"} == 1"}],
+          "transformations": [
+            {"id": "organize", "options": {"excludeByName": {"Time": true, "Value": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "phase": "Phase"}}}
+          ],
+          "fieldConfig": {
+            "defaults": {"custom": {"cellOptions": {"type": "color-background"}}, "mappings": [
+              {"type": "value", "options": {"Running": {"color": "green", "index": 0}, "Succeeded": {"color": "green", "index": 1}, "Pending": {"color": "orange", "index": 2}, "Failed": {"color": "red", "index": 3}, "Unknown": {"color": "red", "index": 4}}}
+            ]},
+            "overrides": [{"matcher": {"id": "byName", "options": "Phase"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background"}}]}]
+          }
+        },
+        {
+          "id": 11,
+          "type": "table",
+          "title": "Container restarts (namespace: healthpoint)",
+          "description": "Source: kube-state-metrics (kube_pod_container_status_restarts_total).",
+          "datasource": {"type": "prometheus", "uid": "Prometheus"},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+          "targets": [{"refId": "A", "format": "table", "instant": true, "expr": "kube_pod_container_status_restarts_total{namespace=\"healthpoint\"}"}],
+          "transformations": [
+            {"id": "organize", "options": {"excludeByName": {"Time": true, "__name__": true, "instance": true, "job": true, "namespace": true, "uid": true}, "renameByName": {"pod": "Pod", "container": "Container", "Value": "Restarts"}}}
+          ],
+          "fieldConfig": {
+            "defaults": {"custom": {"cellOptions": {"type": "color-background"}}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 6}]}},
+            "overrides": []
+          }
         }
       ]
     }
