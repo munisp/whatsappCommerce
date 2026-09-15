@@ -24,9 +24,13 @@ resources:
   - hermes-router.yaml
   - hermes-bridge.yaml
   - cron-scheduler.yaml
-  # === W34 otel-stack (Coder B) ===
-  - otel-stack.yaml
-  # === END W34 otel-stack ===
+  # Cluster-wide observability (OTel Collector, Prometheus, Grafana +
+  # dashboards, Alertmanager, Jaeger, blackbox-exporter, kube-state-metrics,
+  # Loki/Promtail, cluster-report) moved out of this repo on 2026-09-14 -
+  # none of it was whatsapp-specific, it monitored the whole cluster. Now
+  # lives in github.com/AfroNG/monitoring_dashboard, applied by Flux
+  # (GitRepository + Kustomization `monitoring-dashboard` in flux-system).
   # monitoring/ requires the Prometheus Operator CRDs (ServiceMonitor,
-  # PrometheusRule). Apply separately:
+  # PrometheusRule), which don't exist in this cluster - dead, never
+  # actually applied. Not migrated; a candidate for deletion.
   #   kubectl apply -f k8s/monitoring/
