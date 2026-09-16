@@ -42,7 +42,13 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    // W39 (PLT-3): SameSite=Lax — the session cookie is only consumed by
+    // same-origin clients (tRPC fetch with credentials) and the OAuth
+    // callback, which is a top-level GET navigation (Lax still sends the
+    // cookie). Cross-site POSTs no longer carry the session cookie; the
+    // Origin/Referer verification middleware (server/_core/csrf.ts) is the
+    // second layer of defense for cookie-authenticated mutations.
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }

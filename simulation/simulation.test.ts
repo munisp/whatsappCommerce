@@ -36,7 +36,7 @@ describe("WhatsApp feature simulation (181 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(262); // W38 merger: 246 (W37) + J247-J254 (A money-integrity) + J255-J258 (B pot-recon) + J259-J262 (C stock-integrity)
+    expect(journeys.length).toBe(270); // W39 merger FINAL: 262 + J263-J265 (A) + J267-J270 (B) + J271 (C, renumbered from J263).
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

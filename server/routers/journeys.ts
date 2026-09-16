@@ -218,7 +218,12 @@ export const journeysRouter = router({
           .limit(1);
         if (!cust?.whatsappPhone) continue;
         const phone = normalizeWaPhone(cust.whatsappPhone);
-        const nextRunAt = await nextAllowedSendAtForTenant(db, journey.tenantId, phone, now);
+        // Enrollment defers only for the frequency CAP. Quiet hours are a
+        // send-time concern enforced by the journey tick on send_template
+        // (journeyBuilder.processJourneyRun) — applying them here too
+        // double-defers runs and can park a run past a later quiet-hours
+        // tick (J111 root cause).
+        const nextRunAt = await nextAllowedSendAtForTenant(db, journey.tenantId, phone, now, { skipQuietHours: true });
         await db.insert(broadcastJourneyRuns).values({
           id: randomUUID(),
           journeyId: journey.id,

@@ -1,0 +1,214 @@
+# === W39 durability (Coder A) — data backup CronJobs ===
+# Numbering continues the existing CronJob sequence in cron-scheduler.yaml
+# (last = #41 cron-cashflow-forecast per the W33 merger note). These are
+# infrastructure-level jobs (pg_dump / file copy), NOT platform scheduler
+# HTTP routes, so they live in their own manifest rather than the generated
+# cron-scheduler.yaml.
+#
+# Backup storage strategy (honest):
+#  - Primary copy: PVC `postgres-backups` (always written, 7-day retention
+#    enforced in-job).
+#  - Object storage: env.example.txt already defines S3_ENDPOINT / S3_BUCKET /
+#    S3_ACCESS_KEY / S3_SECRET_KEY. If S3_BUCKET is present in
+#    platform-secrets (optional refs below), the job uploads the dump with a
+#    bucket-prefixed key; otherwise it logs that S3 is not configured and the
+#    PVC copy is the only copy (honest degrade, asserted by journey J264).
+#    Off-cluster retention on the bucket itself should be a 7-day lifecycle
+#    rule — see docs/RESILIENCE.md ("Backups (W39)").
+---
+# Shared backup volume for pg dumps + TigerBeetle data-file copies.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: whatsapp-commerce
+  labels:
+    app: postgres-backup
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # 7 nightly gzipped dumps of a dev-overlay database + TB file copies.
+      storage: 20Gi
+---
+# CronJob #42 — nightly pg_dump of whatsapp_commerce, gzipped, 7d retention.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-postgres-backup
+  namespace: whatsapp-commerce
+  labels:
+    app: postgres-backup
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  schedule: "0 3 * * *" # nightly 03:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-dump
+              image: postgres:16-alpine
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  TS=$(date -u +%Y%m%dT%H%M%SZ)
+                  FILE="/backups/whatsapp_commerce-${TS}.dump.gz"
+                  echo "[pg-backup] dumping whatsapp_commerce -> ${FILE}"
+                  PGPASSWORD="${POSTGRES_PASSWORD}" pg_dump \
+                    -h postgres.whatsapp-commerce.svc.cluster.local -p 5432 \
+                    -U wc_user -d whatsapp_commerce \
+                    --format=custom --compress=6 \
+                    | gzip -6 > "${FILE}"
+                  echo "[pg-backup] wrote $(du -h "${FILE}" | cut -f1)"
+                  # 7-day retention on the PVC copy.
+                  find /backups -name 'whatsapp_commerce-*.dump.gz' -mtime +7 -print -delete
+                  # Optional object-storage upload (env.example.txt S3_* block).
+                  if [ -n "${S3_BUCKET:-}" ]; then
+                    echo "[pg-backup] S3_BUCKET set — uploading to s3://${S3_BUCKET}/pg/"
+                    apk add --no-cache --quiet aws-cli
+                    AWS_ARGS=""
+                    if [ -n "${S3_ENDPOINT:-}" ]; then AWS_ARGS="--endpoint-url ${S3_ENDPOINT}"; fi
+                    aws s3 cp ${AWS_ARGS} "${FILE}" "s3://${S3_BUCKET}/pg/whatsapp_commerce-${TS}.dump.gz"
+                    echo "[pg-backup] upload complete (configure a 7-day bucket lifecycle rule; see docs/RESILIENCE.md)"
+                  else
+                    echo "[pg-backup] HONEST-DEGRADE: S3_BUCKET not configured — PVC copy is the ONLY backup. Off-cluster copies require the S3_* env block (env.example.txt)."
+                  fi
+              env:
+                - name: POSTGRES_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: POSTGRES_PASSWORD
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: S3_BUCKET
+                      optional: true
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: S3_ENDPOINT
+                      optional: true
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: S3_ACCESS_KEY
+                      optional: true
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: S3_SECRET_KEY
+                      optional: true
+              volumeMounts:
+                - name: backups
+                  mountPath: /backups
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: postgres-backups
+---
+# CronJob #43 — TigerBeetle data-file copy (weekly, crash-consistent).
+# HONEST SCOPE: TigerBeetle has no snapshot/export API in 0.16.x, so this is
+# a raw copy of /data/0_0.tigerbeetle taken while the replica is RUNNING.
+# The copy is crash-consistent only (torn tail possible) and is a dev-overlay
+# safety net, NOT a production ledger backup. Production durability requires
+# a 3-replica TB cluster (VSR replication) or the documented offline copy in
+# scripts/backup/tigerbeetle-backup.sh (scale-to-0 first). See
+# docs/RESILIENCE.md ("Backups (W39)").
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-tigerbeetle-backup
+  namespace: whatsapp-commerce
+  labels:
+    app: tigerbeetle-backup
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  schedule: "0 4 * * 0" # weekly Sunday 04:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: tb-copy
+              image: ghcr.io/tigerbeetle/tigerbeetle:0.16.40
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  TS=$(date -u +%Y%m%dT%H%M%SZ)
+                  SRC="/data/0_0.tigerbeetle"
+                  DST="/backups/tb/0_0.tigerbeetle.${TS}"
+                  if [ ! -f "${SRC}" ]; then
+                    echo "[tb-backup] no data file at ${SRC} — nothing to copy (fresh cluster?)"
+                    exit 0
+                  fi
+                  echo "[tb-backup] HONEST-DEGRADE: crash-consistent copy of a LIVE replica (dev safety net only)"
+                  mkdir -p /backups/tb
+                  cp "${SRC}" "${DST}"
+                  echo "[tb-backup] copied $(du -h "${DST}" | cut -f1) -> ${DST}"
+                  # 7-day retention on the PVC copy.
+                  find /backups/tb -name '0_0.tigerbeetle.*' -mtime +7 -print -delete
+              volumeMounts:
+                - name: tigerbeetle-data
+                  mountPath: /data
+                - name: backups
+                  mountPath: /backups
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+          volumes:
+            # RWO volumes allow multiple mounts only on the same node; TB and
+            # this job are both single-replica dev-overlay workloads — pin
+            # nothing, but note the constraint honestly in docs/RESILIENCE.md.
+            - name: tigerbeetle-data
+              persistentVolumeClaim:
+                claimName: tigerbeetle-data
+            - name: backups
+              persistentVolumeClaim:
+                claimName: postgres-backups
+# === END W39 durability backups ===

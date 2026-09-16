@@ -32,6 +32,7 @@ import {
 } from "../../drizzle/schema";
 import { and, eq } from "drizzle-orm";
 import { decryptSecret } from "./crypto/secrets";
+import { assertSafeOutboundUrl } from "./ssrfGuard";
 
 // ── Structured fetch with retry ───────────────────────────────────────────────
 
@@ -383,6 +384,15 @@ export async function syncOrderToMedusa(
 ): Promise<string | null> {
   const cfg = await getMedusaIntegrationConfig(tenantId);
   if (!cfg?.adminApiKey) return null; // not configured for this tenant
+  // W39 (PLT-4): SSRF guard at dispatch — admin API key never leaves for an
+  // unvalidated host, even for baseUrls persisted before write-time checks.
+  // Fail closed (no sync) rather than throw: this path is best-effort.
+  try {
+    assertSafeOutboundUrl(cfg.baseUrl, "Medusa baseUrl");
+  } catch (err: any) {
+    console.warn(`[integrationSync] medusa syncOrder tenant=${tenantId} blocked: ${err?.message ?? err}`);
+    return null;
+  }
 
   // 1. Create a draft order via Medusa admin API
   const payload = {
@@ -622,6 +632,14 @@ export async function fetchMedusaCatalog(
   const cfg = await getMedusaIntegrationConfig(tenantId);
   const storeKey = cfg?.publishableKey ?? cfg?.adminApiKey;
   if (!cfg || !storeKey) return []; // not configured for this tenant
+  // W39 (PLT-4): SSRF guard at dispatch (same guard as Odoo/customHttp).
+  // Fail closed (empty catalog) — callers treat failure as "no products".
+  try {
+    assertSafeOutboundUrl(cfg.baseUrl, "Medusa baseUrl");
+  } catch (err: any) {
+    console.warn(`[integrationSync] medusa fetchCatalog tenant=${tenantId} blocked: ${err?.message ?? err}`);
+    return [];
+  }
 
   const result = await fetchJsonWithRetry(
     `${cfg.baseUrl}/store/products?limit=100&expand=variants,variants.prices`,
