@@ -354,6 +354,10 @@ export async function executeCampaignSend(
   let failed = 0;
   let deferred = 0;
   let simulatedCount = 0;
+  // === W37 telegram === lazily-created Bot API rate pacer (30 msg/s), shared
+  // across the whole fan-out (chunks run concurrently, so lazy-init here).
+  let __w37Pacer: { waitForSlot: () => Promise<void> } | undefined;
+  // === W37 telegram END ===
   const CHUNK_SIZE = 25;
   for (let i = 0; i < audience.length; i += CHUNK_SIZE) {
     const chunk = audience.slice(i, i + CHUNK_SIZE);
@@ -397,6 +401,41 @@ export async function executeCampaignSend(
           }
           let wamid: string | null = null;
           let simulated = false;
+          // === W37 telegram ===
+          // Mixed-channel fan-out: telegram-linked recipients get the text
+          // body via channelSender (no Meta template requirement — telegram
+          // has no 24h window), throttled to the Bot API ~30 msg/s fair-use
+          // limit. WA recipients fall through to the unchanged path below.
+          const { resolveCustomerChannel, createTelegramBroadcastPacer } = await import("../services/channelParity");
+          const __w37Route = await resolveCustomerChannel(campaign.tenantId, member.phone);
+          if (__w37Route.channel === "telegram") {
+            const { sendChannelMessage } = await import("../services/channelSender");
+            await (__w37Pacer ??= createTelegramBroadcastPacer()).waitForSlot();
+            const res = await sendChannelMessage(campaign.tenantId, "telegram", __w37Route.to, {
+              kind: "text",
+              text: substituteVars(templateBody ?? "", variables),
+            }, { notifType: "broadcast" });
+            simulated = res.simulated;
+            if (simulated) {
+              simulatedCount++;
+              await db
+                .update(broadcastRecipients)
+                .set({
+                  status: "failed",
+                  failedAt: new Date(),
+                  failureReason: "Telegram bot not configured for tenant — send simulated",
+                })
+                .where(eq(broadcastRecipients.id, recipientId));
+              return;
+            }
+            sent++;
+            await db
+              .update(broadcastRecipients)
+              .set({ status: "sent", sentAt: new Date() })
+              .where(eq(broadcastRecipients.id, recipientId));
+            return;
+          }
+          // === W37 telegram END ===
           if (member.inWindow && templateBody) {
             const res = await sendWhatsAppText(
               campaign.tenantId,

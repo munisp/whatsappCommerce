@@ -709,6 +709,11 @@ export const nlpRouter = router({
      message: z.string().max(4096),
      customerName: z.string().optional(),
       ussdMode: z.boolean().optional(),
+      // === W37 telegram === optional channel tag (default whatsapp). Only
+      // affects the session-key computation below via sessionKeyFor; the
+      // WhatsApp path is byte-equivalent (key == waPhoneNumber).
+      channel: z.string().optional(),
+      // === END W37 telegram ===
    }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -736,8 +741,16 @@ export const nlpRouter = router({
       }
 
       // 1. Upsert NLP session
+      // === W37 telegram === channel-aware session key. For whatsapp (or an
+      // absent channel) sessionKeyFor returns input.waPhoneNumber unchanged,
+      // so the WA lookup/insert below is behavior-identical to pre-W37.
+      // Telegram sessions key on `telegram:<chat_id>` so they never collide
+      // with the WA identity of the same linked phone.
+      const { sessionKeyFor } = await import("../services/channelIdentity");
+      const sessionKey = sessionKeyFor(input.channel ?? "whatsapp", input.waPhoneNumber);
+      // === END W37 telegram ===
       const existing = await db.select().from(nlpSessions)
-        .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, input.waPhoneNumber)))
+        .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, sessionKey)))
         .limit(1);
 
       const detectedLang = detectLanguage(input.message);
@@ -747,7 +760,7 @@ export const nlpRouter = router({
         const [newSession] = await db.insert(nlpSessions).values({
           id: crypto.randomUUID(),
           tenantId: input.tenantId,
-          waPhoneNumber: input.waPhoneNumber,
+          waPhoneNumber: sessionKey, // === W37 telegram === (== input.waPhoneNumber for whatsapp)
           customerName: input.customerName,
           language: detectedLang,
           state: "greeting",

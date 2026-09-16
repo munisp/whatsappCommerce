@@ -263,6 +263,13 @@ export async function notifyQuotaWarning(
       ? `⚠️ Your WhatsApp commerce plan has REACHED its monthly message limit (${decision.usage}/${decision.limit} for ${decision.period}). ` +
         `Messages keep working up to a 10% grace, then buyers will see a "merchant busy" reply. Upgrade your plan to avoid interruption.`
       : `⚠️ Heads up: your WhatsApp commerce plan is at ${decision.warnLevel}% of its monthly message limit (${decision.usage}/${decision.limit} for ${decision.period}). Consider upgrading soon.`;
+    // === W37 telegram === quota-warning parity: telegram-linked admin routes
+    // via channelSender; WA admin unchanged.
+    const { notifyCustomer } = await import("./channelParity");
+    const __w37 = await notifyCustomer(tenantId, adminPhone, "ops_alert", { text: body, notifType: "quota_warning" })
+      .catch(() => ({ handled: false }) as any);
+    if (__w37?.handled) return;
+    // === W37 telegram END ===
     await sendWhatsAppText(tenantId, adminPhone, body, { notifType: "quota_warning" });
   } catch (err: any) {
     console.error("[metering] quota warning notify failed:", err?.message);

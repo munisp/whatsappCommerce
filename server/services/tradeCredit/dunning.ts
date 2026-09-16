@@ -121,6 +121,21 @@ async function sendReminder(
       `Please repay to keep your trade credit facility in good standing.` +
       (args.frozen ? ` Your credit facility has been FROZEN until repayment.` : "");
 
+    // === W37 telegram ===
+    // Telegram-linked admins receive the free-form reminder via channelSender.
+    // Telegram has NO 24h session window (canSendFreeform is always true
+    // there), so the window→template fallback below never applies to it.
+    const { resolveCustomerChannel } = await import("../channelParity");
+    const __w37Route = await resolveCustomerChannel(args.buyerTenantId, phone);
+    if (__w37Route.channel === "telegram") {
+      const { sendChannelMessage } = await import("../channelSender");
+      await sendChannelMessage(args.buyerTenantId, "telegram", __w37Route.to, {
+        kind: "text",
+        text: body,
+      }, { notifType: "credit_dunning" });
+      return true;
+    }
+    // === W37 telegram END ===
     // Free-form inside the 24h session window; template outside it.
     const win = await getWindow(db as any, args.buyerTenantId, phone);
     if (win.open) {

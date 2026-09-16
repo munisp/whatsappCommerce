@@ -317,6 +317,12 @@ export async function bootWorld(): Promise<World> {
     setEnv("META_APP_ID", META_APP_ID_VALUE);
     setEnv("META_APP_SECRET", META_APP_SECRET_VALUE);
     // === W28 medusa-storefront (Coder B): deterministic adapter + webhook secret ===
+    // === W37 telegram (Coder B): the sim world runs telegram-enabled so
+    // journeys J235–J239 exercise the real webhook route. WA behavior is
+    // unaffected (Telegram code only runs on /api/webhooks/telegram/*).
+    setEnv("TELEGRAM_ENABLED", "true");
+    setEnv("TELEGRAM_MEDIA_ENABLED", "true");
+    // === END W37 telegram ===
     setEnv("MEDUSA_ADAPTER", "mock");
     setEnv("MEDUSA_WEBHOOK_SECRET", "sim-medusa-webhook-secret-0123456789");
     // === END W28 medusa-storefront ===

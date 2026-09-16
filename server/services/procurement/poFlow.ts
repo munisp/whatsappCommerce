@@ -143,6 +143,17 @@ export async function notifyTenantAdminPhone(
     console.info(`[procurement] no admin phone for tenant ${tenantId} — notification skipped`);
     return;
   }
+  // === W37 telegram ===
+  // PO approval notify parity: a telegram-linked admin receives the same
+  // text via channelSender (interactive cards degrade to text + inline
+  // keyboard buttons with the SAME id grammar, handled by channelSender).
+  if (!interactive) {
+    const { notifyCustomer } = await import("../channelParity");
+    const __w37 = await notifyCustomer(tenantId, phone, "po_approval", { text: message, notifType: "admin_alert" })
+      .catch(() => ({ handled: false }) as any);
+    if (__w37?.handled) return;
+  }
+  // === W37 telegram END ===
   const send = interactive ? sendWhatsAppInteractive : sendWhatsAppText;
   await (send as any)(tenantId, phone, interactive ?? message, { notifType: "admin_alert" })
     .catch((e: any) => console.warn("[procurement] admin notify failed:", e?.message));
@@ -154,6 +165,12 @@ export async function notifyBuyer(db: DbHandle, po: PurchaseOrder, message: stri
     console.info(`[procurement] PO ${po.poNumber} has no buyerPhone — buyer notification skipped`);
     return;
   }
+  // === W37 telegram === telegram-linked buyers route via channelSender; WA unchanged.
+  const { notifyCustomer } = await import("../channelParity");
+  const __w37 = await notifyCustomer(po.buyerTenantId, po.buyerPhone, "po_approval", { text: message, notifType: "po_update" })
+    .catch(() => ({ handled: false }) as any);
+  if (__w37?.handled) return;
+  // === W37 telegram END ===
   await sendWhatsAppText(po.buyerTenantId, po.buyerPhone, message, { notifType: "po_update" })
     .catch((e: any) => console.warn("[procurement] buyer notify failed:", e?.message));
 }
