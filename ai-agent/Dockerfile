@@ -11,4 +11,5 @@ ENV OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
 # === END W34 otel-sidecars ===
 EXPOSE 8090
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8090", "--workers", "2"]
+# CI pipeline test 2026-09-16: confirms build-and-push -> DO registry -> Flux image automation end to end
 
