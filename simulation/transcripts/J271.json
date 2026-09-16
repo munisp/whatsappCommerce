@@ -1,0 +1,42 @@
+{
+  "id": "J271",
+  "title": "PSP dispute + refund-status webhooks (PAY-8)",
+  "feature": "charge.dispute → payment_disputes + order flag + admin alert; refund.processed/failed reconcile refund_attempts; unknown events acked",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000004",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789591507889,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-8pcq5kdl for 1250.00 NGN on order ord-j271-8pcq5kdl. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000005",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789591508340,
+      "kind": "text",
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-8pcq5kdl for 1250.00 NGN on order ord-j271-8pcq5kdl. The order is flagged; review the dispute in your PSP dashboard."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000006",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789591509207,
+      "kind": "text",
+      "body": "🚨 *Refund FAILED at provider*: paystack ref w39-j271-8pcq5kdl-refund-bad (750.00 NGN) for order ord-j271-8pcq5kdl. The customer has NOT been refunded — retry the refund or reconcile manually."
+    }
+  ]
+}

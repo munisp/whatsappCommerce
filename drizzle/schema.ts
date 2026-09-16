@@ -5295,3 +5295,33 @@ export const merchantClawbacks = pgTable("merchant_clawbacks", {
 export type MerchantClawback = typeof merchantClawbacks.$inferSelect;
 export type NewMerchantClawback = typeof merchantClawbacks.$inferInsert;
 // === END W38 money-integrity ===
+
+// === W39 PAY-8: PSP chargeback/dispute records (migration 0122) ===
+// Persisted from the PSP webhook handlers; before W39 these events were
+// silently dropped. Debit-on-lost semantics are documented in
+// drizzle/0122_payment_disputes.sql — a 'lost'/'accepted' status records the
+// debit the PSP already applied to the platform/merchant balance; internal
+// recovery goes through merchant_clawbacks (W38), never a double-entry here.
+export const paymentDisputes = pgTable("payment_disputes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerRef: varchar("provider_ref", { length: 256 }).notNull(),
+  /** chargeback | dispute */
+  kind: varchar("kind", { length: 24 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** open | won | lost | accepted */
+  status: varchar("status", { length: 24 }).notNull().default("open"),
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("payment_disputes_tenant_idx").on(t.tenantId),
+  index("payment_disputes_order_idx").on(t.orderId),
+  index("payment_disputes_ref_idx").on(t.providerRef),
+  uniqueIndex("payment_disputes_uniq").on(t.provider, t.providerRef, t.kind),
+]);
+export type PaymentDispute = typeof paymentDisputes.$inferSelect;
+export type NewPaymentDispute = typeof paymentDisputes.$inferInsert;

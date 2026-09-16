@@ -202,6 +202,20 @@ export interface NextAllowedSendAtOpts {
   policy?: MarketingFrequencyPolicy;
   /** Test seam: override the recent-send lookup. */
   countSends?: (windowDays: number, now: Date) => Promise<Date[]>;
+  /**
+   * Skip the quiet-hours adjustment (frequency cap still applies). Used by
+   * journey ENROLLMENT: quiet hours are a send-time concern enforced by the
+   * journey tick on every send_template step — applying them again at enroll
+   * time double-defers runs and can park a run past a later quiet-hours tick
+   * (J111 root cause: enroll inside quiet hours pushed nextRunAt to the next
+   * 08:00 quiet end, so a tick inside the quiet window found nothing due).
+   */
+  skipQuietHours?: boolean;
+}
+
+/** Return a copy of `policy` with quiet hours disabled (start == end). */
+function withoutQuietHours(policy: MarketingFrequencyPolicy): MarketingFrequencyPolicy {
+  return { ...policy, quietStartMinutes: 0, quietEndMinutes: 0 };
 }
 
 /**
@@ -211,7 +225,8 @@ export interface NextAllowedSendAtOpts {
  */
 export async function nextAllowedSendAt(db: DbLike, opts: NextAllowedSendAtOpts): Promise<Date> {
   const now = opts.now ?? new Date();
-  const policy = opts.policy ?? DEFAULT_MARKETING_FREQUENCY_POLICY;
+  const basePolicy = opts.policy ?? DEFAULT_MARKETING_FREQUENCY_POLICY;
+  const policy = opts.skipQuietHours ? withoutQuietHours(basePolicy) : basePolicy;
   const sends = opts.countSends
     ? await opts.countSends(policy.windowDays, now)
     : await recentMarketingSends(db, opts.tenantId, opts.phone, policy.windowDays, now);
@@ -227,6 +242,7 @@ export async function nextAllowedSendAtForTenant(
   tenantId: string,
   phone: string,
   now: Date = new Date(),
+  opts: { skipQuietHours?: boolean } = {},
 ): Promise<Date> {
   let policy = DEFAULT_MARKETING_FREQUENCY_POLICY;
   try {
@@ -234,5 +250,5 @@ export async function nextAllowedSendAtForTenant(
     const rows: any[] = Array.isArray(res) ? res : (res?.rows ?? []);
     policy = parseMarketingFrequencyPolicy(rows[0]?.settings);
   } catch { /* defaults */ }
-  return nextAllowedSendAt(db, { tenantId, phone, now, policy });
+  return nextAllowedSendAt(db, { tenantId, phone, now, policy, skipQuietHours: opts.skipQuietHours });
 }

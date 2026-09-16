@@ -2,6 +2,29 @@
 # The init container formats the data file once; the main container starts the
 # replica. TigerBeetle speaks its own binary protocol on 3000 (no HTTP), so
 # probes are tcpSocket.
+#
+# W39 durability (PLT-2): the data file now lives on a PersistentVolumeClaim
+# (tigerbeetle-data, 5Gi) instead of emptyDir — previously ANY pod restart
+# wiped the money ledger. Same minimal-change choice as postgres: standalone
+# PVC + existing Deployment (Recreate guarantees a single writer for the RWO
+# volume; StatefulSet conversion gains nothing at replicas: 1).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tigerbeetle-data
+  namespace: whatsapp-commerce
+  labels:
+    app: tigerbeetle
+    app.kubernetes.io/name: tigerbeetle
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # TB preallocates the data file at format time; 5Gi covers the dev
+      # overlay's --development file with headroom.
+      storage: 5Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -112,7 +135,8 @@ spec:
             periodSeconds: 20
       volumes:
         - name: tigerbeetle-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: tigerbeetle-data
 ---
 apiVersion: v1
 kind: Service

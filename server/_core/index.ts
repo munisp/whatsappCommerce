@@ -354,6 +354,16 @@ async function startServer() {
     next();
   });
 
+  // ── CSRF origin verification (W39, PLT-3) ───────────────────────────────
+  // Cookie-authenticated mutating requests must present a same-host (or
+  // allowlisted) Origin/Referer. Webhook/internal-token paths and
+  // bearer/cookie-less requests are exempt. Second layer behind
+  // SameSite=Lax session cookies (server/_core/cookies.ts).
+  {
+    const { createCsrfProtection } = await import("./csrf");
+    app.use(createCsrfProtection({ allowedOrigins: corsAllowedOrigins }));
+  }
+
   // Configure body parser with larger size limit for file uploads.
   // Skip routes that need the exact raw bytes for HMAC signature verification
   // (webhooks, evidence uploads) — express.raw() further down would otherwise
@@ -908,6 +918,44 @@ async function startServer() {
           return res.status(200).json({ received: true, ...result });
         }
       }
+      // === W39 PAY-8: dispute / refund-status events (previously bare-200'd) ===
+      if (typeof payload.event === "string" && payload.event.startsWith("charge.dispute")) {
+        const { recordPspDispute } = await import("../services/payments/disputes");
+        const d = payload.data ?? {};
+        const reference = (d.transaction?.reference ?? d.reference ?? null) as string | null;
+        const resolution = String(d.resolution ?? d.status ?? "").toLowerCase();
+        const status = payload.event === "charge.dispute.resolve"
+          ? (resolution.includes("won") ? "won" : resolution.includes("lost") || resolution.includes("accepted") ? "lost" : "lost")
+          : "open";
+        const result = await recordPspDispute(db, {
+          provider: "paystack",
+          providerRef: reference ?? "unknown",
+          kind: "dispute",
+          status,
+          amountCents: Number.isFinite(Number(d.refund_amount ?? d.transaction?.amount)) ? Number(d.refund_amount ?? d.transaction?.amount) : null,
+          currency: (d.currency as string | undefined) ?? null,
+          payload: d,
+        });
+        return res.status(200).json({ received: true, ...result });
+      }
+      if (payload.event === "refund.processed" || payload.event === "refund.failed") {
+        const { reconcilePspRefund } = await import("../services/payments/disputes");
+        const d = payload.data ?? {};
+        const reference = (d.reference ?? d.transaction_reference ?? null) as string | null;
+        const result = await reconcilePspRefund(db, {
+          provider: "paystack",
+          providerRef: reference ?? "unknown",
+          outcome: payload.event === "refund.processed" ? "processed" : "failed",
+          amountCents: Number.isFinite(Number(d.amount)) ? Number(d.amount) : null,
+          payload: d,
+        });
+        return res.status(200).json({ received: true, ...result });
+      }
+      if (typeof payload.event === "string" && payload.event.length > 0) {
+        const { logUnhandledPspEvent } = await import("../services/payments/disputes");
+        logUnhandledPspEvent("paystack", payload);
+      }
+      // === END W39 PAY-8 ===
       return res.status(200).json({ received: true });
     } catch (err: any) {
       console.error("[paystack-webhook]", err);
@@ -964,6 +1012,40 @@ async function startServer() {
           return res.status(200).json({ received: true, ...result });
         }
       }
+      // === W39 PAY-8: dispute / refund-status events (previously bare-200'd) ===
+      if (typeof payload.event === "string" && /dispute|chargeback/i.test(payload.event)) {
+        const { recordPspDispute } = await import("../services/payments/disputes");
+        const d = payload.data ?? {};
+        const reference = (d.tx_ref ?? d.txRef ?? d.reference ?? null) as string | null;
+        const result = await recordPspDispute(db, {
+          provider: "flutterwave",
+          providerRef: reference ?? "unknown",
+          kind: /chargeback/i.test(payload.event) ? "chargeback" : "dispute",
+          status: "open",
+          amountCents: Number.isFinite(Number(d.amount)) ? Math.round(Number(d.amount) * 100) : null, // FLW amounts are major units
+          currency: (d.currency as string | undefined) ?? null,
+          payload: d,
+        });
+        return res.status(200).json({ received: true, ...result });
+      }
+      if (payload.event === "refund.processed" || payload.event === "refund.failed") {
+        const { reconcilePspRefund } = await import("../services/payments/disputes");
+        const d = payload.data ?? {};
+        const reference = (d.reference ?? d.tx_ref ?? d.flw_ref ?? null) as string | null;
+        const result = await reconcilePspRefund(db, {
+          provider: "flutterwave",
+          providerRef: reference ?? "unknown",
+          outcome: payload.event === "refund.processed" ? "processed" : "failed",
+          amountCents: Number.isFinite(Number(d.amount)) ? Math.round(Number(d.amount) * 100) : null,
+          payload: d,
+        });
+        return res.status(200).json({ received: true, ...result });
+      }
+      if (typeof payload.event === "string" && payload.event.length > 0) {
+        const { logUnhandledPspEvent } = await import("../services/payments/disputes");
+        logUnhandledPspEvent("flutterwave", payload);
+      }
+      // === END W39 PAY-8 ===
       return res.status(200).json({ received: true });
     } catch (err: any) {
       console.error("[flutterwave-webhook]", err);

@@ -1,0 +1,8 @@
+{
+  "id": "J268",
+  "title": "session cookie SameSite=Lax + same-origin tRPC flow intact",
+  "feature": "PLT-3 SameSite=Lax session cookie (server/_core/cookies.ts)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

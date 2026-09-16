@@ -341,6 +341,13 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j260-paid-cancel-restock-updatestatus-path"),
     import("./journeys/j261-reservation-ttl-extension"),
     import("./journeys/j262-wholesale-oversell-guard"),
+    import("./journeys/j267-csrf-origin-check"),
+    import("./journeys/j268-samesite-lax-cookie"),
+    import("./journeys/j269-medusa-ssrf-update-guard"),
+    import("./journeys/j270-medusa-ssrf-calltime-guard"),
+    // === W39 PAY-8 (Coder C): PSP dispute/refund webhook events (renumbered J263->J271 by merger; A owns J263-265) ===
+    import("./journeys/j271-psp-dispute-refund-webhooks"),
+    // === W39 END ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),
@@ -358,6 +365,11 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j257-pot-early-settle-lifecycle"),
     import("./journeys/j258-recon-settlement-dedupe-partial"),
     // === W38 pot-recon END ===
+    // === W39 durability (Coder A): PLT-1/PLT-2/PLT-8 PVC + backups ===
+    import("./journeys/j263-stateful-pvc-durability"),
+    import("./journeys/j264-backup-cronjobs"),
+    import("./journeys/j265-tigerbeetle-backup-doc"),
+    // === END W39 durability (Coder A) ===
     // === END W35 infra-receivers ===
   ]);
   return mods.map((m) => m.journey as Journey);

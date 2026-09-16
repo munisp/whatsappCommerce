@@ -24,6 +24,9 @@ resources:
   - hermes-router.yaml
   - hermes-bridge.yaml
   - cron-scheduler.yaml
+  # === W39 durability (Coder A): PVC-backed backups, CronJobs #42/#43 ===
+  - backups.yaml
+  # === END W39 durability ===
   # === W34 otel-stack (Coder B) ===
   - otel-stack.yaml
   # === END W34 otel-stack ===

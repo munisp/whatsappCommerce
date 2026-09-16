@@ -61,6 +61,42 @@ quorum/fencing prompts map onto our stack as follows:
 - Backups: replicate the TB data file per the official replication protocol —
   do NOT file-copy a running replica.
 
+## Backups (W39, PLT-1/PLT-2/PLT-8)
+
+### Postgres
+- `k8s/postgres.yaml` data volume is now PVC `postgres-data` (10Gi). Minimal-
+  change choice: standalone PVC + existing Deployment (Recreate) instead of a
+  StatefulSet conversion — single-replica dev overlay, Recreate already
+  guarantees at-most-one writer, and a StatefulSet would rename the pod
+  identity for zero durability gain here. `tmp`/`run` remain emptyDir by
+  design (ephemeral sockets/pids only).
+- `k8s/backups.yaml` CronJob #42 `cron-postgres-backup` (`0 3 * * *`):
+  `pg_dump --format=custom | gzip` into PVC `postgres-backups` (20Gi) with
+  7-day in-job retention (`find -mtime +7 -delete`).
+- Object storage: if `S3_BUCKET` (plus `S3_ENDPOINT`/`S3_ACCESS_KEY`/
+  `S3_SECRET_KEY`, the env.example.txt S3 block) is present in
+  `platform-secrets`, the job also uploads to `s3://$S3_BUCKET/pg/`. Configure
+  a 7-day bucket lifecycle rule for off-cluster retention — the job does not
+  prune remote objects.
+- HONEST DEGRADE: without S3 configured, the in-cluster PVC copy is the ONLY
+  backup — node/AZ loss can still lose it. The job logs this explicitly.
+
+### TigerBeetle
+- `k8s/tigerbeetle.yaml` data volume is now PVC `tigerbeetle-data` (5Gi).
+- TB 0.16.x has no snapshot API. Two honest paths:
+  1. **Offline copy (safe, preferred):** `scripts/backup/tigerbeetle-backup.sh`
+     scales the replica to 0, copies the data file off the PVC, scales back.
+     Brief ledger unavailability; use in a maintenance window.
+  2. **CronJob #43 `cron-tigerbeetle-backup` (`0 4 * * 0`):** crash-consistent
+     copy of the LIVE data file to the backup PVC, 7-day retention. Dev safety
+     net only — a torn tail is possible, so restores should prefer an offline
+     copy. Mounts the same RWO volume as TB: both must schedule on the same
+     node (fine in the single-node dev overlay; a multi-node cluster must add
+     node affinity or use RWX storage).
+- Production ledger durability requires a 3-replica TB cluster (VSR
+  replication) per the multi-node notes above; backups complement, never
+  replace, replication.
+
 ## Test inventory (this branch)
 
 | Suite | Command | Covers |

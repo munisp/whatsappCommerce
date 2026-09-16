@@ -1,5 +1,33 @@
 # Primary platform Postgres (database whatsapp_commerce, user wc_user) —
 # mirrors docker-compose postgres service.
+#
+# W39 durability (PLT-1): the data volume is now a PersistentVolumeClaim
+# (postgres-data, 10Gi) instead of emptyDir — previously ANY pod restart
+# destroyed the entire platform database.
+# Minimal-change choice (documented per SPEC_W39): standalone PVC + keep the
+# existing Deployment (strategy: Recreate, replicas 1) instead of converting
+# to a StatefulSet. Rationale: single-replica dev overlay; Recreate already
+# guarantees at-most-one writer so a ReadWriteOnce PVC is safe; a StatefulSet
+# conversion would rename the pod/selector identity (postgres-0) and force
+# coordinated edits to every Service consumer for zero durability gain here.
+# tmp/run stay emptyDir on purpose: they hold only ephemeral sockets/pids and
+# MUST NOT survive a restart (stale postmaster.pid would block recovery).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: whatsapp-commerce
+  labels:
+    app: postgres
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Dev overlay: honest floor for a small cluster; raise per environment.
+      storage: 10Gi
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -84,7 +112,9 @@ spec:
             periodSeconds: 20
       volumes:
         - name: postgres-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: postgres-data
+        # Ephemeral-by-design (sockets/pids); see header comment.
         - name: tmp
           emptyDir: {}
         - name: run

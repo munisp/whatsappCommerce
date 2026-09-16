@@ -27,10 +27,25 @@ import { and, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { fetchMedusaCatalog, getMedusaIntegrationConfig } from "../services/integrationSync";
 import { encryptSecret } from "../services/crypto/secrets";
+import { assertSafeOutboundUrl } from "../services/ssrfGuard";
 import { randomUUID } from "crypto";
 
 function getMedusaTenantId(ctx: { user?: { tenantId?: string | null } | null }): string {
   return ctx.user?.tenantId ?? "default";
+}
+
+/**
+ * W39 (PLT-4): validate a tenant-supplied Medusa baseUrl through the shared
+ * SSRF guard (server/services/ssrfGuard — same guard Odoo/customHttp use)
+ * and surface a clean BAD_REQUEST instead of a raw 500.
+ */
+export function assertSafeMedusaBaseUrl(raw: string): void {
+  try {
+    assertSafeOutboundUrl(raw, "Medusa baseUrl");
+    assertSafeOutboundUrl(raw, "Medusa baseUrl");
+  } catch (err: any) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: err?.message ?? "Unsafe Medusa baseUrl" });
+  }
 }
 
 
@@ -241,6 +256,10 @@ export const medusaRouter = router({
       assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // W39 (PLT-4): SSRF guard at config-write time — never persist a
+      // loopback/private/link-local baseUrl the sync paths would later fetch
+      // with the tenant admin API key attached.
+      assertSafeMedusaBaseUrl(input.baseUrl);
       const baseUrl = input.baseUrl.replace(/\/+$/, "");
       const existing = await db
         .select({ id: tenantIntegrations.id })
@@ -303,6 +322,9 @@ export const medusaRouter = router({
           message: "Cannot manage Medusa integration for another tenant",
         });
       }
+      // W39 (PLT-4): SSRF guard BEFORE the credentialed probe — the admin
+      // API key must never be sent to an unvalidated host.
+      assertSafeMedusaBaseUrl(input.baseUrl);
       const baseUrl = input.baseUrl.replace(/\/+$/, "");
       let status: "connected" | "error" = "error";
       let error: string | null = null;
@@ -401,6 +423,8 @@ export const medusaRouter = router({
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const { medusaStoreMappings, tenantIntegrations: ti } = await import("../../drizzle/schema");
+      // W39 (PLT-4): SSRF guard at config-write time (same as `configure`).
+      assertSafeMedusaBaseUrl(input.baseUrl);
       const baseUrl = input.baseUrl.replace(/\/+$/, "");
 
       // Credential row (encrypted at rest) — upsert like `configure`. The
