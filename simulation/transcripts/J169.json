@@ -7,62 +7,62 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015267726",
-      "profileName": "Sim User 7726",
+      "phone": "2348014567363",
+      "profileName": "Sim User 7363",
       "inboundId": "wamid.sim.in.text.00419",
-      "at": 1788020604268,
+      "at": 1789504162549,
       "kind": "text",
-      "text": "i want these [ce52c247]"
+      "text": "i want these [04a113f6]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00419",
-      "at": 1788020604271
+      "at": 1789504162551
     },
     {
       "dir": "out",
-      "phone": "2348015267726",
-      "wamid": "wamid.sim.000670",
+      "phone": "2348014567363",
+      "wamid": "wamid.sim.000667",
       "statuses": [
         "sent"
       ],
-      "at": 1788020604285,
+      "at": 1789504162570,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348015267726",
-      "profileName": "Sim User 7726",
+      "phone": "2348014567363",
+      "profileName": "Sim User 7363",
       "inboundId": "wamid.sim.in.text.00420",
-      "at": 1788020604811,
+      "at": 1789504163091,
       "kind": "text",
-      "text": "confirm please [ce52c247]"
+      "text": "confirm please [04a113f6]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00420",
-      "at": 1788020604814
+      "at": 1789504163094
     },
     {
       "dir": "out",
-      "phone": "2348015267726",
-      "wamid": "wamid.sim.000671",
+      "phone": "2348014567363",
+      "wamid": "wamid.sim.000668",
       "statuses": [
         "sent"
       ],
-      "at": 1788020604826,
+      "at": 1789504163106,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦5,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348015267726",
-      "profileName": "Sim User 7726",
+      "phone": "2348014567363",
+      "profileName": "Sim User 7363",
       "inboundId": "wamid.sim.in.text.00421",
-      "at": 1788020605360,
+      "at": 1789504163640,
       "kind": "text",
       "text": "1"
     },
@@ -70,66 +70,66 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00421",
-      "at": 1788020605363
+      "at": 1789504163643
     },
     {
       "dir": "out",
-      "phone": "2348015267726",
-      "wamid": "wamid.sim.000672",
+      "phone": "2348014567363",
+      "wamid": "wamid.sim.000669",
       "statuses": [
         "sent"
       ],
-      "at": 1788020605388,
+      "at": 1789504163664,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MTELAWU6*\n1 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦5,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/be601f6b-2068-4024-bad3-ce17737c5eb2\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/7144084d-7201-46c6-b5b9-37958d83b13e.BlM8-1vtsVq-eSOjORJ6DZVJ"
+      "body": "🧾 *Pickup Order ORD-MU34KPQF*\n1 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦5,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/4d3eb6d5-74f5-4759-afd4-fc2f4723808d\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/260d165a-100d-4ea7-9c77-f86be37a41c9.ZexzE6ZovxW7knkpBkasKrwW"
     },
     {
       "dir": "out",
-      "phone": "2348015267726",
-      "wamid": "wamid.sim.000673",
+      "phone": "2348014567363",
+      "wamid": "wamid.sim.000670",
       "statuses": [
         "sent"
       ],
-      "at": 1788020605390,
+      "at": 1789504163667,
       "kind": "interactive",
-      "body": "Order ORD-MTELAWU6 — manage it here:",
+      "body": "Order ORD-MU34KPQF — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:7144084d-7201-46c6-b5b9-37958d83b13e",
+          "id": "order_track:260d165a-100d-4ea7-9c77-f86be37a41c9",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:7144084d-7201-46c6-b5b9-37958d83b13e",
+          "id": "order_pay:260d165a-100d-4ea7-9c77-f86be37a41c9",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:7144084d-7201-46c6-b5b9-37958d83b13e",
+          "id": "order_cancel:260d165a-100d-4ea7-9c77-f86be37a41c9",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348015267726",
-      "wamid": "wamid.sim.000674",
+      "phone": "2348014567363",
+      "wamid": "wamid.sim.000671",
       "statuses": [
         "sent"
       ],
-      "at": 1788020605922,
+      "at": 1789504164199,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MTELAWU6\n\n1 × Jollof Rice — ₦2,500.00\n1 × Grilled Chicken — ₦3,000.00\n\nSubtotal: ₦5,500.00\n*Total paid: ₦5,500.00*\nPayment ref: be601f6b-2068-4024-bad3-ce17737c5eb2\n\n🔎 Track your order: http://localhost:4173/track/7144084d-7201-46c6-b5b9-37958d83b13e.BlM8-1vtsVq-eSOjORJ6DZVJ"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MU34KPQF\n\n1 × Jollof Rice — ₦2,500.00\n1 × Grilled Chicken — ₦3,000.00\n\nSubtotal: ₦5,500.00\n*Total paid: ₦5,500.00*\nPayment ref: 4d3eb6d5-74f5-4759-afd4-fc2f4723808d\n\n🔎 Track your order: http://localhost:4173/track/260d165a-100d-4ea7-9c77-f86be37a41c9.ZexzE6ZovxW7knkpBkasKrwW"
     },
     {
       "dir": "out",
-      "phone": "2348015267726",
-      "wamid": "wamid.sim.000675",
+      "phone": "2348014567363",
+      "wamid": "wamid.sim.000672",
       "statuses": [
         "sent"
       ],
-      "at": 1788020606368,
+      "at": 1789504164642,
       "kind": "text",
-      "body": "✅ Your order has been delivered. Enjoy! If anything is wrong, just reply here.\n🔎 Details: http://localhost:4173/track/7144084d-7201-46c6-b5b9-37958d83b13e.BlM8-1vtsVq-eSOjORJ6DZVJ"
+      "body": "✅ Your order has been delivered. Enjoy! If anything is wrong, just reply here.\n🔎 Details: http://localhost:4173/track/260d165a-100d-4ea7-9c77-f86be37a41c9.ZexzE6ZovxW7knkpBkasKrwW"
     }
   ]
 }

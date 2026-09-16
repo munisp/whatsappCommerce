@@ -110,3 +110,86 @@ export async function hasConsent(tenantId: string, phone: string): Promise<boole
   const row = await getConsent(db, tenantId, phone, CONSENT_CHANNEL_WHATSAPP);
   return row?.granted === true;
 }
+
+// === W37 telegram (Coder B): channel-aware consent seam ===
+// The WhatsApp helpers above are untouched. Telegram implements STOP
+// correctly from day one: /stop (or the text "STOP") revokes consent for
+// the telegram channel identity (keyed by the session key
+// `telegram:<chat_id>`, never a raw phone), and /start records opt-in.
+
+export const CONSENT_CHANNEL_TELEGRAM = "telegram";
+
+/** Channel-generic consent check (WhatsApp callers keep using hasConsent). */
+export async function hasChannelConsent(
+  tenantId: string,
+  sessionKey: string,
+  channel: string,
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[consent] DB unavailable — treating hasChannelConsent as false (fail closed)");
+    return false;
+  }
+  const row = await getConsent(db, tenantId, sessionKey, channel);
+  return row?.granted === true && !row.withdrawnAt;
+}
+
+/** Fetch the raw consent row for a channel identity (null when none). */
+export async function getChannelConsent(
+  db: Db,
+  tenantId: string,
+  sessionKey: string,
+  channel: string,
+) {
+  return getConsent(db, tenantId, sessionKey, channel);
+}
+
+/** Record an explicit opt-in for a channel identity (e.g. Telegram /start). */
+export async function recordChannelOptIn(
+  db: Db,
+  opts: { tenantId: string; sessionKey: string; channel: string; source?: string },
+): Promise<void> {
+  await recordConsent(db, {
+    tenantId: opts.tenantId,
+    phone: opts.sessionKey,
+    granted: true,
+    channel: opts.channel,
+  });
+  // recordConsent stamps grantedAt + clears withdrawnAt on grant; nothing
+  // further needed here. (source column keeps its existing vocabulary.)
+}
+
+/**
+ * Revoke consent for a channel identity (Telegram /stop or "STOP"). Sets
+ * granted=false + withdrawnAt so proactive-send gates (which check granted)
+ * close immediately, and the withdrawal is auditable. Never throws.
+ */
+export async function recordChannelRevocation(
+  db: Db,
+  opts: { tenantId: string; sessionKey: string; channel: string },
+): Promise<void> {
+  const existing = await getConsent(db, opts.tenantId, opts.sessionKey, opts.channel);
+  const now = new Date();
+  try {
+    if (existing) {
+      await db
+        .update(consents)
+        .set({ granted: false, withdrawnAt: now, updatedAt: now })
+        .where(eq(consents.id, existing.id));
+      return;
+    }
+    // No prior row: persist an explicit denial so the revocation survives
+    // even when the user never opted in (STOP before /start).
+    await db.insert(consents).values({
+      tenantId: opts.tenantId,
+      phone: opts.sessionKey,
+      channel: opts.channel,
+      granted: false,
+      source: "telegram_stop",
+      withdrawnAt: now,
+    });
+  } catch (e: any) {
+    console.warn("[consent] recordChannelRevocation failed:", e?.message);
+  }
+}
+// === END W37 telegram ===

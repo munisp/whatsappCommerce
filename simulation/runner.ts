@@ -315,6 +315,28 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j228-alert-rules-dashboards"),
     import("./journeys/j229-mig0116-component-status"),
     import("./journeys/j230-otel-stack-probes"),
+    // === W37 telegram (Coder A): outbound sender + facade ===
+    import("./journeys/j231-telegram-sender-payloads"),
+    import("./journeys/j232-telegram-retry-dlq"),
+    import("./journeys/j233-channel-sender-facade"),
+    import("./journeys/j234-telegram-token-crypto"),
+    // === END W37 telegram (Coder A) ===
+    // === W37 telegram (Coder B): inbound webhook + identity + consent ===
+    import("./journeys/j235-telegram-webhook-security"),
+    import("./journeys/j236-telegram-callback-query"),
+    import("./journeys/j237-telegram-contact-binding"),
+    import("./journeys/j238-telegram-consent"),
+    import("./journeys/j239-telegram-session-key"),
+    // === END W37 telegram (Coder B) ===
+    // === W37 telegram (Coder C — caller parity; J231-J239 owned by Coders A/B, merged separately) ===
+    import("./journeys/j240-order-confirmation-parity"),
+    import("./journeys/j241-delivery-pin-telegram"),
+    import("./journeys/j242-payment-link-url-button"),
+    import("./journeys/j243-broadcast-telegram-throttle"),
+    import("./journeys/j244-cart-nudge-no-window"),
+    import("./journeys/j245-escalation-parity"),
+    import("./journeys/j246-parity-matrix-snapshot"),
+    // === W37 telegram END ===
     // === END W35 infra-receivers ===
   ]);
   return mods.map((m) => m.journey as Journey);

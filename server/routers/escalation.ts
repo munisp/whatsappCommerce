@@ -166,24 +166,43 @@ export const escalationRouter = router({
       if (conv.status === "resolved") {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot reply on a resolved conversation" });
       }
+      // === W37 telegram ===
+      // Escalation/handoff parity: a telegram-channel conversation replies
+      // through channelSender to the chat_id; the channel_messages row
+      // records channel='telegram'. WA conversations are byte-identical to
+      // the pre-W37 path.
+      const convChannel = (conv as any).channel === "telegram" ? "telegram" : "whatsapp";
       const [customer] = await db
         .select()
         .from(customers)
         .where(eq(customers.id, conv.customerId))
         .limit(1);
       const phone = (customer as any)?.whatsappPhone as string | undefined;
-      if (!phone) throw new TRPCError({ code: "NOT_FOUND", message: "Conversation customer has no phone" });
+      const { resolveCustomerChannel } = await import("../services/channelParity");
+      const __w37Route = convChannel === "telegram"
+        ? await resolveCustomerChannel(conv.tenantId, { channel: "telegram", channelScopedId: (customer as any)?.telegramChatId ?? phone })
+        : await resolveCustomerChannel(conv.tenantId, phone ?? "");
+      if (!__w37Route.to) throw new TRPCError({ code: "NOT_FOUND", message: "Conversation customer has no reachable address" });
 
-      const { sendWhatsAppText } = await import("../services/waSender");
-      const sent = await sendWhatsAppText(conv.tenantId, phone, input.body, {
-        notifType: "conversation_reply",
-        userId: ctx.user?.id ?? null,
-      });
+      let sent: { sent?: boolean; simulated?: boolean };
+      if (__w37Route.channel === "telegram") {
+        const { sendChannelMessage } = await import("../services/channelSender");
+        sent = await sendChannelMessage(conv.tenantId, "telegram", __w37Route.to, {
+          kind: "text",
+          text: input.body,
+        }, { notifType: "conversation_reply" });
+      } else {
+        const { sendWhatsAppText } = await import("../services/waSender");
+        sent = await sendWhatsAppText(conv.tenantId, __w37Route.to, input.body, {
+          notifType: "conversation_reply",
+          userId: ctx.user?.id ?? null,
+        });
+      }
       await db.insert(channelMessages).values({
-        channel: "whatsapp",
+        channel: __w37Route.channel,
         direction: "outbound",
         fromAddress: conv.tenantId,
-        toAddress: phone,
+        toAddress: __w37Route.to,
         tenantId: conv.tenantId,
         body: input.body,
         processed: true,
@@ -194,6 +213,7 @@ export const escalationRouter = router({
         .set({ messageCount: (conv.messageCount ?? 0) + 1, updatedAt: new Date() })
         .where(eq(conversations.id, conv.id));
       return { sent: sent.sent === true || (sent as any).simulated === true, simulated: (sent as any).simulated === true };
+      // === W37 telegram END ===
     }),
 
   /** Read one conversation (tenant-checked by lookup). */

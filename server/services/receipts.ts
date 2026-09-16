@@ -12,6 +12,9 @@ import { and, eq } from "drizzle-orm";
 import type { getDb } from "../db";
 import { customers, logisticsShipments, orders, tenants } from "../../drizzle/schema";
 import { sendWhatsAppText } from "./waSender";
+// === W37 telegram ===
+import { notifyCustomer } from "./channelParity";
+// === W37 telegram END ===
 import { trackingUrlFor } from "./trackingToken";
 import { fmtMoney } from "../routers/nlp";
 
@@ -159,9 +162,23 @@ export async function sendOrderReceipt(
     trackingUrl: trackingUrlFor(order.id),
   });
 
-  await sendWhatsAppText(order.tenantId, buyerPhone, message, {
+  // === W37 telegram ===
+  // Payment-receipt parity: telegram-linked buyers receive the identical
+  // receipt text via channelSender; WA buyers fall through unchanged.
+  // (paymentConfirm.ts stays PINNED — this seam lives in its caller chain.)
+  const __w37 = await notifyCustomer(order.tenantId, buyerPhone, "payment_receipt", {
+    text: message,
     notifType: "payment_receipt",
     orderId: order.id,
   });
+  if (!__w37.handled) {
+    // === W37 telegram END ===
+    await sendWhatsAppText(order.tenantId, buyerPhone, message, {
+      notifType: "payment_receipt",
+      orderId: order.id,
+    });
+    // === W37 telegram ===
+  }
+  // === W37 telegram END ===
   return { sent: true };
 }

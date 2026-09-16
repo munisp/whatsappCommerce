@@ -225,6 +225,19 @@ export async function runCartRecovery(deps: CartRecoveryDeps = {}): Promise<Reco
   const send: NonNullable<CartRecoveryDeps["sendImpl"]> =
     deps.sendImpl ??
     (async (tenantId, phone, body) => {
+      // === W37 telegram ===
+      // Telegram carts (session key `telegram:<chat_id>`) route via
+      // channelSender. Telegram has NO 24h session window
+      // (requiresSessionWindow('telegram') === false), so these nudges are
+      // never window-suppressed; the per-cart 24h marker above still applies
+      // as a once-per-cart dedupe on every channel.
+      const { notifyCustomer } = await import("./channelParity");
+      const routed = await notifyCustomer(tenantId, phone, "cart_abandonment", {
+        text: body,
+        notifType: "cart_recovery",
+      });
+      if (routed.handled) return routed;
+      // === W37 telegram END ===
       const { sendWhatsAppText } = await import("./waSender");
       return sendWhatsAppText(tenantId, phone, body, { notifType: "cart_recovery" });
     });

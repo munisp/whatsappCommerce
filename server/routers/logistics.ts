@@ -10,6 +10,9 @@ import {
 import { randomInt, createHmac, timingSafeEqual } from "crypto";
 import { ENV } from "../_core/env";
 import { sendWhatsAppText } from "../services/waSender";
+// === W37 telegram ===
+import { notifyCustomer } from "../services/channelParity";
+// === W37 telegram END ===
 import { trackingUrlFor } from "../services/trackingToken";
 
 // ─── Delivery PIN + buyer status push helpers ────────────────────────────────
@@ -207,10 +210,23 @@ export async function notifyBuyerShipmentStatus(
   } catch (e: any) {
     console.warn("[logistics] ETA injection failed:", e?.message);
   }
-  await sendWhatsAppText(shipment.tenantId, phone, message, {
+  // === W37 telegram ===
+  // Telegram-linked buyers receive the same status text via channelSender;
+  // WhatsApp buyers fall through to the unchanged WA path below.
+  const __w37 = await notifyCustomer(shipment.tenantId, phone, "delivery_status", {
+    text: message,
     notifType: `shipment_${status}`,
     orderId: shipment.orderId,
   });
+  if (!__w37.handled) {
+    // === W37 telegram END ===
+    await sendWhatsAppText(shipment.tenantId, phone, message, {
+      notifType: `shipment_${status}`,
+      orderId: shipment.orderId,
+    });
+    // === W37 telegram ===
+  }
+  // === W37 telegram END ===
 }
 
 // ─── Shipbubble API Client (lightweight) ─────────────────────────────────────
@@ -420,10 +436,23 @@ export const logisticsRouter = router({
         if (trackingUrl) lines.push(`Carrier tracking: ${trackingUrl}`);
         lines.push(`🔑 Your delivery PIN is *${deliveryPin}* — share it with the rider ONLY when you receive your order.`);
         lines.push(`🔎 Track your order: ${trackingUrlFor(input.orderId)}`);
-        await sendWhatsAppText(input.tenantId, buyerPhone, lines.join("\n"), {
+        // === W37 telegram ===
+        // Delivery PIN parity: telegram buyers get the identical PIN text via
+        // channelSender (category delivery_pin); WA buyers unchanged.
+        const __w37Pin = await notifyCustomer(input.tenantId, buyerPhone, "delivery_pin", {
+          text: lines.join("\n"),
           notifType: "shipment_created",
           orderId: input.orderId,
         });
+        if (!__w37Pin.handled) {
+          // === W37 telegram END ===
+          await sendWhatsAppText(input.tenantId, buyerPhone, lines.join("\n"), {
+            notifType: "shipment_created",
+            orderId: input.orderId,
+          });
+          // === W37 telegram ===
+        }
+        // === W37 telegram END ===
       })().catch((e: any) => console.warn("[logistics] buyer PIN notification failed:", e?.message));
 
       return created!;

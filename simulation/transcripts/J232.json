@@ -1,0 +1,31 @@
+{
+  "id": "J232",
+  "title": "telegramSender retry: classified backoff, 429 retry_after, dead-letter after 4",
+  "feature": "W37 telegram outbound: retry/DLQ parity with waSender",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000001",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789504842467,
+      "kind": "text",
+      "body": "⚠️ Telegram message dead-lettered after 4 attempts.\nChat: 770101\nKind: text\nError: {\"ok\":false,\"error_code\":400,\"description\":\"sim: hostStatus 400\"}"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000002",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789504842478,
+      "kind": "text",
+      "body": "⚠️ Telegram message dead-lettered after 4 attempts.\nChat: 770101\nKind: text\nError: {\"ok\":false,\"error_code\":503,\"description\":\"sim: hostStatus 503\"}"
+    }
+  ]
+}

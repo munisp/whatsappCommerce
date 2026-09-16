@@ -285,6 +285,54 @@ const LLM_RE = /^https?:\/\/llm\.sim\.local\//;
 const OPENAI_RE = /^https?:\/\/openai\.sim\.local\//;
 const LOCAL_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//;
 
+// === W37 telegram (Coder B): Telegram Bot API mock ===
+// Records every bot<token>/<method> call so journeys J235–J239 (and Coder
+// A's outbound journeys) can assert exact Bot API payloads with zero
+// network. getFile is scripted per file_id; file downloads return a small
+// deterministic buffer.
+const TELEGRAM_RE = /^https:\/\/api\.telegram\.org\/(file\/)?bot([^/]+)\/(.+)$/;
+export interface TelegramBotCall {
+  token: string;
+  method: string;
+  body: any;
+}
+export const tg = {
+  calls: [] as TelegramBotCall[],
+  /** Scripted getFile results: file_id -> file_path. */
+  files: new Map<string, string>(),
+  /** Scripted file download bytes per file_path. */
+  fileBytes: new Map<string, Buffer>(),
+  scriptFile(fileId: string, filePath: string, bytes: Buffer): void {
+    this.files.set(fileId, filePath);
+    this.fileBytes.set(filePath, bytes);
+  },
+  callsFor(method: string): TelegramBotCall[] {
+    return this.calls.filter((c) => c.method === method);
+  },
+  reset(): void {
+    this.calls.length = 0;
+    this.files.clear();
+    this.fileBytes.clear();
+  },
+};
+
+function handleTelegram(token: string, method: string, bodyText: string | null): Response {
+  const body = parseJsonSafe(bodyText) ?? {};
+  tg.calls.push({ token, method, body });
+  if (method === "getFile") {
+    const fileId = String(body.file_id ?? "");
+    const filePath = tg.files.get(fileId);
+    if (!filePath) {
+      return jsonResponse({ ok: false, description: `sim: no scripted file for ${fileId}` }, 200);
+    }
+    return jsonResponse({ ok: true, result: { file_id: fileId, file_path: filePath } });
+  }
+  // sendMessage / answerCallbackQuery / editMessageReplyMarkup / sendChatAction
+  // etc. all succeed with a plausible result envelope.
+  return jsonResponse({ ok: true, result: method === "sendMessage" ? { message_id: 1000 + tg.calls.length } : true });
+}
+// === END W37 telegram ===
+
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -933,6 +981,31 @@ export function installFetchMock(): void {
       record(url, method, bodyText, headers);
       return handleOpenAi(u, method);
     }
+    // === W37 telegram === Bot API + file downloads.
+    if (TELEGRAM_RE.test(url)) {
+      const m = TELEGRAM_RE.exec(url)!;
+      const isFile = m[1] === "file/";
+      const token = m[2];
+      const methodOrPath = m[3];
+      // W37 merger: record into the shared outbound ledger (Coder A's
+      // journeys assert via outbound.all()) and honor meta.hostStatus
+      // fault injection (Coder A's retry/DLQ journey scripts 500/400/200).
+      record(url, method, bodyText, headers);
+      const tgHostStatus = meta.hostStatus.get(u.hostname);
+      if (tgHostStatus !== undefined && tgHostStatus >= 400) {
+        return jsonResponse(
+          { ok: false, error_code: tgHostStatus, description: `sim: hostStatus ${tgHostStatus}` },
+          tgHostStatus,
+        );
+      }
+      if (isFile) {
+        const bytes = tg.fileBytes.get(methodOrPath);
+        if (!bytes) return jsonResponse({ ok: false, description: "sim: no scripted bytes" }, 404);
+        return new Response(new Uint8Array(bytes), { status: 200, headers: { "Content-Type": "application/octet-stream" } });
+      }
+      return handleTelegram(token, methodOrPath, bodyText);
+    }
+    // === END W37 telegram ===
     if (
       u.hostname.includes("paystack.co") ||
       u.hostname.includes("flutterwave.com") ||

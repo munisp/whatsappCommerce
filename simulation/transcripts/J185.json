@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016332590",
-      "profileName": "Sim User 2590",
+      "phone": "2348015148881",
+      "profileName": "Sim User 8881",
       "inboundId": "wamid.sim.in.img.00434",
-      "at": 1788020620910,
+      "at": 1789504179107,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-vb-stray",
@@ -20,14 +20,14 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00434",
-      "at": 1788020620912
+      "at": 1789504179109
     },
     {
       "dir": "in",
-      "phone": "2348016332590",
-      "profileName": "Sim User 2590",
+      "phone": "2348015148881",
+      "profileName": "Sim User 8881",
       "inboundId": "wamid.sim.in.img.00435",
-      "at": 1788020621456,
+      "at": 1789504179652,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-vb-185",
@@ -37,16 +37,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00435",
-      "at": 1788020621463
+      "at": 1789504179654
     },
     {
       "dir": "out",
-      "phone": "2348016332590",
-      "wamid": "wamid.sim.000696",
+      "phone": "2348015148881",
+      "wamid": "wamid.sim.000693",
       "statuses": [
         "sent"
       ],
-      "at": 1788020621474,
+      "at": 1789504179670,
       "kind": "text",
       "body": "🧾 Vendor bill captured: Adaeze Wholesale — ₦45,000 (ref INV-185).\nReply \"pay bill INV-185\" to pay it from your wallet."
     }

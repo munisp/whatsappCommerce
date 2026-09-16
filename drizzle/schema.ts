@@ -2697,6 +2697,40 @@ export const whatsappNotificationLog = pgTable("whatsapp_notification_log", {
 ]);
 export type WhatsappNotificationLog = typeof whatsappNotificationLog.$inferSelect;
 
+// === W37 telegram ===
+/**
+ * Telegram outbound delivery ledger + retry/DLQ (migration 0117).
+ * whatsapp_notification_log is phone/wamid-keyed with no channel column, so
+ * Telegram gets its own outbox (honest choice documented in SPEC_W37 Coder
+ * A §2): one row per outbound message, replayed verbatim from `payload`.
+ * status: pending | sent | failed | dead | simulated.
+ */
+export const telegramOutbox = pgTable("telegram_outbox", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Telegram chat_id (session key for the telegram channel). */
+  chatId: varchar("chat_id", { length: 64 }).notNull(),
+  /** Message kind: text | keyboard | list | media | location_request | contact_request | template_render. */
+  kind: varchar("kind", { length: 32 }).notNull(),
+  /** Bot API method + body snapshot so a failed send can be retried verbatim. */
+  payload: jsonb("payload"),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  attempts: integer("attempts").default(0).notNull(),
+  nextRetryAt: timestamp("next_retry_at"),
+  lastError: text("last_error"),
+  /** Bot API message_id of the successful send (Telegram has no delivery receipts). */
+  telegramMessageId: integer("telegram_message_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("telegram_outbox_tenant_idx").on(t.tenantId),
+  index("telegram_outbox_chat_idx").on(t.chatId),
+  index("telegram_outbox_retry_idx").on(t.nextRetryAt),
+  index("telegram_outbox_status_idx").on(t.status),
+]);
+export type TelegramOutbox = typeof telegramOutbox.$inferSelect;
+// === W37 telegram END ===
+
 // ── WhatsApp Customer Replies ─────────────────────────────────────────────────
 export const whatsappCustomerReplies = pgTable("whatsapp_customer_replies", {
   id:           uuid("id").primaryKey().defaultRandom(),
@@ -5138,3 +5172,25 @@ export const telemetryComponentStatus = pgTable("telemetry_component_status", {
 export type TelemetryComponentStatusEntry = typeof telemetryComponentStatus.$inferSelect;
 export type NewTelemetryComponentStatusEntry = typeof telemetryComponentStatus.$inferInsert;
 // === END W35 infra-receivers ===
+
+// === W37 telegram (Coder B): telegram_identities (migration 0118) ===
+// Binds a Telegram chat_id to a canonical customer identity per tenant.
+// phone_e164 is nullable and is ONLY ever set from an explicit Telegram
+// contact-share where contact.user_id == from.id (see telegramInbound.ts) —
+// never inferred from usernames or text.
+export const telegramIdentities = pgTable("telegram_identities", {
+  id:        serial("id").primaryKey(),
+  tenantId:  varchar("tenant_id", { length: 36 }).notNull(),
+  chatId:    varchar("chat_id", { length: 40 }).notNull(),
+  phoneE164: varchar("phone_e164", { length: 30 }),
+  username:  text("username"),
+  linkedVia: text("linked_via"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("telegram_identities_tenant_chat_uniq").on(t.tenantId, t.chatId),
+  index("telegram_identities_tenant_phone_idx").on(t.tenantId, t.phoneE164),
+]);
+export type TelegramIdentity = typeof telegramIdentities.$inferSelect;
+export type NewTelegramIdentity = typeof telegramIdentities.$inferInsert;
+// === END W37 telegram ===

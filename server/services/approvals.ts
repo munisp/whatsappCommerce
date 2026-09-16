@@ -434,10 +434,17 @@ async function notifyApprovers(
   const phones = await resolvePhonesForRole(db, tenantId, approverRole);
   if (phones.length === 0) return;
   const { sendWhatsAppText } = await import("./waSender");
+  // === W37 telegram ===
+  const { notifyCustomer } = await import("./channelParity");
+  // === W37 telegram END ===
   const body =
     `Approval needed (${approverRole}): ${req.kind} of ${(req.amountCents / 100).toFixed(2)} ` +
     `requested by ${req.requestedBy}. Approve/reject in the dashboard under Approvals. Ref ${req.id.slice(0, 8)}.`;
   for (const phone of phones) {
+    // === W37 telegram === telegram-linked approvers route via channelSender; WA unchanged.
+    const __w37 = await notifyCustomer(tenantId, phone, "po_approval", { text: body, notifType: "approval_request" }).catch(() => ({ handled: false }) as any);
+    if (__w37?.handled) continue;
+    // === W37 telegram END ===
     await sendWhatsAppText(tenantId, phone, body, { notifType: "approval_request" }).catch(() => {});
   }
 }
@@ -463,5 +470,10 @@ async function notifyRequester(
         ? `Your ${req.kind} of ${amount} was approved and executed. Ref ${req.id.slice(0, 8)}.`
         : `Your ${req.kind} of ${amount} was approved but could not execute yet (${execution?.detail ?? "pending"}). Nothing moved. Ref ${req.id.slice(0, 8)}.`
       : `Your ${req.kind} of ${amount} was rejected${req.decisionNote ? `: ${req.decisionNote}` : ""}. Nothing moved. Ref ${req.id.slice(0, 8)}.`;
+  // === W37 telegram === telegram-linked requesters route via channelSender; WA unchanged.
+  const { notifyCustomer } = await import("./channelParity");
+  const __w37 = await notifyCustomer(tenantId, u.phone, "po_approval", { text: body, notifType: "approval_result" }).catch(() => ({ handled: false }) as any);
+  if (__w37?.handled) return;
+  // === W37 telegram END ===
   await sendWhatsAppText(tenantId, u.phone, body, { notifType: "approval_result" }).catch(() => {});
 }

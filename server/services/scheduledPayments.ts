@@ -451,6 +451,15 @@ export async function sendDueReminders(db: DbHandle, now = new Date()): Promise<
       const phone = await resolveTenantAdminPhone(db, row.tenantId);
       if (!phone) { console.warn(`[scheduled-payments] no admin phone for tenant ${row.tenantId} — reminder ${row.id} marked, not sent`); continue; }
       const amount = (row.amountCents / 100).toFixed(2);
+      // === W37 telegram === installment/scheduled-payment parity: telegram-linked
+      // admins route via channelSender; WA admins unchanged.
+      const { notifyCustomer } = await import("./channelParity");
+      const __w37 = await notifyCustomer(row.tenantId, phone, "installment_receipt", {
+        text: `Reminder: your ${describePayment(row)} of ${row.currency} ${amount} is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it.`,
+        notifType: "scheduled_payment_reminder",
+      }).catch(() => ({ handled: false }) as any);
+      if (__w37?.handled) { sent++; continue; }
+      // === W37 telegram END ===
       await sendWhatsAppText(row.tenantId, phone,
         `Reminder: your ${describePayment(row)} of ${row.currency} ${amount} is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it.`,
         { notifType: "scheduled_payment_reminder" });

@@ -1977,6 +1977,68 @@ async function startServer() {
     }
   });
 
+  // === W37 telegram (Coder B): Telegram Bot API webhook ===
+  // POST /api/webhooks/telegram/:tenantId — tenant comes from the PATH and
+  // must have telegram configured + enabled (never first-match by bot token;
+  // TEN-3 class bug). Fail-closed, timing-safe validation of the
+  // X-Telegram-Bot-Api-Secret-Token header against the per-tenant stored
+  // secret; dedupe via the SAME processed_webhook_events ledger with
+  // namespaced ids `tg:<update_id>`; 200 ack first, processing after the ack.
+  // Telegram is DISABLED by default (TELEGRAM_ENABLED=true to enable).
+  app.post("/api/webhooks/telegram/:tenantId", express.raw({ type: "application/json" }), async (req, res) => {
+    try {
+      const {
+        telegramEnabled,
+        getTelegramConfig,
+        validateTelegramSecret,
+        processTelegramUpdate,
+      } = await import("../services/telegramInbound");
+      if (!telegramEnabled()) {
+        return res.status(404).json({ error: "telegram-disabled" });
+      }
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const tenantId = String(req.params.tenantId ?? "");
+      // Fail closed with a bare 404 for unknown tenants / telegram not
+      // configured — no configuration oracle for unauthenticated callers.
+      const cfg = await getTelegramConfig(db, tenantId);
+      if (!cfg || !cfg.enabled || !cfg.webhookSecret || !cfg.botToken) {
+        return res.status(404).json({ error: "not-found" });
+      }
+      const presented = String(req.headers["x-telegram-bot-api-secret-token"] ?? "");
+      if (!validateTelegramSecret(presented, cfg.webhookSecret)) {
+        console.warn(`[telegram-webhook] invalid secret token (tenant=${tenantId}) — rejected`);
+        return res.status(401).json({ error: "invalid-secret-token" });
+      }
+      const update = JSON.parse(toRawBody(req.body).toString());
+      const updateId = update?.update_id;
+      if (updateId === undefined || updateId === null) {
+        // Well-formed Telegram webhooks always carry update_id; ack and drop.
+        return res.status(200).json({ received: true });
+      }
+      // Insert-first dedupe claim (production fails closed when the ledger is
+      // unavailable — Telegram retries, exactly the WA doctrine).
+      const claim = await claimWebhookEvent(db, {
+        id: `tg:${updateId}`,
+        tenantId,
+        type: "telegram_update",
+      });
+      if (claim === "duplicate") {
+        return res.status(200).json({ received: true, duplicate: true });
+      }
+      // Acknowledge immediately — all processing happens after the ack.
+      res.status(200).json({ received: true });
+      await processTelegramUpdate(db, cfg, update).catch((e: any) =>
+        console.error("[telegram-webhook] post-ack processing error:", e?.message));
+    } catch (err: any) {
+      console.error("[telegram-webhook]", err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "telegram-webhook-error" });
+      }
+    }
+  });
+  // === END W37 telegram ===
+
   // ── USSD gateway (Africa's Talking) ───────────────────────────────────────
   // Form body: sessionId, serviceCode, phoneNumber, text (cumulative buffer
   // joined with "*"). Drives the same menu/session engine as WhatsApp and

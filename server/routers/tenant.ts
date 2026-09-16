@@ -149,6 +149,83 @@ export const tenantRouter = router({
       return { success: true };
     }),
 
+  // === W37 telegram (Coder B): per-tenant Telegram Bot config ===
+  // Mirrors getWhatsAppConfig/updateWhatsAppConfig: the bot token + webhook
+  // secret live in settings.telegram encrypted at rest (v1: envelope, same
+  // helpers as whatsapp.accessToken) and are only ever returned masked.
+  getTelegramConfig: operatorProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const settings = (t.settings ?? {}) as Record<string, unknown>;
+      const tg = (settings.telegram ?? {}) as Record<string, unknown>;
+      const rawToken = typeof tg.botToken === "string" ? tg.botToken : "";
+      const botToken = rawToken ? decryptSecret(rawToken) : "";
+      return {
+        tenantId: t.id,
+        enabled: tg.enabled === true,
+        botUsername: typeof tg.botUsername === "string" ? tg.botUsername : "",
+        botToken: botToken ? "••••••••" + botToken.slice(-4) : "",
+        webhookSecretSet: Boolean(typeof tg.webhookSecret === "string" && tg.webhookSecret),
+        configured: Boolean(tg.enabled === true && botToken),
+      };
+    }),
+
+  updateTelegramConfig: operatorProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      // Bot API token format: <bot_id>:<35-char secret>.
+      botToken: z.string().regex(/^\d{5,}:[A-Za-z0-9_-]{30,}$/, "Invalid Telegram bot token format"),
+      botUsername: z.string().min(3).max(64).regex(/^@?[A-Za-z0-9_]{3,}$/, "Invalid Telegram bot username"),
+      enabled: z.boolean().default(false),
+      // Optional: rotating the webhook secret. Unset/empty → a fresh random
+      // secret is generated (returned once so the operator can setWebhook).
+      webhookSecret: z.string().max(128).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const botUsername = input.botUsername.replace(/^@/, "");
+      // Honest uniqueness guard: one bot username maps to exactly one tenant
+      // (a shared bot would misroute tenant-scoped webhooks — TEN-3 class).
+      // settings is a JSON blob, so scan tenant settings directly.
+      const all = await db.getTenants(1000, 0);
+      const conflict = all.find((other: any) => {
+        if (other.id === input.tenantId) return false;
+        const tg = (((other.settings ?? {}) as Record<string, unknown>).telegram ?? {}) as Record<string, unknown>;
+        return typeof tg.botUsername === "string" && tg.botUsername.toLowerCase() === botUsername.toLowerCase();
+      });
+      if (conflict) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Telegram bot @${botUsername} is already configured on another tenant`,
+        });
+      }
+      const settings = { ...((t.settings ?? {}) as Record<string, unknown>) };
+      const prev = (settings.telegram ?? {}) as Record<string, unknown>;
+      const generatedSecret = !input.webhookSecret && !prev.webhookSecret;
+      const webhookSecret = input.webhookSecret
+        ? input.webhookSecret
+        : typeof prev.webhookSecret === "string" && prev.webhookSecret
+          ? decryptSecret(prev.webhookSecret as string)
+          : nanoid(32);
+      settings.telegram = {
+        ...prev,
+        enabled: input.enabled,
+        botUsername,
+        botToken: encryptSecret(input.botToken),
+        webhookSecret: encryptSecret(webhookSecret),
+      };
+      await db.updateTenant(input.tenantId, { settings });
+      // The webhook secret is returned ONCE when freshly generated so the
+      // operator can pass it to setWebhook; afterwards it is only masked.
+      return { success: true, ...(generatedSecret ? { webhookSecret } : {}) };
+    }),
+  // === END W37 telegram ===
+
   update: adminProcedure
     .input(z.object({
       id: z.string(),
