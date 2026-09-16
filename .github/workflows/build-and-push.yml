@@ -1,0 +1,136 @@
+# Builds and pushes an updated image for whichever of the 15 app services
+# changed on this push - nothing more. It never touches the cluster: the
+# cluster's control plane is Tailscale-only and unreachable from
+# GitHub-hosted runners. Flux's image-reflector-controller (ImageRepository/
+# ImagePolicy per service, see newwave_platform_terraform's
+# apps/fluxcd-newwave-dev/image-automation/image-policies-whatsapp-commerce.yaml)
+# notices the new tag, commits the bump into k8s-flux/, and Flux's own
+# Kustomization deploys it from there. Pure pull-based deploy.
+#
+# Tag format YYYYMMDD-HHMM (one per run, shared across every service built
+# in that run) - matches the filterTags pattern on every ImagePolicy.
+name: build-and-push
+
+on:
+  push:
+    branches: [development]
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.detect.outputs.services }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - id: tag
+        run: echo "tag=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+
+      # One JSON array entry per changed service, each carrying its own
+      # Dockerfile path and build context - the 15 services don't share a
+      # single convention (7 need repo-root context for shared/go/otelx,
+      # 8 are self-contained in their own directory).
+      - id: detect
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD || echo "")
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          declare -A DOCKERFILE=(
+            [ai-agent]="ai-agent/Dockerfile"
+            [commerce-engine]="services/commerce-engine/Dockerfile"
+            [conversation-orchestrator]="services/conversation-orchestrator/Dockerfile"
+            [event-gateway]="services/event-gateway/Dockerfile"
+            [event-processor]="rust/event-processor/Dockerfile"
+            [gateway]="services/gateway/Dockerfile"
+            [hermes-bridge]="services/hermes-bridge/Dockerfile"
+            [hermes-router]="rust/hermes-router/Dockerfile"
+            [ledger-bridge]="services/ledger-bridge/Dockerfile"
+            [payment-orchestrator]="services/payment-orchestrator/Dockerfile"
+            [recon-worker]="rust/recon-worker/Dockerfile"
+            [server]="Dockerfile"
+            [webhook-ingestor]="services/webhook-ingestor/Dockerfile"
+            [fluvio-consumer]="services/fluvio-consumer/Dockerfile"
+            [ml-stack]="services/ml-stack/Dockerfile"
+          )
+          declare -A CONTEXT=(
+            [ai-agent]="ai-agent"
+            [commerce-engine]="."
+            [conversation-orchestrator]="."
+            [event-gateway]="."
+            [event-processor]="rust/event-processor"
+            [gateway]="."
+            [hermes-bridge]="."
+            [hermes-router]="rust/hermes-router"
+            [ledger-bridge]="services/ledger-bridge"
+            [payment-orchestrator]="."
+            [recon-worker]="rust/recon-worker"
+            [server]="."
+            [webhook-ingestor]="services/webhook-ingestor"
+            [fluvio-consumer]="services/fluvio-consumer"
+            [ml-stack]="services/ml-stack"
+          )
+          declare -A WATCH=(
+            [ai-agent]="ai-agent/"
+            [commerce-engine]="services/commerce-engine/ shared/go/otelx/"
+            [conversation-orchestrator]="services/conversation-orchestrator/ shared/go/otelx/"
+            [event-gateway]="services/event-gateway/ shared/go/otelx/"
+            [event-processor]="rust/event-processor/"
+            [gateway]="services/gateway/ shared/go/otelx/"
+            [hermes-bridge]="services/hermes-bridge/ shared/go/otelx/"
+            [hermes-router]="rust/hermes-router/"
+            [ledger-bridge]="services/ledger-bridge/"
+            [payment-orchestrator]="services/payment-orchestrator/ shared/go/otelx/"
+            [recon-worker]="rust/recon-worker/"
+            [server]="server/ Dockerfile"
+            [webhook-ingestor]="services/webhook-ingestor/"
+            [fluvio-consumer]="services/fluvio-consumer/"
+            [ml-stack]="services/ml-stack/"
+          )
+
+          RESULT="[]"
+          for svc in "${!DOCKERFILE[@]}"; do
+            MATCHED=false
+            for path in ${WATCH[$svc]}; do
+              if echo "$CHANGED" | grep -q "^${path}"; then
+                MATCHED=true
+                break
+              fi
+            done
+            if [ "$MATCHED" = true ]; then
+              RESULT=$(echo "$RESULT" | jq -c --arg name "$svc" --arg dockerfile "${DOCKERFILE[$svc]}" --arg context "${CONTEXT[$svc]}" \
+                '. + [{"name":$name,"dockerfile":$dockerfile,"context":$context}]')
+            fi
+          done
+          echo "Services to build: $RESULT"
+          echo "services=$RESULT" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.services) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to DigitalOcean Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.digitalocean.com
+          username: docker
+          password: ${{ secrets.DO_API_TOKEN }}
+
+      - name: Build and push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: registry.digitalocean.com/talentgraph-auth/whatsapp-${{ matrix.service.name }}:${{ needs.changes.outputs.tag }}
