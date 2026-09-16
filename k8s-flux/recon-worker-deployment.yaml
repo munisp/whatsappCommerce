@@ -37,7 +37,7 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-recon-worker:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-recon-worker:tag"}
+        image: 20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-recon-worker:tag"}
         imagePullPolicy: IfNotPresent
         name: recon-worker
         ports:
