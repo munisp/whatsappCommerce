@@ -42,7 +42,7 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-payment-orchestrator:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-payment-orchestrator"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-payment-orchestrator:20260916-1122 # {"$imagepolicy": "flux-system:whatsapp-payment-orchestrator"}
         imagePullPolicy: Always
         name: payment-orchestrator
         ports:
