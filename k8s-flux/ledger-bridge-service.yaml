@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: ledger-bridge
+    app.kubernetes.io/name: ledger-bridge
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: ledger-bridge-0.1.0
+  name: ledger-bridge
+  namespace: whatsapp-commerce
+spec:
+  clusterIP: 10.96.47.166
+  clusterIPs:
+  - 10.96.47.166
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: port-8095
+    port: 8095
+    protocol: TCP
+    targetPort: 8095
+  selector:
+    app.kubernetes.io/instance: ledger-bridge
+    app.kubernetes.io/name: ledger-bridge
+  sessionAffinity: None
+  type: ClusterIP

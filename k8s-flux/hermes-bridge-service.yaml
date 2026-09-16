@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: hermes-bridge
+    app.kubernetes.io/name: hermes-bridge
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: hermes-bridge-0.1.0
+  name: hermes-bridge
+  namespace: whatsapp-commerce
+spec:
+  clusterIP: 10.96.19.126
+  clusterIPs:
+  - 10.96.19.126
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: port-8095
+    port: 8095
+    protocol: TCP
+    targetPort: 8095
+  selector:
+    app.kubernetes.io/instance: hermes-bridge
+    app.kubernetes.io/name: hermes-bridge
+  sessionAffinity: None
+  type: ClusterIP

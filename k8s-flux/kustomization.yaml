@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ai-agent-deployment.yaml
+  - ai-agent-service.yaml
+  - commerce-engine-deployment.yaml
+  - commerce-engine-service.yaml
+  - conversation-orchestrator-deployment.yaml
+  - conversation-orchestrator-service.yaml
+  - event-gateway-deployment.yaml
+  - event-gateway-service.yaml
+  - event-processor-deployment.yaml
+  - event-processor-service.yaml
+  - gateway-deployment.yaml
+  - gateway-service.yaml
+  - hermes-bridge-deployment.yaml
+  - hermes-bridge-service.yaml
+  - hermes-router-deployment.yaml
+  - hermes-router-service.yaml
+  - ledger-bridge-deployment.yaml
+  - ledger-bridge-service.yaml
+  - payment-orchestrator-deployment.yaml
+  - payment-orchestrator-service.yaml
+  - recon-worker-deployment.yaml
+  - recon-worker-service.yaml
+  - server-deployment.yaml
+  - server-service.yaml
+  - webhook-ingestor-deployment.yaml
+  - webhook-ingestor-service.yaml
+  - fluvio-consumer-deployment.yaml
+  - fluvio-consumer-service.yaml
+  - ml-stack-deployment.yaml
+  - ml-stack-service.yaml

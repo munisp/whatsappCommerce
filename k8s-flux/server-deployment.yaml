@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/instance: server
+    app.kubernetes.io/name: server
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: server-0.1.0
+  name: server
+  namespace: whatsapp-commerce
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: server
+      app.kubernetes.io/name: server
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        dapr.io/app-id: wacommerce-server
+        dapr.io/app-port: "3000"
+        dapr.io/enabled: "true"
+        kubectl.kubernetes.io/restartedAt: "2026-08-10T16:28:51+01:00"
+      labels:
+        app.kubernetes.io/instance: server
+        app.kubernetes.io/name: server
+        app.kubernetes.io/version: 0.0.1
+        helm.sh/chart: server-0.1.0
+    spec:
+      containers:
+      - env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: whatsapp-postgres-dsn
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              key: REDIS_URL
+              name: whatsapp-redis-url
+        - name: KAFKA_BROKERS
+          value: mojaloop-kafka-cluster-kafka-bootstrap.kafka.svc:9092
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: JWT_SECRET
+              name: whatsapp-server-jwt-secret
+        - name: KEYCLOAK_URL
+          value: https://keycloak-servers.newfire.app
+        - name: APP_URL
+          value: https://wa-app.newfire.app
+        - name: SECRETS_MASTER_KEY
+          valueFrom:
+            secretKeyRef:
+              key: SECRETS_MASTER_KEY
+              name: whatsapp-server-secrets-master-key
+        - name: KEYCLOAK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: value
+              name: whatsapp-server-keycloak-client-secret
+        - name: WHATSAPP_VERIFY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: value
+              name: whatsapp-server-verify-token
+        - name: WHATSAPP_APP_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: value
+              name: whatsapp-server-app-secret
+        - name: WHATSAPP_DEFAULT_TENANT_ID
+          value: 3ad325ad-d0f3-4193-b7f0-d03002cfa451
+        - name: OPENSEARCH_URL
+          value: http://shared-cluster-master.opensearch.svc.cluster.local:9200
+        - name: OPENSEARCH_USER
+          value: admin
+        - name: APISIX_ADMIN_URL
+          value: http://appsec-apisix-dev-admin.appsec-apisix-dev.svc.cluster.local:9180
+        - name: OPENSEARCH_PASS
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: whatsapp-server-opensearch
+        - name: APISIX_ADMIN_KEY
+          valueFrom:
+            secretKeyRef:
+              key: value
+              name: whatsapp-server-apisix-admin-key
+        - name: MOJALOOP_URL
+          value: http://mojaloop-centralledger-service.mojaloop.svc.cluster.local:80
+        - name: RECON_WORKER_URL
+          value: http://recon-worker.whatsapp-commerce.svc.cluster.local:8096
+        - name: ML_STACK_URL
+          value: http://ml-stack.whatsapp-commerce.svc.cluster.local:8099
+        - name: KYC_SERVICE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: KYC_SERVICE_API_KEY
+              name: whatsapp-server-kyc-api-key
+        - name: RESEND_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: RESEND_API_KEY
+              name: whatsapp-server-resend-api-key
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: S3_SECRET_KEY
+              name: whatsapp-server-minio
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: S3_ACCESS_KEY
+              name: whatsapp-server-minio
+        - name: S3_BUCKET
+          valueFrom:
+            secretKeyRef:
+              key: S3_BUCKET
+              name: whatsapp-server-minio
+        - name: S3_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              key: S3_ENDPOINT
+              name: whatsapp-server-minio
+        - name: PAYSTACK_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: PAYSTACK_SECRET_KEY
+              name: whatsapp-server-paystack
+        - name: PAYSTACK_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: PAYSTACK_WEBHOOK_SECRET
+              name: whatsapp-server-paystack
+        - name: PAYSTACK_PUBLIC_KEY
+          valueFrom:
+            secretKeyRef:
+              key: PAYSTACK_PUBLIC_KEY
+              name: whatsapp-server-paystack
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: INTERNAL_API_KEY
+              name: whatsapp-server-internal-api-key
+        - name: USSD_GATEWAY_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: USSD_GATEWAY_SECRET
+              name: whatsapp-server-ussd-gateway-secret
+        - name: OTEL_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector.otel.svc.cluster.local:4318
+        - name: OTEL_COLLECTOR_URL
+          value: http://otel-collector.otel.svc.cluster.local:13133
+        - name: METRICS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: value
+              name: whatsapp-server-metrics-token
+        - name: JAEGER_URL
+          value: http://jaeger.otel.svc.cluster.local:16686
+        - name: PROMETHEUS_URL
+          value: http://prometheus.otel.svc.cluster.local:9090
+        - name: GRAFANA_URL
+          value: http://grafana.otel.svc.cluster.local:3000
+        - name: ALERTMANAGER_URL
+          value: http://alertmanager.otel.svc.cluster.local:9093
+        - name: PERMIFY_URL
+          value: http://permify.permify.svc.cluster.local:3476
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-server:20260831-1135 # {"$imagepolicy": "flux-system:server:tag"}
+        imagePullPolicy: Always
+        name: server
+        ports:
+        - containerPort: 3000
+          name: port-3000
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            ephemeral-storage: 256Mi
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30

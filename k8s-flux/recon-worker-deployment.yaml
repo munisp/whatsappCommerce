@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/instance: recon-worker
+    app.kubernetes.io/name: recon-worker
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: recon-worker-0.1.0
+  name: recon-worker
+  namespace: whatsapp-commerce
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: recon-worker
+      app.kubernetes.io/name: recon-worker
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: recon-worker
+        app.kubernetes.io/name: recon-worker
+        app.kubernetes.io/version: 0.0.1
+        helm.sh/chart: recon-worker-0.1.0
+    spec:
+      containers:
+      - env:
+        - name: LEDGER_BRIDGE_URL
+          value: http://ledger-bridge.whatsapp-commerce.svc.cluster.local:8095
+        - name: OTEL_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector.otel.svc.cluster.local:4318
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-recon-worker:20260831-1409 # {"$imagepolicy": "flux-system:recon-worker:tag"}
+        imagePullPolicy: IfNotPresent
+        name: recon-worker
+        ports:
+        - containerPort: 8096
+          name: port-8096
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            ephemeral-storage: 256Mi
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30

@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: payment-orchestrator
+    app.kubernetes.io/name: payment-orchestrator
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: payment-orchestrator-0.1.0
+  name: payment-orchestrator
+  namespace: whatsapp-commerce
+spec:
+  clusterIP: 10.96.33.181
+  clusterIPs:
+  - 10.96.33.181
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: port-8084
+    port: 8084
+    protocol: TCP
+    targetPort: 8084
+  selector:
+    app.kubernetes.io/instance: payment-orchestrator
+    app.kubernetes.io/name: payment-orchestrator
+  sessionAffinity: None
+  type: ClusterIP

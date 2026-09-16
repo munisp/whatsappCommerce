@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: conversation-orchestrator
+    app.kubernetes.io/name: conversation-orchestrator
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: conversation-orchestrator-0.1.0
+  name: conversation-orchestrator
+  namespace: whatsapp-commerce
+spec:
+  clusterIP: 10.96.226.21
+  clusterIPs:
+  - 10.96.226.21
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: port-8082
+    port: 8082
+    protocol: TCP
+    targetPort: 8082
+  selector:
+    app.kubernetes.io/instance: conversation-orchestrator
+    app.kubernetes.io/name: conversation-orchestrator
+  sessionAffinity: None
+  type: ClusterIP

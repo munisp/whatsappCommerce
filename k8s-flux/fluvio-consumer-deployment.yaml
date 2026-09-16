@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/instance: fluvio-consumer
+    app.kubernetes.io/name: fluvio-consumer
+  name: fluvio-consumer
+  namespace: whatsapp-commerce
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fluvio-consumer
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: "2026-08-11T15:05:18+01:00"
+      labels:
+        app.kubernetes.io/name: fluvio-consumer
+    spec:
+      containers:
+      - env:
+        - name: FLUVIO_ENDPOINT
+          value: http://fluvio-sc-public.fluvio.svc.cluster.local:9003
+        - name: OTEL_ENABLED
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector.otel.svc.cluster.local:4318
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-fluvio-consumer:20260831-1409 # {"$imagepolicy": "flux-system:fluvio-consumer:tag"}
+        imagePullPolicy: Always
+        name: fluvio-consumer
+        ports:
+        - containerPort: 8098
+          name: port-8098
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30

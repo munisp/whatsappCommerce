@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: commerce-engine
+    app.kubernetes.io/name: commerce-engine
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: commerce-engine-0.1.0
+  name: commerce-engine
+  namespace: whatsapp-commerce
+spec:
+  clusterIP: 10.96.205.9
+  clusterIPs:
+  - 10.96.205.9
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: port-8083
+    port: 8083
+    protocol: TCP
+    targetPort: 8083
+  selector:
+    app.kubernetes.io/instance: commerce-engine
+    app.kubernetes.io/name: commerce-engine
+  sessionAffinity: None
+  type: ClusterIP

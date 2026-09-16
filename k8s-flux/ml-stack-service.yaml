@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: ml-stack
+  name: ml-stack
+  namespace: whatsapp-commerce
+spec:
+  clusterIP: 10.96.179.194
+  clusterIPs:
+  - 10.96.179.194
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: port-8099
+    port: 8099
+    protocol: TCP
+    targetPort: 8099
+  selector:
+    app.kubernetes.io/name: ml-stack
+  sessionAffinity: None
+  type: ClusterIP

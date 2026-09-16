@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: recon-worker
+    app.kubernetes.io/name: recon-worker
+    app.kubernetes.io/version: 0.0.1
+    helm.sh/chart: recon-worker-0.1.0
+  name: recon-worker
+  namespace: whatsapp-commerce
+spec:
+  clusterIP: 10.96.171.57
+  clusterIPs:
+  - 10.96.171.57
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: port-8096
+    port: 8096
+    protocol: TCP
+    targetPort: 8096
+  selector:
+    app.kubernetes.io/instance: recon-worker
+    app.kubernetes.io/name: recon-worker
+  sessionAffinity: None
+  type: ClusterIP
