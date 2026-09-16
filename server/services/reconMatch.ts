@@ -5,9 +5,14 @@
  * POST /api/internal/recon-settlements (HMAC-verified). Each settlement is
  * matched against UNSETTLED receipts — orders still flagged
  * metadata.receiptReview = true (set by the receipt-verification pipeline when
- * a buyer's receipt could not be auto-confirmed) — by amount (±₦100, the same
- * tolerance as receiptVerification) and recency (most recent match within
- * 72h).
+ * a buyer's receipt could not be auto-confirmed) — by amount (±₦100 MATCH
+ * window, RECON_MATCH_AMOUNT_TOLERANCE) and recency (closest
+ * match within 72h). W38: the tolerance only SELECTS the candidate order —
+ * a settlement whose amount differs from the order total is a PARTIAL
+ * settlement: the order is flagged metadata.reconPartialSettlement and the
+ * tenant admin is alerted; it is NEVER auto-confirmed as fully paid.
+ * Settlement references are deduped claim-first (reconsettle:<tenant>:<ref>)
+ * so a replayed reference can never double-confirm.
  *
  * A matched settlement is confirmed through the SHARED money path
  * (services/paymentConfirm.ts — confirmProviderPayment). Recon NEVER bypasses
@@ -22,12 +27,22 @@ import type { getDb } from "../db";
 import { orders, paymentTransactions, tenants, customers } from "../../drizzle/schema";
 import { confirmProviderPayment } from "./paymentConfirm";
 import { sendWhatsAppText } from "./waSender";
-import { RECEIPT_AMOUNT_TOLERANCE } from "./receiptVerification";
+import { claimWebhookEvent } from "./webhookDedupe";
+import { captureException } from "./observability";
+
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
 /** A settlement is only auto-matched to a receipt flagged within this window. */
 export const RECON_MATCH_WINDOW_HOURS = 72;
+
+/**
+ * Candidate MATCH window in MAJOR currency units (₦100). Distinct from
+ * receiptVerification's zero settle-tolerance: this window only SELECTS the
+ * candidate order — W38: a non-exact amount inside it is a PARTIAL
+ * settlement (flagged + admin alert), never an auto-confirm.
+ */
+export const RECON_MATCH_AMOUNT_TOLERANCE = 100;
 
 export interface SettlementInput {
   tenantId: string;
@@ -42,7 +57,7 @@ export interface SettlementMatchResult {
   tenantId: string;
   amount: number;
   reference?: string;
-  outcome: "confirmed" | "unmatched" | "invalid" | "error";
+  outcome: "confirmed" | "unmatched" | "invalid" | "error" | "duplicate" | "partial";
   orderId?: string;
   detail?: string;
 }
@@ -71,22 +86,88 @@ export async function matchSettlement(db: Db, s: SettlementInput): Promise<Settl
     return { ...base, outcome: "invalid", detail: "tenantId and a positive amount are required" };
   }
 
+  // W38: settlement-reference dedupe — claim-first (processed_webhook_events
+  // PK is the unique backstop) so a settlement reference replayed by the
+  // bank feed / recon-worker can NEVER double-confirm an order.
+  if (s.reference) {
+    const claim = await claimWebhookEvent(db as any, {
+      id: `reconsettle:${s.tenantId}:${s.reference}`.slice(0, 160),
+      tenantId: s.tenantId,
+      type: "recon_settlement",
+    });
+    if (claim === "duplicate") {
+      return { ...base, outcome: "duplicate", detail: "settlement reference already processed" };
+    }
+  }
+
   const since = new Date(Date.now() - RECON_MATCH_WINDOW_HOURS * 3600 * 1000);
   // Unsettled flagged receipts: receiptReview=true, payment not completed,
-  // amount within the shared ±₦100 tolerance, most recent first.
+  // amount within the shared ±₦100 tolerance, CLOSEST amount first (exact
+  // matches always win), then most recent.
   const candidates = await db.select().from(orders)
     .where(and(
       eq(orders.tenantId, s.tenantId),
       sql`(${orders.metadata}->>'receiptReview') = 'true'`,
       sql`${orders.paymentStatus} <> 'completed'`,
-      sql`abs(${orders.totalAmount}::numeric - ${s.amount}) <= ${RECEIPT_AMOUNT_TOLERANCE}`,
+      sql`abs(${orders.totalAmount}::numeric - ${s.amount}) <= ${RECON_MATCH_AMOUNT_TOLERANCE}`,
       gte(orders.createdAt, since),
     ))
-    .orderBy(desc(orders.createdAt))
+    .orderBy(sql`abs(${orders.totalAmount}::numeric - ${s.amount}) asc`, desc(orders.createdAt))
     .limit(1);
 
   const order = candidates[0];
   if (!order) return { ...base, outcome: "unmatched" };
+
+  const orderTotal = Number(order.totalAmount);
+
+  // W38: the ±₦100 tolerance is a MATCH window, not a settlement window.
+  // A settlement that does not equal the order total exactly is a PARTIAL
+  // settlement — it is NEVER auto-confirmed as fully paid. Flag the order
+  // with an explicit partial-settlement state and alert the tenant admin.
+  if (orderTotal !== s.amount) {
+    const nowIso = new Date().toISOString();
+    await db.update(orders).set({
+      metadata: sql`COALESCE(${orders.metadata}, '{}'::jsonb) || ${JSON.stringify({
+        reconPartialSettlement: {
+          state: "partial",
+          settledAmount: s.amount,
+          expectedAmount: orderTotal,
+          delta: s.amount - orderTotal,
+          reference: s.reference ?? null,
+          settledAt: s.settledAt ?? null,
+          flaggedAt: nowIso,
+        },
+      })}::jsonb`,
+      updatedAt: new Date(),
+    }).where(eq(orders.id, order.id));
+
+    captureException(new Error(`recon partial settlement: ${s.amount} vs order total ${orderTotal}`), {
+      service: "reconMatch",
+      operation: "matchSettlement",
+      tenantId: s.tenantId,
+      severity: "warn",
+      extra: { orderId: order.id, settledAmount: s.amount, expectedAmount: orderTotal, reference: s.reference ?? null },
+    });
+
+    const fmt = (n: number) => `₦${n.toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+    try {
+      const [tenant] = await db.select({ settings: tenants.settings }).from(tenants)
+        .where(eq(tenants.id, order.tenantId)).limit(1).catch(() => []);
+      const adminPhone = adminPhoneFromSettings(tenant?.settings);
+      if (adminPhone) {
+        await sendWhatsAppText(order.tenantId, adminPhone,
+          `⚠️ Recon PARTIAL settlement: received ${fmt(s.amount)} but order ${order.orderNumber} totals ${fmt(orderTotal)} (difference ${fmt(Math.abs(s.amount - orderTotal))}). The order is NOT confirmed — please review and collect the balance or refund.`,
+          { notifType: "recon_partial_alert", orderId: order.id });
+      }
+    } catch (e: any) {
+      console.warn("[recon-match] partial-settlement alert failed:", e?.message);
+    }
+    console.log(`[recon-match] settlement ${s.reference ?? "?"} (${s.amount}) is PARTIAL for order ${order.id} (total ${orderTotal}) — not confirmed`);
+    return {
+      ...base, outcome: "partial", orderId: order.id,
+      detail: `settled ${s.amount} != order total ${orderTotal} — flagged partial, admin alerted`,
+    };
+  }
 
   // Confirm through the SAME shared path as provider webhooks / receipt scans.
   const [tx] = await db.select().from(paymentTransactions)
@@ -98,7 +179,8 @@ export async function matchSettlement(db: Db, s: SettlementInput): Promise<Settl
     return { ...base, outcome: "unmatched", orderId: order.id, detail: "no-initiated-payment-transaction" };
   }
 
-  const orderTotal = Number(order.totalAmount);
+  // Exact amount match — confirm through the SAME shared path as provider
+  // webhooks / receipt scans.
   const result = await confirmProviderPayment(db, {
     provider: tx.provider ?? "recon",
     reference: tx.providerRef,
@@ -156,6 +238,8 @@ export async function matchSettlements(db: Db, settlements: SettlementInput[]): 
   results: SettlementMatchResult[];
   confirmed: number;
   unmatched: number;
+  partial: number;
+  duplicate: number;
 }> {
   const results: SettlementMatchResult[] = [];
   for (const s of settlements ?? []) {
@@ -173,5 +257,7 @@ export async function matchSettlements(db: Db, settlements: SettlementInput[]): 
     results,
     confirmed: results.filter(r => r.outcome === "confirmed").length,
     unmatched: results.filter(r => r.outcome === "unmatched").length,
+    partial: results.filter(r => r.outcome === "partial").length,
+    duplicate: results.filter(r => r.outcome === "duplicate").length,
   };
 }

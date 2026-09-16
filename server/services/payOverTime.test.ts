@@ -55,6 +55,42 @@ describe("0106_installment_plans.sql", () => {
   });
 });
 
+describe("0120_pot_charges.sql (W38 PAY-4/5/6)", () => {
+  const sql120 = readFileSync(join(DRIZZLE, "0120_pot_charges.sql"), "utf8");
+  const snapshot120 = JSON.parse(readFileSync(join(DRIZZLE, "meta/0120_pot_charges_snapshot.json"), "utf8"));
+  // W38 merger: 0120 re-chained after Coder A's 0119 (was 0118 on B's branch).
+  const prevSnapshot119 = JSON.parse(readFileSync(join(DRIZZLE, "meta/0119_refund_money_integrity_snapshot.json"), "utf8"));
+
+  it("creates pot_charges additively and idempotently", () => {
+    expect(sql120).toContain('CREATE TABLE IF NOT EXISTS "pot_charges"');
+    expect(sql120).toContain('"reference" varchar(160) NOT NULL');
+    expect(sql120).toContain('"kind" varchar(16) NOT NULL');
+    expect(sql120).toContain('"status" varchar(20) DEFAULT \'pending\' NOT NULL');
+    expect(sql120).toContain('CREATE UNIQUE INDEX IF NOT EXISTS "pot_charges_reference_uniq"');
+    expect(sql120).toContain('CREATE INDEX IF NOT EXISTS "pot_charges_status_idx"');
+    expect(sql120).not.toMatch(/DROP/i);
+  });
+
+  it("is registered as journal idx 120 chaining from the 0119 snapshot (W38 merger re-chain)", () => {
+    const entry = journal.entries.find((e: any) => e.tag === "0120_pot_charges");
+    expect(entry).toBeDefined();
+    expect(entry.idx).toBe(120);
+    expect(snapshot120.prevId).toBe(prevSnapshot119.id);
+    expect(snapshot120.id).not.toBe(prevSnapshot119.id);
+  });
+
+  it("snapshot carries pot_charges matching schema.ts", () => {
+    const t = snapshot120.tables["public.pot_charges"];
+    expect(t).toBeDefined();
+    expect(t.columns.reference).toMatchObject({ type: "varchar(160)", notNull: true });
+    expect(t.columns.amount_cents).toMatchObject({ type: "bigint", notNull: true });
+    expect(t.columns.status).toMatchObject({ type: "varchar(20)", notNull: true, default: "'pending'" });
+    expect(t.indexes.pot_charges_reference_uniq).toMatchObject({ isUnique: true });
+    expect(schemaTs).toContain('export const potCharges = pgTable("pot_charges"');
+    expect(schemaTs).toContain('uniqueIndex("pot_charges_reference_uniq").on(t.reference)');
+  });
+});
+
 describe("payOverTime schedule math (integer cents)", () => {
   const now = new Date("2026-01-01T00:00:00Z");
 

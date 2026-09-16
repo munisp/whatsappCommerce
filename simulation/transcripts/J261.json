@@ -1,0 +1,8 @@
+{
+  "id": "J261",
+  "title": "reservation TTL extension (slow webhook, no oversell)",
+  "feature": "ORD-3 sweeper extends TTL when payment attempt in flight",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

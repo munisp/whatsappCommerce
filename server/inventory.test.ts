@@ -455,12 +455,12 @@ describe("releaseExpiredReservations sweeper", () => {
       }],
     });
     const r = await releaseExpiredReservations(fake.db);
-    expect(r).toEqual({ orders: 1, released: 1 });
+    expect(r).toEqual({ orders: 1, released: 1, extended: 0 });
     expect(fake.getReservations()[0].status).toBe("released");
     expect(fake.getProduct("p1")!.stockQuantity).toBe(5);
     // idempotent: a second sweep finds nothing
     const r2 = await releaseExpiredReservations(fake.db);
-    expect(r2).toEqual({ orders: 0, released: 0 });
+    expect(r2).toEqual({ orders: 0, released: 0, extended: 0 });
     expect(fake.getProduct("p1")!.stockQuantity).toBe(5);
   });
 
@@ -483,7 +483,7 @@ describe("releaseExpiredReservations sweeper", () => {
       ],
     });
     const r = await releaseExpiredReservations(fake.db);
-    expect(r).toEqual({ orders: 0, released: 0 });
+    expect(r).toEqual({ orders: 0, released: 0, extended: 0 });
     expect(fake.getReservations().map((x) => x.status)).toEqual(["reserved", "reserved"]);
     expect(fake.getProduct("p1")!.stockQuantity).toBe(3);
   });

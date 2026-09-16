@@ -12,7 +12,7 @@
  * webhookSecret falls back to secretKey (Paystack signs webhooks with the
  * secret key by default).
  */
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, createHash, timingSafeEqual } from "node:crypto";
 import type {
   MandateChargeCtx,
   MandateChargeResult,
@@ -23,6 +23,7 @@ import type {
   PaymentProvider,
   RefundCtx,
   RefundResult,
+  VerifyRefundResult,
   WebhookNormalization,
 } from "./types";
 
@@ -177,10 +178,24 @@ export const paystackProvider: PaymentProvider = {
     if (!ctx.reference) {
       return { ok: false, status: "failed", provider: "paystack", error: "missing original payment reference" };
     }
+    // W38 (PAY-2): deterministic idempotency key — the caller may supply one
+    // (tenant|order|refund) via metadata; otherwise derive from the payment
+    // reference + amount so a retry of the SAME logical refund carries the
+    // same key and Paystack-side dedupe/audit can correlate attempts.
+    const idempotencyKey =
+      (typeof ctx.metadata?.idempotencyKey === "string" && ctx.metadata.idempotencyKey) ||
+      createHash("sha256")
+        .update(`refund:${ctx.tenantId}:${ctx.reference}:${Math.round(ctx.amountCents)}:${ctx.currency}`)
+        .digest("hex")
+        .slice(0, 48);
     try {
       const res = await fetch(`${PAYSTACK_BASE}/refund`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${c.secretKey}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${c.secretKey}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify({
           transaction: ctx.reference,
           // Paystack expects minor units (kobo); omit for a full refund only
@@ -212,7 +227,71 @@ export const paystackProvider: PaymentProvider = {
         provider: "paystack",
       };
     } catch (err: any) {
+      // W38 (PAY-2) verify-before-retry: a timeout/abort is AMBIGUOUS — the
+      // provider may have accepted the refund. Query the provider's refund
+      // list for the original transaction BEFORE reporting failure so the
+      // caller never blindly re-issues a second refund.
+      const isTimeout = err?.name === "TimeoutError" || err?.name === "AbortError";
+      if (isTimeout) {
+        const verify = await this.verifyRefund!(ctx.reference, creds);
+        if (verify.state === "exists") {
+          return {
+            ok: true,
+            status: verify.status === "processed" ? "processed" : "pending",
+            refundReference: verify.refundReference,
+            provider: "paystack",
+          };
+        }
+        // not_found → safe to retry later; unknown → fail CLOSED and let the
+        // sweep verify again before any retry.
+        return {
+          ok: false,
+          status: "failed",
+          provider: "paystack",
+          ambiguous: true,
+          error: `refund attempt timed out; provider verify: ${verify.state}${verify.error ? ` (${verify.error})` : ""}`,
+        };
+      }
       return { ok: false, status: "failed", provider: "paystack", error: String(err?.message ?? err) };
+    }
+  },
+
+  /**
+   * W38 (PAY-2): verify-before-retry — list refunds the provider has
+   * recorded for the ORIGINAL transaction reference. Paystack exposes
+   * GET /refund?transaction=<reference>. Never throws.
+   */
+  async verifyRefund(reference: string, creds: unknown): Promise<VerifyRefundResult> {
+    const c = asCreds(creds);
+    if (!c.secretKey) return { state: "unknown", provider: "paystack", error: "missing secretKey" };
+    if (!reference) return { state: "unknown", provider: "paystack", error: "missing reference" };
+    try {
+      const res = await fetch(`${PAYSTACK_BASE}/refund?transaction=${encodeURIComponent(reference)}`, {
+        headers: { Authorization: `Bearer ${c.secretKey}` },
+        signal: AbortSignal.timeout(INITIATE_TIMEOUT_MS),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        status?: boolean;
+        data?: Array<{ id?: number | string; status?: string; transaction?: { reference?: string } }>
+          | { id?: number | string; status?: string; transaction?: { reference?: string } };
+      };
+      if (!res.ok || data.status === false) {
+        return { state: "unknown", provider: "paystack", error: `verify HTTP ${res.status}` };
+      }
+      const list = Array.isArray(data.data) ? data.data : data.data ? [data.data] : [];
+      if (list.length === 0) return { state: "not_found", provider: "paystack" };
+      const latest = list[0]!;
+      const raw = String(latest.status ?? "pending");
+      const status = raw === "processed" || raw === "success" ? "processed" : raw === "failed" ? "failed" : "pending";
+      if (status === "failed") return { state: "not_found", provider: "paystack", status: "failed" };
+      return {
+        state: "exists",
+        provider: "paystack",
+        refundReference: latest.id != null ? String(latest.id) : latest.transaction?.reference,
+        status,
+      };
+    } catch (err: any) {
+      return { state: "unknown", provider: "paystack", error: String(err?.message ?? err) };
     }
   },
 

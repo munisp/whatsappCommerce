@@ -853,6 +853,12 @@ export async function bootWorld(): Promise<World> {
         try {
           const schema = await import("../drizzle/schema");
           const { inArray: inArr } = await import("drizzle-orm");
+          // === W38 merger === pot_charges (PAY-4/5/6, FK plan_id →
+          // installment_plans) must be wiped FIRST — leftover rows otherwise
+          // make the installment_plans delete throw (silently caught) and
+          // stale plans leak into later journeys' capture sweeps.
+          await world.db.delete(schema.potCharges);
+          // === END W38 merger ===
           await world.db.delete(schema.installmentPlans);
           await world.db.delete(schema.processedWebhookEvents)
             .where(inArr(schema.processedWebhookEvents.type, ["pot_installment", "pot_settle"]));

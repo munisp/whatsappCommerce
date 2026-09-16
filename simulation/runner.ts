@@ -336,7 +336,28 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j244-cart-nudge-no-window"),
     import("./journeys/j245-escalation-parity"),
     import("./journeys/j246-parity-matrix-snapshot"),
+    // === W38 stock integrity (Coder C) ===
+    import("./journeys/j259-paid-cancel-restock-cancel-path"),
+    import("./journeys/j260-paid-cancel-restock-updatestatus-path"),
+    import("./journeys/j261-reservation-ttl-extension"),
+    import("./journeys/j262-wholesale-oversell-guard"),
     // === W37 telegram END ===
+    // === W38 money-integrity (Coder A): refund/escrow money integrity ===
+    import("./journeys/j247-pay2-refund-idempotent-retry"),
+    import("./journeys/j248-pay2-sweep-verify-first"),
+    import("./journeys/j249-pay2-sweep-dead-letter"),
+    import("./journeys/j250-pay3-refund-after-payout-clawback"),
+    import("./journeys/j251-pay1-cumulative-cap-processed"),
+    import("./journeys/j252-pay7-bulk-refund-provider-calls"),
+    import("./journeys/j253-pay7-bulk-refund-pending-sweep"),
+    import("./journeys/j254-pay9-scheduled-skip-paid-bill"),
+    // === END W38 money-integrity (Coder A) ===
+    // === W38 pot-recon ===
+    import("./journeys/j255-pot-pending-charge-reconciles"),
+    import("./journeys/j256-pot-timeout-no-double-charge"),
+    import("./journeys/j257-pot-early-settle-lifecycle"),
+    import("./journeys/j258-recon-settlement-dedupe-partial"),
+    // === W38 pot-recon END ===
     // === END W35 infra-receivers ===
   ]);
   return mods.map((m) => m.journey as Journey);

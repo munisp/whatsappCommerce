@@ -21,6 +21,10 @@ vi.mock("../services/tradeCredit/capture", () => ({
   retrySettlement: (...args: any[]) => retrySettlementMock(...args),
   reconcilePendingMandateCharges: (...args: any[]) => reconcileMock(...args),
 }));
+const potReconcileMock = vi.fn();
+vi.mock("../services/payOverTime", () => ({
+  reconcilePendingPotCharges: (...args: any[]) => potReconcileMock(...args),
+}));
 const bureauRetryMock = vi.fn();
 vi.mock("../services/compliance/bureau", () => ({
   retryFailedReports: (...args: any[]) => bureauRetryMock(...args),
@@ -126,9 +130,10 @@ describe("runSweepPlan", () => {
 });
 
 describe("buildDefaultSweepPlan", () => {
-  it("wires all five recovery sweeps to the db handle", async () => {
+  it("wires all six recovery sweeps to the db handle", async () => {
     retrySettlementMock.mockResolvedValue({ ok: true, status: "settled", reference: "r1" });
     reconcileMock.mockResolvedValue({ checked: 3, settled: 2, failed: 0, stillPending: 1 });
+    potReconcileMock.mockResolvedValue({ checked: 2, settled: 1, failed: 0, retried: 1, stillPending: 0 });
     bureauRetryMock.mockResolvedValue({ attempted: 4, sent: 3, failed: 1 });
     dunningMock.mockResolvedValue({ reminded: 1, feesApplied: 1, frozen: 0 });
     dedupeSweepMock.mockResolvedValue(9);
@@ -142,6 +147,7 @@ describe("buildDefaultSweepPlan", () => {
     expect(plan.map((s) => s.name)).toEqual([
       "settlement-retry",
       "mandate-charge-reconcile",
+      "pot-charge-reconcile",
       "bureau-retry",
       "dunning",
       "webhook-dedupe-retention",
@@ -151,6 +157,7 @@ describe("buildDefaultSweepPlan", () => {
     expect(report.ok).toBe(true);
     expect(retrySettlementMock).toHaveBeenCalledTimes(2); // deduped markers
     expect(reconcileMock).toHaveBeenCalledOnce();
+    expect(potReconcileMock).toHaveBeenCalledOnce();
     expect(bureauRetryMock).toHaveBeenCalledOnce();
     expect(dunningMock).toHaveBeenCalledOnce();
     expect(dedupeSweepMock).toHaveBeenCalledOnce();
@@ -158,6 +165,7 @@ describe("buildDefaultSweepPlan", () => {
     const byName = Object.fromEntries(report.results.map((r) => [r.name, r.summary]));
     expect(byName["settlement-retry"]).toMatchObject({ scanned: 2, settled: 2 });
     expect(byName["mandate-charge-reconcile"]).toMatchObject({ checked: 3, settled: 2 });
+    expect(byName["pot-charge-reconcile"]).toMatchObject({ checked: 2, settled: 1, retried: 1 });
     expect(byName["bureau-retry"]).toMatchObject({ attempted: 4, sent: 3 });
     expect(byName["dunning"]).toMatchObject({ reminded: 1 });
     expect(byName["webhook-dedupe-retention"]).toMatchObject({ deleted: 9 });

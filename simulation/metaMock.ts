@@ -192,11 +192,45 @@ class PayMockState {
    * status (decline injection); null restores success.
    */
   mandateChargeStatus: number | null = null;
+  /**
+   * W38 (PAY-2): scripted refund behavior for Paystack POST /refund and the
+   * GET /refund?transaction= verify endpoint.
+   *  - refundPostStatus: while set, POST /refund answers this HTTP status
+   *    (failure injection; null restores success).
+   *  - refundPostTimeout: when true, POST /refund never responds (drives the
+   *    adapter's AbortSignal timeout → ambiguous path).
+   *  - refundVerifyState: scripted GET /refund answer — "exists" (provider
+   *    already has a refund), "not_found" (empty list), null → derived from
+   *    refunds the mock has accepted in refundAcceptedRefs.
+   */
+  refundPostStatus: number | null = null;
+  refundPostTimeout = false;
+  refundVerifyState: "exists" | "not_found" | null = null;
+  /** References for which the mock accepted a POST /refund (drives default verify). */
+  refundAcceptedRefs = new Set<string>();
+  /**
+   * W38: scripted data.status for mandate charge endpoints (e.g. "pending")
+   * — used to drive the pay-over-time pending-charge reconciler journeys.
+   * Null restores the default "success".
+   */
+  mandateChargeDataStatus: string | null = null;
+  /**
+   * W38: scripted paystack /transaction/verify/:ref verdicts, keyed by
+   * reference ("success" | "pending" | "failed"). Only references present
+   * in the map are answered; anything else falls through (404 as before).
+   */
+  verifyStatuses = new Map<string, string>();
   reset() {
     this.calls = [];
     this.hostStatus.clear();
     this.customGatewayHosts.clear();
     this.mandateChargeStatus = null;
+    this.refundPostStatus = null;
+    this.refundPostTimeout = false;
+    this.refundVerifyState = null;
+    this.refundAcceptedRefs.clear();
+    this.mandateChargeDataStatus = null;
+    this.verifyStatuses.clear();
   }
 }
 
@@ -775,13 +809,35 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
     });
   }
   // ── W30: refunds (POST /refund) — accepted = queued (status pending) ─────
-  if (url.hostname.includes("paystack.co") && url.pathname.endsWith("/refund")) {
+  if (url.hostname.includes("paystack.co") && url.pathname.endsWith("/refund") && method === "POST") {
+    // W38 (PAY-2): scripted timeout — never respond so the adapter's
+    // AbortSignal fires and the verify-before-retry path runs.
+    if (pay.refundPostTimeout) {
+      return new Promise<Response>(() => {});
+    }
+    if (pay.refundPostStatus != null) {
+      return jsonResponse({ status: false, message: `sim: refund declined (${pay.refundPostStatus})` }, pay.refundPostStatus);
+    }
     const txRef = body?.transaction ?? "sim-ref";
+    pay.refundAcceptedRefs.add(txRef);
     return jsonResponse({
       status: true,
       message: "Refund has been queued for processing",
       data: { transaction: { reference: txRef }, status: "pending" },
     });
+  }
+  // ── W38 (PAY-2): verify-before-retry — GET /refund?transaction=<ref> ─────
+  if (url.hostname.includes("paystack.co") && url.pathname.endsWith("/refund") && method === "GET") {
+    const txRef = url.searchParams.get("transaction") ?? "";
+    const state = pay.refundVerifyState ?? (pay.refundAcceptedRefs.has(txRef) ? "exists" : "not_found");
+    if (state === "exists") {
+      return jsonResponse({
+        status: true,
+        message: "Refunds retrieved",
+        data: [{ id: `RFND_sim_${txRef || "ref"}`, status: "pending", transaction: { reference: txRef } }],
+      });
+    }
+    return jsonResponse({ status: true, message: "Refunds retrieved", data: [] });
   }
   // ── W31 approvals: Paystack Transfers (wallet withdrawal payouts) ─────
   // createTransferRecipient / initiateTransfer / verifyTransfer — succeeds
@@ -809,6 +865,19 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
       data: { status: "success", transfer_code: `TRF_sim_${ref}`, reference: ref },
     });
   }
+  // ── W38: paystack read-only charge-status probe (verify) ────────────────
+  if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/verify/")) {
+    const ref = decodeURIComponent(url.pathname.split("/transaction/verify/")[1] ?? "sim-ref");
+    if (pay.verifyStatuses.has(ref)) {
+      const st = pay.verifyStatuses.get(ref)!;
+      return jsonResponse({
+        status: true,
+        message: "Verification successful",
+        data: { status: st, reference: ref, amount: 0 },
+      });
+    }
+    // unscripted references fall through to the generic 404 below
+  }
   // ── W13: mandate (off-session / tokenized) charges ───────────────────────
   if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/charge_authorization")) {
     if (pay.mandateChargeStatus != null) {
@@ -820,7 +889,7 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
     return jsonResponse({
       status: true,
       message: "Charge attempted",
-      data: { status: "success", reference: body?.reference ?? "sim-ref" },
+      data: { status: pay.mandateChargeDataStatus ?? "success", reference: body?.reference ?? "sim-ref" },
     });
   }
   if (url.hostname.includes("flutterwave.com") && url.pathname.endsWith("/tokenized-charges")) {
