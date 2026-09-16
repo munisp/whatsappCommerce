@@ -21,10 +21,11 @@
 // is dropped honestly: logged, counted in /health.dropped, never thrown.
 import http from "node:http";
 import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
 
 const ENABLED = () => process.env.ALERTMANAGER_WA_BRIDGE_ENABLED === "true";
 const PORT = () => Number(process.env.WA_BRIDGE_PORT ?? 9099);
-const PLATFORM_URL = () => (process.env.PLATFORM_API_URL ?? "http://platform:3000").replace(/\/$/, "");
+const PLATFORM_URL = () => (process.env.PLATFORM_API_URL ?? "http://server.whatsapp-commerce.svc.cluster.local:3000").replace(/\/$/, "");
 const SEND_PATH = () => process.env.WA_BRIDGE_SEND_PATH ?? "/api/internal/wa-ops-alert";
 const OPS_NUMBER = () => process.env.OPS_ALERT_WHATSAPP ?? "";
 const startedAt = new Date().toISOString();
@@ -163,7 +164,21 @@ export function createBridgeServer(deps = {}) {
 }
 
 // Start only when executed directly (journeys import functions without a listener).
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// realpathSync matters here: this file is normally reached through a
+// Kubernetes ConfigMap mount, which is itself a symlink chain
+// (mountPath -> ..data/<key>) for atomic updates - comparing the raw
+// argv[1] against import.meta.url (which Node resolves through symlinks)
+// would never match there, silently skipping server startup entirely.
+const isMainModule = () => {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
+  } catch {
+    return false;
+  }
+};
+
+if (isMainModule()) {
   const server = createBridgeServer();
   server.listen(PORT(), () => {
     console.log(`[wa-bridge] listening on :${PORT()} enabled=${ENABLED()}`);
