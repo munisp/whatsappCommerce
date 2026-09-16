@@ -33,7 +33,7 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-fluvio-consumer:20260831-1409 # {"$imagepolicy": "flux-system:fluvio-consumer:tag"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-fluvio-consumer:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-fluvio-consumer:tag"}
         imagePullPolicy: Always
         name: fluvio-consumer
         ports:

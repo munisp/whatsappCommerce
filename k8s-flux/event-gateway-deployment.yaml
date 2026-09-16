@@ -37,7 +37,7 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-event-gateway:20260831-1409 # {"$imagepolicy": "flux-system:event-gateway:tag"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-event-gateway:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-event-gateway:tag"}
         imagePullPolicy: IfNotPresent
         name: event-gateway
         ports:

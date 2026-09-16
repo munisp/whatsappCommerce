@@ -37,7 +37,7 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-hermes-bridge:20260831-1409 # {"$imagepolicy": "flux-system:hermes-bridge:tag"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-hermes-bridge:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-hermes-bridge:tag"}
         imagePullPolicy: IfNotPresent
         name: hermes-bridge
         ports:
