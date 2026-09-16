@@ -20,6 +20,9 @@
  *   5. webhook-dedupe retention sweep — sweepProcessedWebhookEvents prunes
  *      the processed_webhook_events ledger (documented as a cron endpoint
  *      in webhookDedupe.ts but never wired).
+ *   6. PoT charge reconciler — reconcilePendingPotCharges probes provider
+ *      status for pending/settlement_failed pot_charges rows (W38 PAY-4/5/6;
+ *      services/payOverTime.ts) and settles exactly once, verify-first.
  *
  * All five are IDEMPOTENT / claim-first by design (exactly-once guards,
  * marker claims, unique-index backstops), so overlapping or repeated runs
@@ -179,6 +182,15 @@ export function buildDefaultSweepPlan(db: any, now: Date = new Date()): NamedSwe
       run: async () => {
         const { reconcilePendingMandateCharges } = await import("../services/tradeCredit/capture");
         return { ...(await reconcilePendingMandateCharges(db, {}, now)) } as Record<string, unknown>;
+      },
+    },
+    {
+      // W38/PAY-4/5/6: pay-over-time pending/settlement_failed charge
+      // reconciler (potcap:/potsettle: — verify-first, exactly-once).
+      name: "pot-charge-reconcile",
+      run: async () => {
+        const { reconcilePendingPotCharges } = await import("../services/payOverTime");
+        return { ...(await reconcilePendingPotCharges(db, {}, now)) } as Record<string, unknown>;
       },
     },
     {

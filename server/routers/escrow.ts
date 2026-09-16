@@ -1288,6 +1288,61 @@ export const escrowRouter = router({
               results.push({ id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` });
               continue;
             }
+            // ── W38 (PAY-7) bulk refund honesty: the internal ledger refund
+            // above is NOT money back to the buyer's bank when custody is PSP
+            // (the platform still holds the funds at the provider). Execute
+            // the REAL provider refund per escrow (the dispute-review path
+            // pattern) and report honest statuses — never "refunded" without
+            // money movement. On provider failure the order is honestly
+            // "refund_pending" and the escrow is flagged for the SLA refund
+            // sweep (verify-first, capped) — never silently dropped.
+            if (escrow.custodyMode === "psp") {
+              const { executeProviderRefund, honestOrderRefundStatus, honestRefundVocabulary } = await import("../services/payments/refunds");
+              const outcome = await executeProviderRefund(db, {
+                tenantId: escrow.tenantId,
+                orderId: escrow.orderId,
+                amountCents: Math.round(result.refundedAmount * 100),
+                currency: escrow.currency ?? "NGN",
+                reason: `Bulk escrow refund: ${input.reason}`,
+              });
+              if (outcome.status === "failed") {
+                const meta = (escrow.metadata ?? {}) as Record<string, unknown>;
+                await db.update(escrowTransactions).set({
+                  metadata: {
+                    ...meta,
+                    refundSweepRequired: true,
+                    providerRefundOnly: true,
+                    providerRefundFailed: true,
+                    providerRefundError: outcome.error ?? null,
+                    providerRefundVocabulary: "refund_failed",
+                  },
+                  updatedAt: new Date(),
+                }).where(eq(escrowTransactions.id, escrow.id));
+                await db.update(orders).set({ status: "refunded", paymentStatus: "refund_pending", updatedAt: new Date() })
+                  .where(eq(orders.id, escrow.orderId));
+                emitNotification({
+                  id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
+                  title: "Refund Pending (Bulk Operation)",
+                  body: `₦${result.refundedAmount.toLocaleString()} from order ${escrow.orderId}: internal refund done, provider refund FAILED (${outcome.error ?? "unknown"}) — queued for the refund sweep.`,
+                  metadata: { orderId: escrow.orderId, escrowId: escrow.id, refundPending: true },
+                  read: false, readAt: null, createdAt: new Date(),
+                }).catch(() => {});
+                results.push({ id: escrow.id, success: true, newState: "refund_pending" });
+                continue;
+              }
+              const honestStatus = honestOrderRefundStatus(outcome);
+              await db.update(orders).set({ status: "refunded", paymentStatus: honestStatus, updatedAt: new Date() })
+                .where(eq(orders.id, escrow.orderId));
+              emitNotification({
+                id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
+                title: "Escrow Refunded (Bulk Operation)",
+                body: `₦${result.refundedAmount.toLocaleString()} from order ${escrow.orderId} refunded via bulk operation (provider: ${honestRefundVocabulary(outcome)}).`,
+                metadata: { orderId: escrow.orderId, escrowId: escrow.id, providerRefund: outcome.status },
+                read: false, readAt: null, createdAt: new Date(),
+              }).catch(() => {});
+              results.push({ id: escrow.id, success: true, newState: honestStatus });
+              continue;
+            }
             await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
               .where(eq(orders.id, escrow.orderId));
             emitNotification({

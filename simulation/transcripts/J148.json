@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348013907154",
-      "profileName": "Sim User 7154",
+      "phone": "2348019611185",
+      "profileName": "Sim User 1185",
       "inboundId": "wamid.sim.in.text.00369",
-      "at": 1789504121071,
+      "at": 1789585760979,
       "kind": "text",
       "text": "deals"
     },
@@ -18,94 +18,94 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00369",
-      "at": 1789504121074
+      "at": 1789585760983
     },
     {
       "dir": "out",
-      "phone": "2348013907154",
-      "wamid": "wamid.sim.000602",
+      "phone": "2348019611185",
+      "wamid": "wamid.sim.000605",
       "statuses": [
         "sent"
       ],
-      "at": 1789504121088,
+      "at": 1789585761009,
       "kind": "text",
-      "body": "🤝 *Open group deals*:\n*Cooking Oil 25L — group price* — group deal @ NGN 11,500/unit\n░░░░░░░░░░ 0% (0/10 units, 0 joined)\n10 more unit(s) needed by 2026-09-15 22:28 UTC\nJoin: *join b02f8d80 <qty>*"
+      "body": "🤝 *Open group deals*:\n*Cooking Oil 25L — group price* — group deal @ NGN 11,500/unit\n░░░░░░░░░░ 0% (0/10 units, 0 joined)\n10 more unit(s) needed by 2026-09-16 21:09 UTC\nJoin: *join 247d04f9 <qty>*"
     },
     {
       "dir": "in",
-      "phone": "2348013907154",
-      "profileName": "Sim User 7154",
+      "phone": "2348019611185",
+      "profileName": "Sim User 1185",
       "inboundId": "wamid.sim.in.text.00370",
-      "at": 1789504121615,
+      "at": 1789585761522,
       "kind": "text",
-      "text": "join b02f8d80 4"
+      "text": "join 247d04f9 4"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00370",
-      "at": 1789504121617
+      "at": 1789585761526
     },
     {
       "dir": "out",
-      "phone": "2348013907154",
-      "wamid": "wamid.sim.000603",
+      "phone": "2348019611185",
+      "wamid": "wamid.sim.000606",
       "statuses": [
         "sent"
       ],
-      "at": 1789504121632,
+      "at": 1789585761548,
       "kind": "text",
-      "body": "✅ You're in! 4 unit(s) held at NGN 46,000.00 total. Payment is only captured if the deal unlocks.\n*Cooking Oil 25L — group price* — group deal @ NGN 11,500/unit\n████░░░░░░ 40% (4/10 units, 1 joined)\n6 more unit(s) needed by 2026-09-15 22:28 UTC"
+      "body": "✅ You're in! 4 unit(s) held at NGN 46,000.00 total. Payment is only captured if the deal unlocks.\n*Cooking Oil 25L — group price* — group deal @ NGN 11,500/unit\n████░░░░░░ 40% (4/10 units, 1 joined)\n6 more unit(s) needed by 2026-09-16 21:09 UTC"
     },
     {
       "dir": "in",
-      "phone": "2348019677417",
-      "profileName": "Sim User 7417",
+      "phone": "2348013477133",
+      "profileName": "Sim User 7133",
       "inboundId": "wamid.sim.in.text.00371",
-      "at": 1789504122166,
+      "at": 1789585762074,
       "kind": "text",
-      "text": "join b02f8d80 6"
+      "text": "join 247d04f9 6"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00371",
-      "at": 1789504122169
+      "at": 1789585762077
     },
     {
       "dir": "out",
-      "phone": "2348019677417",
-      "wamid": "wamid.sim.000604",
+      "phone": "2348013477133",
+      "wamid": "wamid.sim.000607",
       "statuses": [
         "sent"
       ],
-      "at": 1789504122191,
+      "at": 1789585762104,
       "kind": "text",
       "body": "✅ You're in! 6 unit(s) held at NGN 69,000.00 total. Payment is only captured if the deal unlocks.\n*Cooking Oil 25L — group price* — group deal @ NGN 11,500/unit\n██████████ 100% (10/10 units, 0 joined)\n🎉 Deal UNLOCKED — orders confirmed!"
     },
     {
       "dir": "in",
-      "phone": "2348014569258",
-      "profileName": "Sim User 9258",
+      "phone": "2348012463282",
+      "profileName": "Sim User 3282",
       "inboundId": "wamid.sim.in.text.00372",
-      "at": 1789504122714,
+      "at": 1789585762628,
       "kind": "text",
-      "text": "join b02f8d80 1"
+      "text": "join 247d04f9 1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00372",
-      "at": 1789504122716
+      "at": 1789585762632
     },
     {
       "dir": "out",
-      "phone": "2348014569258",
-      "wamid": "wamid.sim.000605",
+      "phone": "2348012463282",
+      "wamid": "wamid.sim.000608",
       "statuses": [
         "sent"
       ],
-      "at": 1789504122729,
+      "at": 1789585762655,
       "kind": "text",
       "body": "That deal is no longer open."
     }

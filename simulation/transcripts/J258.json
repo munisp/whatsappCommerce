@@ -1,0 +1,31 @@
+{
+  "id": "J258",
+  "title": "recon: duplicate settlement reference rejected; underpayment → partial + alert",
+  "feature": "W38 settlement reconciliation honesty",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2349025800258",
+      "wamid": "wamid.sim.000762",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789585915361,
+      "kind": "text",
+      "body": "⚠️ Recon PARTIAL settlement: received ₦6,250.00 but order ORD-258-1 totals ₦6,300.00 (difference ₦50.00). The order is NOT confirmed — please review and collect the balance or refund."
+    },
+    {
+      "dir": "out",
+      "phone": "2349025800258",
+      "wamid": "wamid.sim.000763",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789585915371,
+      "kind": "text",
+      "body": "⚠️ Recon PARTIAL settlement: received ₦6,249.00 but order ORD-258-1 totals ₦6,300.00 (difference ₦51.00). The order is NOT confirmed — please review and collect the balance or refund."
+    }
+  ]
+}

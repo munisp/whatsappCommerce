@@ -59,6 +59,7 @@ import {
   merchantLoanRepayments,
   merchantLoans,
   paymentMandates,
+  potCharges,
   vendorBills,
   type InstallmentPlan,
   type MerchantLoan,
@@ -67,6 +68,7 @@ import { getMerchantScore } from "./creditScore";
 import { getDb } from "../db";
 import { ledgerBridgeRequest, LedgerBridgeError } from "./ledgerBridge";
 import { claimWebhookEvent } from "./webhookDedupe";
+import { captureException } from "./observability";
 import { DEFAULT_GRACE_DAYS } from "./tradeCredit/microLoans";
 
 type Db = any;
@@ -520,6 +522,108 @@ async function releasePotClaim(db: Db, reference: string): Promise<void> {
   }
 }
 
+// ── W38/PAY-4/5/6: durable pot_charges ledger ───────────────────────────────
+// Every PoT mandate charge attempt is persisted in pot_charges (0120), keyed
+// by the exactly-once charge reference (potcap:/potsettle:). 'pending' and
+// 'settlement_failed' rows are converged by reconcilePendingPotCharges via
+// the provider's READ-ONLY fetchStatus() — a charge is NEVER blind-retried.
+async function persistPotCharge(
+  db: Db,
+  row: {
+    tenantId: string;
+    planId: string;
+    loanId?: string | null;
+    mandateId?: string | null;
+    provider: string;
+    kind: "installment" | "settle";
+    seq?: number | null;
+    reference: string;
+    amountCents: number;
+    currency: string;
+    status: "pending" | "success" | "failed" | "settlement_failed";
+    providerStatus?: string | null;
+    rawResponse?: unknown;
+  },
+  now: Date = new Date(),
+): Promise<void> {
+  try {
+    await db.insert(potCharges).values({
+      tenantId: row.tenantId,
+      planId: row.planId,
+      loanId: row.loanId ?? null,
+      mandateId: row.mandateId ?? null,
+      provider: row.provider,
+      kind: row.kind,
+      seq: row.seq ?? null,
+      reference: row.reference,
+      amountCents: row.amountCents,
+      currency: row.currency,
+      status: row.status,
+      providerStatus: row.providerStatus ?? null,
+      rawResponse: row.rawResponse === undefined ? null : JSON.parse(JSON.stringify(row.rawResponse)),
+      createdAt: now,
+      updatedAt: now,
+    });
+  } catch (err: any) {
+    // A duplicate reference means the charge row is already persisted (e.g.
+    // a replay or a FRESH attempt after an abandoned settle — the exactly-once
+    // reference is unique by design). Exactly-once by constraint, not an
+    // error; a terminal 'success' still converges the existing row (never
+    // overwrites a prior success).
+    const e = err as { code?: string; constraint?: string; message?: string };
+    if (e?.code === "23505" || /pot_charges_reference_uniq|duplicate key/i.test(e?.message ?? "")) {
+      if (row.status === "success") {
+        try {
+          await db.update(potCharges)
+            .set({ status: "success", providerStatus: row.providerStatus ?? "success", updatedAt: now })
+            .where(and(eq(potCharges.reference, row.reference), inArray(potCharges.status, ["pending", "failed", "settlement_failed"])));
+        } catch (upErr: any) {
+          console.warn(`[payOverTime] pot charge success-converge failed for ${row.reference}:`, upErr?.message);
+        }
+      }
+      return;
+    }
+    // Persistence must not throw into the money path, but a lost row means
+    // the charge can never be reconciled — surface as CRITICAL.
+    console.warn(`[payOverTime] pot charge persist failed for ${row.reference}:`, err?.message);
+    if (row.status === "pending" || row.status === "settlement_failed") {
+      captureException(err, {
+        service: "payOverTime",
+        operation: "persistPotCharge",
+        tenantId: row.tenantId,
+        severity: "critical",
+        extra: { planId: row.planId, reference: row.reference, kind: row.kind },
+      });
+    }
+  }
+}
+
+/** Load the durable pot_charges row for an exactly-once reference. */
+async function getPotChargeByRef(db: Db, reference: string) {
+  try {
+    const [row] = await db.select().from(potCharges).where(eq(potCharges.reference, reference)).limit(1);
+    return row ?? null;
+  } catch {
+    return null; // table not migrated yet — treated as "no durable record"
+  }
+}
+
+/** Claim-first status flip on a pot_charges row (single winner). */
+async function flipPotChargeStatus(
+  db: Db,
+  id: string,
+  from: string[],
+  to: string,
+  providerStatus: string | null,
+  now: Date,
+): Promise<boolean> {
+  const [flipped] = await db.update(potCharges)
+    .set({ status: to, providerStatus, updatedAt: now })
+    .where(and(eq(potCharges.id, id), inArray(potCharges.status, from)))
+    .returning();
+  return !!flipped;
+}
+
 /**
  * Settle a successful mandate charge against the plan's loan in ONE locked
  * transaction: guarded outstanding decrement + repayment ledger row +
@@ -665,19 +769,75 @@ export async function captureInstallment(
   }
   if (charge.status === "pending") {
     // Provider accepted but money has NOT moved: keep the claim and the
-    // entry 'due' — the reconciler/next sweep converges via the claim's
-    // duplicate verdict. Never settled early, never re-charged.
+    // entry 'due', and persist a DURABLE pending row (W38/PAY-4) so the
+    // reconcilePendingPotCharges sweep settles exactly once when the
+    // provider confirms — never settled early, never re-charged.
+    await persistPotCharge(db, {
+      tenantId: plan.tenantId,
+      planId: plan.id,
+      loanId: loan.id,
+      mandateId: mandate.id,
+      provider: charge.provider ?? "unknown",
+      kind: "installment",
+      seq: entry.seq,
+      reference,
+      amountCents,
+      currency: plan.currency ?? "NGN",
+      status: "pending",
+      providerStatus: "pending",
+      rawResponse: { status: "pending" },
+    }, now);
     return { ok: false, reason: "duplicate", reference, error: "charge_pending" };
   }
 
   try {
     const settled = await db.transaction(async (tx: Tx) =>
       settleCapturedAmountTx(tx, plan, loan, entry, amountCents, reference, now));
+    await persistPotCharge(db, {
+      tenantId: plan.tenantId,
+      planId: plan.id,
+      loanId: loan.id,
+      mandateId: mandate.id,
+      provider: charge.provider ?? "unknown",
+      kind: "installment",
+      seq: entry.seq,
+      reference,
+      amountCents,
+      currency: plan.currency ?? "NGN",
+      status: "success",
+      providerStatus: "success",
+      rawResponse: { status: "success" },
+    }, now);
     return { ok: true, reference, outstandingAfter: settled.outstandingAfter, repaid: settled.repaid };
   } catch (err: any) {
-    // Money moved at the provider but settlement failed: the claim is KEPT
-    // so the charge is never re-sent; the entry stays unpaid for ops/retry.
+    // Money moved at the provider but settlement failed (W38/PAY-6): the
+    // claim is KEPT so the charge is never re-sent, a durable
+    // 'settlement_failed' marker row is persisted for the
+    // reconcilePendingPotCharges retry sweep (verify-first), and a CRITICAL
+    // observability event surfaces the gap immediately.
     console.error("[payOverTime] settlement failed after successful charge:", err?.message);
+    captureException(err, {
+      service: "payOverTime",
+      operation: "captureInstallmentSettlement",
+      tenantId: plan.tenantId,
+      severity: "critical",
+      extra: { planId: plan.id, loanId: loan.id, reference, amountCents, seq: entry.seq },
+    });
+    await persistPotCharge(db, {
+      tenantId: plan.tenantId,
+      planId: plan.id,
+      loanId: loan.id,
+      mandateId: mandate.id,
+      provider: charge.provider ?? "unknown",
+      kind: "installment",
+      seq: entry.seq,
+      reference,
+      amountCents,
+      currency: plan.currency ?? "NGN",
+      status: "settlement_failed",
+      providerStatus: "success",
+      rawResponse: { status: "success", settlement: "failed", error: err?.message ?? "unknown" },
+    }, now);
     return { ok: false, reason: "settlement_failed", reference, error: err?.message };
   }
 }
@@ -732,7 +892,11 @@ export async function runInstallmentCaptureSweep(
     }
 
     // Default sync (microLoans late/default semantics).
-    const [loan] = await db.select().from(merchantLoans).where(eq(merchantLoans.id, plan.loanId ?? "")).limit(1);
+    // W38 merger fix-forward: plans without a loan (nullable loan_id, e.g.
+    // forecast fixtures) have no default to sync — skip instead of querying
+    // with an invalid empty uuid (which 500'd the whole cron tick).
+    if (!plan.loanId) continue;
+    const [loan] = await db.select().from(merchantLoans).where(eq(merchantLoans.id, plan.loanId)).limit(1);
     if (!loan) continue;
     if (
       loan.status === "active" && loan.dueAt &&
@@ -810,7 +974,52 @@ export async function settlePlanEarly(
   const reference = potSettleRef(plan.id);
   const claim = await claimWebhookEvent(db, { id: reference, tenantId: plan.tenantId, type: "pot_settle" });
   if (claim === "duplicate") {
-    throw Object.assign(new Error("Early settlement already in flight or completed for this plan"), { code: "CONFLICT" });
+    // W38/PAY-5 verify-first: a previous attempt holds the claim. Consult the
+    // durable pot_charges row + the provider's READ-ONLY status before
+    // concluding — never stuck forever, never a blind double-charge:
+    //   success → the charge confirmed; settle NOW (exactly-once via the
+    //             repayment-reference unique index + claim-first flip) and
+    //             return the normal settled result.
+    //   failed  → definitive failure ("abandon settle"): flip the durable
+    //             row, RELEASE the claim, and tell the caller to retry.
+    //   pending/unknown → still genuinely in flight; honest CONFLICT, the
+    //             reconciler settles on confirmation.
+    const existing = await getPotChargeByRef(db, reference);
+    const probeProvider = existing?.provider ?? mandate.provider;
+    const probe = await probePotChargeStatus(plan.tenantId, probeProvider, reference);
+    if (probe.status === "success") {
+      const settled = await applyEarlySettleTx(db, plan, reference, now);
+      if (existing) {
+        await flipPotChargeStatus(db, existing.id, ["pending", "settlement_failed"], "success", "success", now);
+      }
+      return {
+        ok: true,
+        planId: plan.id,
+        status: "repaid",
+        settleCents: settled.settleCents,
+        feePolicy: settled.feePolicy,
+        waivedFeeCents: settled.waivedFeeCents,
+        reference,
+        message: settled.alreadyRepaid
+          ? "Plan already settled (verified at provider)"
+          : `Plan settled early · ₦${naira(settled.settleCents)} charged (verified after in-flight charge)` +
+            (settled.waivedFeeCents > 0 ? ` (₦${naira(settled.waivedFeeCents)} future fee waived)` : " (full fee — earned at origination)"),
+      };
+    }
+    if (probe.status === "failed") {
+      if (existing) {
+        await flipPotChargeStatus(db, existing.id, ["pending", "settlement_failed"], "failed", "failed", now);
+      }
+      await releasePotClaim(db, reference);
+      throw Object.assign(
+        new Error("Previous early-settlement charge failed at the provider — please retry the settlement"),
+        { code: "CONFLICT" },
+      );
+    }
+    throw Object.assign(
+      new Error("Early settlement already in flight — the plan settles automatically when the provider confirms"),
+      { code: "CONFLICT" },
+    );
   }
 
   const { chargeOnMandate } = await import("./payments/mandates");
@@ -827,26 +1036,121 @@ export async function settlePlanEarly(
     throw Object.assign(new Error(`Early settlement charge failed: ${charge.error ?? "charge_failed"}`), { code: "BAD_REQUEST" });
   }
   if (charge.status === "pending") {
+    // W38/PAY-5: keep the claim AND persist a durable pending row — the
+    // reconcilePendingPotCharges sweep settles the plan exactly once when
+    // the provider confirms (or releases the claim on definitive failure).
+    await persistPotCharge(db, {
+      tenantId: plan.tenantId,
+      planId: plan.id,
+      loanId: plan.loanId ?? null,
+      mandateId: mandate.id,
+      provider: charge.provider ?? "unknown",
+      kind: "settle",
+      seq: null,
+      reference,
+      amountCents: settleCents,
+      currency: plan.currency ?? "NGN",
+      status: "pending",
+      providerStatus: "pending",
+      rawResponse: { status: "pending" },
+    }, now);
     throw Object.assign(new Error("Early settlement charge is pending at the provider — the plan settles when it confirms"), { code: "CONFLICT" });
   }
 
+  const settled = await applyEarlySettleTx(db, plan, reference, now);
+  await persistPotCharge(db, {
+    tenantId: plan.tenantId,
+    planId: plan.id,
+    loanId: plan.loanId ?? null,
+    mandateId: mandate.id,
+    provider: charge.provider ?? "unknown",
+    kind: "settle",
+    seq: null,
+    reference,
+    amountCents: settleCents,
+    currency: plan.currency ?? "NGN",
+    status: "success",
+    providerStatus: "success",
+    rawResponse: { status: "success" },
+  }, now);
+
+  return {
+    ok: true,
+    planId: plan.id,
+    status: "repaid",
+    settleCents: settled.settleCents,
+    feePolicy: settled.feePolicy,
+    waivedFeeCents: settled.waivedFeeCents,
+    reference,
+    message: `Plan settled early · ₦${naira(settled.settleCents)} charged` +
+      (settled.waivedFeeCents > 0 ? ` (₦${naira(settled.waivedFeeCents)} future fee waived)` : " (full fee — earned at origination)"),
+  };
+}
+
+/** READ-ONLY provider status probe for a PoT charge reference. */
+export type PotChargeProbeStatus = "pending" | "success" | "failed" | "unknown";
+async function probePotChargeStatus(tenantId: string, provider: string, reference: string): Promise<{ status: PotChargeProbeStatus }> {
+  try {
+    const { fetchMandateChargeStatus } = await import("./payments/mandates");
+    return await fetchMandateChargeStatus(tenantId, { provider, reference });
+  } catch {
+    return { status: "unknown" };
+  }
+}
+
+/**
+ * Settle an early-settle charge against the plan in ONE locked transaction
+ * (extracted W38 so the in-flight verify-first path AND the reconciler share
+ * the exact settlement semantics). Idempotent: an already-repaid plan is a
+ * no-op; each entry settles via settleCapturedAmountTx whose repayment row
+ * carries a unique reference (`<settleRef>:<seq>`), so a double invocation
+ * can never double-settle.
+ */
+async function applyEarlySettleTx(
+  db: Db,
+  plan: InstallmentPlan,
+  reference: string,
+  now: Date,
+): Promise<{ settleCents: number; waivedFeeCents: number; feePolicy: "full_fee" | "prorated"; alreadyRepaid: boolean }> {
+  const cfg = await getPayOverTimeConfig(db);
+  const out = {
+    settleCents: 0,
+    waivedFeeCents: 0,
+    feePolicy: (cfg.prorateEarlyFee ? "prorated" : "full_fee") as "full_fee" | "prorated",
+    alreadyRepaid: false,
+  };
   const [loan] = await db.select().from(merchantLoans).where(eq(merchantLoans.id, plan.loanId ?? "")).limit(1);
   if (!loan) throw Object.assign(new Error("Backing loan missing"), { code: "INTERNAL_SERVER_ERROR" });
 
   await db.transaction(async (tx: Tx) => {
+    const [lockedPlan] = await tx.select().from(installmentPlans)
+      .where(eq(installmentPlans.id, plan.id)).limit(1).for("update");
+    if (!lockedPlan) throw new Error(`[payOverTime] plan ${plan.id} missing at early settle`);
+    if (lockedPlan.status === "repaid") {
+      out.alreadyRepaid = true;
+      return;
+    }
+    const schedule = (lockedPlan.schedule as ScheduleEntry[] | null) ?? [];
+    out.settleCents = earlySettleAmountCents(schedule, { prorateEarlyFee: cfg.prorateEarlyFee, now });
+    const remainingFee = schedule.filter((e) => e.status !== "paid").reduce((a, e) => a + e.feeCents, 0);
+    const chargedFee = schedule
+      .filter((e) => e.status !== "paid" && !(cfg.prorateEarlyFee && new Date(e.dueAt).getTime() > now.getTime()))
+      .reduce((a, e) => a + e.feeCents, 0);
+    out.waivedFeeCents = remainingFee - chargedFee;
+
     // Settle every unpaid entry: principal portions restore the facility;
     // only the CHARGED fee slices post the platform-fee leg (prorate policy).
     for (const entry of schedule) {
       if (entry.status === "paid") continue;
       const futureFeeWaived = cfg.prorateEarlyFee && new Date(entry.dueAt).getTime() > now.getTime();
       const charged: ScheduleEntry = futureFeeWaived ? { ...entry, feeCents: 0 } : entry;
-      await settleCapturedAmountTx(tx, plan, loan, charged, charged.amountCents, `${reference}:${entry.seq}`.slice(0, 160), now);
+      await settleCapturedAmountTx(tx, lockedPlan, loan, charged, charged.amountCents, `${reference}:${entry.seq}`.slice(0, 160), now);
     }
     // Prorate policy: write off the waived future-fee remainder so the loan
     // closes exactly at zero (integer cents, GREATEST-clamped).
-    if (waivedFeeCents > 0) {
+    if (out.waivedFeeCents > 0) {
       await tx.update(merchantLoans)
-        .set({ outstandingCents: sql`GREATEST(0, ${merchantLoans.outstandingCents} - ${waivedFeeCents})`, updatedAt: now })
+        .set({ outstandingCents: sql`GREATEST(0, ${merchantLoans.outstandingCents} - ${out.waivedFeeCents})`, updatedAt: now })
         .where(eq(merchantLoans.id, loan.id));
     }
     // Force-close when nothing is left (settleCapturedAmountTx flips status
@@ -861,18 +1165,198 @@ export async function settlePlanEarly(
         .where(and(eq(installmentPlans.id, plan.id), inArray(installmentPlans.status, ["active", "defaulted"])));
     }
   });
+  return out;
+}
 
-  return {
-    ok: true,
-    planId: plan.id,
-    status: "repaid",
-    settleCents,
-    feePolicy: cfg.prorateEarlyFee ? "prorated" : "full_fee",
-    waivedFeeCents,
-    reference,
-    message: `Plan settled early · ₦${naira(settleCents)} charged` +
-      (waivedFeeCents > 0 ? ` (₦${naira(waivedFeeCents)} future fee waived)` : " (full fee — earned at origination)"),
-  };
+// ── W38/PAY-4/5/6: pending/settlement_failed pot_charges reconciler ─────────
+
+export interface ReconcilePotChargesResult {
+  checked: number;
+  settled: number;
+  failed: number;
+  /** settlement_failed rows retried to a successful settlement. */
+  retried: number;
+  stillPending: number;
+}
+
+export type PotChargeStatusProbe = (args: {
+  tenantId: string;
+  provider: string;
+  reference: string;
+}) => Promise<{ status: PotChargeProbeStatus; amountCents?: number }>;
+
+const defaultPotProbe: PotChargeStatusProbe = ({ tenantId, provider, reference }) =>
+  probePotChargeStatus(tenantId, provider, reference);
+
+/** Exactly-once check: a repayment row already carrying this reference. */
+async function potRepaymentExists(db: Db, reference: string): Promise<boolean> {
+  const [r] = await db.select({ id: merchantLoanRepayments.id })
+    .from(merchantLoanRepayments).where(eq(merchantLoanRepayments.reference, reference)).limit(1)
+    .catch(() => []);
+  return !!r;
+}
+
+/**
+ * Settle one confirmed pot_charges row against its plan. Returns true when
+ * the money is reflected on the loan (settled now, or already settled —
+ * the merchant_loan_repayments reference unique index is the backstop).
+ * Never re-charges the provider; local bookkeeping only.
+ */
+async function settlePotChargeRow(db: Db, plan: InstallmentPlan, row: any, now: Date): Promise<boolean> {
+  try {
+    if (row.kind === "settle") {
+      await applyEarlySettleTx(db, plan, row.reference, now);
+      return true;
+    }
+    const [loan] = await db.select().from(merchantLoans).where(eq(merchantLoans.id, plan.loanId ?? "")).limit(1);
+    if (!loan) return false;
+    const schedule = (plan.schedule as ScheduleEntry[] | null) ?? [];
+    const entry = schedule.find((e) => e.seq === row.seq);
+    if (!entry || entry.status === "paid") return true; // settled earlier
+    await db.transaction(async (tx: Tx) =>
+      settleCapturedAmountTx(tx, plan, loan, entry, Math.min(row.amountCents, entry.amountCents), row.reference, now));
+    return true;
+  } catch (err: any) {
+    // Already settled via the repayment-reference unique backstop (a lost
+    // race against the direct path / a previous sweep), or the settle path
+    // closed the plan already.
+    if (row.kind === "settle") {
+      const [fresh] = await db.select().from(installmentPlans).where(eq(installmentPlans.id, plan.id)).limit(1);
+      if (fresh?.status === "repaid") return true;
+    } else if (await potRepaymentExists(db, row.reference)) {
+      return true;
+    }
+    console.warn(`[payOverTime] reconcile settle failed for ${row.reference}:`, err?.message);
+    return false;
+  }
+}
+
+/**
+ * Sweep pot_charges rows in 'pending' / 'settlement_failed' and converge
+ * them via the provider's READ-ONLY fetchStatus(reference) — NEVER a blind
+ * re-charge:
+ *
+ *   success → settle exactly once against the plan (installment entry via
+ *             settleCapturedAmountTx with the SAME reference; early-settle
+ *             via applyEarlySettleTx — both exactly-once by the repayment
+ *             reference unique index), then claim-first flip to 'success'.
+ *             A settlement refusal flips the row to 'settlement_failed' and
+ *             captures a CRITICAL event — the NEXT sweep retries the
+ *             settlement verify-first (PAY-6).
+ *   failed  → 'pending' rows: claim-first flip to 'failed', release the
+ *             exactly-once claim (a fresh capture/settle attempt may
+ *             proceed), mark the installment overdue + dun. A
+ *             'settlement_failed' row whose probe now says 'failed' is a
+ *             money ambiguity (the charge reported success earlier) —
+ *             fail-CLOSED: keep the marker and alert CRITICAL for ops.
+ *   pending/unknown (incl. probe timeout/error) → leave for the next sweep.
+ *
+ * Never throws into the caller.
+ */
+export async function reconcilePendingPotCharges(
+  db: Db,
+  opts: { limit?: number; probe?: PotChargeStatusProbe } = {},
+  now: Date = new Date(),
+): Promise<ReconcilePotChargesResult> {
+  const probe = opts.probe ?? defaultPotProbe;
+  const result: ReconcilePotChargesResult = { checked: 0, settled: 0, failed: 0, retried: 0, stillPending: 0 };
+  try {
+    const rows = (await db.select().from(potCharges)
+      .where(inArray(potCharges.status, ["pending", "settlement_failed"]))
+      .orderBy(asc(potCharges.createdAt))
+      .limit(Math.max(1, Math.min(opts.limit ?? 100, 500)))) as any[];
+
+    for (const row of rows) {
+      result.checked += 1;
+      const wasSettlementFailed = row.status === "settlement_failed";
+      try {
+        const [plan] = await db.select().from(installmentPlans)
+          .where(eq(installmentPlans.id, row.planId)).limit(1);
+        if (!plan) {
+          result.stillPending += 1;
+          continue;
+        }
+        const verdict = await probe({ tenantId: row.tenantId, provider: row.provider, reference: row.reference });
+
+        if (verdict.status === "success") {
+          const settled = await settlePotChargeRow(db, plan, row, now);
+          if (settled) {
+            await flipPotChargeStatus(db, row.id, ["pending", "settlement_failed"], "success", "success", now);
+            if (wasSettlementFailed) result.retried += 1;
+            else result.settled += 1;
+          } else {
+            // Money confirmed at the provider but settlement refused —
+            // durable marker + CRITICAL capture; the sweep retries.
+            if (!wasSettlementFailed) {
+              await flipPotChargeStatus(db, row.id, ["pending"], "settlement_failed", "success", now);
+            }
+            captureException(new Error(`reconcile: settlement refused for confirmed PoT charge ${row.reference}`), {
+              service: "payOverTime",
+              operation: "reconcilePendingPotCharges",
+              tenantId: row.tenantId,
+              severity: "critical",
+              extra: { planId: row.planId, reference: row.reference, amountCents: row.amountCents, kind: row.kind },
+            });
+            result.stillPending += 1;
+          }
+        } else if (verdict.status === "failed") {
+          if (wasSettlementFailed) {
+            // The charge reported SUCCESS when attempted; the provider now
+            // reports failure. Money is ambiguous — fail CLOSED: keep the
+            // settlement_failed marker and alert CRITICAL for ops review.
+            captureException(new Error(`reconcile: provider now reports failed for previously-successful PoT charge ${row.reference}`), {
+              service: "payOverTime",
+              operation: "reconcilePendingPotCharges",
+              tenantId: row.tenantId,
+              severity: "critical",
+              extra: { planId: row.planId, reference: row.reference, amountCents: row.amountCents, kind: row.kind },
+            });
+            result.stillPending += 1;
+          } else {
+            const flipped = await flipPotChargeStatus(db, row.id, ["pending"], "failed", "failed", now);
+            if (flipped) {
+              await releasePotClaim(db, row.reference);
+              const schedule = (plan.schedule as ScheduleEntry[] | null) ?? [];
+              if (row.kind === "installment") {
+                const entry = schedule.find((e) => e.seq === row.seq);
+                if (entry && entry.status !== "paid") {
+                  await markEntryOverdue(db, plan, entry, now);
+                  await sendPotDunning(db, plan.tenantId,
+                    `⚠️ We couldn't collect installment ${row.seq} of your pay-over-time plan (₦${naira(row.amountCents)} — the pending charge failed at the provider). We'll retry on the next collection run, or you can settle early from the dashboard. Your vendor was already paid in full.`);
+                }
+              } else {
+                await sendPotDunning(db, plan.tenantId,
+                  `⚠️ Your early-settlement charge of ₦${naira(row.amountCents)} failed at the provider. No money moved — you can retry the settlement from the dashboard.`);
+              }
+            }
+            result.failed += 1;
+          }
+        } else {
+          // 'pending' / 'unknown' — next sweep re-probes (READ-ONLY only).
+          result.stillPending += 1;
+        }
+      } catch (err: any) {
+        result.stillPending += 1;
+        console.warn(`[payOverTime] reconcile row ${row.id} failed:`, err?.message);
+      }
+    }
+  } catch (err: any) {
+    captureException(err, {
+      service: "payOverTime",
+      operation: "reconcilePendingPotCharges",
+      severity: "error",
+    });
+  }
+  return result;
+}
+
+/** Convenience wrapper for cron/sweep invokers (own db handle). */
+export async function reconcilePendingPotChargesGlobal(
+  opts: { limit?: number; probe?: PotChargeStatusProbe; now?: Date } = {},
+): Promise<ReconcilePotChargesResult> {
+  const db = await getDb();
+  if (!db) throw new Error("[payOverTime] database unavailable");
+  return reconcilePendingPotCharges(db, opts, opts.now ?? new Date());
 }
 
 // ── Read helpers ────────────────────────────────────────────────────────────

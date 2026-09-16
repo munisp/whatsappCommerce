@@ -101,18 +101,99 @@ export async function runSlaScan() {
       const [order] = escrow.orderId
         ? await db.select({ id: orders.id, currency: orders.currency }).from(orders).where(eq(orders.id, escrow.orderId)).limit(1)
         : [undefined];
-      const { executeProviderRefund, honestOrderRefundStatus, honestRefundVocabulary } = await import("../services/payments/refunds");
+      const {
+        executeProviderRefund, verifyOrderRefund, honestOrderRefundStatus, honestRefundVocabulary, recordRefundAttempt,
+      } = await import("../services/payments/refunds");
+      const amountCents = Math.round(parseFloat(String(escrow.amount)) * 100);
+
+      // ── W38 (PAY-2) verify-FIRST: a prior attempt may have timed out AFTER
+      // the provider accepted the refund. Ask the provider before retrying —
+      // never blindly re-issue money movement.
+      if (order) {
+        const verify = await verifyOrderRefund(db, { tenantId: escrow.tenantId, orderId: escrow.orderId! });
+        if (verify.state === "exists") {
+          await recordRefundAttempt(db, {
+            tenantId: escrow.tenantId,
+            orderId: escrow.orderId!,
+            provider: verify.provider || "paystack",
+            providerRef: verify.refundReference,
+            idempotencyKey: `verify:${escrow.id}`,
+            amountCents,
+            currency: order.currency ?? "NGN",
+            status: "verified_existing",
+          });
+          const existing: import("../services/payments/refunds").ProviderRefundOutcome = {
+            executed: true,
+            status: verify.status === "processed" ? "processed" : "pending",
+            provider: verify.provider || undefined,
+            refundReference: verify.refundReference,
+          };
+          await db.update(escrowTransactions).set({
+            metadata: {
+              ...sweepMeta,
+              refundSweepRequired: false,
+              providerRefundOnly: false,
+              providerRefundFailed: false,
+              providerRefundError: null,
+              providerRefundVocabulary: honestRefundVocabulary(existing),
+              providerRefundReference: verify.refundReference ?? null,
+              providerRefundVerifiedExisting: true,
+              providerRefundCompletedAt: new Date().toISOString(),
+            },
+            updatedAt: new Date(),
+          }).where(eq(escrowTransactions.id, escrow.id));
+          await db.update(orders).set({ paymentStatus: honestOrderRefundStatus(existing), updatedAt: new Date() })
+            .where(eq(orders.id, order.id));
+          continue;
+        }
+        if (verify.state === "unknown") {
+          // Fail CLOSED: the provider status check itself failed — do NOT
+          // retry a possibly-accepted refund. Try again on the next scan.
+          console.error(`[sla-scan] provider-refund verify inconclusive for escrow ${escrow.id}: ${verify.error} — NOT retrying blindly`);
+          continue;
+        }
+        // "not_found": the provider has no refund recorded — safe to issue.
+      }
+
+      // ── W38 (PAY-2) attempt cap + dead-letter: bounded retries, then an
+      // explicit dead-letter (flag cleared, alert raised) instead of an
+      // infinite every-scan retry loop.
+      const { refundAttempts } = await import("../../drizzle/schema");
+      const priorAttempts = order
+        ? (await db.select({ id: refundAttempts.id }).from(refundAttempts)
+            .where(and(eq(refundAttempts.orderId, escrow.orderId!), eq(refundAttempts.tenantId, escrow.tenantId)))).length
+        : 0;
+      const REFUND_SWEEP_MAX_ATTEMPTS = 5;
+      if (priorAttempts >= REFUND_SWEEP_MAX_ATTEMPTS) {
+        await db.update(escrowTransactions).set({
+          metadata: {
+            ...sweepMeta,
+            refundSweepRequired: false,
+            providerRefundOnly: false,
+            providerRefundDeadLettered: true,
+            providerRefundError: `dead-lettered after ${priorAttempts} provider refund attempts`,
+            providerRefundVocabulary: "refund_failed",
+          },
+          updatedAt: new Date(),
+        }).where(eq(escrowTransactions.id, escrow.id));
+        console.error(`[sla-scan] DEAD-LETTER provider refund for escrow ${escrow.id} (order ${escrow.orderId}) after ${priorAttempts} attempts — manual intervention required; no further automatic retries`);
+        continue;
+      }
+
       const outcome = order
         ? await executeProviderRefund(db, {
             tenantId: escrow.tenantId,
             orderId: escrow.orderId!,
-            amountCents: Math.round(parseFloat(String(escrow.amount)) * 100),
+            amountCents,
             currency: order.currency ?? "NGN",
             reason: `Provider-refund sweep for escrow ${escrow.id} (flagged at order cancellation)`,
           })
         : { executed: false as const, status: "no_provider_refund" as const, error: "order not found" };
       if (outcome.status === "failed") {
-        console.error(`[sla-scan] provider-refund sweep failed for escrow ${escrow.id}: ${outcome.error} — will retry`);
+        // Ambiguous (timeout) failures are NOT retried on the next scan until
+        // the provider verify above reports not_found — the verify-first
+        // guard runs before every attempt.
+        console.error(`[sla-scan] provider-refund sweep failed for escrow ${escrow.id}: ${outcome.error}${outcome.ambiguous ? " (AMBIGUOUS — verify-before-retry on next scan)" : " — will retry"}`);
         continue;
       }
       // Terminal (executed / queued / no provider path): clear the flag and

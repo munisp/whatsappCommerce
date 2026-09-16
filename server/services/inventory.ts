@@ -18,10 +18,10 @@
  * All functions take the caller's db/tx handle so multi-statement flows run
  * inside ONE transaction (order insert + reserve) — no partial orders.
  */
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { getDb } from "../db";
-import { inventoryReservations, orders, products } from "../../drizzle/schema";
+import { inventoryReservations, orders, paymentIntents, products } from "../../drizzle/schema";
 import { scheduleLowStockCheck } from "./lowStock";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -30,6 +30,13 @@ export type TxHandle = Pick<DbHandle, "select" | "selectDistinct" | "insert" | "
 
 /** Reservation TTL — matches the pending-payment window pattern (900s). */
 export const RESERVATION_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * ORD-3: hard cap on how long TTL extensions may keep a reservation alive.
+ * A payment attempt in flight extends the TTL, but never past this age —
+ * a buyer who never completes payment must eventually return the stock.
+ */
+export const RESERVATION_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 export interface ReserveItem {
   productId: string;
@@ -244,15 +251,79 @@ export async function releaseReservations(
 }
 
 /**
+ * ORD-1: committed → released with stock credited back — the PAID-cancel
+ * path. After payment confirmation the reservation rows are 'committed'
+ * (stock left the pool for good); cancelling that paid order must put the
+ * units back, which releaseReservations ('reserved'-only) deliberately does
+ * NOT do. Same claim-first shape as releaseReservations: the conditional
+ * UPDATE ... WHERE status = 'committed' RETURNING means exactly ONE caller
+ * wins each row and only the winner restocks — a repeated cancel, a racing
+ * expiry sweep, or a webhook replay is a no-op. Returns rows released.
+ */
+export async function releaseCommittedReservations(
+  db: TxHandle,
+  orderId: string,
+  now: Date = new Date(),
+): Promise<number> {
+  let released = 0;
+  // Loop: each iteration claims one still-committed row for this order.
+  // Terminates because each successful claim flips one row out of 'committed'.
+  for (;;) {
+    const claimed = await db
+      .update(inventoryReservations)
+      .set({ status: "released" })
+      .where(
+        and(
+          eq(inventoryReservations.orderId, orderId),
+          eq(inventoryReservations.status, "committed"),
+          sql`${inventoryReservations.id} = (
+            SELECT "id" FROM "inventory_reservations"
+            WHERE "orderId" = ${orderId} AND "status" = 'committed'
+            ORDER BY "createdAt"
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+          )`,
+        ),
+      )
+      .returning({
+        id: inventoryReservations.id,
+        tenantId: inventoryReservations.tenantId,
+        productId: inventoryReservations.productId,
+        qty: inventoryReservations.qty,
+      });
+    if (claimed.length === 0) break;
+    const row = claimed[0];
+    await db
+      .update(products)
+      .set({
+        stockQuantity: sql`${products.stockQuantity} + ${row.qty}`,
+        updatedAt: now,
+      })
+      .where(eq(products.id, row.productId));
+    scheduleLowStockCheck(row.tenantId, row.productId);
+    released++;
+  }
+  return released;
+}
+
+/**
  * Expiry sweeper: release every 'reserved' row past its TTL whose order is
  * NOT paid. Idempotent by construction (releaseReservations is claim-first);
  * safe to run every 60s from the scheduled-job endpoint. Returns the number
  * of reservations released.
+ *
+ * ORD-3 (TTL-vs-webhook race): a reservation whose order has a payment
+ * attempt IN FLIGHT (a paymentIntents row in 'initiated'/'pending' touched
+ * within the last TTL window — the buyer is at the PSP checkout and the
+ * webhook may just be slow) gets its TTL EXTENDED instead of released, so a
+ * slow webhook can never land on an order whose stock was already resold.
+ * Extensions are capped by RESERVATION_MAX_AGE (from createdAt, which never
+ * changes) so an abandoned checkout cannot pin stock forever.
  */
 export async function releaseExpiredReservations(
   db: TxHandle,
   now: Date = new Date(),
-): Promise<{ orders: number; released: number }> {
+): Promise<{ orders: number; released: number; extended: number }> {
   const expired = await db
     .selectDistinct({ orderId: inventoryReservations.orderId })
     .from(inventoryReservations)
@@ -265,6 +336,7 @@ export async function releaseExpiredReservations(
 
   let released = 0;
   let sweptOrders = 0;
+  let extended = 0;
   for (const { orderId } of expired) {
     // Never release stock for a paid order — if the payment landed, the
     // reservation must be committed, not returned to the pool.
@@ -274,11 +346,48 @@ export async function releaseExpiredReservations(
       .where(eq(orders.id, orderId))
       .limit(1);
     if (order && order.paymentStatus === "completed") continue;
+
+    // ORD-3: payment attempt in flight → extend the TTL, don't release.
+    const attempts = await db
+      .select({ updatedAt: paymentIntents.updatedAt })
+      .from(paymentIntents)
+      .where(
+        and(
+          eq(paymentIntents.orderId, orderId),
+          inArray(paymentIntents.status, ["initiated", "pending"]),
+        ),
+      );
+    const lastAttemptAt = attempts.reduce(
+      (max, a) => Math.max(max, new Date(a.updatedAt).getTime()),
+      0,
+    );
+    if (lastAttemptAt > 0 && now.getTime() - lastAttemptAt < RESERVATION_TTL_MS) {
+      // Claim-first extension: only still-reserved, still-expired rows younger
+      // than the max-age cap are pushed out by one TTL; concurrent release is
+      // impossible for rows this UPDATE claims.
+      const rows = await db
+        .update(inventoryReservations)
+        .set({ expiresAt: new Date(now.getTime() + RESERVATION_TTL_MS) })
+        .where(
+          and(
+            eq(inventoryReservations.orderId, orderId),
+            eq(inventoryReservations.status, "reserved"),
+            lt(inventoryReservations.expiresAt, now),
+            gt(inventoryReservations.createdAt, new Date(now.getTime() - RESERVATION_MAX_AGE_MS)),
+          ),
+        )
+        .returning({ id: inventoryReservations.id });
+      if (rows.length > 0) {
+        extended += rows.length;
+        continue;
+      }
+    }
+
     const n = await releaseReservations(db, orderId, now);
     if (n > 0) {
       sweptOrders++;
       released += n;
     }
   }
-  return { orders: sweptOrders, released };
+  return { orders: sweptOrders, released, extended };
 }

@@ -80,7 +80,7 @@ function isWalletRefUniqueViolation(err: unknown): boolean {
 }
 
 export interface SchedExecutionOutcome {
-  outcome: "executed" | "insufficient_funds" | "failed" | "duplicate" | "pending_approval";
+  outcome: "executed" | "insufficient_funds" | "failed" | "duplicate" | "pending_approval" | "skipped_already_paid";
   walletTxId?: string;
   error?: string;
   /** W32: instant fee leg (integer cents). Present only for speed='instant'. */
@@ -201,6 +201,41 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
   const walletTxId = crypto.randomUUID();
   try {
     await db.transaction(async (tx) => {
+      // ── W38 (PAY-9) double-debit guard: re-check the vendor bill INSIDE the
+      // claim transaction (FOR UPDATE) BEFORE any wallet debit. A bill that
+      // is already paid (manual payment, another scheduler tick, a duplicate
+      // scheduled row) must NEVER be debited again — the scheduled payment is
+      // honestly skipped instead of silently double-paying.
+      // targetId is only a UUID when a real vendor_bills row exists (the
+      // legacy ID-only contract allows arbitrary strings — those skip the
+      // bill guard exactly like the pre-W38 lazy best-effort sync).
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (row.kind === "vendor_bill" && row.targetId && UUID_RE.test(row.targetId)) {
+        const billRows = await tx.execute(sql`
+          SELECT id, status, amount_cents FROM vendor_bills
+          WHERE id = ${row.targetId} AND tenant_id = ${row.tenantId}
+          FOR UPDATE
+        `);
+        const bill = (billRows as unknown as { id: string; status: string; amount_cents: number | string }[])[0];
+        if (bill && (bill.status === "paid" || bill.status === "cancelled")) {
+          throw new SchedBillAlreadyPaidError(bill.status);
+        }
+        if (bill) {
+          // Mark the bill paid in the SAME commit as the wallet debit (PAY-9):
+          // bill-state and money movement can never drift apart. paid_cents
+          // reflects THIS payment (integer cents), capped at the bill amount.
+          await tx.execute(sql`
+            UPDATE vendor_bills
+            SET status = 'paid',
+                paid_cents = LEAST(amount_cents, COALESCE(paid_cents, 0) + ${row.amountCents}),
+                payment_ref = ${`sched:${row.id}`},
+                updated_at = now()
+            WHERE id = ${row.targetId}
+              AND tenant_id = ${row.tenantId}
+              AND status IN ('pending','scheduled','approved','overdue','partially_paid')
+          `);
+        }
+      }
       // Atomic conditional debit — balance check and debit are one UPDATE, so
       // concurrent executions can never double-spend or go negative. The
       // merchant always pays the GROSS; instant's fee comes out of it.
@@ -284,6 +319,14 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
       if (flipped.length !== 1) throw new Error("scheduled payment status flip lost claim — rolling back");
     });
   } catch (err) {
+    if (err instanceof SchedBillAlreadyPaidError) {
+      // W38 (PAY-9): honest terminal state — NOTHING moved (the throw rolled
+      // back before the debit), the payment is skipped not executed/failed.
+      await db.update(scheduledPayments)
+        .set({ status: "skipped_already_paid", lastError: `SKIPPED: vendor bill already ${err.billStatus} at execution time — no debit made`, updatedAt: new Date() })
+        .where(and(eq(scheduledPayments.id, row.id), eq(scheduledPayments.status, "claimed")));
+      return { outcome: "skipped_already_paid" };
+    }
     if (err instanceof SchedInsufficientFundsError) {
       // Honest state — nothing moved; merchant retries after top-up.
       await db.update(scheduledPayments)
@@ -307,6 +350,11 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
 
 class SchedInsufficientFundsError extends Error {
   constructor() { super("INSUFFICIENT_FUNDS"); }
+}
+
+/** W38 (PAY-9): thrown inside the claim tx when the vendor bill is already paid. */
+class SchedBillAlreadyPaidError extends Error {
+  constructor(public readonly billStatus: string) { super("BILL_ALREADY_PAID"); }
 }
 
 function describePayment(row: typeof scheduledPayments.$inferSelect): string {
@@ -399,6 +447,8 @@ export interface TickSummary {
   insufficientFunds: number;
   failed: number;
   remindersSent: number;
+  /** W38 (PAY-9): vendor-bill payments skipped because the bill was already paid. */
+  skippedAlreadyPaid?: number;
 }
 
 /** One cron tick: claim due payments → execute each → send T-1 reminders. */
@@ -409,6 +459,7 @@ export async function runScheduledPaymentTick(db: DbHandle, now = new Date()): P
     const res = await executeClaimedPayment(db, row.id);
     if (res.outcome === "executed" || res.outcome === "duplicate") summary.executed++;
     else if (res.outcome === "insufficient_funds") summary.insufficientFunds++;
+    else if (res.outcome === "skipped_already_paid") summary.skippedAlreadyPaid = (summary.skippedAlreadyPaid ?? 0) + 1;
     else summary.failed++;
   }
   summary.remindersSent = await sendDueReminders(db, now);

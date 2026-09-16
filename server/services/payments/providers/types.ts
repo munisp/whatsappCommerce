@@ -61,6 +61,15 @@ export interface PaymentProvider {
    * use honest "refund_recorded" vocabulary instead of claiming a payout.
    */
   refund?(ctx: RefundCtx, creds: unknown): Promise<RefundResult>;
+  /**
+   * W38 (PAY-2): verify-before-retry. Query the provider for refunds already
+   * recorded against an ORIGINAL payment reference. Used after a
+   * timeout/ambiguous refund attempt — never re-issue a refund blindly.
+   * Returns "exists" when the provider already has a refund for the payment
+   * (safe to stop retrying), "not_found" when none exists (safe to retry),
+   * "unknown" when the check itself failed (fail CLOSED — do not retry).
+   */
+  verifyRefund?(reference: string, creds: unknown): Promise<VerifyRefundResult>;
 
   /* -------- OPTIONAL mandate capability (w13) -------- */
   /** True when the adapter supports recurring/auto-debit mandates. */
@@ -101,6 +110,23 @@ export interface RefundResult {
   status: "processed" | "pending" | "failed";
   refundReference?: string;
   provider: string;
+  error?: string;
+  /**
+   * W38 (PAY-2): true when the attempt ended ambiguously (e.g. network
+   * timeout) — the provider MAY have accepted the refund. Callers MUST
+   * verify-before-retry (see verifyRefund) and never blindly re-issue.
+   */
+  ambiguous?: boolean;
+}
+
+/** W38 (PAY-2): outcome of a provider-side refund status check. */
+export interface VerifyRefundResult {
+  state: "exists" | "not_found" | "unknown";
+  provider: string;
+  /** Provider refund reference when one already exists. */
+  refundReference?: string;
+  /** Provider-side refund status when known (e.g. "pending", "processed"). */
+  status?: string;
   error?: string;
 }
 

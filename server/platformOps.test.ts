@@ -141,6 +141,7 @@ describe("webhook dedupe ledger", () => {
 // ── 2. Recon auto-match ──────────────────────────────────────────────────────
 
 describe("recon auto-match", () => {
+  const claimedInsert = () => mockInsertReturning([{ id: "claim-1" }]).insert;
   const ORDER = {
     id: "order-9", tenantId: "t1", customerId: "2348012345678",
     orderNumber: "ORD-9", status: "pending", paymentStatus: "unpaid",
@@ -154,7 +155,7 @@ describe("recon auto-match", () => {
     const updateWhere = vi.fn().mockResolvedValue(undefined);
     const update = vi.fn(() => ({ set: vi.fn(() => ({ where: updateWhere })) }));
     (confirmProviderPayment as any).mockResolvedValue({ ok: true, action: "confirmed" });
-    const db = { select: sel.select, update } as any;
+    const db = { select: sel.select, update, insert: claimedInsert() } as any;
 
     const result = await matchSettlement(db, { tenantId: "t1", amount: 6300, reference: "SETL-1" });
 
@@ -178,7 +179,7 @@ describe("recon auto-match", () => {
   it("leaves unmatched settlements flagged and never calls paymentConfirm", async () => {
     const sel = mockSelectSequential([[]]); // no candidate orders
     const update = vi.fn();
-    const db = { select: sel.select, update } as any;
+    const db = { select: sel.select, update, insert: claimedInsert() } as any;
 
     const result = await matchSettlement(db, { tenantId: "t1", amount: 99999, reference: "SETL-2" });
 
@@ -189,7 +190,7 @@ describe("recon auto-match", () => {
 
   it("rejects invalid settlements and isolates batch failures", async () => {
     const sel = mockSelectSequential([[]]);
-    const db = { select: sel.select, update: vi.fn() } as any;
+    const db = { select: sel.select, update: vi.fn(), insert: claimedInsert() } as any;
     const summary = await matchSettlements(db, [
       { tenantId: "", amount: -5 },                      // invalid
       { tenantId: "t1", amount: 1000, reference: "S3" }, // unmatched
@@ -198,6 +199,62 @@ describe("recon auto-match", () => {
     expect(summary.results[1].outcome).toBe("unmatched");
     expect(summary.confirmed).toBe(0);
     expect(summary.unmatched).toBe(1);
+  });
+
+  it("W38: rejects a duplicate settlement reference claim-first (never double-confirms)", async () => {
+    const sel = mockSelectSequential([[ORDER], [TX], [{ settings: {} }]]);
+    const update = vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) }));
+    (confirmProviderPayment as any).mockResolvedValue({ ok: true, action: "confirmed" });
+    const db = { select: sel.select, update, insert: claimedInsert() } as any;
+
+    const first = await matchSettlement(db, { tenantId: "t1", amount: 6300, reference: "SETL-DUP" });
+    expect(first.outcome).toBe("confirmed");
+
+    // Replay with the SAME reference: the exactly-once claim (PK backstop)
+    // loses → duplicate, paymentConfirm never called a second time.
+    const dupInsert = mockInsertReturning([]).insert; // onConflictDoNothing → no row = duplicate
+    const db2 = { select: mockSelectSequential([[ORDER]]).select, update, insert: dupInsert } as any;
+    const second = await matchSettlement(db2, { tenantId: "t1", amount: 6300, reference: "SETL-DUP" });
+    expect(second.outcome).toBe("duplicate");
+    expect(confirmProviderPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it("W38: ±₦100 tolerance match with a SHORTFALL is partial — flagged + admin alert, never auto-confirmed", async () => {
+    const shortOrder = { ...ORDER, id: "order-10", orderNumber: "ORD-10" };
+    const sel = mockSelectSequential([[shortOrder], [{ settings: { adminPhone: "23480999000" } }]]);
+    const updateWhere = vi.fn().mockResolvedValue(undefined);
+    const updateSet = vi.fn(() => ({ where: updateWhere }));
+    const update = vi.fn(() => ({ set: updateSet }));
+    const db = { select: sel.select, update, insert: claimedInsert() } as any;
+
+    const result = await matchSettlement(db, { tenantId: "t1", amount: 6250, reference: "SETL-SHORT" });
+
+    expect(result.outcome).toBe("partial");
+    expect(result.orderId).toBe("order-10");
+    // NEVER confirmed through the money path.
+    expect(confirmProviderPayment).not.toHaveBeenCalled();
+    // Order flagged with an explicit partial-settlement state (review flag KEPT).
+    expect(update).toHaveBeenCalled();
+    const metaFrag = updateSet.mock.calls[0][0].metadata;
+    const metaArg = JSON.stringify(metaFrag, (() => { const seen = new WeakSet(); return (_k: string, v: any) =>
+      (v && typeof v === "object" ? (seen.has(v) ? undefined : (seen.add(v), v)) : v); })());
+    expect(metaArg).toContain("reconPartialSettlement");
+    expect(metaArg).toContain("partial");
+    // Admin alerted about the shortfall.
+    const sent = (sendWhatsAppText as any).mock.calls.map((c: any[]) => [c[1], c[2]]);
+    const alert = sent.find(([phone, body]: any[]) => phone === "23480999000" && /PARTIAL settlement/.test(body));
+    expect(alert).toBeDefined();
+  });
+
+  it("W38: exact-amount settlement still auto-confirms (tolerance selects, never settles)", async () => {
+    const sel = mockSelectSequential([[ORDER], [TX], [{ settings: {} }]]);
+    const update = vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) }));
+    (confirmProviderPayment as any).mockResolvedValue({ ok: true, action: "confirmed" });
+    const db = { select: sel.select, update, insert: claimedInsert() } as any;
+
+    const result = await matchSettlement(db, { tenantId: "t1", amount: 6300, reference: "SETL-EXACT" });
+    expect(result.outcome).toBe("confirmed");
+    expect(confirmProviderPayment).toHaveBeenCalledTimes(1);
   });
 });
 

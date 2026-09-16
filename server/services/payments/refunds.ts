@@ -15,11 +15,12 @@
  * The original payment reference is resolved server-side from the order's
  * completed payment intent / transaction — never from the client.
  */
+import { createHash } from "node:crypto";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { getDb } from "../../db";
-import { paymentIntents, paymentTransactions } from "../../../drizzle/schema";
+import { paymentIntents, paymentTransactions, refundAttempts } from "../../../drizzle/schema";
 import { getProviderForTenant } from "./providers/registry";
-import type { RefundResult } from "./providers/types";
+import type { RefundResult, VerifyRefundResult } from "./providers/types";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -30,6 +31,86 @@ export interface ProviderRefundOutcome {
   provider?: string;
   refundReference?: string;
   error?: string;
+  /** W38 (PAY-2): attempt ended ambiguously (timeout) — verify before retry. */
+  ambiguous?: boolean;
+  /** W38 (PAY-2): deterministic idempotency key used for the attempt. */
+  idempotencyKey?: string;
+}
+
+/**
+ * W38 (PAY-2): deterministic refund idempotency key. The SAME logical refund
+ * (tenant + order + refund row, or tenant + reference + amount when no
+ * refund row exists) always produces the same key, so retries are
+ * correlatable provider-side and in refund_attempts.
+ */
+export function refundIdempotencyKey(parts: {
+  tenantId: string;
+  orderId?: string;
+  refundId?: string;
+  reference?: string;
+  amountCents: number;
+}): string {
+  const seed = parts.refundId
+    ? `${parts.tenantId}|${parts.orderId ?? ""}|${parts.refundId}`
+    : `${parts.tenantId}|${parts.reference ?? ""}|${Math.round(parts.amountCents)}`;
+  return `ref:${createHash("sha256").update(seed).digest("hex").slice(0, 48)}`;
+}
+
+/** W38 (PAY-2): record one provider refund attempt. Best-effort, never throws. */
+export async function recordRefundAttempt(
+  db: Db,
+  row: {
+    tenantId: string;
+    refundId?: string;
+    orderId?: string;
+    provider: string;
+    providerRef?: string;
+    idempotencyKey: string;
+    amountCents: number;
+    currency: string;
+    status: string;
+    error?: string;
+  },
+): Promise<void> {
+  try {
+    await db.insert(refundAttempts).values({
+      tenantId: row.tenantId,
+      refundId: row.refundId ?? null,
+      orderId: row.orderId ?? null,
+      provider: row.provider,
+      providerRef: row.providerRef ?? null,
+      idempotencyKey: row.idempotencyKey,
+      amountCents: Math.round(row.amountCents),
+      currency: row.currency,
+      status: row.status,
+      error: row.error ?? null,
+    });
+  } catch (err) {
+    console.error("[refunds] refund_attempts insert failed (non-fatal):", (err as Error)?.message);
+  }
+}
+
+/**
+ * W38 (PAY-2) verify-before-retry: ask the provider whether a refund already
+ * exists for the original payment reference. Returns "not_found" when the
+ * provider has no refund capability at all (nothing to verify against —
+ * callers treat that as safe-to-retry only when NO refund-capable provider
+ * exists, which already short-circuits earlier).
+ */
+export async function verifyProviderRefund(opts: {
+  tenantId: string;
+  reference: string;
+  provider?: string;
+}): Promise<VerifyRefundResult> {
+  try {
+    const chain = await getProviderForTenant(opts.tenantId);
+    const verifiable = chain.filter((e) => typeof e.provider.verifyRefund === "function");
+    if (verifiable.length === 0) return { state: "unknown", provider: opts.provider ?? "", error: "no verify-capable provider configured" };
+    const entry = (opts.provider ? verifiable.find((e) => e.provider.id === opts.provider) : undefined) ?? verifiable[0]!;
+    return await entry.provider.verifyRefund!(opts.reference, entry.creds);
+  } catch (err: any) {
+    return { state: "unknown", provider: opts.provider ?? "", error: String(err?.message ?? err) };
+  }
 }
 
 /**
@@ -119,6 +200,9 @@ export async function executeProviderRefundByReference(
     currency: string;
     reason?: string;
     metadata?: Record<string, unknown>;
+    /** W38 (PAY-2): refund row id — part of the deterministic idempotency key. */
+    refundId?: string;
+    orderId?: string;
   },
 ): Promise<ProviderRefundOutcome> {
   try {
@@ -131,6 +215,14 @@ export async function executeProviderRefundByReference(
       return { executed: false, status: "no_provider_refund", error: "no refund-capable provider configured for tenant" };
     }
     const entry = (opts.provider ? refundCapable.find((e) => e.provider.id === opts.provider) : undefined) ?? refundCapable[0]!;
+    // W38 (PAY-2): one deterministic key per logical refund — a retry carries
+    // the SAME key, and every attempt is journaled in refund_attempts.
+    const idempotencyKey = refundIdempotencyKey({
+      tenantId: opts.tenantId,
+      refundId: opts.refundId,
+      reference: opts.reference,
+      amountCents: opts.amountCents,
+    });
     const result: RefundResult = await entry.provider.refund!(
       {
         tenantId: opts.tenantId,
@@ -138,19 +230,51 @@ export async function executeProviderRefundByReference(
         amountCents: opts.amountCents,
         currency: opts.currency,
         reason: opts.reason,
-        metadata: opts.metadata,
+        metadata: { ...(opts.metadata ?? {}), idempotencyKey },
       },
       entry.creds,
     );
+    await recordRefundAttempt(db, {
+      tenantId: opts.tenantId,
+      refundId: opts.refundId,
+      orderId: opts.orderId,
+      provider: result.provider,
+      providerRef: result.refundReference,
+      idempotencyKey,
+      amountCents: opts.amountCents,
+      currency: opts.currency,
+      status: result.ok ? result.status : result.ambiguous ? "ambiguous" : "failed",
+      error: result.error,
+    });
     return {
       executed: result.ok,
       status: result.ok ? result.status : "failed",
       provider: result.provider,
       refundReference: result.refundReference,
       error: result.error,
+      ambiguous: result.ambiguous,
+      idempotencyKey,
     };
   } catch (err: any) {
     return { executed: false, status: "failed", error: String(err?.message ?? err) };
+  }
+}
+
+/**
+ * W38 (PAY-2): resolve the order's original payment and ask the provider
+ * whether a refund already exists for it. Used by the SLA refund sweep
+ * (verify-first) so a provider timeout NEVER triggers a blind retry.
+ */
+export async function verifyOrderRefund(
+  db: Db,
+  opts: { tenantId: string; orderId: string; provider?: string },
+): Promise<VerifyRefundResult> {
+  try {
+    const original = await resolveOriginalPayment(db, opts.tenantId, opts.orderId);
+    if (!original?.reference) return { state: "unknown", provider: opts.provider ?? "", error: "no completed provider payment reference found for order" };
+    return verifyProviderRefund({ tenantId: opts.tenantId, reference: original.reference, provider: opts.provider ?? (original.provider || undefined) });
+  } catch (err: any) {
+    return { state: "unknown", provider: opts.provider ?? "", error: String(err?.message ?? err) };
   }
 }
 
@@ -160,7 +284,7 @@ export async function executeProviderRefundByReference(
  */
 export async function executeProviderRefund(
   db: Db,
-  opts: { tenantId: string; orderId: string; amountCents: number; currency: string; reason?: string },
+  opts: { tenantId: string; orderId: string; amountCents: number; currency: string; reason?: string; refundId?: string },
 ): Promise<ProviderRefundOutcome> {
   try {
     const original = await resolveOriginalPayment(db, opts.tenantId, opts.orderId);
@@ -177,6 +301,8 @@ export async function executeProviderRefund(
       currency: opts.currency,
       reason: opts.reason,
       metadata: { orderId: opts.orderId },
+      refundId: opts.refundId,
+      orderId: opts.orderId,
     });
   } catch (err: any) {
     return { executed: false, status: "failed", error: String(err?.message ?? err) };

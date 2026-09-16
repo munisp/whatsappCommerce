@@ -40,7 +40,7 @@ export const tenantStatusEnum = pgEnum("tenant_status", ["active", "suspended", 
 export const productStatusEnum = pgEnum("product_status", ["active", "inactive", "archived"]);
 export const conversationStatusEnum = pgEnum("conversation_status", ["open", "resolved", "pending", "snoozed", "bot_active", "human_active"]);
 export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]);
-export const paymentStatusEnum = pgEnum("payment_status", ["unpaid", "initiated", "completed", "failed", "refunded", "refund_initiated", "refund_recorded"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["unpaid", "initiated", "completed", "failed", "refunded", "refund_initiated", "refund_recorded", "refund_pending"]);
 export const paymentProviderEnum = pgEnum("payment_provider", ["mojaloop", "stripe", "paystack", "flutterwave", "manual"]);
 export const paymentIntentStatusEnum = pgEnum("payment_intent_status", ["initiated", "pending", "completed", "failed", "cancelled", "refunded"]);
 export const webhookStatusEnum = pgEnum("webhook_status", ["received", "processing", "processed", "failed"]);
@@ -4185,6 +4185,10 @@ export const wholesaleOrders = pgTable("wholesale_orders", {
   paymentMode:    varchar("payment_mode", { length: 16 }).notNull().default("pay_now"), // 'pay_now'|'trade_credit'
   creditLedgerId: varchar("credit_ledger_id", { length: 64 }),     // set on trade-credit draw
   creditScore:    integer("credit_score"),                         // platform score used at credit checkout
+  // W38 ORD-5: true when the listing's stock could NOT be verified at
+  // placement (no catalog product link). Never silent — fulfillment/reporting
+  // must treat these orders as stock-unverified.
+  fulfillmentUntracked: boolean("fulfillment_untracked").notNull().default(false),
   orderId:        varchar("order_id", { length: 64 }),             // linked row in orders (existing rails)
   notes:          text("notes"),
   // === W32 earlypay-fx (Coder C): supplier-configured early-payment terms ===
@@ -4947,6 +4951,47 @@ export const installmentPlans = pgTable("installment_plans", {
 ]);
 export type InstallmentPlan = typeof installmentPlans.$inferSelect;
 export type NewInstallmentPlan = typeof installmentPlans.$inferInsert;
+
+// pot_charges (W38/PAY-4/5/6): durable record of every pay-over-time mandate
+// charge (installment captures `potcap:` and early-settle `potsettle:`),
+// mirroring mandate_charges for the trade-credit path. PoT charges never
+// wrote anywhere durable, so a 'pending' provider charge could never be
+// reconciled and an early-settle was stuck behind its exactly-once claim
+// forever. The sweeper (payOverTime.reconcilePendingPotCharges) re-checks
+// pending rows via the provider's READ-ONLY fetchStatus() and settles
+// exactly once on success (merchant_loan_repayments reference unique index
+// backstop) / releases the dedupe claim on definitive failure.
+// `reference` is the exactly-once charge reference shared with the
+// processed_webhook_events claim. status:
+//   'pending'           — provider accepted/unknown; money NOT settled yet
+//   'success'           — charge confirmed AND settled against the loan
+//   'failed'            — definitive provider failure (claim released)
+//   'settlement_failed' — charge succeeded but local settlement refused;
+//                         the sweep retries settlement (verify-first)
+export const potCharges = pgTable("pot_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  planId: uuid("plan_id").notNull().references(() => installmentPlans.id),
+  loanId: uuid("loan_id"),
+  mandateId: uuid("mandate_id"),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(), // 'installment' | 'settle'
+  seq: integer("seq"), // installment seq; null for early-settle
+  reference: varchar("reference", { length: 160 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  providerStatus: varchar("provider_status", { length: 40 }),
+  rawResponse: jsonb("raw_response"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("pot_charges_reference_uniq").on(t.reference),
+  index("pot_charges_plan_idx").on(t.planId),
+  index("pot_charges_status_idx").on(t.status),
+]);
+export type PotCharge = typeof potCharges.$inferSelect;
+export type NewPotCharge = typeof potCharges.$inferInsert;
 // === END W32 pay-over-time ===
 
 // === W32 recurring-tiers (Coder B) ===
@@ -5194,3 +5239,59 @@ export const telegramIdentities = pgTable("telegram_identities", {
 export type TelegramIdentity = typeof telegramIdentities.$inferSelect;
 export type NewTelegramIdentity = typeof telegramIdentities.$inferInsert;
 // === END W37 telegram ===
+
+// === W38 money-integrity (Coder A) ===
+// PAY-2: every provider refund attempt is recorded with a deterministic
+// idempotency key (sha256 tenant|order|refund|amount) so sweeps retry with
+// verify-first instead of blindly re-issuing refunds after a PSP timeout.
+export const refundAttempts = pgTable("refund_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  refundId: varchar("refund_id", { length: 36 }),
+  orderId: varchar("order_id", { length: 36 }),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  /** Provider-side refund reference once the provider accepts the refund. */
+  providerRef: varchar("provider_ref", { length: 256 }),
+  idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  // processed | pending | failed | ambiguous | verified_existing
+  status: varchar("status", { length: 24 }).notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("refund_attempts_tenant_idx").on(t.tenantId),
+  index("refund_attempts_order_idx").on(t.orderId),
+  index("refund_attempts_refund_idx").on(t.refundId),
+  index("refund_attempts_idem_idx").on(t.idempotencyKey),
+]);
+export type RefundAttempt = typeof refundAttempts.$inferSelect;
+export type NewRefundAttempt = typeof refundAttempts.$inferInsert;
+
+// PAY-3: when a refund executes AFTER the escrow already settled/paid out to
+// the merchant, the platform must not silently double-spend — a clawback
+// debit record is created against the merchant in the SAME transaction as
+// the refund decision so recovery is explicit and auditable.
+export const merchantClawbacks = pgTable("merchant_clawbacks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** One clawback per refund — the unique index is the idempotency backstop. */
+  refundId: varchar("refund_id", { length: 36 }),
+  escrowId: varchar("escrow_id", { length: 36 }),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  reason: text("reason"),
+  // pending | recovered | written_off
+  status: varchar("status", { length: 24 }).notNull().default("pending"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("merchant_clawbacks_tenant_idx").on(t.tenantId),
+  index("merchant_clawbacks_order_idx").on(t.orderId),
+  uniqueIndex("merchant_clawbacks_refund_uniq").on(t.refundId),
+]);
+export type MerchantClawback = typeof merchantClawbacks.$inferSelect;
+export type NewMerchantClawback = typeof merchantClawbacks.$inferInsert;
+// === END W38 money-integrity ===

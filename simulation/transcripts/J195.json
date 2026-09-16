@@ -7,47 +7,47 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348012122661",
-      "wamid": "wamid.sim.000698",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789504189681,
-      "kind": "text",
-      "body": "Hello Chika Remind, you have a new invoice #1 for NGN 5,000.00 (J195 overdue invoice). Pay securely here: https://checkout.paystack.com/sim/AR-1789504189678-A6D5C0B8"
-    },
-    {
-      "dir": "out",
-      "phone": "2348012122661",
-      "wamid": "wamid.sim.000699",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789504189688,
-      "kind": "text",
-      "body": "Friendly reminder Chika Remind: invoice #1 has NGN 5,000.00 outstanding. You can pay here: https://checkout.paystack.com/sim/AR-1789504189678-A6D5C0B8"
-    },
-    {
-      "dir": "out",
-      "phone": "2348012122661",
-      "wamid": "wamid.sim.000700",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789504190548,
-      "kind": "text",
-      "body": "Friendly reminder Chika Remind: invoice #1 has NGN 5,000.00 outstanding. You can pay here: https://checkout.paystack.com/sim/AR-1789504189678-A6D5C0B8"
-    },
-    {
-      "dir": "out",
-      "phone": "2348012122661",
+      "phone": "2348012468953",
       "wamid": "wamid.sim.000701",
       "statuses": [
         "sent"
       ],
-      "at": 1789504190980,
+      "at": 1789585831504,
       "kind": "text",
-      "body": "Friendly reminder Chika Remind: invoice #1 has NGN 5,000.00 outstanding. You can pay here: https://checkout.paystack.com/sim/AR-1789504189678-A6D5C0B8 (final reminder)"
+      "body": "Hello Chika Remind, you have a new invoice #1 for NGN 5,000.00 (J195 overdue invoice). Pay securely here: https://checkout.paystack.com/sim/AR-1789585831499-CE316402"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012468953",
+      "wamid": "wamid.sim.000702",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789585831513,
+      "kind": "text",
+      "body": "Friendly reminder Chika Remind: invoice #1 has NGN 5,000.00 outstanding. You can pay here: https://checkout.paystack.com/sim/AR-1789585831499-CE316402"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012468953",
+      "wamid": "wamid.sim.000703",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789585832373,
+      "kind": "text",
+      "body": "Friendly reminder Chika Remind: invoice #1 has NGN 5,000.00 outstanding. You can pay here: https://checkout.paystack.com/sim/AR-1789585831499-CE316402"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012468953",
+      "wamid": "wamid.sim.000704",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789585832804,
+      "kind": "text",
+      "body": "Friendly reminder Chika Remind: invoice #1 has NGN 5,000.00 outstanding. You can pay here: https://checkout.paystack.com/sim/AR-1789585831499-CE316402 (final reminder)"
     }
   ]
 }

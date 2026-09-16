@@ -157,7 +157,9 @@ export async function handleWholesaleCommand(
             ? "That quantity is below the minimum order quantity (MOQ) — check the listing and try a larger qty."
             : r.reason === "no_tier"
               ? "No price tier covers that quantity — check the listing tiers."
-              : "Sorry, that listing isn't available anymore.";
+              : r.reason === "insufficient_stock"
+                ? `Sorry, the wholesaler doesn't have enough stock for that quantity${r.detail ? ` (${r.detail})` : ""} — try a smaller qty.`
+                : "Sorry, that listing isn't available anymore.";
         return { reply: msg, intent: "browse_wholesale" };
       }
       return {
