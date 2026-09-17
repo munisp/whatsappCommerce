@@ -1404,16 +1404,32 @@ async function startServer() {
       // ── DLQ: log every inbound payload ────────────────────────────────────
       const waEventId = crypto.randomUUID();
       const waMsg0 = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-      await db.insert(waWebhookEvents).values({
+      // === W42 PLT-12 === DLQ-insert failure is no longer log-only: persist
+      // to a durable fallback (Redis list / JSONL file — survives restart)
+      // and raise an ops alert via the existing admin-alerts path.
+      const waDlqRecord = {
         id: waEventId,
         messageId: waMsg0?.id ?? null,
         phoneNumberId: body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id ?? null,
         waPhoneNumber: waMsg0?.from ?? null,
         messageType: waMsg0?.type ?? null,
         rawPayload: body,
-        status: "received",
+        status: "received" as const,
         retryCount: 0,
-      }).catch((e: any) => console.warn("[whatsapp-webhook] DLQ insert failed:", e?.message));
+      };
+      await db.insert(waWebhookEvents).values(waDlqRecord).catch(async (e: any) => {
+        console.warn("[whatsapp-webhook] DLQ insert failed:", e?.message);
+        let backend: "redis" | "file" | "none" = "none";
+        try {
+          const { persistWaWebhookFallback, alertWaDlqInsertFailure } = await import("../services/waWebhookDlqFallback");
+          backend = await persistWaWebhookFallback({ ...waDlqRecord, fallbackReason: String(e?.message ?? e).slice(0, 300) });
+          console.warn(`[whatsapp-webhook] DLQ fallback persisted via ${backend} (id=${waEventId})`);
+          await alertWaDlqInsertFailure(db, waDlqRecord, e, backend);
+        } catch (fbErr: any) {
+          console.error("[whatsapp-webhook] DLQ fallback ALSO failed — event may be lost:", fbErr?.message ?? fbErr);
+        }
+      });
+      // === END W42 PLT-12 ===
       // Acknowledge immediately (Meta requires 200 within 20s)
       res.status(200).json({ received: true });
       // === W40 MSG-2: message_template_status_update events ===

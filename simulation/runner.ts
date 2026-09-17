@@ -393,6 +393,27 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j305-dual-currency-display"),
     import("./journeys/j306-ngn-charge-unchanged"),
     // === W41 Coder C END (merger owns registry count) ===
+    // === W42 pipeline-durability (Coder A): messaging pipeline J307-J311 ===
+    import("./journeys/j307-wa-webhook-dlq-persists"),
+    import("./journeys/j308-publish-fail-never-silent-ack"),
+    import("./journeys/j309-fluvio-side-publish"),
+    import("./journeys/j310-wa-dlq-fallback-durability"),
+    import("./journeys/j311-dead-letter-replay-path"),
+    // === W42 Coder A END (merger owns registry count) ===
+    // === W42 secrets/auth (Coder B): PLT-9/11/13/14 hardening J312-J316 ===
+    import("./journeys/j312-secrets-key-rotation"),
+    import("./journeys/j313-otp-cap-shared"),
+    import("./journeys/j314-cron-jwt-scope"),
+    import("./journeys/j315-cron-jti-replay"),
+    import("./journeys/j316-tls-honest-errors"),
+    // === W42 Coder B END ===
+    // === W42 workflows (Coder C): temporal versioning + PG integration + pool leaks J317-J321 ===
+    import("./journeys/j317-temporal-version-markers"),
+    import("./journeys/j318-pg-integration-honest-skip"),
+    import("./journeys/j319-pool-client-swap-leak"),
+    import("./journeys/j320-pool-queue-bound"),
+    import("./journeys/j321-temporal-stub-removed"),
+    // === W42 Coder C END (merger owns registry count) ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

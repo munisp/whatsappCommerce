@@ -1,7 +1,7 @@
 {
   "id": "J287",
   "title": "installment down payment activates plan + consented token save (UC-1/UC-6)",
-  "feature": "runBuyerCreditWebhookHook: exactly-once activation; consent token saved v1:-encrypted; replay no-op",
+  "feature": "runBuyerCreditWebhookHook: exactly-once activation; consent token saved v2:<kid>-encrypted; replay no-op",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": [
@@ -12,7 +12,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611204016,
+      "at": 1789620279913,
       "kind": "text",
       "body": "✅ Down payment received (₦300.00). Your installment plan is active — ₦600.00 left in 2 weekly payments. We'll charge your saved card on each due date."
     }

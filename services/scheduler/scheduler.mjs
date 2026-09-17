@@ -114,7 +114,13 @@ function b64url(buf) {
   return Buffer.from(buf).toString("base64url");
 }
 
-/** Sign an HS256 cron JWT the platform accepts (server/_core/sdk.ts local path). */
+/**
+ * Sign an HS256 cron JWT the platform accepts (server/_core/sdk.ts local
+ * path). W42 (PLT-13): the token now carries a per-route `scope` claim (the
+ * exact /api/scheduled/* path this token may invoke — the verifier rejects
+ * it for any other route) and a unique `jti` for replay protection (the
+ * platform remembers consumed jtis until exp). Lifetime stays short (300s).
+ */
 export function signCronToken(secret, routePath) {
   const header = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = b64url(JSON.stringify({
@@ -122,6 +128,8 @@ export function signCronToken(secret, routePath) {
     appId: "wacommerce",
     name: "Cron Scheduler",
     task_uid: `scheduler:${routePath}`,
+    scope: routePath,
+    jti: randomBytes(16).toString("hex"),
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 300,
   }));

@@ -1,0 +1,8 @@
+{
+  "id": "J313",
+  "title": "OTP attempt cap shared across replicas",
+  "feature": "PLT-11 distributed OTP/PIN attempt counters",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

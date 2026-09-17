@@ -15,7 +15,7 @@ import type { Journey } from "../runner";
 export const journey: Journey = {
   id: "J287",
   name: "installment down payment activates plan + consented token save (UC-1/UC-6)",
-  feature: "runBuyerCreditWebhookHook: exactly-once activation; consent token saved v1:-encrypted; replay no-op",
+  feature: "runBuyerCreditWebhookHook: exactly-once activation; consent token saved v2:<kid>-encrypted; replay no-op",
   async run(world: World) {
     const schema = await import("../../drizzle/schema");
     const svc = await import("../../server/services/buyerInstallments");
@@ -59,7 +59,7 @@ export const journey: Journey = {
       .where(eq(schema.customerPaymentTokens.id, after!.tokenId!)).limit(1);
     assert(token, "token row exists");
     assert(token!.status === "active", "token active");
-    assert(token!.tokenEnc.startsWith("v1:"), "token stored encrypted v1:");
+    assert(token!.tokenEnc.startsWith("v2:k1:"), "token stored encrypted v2:<kid>");
     assert(!token!.tokenEnc.includes("fake-auth-j287"), "never plaintext at rest");
     assert(secrets.decryptSecret(token!.tokenEnc) === "fake-auth-j287", "decrypts to the PSP handle");
     assertIncludes(token!.displayLabel ?? "", "0001", "masked display label only");

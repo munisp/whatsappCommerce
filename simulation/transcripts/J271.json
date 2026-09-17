@@ -12,9 +12,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611184674,
+      "at": 1789620260584,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-wgms2zrs for 1250.00 NGN on order ord-j271-wgms2zrs. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-9f3msk8d for 1250.00 NGN on order ord-j271-9f3msk8d. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -23,9 +23,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611185112,
+      "at": 1789620261022,
       "kind": "text",
-      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-wgms2zrs for 1250.00 NGN on order ord-j271-wgms2zrs. The order is flagged; review the dispute in your PSP dashboard."
+      "body": "🚨 *Payment dispute* (open): paystack ref w39-j271-9f3msk8d for 1250.00 NGN on order ord-j271-9f3msk8d. The order is flagged; review the dispute in your PSP dashboard."
     },
     {
       "dir": "out",
@@ -34,9 +34,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611185988,
+      "at": 1789620261891,
       "kind": "text",
-      "body": "🚨 *Refund FAILED at provider*: paystack ref w39-j271-wgms2zrs-refund-bad (750.00 NGN) for order ord-j271-wgms2zrs. The customer has NOT been refunded — retry the refund or reconcile manually."
+      "body": "🚨 *Refund FAILED at provider*: paystack ref w39-j271-9f3msk8d-refund-bad (750.00 NGN) for order ord-j271-9f3msk8d. The customer has NOT been refunded — retry the refund or reconcile manually."
     }
   ]
 }

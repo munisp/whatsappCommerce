@@ -8,33 +8,11 @@
     {
       "dir": "out",
       "phone": "2348000000289",
-      "wamid": "wamid.sim.000821",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789611236758,
-      "kind": "text",
-      "body": "⚠️ We couldn't collect installment 1 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
-    },
-    {
-      "dir": "out",
-      "phone": "2348000000289",
-      "wamid": "wamid.sim.000822",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789611236763,
-      "kind": "text",
-      "body": "⚠️ We couldn't collect installment 2 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
-    },
-    {
-      "dir": "out",
-      "phone": "2348000000289",
       "wamid": "wamid.sim.000823",
       "statuses": [
         "sent"
       ],
-      "at": 1789611237203,
+      "at": 1789620319780,
       "kind": "text",
       "body": "⚠️ We couldn't collect installment 1 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
     },
@@ -45,7 +23,29 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611237208,
+      "at": 1789620319786,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 2 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000289",
+      "wamid": "wamid.sim.000825",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789620320230,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 1 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000289",
+      "wamid": "wamid.sim.000826",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789620320236,
       "kind": "text",
       "body": "⚠️ We couldn't collect installment 2 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
     }

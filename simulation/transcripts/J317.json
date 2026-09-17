@@ -1,0 +1,8 @@
+{
+  "id": "J317",
+  "title": "temporal workflow version markers",
+  "feature": "WORKFLOW_VERSIONS + versionGate change markers + worker buildId",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

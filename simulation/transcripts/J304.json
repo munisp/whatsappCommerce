@@ -7,14 +7,14 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348011991269",
+      "phone": "2348014310338",
       "wamid": "wamid.sim.000772",
       "statuses": [
         "sent"
       ],
-      "at": 1789611213136,
+      "at": 1789620289363,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304-0634 (reason: wrong size). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304-B118 (reason: wrong size). The merchant will review it shortly."
     },
     {
       "dir": "out",
@@ -23,20 +23,20 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611213139,
+      "at": 1789620289367,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304-0634 (reason: wrong size). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304-B118 (reason: wrong size). The merchant will review it shortly."
     },
     {
       "dir": "out",
-      "phone": "2348011991269",
+      "phone": "2348014310338",
       "wamid": "wamid.sim.000774",
       "statuses": [
         "sent"
       ],
-      "at": 1789611213187,
+      "at": 1789620289408,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304b-8471 (reason: damaged). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304b-1059 (reason: damaged). The merchant will review it shortly."
     },
     {
       "dir": "out",
@@ -45,20 +45,20 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611213190,
+      "at": 1789620289411,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304b-8471 (reason: damaged). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304b-1059 (reason: damaged). The merchant will review it shortly."
     },
     {
       "dir": "out",
-      "phone": "2348011991269",
+      "phone": "2348014310338",
       "wamid": "wamid.sim.000776",
       "statuses": [
         "sent"
       ],
-      "at": 1789611213220,
+      "at": 1789620289449,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304c-D6E3 (reason: late delivery). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304c-5A22 (reason: late delivery). The merchant will review it shortly."
     },
     {
       "dir": "out",
@@ -67,9 +67,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611213224,
+      "at": 1789620289452,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304c-D6E3 (reason: late delivery). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304c-5A22 (reason: late delivery). The merchant will review it shortly."
     }
   ]
 }

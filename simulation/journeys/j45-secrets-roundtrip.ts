@@ -2,10 +2,10 @@
  * J45 — Secrets at rest: transparent encrypt-on-write / decrypt-on-read.
  *
  * Proves the w10 envelope encryption (server/services/crypto/secrets.ts,
- * AES-256-GCM, v1: prefix) end-to-end against the REAL code paths:
+ * AES-256-GCM; W42: v2:<kid> key-versioned prefix) end-to-end against the REAL code paths:
  *
  * (a) tenant.updateWhatsAppConfig encrypts settings.whatsapp.accessToken —
- *     the DB value starts with "v1:" and contains no plaintext.
+ *     the DB value starts with "v2:k1:" (v2:<kid> envelope) and contains no plaintext.
  * (b) A normal WhatsApp send (waSender.resolveTenantWaCredentials) puts the
  *     DECRYPTED token on the wire — the mock records the raw bearer token.
  * (c) Legacy passthrough: a hand-written plaintext row (pre-w10 shape) still
@@ -46,7 +46,7 @@ function assertLastSendUsedToken(world: World, phone: string, token: string, lab
 export const journey: Journey = {
   id: "J45",
   name: "secrets transparent round-trip",
-  feature: "v1: envelope at rest, decrypted on the wire, legacy passthrough",
+  feature: "v2:<kid> envelope at rest, decrypted on the wire, legacy v1 passthrough",
   async run(world) {
     const { decryptSecret, isEncrypted } = await import("../../server/services/crypto/secrets");
     const waBefore = (await world.tenantSettings()).whatsapp ?? {};
@@ -62,7 +62,7 @@ export const journey: Journey = {
         verifyToken: "sim-verify-token",
       });
       const stored1 = String((await world.tenantSettings()).whatsapp?.accessToken ?? "");
-      assert(stored1.startsWith("v1:"), `(a) stored token is v1:-enveloped (got ${stored1.slice(0, 24)}…)`);
+      assert(stored1.startsWith("v2:k1:"), `(a) stored token is v2:<kid>-enveloped (got ${stored1.slice(0, 24)}…)`);
       assert(!stored1.includes(NEW_TOKEN), "(a) stored token contains no plaintext");
       assert(decryptSecret(stored1) === NEW_TOKEN, "(a) envelope round-trips to the written token");
 
@@ -98,7 +98,7 @@ export const journey: Journey = {
         verifyToken: "sim-verify-token",
       });
       const stored2 = String((await world.tenantSettings()).whatsapp?.accessToken ?? "");
-      assert(stored2.startsWith("v1:"), "(d) rewritten value is v1:-enveloped again");
+      assert(stored2.startsWith("v2:k1:"), "(d) rewritten value is v2:<kid>-enveloped again");
       assert(decryptSecret(stored2) === NEW_TOKEN_2, "(d) re-encrypted value round-trips");
       const phoneD = world.newPhone("s45d");
       await world.grantConsent(phoneD);
@@ -116,7 +116,7 @@ export const journey: Journey = {
       });
       const integ = (await world.tenantSettings()).integrations?.odoo ?? {};
       const storedKey = String(integ.apiKey ?? "");
-      assert(storedKey.startsWith("v1:"), `(e) odoo apiKey stored v1:-enveloped (got ${storedKey.slice(0, 24)}…)`);
+      assert(storedKey.startsWith("v2:k1:"), `(e) odoo apiKey stored v2:<kid>-enveloped (got ${storedKey.slice(0, 24)}…)`);
       assert(!storedKey.includes(ODOO_KEY), "(e) stored apiKey contains no plaintext");
 
       const { resolveIntegrationConfig } = await import("../../server/services/integrations/clients");
@@ -128,7 +128,7 @@ export const journey: Journey = {
       const view = await caller.integrations.getConfig({ tenantId: TENANT_ID, system: "odoo" });
       const maskedKey = view.config?.apiKey;
       assert(
-        typeof maskedKey === "string" && !maskedKey.startsWith("v1:") && !maskedKey.includes(ODOO_KEY)
+        typeof maskedKey === "string" && !maskedKey.startsWith("v2:") && !maskedKey.includes(ODOO_KEY)
           && maskedKey.endsWith(ODOO_KEY.slice(-4)),
         `(e) getConfig masks the apiKey (got ${JSON.stringify(maskedKey)})`,
       );

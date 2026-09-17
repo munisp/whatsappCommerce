@@ -17,9 +17,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 dashmap = "6"
 
-# Production Kafka/Redis (uncomment when deploying)
+# W42 PLT-7: durable DLQ backend — Redis list (sync connection; the async
+# consumer loop can upgrade to tokio-comp when rdkafka lands).
+redis = { version = "0.27" }
+
+# Production Kafka (uncomment when deploying)
 # rdkafka = { version = "0.37", features = ["cmake-build"] }
-# redis = { version = "0.27", features = ["tokio-comp"] }
 # reqwest = { version = "0.12", features = ["json"] }
 
 [dev-dependencies]

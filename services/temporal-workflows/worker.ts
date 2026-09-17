@@ -20,6 +20,15 @@ dotenv.config();
 import { createOtelWorkerInterceptors } from "./otelInterceptors";
 // === END W35 temporal-otel ===
 
+// === W42 temporal-versioning (PLT-10) ===
+// Wire the REAL activity handlers into workflows.ts at module load so the
+// workflow definitions never fall back to a fabricated result (the W36
+// auto-approve stubs were removed). Also pins a deterministic worker build
+// id (Temporal worker versioning) — bump via WORKFLOW_VERSIONS or override
+// with TEMPORAL_WORKER_BUILD_ID per deploy.
+import { WORKER_BUILD_ID, registerActivityHandlers } from "./workflows";
+// === END W42 temporal-versioning ===
+
 const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS ?? "localhost:7233";
 const TEMPORAL_NAMESPACE = process.env.TEMPORAL_NAMESPACE ?? "default";
 const TASK_QUEUE = "whatsapp-commerce";
@@ -175,8 +184,12 @@ export const activities = {
 async function main() {
   console.log(`[temporal-worker] Starting on task queue: ${TASK_QUEUE}`);
   console.log(`[temporal-worker] Temporal address: ${TEMPORAL_ADDRESS}`);
+  console.log(`[temporal-worker] Worker build id: ${WORKER_BUILD_ID}`);
 
   try {
+    // === W42 temporal-versioning (PLT-10) ===
+    registerActivityHandlers(activities);
+    // === END W42 temporal-versioning ===
     const { Worker, NativeConnection } = await import("@temporalio/worker");
     const connection = await NativeConnection.connect({ address: TEMPORAL_ADDRESS });
     const worker = await Worker.create({
@@ -185,6 +198,9 @@ async function main() {
       taskQueue: TASK_QUEUE,
       workflowsPath: new URL("./workflows.js", import.meta.url).pathname,
       activities,
+      // Temporal worker versioning: deployments with a different build id do
+      // not pick up tasks for in-flight executions pinned to an older id.
+      buildId: WORKER_BUILD_ID,
       maxConcurrentActivityTaskExecutions: 10,
       maxConcurrentWorkflowTaskExecutions: 5,
       // === W35 temporal-otel ===

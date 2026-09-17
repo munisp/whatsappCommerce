@@ -70,7 +70,7 @@ export const journey: Journey = {
     const { eq } = await import("drizzle-orm");
     const [raw] = await world.db.select().from(schema.odooConfigs)
       .where(eq(schema.odooConfigs.tenantId, TENANT_ID)).limit(1);
-    assert(raw.apiKey && raw.apiKey.startsWith("v1:"), `api key encrypted at rest (got ${raw.apiKey?.slice(0, 12)}…)`);
+    assert(raw.apiKey && raw.apiKey.startsWith("v2:k1:"), `api key encrypted at rest (got ${raw.apiKey?.slice(0, 12)}…)`);
     assert(!raw.apiKey.includes("super-secret"), "plaintext key never persisted");
 
     // Authz: unauthenticated callers are rejected.
