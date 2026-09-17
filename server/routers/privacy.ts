@@ -13,6 +13,8 @@ import {
   walletTransactions,
 } from "../../drizzle/schema";
 import { writeAuditLog } from "./audit";
+// === W40 TEN-5: KYC artifacts are inside the GDPR/NDPR perimeter ===
+import { collectKycExport, eraseKycArtifactsForTenant } from "../services/kycPrivacy";
 
 // Terminal escrow states — anything else is "open" and blocks erasure.
 const TERMINAL_ESCROW_STATES = ["settled", "refunded", "expired"] as const;
@@ -54,6 +56,7 @@ export const privacyRouter = router({
     // Merchant-side data: the caller's tenant wallet + ledger (if they operate one).
     let wallet: unknown = null;
     let walletTxs: unknown[] = [];
+    let kyc: unknown = null;
     if (user.tenantId) {
       const [w] = await db.select().from(merchantWallets)
         .where(eq(merchantWallets.tenantId, user.tenantId)).limit(1);
@@ -63,6 +66,8 @@ export const privacyRouter = router({
           .where(eq(walletTransactions.walletId, w.id))
           .orderBy(desc(walletTransactions.createdAt));
       }
+      // W40 TEN-5: KYC applications + document metadata/OCR text + liveness.
+      kyc = await collectKycExport(db, user.tenantId);
     }
 
     return {
@@ -74,6 +79,9 @@ export const privacyRouter = router({
       escrowTransactions: myEscrows,
       merchantWallet: wallet,
       walletTransactions: walletTxs,
+      // W40 TEN-5: KYC artifacts (doc metadata + OCR text + liveness).
+      // Document-scan binaries are exported as their storage key reference.
+      kyc,
     };
   }),
 
@@ -151,6 +159,15 @@ export const privacyRouter = router({
         }).where(inArray(customers.id, profileIds));
       }
 
+      // W40 TEN-5: erase KYC artifacts for the caller's tenant — DB-resident
+      // document PII (OCR text, extracted data, liveness analysis, applicant
+      // PII) is scrubbed immediately; S3 scans are deleted now where possible
+      // and otherwise tombstoned for the scheduled kyc-erasure-sweep retry.
+      let kycErasure: Awaited<ReturnType<typeof eraseKycArtifactsForTenant>> | null = null;
+      if (user.tenantId) {
+        kycErasure = await eraseKycArtifactsForTenant(db, user.tenantId);
+      }
+
       const [req] = await db.insert(erasureRequests).values({
         userId, status: "completed", reason: input.reason ?? null, processedAt: new Date(),
       }).returning();
@@ -162,11 +179,22 @@ export const privacyRouter = router({
         entityType: "user",
         entityId: String(userId),
         tenantId: user.tenantId ?? null,
-        summary: `PII anonymized for user ${userId}; ${profileIds.length} customer profile(s) tombstoned; financial rows retained`,
-        after: { erasureRequestId: req.id },
+        summary:
+          `PII anonymized for user ${userId}; ${profileIds.length} customer profile(s) tombstoned; financial rows retained` +
+          (kycErasure
+            ? `; KYC: ${kycErasure.documentsScrubbed} document(s) scrubbed, ${kycErasure.s3Deleted} S3 scan(s) deleted, ${kycErasure.s3Scheduled} scheduled for retry`
+            : ""),
+        after: { erasureRequestId: req.id, kycErasure },
       });
 
-      return { status: "completed" as const, requestId: req.id, anonymizedProfiles: profileIds.length };
+      return {
+        status: "completed" as const,
+        requestId: req.id,
+        anonymizedProfiles: profileIds.length,
+        // W40 TEN-5: honest report — s3Scheduled > 0 means some document
+        // scans await deletion by the scheduled sweep (see kycPrivacy.ts).
+        kycErasure,
+      };
     }),
 
   /** Admin: list all erasure requests (DPO oversight). */

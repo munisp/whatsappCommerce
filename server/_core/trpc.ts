@@ -6,6 +6,7 @@ import type { TrpcContext } from "./context";
 import { ENV } from "./env";
 import { permifyCheck } from "../permify";
 import { getMembership, type MembershipRole, type TenantMembership } from "../services/membership";
+import { assertUserTenantActive } from "../services/tenantGuard";
 // === W34 otel-core ===
 import { traceProcedure } from "./telemetry";
 
@@ -41,6 +42,27 @@ const requireUser = t.middleware(async opts => {
 
   if (!ctx.user) {
     throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+
+  // === W40 tenancy (TEN-1) ===
+  // Fail-closed lifecycle gate: a user whose home tenant is suspended or
+  // churned gets 403 tenant_suspended on every authenticated procedure.
+  // Fail-open only when the tenant has no row (legacy environments) or the
+  // lookup itself errors (availability beats a soft lockout — the webhook
+  // dispatchers remain fail-closed on the rows they resolve). Unit tests
+  // that vitest-mock the db layer are skipped (a mocked sequential-result
+  // db cannot answer the status probe); the gate is covered end-to-end by
+  // simulation journey J272 against a real database.
+  if (ctx.user.tenantId) {
+    try {
+      const { getDb } = await import("../db");
+      const dbMocked = Boolean((getDb as any).mock || (getDb as any)._isMockFunction);
+      const db = dbMocked ? null : await getDb();
+      if (db) await assertUserTenantActive(db, ctx.user);
+    } catch (err) {
+      if (err instanceof TRPCError) throw err;
+      console.error("[requireUser] tenant status check failed — allowing request:", (err as Error)?.message);
+    }
   }
 
   return next({

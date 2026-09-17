@@ -102,6 +102,12 @@ export const SCHEDULE = [
   // === W33 forecast === weekly cash-flow forecast snapshot sweep.
   { path: "/api/scheduled/cashflow-forecast", intervalMin: 10080 },
   // === END W33 forecast ===
+  // === W40 Coder B (TEN-5) === retry tombstoned KYC S3 scan deletions (30 min).
+  { path: "/api/scheduled/kyc-erasure-sweep", intervalMin: 30 },
+  // === END W40 Coder B (TEN-5) ===
+  // === W40 Coder B (TEN-8) === daily KYB periodic sanctions re-screen.
+  { path: "/api/scheduled/kyb-rescreen", intervalMin: 1440 },
+  // === END W40 Coder B (TEN-8) ===
 ];
 
 function b64url(buf) {

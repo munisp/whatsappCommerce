@@ -1,0 +1,245 @@
+{
+  "id": "J284",
+  "title": "failing campaign auto-pauses + alerts (MSG-3)",
+  "feature": "broadcast circuit breaker (>20% failures after >=20 sends)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348011440475",
+      "at": 1789603567034,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011415808",
+      "at": 1789603567035,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011111901",
+      "at": 1789603567037,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019366435",
+      "at": 1789603567038,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013312554",
+      "at": 1789603567040,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019318945",
+      "at": 1789603567041,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013855785",
+      "at": 1789603567043,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016130174",
+      "at": 1789603567044,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017934923",
+      "at": 1789603567045,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016919250",
+      "at": 1789603567046,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014709554",
+      "at": 1789603567048,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018202422",
+      "at": 1789603567049,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019708533",
+      "at": 1789603567050,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012572720",
+      "at": 1789603567052,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Sim User 2720"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015507430",
+      "at": 1789603567053,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014301276",
+      "at": 1789603567054,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012235133",
+      "at": 1789603567056,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018793713",
+      "at": 1789603567057,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015375268",
+      "at": 1789603567058,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018514726",
+      "at": 1789603567059,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014745595",
+      "at": 1789603567061,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013727277",
+      "at": 1789603567062,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016757170",
+      "at": 1789603567063,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018261423",
+      "at": 1789603567065,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012033833",
+      "at": 1789603567066,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "at": 1789603567108,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "🚨 Broadcast campaign \"J284 Breaker Campaign\" was AUTO-PAUSED by the circuit breaker: 25/25 sends failed (100%). 0 sent, 301 not attempted. Check the dashboard, fix the cause (template/quality), then resume the campaign."
+    }
+  ]
+}

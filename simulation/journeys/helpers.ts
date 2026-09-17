@@ -229,6 +229,30 @@ export async function expectTrpcError(p: Promise<any>, code: string, label: stri
 
 export { ADMIN_PHONE, TENANT_ID };
 
+/**
+ * W40 (TEN-11): seed an APPROVED KYB application for a tenant — the state
+ * kyc.review leaves behind after a successful adjudication. Marketplace
+ * seller registration is gated on this.
+ */
+export async function seedApprovedKyb(world: World, tenantId: string, businessName = "Sim Business Ltd"): Promise<string> {
+  const schema = await import("../../drizzle/schema");
+  const id = crypto.randomUUID();
+  const now = new Date();
+  await world.db.insert(schema.kycApplications).values({
+    id,
+    tenantId,
+    type: "kyb",
+    status: "approved",
+    businessName,
+    submittedAt: now,
+    reviewedAt: now,
+    approvedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
 // ── Wave 8: B2B procurement + trade credit ──────────────────────────────────
 
 import {

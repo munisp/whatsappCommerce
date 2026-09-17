@@ -1,0 +1,8 @@
+{
+  "id": "J276",
+  "title": "admin cross-tenant actions audited (TEN-4)",
+  "feature": "writeAuditLog on tenant/kyc/membership/marketplace admin mutations with actor + target tenant + before/after",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

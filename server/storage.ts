@@ -44,6 +44,20 @@ export async function storagePut(
   return { key, url: `/api/storage/${key}` };
 }
 
+/**
+ * W40 TEN-5: delete an object (GDPR erasure of KYC document scans).
+ * Throws when the object store is unreachable so callers can tombstone +
+ * retry via the scheduled kyc-erasure-sweep instead of silently losing the
+ * deletion. Deleting a non-existent key is treated as success (idempotent).
+ */
+export async function storageDelete(relKey: string): Promise<{ key: string }> {
+  await ensureBucket();
+  const client = getClient();
+  const key = relKey.replace(/^\/+/, "");
+  await client.removeObject(ENV.s3Bucket, key);
+  return { key };
+}
+
 export async function storageGet(relKey: string, expiresIn = 3600): Promise<{ key: string; url: string }> {
   await ensureBucket();
   const client = getClient();

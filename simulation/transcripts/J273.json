@@ -1,0 +1,8 @@
+{
+  "id": "J273",
+  "title": "channel identity duplicate claim rejected (TEN-3)",
+  "feature": "updateWhatsAppConfig/tenant.update CONFLICT on duplicate whatsappPhoneNumberId; telegram botUsername CONFLICT; own-number re-save OK",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

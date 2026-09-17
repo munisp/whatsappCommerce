@@ -2,7 +2,7 @@
   "id": "J255",
   "title": "pay over time: pending installment charge reconciles to settled (PAY-4)",
   "feature": "W38 pay-over-time reconciliation",
-  "pass": false,
+  "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []
 }

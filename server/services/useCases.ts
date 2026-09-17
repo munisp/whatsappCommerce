@@ -639,6 +639,42 @@ export async function handleConversationalInbound(opts: {
   // ── 1. NDPR consent gate (first-ever inbound from this phone) ────────────
   const existingConsent = await getConsent(db, tenantId, phone);
   let session = await getSession(tenantId, phone);
+
+  // === W40 MSG-1: STOP honored mid-conversation ===
+  // Always-on opt-out interceptor: runs BEFORE menu/NLP reply generation for
+  // every inbound with an existing consent decision. STOP revokes consent
+  // (audit-logged), gets one suppressed-reply confirmation, and the bot
+  // stays silent on all subsequent inbound until an explicit YES re-opt-in.
+  // First-contact NO (no withdrawnAt) keeps the J1 "can still chat" contract.
+  if (existingConsent) {
+    const { isOptOutKeyword, wasRevoked, WA_STOP_CONFIRMATION, auditConsentWithdrawal } =
+      await import("./optOut");
+    if (isOptOutKeyword(text)) {
+      if (!wasRevoked(existingConsent)) {
+        const { recordChannelRevocation } = await import("./consent");
+        await recordChannelRevocation(db, {
+          tenantId,
+          sessionKey: phone,
+          channel: "whatsapp",
+        });
+        await auditConsentWithdrawal({ tenantId, sessionKey: phone, channel: "whatsapp" });
+      }
+      await clearSession(tenantId, phone);
+      return { handled: true, reply: WA_STOP_CONFIRMATION };
+    }
+    if (wasRevoked(existingConsent)) {
+      // Revoked identity: silent on everything except an explicit re-opt-in.
+      if (parseConsentReply(text) === true) {
+        await recordConsent(db, { tenantId, phone, granted: true });
+        const menu = await renderMenuForCaller(deps);
+        await saveSession({ ...newSession(tenantId, phone), awaitingMenuSelection: true });
+        return { handled: true, reply: `${tr(locale, "consentGranted")}\n\n${menu}` };
+      }
+      return { handled: true }; // bot silent — no reply generated
+    }
+  }
+  // === END W40 MSG-1 ===
+
   if (!existingConsent) {
     const decision = parseConsentReply(text);
     if (decision === null) {

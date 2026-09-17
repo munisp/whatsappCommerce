@@ -12,9 +12,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789585842215,
+      "at": 1789603494298,
       "kind": "text",
-      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref d7d87eb3) and it pays immediately."
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 333a06be) and it pays immediately."
     },
     {
       "dir": "out",
@@ -23,7 +23,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789585842657,
+      "at": 1789603494737,
       "kind": "text",
       "body": "Reminder: your Scheduled payment — scheduled ad-hoc payment of NGN 50000.00 is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it."
     },
@@ -34,9 +34,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789585843099,
+      "at": 1789603495183,
       "kind": "text",
-      "body": "Your scheduled_payment of 50000.00 was approved and executed. Ref d7d87eb3."
+      "body": "Your scheduled_payment of 50000.00 was approved and executed. Ref 333a06be."
     },
     {
       "dir": "out",
@@ -45,9 +45,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789585843556,
+      "at": 1789603495637,
       "kind": "text",
-      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 56c201cd) and it pays immediately."
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref dbb2961e) and it pays immediately."
     }
   ]
 }

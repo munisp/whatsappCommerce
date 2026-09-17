@@ -1,0 +1,8 @@
+{
+  "id": "J278",
+  "title": "Erasure guards block KYC scrubbing too (TEN-5 regression)",
+  "feature": "open escrow blocks requestErasure; KYC artifacts untouched while blocked; erasure completes after escrow settles",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

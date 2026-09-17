@@ -35,11 +35,21 @@ export interface TenantDraft {
   businessName: string;
   registrationNumber: string;
   country: string;
+  /**
+   * W40 TEN-8: primary UBO (ultimate beneficial owner / director). When
+   * present, the UBO name is screened through the SAME fail-closed sanctions
+   * path as the business name: a UBO hit forces `reject`, a degraded UBO
+   * screen forces `manual_review`. pepDeclared is capture-only (advisory) —
+   * the screening provider capability is unchanged (no PEP list vendor).
+   */
+  ubo?: { name: string; dob?: string | null; pepDeclared?: boolean } | null;
 }
 
 export interface KybCheckResult {
   registry: RegistryVerifyResult;
   sanctions: SanctionsScreenResult;
+  /** W40 TEN-8: UBO sanctions screen (null when no UBO was supplied). */
+  uboSanctions?: SanctionsScreenResult | null;
   recommendation: KybRecommendation;
   reasons: string[];
 }
@@ -61,10 +71,29 @@ export async function runKybChecks(
     deps,
   );
 
+  // W40 TEN-8: screen the UBO through the same fail-closed path.
+  let uboSanctions: SanctionsScreenResult | null = null;
+  if (tenantDraft.ubo?.name) {
+    uboSanctions = await screenEntity({ name: tenantDraft.ubo.name }, deps);
+  }
+
   const reasons: string[] = [];
   let recommendation: KybRecommendation;
 
-  if (sanctions.degraded) {
+  // W40 TEN-8: UBO outcomes take the same fail-closed precedence as the
+  // business-name screen (hit → reject; degraded → manual_review).
+  if (uboSanctions && !uboSanctions.degraded && uboSanctions.hit) {
+    recommendation = "reject";
+    reasons.push(
+      `UBO sanctions hit (${tenantDraft.ubo?.name}): ${uboSanctions.matches
+        .slice(0, 3)
+        .map((m) => `${m.name} (${m.list}, score ${m.score.toFixed(2)})`)
+        .join("; ")}`,
+    );
+  } else if (uboSanctions?.degraded) {
+    recommendation = "manual_review";
+    reasons.push("UBO sanctions screening degraded (list unavailable) — manual review required");
+  } else if (sanctions.degraded) {
     recommendation = "manual_review";
     reasons.push("sanctions screening degraded (list unavailable) — manual review required");
   } else if (sanctions.hit) {
@@ -96,7 +125,12 @@ export async function runKybChecks(
         recommendation = "manual_review";
         reasons.push(`registry provider ${registry.provider} unavailable`);
     }
+    // W40 TEN-8: clean UBO screen noted for reviewer transparency.
+    if (uboSanctions) reasons.push(`UBO ${tenantDraft.ubo?.name} screened — no sanctions hits`);
+  }
+  if (tenantDraft.ubo?.pepDeclared) {
+    reasons.push("PEP declared by applicant — enhanced due diligence advised (capture-only; no PEP list vendor configured)");
   }
 
-  return { registry, sanctions, recommendation, reasons };
+  return { registry, sanctions, uboSanctions, recommendation, reasons };
 }

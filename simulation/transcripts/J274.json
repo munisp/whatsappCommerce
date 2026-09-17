@@ -1,0 +1,8 @@
+{
+  "id": "J274",
+  "title": "channel hijack blocked by 0123 unique indexes (TEN-3)",
+  "feature": "partial unique index on whatsappPhoneNumberId + telegram botUsername expression index; NULLs unaffected",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

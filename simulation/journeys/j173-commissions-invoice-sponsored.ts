@@ -14,7 +14,7 @@ import type { Journey } from "../runner";
 import crypto from "node:crypto";
 import {
   adminCaller, createChatOrderViaNlp, expectTrpcError,
-  publicCaller, tenantCaller,
+  publicCaller, seedApprovedKyb, tenantCaller,
 } from "./helpers";
 
 export const journey: Journey = {
@@ -30,7 +30,9 @@ export const journey: Journey = {
     await world.grantConsent(phone);
 
     // ── 1. Server-derived commission ─────────────────────────────────────
-    const { id: sellerId } = await pub.marketplace.registerSeller({
+    // W40 (TEN-11): registration is authenticated + own-tenant + KYB-gated.
+    await seedApprovedKyb(world, TENANT_ID, "J173 Seller");
+    const { id: sellerId } = await tenant.marketplace.registerSeller({
       tenantId: TENANT_ID, businessName: "J173 Seller", ownerPhone: phone,
     });
     await admin.marketplace.updateSellerStatus({ id: sellerId, status: "active" });

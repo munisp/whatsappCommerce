@@ -1,0 +1,36 @@
+{
+  "id": "J272",
+  "title": "suspended tenant enforcement (TEN-1)",
+  "feature": "tRPC 403 tenant_suspended + WA inbound dropped + reactivation restores",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017585674",
+      "profileName": "Sim User 5674",
+      "inboundId": "wamid.sim.in.text.00446",
+      "at": 1789603551679,
+      "kind": "text",
+      "text": "hello"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015133184",
+      "profileName": "Sim User 3184",
+      "inboundId": "wamid.sim.in.text.00447",
+      "at": 1789603552229,
+      "kind": "text",
+      "text": "hello"
+    },
+    {
+      "dir": "in",
+      "phone": "2348018864022",
+      "profileName": "Sim User 4022",
+      "inboundId": "wamid.sim.in.text.00448",
+      "at": 1789603552779,
+      "kind": "text",
+      "text": "hello"
+    }
+  ]
+}

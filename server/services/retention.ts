@@ -13,6 +13,7 @@ import {
   channelMessages,
   conversations,
   customers,
+  kycDocuments,
   orders,
   retentionPolicies,
 } from "../../drizzle/schema";
@@ -25,6 +26,11 @@ export const PURGEABLE_ENTITIES = {
   conversations: { table: conversations, tenantCol: conversations.tenantId, createdCol: conversations.createdAt },
   customers: { table: customers, tenantCol: customers.tenantId, createdCol: customers.createdAt },
   audit_logs: { table: auditLogs, tenantCol: auditLogs.tenantId, createdCol: auditLogs.createdAt },
+  // W40 TEN-5: KYC document rows are purgeable under a per-tenant retention
+  // policy (AML carve-out: set retention_days per jurisdiction; legal_hold
+  // always wins). Purge deletes the DB row; the S3 scan is deleted/tombstoned
+  // via the erasure path (kycPrivacy) — purge is retention, not erasure.
+  kyc_documents: { table: kycDocuments, tenantCol: kycDocuments.tenantId, createdCol: kycDocuments.createdAt },
 } as const;
 
 export type PurgeableEntity = keyof typeof PURGEABLE_ENTITIES;

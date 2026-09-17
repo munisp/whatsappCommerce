@@ -2,7 +2,7 @@
   "id": "J260",
   "title": "paid-cancel restocks exactly once (updateStatus path)",
   "feature": "ORD-4 unified cancelOrder via updateStatus + ORD-2 tenant predicate",
-  "pass": false,
+  "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []
 }

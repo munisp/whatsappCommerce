@@ -26,6 +26,7 @@ import { sdk } from "./sdk";
 import { getDb } from "../db";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { runInventorySyncHeartbeat } from "../services/inventorySync";
+import { isTenantInactive, logSuspendedTenantDrop, getTenantStatus } from "../services/tenantGuard";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
@@ -585,6 +586,49 @@ async function startServer() {
     } catch (e: any) {
       console.error("[wa-send-retry] cron failed:", e?.message);
       return res.status(500).json({ error: e?.message ?? "wa-send-retry failed" });
+    }
+  });
+
+  // === W40 TEN-5 (Coder B) ===
+  // ── Scheduled: KYC erasure sweep — retry tombstoned S3 scan deletions ───
+  // Documents tombstoned at GDPR erasure time (erasureScheduledAt set,
+  // erasedAt null because the object store was unreachable) are retried
+  // here until the S3 object is confirmed deleted.
+  // After deploy: manus-heartbeat create --name kyc-erasure-sweep --cron "0 */30 * * * *" --path /api/scheduled/kyc-erasure-sweep
+  app.post("/api/scheduled/kyc-erasure-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runKycErasureSweep } = await import("../services/kycPrivacy");
+      const run = await runKycErasureSweep(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[kyc-erasure-sweep] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "kyc-erasure-sweep failed" });
+    }
+  });
+
+  // === W40 TEN-8 (Coder B) ===
+  // ── Scheduled: KYB periodic re-screen (daily) ──────────────────────────
+  // Re-screens every non-terminal KYB application (business name + UBO)
+  // through the SAME fail-closed screening path used at review time;
+  // journals lastScreenedAt; a NEW reject moves the application to
+  // under_review + audit row (never silently leaves a hit approved).
+  // After deploy: manus-heartbeat create --name kyb-rescreen --cron "0 0 3 * * *" --path /api/scheduled/kyb-rescreen
+  app.post("/api/scheduled/kyb-rescreen", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runKybRescreenSweep } = await import("../services/kycPrivacy");
+      const run = await runKybRescreenSweep(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[kyb-rescreen] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "kyb-rescreen failed" });
     }
   });
 
@@ -1357,6 +1401,22 @@ async function startServer() {
       }).catch((e: any) => console.warn("[whatsapp-webhook] DLQ insert failed:", e?.message));
       // Acknowledge immediately (Meta requires 200 within 20s)
       res.status(200).json({ received: true });
+      // === W40 MSG-2: message_template_status_update events ===
+      // Template lifecycle events (REJECTED/PAUSED/DISABLED/APPROVED) arrive
+      // on this same endpoint with field="message_template_status_update" and
+      // were previously dropped by the bare 200. Persist the new status
+      // (template store + settings cache) and alert the tenant admin on dead
+      // templates; campaign sends gate on it via assertTemplateSendable.
+      try {
+        const { handleTemplateStatusWebhook } = await import("../services/templateStatus");
+        const tsr = await handleTemplateStatusWebhook(db, body);
+        if (tsr.handled > 0) {
+          console.log(`[whatsapp-webhook] template-status events: ${JSON.stringify(tsr)}`);
+        }
+      } catch (e: any) {
+        console.error("[whatsapp-webhook] template-status handling failed:", e?.message);
+      }
+      // === END W40 MSG-2 ===
       // Parse the Meta webhook payload
       const entry = body?.entry?.[0];
       const changes = entry?.changes?.[0];
@@ -1389,6 +1449,20 @@ async function startServer() {
         const [tenant] = await db.select().from(tenants)
           .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
           .limit(1).catch(() => [null as any]);
+        // === W40 tenancy (TEN-1): suspended/churned tenants get NO inbound
+        // processing — drop with a structured log, before the dedupe claim,
+        // metering, contact provisioning or NLP dispatch. The 200 ack was
+        // already sent, so Meta will not retry.
+        if (tenant && isTenantInactive((tenant as any).status)) {
+          logSuspendedTenantDrop("whatsapp", {
+            tenantId: (tenant as any).id,
+            tenantStatus: (tenant as any).status,
+            phoneNumberId,
+            wamid: msg.id ?? null,
+            from: waPhoneNumber,
+          });
+          continue;
+        }
         const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
         // ── Platform ops: webhook idempotency (insert-first claim) ──────────
         // Meta retries deliveries until a 200; the wamid is the ledger PK, so
@@ -2085,6 +2159,14 @@ async function startServer() {
       // configured — no configuration oracle for unauthenticated callers.
       const cfg = await getTelegramConfig(db, tenantId);
       if (!cfg || !cfg.enabled || !cfg.webhookSecret || !cfg.botToken) {
+        return res.status(404).json({ error: "not-found" });
+      }
+      // === W40 tenancy (TEN-1): suspended/churned tenants fail closed with
+      // the same bare 404 as unconfigured tenants (no status oracle); the
+      // drop is logged structured for ops.
+      const tgTenantStatus = await getTenantStatus(db, tenantId);
+      if (tgTenantStatus !== null && isTenantInactive(tgTenantStatus)) {
+        logSuspendedTenantDrop("telegram", { tenantId, tenantStatus: tgTenantStatus });
         return res.status(404).json({ error: "not-found" });
       }
       const presented = String(req.headers["x-telegram-bot-api-secret-token"] ?? "");
@@ -3287,10 +3369,12 @@ async function startServer() {
       const db = await getDb();
       if (!db) return res.status(503).json({ error: "db-unavailable" });
       const { refreshWaQuality } = await import("../services/waQuality");
+      // W40 tenancy (TEN-1): suspended/churned tenants are skipped — service
+      // paths acting "as tenant" must not run for inactive tenants.
       const rows = await db
         .select({ id: tenants.id })
         .from(tenants)
-        .where(sql`${tenants.whatsappPhoneNumberId} IS NOT NULL`);
+        .where(sql`${tenants.whatsappPhoneNumberId} IS NOT NULL AND ${tenants.status} NOT IN ('suspended','churned')`);
       let refreshed = 0;
       for (const row of rows) {
         try {
@@ -3594,6 +3678,17 @@ async function startServer() {
               const [tenant] = await db.select().from(tenants)
                 .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
                 .limit(1).catch(() => [null as any]);
+              // W40 tenancy (TEN-1): never re-process queued payloads for a
+              // suspended/churned tenant — the retry path acts "as tenant".
+              if (tenant && isTenantInactive((tenant as any).status)) {
+                logSuspendedTenantDrop("whatsapp", {
+                  path: "webhook-retry",
+                  tenantId: (tenant as any).id,
+                  tenantStatus: (tenant as any).status,
+                  wamid: msg.id ?? null,
+                });
+                continue;
+              }
               const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
               const { appRouter: ar } = await import("../routers");
               const caller = ar.createCaller({ user: null } as any);

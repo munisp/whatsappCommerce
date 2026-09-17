@@ -474,10 +474,28 @@ export async function processTelegramUpdate(
         // STOP as plain text revokes, same as /stop (Telegram does STOP
         // correctly from day one). parseConsentReply already classifies
         // "stop" as a denial; handle it explicitly for the revocation audit.
-        if (/^\s*stop\s*$/i.test(ev.text)) {
+        // W40 MSG-1 parity: the shared canonical keyword set (stop/unsubscribe/
+        // opt-out/quit/end) revokes — same as WhatsApp.
+        const { isOptOutKeyword, wasRevoked, auditConsentWithdrawal } = await import("./optOut");
+        if (isOptOutKeyword(ev.text)) {
+          const existing = await getChannelConsent(db, cfg.tenantId, sessionKey, CONSENT_CHANNEL_TELEGRAM);
           await recordChannelRevocation(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
+          if (!wasRevoked(existing)) {
+            await auditConsentWithdrawal({ tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
+          }
           await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_STOP_REPLY);
           return;
+        }
+        // W40 MSG-1 parity: a revoked identity stays silent on ALL subsequent
+        // inbound until an explicit re-opt-in (YES-style keyword via the same
+        // parseConsentReply classifier). Matches the WhatsApp interceptor.
+        const tgConsent = await getChannelConsent(db, cfg.tenantId, sessionKey, CONSENT_CHANNEL_TELEGRAM);
+        if (wasRevoked(tgConsent)) {
+          if (parseConsentReply(ev.text) === true) {
+            await recordChannelOptIn(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
+            await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_OPT_IN_REPLY);
+          }
+          return; // bot silent — no NLP dispatch, no reply
         }
         if (await consentGate(db, cfg, ev, ev.text)) return;
         await dispatchToNlp(db, cfg, ev, ev.text);

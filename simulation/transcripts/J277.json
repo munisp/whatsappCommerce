@@ -1,0 +1,8 @@
+{
+  "id": "J277",
+  "title": "KYC artifacts in GDPR export + erasure (TEN-5)",
+  "feature": "exportMyData includes KYC docs/OCR/liveness; requestErasure scrubs KYC PII + tombstones S3 scans for the erasure sweep",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}
