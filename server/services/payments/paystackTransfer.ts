@@ -10,7 +10,13 @@
  * to finalize the transfer with a one-time code sent to the account owner —
  * that can't be completed here, so callers must handle the "otp" status
  * distinctly from "success"/"pending" rather than assuming the payout landed.
+ *
+ * === W45 money-intents (PAY-23) === amounts are converted to provider minor
+ * units via currencyExponent.ts (ISO-4217): XOF/XAF zero-decimal corridors
+ * are NOT multiplied by 100.
  */
+
+import { toMinorUnits } from "./currencyExponent";
 
 const PAYSTACK_BASE = "https://api.paystack.co";
 
@@ -211,7 +217,8 @@ export async function verifyTransfer(secretKey: string, reference: string): Prom
 export async function initiateTransfer(opts: InitiateTransferOpts): Promise<InitiateTransferResult> {
   const data = await paystackFetch("/transfer", opts.secretKey, {
     source: "balance",
-    amount: Math.round(opts.amountMajor * 100),
+    // W45 (PAY-23): ISO-4217 exponent-aware minor units (XOF is 0-decimal).
+    amount: toMinorUnits(opts.amountMajor, opts.currency ?? "NGN"),
     recipient: opts.recipientCode,
     reason: opts.reason,
     reference: opts.reference,

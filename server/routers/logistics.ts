@@ -69,6 +69,47 @@ export function verifyDeliveryPin(
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+// === W45 orders-p0 (PLT-12) ===
+/**
+ * Atomic daily PIN-attempt cap: ONE guarded UPDATE increments the attempt
+ * counter only while below the limit (or resets it on day rollover). No row
+ * returned ⇒ the cap is exhausted — the check-then-write race on mutable
+ * metadata JSON (where two concurrent attempts both pass a stale count) is
+ * gone. Returns true when the attempt was counted (caller then verifies).
+ */
+export async function claimPinAttempt(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  shipmentId: string,
+  limit: number = MAX_PIN_ATTEMPTS_PER_DAY,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const day = now.toISOString().slice(0, 10);
+  const rows = await db.execute(sql`
+    UPDATE logistics_shipments
+    SET metadata = jsonb_set(
+          COALESCE(metadata, '{}'::jsonb),
+          '{pinAttempts}',
+          jsonb_build_object(
+            'date', ${day}::text,
+            'count', CASE
+              WHEN COALESCE(metadata, '{}'::jsonb)->'pinAttempts'->>'date' = ${day}::text
+                THEN (COALESCE(metadata, '{}'::jsonb)->'pinAttempts'->>'count')::int + 1
+              ELSE 1
+            END
+          )
+        ),
+        updated_at = now()
+    WHERE id = ${shipmentId}
+      AND (
+        COALESCE(metadata, '{}'::jsonb)->'pinAttempts'->>'date' IS DISTINCT FROM ${day}::text
+        OR (COALESCE(metadata, '{}'::jsonb)->'pinAttempts'->>'count')::int < ${limit}
+      )
+    RETURNING id
+  `) as unknown as Array<{ id: string }>;
+  return rows.length > 0;
+}
+// === END W45 orders-p0 ===
+
 /**
  * Daily attempt cap evaluation (pure). `meta` is the shipment's metadata
  * JSON; returns the updated counter or null when the cap is exhausted.
@@ -130,17 +171,16 @@ export async function assertDeliveryPinAllowed(opts: {
 }): Promise<void> {
   if (!opts.shipment.deliveryPin) return;
   if (opts.isAdmin) return;
-  const attempt = evaluatePinAttempt(opts.shipment.metadata);
-  if (!attempt.allowed) {
+  // W45 (PLT-12): atomic claim of the attempt — the counter is incremented
+  // by a single guarded UPDATE (cap enforced in the WHERE clause), so
+  // concurrent attempts can no longer both pass a stale read.
+  const claimed = await claimPinAttempt(opts.db, opts.shipment.id);
+  if (!claimed) {
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
       message: `Too many PIN attempts today (max ${MAX_PIN_ATTEMPTS_PER_DAY}/day). Ask the buyer to confirm via their own device.`,
     });
   }
-  // Persist the attempt BEFORE verifying so failed guesses count.
-  await opts.db.update(logisticsShipments)
-    .set({ metadata: attempt.nextMeta as any, updatedAt: new Date() })
-    .where(eq(logisticsShipments.id, opts.shipment.id));
   if (!verifyDeliveryPin(opts.shipment.deliveryPin, opts.providedPin ?? null, opts.shipment.id)) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -252,6 +292,138 @@ async function shipbubbleRequest(
   }
   return res.json();
 }
+
+// === W45 orders-p0 (ORD-7) ===
+/**
+ * Failed/returned delivery consequences. Before W45 the `failed` branch of
+ * simulateDelivery only stamped failedAt — no inventory or money consequence
+ * and the buyer-protection clock kept running toward auto-release.
+ *
+ * Every failure now:
+ *   1. PAUSES escrow auto-release + the buyer-protection clock
+ *      (pauseEscrowProtection → buyerConfirmDeadline NULL, SLA scan skips it);
+ *   2. Opens a persisted redelivery task on the shipment metadata +
+ *      notifies the tenant admin (the buyer gets the existing status push);
+ *   3. TERMINAL RTS (`returned`): restocks the committed items exactly once
+ *      (cancelOrder — snapshot restock + committed-reservation release +
+ *      stock_adjustments audit) and runs the escrow refund path
+ *      (refundEscrowAtomic + best-effort provider refund; a failed provider
+ *      leg flags the escrow for the refund sweep so it can NEVER auto-release
+ *      to the merchant).
+ */
+export async function handleDeliveryFailure(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  shipment: { id: string; orderId: string; tenantId: string; escrowTxId: string | null; metadata?: unknown },
+  opts: { terminal: boolean; reason: string; actorId?: string | null },
+): Promise<{ escrowPaused: boolean; redeliveryTask: boolean; restocked: boolean; refundInitiated: boolean }> {
+  const now = new Date();
+  const result = { escrowPaused: false, redeliveryTask: false, restocked: false, refundInitiated: false };
+
+  // 1) Pause escrow auto-release + buyer-protection clock.
+  try {
+    const { pauseEscrowProtection } = await import("../services/escrowLifecycle");
+    const paused = await pauseEscrowProtection(db, {
+      ...(shipment.escrowTxId ? { escrowTxId: shipment.escrowTxId } : { orderId: shipment.orderId }),
+      reason: opts.reason,
+      at: now,
+    });
+    result.escrowPaused = paused.paused.length > 0;
+  } catch (e: any) {
+    console.error("[logistics] escrow protection pause failed:", e?.message);
+  }
+
+  if (opts.terminal) {
+    // 3) Terminal RTS: restock committed items + refund path.
+    const [order] = await db.select().from(orders).where(eq(orders.id, shipment.orderId)).limit(1);
+    if (order && order.status !== "cancelled" && order.status !== "refunded" && order.status !== "delivered") {
+      const { cancelOrder } = await import("../services/orderCancel");
+      await cancelOrder(db, order as any, {
+        notes: `Returned to sender: ${opts.reason}`,
+      });
+      result.restocked = true;
+
+      // Refund path (mirrors the W30 orderCrud cancel leg): atomic escrow
+      // refund + provider refund; on provider failure flag for the sweep.
+      const { inArray } = await import("drizzle-orm");
+      const [activeEscrow] = await db.select().from(escrowTransactions)
+        .where(and(
+          eq(escrowTransactions.orderId, shipment.orderId),
+          inArray(escrowTransactions.state, ["payment_received", "escrow_held", "delivery_confirmed", "dispute_raised"]),
+        )).limit(1);
+      if (activeEscrow) {
+        const { refundEscrowAtomic } = await import("./escrow");
+        const refund = await refundEscrowAtomic(db, activeEscrow.id, {
+          reason: `Delivery failed — returned to sender: ${opts.reason}`,
+        }).catch((e: unknown) => ({ success: false as const, error: (e as Error)?.message ?? String(e) }));
+        if (refund.success) {
+          result.refundInitiated = true;
+          try {
+            const { executeProviderRefund, honestOrderRefundStatus } = await import("../services/payments/refunds");
+            const outcome = await executeProviderRefund(db, {
+              tenantId: shipment.tenantId,
+              orderId: shipment.orderId,
+              amountCents: Math.round((refund as any).refundedAmount * 100),
+              currency: (order as any).currency ?? "NGN",
+              reason: `Returned to sender: ${opts.reason}`,
+            });
+            await db.update(orders).set({ paymentStatus: honestOrderRefundStatus(outcome), updatedAt: new Date() })
+              .where(eq(orders.id, shipment.orderId));
+            if (outcome.status === "failed") {
+              const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
+              await db.update(escrowTransactions).set({
+                metadata: { ...meta, refundSweepRequired: true, providerRefundOnly: true, providerRefundFailed: true, providerRefundError: outcome.error ?? "unknown" },
+                updatedAt: new Date(),
+              }).where(eq(escrowTransactions.id, activeEscrow.id));
+              console.error(`[logistics] RTS refund: provider refund FAILED for order ${shipment.orderId} — escrow flagged for refund sweep`);
+            }
+          } catch (e: any) {
+            console.error("[logistics] RTS provider refund leg failed:", e?.message);
+            const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
+            await db.update(escrowTransactions).set({
+              metadata: { ...meta, refundSweepRequired: true, refundSweepReason: `RTS provider refund leg error: ${e?.message}` },
+              updatedAt: new Date(),
+            }).where(eq(escrowTransactions.id, activeEscrow.id));
+          }
+        } else {
+          const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
+          await db.update(escrowTransactions).set({
+            metadata: { ...meta, refundSweepRequired: true, refundSweepReason: `RTS refund failed: ${"error" in refund ? refund.error : "unknown"}` },
+            updatedAt: new Date(),
+          }).where(eq(escrowTransactions.id, activeEscrow.id));
+        }
+      }
+    }
+  } else {
+    // 2) Non-terminal failure: open a redelivery task on the shipment and
+    //    alert the tenant admin to reschedule.
+    const meta = (shipment.metadata && typeof shipment.metadata === "object" ? shipment.metadata : {}) as Record<string, unknown>;
+    await db.update(logisticsShipments).set({
+      metadata: {
+        ...meta,
+        redeliveryTask: {
+          status: "open",
+          reason: opts.reason,
+          createdAt: now.toISOString(),
+          createdBy: opts.actorId ?? null,
+        },
+      },
+      updatedAt: now,
+    }).where(eq(logisticsShipments.id, shipment.id));
+    result.redeliveryTask = true;
+    try {
+      const { notifyTenantAdminWhatsApp } = await import("../services/adminAlerts");
+      await notifyTenantAdminWhatsApp(
+        db,
+        shipment.tenantId,
+        `⚠️ Delivery failed for order ${shipment.orderId.slice(0, 8)} (${opts.reason}). A redelivery task is open — reschedule with the buyer or mark the shipment returned to refund.`,
+      );
+    } catch (e: any) {
+      console.warn("[logistics] admin redelivery alert failed:", e?.message);
+    }
+  }
+  return result;
+}
+// === END W45 orders-p0 ===
 
 // ─── Logistics Router ─────────────────────────────────────────────────────────
 export const logisticsRouter = router({
@@ -514,7 +686,7 @@ export const logisticsRouter = router({
   simulateDelivery: protectedProcedure
     .input(z.object({
       shipmentId: z.string(),
-      status: z.enum(["picked_up", "in_transit", "out_for_delivery", "delivered", "failed"]).default("delivered"),
+      status: z.enum(["picked_up", "in_transit", "out_for_delivery", "delivered", "failed", "returned"]).default("delivered"),
       pin: z.string().max(8).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -553,6 +725,7 @@ export const logisticsRouter = router({
         out_for_delivery: { outForDeliveryAt: now },
         delivered: { deliveredAt: now },
         failed: { failedAt: now },
+        returned: { failedAt: shipment.failedAt ?? now },
       };
 
       await db.update(logisticsShipments).set({
@@ -575,6 +748,19 @@ export const logisticsRouter = router({
         await db.update(orders).set({ status: "delivered", updatedAt: now })
           .where(eq(orders.id, shipment.orderId));
       }
+
+      // === W45 orders-p0 (ORD-7) ===
+      // failed/returned now carry inventory + money consequences:
+      // escrow auto-release paused, redelivery task opened (non-terminal),
+      // terminal RTS restocks committed items and runs the refund path.
+      if (input.status === "failed" || input.status === "returned") {
+        await handleDeliveryFailure(db, shipment, {
+          terminal: input.status === "returned",
+          reason: `Shipment marked ${input.status} (simulate)`,
+          actorId: ctx.user?.id != null ? String(ctx.user.id) : null,
+        });
+      }
+      // === END W45 orders-p0 ===
 
       const [updated] = await db.select().from(logisticsShipments).where(eq(logisticsShipments.id, input.shipmentId));
 

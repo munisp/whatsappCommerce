@@ -702,6 +702,20 @@ export async function finalizeWalletWithdrawal(
   return { ok: true, action: "refunded" };
 }
 
+// === W45 orders-p0 (PLT-13): call-time SSRF gate for the PSSP bank client ===
+// Every outbound call to the configured bank API MUST resolve its base URL
+// through this helper (never read escrowConfig.bankApiBaseUrl raw): the
+// stored value is re-validated against ssrfGuard at CALL time so a config
+// row written before this guard existed — or tampered with out-of-band —
+// cannot redirect money instructions to internal endpoints. Throws on
+// unsafe/unset URLs (fail-closed).
+export async function assertSafeBankApiBaseUrl(raw: string | null | undefined): Promise<URL> {
+  if (!raw) throw new Error("bankApiBaseUrl is not configured");
+  const { assertSafeOutboundUrl } = await import("../services/ssrfGuard");
+  return assertSafeOutboundUrl(raw, "bankApiBaseUrl");
+}
+// === END W45 orders-p0 ===
+
 // ─── Escrow Router ────────────────────────────────────────────────────────────
 export const escrowRouter = router({
 
@@ -717,7 +731,13 @@ export const escrowRouter = router({
       custodyMode: z.enum(["pssp", "psp"]).optional(),
       bankPartnerName: z.string().optional(),
       bankPartnerCode: z.string().optional(),
-      bankApiBaseUrl: z.string().optional(),
+      // === W45 orders-p0 (PLT-13): bankApiBaseUrl was accepted with ZERO
+      // validation — an admin (or a compromised admin session) could point
+      // the PSSP bank client at an internal/metadata endpoint (SSRF). Now:
+      // a syntactically valid URL at the schema layer + ssrfGuard at write
+      // time; call time re-validates via assertSafeBankApiBaseUrl (below). ===
+      bankApiBaseUrl: z.string().url().optional(),
+      // === END W45 orders-p0 ===
       bankEscrowAccountNumber: z.string().optional(),
       shipbubbleApiKey: z.string().optional(),
       shipbubbleWebhookSecret: z.string().optional(),
@@ -728,9 +748,37 @@ export const escrowRouter = router({
       floatYieldRate: z.string().optional(),
       minScanConfidence: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // === W45 orders-p0 (PLT-13): write-time SSRF gate + audit trail ===
+      if (input.bankApiBaseUrl !== undefined) {
+        const { assertSafeOutboundUrl } = await import("../services/ssrfGuard");
+        try {
+          assertSafeOutboundUrl(input.bankApiBaseUrl, "bankApiBaseUrl");
+        } catch (e: any) {
+          await writeAuditLog({
+            actorId: String(ctx.user?.id ?? "unknown"),
+            actorRole: ctx.user?.role,
+            action: "escrow.setConfig.bankApiBaseUrl.rejected",
+            entityType: "escrow_config",
+            entityId: "1",
+            summary: `Rejected unsafe bankApiBaseUrl: ${e?.message ?? "ssrfGuard refusal"}`,
+            after: { bankApiBaseUrl: input.bankApiBaseUrl },
+          }).catch(() => {});
+          throw e;
+        }
+        await writeAuditLog({
+          actorId: String(ctx.user?.id ?? "unknown"),
+          actorRole: ctx.user?.role,
+          action: "escrow.setConfig.bankApiBaseUrl",
+          entityType: "escrow_config",
+          entityId: "1",
+          summary: "Escrow bankApiBaseUrl updated (SSRF-validated)",
+          after: { bankApiBaseUrl: input.bankApiBaseUrl },
+        }).catch((e) => console.error("[escrow.setConfig] audit log failed:", e));
+      }
+      // === END W45 orders-p0 ===
       await db.update(escrowConfig).set({
         ...input,
         updatedAt: new Date(),

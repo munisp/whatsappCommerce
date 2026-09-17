@@ -52,6 +52,25 @@ spec:
                 secretKeyRef:
                   name: platform-secrets
                   key: INTERNAL_API_KEY
+            # === W45 go-rust-services (MSG-15/20) ===
+            # Public callback base URL — REQUIRED in production (fail-closed
+            # at boot); pending approvals persist in Redis.
+            - name: ENV
+              value: "production"
+            - name: HERMES_CALLBACK_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: platform-config
+                  key: HERMES_CALLBACK_BASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: platform-secrets
+                  key: REDIS_URL
+            - name: WA_PO_APPROVAL_TEMPLATE
+              value: "po_approval_request"
+            - name: KAFKA_HERMES_DLQ_TOPIC
+              value: "hermes.events.dlq"
           resources:
             requests:
               cpu: "50m"

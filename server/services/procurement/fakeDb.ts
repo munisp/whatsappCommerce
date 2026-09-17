@@ -253,6 +253,9 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
             chain.orderBy = (...exprs: unknown[]) => { orderExprs.push(...exprs); return chain; };
             chain.limit = (n: number) => { limitN = n; return chain; };
             chain.offset = () => chain;
+            // W45 (ORD-18): goodsReceipts.fulfillPoWithReceiptTx selects FOR
+            // UPDATE — row locks are a no-op in the in-memory fake.
+            chain.for = () => chain;
             return chain;
           };
           return {

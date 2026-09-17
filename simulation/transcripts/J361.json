@@ -1,0 +1,44 @@
+{
+  "id": "J361",
+  "title": "ban circuit breaker per phone_number_id",
+  "feature": "MSG-25 circuit on 401/403/ban codes + off-channel alert",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348015479704",
+      "profileName": "Sim User 9704",
+      "inboundId": "wamid.sim.in.text.00539",
+      "at": 1789673114526,
+      "kind": "text",
+      "text": "ban trigger hello"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00539",
+      "at": 1789673114530
+    },
+    {
+      "dir": "out",
+      "phone": "2348015479704",
+      "at": 1789673114552,
+      "failed": true,
+      "failStatus": 403,
+      "kind": "text",
+      "body": "This send hits a restricted sender."
+    },
+    {
+      "dir": "out",
+      "phone": "2348014827646",
+      "wamid": "wamid.sim.000965",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673115084,
+      "kind": "text",
+      "body": "we are back"
+    }
+  ]
+}

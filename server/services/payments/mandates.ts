@@ -18,6 +18,12 @@
  * mandate ('fake' provider) is issued ONLY outside production
  * (NODE_ENV=development|test), so local/dev flows stay exercisable. In
  * production the absence of a mandate-capable provider fails closed.
+ *
+ * === W45 money-ledger === PAY-20: revocation pauses pay-over-time
+ * auto-capture (plans flip to 'paused', dunning ENDS) and the merchant gets a
+ * re-link CTA + manual payment-link fallback on BOTH channels; confirming a
+ * new mandate resumes paused plans. Admin cancel/restructure lives in
+ * services/payOverTime.ts (adminCancelPlan / adminRestructurePlan).
  */
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
@@ -223,6 +229,17 @@ export async function confirmMandateTx(
       ),
     )
     .returning();
+  // === W45 money-ledger === PAY-20: a freshly-confirmed mandate resumes
+  // pay-over-time plans paused by a prior revocation (re-link CTA
+  // follow-through). Best-effort — never blocks the confirm.
+  if (row) {
+    try {
+      const { resumePotPlansOnMandateLink } = await import("../payOverTime");
+      await resumePotPlansOnMandateLink(db, args.tenantId);
+    } catch (e: any) {
+      console.warn("[payments/mandates] pot resume on mandate link failed:", e?.message);
+    }
+  }
   return row ?? null;
 }
 
@@ -357,6 +374,17 @@ export async function revokeMandate(
       .set({ status: "revoked", updatedAt: new Date() })
       .where(and(eq(paymentMandates.id, mandate.id), eq(paymentMandates.status, mandate.status)))
       .returning({ id: paymentMandates.id });
+    // === W45 money-ledger === PAY-20: revocation pauses PoT auto-capture +
+    // re-link CTA + manual payment-link fallback (both channels). Runs AFTER
+    // the local flip commits; never throws into the revoke result.
+    if (row) {
+      try {
+        const { onMandateRevoked } = await import("../payOverTime");
+        await onMandateRevoked(db, { tenantId: args.tenantId, mandateId: mandate.id, mandateRef: mandate.mandateRef });
+      } catch (e: any) {
+        console.error("[payments/mandates] onMandateRevoked failed:", e?.message);
+      }
+    }
     return row ? { ok: true } : { ok: false, error: "revoke_claim_failed" };
   } catch (err: any) {
     console.error("[payments/mandates] revokeMandate failed:", err?.message);

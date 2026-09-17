@@ -31,15 +31,36 @@ const SAME_CITY_PER_KG = 500;
 const INTERCITY_BASE = 2500;   // GIG Logistics standard anchor
 const INTERCITY_PER_KG = 800;
 
+// === W45 orders-p0 (ORD-9) ===
+export interface DeliveryZoneHint {
+  name: string;
+}
+
 /**
  * Quote a delivery fee for a free-text address.
  * Unknown/empty addresses are quoted as same-city (the common case for
  * WhatsApp chat orders) so the buyer is not overcharged by default.
+ *
+ * W45 (ORD-9): when the tenant has configured delivery zones
+ * (merchant_locations.deliveryZones — see routers/geo.ts), zone NAMES replace
+ * the hardcoded LAGOS_HINTS: an address matching a configured zone name is
+ * same-city (the merchant delivers there locally); anything else intercity.
+ * Tenants without configured zones keep the legacy Lagos hints. weightKg is
+ * the summed order weight (qty × products.weightKg) from checkout.
  */
-export function quoteDeliveryFee(opts: { address?: string | null; weightKg?: number }): DeliveryQuote {
+export function quoteDeliveryFee(opts: {
+  address?: string | null;
+  weightKg?: number;
+  deliveryZones?: DeliveryZoneHint[] | null;
+}): DeliveryQuote {
   const weightKg = Math.max(1, Math.ceil(opts.weightKg ?? 1));
   const addr = (opts.address ?? "").toLowerCase();
-  const sameCity = !addr.trim() || LAGOS_HINTS.some(h => addr.includes(h));
+  const tenantZones = (opts.deliveryZones ?? []).filter((z) => typeof z?.name === "string" && z.name.trim());
+  const hints = tenantZones.length > 0
+    ? tenantZones.map((z) => z.name.trim().toLowerCase())
+    : LAGOS_HINTS;
+  const sameCity = !addr.trim() || hints.some(h => addr.includes(h));
+  // === END W45 orders-p0 ===
 
   return sameCity
     ? {

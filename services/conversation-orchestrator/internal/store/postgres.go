@@ -126,6 +126,17 @@ func (d *DB) ListConversations(ctx context.Context, tenantID uuid.UUID, limit, o
 	return rows, err
 }
 
+// === W45 go-rust-services (MSG-17) ===
+// GetConversationByID loads a conversation by primary key (tenant scope is
+// enforced by callers that already authorized the tenant).
+func (d *DB) GetConversationByID(ctx context.Context, id uuid.UUID) (*ConversationRow, error) {
+	var c ConversationRow
+	err := d.db.GetContext(ctx, &c, `
+		SELECT id, tenant_id, customer_id, chatwoot_conv_id, state, mode, current_flow_step, cart_id, workflow_id, last_message_at, created_at, updated_at
+		FROM conversations WHERE id=$1`, id)
+	return &c, err
+}
+
 func (d *DB) GetConversation(ctx context.Context, tenantID, id uuid.UUID) (*ConversationRow, error) {
 	var c ConversationRow
 	err := d.db.GetContext(ctx, &c, `

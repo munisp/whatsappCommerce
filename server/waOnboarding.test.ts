@@ -588,15 +588,22 @@ describe("voice notes + unsupported types", () => {
 describe("webhook branch wiring (regression)", () => {
   const src = readFileSync(path.resolve(import.meta.dirname, "_core/index.ts"), "utf8");
 
-  it("onboarding branch is placed BEFORE tenant resolution and skips tenant dispatch", () => {
-    const branchIdx = src.indexOf("isOnboardingIntakeNumber(phoneNumberId)");
-    const tenantLookupIdx = src.indexOf("tenants.whatsappPhoneNumberId, phoneNumberId");
-    expect(branchIdx).toBeGreaterThan(-1);
-    expect(tenantLookupIdx).toBeGreaterThan(-1);
-    expect(branchIdx).toBeLessThan(tenantLookupIdx);
-    // The branch hands off to waOnboarding.handleInbound and `continue`s.
-    const branchBlock = src.slice(branchIdx, tenantLookupIdx);
-    expect(branchBlock).toContain('await import("../services/waOnboarding")');
+  it("onboarding branch claims the wamid BEFORE dispatch (W45 MSG-21) and skips tenant dispatch", () => {
+    // W45 MSG-21 intentionally reordered this branch: the dedupe-ledger claim
+    // (tenantId scope "onboarding") now precedes the waOnboarding hand-off so
+    // intake deliveries are deduped; the tenant lookup itself is SKIPPED for
+    // onboarding numbers (ternary → null), preserving "no tenant dispatch".
+    const flagIdx = src.indexOf("isOnboardingIntakeNumber(phoneNumberId)");
+    expect(flagIdx).toBeGreaterThan(-1);
+    expect(src).toContain('"onboarding"');
+    const claimIdx = src.indexOf("claimWebhookEvent(db,");
+    expect(claimIdx).toBeGreaterThan(-1);
+    // Onboarding hand-off happens AFTER the claim…
+    const handoffIdx = src.indexOf('await import("../services/waOnboarding")');
+    expect(handoffIdx).toBeGreaterThan(claimIdx);
+    // …and hands off to waOnboarding.handleInbound, then `continue`s — the
+    // tenant-scoped dispatch below is never reached for intake numbers.
+    const branchBlock = src.slice(handoffIdx, handoffIdx + 800);
     expect(branchBlock).toContain("handleInbound(msg, waPhoneNumber)");
     expect(branchBlock).toContain("continue;");
   });

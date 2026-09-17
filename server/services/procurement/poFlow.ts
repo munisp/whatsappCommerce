@@ -557,8 +557,24 @@ export async function markPoFulfilled(
   const po = await getPoById(db, opts.poId);
   if (!po) return { ok: false, reason: "not_found" };
   if (!["approved", "invoiced", "paid"].includes(po.status)) return { ok: false, reason: "wrong_status" };
-  await db.update(purchaseOrders).set({ status: "fulfilled", updatedAt: new Date() })
-    .where(eq(purchaseOrders.id, po.id));
+  // === W45 orders-p0 (ORD-18) ===
+  // Fulfillment is a goods receipt: in ONE transaction flip the status
+  // (guarded on the pre-read status — a concurrent fulfil/receipt is a
+  // no-op), receive every not-yet-received unit, credit the buyer's
+  // products.stockQuantity per matched productRef, and append
+  // stock_adjustments audit rows. Before W45 this was a bare status flip and
+  // buyer inventory was never restocked.
+  const { fulfillPoWithReceiptTx } = await import("../goodsReceipts");
+  let receiptSummary: { stockCredited: Record<string, number>; unmatchedRefs: string[] } | null = null;
+  await (db as any).transaction(async (tx: any) => {
+    const transitioned = await tx.update(purchaseOrders)
+      .set({ status: "fulfilled", updatedAt: new Date() })
+      .where(and(eq(purchaseOrders.id, po.id), eq(purchaseOrders.status, po.status)))
+      .returning({ id: purchaseOrders.id });
+    if (transitioned.length === 0) return; // lost the race — nothing to do
+    receiptSummary = await fulfillPoWithReceiptTx(tx, po, {});
+  });
+  // === END W45 orders-p0 ===
   await notifyBuyer(db, po, `🚚 ${po.poNumber} has been fulfilled by the supplier. Thanks for your business!`);
   return { ok: true };
 }

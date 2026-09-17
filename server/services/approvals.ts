@@ -398,6 +398,49 @@ export async function sweepExpiredApprovals(db: DbHandle, now: Date = new Date()
       summary: `Approval ${row.id} (${row.kind}) expired without a decision`,
       after: { status: "expired", kind: row.kind, amountCents: row.amountCents },
     }).catch(() => {});
+    // === W45 money-scheduled (PAY-12) === an expired approval must also
+    // RESOLVE the payment it parked: without this the scheduled_payment row
+    // re-parked +15min forever (the W32 guard only re-parked, never resolved).
+    // Guarded single transition pending/claimed → 'approval_expired', keyed
+    // on metadata.approvalId === THIS approval (a re-parked row carrying a
+    // NEWER approvalId is untouched). Nothing moves money-wise; for
+    // recurring rules the period's payment is now terminal ("released") —
+    // the rule itself already advanced next_run_at when the period was
+    // created, so the next period proceeds normally.
+    if (row.kind === "scheduled_payment" && row.targetId) {
+      try {
+        const { scheduledPayments } = await import("../../drizzle/schema");
+        const resolved = await db.update(scheduledPayments)
+          .set({
+            status: "approval_expired",
+            lastError: `APPROVAL_EXPIRED: approval ${row.id} expired without a decision — nothing moved`,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(scheduledPayments.id, row.targetId),
+            eq(scheduledPayments.tenantId, row.tenantId),
+            sql`${scheduledPayments.status} IN ('pending','claimed')`,
+            sql`COALESCE(${scheduledPayments.metadata}->>'approvalId', '') = ${row.id}`,
+            sql`COALESCE(${scheduledPayments.metadata}->>'approvalExecutedFor', '') = ''`,
+          ))
+          .returning({ id: scheduledPayments.id });
+        if (resolved.length === 1) {
+          await writeAuditLog({
+            actorId: "system",
+            actorRole: "system",
+            action: "scheduled_payment.approval_expired",
+            entityType: "scheduled_payment",
+            entityId: row.targetId,
+            tenantId: row.tenantId,
+            summary: `Parked scheduled payment ${row.targetId} resolved as approval_expired (approval ${row.id} expired)`,
+            after: { status: "approval_expired", approvalId: row.id },
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error(`[approvals] PAY-12 parked-payment resolution failed for approval ${row.id}:`, (err as Error)?.message);
+      }
+    }
+    // === END W45 money-scheduled (PAY-12) ===
     await notifyRequester(db, row.tenantId, row, false, false, { ok: false, detail: "expired" }).catch(() => {});
   }
   return expired;

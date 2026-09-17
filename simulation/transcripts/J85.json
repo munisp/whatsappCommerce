@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017249117",
-      "profileName": "Sim User 9117",
-      "inboundId": "wamid.sim.in.img.00269",
-      "at": 1789657771377,
+      "phone": "2348017356097",
+      "profileName": "Sim User 6097",
+      "inboundId": "wamid.sim.in.img.00271",
+      "at": 1789672717455,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-j85-shelf"
@@ -18,52 +18,52 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00269",
-      "at": 1789657771381
+      "wamid": "wamid.sim.in.img.00271",
+      "at": 1789672717459
     },
     {
       "dir": "out",
-      "phone": "2348017249117",
-      "wamid": "wamid.sim.000417",
+      "phone": "2348017356097",
+      "wamid": "wamid.sim.000421",
       "statuses": [
         "sent"
       ],
-      "at": 1789657771414,
+      "at": 1789672717500,
       "kind": "text",
       "body": "📷 I counted: 12× Indomie Pack, 30× Pure Water Sachet. Reply APPLY to update stock or REVIEW to check first."
     },
     {
       "dir": "in",
-      "phone": "2348017249117",
-      "profileName": "Sim User 9117",
-      "inboundId": "wamid.sim.in.text.00270",
-      "at": 1789657771925,
+      "phone": "2348017356097",
+      "profileName": "Sim User 6097",
+      "inboundId": "wamid.sim.in.text.00272",
+      "at": 1789672718002,
       "kind": "text",
       "text": "APPLY"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00270",
-      "at": 1789657771930
+      "wamid": "wamid.sim.in.text.00272",
+      "at": 1789672718006
     },
     {
       "dir": "out",
-      "phone": "2348017249117",
-      "wamid": "wamid.sim.000418",
+      "phone": "2348017356097",
+      "wamid": "wamid.sim.000422",
       "statuses": [
         "sent"
       ],
-      "at": 1789657771951,
+      "at": 1789672718031,
       "kind": "text",
       "body": "✅ Updated stock for 1 item(s). 1 item(s) had lower confidence and were NOT applied — please review them in your dashboard."
     },
     {
       "dir": "in",
-      "phone": "2348013714768",
-      "profileName": "Sim User 4768",
-      "inboundId": "wamid.sim.in.img.00271",
-      "at": 1789657772479,
+      "phone": "2348014035797",
+      "profileName": "Sim User 5797",
+      "inboundId": "wamid.sim.in.img.00273",
+      "at": 1789672718555,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-j85-off"
@@ -71,8 +71,8 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00271",
-      "at": 1789657772483
+      "wamid": "wamid.sim.in.img.00273",
+      "at": 1789672718559
     }
   ]
 }

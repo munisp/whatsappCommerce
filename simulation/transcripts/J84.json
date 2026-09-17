@@ -7,53 +7,53 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016296232",
+      "phone": "2348015483529",
       "profileName": "Fresh Buyer",
-      "inboundId": "wamid.sim.in.text.00267",
-      "at": 1789657769906,
+      "inboundId": "wamid.sim.in.text.00269",
+      "at": 1789672715931,
       "kind": "text",
       "text": "hello"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00267",
-      "at": 1789657769911
+      "wamid": "wamid.sim.in.text.00269",
+      "at": 1789672715936
     },
     {
       "dir": "out",
-      "phone": "2348016296232",
-      "wamid": "wamid.sim.000415",
+      "phone": "2348015483529",
+      "wamid": "wamid.sim.000419",
       "statuses": [
         "sent"
       ],
-      "at": 1789657769926,
+      "at": 1789672715970,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     },
     {
       "dir": "in",
-      "phone": "2348016296232",
-      "profileName": "Sim User 6232",
-      "inboundId": "wamid.sim.in.text.00268",
-      "at": 1789657770451,
+      "phone": "2348015483529",
+      "profileName": "Sim User 3529",
+      "inboundId": "wamid.sim.in.text.00270",
+      "at": 1789672716485,
       "kind": "text",
       "text": "YES"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00268",
-      "at": 1789657770455
+      "wamid": "wamid.sim.in.text.00270",
+      "at": 1789672716489
     },
     {
       "dir": "out",
-      "phone": "2348016296232",
-      "wamid": "wamid.sim.000416",
+      "phone": "2348015483529",
+      "wamid": "wamid.sim.000420",
       "statuses": [
         "sent"
       ],
-      "at": 1789657770470,
+      "at": 1789672716511,
       "kind": "text",
       "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Wave16 Fresh Stores! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
     }

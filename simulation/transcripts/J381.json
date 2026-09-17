@@ -1,0 +1,57 @@
+{
+  "id": "J381",
+  "title": "buyer pre-ship cancel + weight/zone quote + drift recon",
+  "feature": "ORD-27 buyerCancel + ORD-9 quoteDeliveryFee + ORD-26 reconcile",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348014770013",
+      "wamid": "wamid.sim.000995",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673158729,
+      "kind": "template",
+      "templateName": "wac_order_cancelled",
+      "templateLanguage": "en_US",
+      "body": "Customer · W45-J381A · 10000.00 NGN · cancelled"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014770013",
+      "wamid": "wamid.sim.000996",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673158788,
+      "kind": "template",
+      "templateName": "wac_order_cancelled",
+      "templateLanguage": "en_US",
+      "body": "Customer · W45-J381C · 10000.00 NGN · cancelled"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011474712",
+      "wamid": "wamid.sim.000997",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673158793,
+      "kind": "text",
+      "body": "⚠️ Inventory reconciliation drift after Odoo sync (5 products):\n• product p-ankara: snapshot 47 vs ledger 50 (drift -3)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product prod-w45: snapshot 7 vs ledger 10 (drift -3)\nReview inventory before selling — the snapshot and the stock ledger disagree."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011474712",
+      "wamid": "wamid.sim.000998",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673158798,
+      "kind": "text",
+      "body": "⚠️ Inventory reconciliation drift after Odoo sync (4 products):\n• product p-ankara: snapshot 47 vs ledger 50 (drift -3)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\nReview inventory before selling — the snapshot and the stock ledger disagree."
+    }
+  ]
+}

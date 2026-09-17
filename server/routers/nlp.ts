@@ -315,9 +315,40 @@ export async function createChatOrder(
       console.error("[nlp] aggregated delivery quote failed (non-blocking):", (e as Error)?.message);
     }
   }
+  // === W45 orders-p0 (ORD-9): weight-aware, tenant-zone quoting ===
+  // Sum the order weight (qty × products.weightKg; unknown-weight lines use
+  // the 1kg floor) and load the tenant's configured delivery zones
+  // (merchant_locations.deliveryZones — geo.ts) so the fallback quote prices
+  // the ACTUAL parcel and the merchant's real zones instead of Lagos hints.
+  let orderWeightKg = 0;
+  let tenantDeliveryZones: { name: string }[] | null = null;
+  if (opts.fulfillment === "delivery") {
+    try {
+      const weightRows = await db.select({ id: products.id, weightKg: products.weightKg })
+        .from(products)
+        .where(inArray(products.id, items.map((i) => i.productId)));
+      const weightById = new Map(weightRows.map((r) => [r.id, Number(r.weightKg ?? 0)]));
+      orderWeightKg = items.reduce((s, i) => {
+        const w = weightById.get(i.productId);
+        return s + i.quantity * (w && w > 0 ? w : 1);
+      }, 0);
+      const { merchantLocations } = await import("../../drizzle/schema");
+      const [loc] = await db.select({ deliveryZones: merchantLocations.deliveryZones })
+        .from(merchantLocations)
+        .where(eq(merchantLocations.tenantId, opts.tenantId))
+        .orderBy(desc(merchantLocations.createdAt))
+        .limit(1);
+      tenantDeliveryZones = (loc?.deliveryZones as { name: string }[] | null) ?? null;
+    } catch (e: unknown) {
+      console.warn("[nlp] weight/zone quote inputs failed (non-blocking):", (e as Error)?.message);
+    }
+  }
+  // === END W45 orders-p0 ===
   const quote = aggQuote
     ? { fee: aggQuote.feeMajor, zone: aggQuote.zone ?? "same_city", carrier: aggQuote.label }
-    : (opts.fulfillment === "delivery" ? quoteDeliveryFee({ address: opts.address }) : null);
+    : (opts.fulfillment === "delivery"
+        ? quoteDeliveryFee({ address: opts.address, weightKg: orderWeightKg || undefined, deliveryZones: tenantDeliveryZones })
+        : null);
   const deliveryFee = quote?.fee ?? 0;
 
   // ── Promo code (optional) ─────────────────────────────────────────────
@@ -756,11 +787,12 @@ CONVERSATION RULES:
 6. Keep responses SHORT (under 160 chars when possible) — this is WhatsApp.
 7. If the customer wants to REPEAT a previous order ("repeat my last order", "same as last time", "the usual", "reorder"), use intent "reorder" — the system rebuilds the cart from their last paid order automatically.
 8. If the customer raises a DISPUTE or complaint about an order ("I want to dispute", "my order never arrived", "you sent the wrong item", "I'm not happy with my order"), use intent "dispute" — the system logs the dispute and notifies the team automatically.
+9. If the customer wants to CANCEL an order they placed ("cancel my order", "cancel the order", "I don't want it anymore", "please cancel order #..."), use intent "cancel_order" — the system cancels it if it hasn't shipped and refunds any payment. Do NOT use "dispute" for plain cancellation requests.
 
 RESPOND WITH JSON (no markdown):
 {
   "reply": "<message to send to customer>",
-  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|discover_nearby|browse_wholesale|join_group_deal|unknown",
+  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|cancel_order|discover_nearby|browse_wholesale|join_group_deal|unknown",
   "nextState": "greeting|browse|product_detail|add_to_cart|checkout_address|checkout_confirm|payment|order_confirmed|support",
   "extractedItems": [{"product": "<product name>", "quantity": <number>}] — EVERY product the customer wants to add in this message (multi-item orders are common, e.g. "2 spicy wraps and 1 malt"); empty array if none,
   "extractedProduct": "<single product name if exactly one mentioned, else null>",
@@ -2282,6 +2314,45 @@ export const nlpRouter = router({
           llmResult.nextState = "support";
         }
       }
+
+      // === W45 orders-p0 (ORD-27): buyer "cancel order" chat intent ===
+      // Both channels reach this handler (Telegram inbound routes through the
+      // same processMessage). Runs the guarded PRE-SHIP buyer cancel in
+      // orderCrud.buyerCancel (phone-ownership check + unified W38
+      // cancelOrder incl. escrow refund). Shipped orders are redirected to
+      // the dispute path honestly.
+      if (llmResult.intent === "cancel_order") {
+        try {
+          const { appRouter } = await import("../routers");
+          const caller = appRouter.createCaller({
+            user: { id: 0, role: "user", tenantId: input.tenantId, name: "chat-buyer-cancel" },
+          } as any);
+          const result = await caller.orderCrud.buyerCancel({
+            tenantId: input.tenantId,
+            phone: input.waPhoneNumber,
+            reason: input.message.slice(0, 200),
+          });
+          llmResult.reply = result.escrowRefunded
+            ? `✅ Your order has been cancelled and your payment refund is on its way. Sorry to see it go — type "menu" anytime to shop again.`
+            : `✅ Your order has been cancelled.${result.refundSweepRequired ? " Your refund is being processed by our team." : ""} Type "menu" anytime to shop again.`;
+          llmResult.nextState = "browse";
+        } catch (e: any) {
+          const msg = e?.message ?? "";
+          if (/already shipped|terminal/i.test(msg)) {
+            llmResult.reply = `⚠️ That order has already shipped, so it can't be cancelled here — reply "dispute" and our team will help you with a return or refund.`;
+          } else if (/No cancellable order/i.test(msg)) {
+            llmResult.reply = `I couldn't find an open order on this number to cancel. If you meant a specific order, reply with "cancel order <order id>".`;
+          } else {
+            console.error("[nlp] cancel_order intent failed:", msg);
+            llmResult.reply = `⚠️ I couldn't cancel the order just now — our team has been notified. You can also reply "dispute" for help.`;
+            try {
+              const { notifyTenantAdminWhatsApp } = await import("../services/adminAlerts");
+              await notifyTenantAdminWhatsApp(db, input.tenantId, `⚠️ Buyer cancel-order request failed for ${input.waPhoneNumber}: ${msg.slice(0, 200)}`);
+            } catch { /* best-effort */ }
+          }
+        }
+      }
+      // === END W45 orders-p0 ===
 
       if (llmResult.intent === "confirm_order" && cartSession) {
         // Promo code capture ("use code SAVE10") — sticks to the session.

@@ -90,6 +90,9 @@ func (o *Orchestrator) ProcessMessage(ctx context.Context, msg InboundMessage) e
 	}
 
 	// 4. If conversation is handed off to a human agent, skip AI/menu processing
+	// === W45 go-rust-services (MSG-17) ===
+	// "bot_active" is the path BACK from handed_off (agent resolved the
+	// Chatwoot conversation) — it is processed like "active".
 	if conv.State == "handed_off" {
 		o.logger.Info("conversation is handed off, skipping AI", zap.String("conv_id", conv.ID.String()))
 		return nil
@@ -188,16 +191,17 @@ func (o *Orchestrator) initiateHandoff(ctx context.Context, conv *store.Conversa
 		return err
 	}
 
-	// Notify Chatwoot to assign to a human agent
-	reqBody, _ := json.Marshal(map[string]interface{}{
-		"assignee_type": "agent",
-		"reason":        reason,
-	})
-
-	url := fmt.Sprintf("%s/api/v1/profile", o.cfg.ChatwootURL)
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
-	req.Header.Set("Content-Type", "application/json")
-	o.client.Do(req)
+	// === W45 go-rust-services (MSG-17) ===
+	// Notify Chatwoot to open the conversation for human agents. Checked:
+	// a failure is logged AND returned so callers can surface it — never an
+	// unchecked fire-and-forget.
+	if err := o.setChatwootStatus(ctx, conv.ChatwootConvID, "open"); err != nil {
+		o.logger.Error("chatwoot handoff status update failed",
+			zap.Int64("chatwoot_conv_id", conv.ChatwootConvID),
+			zap.Error(err),
+		)
+		return fmt.Errorf("chatwoot handoff: %w", err)
+	}
 
 	o.logger.Info("handoff initiated",
 		zap.String("conv_id", conv.ID.String()),
@@ -206,13 +210,86 @@ func (o *Orchestrator) initiateHandoff(ctx context.Context, conv *store.Conversa
 	return nil
 }
 
+// === W45 go-rust-services (MSG-17) ===
+// ResolveToBot returns a conversation to the bot: marks the Chatwoot
+// conversation resolved AND flips local state to bot_active so ProcessMessage
+// resumes AI/menu handling. This is the previously-missing path back from
+// handed_off.
+func (o *Orchestrator) ResolveToBot(ctx context.Context, convID uuid.UUID) error {
+	conv, err := o.db.GetConversationByID(ctx, convID)
+	if err != nil {
+		return fmt.Errorf("load conversation: %w", err)
+	}
+	if err := o.setChatwootStatus(ctx, conv.ChatwootConvID, "resolved"); err != nil {
+		return fmt.Errorf("chatwoot resolve: %w", err)
+	}
+	if err := o.db.UpdateConversationState(ctx, conv.ID, "bot_active"); err != nil {
+		return err
+	}
+	o.logger.Info("conversation resolved — bot reactivated",
+		zap.String("conv_id", conv.ID.String()),
+		zap.Int64("chatwoot_conv_id", conv.ChatwootConvID),
+	)
+	return nil
+}
+
+// sendChatwootReply posts the bot reply to the Chatwoot conversation via the
+// real Chatwoot API (POST /api/v1/accounts/{id}/conversations/{id}/messages).
+// Errors propagate to the caller — a failed reply is never silently dropped.
 func (o *Orchestrator) sendChatwootReply(ctx context.Context, tenantID uuid.UUID, chatwootConvID int64, content string) error {
-	// In production this would use the Chatwoot API with tenant-specific token
-	o.logger.Info("sending chatwoot reply",
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"content":      content,
+		"message_type": "outgoing",
+	})
+	url := fmt.Sprintf("%s/api/v1/accounts/%s/conversations/%d/messages",
+		o.cfg.ChatwootURL, o.cfg.ChatwootAccountID, chatwootConvID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("api_access_token", o.cfg.ChatwootAPIAccessToken)
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("chatwoot reply POST failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("chatwoot reply api %d", resp.StatusCode)
+	}
+
+	o.logger.Info("chatwoot reply sent",
 		zap.String("tenant_id", tenantID.String()),
 		zap.Int64("conv_id", chatwootConvID),
 		zap.String("content_preview", content[:min(50, len(content))]),
 	)
+	return nil
+}
+
+// setChatwootStatus toggles a Chatwoot conversation status
+// (open | resolved | pending) via the real API.
+func (o *Orchestrator) setChatwootStatus(ctx context.Context, chatwootConvID int64, status string) error {
+	reqBody, _ := json.Marshal(map[string]string{"status": status})
+	url := fmt.Sprintf("%s/api/v1/accounts/%s/conversations/%d/toggle_status",
+		o.cfg.ChatwootURL, o.cfg.ChatwootAccountID, chatwootConvID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("api_access_token", o.cfg.ChatwootAPIAccessToken)
+
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("chatwoot status POST failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("chatwoot status api %d", resp.StatusCode)
+	}
 	return nil
 }
 

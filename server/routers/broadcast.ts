@@ -245,12 +245,19 @@ export async function buildBroadcastAudience(
     .where(eq(customers.tenantId, tenantId));
   const consented = await getConsentedPhones(db, tenantId);
   if (consented.size === 0) return [];
+  // === W45 messaging-services (MSG-10): permanently-undeliverable numbers
+  // (suppression list) are excluded from every broadcast audience — sending
+  // to them only burns quality rating. ===
+  const { getSuppressedPhones } = await import("../services/waSuppressionList");
+  const suppressedPhones = await getSuppressedPhones(db, tenantId);
   const lastInbound = await getLastInboundMap(db, tenantId);
   const now = Date.now();
   const toMember = (c: typeof custs[number], seg?: SegmentFilter): BroadcastAudienceMember | null => {
     if (seg && !matchesSegment(c, seg)) return null;
-    if (!consented.has(normalizeWaPhone(c.whatsappPhone))) return null;
-    const last = lastInbound.get(normalizeWaPhone(c.whatsappPhone));
+    const normalized = normalizeWaPhone(c.whatsappPhone);
+    if (!consented.has(normalized)) return null;
+    if (suppressedPhones.has(normalized)) return null; // W45 MSG-10
+    const last = lastInbound.get(normalized);
     return {
       customerId: c.id,
       phone: c.whatsappPhone,

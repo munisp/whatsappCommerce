@@ -3,7 +3,7 @@
 //! routing logic, stream processing, dead-letter queue management.
 //!
 //! Dependencies (Cargo.toml):
-//!   rdkafka = { version = "0.37", features = ["cmake-build"] }  (deploy-time)
+//!   rdkafka = { version = "0.37", features = ["cmake-build"] }  (ENABLED — W45 MSG-18 consumer + DLQ producer)
 //!   redis = { version = "0.27" }  (durable DLQ — W42 PLT-7)
 //!   tokio = { version = "1", features = ["full"] }
 //!   serde = { version = "1", features = ["derive"] }
@@ -214,6 +214,16 @@ impl Dlq {
 }
 
 // ─── Processor ────────────────────────────────────────────────────────────────
+// === W45 go-rust-services (MSG-18) ===
+/// Outcome of processing one raw payload — drives offset commits and the
+/// Kafka DLQ mirror in the consumer loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessOutcome {
+    Routed,
+    Duplicate,
+    DeadLettered,
+}
+
 pub struct MessageProcessor {
     dedup: DeduplicationCache,
     router: MessageRouter,
@@ -261,19 +271,24 @@ impl MessageProcessor {
         }
     }
 
-    pub fn process(&mut self, raw_message: &str) {
+    /// Process one raw Kafka payload. Returns the outcome so the consumer
+    /// loop (main) can mirror dead-lettered payloads to the Kafka DLQ topic
+    /// (W45 MSG-18) in addition to the durable Redis DLQ (W42 PLT-7).
+    pub fn process(&mut self, raw_message: &str) -> ProcessOutcome {
         match KafkaEvent::from_json(raw_message) {
             Ok(event) => {
                 // Deduplicate by trace_id
                 if self.dedup.is_duplicate(&event.trace_id) {
                     println!("[processor] Duplicate event skipped: {}", event.trace_id);
-                    return;
+                    return ProcessOutcome::Duplicate;
                 }
                 self.router.route(&event);
+                ProcessOutcome::Routed
             }
             Err(e) => {
                 eprintln!("[processor] Parse error: {} — sending to DLQ", e);
                 self.dlq.push(raw_message.to_string());
+                ProcessOutcome::DeadLettered
             }
         }
     }
@@ -293,28 +308,116 @@ impl MessageProcessor {
     }
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-fn main() {
-    println!("WhatsApp Commerce — Rust Message Processor v1.0.0");
-    println!("Kafka brokers: {}", std::env::var("KAFKA_BROKERS").unwrap_or("localhost:9092".to_string()));
+// ─── Main — real rdkafka consumer loop (W45 MSG-18) ───────────────────────────
+// Consumes MP_KAFKA_TOPICS (default: the platform's five event topics),
+// processes each payload, mirrors dead-lettered payloads to the Kafka DLQ
+// topic MP_DLQ_TOPIC (default mp.dlq.events) in addition to the durable
+// Redis DLQ, and commits offsets AFTER handling (at-least-once).
+use rdkafka::config::ClientConfig;
+use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::message::Message as _;
+use rdkafka::producer::{FutureProducer, FutureRecord};
+
+fn env_or(key: &str, fallback: &str) -> String {
+    std::env::var(key).ok().filter(|v| !v.trim().is_empty()).unwrap_or_else(|| fallback.to_string())
+}
+
+fn kafka_dlq_topic() -> String {
+    env_or("MP_DLQ_TOPIC", "mp.dlq.events")
+}
+
+fn subscribed_topics() -> Vec<String> {
+    env_or(
+        "MP_KAFKA_TOPICS",
+        "wa.message.received,wa.message.status,kyc.events,orders.created,inventory.sync",
+    )
+    .split(',')
+    .map(|t| t.trim().to_string())
+    .filter(|t| !t.is_empty())
+    .collect()
+}
+
+/// Produce one dead-lettered raw payload to the Kafka DLQ topic with the
+/// source topic/offset in headers. Best-effort: the durable Redis DLQ
+/// (already written by process()) is the system of record.
+async fn produce_dlq(producer: &FutureProducer, topic: &str, raw: &str, source_topic: &str, reason: &str) {
+    let record = FutureRecord::to(topic)
+        .payload(raw)
+        .key(source_topic)
+        .headers(rdkafka::message::OwnedHeaders::new().insert(rdkafka::message::Header {
+            key: "dlq.reason",
+            value: Some(reason),
+        }));
+    if let Err((e, _)) = producer.send(record, Duration::from_secs(5)).await {
+        eprintln!("[dlq-kafka] produce to {topic} failed ({e}) — payload remains in Redis DLQ");
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt::init();
+    println!("WhatsApp Commerce — Rust Message Processor v1.1.0 (real rdkafka consumer)");
+
+    let brokers = env_or("KAFKA_BROKERS", "localhost:9092");
+    let group_id = env_or("KAFKA_GROUP_ID", "message-processor-v1");
+    let topics = subscribed_topics();
+    let dlq_topic = kafka_dlq_topic();
+    println!("Kafka brokers: {brokers} | group: {group_id} | topics: {topics:?} | dlq: {dlq_topic}");
+
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", &brokers)
+        .set("group.id", &group_id)
+        .set("enable.auto.commit", "false") // manual, post-processing commits
+        .set("auto.offset.reset", "earliest")
+        .set("session.timeout.ms", "30000")
+        .create()
+        .expect("failed to create kafka consumer");
+
+    let topic_refs: Vec<&str> = topics.iter().map(String::as_str).collect();
+    consumer.subscribe(&topic_refs).expect("failed to subscribe to topics");
+
+    let dlq_producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", &brokers)
+        .set("message.timeout.ms", "5000")
+        .create()
+        .expect("failed to create kafka DLQ producer");
 
     let mut processor = MessageProcessor::new();
+    println!("DLQ backend: {} (redis) + kafka topic {}", processor.dlq_backend(), dlq_topic);
 
-    // Simulate processing (in production: rdkafka consumer loop)
-    let test_events = vec![
-        r#"{"event_type":"wa.message.received","source":"gateway","timestamp":1720000000,"trace_id":"test-001","payload":{"from":"2348001234567","text":{"body":"Hello"}}}"#,
-        r#"{"event_type":"wa.message.received","source":"gateway","timestamp":1720000001,"trace_id":"test-001","payload":{}}"#, // duplicate
-        r#"{"event_type":"orders.created","source":"node-app","timestamp":1720000002,"trace_id":"order-001","payload":{"orderId":"ord-123"}}"#,
-        r#"{"event_type":"kyc.events","source":"kyc-verifier","timestamp":1720000003,"trace_id":"kyc-001","payload":{"applicationId":"app-001","isAuthentic":true}}"#,
-    ];
+    loop {
+        match consumer.recv().await {
+            Err(e) => {
+                eprintln!("[consumer] recv error: {e}");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            Ok(msg) => {
+                let raw = match msg.payload_view::<str>() {
+                    Some(Ok(s)) => s.to_owned(),
+                    Some(Err(e)) => {
+                        eprintln!("[consumer] non-utf8 payload ({e}) — dead-lettering raw bytes lost; skipping");
+                        let _ = consumer.commit_message(&msg, rdkafka::consumer::CommitMode::Async);
+                        continue;
+                    }
+                    None => {
+                        let _ = consumer.commit_message(&msg, rdkafka::consumer::CommitMode::Async);
+                        continue;
+                    }
+                };
 
-    for msg in test_events {
-        processor.process(msg);
+                let outcome = processor.process(&raw);
+                if outcome == ProcessOutcome::DeadLettered {
+                    produce_dlq(&dlq_producer, &dlq_topic, &raw, msg.topic(), "unprocessable payload").await;
+                }
+
+                // Commit AFTER processing + DLQ mirror (at-least-once;
+                // downstream dedupes via trace_id).
+                if let Err(e) = consumer.commit_message(&msg, rdkafka::consumer::CommitMode::Async) {
+                    eprintln!("[consumer] offset commit failed: {e}");
+                }
+            }
+        }
     }
-
-    println!("DLQ backend: {}", processor.dlq_backend());
-    println!("DLQ size: {}", processor.dlq_size());
-    println!("Processor ready. In production, start rdkafka consumer loop here.");
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -341,8 +444,27 @@ mod tests {
     #[test]
     fn test_processor_dlq() {
         let mut processor = MessageProcessor::new();
-        processor.process("invalid json {{{");
+        assert_eq!(processor.process("invalid json {{{"), ProcessOutcome::DeadLettered);
         assert_eq!(processor.dlq_size(), 1);
+    }
+
+    // W45 MSG-18: consumer-loop helpers — outcome classification and env-driven
+    // topic/DLQ configuration.
+    #[test]
+    fn test_process_outcomes() {
+        let mut processor = MessageProcessor::new();
+        let good = r#"{"event_type":"orders.created","source":"t","timestamp":1,"trace_id":"t-1","payload":{}}"#;
+        assert_eq!(processor.process(good), ProcessOutcome::Routed);
+        assert_eq!(processor.process(good), ProcessOutcome::Duplicate);
+    }
+
+    #[test]
+    fn test_topic_env_parsing() {
+        // Default topics are the five platform event topics.
+        let topics = subscribed_topics();
+        assert!(topics.contains(&"wa.message.received".to_string()));
+        assert!(topics.contains(&"orders.created".to_string()));
+        assert_eq!(kafka_dlq_topic(), std::env::var("MP_DLQ_TOPIC").unwrap_or_else(|_| "mp.dlq.events".to_string()));
     }
 
     // W42 PLT-7: DLQ is durable-shaped (backend reported honestly) and has a
