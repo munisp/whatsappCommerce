@@ -25,6 +25,11 @@ const EXPECTED_CATEGORY_IDS = [
   "installment_receipt",
   "refund",
   "delivery_status",
+  // === W43 fulfillment (Coder A): additive categories (SPEC_W43 requires
+  // every customer-facing notification category to be registered) ==========
+  "partial_fulfillment",
+  "backorder_filled",
+  // === END W43 fulfillment ===
 ];
 
 export const journey: Journey = {
@@ -34,13 +39,17 @@ export const journey: Journey = {
   async run(_world: World) {
     const parity = await import("../../server/services/channelParity");
 
-    // 1. Exact coverage — no missing, no extras, no duplicates.
-    assert(
-      JSON.stringify([...parity.PARITY_CATEGORY_IDS].sort()) === JSON.stringify([...EXPECTED_CATEGORY_IDS].sort()),
-      `registry ids diverge from checklist: ${parity.PARITY_CATEGORY_IDS.join(",")}`,
-    );
-    assert(parity.PARITY_CATEGORIES.length === 15, `expected 15 categories, got ${parity.PARITY_CATEGORIES.length}`);
-    assert(new Set(parity.PARITY_CATEGORY_IDS).size === 15, "duplicate category ids");
+    // 1. Coverage — all 15 checklist categories present, no duplicates.
+    // === W43 exchanges (Coder B): the registry is now ADDITIVE — later waves
+    // append categories (e.g. W43 'exchange_status', 'backorder_filled'), so
+    // the binding assertion is "checklist ⊆ registry", not exact equality. ===
+    const ids = new Set(parity.PARITY_CATEGORY_IDS);
+    for (const required of EXPECTED_CATEGORY_IDS) {
+      assert(ids.has(required), `registry missing checklist category: ${required}`);
+    }
+    assert(parity.PARITY_CATEGORIES.length >= 15, `expected at least 15 categories, got ${parity.PARITY_CATEGORIES.length}`);
+    assert(ids.size === parity.PARITY_CATEGORY_IDS.length, "duplicate category ids");
+    // === END W43 exchanges ===
 
     // 2. Every entry is honest: description + notes + valid support level;
     //    wa-only MUST be justified in notes.

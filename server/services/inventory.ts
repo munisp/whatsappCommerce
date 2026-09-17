@@ -23,6 +23,8 @@ import { randomUUID } from "crypto";
 import type { getDb } from "../db";
 import { inventoryReservations, orders, paymentIntents, products } from "../../drizzle/schema";
 import { scheduleLowStockCheck } from "./lowStock";
+// === W43 exchanges (Coder B): stock-adjustment audit (cancel-release path) ===
+import { recordStockAdjustment } from "./stockAdjustments";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 /** Any handle exposing the drizzle mutation/query surface (db or tx). */
@@ -233,6 +235,7 @@ export async function releaseReservations(
       )
       .returning({
         id: inventoryReservations.id,
+        tenantId: inventoryReservations.tenantId,
         productId: inventoryReservations.productId,
         qty: inventoryReservations.qty,
       });
@@ -245,6 +248,18 @@ export async function releaseReservations(
         updatedAt: now,
       })
       .where(eq(products.id, row.productId));
+    // === W43 exchanges (Coder B): audit the cancel-release restock in the
+    // SAME txn as the stock credit (append-only stock_adjustments row). ===
+    await recordStockAdjustment(db, {
+      tenantId: row.tenantId,
+      productId: row.productId,
+      deltaQty: row.qty,
+      reason: "restock",
+      refType: "reservation_release",
+      refId: row.id,
+      note: `Reservation released for order ${orderId} — stock credited back`,
+    });
+    // === END W43 exchanges ===
     released++;
   }
   return released;
@@ -300,6 +315,18 @@ export async function releaseCommittedReservations(
         updatedAt: now,
       })
       .where(eq(products.id, row.productId));
+    // === W43 exchanges (Coder B): audit the paid-cancel committed-release
+    // restock in the SAME txn as the stock credit. ===
+    await recordStockAdjustment(db, {
+      tenantId: row.tenantId,
+      productId: row.productId,
+      deltaQty: row.qty,
+      reason: "restock",
+      refType: "committed_reservation_release",
+      refId: row.id,
+      note: `Committed reservation released for order ${orderId} (paid cancel) — stock credited back`,
+    });
+    // === END W43 exchanges ===
     scheduleLowStockCheck(row.tenantId, row.productId);
     released++;
   }

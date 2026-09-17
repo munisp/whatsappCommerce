@@ -1,0 +1,147 @@
+{
+  "id": "J335",
+  "title": "address change chat request → merchant card approve",
+  "feature": "address_change_requests + WA approval card + apply + audit + notify",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348015605801",
+      "profileName": "Sim User 5801",
+      "inboundId": "wamid.sim.in.text.00476",
+      "at": 1789627211301,
+      "kind": "text",
+      "text": "change my address to 12 Adeola Odeku St, Victoria Island, Lagos"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00476",
+      "at": 1789627211312
+    },
+    {
+      "dir": "out",
+      "phone": "2348019558713",
+      "wamid": "wamid.sim.000793",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789627211355,
+      "kind": "interactive",
+      "body": "📍 Address change requested for order W43-j335-A40B (ref 1a1f37c2)\nNew address: 12 Adeola Odeku St, Victoria Island, Lagos",
+      "buttons": [
+        {
+          "id": "addrchg:approve:1a1f37c2-74fd-4185-9259-25e769029eaf",
+          "title": "✅ Approve"
+        },
+        {
+          "id": "addrchg:reject:1a1f37c2-74fd-4185-9259-25e769029eaf",
+          "title": "❌ Reject"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348015605801",
+      "wamid": "wamid.sim.000794",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789627211358,
+      "kind": "text",
+      "body": "📍 Got it — your address change for order W43-j335-A40B is pending merchant approval (ref 1a1f37c2). We'll message you here as soon as it's approved or rejected."
+    },
+    {
+      "dir": "in",
+      "phone": "2348015605801",
+      "profileName": "Sim User 5801",
+      "inboundId": "wamid.sim.in.text.00477",
+      "at": 1789627211849,
+      "kind": "text",
+      "text": "change my address to 99 Other St, Lagos"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00477",
+      "at": 1789627211854
+    },
+    {
+      "dir": "out",
+      "phone": "2348015605801",
+      "wamid": "wamid.sim.000795",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789627211880,
+      "kind": "text",
+      "body": "There is already a pending address change for this order."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019558713",
+      "profileName": "Sim User 8713",
+      "inboundId": "wamid.sim.in.btn.00478",
+      "at": 1789627212395,
+      "kind": "button_reply",
+      "text": "✅ Approve",
+      "payloadId": "addrchg:approve:1a1f37c2-74fd-4185-9259-25e769029eaf"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00478",
+      "at": 1789627212399
+    },
+    {
+      "dir": "out",
+      "phone": "2348015605801",
+      "wamid": "wamid.sim.000796",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789627212430,
+      "kind": "text",
+      "body": "📍 Good news — the delivery address for order W43-j335-A40B was updated to: 12 Adeola Odeku St, Victoria Island, Lagos"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019558713",
+      "wamid": "wamid.sim.000797",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789627212432,
+      "kind": "text",
+      "body": "Address change 1a1f37c2 applied — the customer has been notified."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019558713",
+      "profileName": "Sim User 8713",
+      "inboundId": "wamid.sim.in.btn.00479",
+      "at": 1789627212942,
+      "kind": "button_reply",
+      "text": "❌ Reject",
+      "payloadId": "addrchg:reject:1a1f37c2-74fd-4185-9259-25e769029eaf"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00479",
+      "at": 1789627212946
+    },
+    {
+      "dir": "out",
+      "phone": "2348019558713",
+      "wamid": "wamid.sim.000798",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789627212956,
+      "kind": "text",
+      "body": "Could not update that address change: request is already applied"
+    }
+  ]
+}

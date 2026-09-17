@@ -459,6 +459,29 @@ export async function processTelegramUpdate(
           await dispatchToNlp(db, cfg, ev, tr.text);
           return;
         }
+        // === W43 dispatch (Coder C): proof-of-delivery photo. Claims ONLY
+        // when the sender has an order in the awaiting-POD state (tenant
+        // requirePod + shipment out_for_delivery/in_transit); anything else
+        // falls through to the honest degrade below unchanged. ===
+        if (ev.mediaType === "photo") {
+          try {
+            const file = await tgDownloadFile(cfg.tenantId, ev.fileId);
+            if (file) {
+              const { handleInboundPodPhotoTelegram } = await import("./deliveryProof");
+              const pod = await handleInboundPodPhotoTelegram({
+                tenantId: cfg.tenantId,
+                chatId: ev.chatId,
+                buffer: file.buffer,
+                mimeType: ev.mimeType ?? "image/jpeg",
+                fileId: ev.fileId,
+              });
+              if (pod.handled) return;
+            }
+          } catch (e: any) {
+            console.warn("[telegram-inbound] POD capture error:", e?.message);
+          }
+        }
+        // === END W43 dispatch ===
         // Honest degrade: the WA visual-search/receipt chain is keyed on
         // Graph media ids + waSender replies; Telegram photo/document parity
         // is outbound-sender work (Coder A/C). Say so rather than dropping.

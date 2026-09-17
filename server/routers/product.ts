@@ -113,6 +113,16 @@ export const productRouter = router({
         const conn = await getDb();
         if (conn) {
           void triggerRestockNotification(conn, tenantId, id, prevStock, data.stockQuantity);
+          // === W43 fulfillment (Coder A): a stock increase auto-fills open
+          // backorders for this SKU oldest-first (same txn inside the
+          // service) and notifies customers on both channels. Fire-and-forget
+          // like the waitlist hook; never blocks the update.
+          if (prevStock !== null && data.stockQuantity > prevStock) {
+            void import("../services/backorders")
+              .then((m) => m.fillBackordersAfterRestock(conn, tenantId, id))
+              .catch((e: unknown) => console.error("[product] backorder fill error:", (e as Error)?.message));
+          }
+          // === END W43 fulfillment ===
         }
       }
       await enqueueProductSync(tenantId, id, "updated", { ...data });

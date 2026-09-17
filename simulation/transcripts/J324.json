@@ -1,0 +1,8 @@
+{
+  "id": "J324",
+  "title": "fulfillment replay is idempotent (stock consumed exactly once)",
+  "feature": "fulfillmentId idempotency key",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

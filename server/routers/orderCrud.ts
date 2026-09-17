@@ -28,7 +28,11 @@ import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmount
 const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
   pending:    ["confirmed", "cancelled"],
   confirmed:  ["processing", "cancelled"],
-  processing: ["shipped", "cancelled"],
+  // === W43 fulfillment (Coder A): partially_fulfilled is entered from
+  // confirmed/processing (partial fulfill) and exits to shipped/cancelled.
+  processing: ["shipped", "cancelled", "partially_fulfilled"],
+  partially_fulfilled: ["shipped", "cancelled"],
+  // === END W43 fulfillment ===
   shipped:    ["delivered"],
   delivered:  ["refunded"],
   cancelled:  [],
@@ -103,7 +107,13 @@ export const orderCrudRouter = router({
         input.tenantId,
         input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
       );
-      if (!availability.ok) {
+      // === W43 fulfillment (Coder A): backorder-enabled tenants may check
+      // out with insufficient stock — short lines become 'backordered'
+      // instead of blocking (reserveStockWithBackorders inside the txn).
+      const { isBackordersEnabled, reserveStockWithBackorders } = await import("../services/backorders");
+      const allowBackorders = await isBackordersEnabled(db, input.tenantId);
+      // === END W43 fulfillment ===
+      if (!availability.ok && !allowBackorders) {
         const s = availability.shortages[0];
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -139,6 +149,11 @@ export const orderCrudRouter = router({
               RETURNING id
             `);
             if ((result as unknown[]).length === 0) {
+              // === W43 fulfillment (Coder A): backorder-enabled tenants skip
+              // the snapshot claim for short lines (they are backordered
+              // below) instead of rolling the whole order back.
+              if (allowBackorders) continue;
+              // === END W43 fulfillment ===
               throw new TRPCError({
                 code: "PRECONDITION_FAILED",
                 message: `Insufficient stock for product: ${item.productName}`,
@@ -165,9 +180,15 @@ export const orderCrudRouter = router({
           });
 
           // Insert normalised order items
+          // === W43 fulfillment (Coder A): line ids captured so the backorder
+          // reserve path can mark short lines 'backordered'.
+          const orderLineRefs: { productId: string; qty: number; orderLineId: string }[] = [];
+          // === END W43 fulfillment ===
           for (const item of input.items) {
+            const orderLineId = crypto.randomUUID();
+            orderLineRefs.push({ productId: item.productId, qty: item.quantity, orderLineId });
             await tx.insert(orderItems).values({
-              id: crypto.randomUUID(),
+              id: orderLineId,
               orderId,
               productId: item.productId,
               productName: item.productName,
@@ -178,12 +199,20 @@ export const orderCrudRouter = router({
           }
 
           // Atomic stock reservation on the products ledger (authoritative).
-          await reserveStock(
-            tx,
-            input.tenantId,
-            orderId,
-            input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
-          );
+          // === W43 fulfillment (Coder A): backorder-enabled tenants reserve
+          // what exists and backorder the remainder (claim-first FOR UPDATE);
+          // everyone else keeps the all-or-nothing guard.
+          if (allowBackorders) {
+            await reserveStockWithBackorders(tx, input.tenantId, orderId, orderLineRefs);
+          } else {
+            await reserveStock(
+              tx,
+              input.tenantId,
+              orderId,
+              input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
+            );
+          }
+          // === END W43 fulfillment ===
         });
       } catch (err) {
         if (err instanceof InsufficientStockError) {

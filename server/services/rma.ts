@@ -33,6 +33,8 @@ import {
   type RmaRequest,
 } from "../../drizzle/schema";
 import { releaseCommittedReservations } from "./inventory";
+// === W43 exchanges (Coder B): stock-adjustment audit (return restock leg) ===
+import { recordStockAdjustment } from "./stockAdjustments";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -266,6 +268,18 @@ export async function receiveAndRestock(
             "availableQty" = CAST("availableQty" AS NUMERIC) + ${item.quantity}
         WHERE "productId" = ${item.productId} AND "tenantId" = ${row.tenantId}
       `);
+      // === W43 exchanges (Coder B): audit the return restock in the SAME
+      // txn as the snapshot credit. ===
+      await recordStockAdjustment(tx, {
+        tenantId: row.tenantId,
+        productId: item.productId,
+        deltaQty: item.quantity,
+        reason: "restock",
+        refType: "rma",
+        refId: row.id,
+        note: `RMA ${row.id}: returned units restocked`,
+      });
+      // === END W43 exchanges ===
     }
     const restocked = await tx.update(rmaRequests).set({
       status: "restocked", restockedAt: now, updatedAt: now,

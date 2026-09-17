@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T04:45:23.220Z",
+  "generatedAt": "2026-09-17T06:40:42.068Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -2027,12 +2027,132 @@
       "messageCount": 0
     },
     {
+      "id": "J322",
+      "title": "partial fulfillment derives partially_fulfilled then shipped",
+      "feature": "order_fulfillments + reservation consumption + status derivation",
+      "pass": true,
+      "file": "J322.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J323",
+      "title": "over-fulfillment rejected by claim-first qty guard",
+      "feature": "fulfill qty guard (ordered - fulfilled)",
+      "pass": true,
+      "file": "J323.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J324",
+      "title": "fulfillment replay is idempotent (stock consumed exactly once)",
+      "feature": "fulfillmentId idempotency key",
+      "pass": true,
+      "file": "J324.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J325",
+      "title": "backorder at confirm instead of blocking checkout",
+      "feature": "tenants.allowBackorders + order line backordered + backorder_requests",
+      "pass": true,
+      "file": "J325.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J326",
+      "title": "restock auto-fills backorders oldest-first + both-channel notify",
+      "feature": "backorder_requests auto-fill + backorder_filled parity category",
+      "pass": true,
+      "file": "J326.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J327",
+      "title": "exchange positive delta → payment link, full lifecycle",
+      "feature": "exchange_requests state machine + payment intent reuse",
+      "pass": true,
+      "file": "J327.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J328",
+      "title": "exchange negative delta → wallet credit (W41 creditWallet)",
+      "feature": "exchange price-delta refund via customer wallet",
+      "pass": true,
+      "file": "J328.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J329",
+      "title": "exchange state machine rejects illegal transitions",
+      "feature": "exchange_requests guarded transitions",
+      "pass": true,
+      "file": "J329.json",
+      "messageCount": 0
+    },
+    {
       "id": "J33",
       "title": "approve → credit draw",
       "feature": "po_approve → drawOnCredit → invoiced + ledger",
       "pass": true,
       "file": "J33.json",
       "messageCount": 35
+    },
+    {
+      "id": "J330",
+      "title": "exchange receive: restock-or-writeoff + claim-first reserve + audit",
+      "feature": "exchange stock legs with stock_adjustments audit",
+      "pass": true,
+      "file": "J330.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J331",
+      "title": "stock_adjustments audit rows on cancel-release + RMA restock; tenant-scoped history",
+      "feature": "stock_adjustments audit + inventory.adjustmentHistory",
+      "pass": true,
+      "file": "J331.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J332",
+      "title": "courier POD endpoint → delivered + timeline",
+      "feature": "POST /api/delivery/proof (auth, idempotency, media storage, delivered completion)",
+      "pass": true,
+      "file": "J332.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J333",
+      "title": "buyer WA photo POD while awaiting_pod",
+      "feature": "inbound-chat POD capture (awaiting_pod claim) + requirePod gating of delivered",
+      "pass": true,
+      "file": "J333.json",
+      "messageCount": 8
+    },
+    {
+      "id": "J334",
+      "title": "requirePod gates delivered (tRPC + carrier webhook)",
+      "feature": "tenants.requirePod delivered-transition gate, default off",
+      "pass": true,
+      "file": "J334.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J335",
+      "title": "address change chat request → merchant card approve",
+      "feature": "address_change_requests + WA approval card + apply + audit + notify",
+      "pass": true,
+      "file": "J335.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J336",
+      "title": "address change reject/expiry/fee + telegram parity",
+      "feature": "terminal-path notifications, tenant flag, wallet fee, TG inline keyboard",
+      "pass": true,
+      "file": "J336.json",
+      "messageCount": 28
     },
     {
       "id": "J34",

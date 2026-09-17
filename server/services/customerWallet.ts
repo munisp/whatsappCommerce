@@ -37,7 +37,9 @@ export type WalletCreditReason =
 export type WalletDebitReason =
   | "checkout_spend"
   | "split_contribution"
-  | "installment_charge";
+  | "installment_charge"
+  // === W43 dispatch (additive): post-dispatch address-change fee ===
+  | "address_change_fee";
 
 export interface WalletOpResult {
   ok: boolean;

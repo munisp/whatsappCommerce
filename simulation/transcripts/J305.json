@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018105683",
-      "profileName": "Sim User 5683",
+      "phone": "2348019541698",
+      "profileName": "Sim User 1698",
       "inboundId": "wamid.sim.in.text.00467",
-      "at": 1789620289843,
+      "at": 1789627191103,
       "kind": "text",
       "text": "2 jollof rice and 1 chicken j305"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00467",
-      "at": 1789620289848
+      "at": 1789627191107
     },
     {
       "dir": "out",
-      "phone": "2348018105683",
+      "phone": "2348019541698",
       "wamid": "wamid.sim.000778",
       "statuses": [
         "sent"
       ],
-      "at": 1789620289885,
+      "at": 1789627191137,
       "kind": "text",
       "body": "✅ 2 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348018105683",
-      "profileName": "Sim User 5683",
+      "phone": "2348019541698",
+      "profileName": "Sim User 1698",
       "inboundId": "wamid.sim.in.text.00468",
-      "at": 1789620290389,
+      "at": 1789627191650,
       "kind": "text",
       "text": "confirm my order j305"
     },
@@ -44,16 +44,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00468",
-      "at": 1789620290393
+      "at": 1789627191654
     },
     {
       "dir": "out",
-      "phone": "2348018105683",
+      "phone": "2348019541698",
       "wamid": "wamid.sim.000779",
       "statuses": [
         "sent"
       ],
-      "at": 1789620290418,
+      "at": 1789627191678,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Jollof Rice — ₦2,500.00 (~$1.65) each\n1 × Grilled Chicken — ₦3,000.00 (~$1.98) each\nSubtotal: ₦8,000.00 (~$5.28)\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery\n\nApproximate conversion at this store's manual rate — you are charged in NGN."
     }

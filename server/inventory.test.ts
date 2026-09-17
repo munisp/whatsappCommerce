@@ -138,7 +138,9 @@ function makeFakeDb(seed: {
       if (!row) return [];
       log?.push(() => { row.status = "reserved"; });
       row.status = "released";
-      return [{ id: row.id, productId: row.productId, qty: row.qty }];
+      // Mirrors the real RETURNING clause (id, tenantId, productId, qty) —
+      // W43 (Coder B) releaseReservations audits with row.tenantId/productId.
+      return [{ id: row.id, tenantId: row.tenantId, productId: row.productId, qty: row.qty }];
     }
     return [];
   };
