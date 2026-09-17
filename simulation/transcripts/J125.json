@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018139311",
-      "profileName": "Sim User 9311",
-      "inboundId": "wamid.sim.in.loc.00325",
-      "at": 1789626980651,
+      "phone": "2348011244822",
+      "profileName": "Sim User 4822",
+      "inboundId": "wamid.sim.in.loc.00323",
+      "at": 1789657882470,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -18,26 +18,26 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00325",
-      "at": 1789626980655
+      "wamid": "wamid.sim.in.loc.00323",
+      "at": 1789657882475
     },
     {
       "dir": "out",
-      "phone": "2348018139311",
-      "wamid": "wamid.sim.000552",
+      "phone": "2348011244822",
+      "wamid": "wamid.sim.000548",
       "statuses": [
         "sent"
       ],
-      "at": 1789626980680,
+      "at": 1789657882496,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Sim Store — sim · 0.6 km\n2. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348018139311",
-      "profileName": "Sim User 9311",
-      "inboundId": "wamid.sim.in.loc.00326",
-      "at": 1789626981205,
+      "phone": "2348011244822",
+      "profileName": "Sim User 4822",
+      "inboundId": "wamid.sim.in.loc.00324",
+      "at": 1789657883028,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792
@@ -45,17 +45,17 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00326",
-      "at": 1789626981210
+      "wamid": "wamid.sim.in.loc.00324",
+      "at": 1789657883033
     },
     {
       "dir": "out",
-      "phone": "2348018139311",
-      "wamid": "wamid.sim.000553",
+      "phone": "2348011244822",
+      "wamid": "wamid.sim.000549",
       "statuses": [
         "sent"
       ],
-      "at": 1789626981231,
+      "at": 1789657883050,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. ★ Sponsored: Geo Boost B — Local business · 0.5 km\n2. ★ Sponsored: Geo Boost C — Local business · 0.8 km\n3. Lagos Plastics Manufacturing — plastics · 0.3 km\n4. Sim Store — sim · 0.6 km\n\nReply with a category to filter, or tell me what you're looking for."
     }

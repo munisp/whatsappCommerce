@@ -99,6 +99,10 @@ export const SCHEDULE = [
   // === W32 recurring === daily recurring bills / auto-pay sweep.
   { path: "/api/scheduled/recurring-run", intervalMin: 1440 },
   // === END W32 recurring ===
+  // === W44 deposits-subs-digital (Coder C) === hourly subscription
+  // auto-billing tick (see server/services/subscriptions.ts).
+  { path: "/api/scheduled/subscription-billing", intervalMin: 60 },
+  // === END W44 deposits-subs-digital ===
   // === W33 forecast === weekly cash-flow forecast snapshot sweep.
   { path: "/api/scheduled/cashflow-forecast", intervalMin: 10080 },
   // === END W33 forecast ===
@@ -108,6 +112,10 @@ export const SCHEDULE = [
   // === W40 Coder B (TEN-8) === daily KYB periodic sanctions re-screen.
   { path: "/api/scheduled/kyb-rescreen", intervalMin: 1440 },
   // === END W40 Coder B (TEN-8) ===
+  // === W44 preorders-offers (Coder B) === pre-order availability flip (5 min) + offer expiry (30 min).
+  { path: "/api/scheduled/preorders-due", intervalMin: 5 },
+  { path: "/api/scheduled/offers-expire", intervalMin: 30 },
+  // === END W44 preorders-offers ===
 ];
 
 function b64url(buf) {

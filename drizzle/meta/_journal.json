@@ -932,6 +932,55 @@
       "when": 1787902400000,
       "tag": "0135_address_change_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1787902500000,
+      "tag": "0136_gift_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1787902600000,
+      "tag": "0137_referrals",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1787902700000,
+      "tag": "0138_w44_preorders",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1787902800000,
+      "tag": "0139_w44_custom_offers",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1787902900000,
+      "tag": "0140_service_appointments",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1787903000000,
+      "tag": "0141_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1787903100000,
+      "tag": "0142_digital_pins",
+      "breakpoints": true
     }
   ]
 }

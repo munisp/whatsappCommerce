@@ -555,6 +555,34 @@ export async function bootWorld(): Promise<World> {
           await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' = 'ar_invoice_payment'`);
         } catch { /* W31 tables not migrated yet */ }
         // === END W31 ar-invoices ===
+        // === W44 deposits-subs-digital === wipe appointment/subscription/PIN
+        // tables + their payment intents so J347–J351 never leak charges,
+        // bookings or PIN allocations into each other.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql } = await import("drizzle-orm");
+          await world.db.delete(schema.digitalPins);
+          await world.db.delete(schema.digitalPinBatches);
+          await world.db.delete(schema.customerSubscriptions);
+          await world.db.delete(schema.subscriptionPlans);
+          await world.db.delete(schema.serviceAppointments);
+          await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' IN ('appointment_deposit','appointment_remainder')`);
+        } catch { /* W44 tables not migrated yet */ }
+        // === END W44 deposits-subs-digital ===
+        // === W44 merger === wipe gift-card/referral/custom-offer tables so
+        // J337–J346 never leak codes, balances or open offers across journeys
+        // (A/B branches added no world.ts wipes of their own).
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql } = await import("drizzle-orm");
+          await world.db.delete(schema.giftCardTransactions);
+          await world.db.delete(schema.giftCards);
+          await world.db.delete(schema.referralEvents);
+          await world.db.delete(schema.referralCodes);
+          await world.db.delete(schema.customOffers);
+          await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' IN ('gift_card_purchase')`);
+        } catch { /* W44 A/B tables not migrated yet */ }
+        // === END W44 merger ===
         // Restore seed stock so journeys never starve each other.
         try {
           const { products } = await import("../drizzle/schema");

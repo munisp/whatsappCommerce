@@ -213,6 +213,25 @@ export const orderCrudRouter = router({
             );
           }
           // === END W43 fulfillment ===
+          // === W44 preorders-offers (Coder B): pre-order checkout seam.
+          // Products with preorderEnabled + FUTURE preorderAvailableAt have
+          // their lines stamped 'preorder' and the order metadata gains the
+          // preorder terms snapshot (availableAt, depositPct, integer-cents
+          // totals). Same transaction — the marking commits or rolls back
+          // with the order.
+          const { markPreorderLinesTx } = await import("../services/preorders");
+          await markPreorderLinesTx(
+            tx,
+            input.tenantId,
+            orderId,
+            orderLineRefs.map((r) => ({
+              ...r,
+              unitPriceCents: toMinorUnitsExact(
+                input.items.find((i) => i.productId === r.productId)?.unitPrice ?? 0,
+              ),
+            })),
+          );
+          // === END W44 preorders-offers ===
         });
       } catch (err) {
         if (err instanceof InsufficientStockError) {
@@ -537,6 +556,17 @@ export const orderCrudRouter = router({
           }).where(eq(orders.id, input.orderId));
         }
       });
+
+      // === W44 giftcards-referrals (Coder A): void the referral attribution
+      // tied to the refunded order (claim-first, audited). Best-effort —
+      // never blocks the refund. ===
+      try {
+        const { voidReferralOnRefund } = await import("../services/referrals");
+        await voidReferralOnRefund(db, { tenantId: order.tenantId, orderId: input.orderId, actor: String(ctx.user?.id ?? "merchant") });
+      } catch (e: any) {
+        console.warn("[orderCrud] referral void-on-refund failed:", e?.message);
+      }
+      // === END W44 giftcards-referrals ===
 
       return { refundId, ok: true };
     }),

@@ -1831,3 +1831,50 @@ spec:
                   cpu: "100m"
                   memory: "128Mi"
 # === END W40 Coder B (TEN-8) ===
+
+---
+# === W44 deposits-subs-digital (Coder C) === 44th CronJob (on this branch):
+# hourly subscription auto-billing tick — charges due customer_subscriptions
+# via saved W41 tokens (claim-first; idempotency sub_billing:<subId>:<period>).
+# Cadence mirrors services/scheduler/scheduler.mjs (parity asserted by J178).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-subscription-billing
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "0 0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/subscription-billing"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W44 deposits-subs-digital ===
