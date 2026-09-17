@@ -981,6 +981,41 @@
       "when": 1787903100000,
       "tag": "0142_digital_pins",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1788000000000,
+      "tag": "0143_w45_goods_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1788000060000,
+      "tag": "0144_w45_vendor_bill_po",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1788000120000,
+      "tag": "0148_wa_suppression_list",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1788000180000,
+      "tag": "0150_payment_mismatch_quarantine",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1788000240000,
+      "tag": "0151_payment_outbox",
+      "breakpoints": true
     }
   ]
 }

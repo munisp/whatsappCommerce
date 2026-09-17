@@ -1,0 +1,162 @@
+{
+  "id": "J360",
+  "title": "cart recovery window gate + template fallback",
+  "feature": "MSG-11 getWindow gate, template outside the 24h window",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348013874469",
+      "profileName": "Sim User 4469",
+      "inboundId": "wamid.sim.in.text.00537",
+      "at": 1789673112424,
+      "kind": "text",
+      "text": "add 1 jollof to my cart [j360a]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00537",
+      "at": 1789673112428
+    },
+    {
+      "dir": "out",
+      "phone": "2348013874469",
+      "wamid": "wamid.sim.000954",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112452,
+      "kind": "text",
+      "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348016495765",
+      "profileName": "Sim User 5765",
+      "inboundId": "wamid.sim.in.text.00538",
+      "at": 1789673112971,
+      "kind": "text",
+      "text": "add 1 chicken to my cart [j360b]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00538",
+      "at": 1789673112975
+    },
+    {
+      "dir": "out",
+      "phone": "2348016495765",
+      "wamid": "wamid.sim.000955",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112999,
+      "kind": "text",
+      "body": "✅ 1 × Grilled Chicken\nAdded to your cart!"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015996084",
+      "wamid": "wamid.sim.000956",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113566,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019276721",
+      "wamid": "wamid.sim.000957",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113574,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014632490",
+      "wamid": "wamid.sim.000958",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113585,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016401119",
+      "wamid": "wamid.sim.000959",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113595,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014147736",
+      "wamid": "wamid.sim.000960",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113603,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012882631",
+      "wamid": "wamid.sim.000961",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113611,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016341667",
+      "wamid": "wamid.sim.000962",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113709,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013874469",
+      "wamid": "wamid.sim.000963",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113731,
+      "kind": "text",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016495765",
+      "wamid": "wamid.sim.000964",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673113739,
+      "kind": "template",
+      "templateName": "wac_cart_recovery",
+      "templateLanguage": "en_US",
+      "body": "You left items in your cart — reply CHECKOUT to complete your order. 🛒"
+    }
+  ]
+}

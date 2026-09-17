@@ -1878,3 +1878,48 @@ spec:
                   cpu: "100m"
                   memory: "128Mi"
 # === END W44 deposits-subs-digital ===
+---
+# === W45 money-ledger === payment outbox worker + FX fulfil/error poller
+# (PAY-16/18; server/services/paymentOutbox.ts). Cadence mirrors
+# services/scheduler/scheduler.mjs (parity asserted by J178).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cron-payment-outbox
+  namespace: whatsapp-commerce
+  labels:
+    app: cron-scheduler
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: scheduler
+              image: whatsapp-commerce/scheduler:latest
+              args: ["node", "scheduler.mjs", "--once", "/api/scheduled/payment-outbox"]
+              env:
+                - name: PLATFORM_URL
+                  value: "http://platform.whatsapp-commerce.svc.cluster.local:3000"
+                - name: CRON_JWT
+                  valueFrom:
+                    secretKeyRef:
+                      name: platform-secrets
+                      key: CRON_JWT
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "32Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "128Mi"
+# === END W45 money-ledger ===

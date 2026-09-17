@@ -121,10 +121,14 @@ afterEach(() => vi.unstubAllGlobals());
 const INPUT = { buyerTenantId: "buyer-t", accountId: "acct-1", poId: "po-9", customerPhone: "+2348000000000" };
 
 describe("createRepaymentLink via registry fallback", () => {
-  it("serves via fallback provider when the primary throws; provider recorded on intent", async () => {
-    const failing = provider("paystack", () => {
-      throw new Error("paystack 502");
-    });
+  it("serves via fallback provider when the primary fails definitively; provider recorded on intent", async () => {
+    // W45 (PAY-25): fallback to the next provider requires a DEFINITIVE
+    // failure (adapter answered and refused). An ambiguous throw would first
+    // be verified via fetchStatus and — when the reference is live — NOT
+    // produce a second checkout. A definitive ok:false hops directly.
+    const failing = provider("paystack", (ctx) => ({
+      ok: false, reference: ctx.reference, provider: "paystack", failureKind: "definitive",
+    }));
     const serving = provider("flutterwave", (ctx) => ({
       ok: true, reference: ctx.reference, provider: "flutterwave",
       authorizationUrl: "https://fw.example/checkout/1",
@@ -182,7 +186,9 @@ describe("createRepaymentLink via registry fallback", () => {
   });
 
   it("all providers fail → graceful CreditRepayError (paystack-init-failed), intent marked failed", async () => {
-    const a = provider("paystack", () => ({ ok: false, reference: "x", provider: "paystack" }));
+    // W45 (PAY-25): a definitive ok:false hops without a verify probe; the
+    // last provider's throw has no fallback to protect so the chain exhausts.
+    const a = provider("paystack", () => ({ ok: false, reference: "x", provider: "paystack", failureKind: "definitive" }));
     const b = provider("flutterwave", () => {
       throw new Error("down");
     });

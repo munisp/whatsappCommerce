@@ -1,0 +1,52 @@
+{
+  "id": "J354",
+  "title": "DLQ processed/failed flip + idempotent heartbeat retry",
+  "feature": "MSG-7 per-message processed/failed + MSG-8 pipeline re-dispatch",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017378795",
+      "profileName": "Sim User 8795",
+      "inboundId": "wamid.sim.in.j354.0000a",
+      "at": 1789673107568,
+      "kind": "text",
+      "text": "hello j354 healthy"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.j354.0000a",
+      "at": 1789673107572
+    },
+    {
+      "dir": "out",
+      "phone": "2348017378795",
+      "wamid": "wamid.sim.000924",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673107591,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.j354.0000b",
+      "at": 1789673108125
+    },
+    {
+      "dir": "out",
+      "phone": "2348016376853",
+      "wamid": "wamid.sim.000925",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673108152,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}

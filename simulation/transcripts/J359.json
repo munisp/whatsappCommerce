@@ -1,0 +1,297 @@
+{
+  "id": "J359",
+  "title": "delivery-failure suppression list",
+  "feature": "MSG-10 suppression consulted by broadcast + retries",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348013606767",
+      "wamid": "wamid.sim.000928",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111946,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018937967",
+      "wamid": "wamid.sim.000929",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111949,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012655706",
+      "wamid": "wamid.sim.000930",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111955,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013135394",
+      "wamid": "wamid.sim.000931",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111960,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016916897",
+      "wamid": "wamid.sim.000932",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111964,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014772060",
+      "wamid": "wamid.sim.000933",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111968,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014444932",
+      "wamid": "wamid.sim.000934",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111972,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019077628",
+      "wamid": "wamid.sim.000935",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111975,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017256636",
+      "wamid": "wamid.sim.000936",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111979,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014738445",
+      "wamid": "wamid.sim.000937",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111983,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017318760",
+      "wamid": "wamid.sim.000938",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111987,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018855151",
+      "wamid": "wamid.sim.000939",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111990,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014285528",
+      "wamid": "wamid.sim.000940",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111994,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015958389",
+      "wamid": "wamid.sim.000941",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673111998,
+      "kind": "template",
+      "templateName": "j284_broadcast",
+      "templateLanguage": "en_US",
+      "body": "Sim User 8389"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017066364",
+      "wamid": "wamid.sim.000942",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112007,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014255033",
+      "wamid": "wamid.sim.000943",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112011,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019874051",
+      "wamid": "wamid.sim.000944",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112014,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015996084",
+      "wamid": "wamid.sim.000945",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112018,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018350320",
+      "wamid": "wamid.sim.000946",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112022,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019276721",
+      "wamid": "wamid.sim.000947",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112025,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018854159",
+      "wamid": "wamid.sim.000948",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112029,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018405614",
+      "wamid": "wamid.sim.000949",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112033,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019490721",
+      "wamid": "wamid.sim.000950",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112036,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014632490",
+      "wamid": "wamid.sim.000951",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112040,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017204621",
+      "wamid": "wamid.sim.000952",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112044,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014470302",
+      "wamid": "wamid.sim.000953",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673112052,
+      "kind": "text",
+      "body": "retry me"
+    }
+  ]
+}

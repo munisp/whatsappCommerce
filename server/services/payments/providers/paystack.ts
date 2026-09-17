@@ -66,7 +66,8 @@ export const paystackProvider: PaymentProvider = {
   async initiate(ctx: PaymentInitiateCtx, creds: unknown): Promise<PaymentInitiateResult> {
     const c = asCreds(creds);
     if (!c.secretKey) {
-      return { ok: false, reference: ctx.reference, provider: "paystack" };
+      // Definitive: no checkout was ever attempted.
+      return { ok: false, reference: ctx.reference, provider: "paystack", failureKind: "definitive" };
     }
     const email =
       ctx.customer.email ??
@@ -86,14 +87,16 @@ export const paystackProvider: PaymentProvider = {
         signal: AbortSignal.timeout(INITIATE_TIMEOUT_MS),
       });
       if (!res.ok) {
-        return { ok: false, reference: ctx.reference, provider: "paystack" };
+        // W45 (PAY-25) definitive: Paystack ANSWERED with an HTTP error —
+        // no checkout was created for this request, so fallback is safe.
+        return { ok: false, reference: ctx.reference, provider: "paystack", failureKind: "definitive" };
       }
       const data = (await res.json()) as {
         status: boolean;
         data?: { authorization_url?: string; reference?: string };
       };
       if (!data.status || !data.data?.authorization_url) {
-        return { ok: false, reference: ctx.reference, provider: "paystack" };
+        return { ok: false, reference: ctx.reference, provider: "paystack", failureKind: "definitive" };
       }
       return {
         ok: true,
@@ -102,7 +105,10 @@ export const paystackProvider: PaymentProvider = {
         provider: "paystack",
       };
     } catch {
-      return { ok: false, reference: ctx.reference, provider: "paystack" };
+      // W45 (PAY-25) ambiguous: timeout/network error — Paystack MAY have
+      // created the transaction server-side. The fallback orchestrator must
+      // fetchStatus(reference) before minting a checkout at another provider.
+      return { ok: false, reference: ctx.reference, provider: "paystack", failureKind: "ambiguous" };
     }
   },
 

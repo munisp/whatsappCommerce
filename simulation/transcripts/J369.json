@@ -1,0 +1,8 @@
+{
+  "id": "J369",
+  "title": "PAY-23: ISO-4217 exponents (XOF zero-decimal) + dust policy",
+  "feature": "W45 services/payments/currencyExponent.ts",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -276,6 +276,56 @@ export const vendorBillsRouter = router({
     }),
   // === END W32 pay-over-time ===
 
+  // === W45 money-ledger === PAY-20: mandate-revocation lifecycle surfaces.
+  /** Admin cancel: terminal write-off of a plan (audited, merchant notified). */
+  payOverTimeCancelPlan: moneyProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      planId: z.string().uuid(),
+      reason: z.string().min(3).max(300),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      try {
+        const { adminCancelPlan } = await import("../services/payOverTime");
+        return await adminCancelPlan(db, {
+          tenantId: input.tenantId, planId: input.planId, reason: input.reason,
+          actor: String((ctx as any).user?.id ?? "admin"),
+        });
+      } catch (e) { rethrow(e); }
+    }),
+
+  /** Admin restructure: re-split the remaining balance over a new count. */
+  payOverTimeRestructurePlan: moneyProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      planId: z.string().uuid(),
+      installments: z.union([z.literal(3), z.literal(6), z.literal(12)]),
+      note: z.string().max(300).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await requireDb();
+      try {
+        const { adminRestructurePlan } = await import("../services/payOverTime");
+        return await adminRestructurePlan(db, {
+          tenantId: input.tenantId, planId: input.planId, installments: input.installments,
+          actor: String((ctx as any).user?.id ?? "admin"), note: input.note,
+        });
+      } catch (e) { rethrow(e); }
+    }),
+
+  /** Manual payment-link fallback (idempotent on pot-manual:<planId>). */
+  payOverTimeManualPaymentLink: moneyProcedure
+    .input(z.object({ tenantId: z.string(), planId: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const db = await requireDb();
+      const { createPotManualPaymentLink } = await import("../services/payOverTime");
+      const res = await createPotManualPaymentLink(db, { tenantId: input.tenantId, planId: input.planId });
+      if (!res.ok) throw new TRPCError({ code: "BAD_REQUEST", message: res.error ?? "manual_link_failed" });
+      return res;
+    }),
+  // === END W45 money-ledger ===
+
   /**
    * Overdue sweep (cron/scheduled): flip unpaid bills past due_date to
    * 'overdue' — guarded UPDATE, safe to run repeatedly. Tenant-scoped.

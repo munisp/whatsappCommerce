@@ -1,0 +1,8 @@
+{
+  "id": "J386",
+  "title": "notification-service queue-backed pipeline",
+  "feature": "go-rust services: MSG-19 notifications",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

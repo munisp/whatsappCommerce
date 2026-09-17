@@ -204,6 +204,11 @@ export const products = pgTable("products", {
   imageUrl: text("imageUrl"),
   status: productStatusEnum("status").default("active").notNull(),
   stockQuantity: integer("stockQuantity").default(0).notNull(),
+  // === W45 orders-p0 (ORD-9, mig 0143): per-unit shipping weight in kg.
+  // Chat checkout sums qty × weightKg for the delivery-fee quote; NULL means
+  // "unknown — quote assumes the 1kg floor". Additive, nullable. ===
+  weightKg: numeric("weightKg", { precision: 8, scale: 3 }),
+  // === END W45 orders-p0 ===
   lowStockThreshold: integer("lowStockThreshold").default(10),
   metadata: jsonb("metadata"),
   // === W44 preorders-offers (Coder B, mig 0138/0139) ===
@@ -1451,6 +1456,8 @@ export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
   "loan_repayment",    // micro-loan repayment debited from merchant wallet
   // === W32 earlypay-fx (additive; never reorder the above) ===
   "wholesale_trade",   // wholesale early-pay debit (buyer) / credit (supplier) legs
+  // === W45 money-ledger (additive; never reorder the above) ===
+  "fx_refund",         // compensating re-credit when an FX payout delivery aborts (PAY-16)
 ]);
 
 // ─── Escrow Config (platform-level) ──────────────────────────────────────────
@@ -3501,11 +3508,38 @@ export const poItems = pgTable("po_items", {
   qty:            integer("qty").notNull(),
   unitPriceCents: bigint("unit_price_cents", { mode: "number" }).notNull(),
   lineTotalCents: bigint("line_total_cents", { mode: "number" }).notNull(),
+  // === W45 orders-p0 (ORD-17, mig 0143): cumulative units received against
+  // this line via goods_receipts. Incremented atomically (received_qty + n
+  // <= qty guard) inside recordGoodsReceipt. ===
+  receivedQty:    integer("received_qty").notNull().default(0),
+  // === END W45 orders-p0 ===
 }, (t) => [
   index("po_items_po_idx").on(t.poId),
 ]);
 export type PoItem = typeof poItems.$inferSelect;
 export type NewPoItem = typeof poItems.$inferInsert;
+
+// === W45 orders-p0 (ORD-17/ORD-18, mig 0143) ===
+// goods_receipts: one row per PO-line receipt event (GRN line). The 3-way
+// match (billed ≤ received) is enforced claim-first in
+// server/services/goodsReceipts.ts before any vendor-bill payment releases
+// money against a PO-linked bill.
+export const goodsReceipts = pgTable("goods_receipts", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  poId:        uuid("po_id").notNull().references(() => purchaseOrders.id),
+  poItemId:    uuid("po_item_id").notNull().references(() => poItems.id),
+  receivedQty: integer("received_qty").notNull(),
+  receivedBy:  varchar("received_by", { length: 64 }),
+  note:        text("note"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("goods_receipts_po_idx").on(t.poId),
+  index("goods_receipts_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type GoodsReceipt = typeof goodsReceipts.$inferSelect;
+export type NewGoodsReceipt = typeof goodsReceipts.$inferInsert;
+// === END W45 orders-p0 ===
 
 // ─── w9: media assets (brand studio generated logos / kits) ─────────────────
 export const mediaAssets = pgTable("media_assets", {
@@ -4863,6 +4897,11 @@ export const vendorBills = pgTable("vendor_bills", {
   approvalId:     varchar("approval_id", { length: 64 }),
   odooSyncState:  varchar("odoo_sync_state", { length: 16 }),
   metadata:       jsonb("metadata"), // W32 pay-over-time: { financing: "pay_over_time", planId, ... }
+  // === W45 orders-p0 (ORD-17, mig 0144): link to the purchase order this
+  // bill settles. When set, payment release is gated claim-first on the
+  // 3-way match (billed ≤ received — see services/goodsReceipts.ts). ===
+  poId:           uuid("po_id"),
+  // === END W45 orders-p0 ===
   createdBy:      varchar("created_by", { length: 64 }),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
   updatedAt:      timestamp("updated_at").notNull().defaultNow(),
@@ -5401,6 +5440,39 @@ export const refundAttempts = pgTable("refund_attempts", {
 ]);
 export type RefundAttempt = typeof refundAttempts.$inferSelect;
 export type NewRefundAttempt = typeof refundAttempts.$inferInsert;
+
+// === W45 money-intents (Coder B2) ===
+// PAY-13: PSP under/overpayment quarantine — money collected at an amount or
+// currency that disagrees with the payment record is quarantined here (ops
+// alert + auto-refund via executeProviderRefund in
+// server/services/payments/paymentMismatchQuarantine.ts). paymentConfirm.ts
+// stays PINNED — the seam is its callers.
+export const paymentMismatchQuarantine = pgTable("payment_mismatch_quarantine", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  paymentIntentId: varchar("payment_intent_id", { length: 36 }),
+  orderId: varchar("order_id", { length: 36 }),
+  reference: varchar("reference", { length: 256 }).notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  expectedAmountMinor: bigint("expected_amount_minor", { mode: "number" }).notNull(),
+  actualAmountMinor: bigint("actual_amount_minor", { mode: "number" }),
+  expectedCurrency: varchar("expected_currency", { length: 3 }).notNull(),
+  actualCurrency: varchar("actual_currency", { length: 3 }),
+  reason: text("reason").notNull(),
+  // quarantined | auto_refund_initiated | auto_refund_paid | auto_refund_failed | resolved
+  status: varchar("status", { length: 24 }).notNull().default("quarantined"),
+  refundReference: varchar("refund_reference", { length: 256 }),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("payment_mismatch_quarantine_reference_unique").on(t.reference),
+  index("payment_mismatch_quarantine_tenant_idx").on(t.tenantId),
+  index("payment_mismatch_quarantine_status_idx").on(t.status),
+]);
+export type PaymentMismatchQuarantine = typeof paymentMismatchQuarantine.$inferSelect;
+export type NewPaymentMismatchQuarantine = typeof paymentMismatchQuarantine.$inferInsert;
+// === END W45 money-intents (Coder B2) ===
 
 // PAY-3: when a refund executes AFTER the escrow already settled/paid out to
 // the merchant, the platform must not silently double-spend — a clawback
@@ -6058,3 +6130,62 @@ export const digitalPins = pgTable("digital_pins", {
 export type DigitalPin = typeof digitalPins.$inferSelect;
 export type NewDigitalPin = typeof digitalPins.$inferInsert;
 // === END W44 deposits-subs-digital ===
+
+// === W45 messaging-services (Coder A2, mig 0148): per-tenant WA suppression list ===
+/**
+ * wa_suppression_list — durable per-tenant set of recipient phones that must
+ * NOT be sent WhatsApp messages (delivery receipts with permanent
+ * recipient-level error codes, e.g. 131026 "message undeliverable"). Redis
+ * is the fast consult path (server/services/waSuppressionList.ts); this PG
+ * table is the durable backing so suppressions survive a Redis flush.
+ * Consulted by broadcast audience building, cart recovery, and the WA send
+ * retry sweep.
+ */
+export const waSuppressionList = pgTable("wa_suppression_list", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Recipient phone, digits-only (normalizeWaPhone). */
+  phone: varchar("phone", { length: 30 }).notNull(),
+  /** First Meta error code that triggered the suppression (e.g. "131026"). */
+  reasonCode: varchar("reason_code", { length: 16 }),
+  /** Origin of the suppression: delivery_receipt | send_error | manual. */
+  source: varchar("source", { length: 32 }).notNull().default("delivery_receipt"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("wa_suppression_tenant_idx").on(t.tenantId),
+  uniqueIndex("wa_suppression_tenant_phone_uq").on(t.tenantId, t.phone),
+]);
+export type WaSuppressionEntry = typeof waSuppressionList.$inferSelect;
+// === END W45 messaging-services ===
+// === W45 money-ledger ===
+// payment_outbox (PAY-16/PAY-18, migration 0151): transactional outbox for
+// post-commit external money legs. Local PG mutations (FX payout debit, PoT
+// facility/repayment/fee bookkeeping) commit atomically with an outbox row;
+// the processPaymentOutbox worker delivers the external leg (Mojaloop
+// /transfers initiation, TigerBeetle /transfer) asynchronously with retry.
+// Exactly-once by the unique deterministic `reference`; claim-first
+// pending→delivering flip so concurrent workers never double-deliver; a
+// stale 'delivering' row (crash mid-delivery) is reaped back to 'pending'.
+export const paymentOutbox = pgTable("payment_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** 'mojaloop_transfer' | 'ledger_transfer' */
+  kind: varchar("kind", { length: 32 }).notNull(),
+  /** Deterministic exactly-once key, e.g. fxmoja:<quoteId> / potfund:<loanId>. */
+  reference: varchar("reference", { length: 160 }).notNull(),
+  payload: jsonb("payload").notNull(),
+  /** pending|delivering|delivered|failed|dead */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+}, (t) => [
+  uniqueIndex("payment_outbox_reference_uniq").on(t.reference),
+  index("payment_outbox_status_created_idx").on(t.status, t.createdAt),
+  index("payment_outbox_tenant_idx").on(t.tenantId),
+]);
+export type PaymentOutboxEvent = typeof paymentOutbox.$inferSelect;
+export type NewPaymentOutboxEvent = typeof paymentOutbox.$inferInsert;
+// === END W45 money-ledger ===

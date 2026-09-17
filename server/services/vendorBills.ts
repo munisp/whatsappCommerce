@@ -257,6 +257,17 @@ export async function recordVendorBillPayment(
     throw Object.assign(new Error(`amountCents exceeds remaining balance (${remaining})`), { code: "BAD_REQUEST" });
   }
 
+  // === W45 orders-p0 (ORD-17) — 3-way match seam ===
+  // A PO-linked bill (vendor_bills.po_id, mig 0144) may NEVER release money
+  // beyond the received value of its PO. assertBillWithinReceived locks the
+  // PO + its lines FOR UPDATE (claim-first) and throws CONFLICT when billed
+  // > received; bills without poId are untouched (pre-W45 path preserved).
+  if ((bill as any).poId) {
+    const { assertBillWithinReceived } = await import("./goodsReceipts");
+    await assertBillWithinReceived(db, { billId: bill.id, tenantId: opts.tenantId });
+  }
+  // === END W45 orders-p0 ===
+
   // ── W31 approval contract (Coder C collaboration) ──────────────────────
   // If the approvals module + a tenant policy exist and this amount crosses
   // the threshold, the bill honestly parks in 'pending_approval' and NO

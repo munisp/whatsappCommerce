@@ -36,7 +36,7 @@
  *    an instant payment parked by policy never moves money at schedule time.
  */
 import crypto from "crypto";
-import { and, desc, eq, gt, lte, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gt, lt, lte, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../db";
 import { merchantWallets, paymentBatches, scheduledPayments, walletTransactions } from "../../drizzle/schema";
 
@@ -146,6 +146,21 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
   {
     const w32Meta = ((row.metadata ?? {}) as Record<string, unknown>);
     if (w32Meta.approvalId && !w32Meta.approvalExecutedFor) {
+      // === W45 money-scheduled (PAY-12) === the re-park is no longer blind:
+      // the approval row is consulted first. An approval that is expired /
+      // rejected / missing resolves the parked payment TERMINALLY
+      // ('approval_expired') instead of re-parking +15min forever.
+      const verdict = await resolveParkedApproval(db, String(w32Meta.approvalId), row.tenantId);
+      if (verdict === "dead") {
+        await db.update(scheduledPayments)
+          .set({
+            status: "approval_expired",
+            lastError: "APPROVAL_EXPIRED: the parked approval expired/was rejected without a decision — nothing moved",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(scheduledPayments.id, row.id), eq(scheduledPayments.status, "claimed")));
+        return { outcome: "failed", error: "approval_expired" };
+      }
       await db.update(scheduledPayments)
         .set({ status: "pending", executeAt: new Date(Date.now() + 15 * 60_000), updatedAt: new Date() })
         .where(and(eq(scheduledPayments.id, row.id), eq(scheduledPayments.status, "claimed")));
@@ -188,7 +203,9 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
   if (existingTx) {
     await db.update(scheduledPayments).set({ status: "executed", lastError: null, updatedAt: new Date() })
       .where(and(eq(scheduledPayments.id, row.id), eq(scheduledPayments.status, "claimed")));
-    await syncVendorBillBestEffort(db, row);
+    // === W45 money-scheduled (PAY-10) === no post-commit bill sync here:
+    // the vendor-bill flip commits INSIDE the debit transaction (W38 LEAST()
+    // path below), so a committed ledger row implies a committed bill flip.
     return { outcome: "duplicate", walletTxId: existingTx.id };
   }
 
@@ -236,6 +253,17 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
           `);
         }
       }
+      // === W45 merger (PAY-17 parity): B3's walletCurrencyMatches guard
+      // applied to B1's scheduled-payment debit site. Fail-closed: refuse the
+      // debit when the wallet currency does not match the payment currency
+      // (wallet creation above still defaults to NGN — a mixed-currency
+      // tenant wallet refactor is deferred; the guard prevents a wrong-
+      // currency debit in the meantime). ===
+      const { walletCurrencyMatches } = await import("./fxPayouts");
+      if (!walletCurrencyMatches(wallet.currency, row.currency ?? "NGN")) {
+        throw new Error(`currency_mismatch: wallet ${wallet.currency} cannot fund ${row.currency ?? "NGN"} scheduled payment ${row.id}`);
+      }
+      // === END W45 merger currency guard ===
       // Atomic conditional debit — balance check and debit are one UPDATE, so
       // concurrent executions can never double-spend or go negative. The
       // merchant always pays the GROSS; instant's fee comes out of it.
@@ -338,13 +366,12 @@ export async function executeClaimedPayment(db: DbHandle, paymentId: string): Pr
       // A concurrent executor committed the same reference first — replay.
       await db.update(scheduledPayments).set({ status: "executed", lastError: null, updatedAt: new Date() })
         .where(and(eq(scheduledPayments.id, row.id), eq(scheduledPayments.status, "claimed")));
-      await syncVendorBillBestEffort(db, row);
+      // W45 PAY-10: bill sync is in-tx; no best-effort fallback needed.
       return { outcome: "duplicate" };
     }
     await markFailed(db, row, err instanceof Error ? err.message : String(err));
     return { outcome: "failed", error: err instanceof Error ? err.message : String(err) };
   }
-  await syncVendorBillBestEffort(db, row);
   return { outcome: "executed", walletTxId, ...(isInstant ? { feeCents: fee.feeCents, netCents: fee.netCents } : {}) };
 }
 
@@ -356,6 +383,34 @@ class SchedInsufficientFundsError extends Error {
 class SchedBillAlreadyPaidError extends Error {
   constructor(public readonly billStatus: string) { super("BILL_ALREADY_PAID"); }
 }
+
+// === W45 money-scheduled (PAY-12) ===
+/**
+ * Consult the approval row behind a parked payment's metadata.approvalId.
+ *  - "alive": pending AND unexpired → the payment may keep re-parking.
+ *  - "dead":  expired / rejected / expired-by-clock / missing → the payment
+ *    must resolve terminally (never re-park forever).
+ * A DECIDED approval ('approved'/'executed') is treated as alive: the W31
+ * executor consumes it exactly once (approvalExecutedFor) and transient
+ * visibility races must never strand an approved payment.
+ * Read is fail-closed: any lookup error keeps the payment parked ("alive").
+ */
+async function resolveParkedApproval(db: DbHandle, approvalId: string, tenantId: string): Promise<"alive" | "dead"> {
+  try {
+    const { approvalRequests } = await import("../../drizzle/schema");
+    const [ap] = await db.select().from(approvalRequests)
+      .where(and(eq(approvalRequests.id, approvalId), eq(approvalRequests.tenantId, tenantId)));
+    if (!ap) return "dead";
+    if (ap.status !== "pending") {
+      return ap.status === "approved" || ap.status === "executed" ? "alive" : "dead";
+    }
+    if (ap.expiresAt && new Date(ap.expiresAt).getTime() <= Date.now()) return "dead";
+    return "alive";
+  } catch {
+    return "alive"; // fail-closed: keep parked, try again next tick
+  }
+}
+// === END W45 money-scheduled (PAY-12) ===
 
 function describePayment(row: typeof scheduledPayments.$inferSelect): string {
   const label = row.kind === "vendor_bill" ? `vendor bill ${row.targetId ?? ""}`.trim()
@@ -378,29 +433,47 @@ async function markFailed(db: DbHandle, row: typeof scheduledPayments.$inferSele
   if (dead) console.error(`[scheduled-payments] DEAD-LETTER ${row.id} after ${attempts} attempts: ${message}`);
 }
 
+// === W45 money-scheduled (PAY-10) === the legacy post-commit
+// syncVendorBillBestEffort blanket-set (paid_cents = amount_cents) was
+// REMOVED: it could overwrite partial-payment bookkeeping after the fact.
+// The keeper is W38's in-transaction LEAST() path in executeClaimedPayment
+// (bill flip commits with the wallet debit — no drift possible).
+// === END W45 money-scheduled (PAY-10) ===
+
 /**
- * vendor_bill contract (Coder A owns the table): on successful execution the
- * referenced bill is flipped to paid by ID. Lazy, fully guarded — when the
- * vendor_bills table does not exist yet (this branch standalone) or the row
- * is missing, the payment itself is unaffected and we log honestly.
+ * === W45 money-scheduled (PAY-10) === schedule-time amount-vs-bill
+ * validation. For kind='vendor_bill' with a REAL vendor_bills row (UUID
+ * targetId) the scheduled amount must equal the bill's REMAINING balance
+ * (amount_cents − paid_cents) at schedule time — a stale or partial amount
+ * is rejected honestly BEFORE any row exists. Terminal bills (paid /
+ * cancelled) are left to the W38 claim-time guard, which skips them honestly
+ * (skipped_already_paid) so replayed/legacy flows keep their contract.
+ * Legacy non-UUID targetIds (ID-only contract) skip validation exactly like
+ * the pre-W38 lazy path. Fail-closed on read errors.
  */
-async function syncVendorBillBestEffort(db: DbHandle, row: typeof scheduledPayments.$inferSelect): Promise<void> {
-  if (row.kind !== "vendor_bill" || !row.targetId) return;
-  try {
-    await db.execute(sql`
-      UPDATE vendor_bills
-      SET status = 'paid',
-          paid_cents = amount_cents,
-          payment_ref = ${`sched:${row.id}`},
-          updated_at = now()
-      WHERE id = ${row.targetId}
-        AND tenant_id = ${row.tenantId}
-        AND status IN ('pending','scheduled','approved','overdue','partially_paid')
-    `);
-  } catch (err) {
-    console.warn(`[scheduled-payments] vendor_bill sync skipped for ${row.targetId}: ${(err as Error)?.message}`);
+export async function validateVendorBillScheduleAmount(
+  db: DbHandle,
+  input: { tenantId: string; kind: string; targetId?: string | null; amountCents: number },
+): Promise<void> {
+  if (input.kind !== "vendor_bill" || !input.targetId) return;
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(input.targetId)) return;
+  const rows = await db.execute(sql`
+    SELECT status, amount_cents, COALESCE(paid_cents, 0) AS paid_cents
+    FROM vendor_bills WHERE id = ${input.targetId} AND tenant_id = ${input.tenantId}
+  `);
+  const bill = (rows as unknown as { status: string; amount_cents: number | string; paid_cents: number | string }[])[0];
+  if (!bill) return; // no bill row (yet) — lazy execution guard still applies
+  if (bill.status === "paid" || bill.status === "cancelled") return; // W38 claim-time guard owns this case
+  const remaining = parseInt(String(bill.amount_cents), 10) - parseInt(String(bill.paid_cents), 10);
+  if (input.amountCents !== remaining) {
+    throw new Error(
+      `BAD_REQUEST: scheduled amount ${input.amountCents} does not equal vendor bill remaining balance ${remaining} ` +
+      `(bill ${input.targetId}, status ${bill.status}) — schedule exactly the remaining amount`,
+    );
   }
 }
+// === END W45 money-scheduled (PAY-10 schedule-time validation) ===
 
 // ─── Claim-before-send engine ───────────────────────────────────────────────
 
@@ -449,12 +522,50 @@ export interface TickSummary {
   remindersSent: number;
   /** W38 (PAY-9): vendor-bill payments skipped because the bill was already paid. */
   skippedAlreadyPaid?: number;
+  /** W45 (PAY-11): stale 'claimed' rows reaped back to pending this tick. */
+  staleClaimsReaped?: number;
 }
 
-/** One cron tick: claim due payments → execute each → send T-1 reminders. */
+// === W45 money-scheduled (PAY-11) ===
+/** A claim older than this without a status flip means the executor crashed. */
+export const STALE_CLAIM_MS = 10 * 60 * 1000;
+
+/**
+ * Stale-claim reaper: a payment claimed >10min ago whose executor died
+ * between claim and execute would otherwise be stranded in 'claimed'
+ * forever (claimDuePayments only selects pending/failed and cancel/retry
+ * refuse 'claimed'). Guarded UPDATE claimed→pending — exactly one reaper
+ * wins each row, and the row is immediately re-claimable by this tick when
+ * its execute_at is due.
+ */
+export async function reapStaleClaims(db: DbHandle, now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_CLAIM_MS);
+  const reaped = await db.update(scheduledPayments)
+    .set({
+      status: "pending",
+      lastError: "REAPED: stale claim recovered after executor crash (no money moved while claimed)",
+      updatedAt: now,
+    })
+    .where(and(
+      eq(scheduledPayments.status, "claimed"),
+      lt(scheduledPayments.updatedAt, cutoff),
+    ))
+    .returning({ id: scheduledPayments.id });
+  for (const r of reaped) {
+    console.warn(`[scheduled-payments] reaped stale claim ${r.id} (claimed >${STALE_CLAIM_MS / 60000}min without execution)`);
+  }
+  return reaped.length;
+}
+// === END W45 money-scheduled (PAY-11) ===
+
+/** One cron tick: reap stale claims → claim due payments → execute each → send T-1 reminders. */
 export async function runScheduledPaymentTick(db: DbHandle, now = new Date()): Promise<TickSummary> {
+  // === W45 money-scheduled (PAY-11) === reap first so recovered rows are
+  // claimable in THIS tick.
+  const staleClaimsReaped = await reapStaleClaims(db, now);
+  // === END W45 money-scheduled ===
   const claimed = await claimDuePayments(db, now);
-  const summary: TickSummary = { claimed: claimed.length, executed: 0, insufficientFunds: 0, failed: 0, remindersSent: 0 };
+  const summary: TickSummary = { claimed: claimed.length, executed: 0, insufficientFunds: 0, failed: 0, remindersSent: 0, staleClaimsReaped };
   for (const row of claimed) {
     const res = await executeClaimedPayment(db, row.id);
     if (res.outcome === "executed" || res.outcome === "duplicate") summary.executed++;
@@ -544,6 +655,11 @@ export async function schedulePayment(db: DbHandle, input: ScheduleInput): Promi
   const key = input.idempotencyKey ?? `sched-req:${input.tenantId}:${crypto.randomUUID()}`;
   const [existing] = await db.select().from(scheduledPayments).where(eq(scheduledPayments.idempotencyKey, key));
   if (existing) return { payment: existing, duplicate: true };
+  // === W45 money-scheduled (PAY-10) === schedule-time amount==remaining
+  // validation for real vendor bills (rejects stale/partial amounts honestly
+  // BEFORE a payment row exists; idempotent replays above are unaffected).
+  await validateVendorBillScheduleAmount(db, input);
+  // === END W45 money-scheduled ===
   try {
     const speed = input.speed ?? "standard";
     const [created] = await db.insert(scheduledPayments).values({

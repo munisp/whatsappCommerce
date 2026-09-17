@@ -67,14 +67,19 @@ export const flutterwaveProvider: PaymentProvider = {
         c.secretKey,
       );
       const link = body?.data?.link;
+      const hasLink = typeof link === 'string' && link.length > 0;
       return {
-        ok: typeof link === 'string' && link.length > 0,
+        ok: hasLink,
         reference: ctx.reference,
         authorizationUrl: typeof link === 'string' ? link : undefined,
         provider: 'flutterwave',
+        // W45 (PAY-25): Flutterwave answered but gave no checkout link —
+        // definitive refusal, safe to fall back.
+        ...(hasLink ? {} : { failureKind: 'definitive' as const }),
       };
     } catch {
-      return { ok: false, reference: ctx.reference, instructions: 'initiate failed', provider: 'flutterwave' };
+      // W45 (PAY-25) ambiguous: network/timeout — verify before fallback.
+      return { ok: false, reference: ctx.reference, instructions: 'initiate failed', provider: 'flutterwave', failureKind: 'ambiguous' };
     }
   },
 

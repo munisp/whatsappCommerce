@@ -111,6 +111,15 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   { id: "subscription_status", description: "Subscription billing receipts + pause/resume/cancel confirmations", telegram: "full", notes: "Success receipt via sendCustomerText after the billing tick order leg; failure dunning rides the EXISTING dunning category. Chat commands (pause/resume/cancel) handled by the shared nlp engine on both channels." },
   { id: "digital_pin",         description: "Digital PIN delivery + reveal-again", telegram: "full", notes: "PIN text delivered via notifyCustomer (decrypted server-side ONLY at delivery); reveal-again re-sends the SAME pin with an audit row on every reveal." },
   // === END W44 deposits-subs-digital ===
+  // === W45 messaging-services (Coder A2): image pipeline fail-soft (MSG-24) ===
+  { id: "image_pipeline_failed", description: "Fail-soft 'couldn't process that photo' reply when an inbound non-receipt image pipeline errors terminally", telegram: "full", notes: "Plain-text localized reply (i18n imageProcessingFailed) via notifyCustomer/sendCustomerText on BOTH channels; terminal catch of the receipt/visual-search chain in the WA webhook calls replyImagePipelineFailed (A2 helper, A1 owns the index.ts call site)." },
+  // === END W45 messaging-services ===
+  // === W45 money-scheduled (Coder B1): stale-escrow buyer prompt ==========
+  { id: "escrow_stale_prompt", description: "Stale-escrow 'confirm receipt or dispute' buyer prompt (paid-but-undelivered orders past the SLA deadline)", telegram: "full", notes: "Plain-text prompt via sendCustomerText from routers/sla.ts handleStaleEscrow (PAY-22); identical body on both channels, telegram-linked buyers route via channelSender, WA buyers unchanged." },
+  // === END W45 money-scheduled ===
+  // === W45 money-ledger (Coder B3): pay-over-time lifecycle (additive; J246 subset semantics) ===
+  { id: "pot_plan",            description: "Pay-over-time plan lifecycle: mandate-revocation pause + re-link CTA (manual payment link rides the paymentUrl field as text), resume, admin cancel/restructure, manual-settle receipt", telegram: "full", notes: "Plain-text notices via notifyCustomer/sendWhatsAppText from payOverTime.notifyPotMerchant (tenant admin phone); telegram-linked admins route via channelSender. Manual payment URL is appended to the text body on BOTH channels (never a wa.me link)." },
+  // === END W45 money-ledger ===
 ] as const;
 
 export const PARITY_CATEGORY_IDS: readonly string[] = PARITY_CATEGORIES.map((c) => c.id);
