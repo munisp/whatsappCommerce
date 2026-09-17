@@ -66,6 +66,19 @@ import { localeFromSessionLanguage, tr } from "../services/i18n";
 import { validatePromo, applyPromo } from "../services/promos";
 import { subscribeToWaitlist, unsubscribeFromWaitlist } from "../services/waitlist";
 import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
+import { makeDualFormatter, DUAL_DISPLAY_FOOTER, formatPriceDual } from "../services/displayFx";
+import { requestReturn } from "../services/rma";
+
+/** W41 UC-5: load the tenant's dual-display formatter (null when unconfigured). */
+async function dualFormatterFor(db: any, tenantId: string): Promise<((amount: number, currency?: string) => string) | null> {
+  const [row] = await db
+    .select({ displayCurrency: tenants.displayCurrency, displayFxRates: tenants.displayFxRates })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1)
+    .catch(() => [] as any[]);
+  return makeDualFormatter(row);
+}
 
 // ── Checkout message builders ────────────────────────────────────────────────
 type CartLine = { productName: string; quantity: number; unitPrice: string; currency: string };
@@ -77,8 +90,11 @@ export function fmtMoney(amount: number, currency: string): string {
   return `${sym}${amount.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function itemizedLines(items: CartLine[]): string[] {
-  return items.map(i => `${i.quantity} × ${i.productName} — ${fmtMoney(Number(i.unitPrice), i.currency)} each`);
+/** W41 UC-5: optional dual-display price formatter (NGN + tenant display currency). */
+type PriceFmt = (amount: number, currency: string) => string;
+
+function itemizedLines(items: CartLine[], fmt: PriceFmt = fmtMoney): string[] {
+  return items.map(i => `${i.quantity} × ${i.productName} — ${fmt(Number(i.unitPrice), i.currency)} each`);
 }
 
 /** Extract a promo code from chat text, e.g. "use code SAVE10" or "code: SAVE10". */
@@ -99,16 +115,18 @@ function promoRejectText(reason: string): string {
 }
 
 /** Step-1 checkout card: itemized cart + subtotal + fulfillment prompt. */
-function buildFulfillmentPrompt(items: CartLine[], subtotal: number, currency: string): string {
-  return [
+function buildFulfillmentPrompt(items: CartLine[], subtotal: number, currency: string, fmt?: PriceFmt): string {
+  const lines = [
     "🛒 *Your order*",
-    ...itemizedLines(items),
-    `Subtotal: ${fmtMoney(subtotal, currency)}`,
+    ...itemizedLines(items, fmt),
+    `Subtotal: ${(fmt ?? fmtMoney)(subtotal, currency)}`,
     "",
     "How would you like to receive your order?",
     "1️⃣ Pickup",
     "2️⃣ Delivery",
-  ].join("\n");
+  ];
+  if (fmt) lines.push("", DUAL_DISPLAY_FOOTER);
+  return lines.join("\n");
 }
 
 /** Final order summary (pickup or delivery) incl. payment + tracking links. */
@@ -130,32 +148,38 @@ function buildOrderSummary(opts: {
   /** W17/F10: cash-on-delivery orders show a pay-on-receipt line instead. */
   paymentMethod?: "online" | "cod";
   trackingUrl: string;
+  /** W41 UC-5: dual-display price formatter (NGN + tenant display currency). */
+  fmt?: PriceFmt;
 }): string {
+  const fmt = opts.fmt ?? fmtMoney;
   const lines: string[] = [
     opts.fulfillment === "delivery"
       ? `🧾 *Delivery Order ${opts.orderNumber}*`
       : `🧾 *Pickup Order ${opts.orderNumber}*`,
-    ...itemizedLines(opts.items),
+    ...itemizedLines(opts.items, opts.fmt),
   ];
   if (opts.fulfillment === "delivery") {
     if (opts.address) lines.push(`📍 Deliver to: ${opts.address}`);
-    lines.push(`Subtotal: ${fmtMoney(opts.subtotal, opts.currency)}`);
-    lines.push(`Delivery fee${opts.deliveryZone ? ` (${opts.deliveryZone})` : ""}: ${fmtMoney(opts.deliveryFee, opts.currency)}`);
+    lines.push(`Subtotal: ${fmt(opts.subtotal, opts.currency)}`);
+    lines.push(`Delivery fee${opts.deliveryZone ? ` (${opts.deliveryZone})` : ""}: ${fmt(opts.deliveryFee, opts.currency)}`);
   }
   if (opts.promo && opts.promo.discount > 0) {
-    lines.push(`🏷️ Promo ${opts.promo.code}: −${fmtMoney(opts.promo.discount, opts.currency)}`);
+    lines.push(`🏷️ Promo ${opts.promo.code}: −${fmt(opts.promo.discount, opts.currency)}`);
   }
-  lines.push(`*Total: ${fmtMoney(opts.total, opts.currency)}*`);
+  lines.push(`*Total: ${fmt(opts.total, opts.currency)}*`);
   if (opts.promoError) lines.push(`⚠️ Promo not applied — ${opts.promoError}.`);
   if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
   if (opts.paymentMethod === "cod") {
-    lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmtMoney(opts.total, opts.currency)} ready for the rider.`);
+    lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmt(opts.total, opts.currency)} ready for the rider.`);
   } else if (opts.paymentUrl) {
     lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
     lines.push("📱 No data? Dial *712*amount# to pay via MTN MoMo");
   }
   lines.push("", `🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.`);
   lines.push(`🔎 Track your order: ${opts.trackingUrl}`);
+  // W41 UC-5: honest footer whenever a converted price was shown — the
+  // charge itself stays in NGN.
+  if (opts.fmt) lines.push("", DUAL_DISPLAY_FOOTER);
   return lines.join("\n");
 }
 
@@ -188,6 +212,8 @@ export interface ChatOrderResult {
   deliveryQuote?: { courier: string; quoteId: string; feeCents: number; etaMinutes: number; label: string } | null;
   /** W27: loyalty redemption applied at checkout (integer points/cents). */
   loyalty?: { points: number; discountCents: number; balanceAfter: number } | null;
+  /** W41: buyer installment plan created for this order (payment link = down payment). */
+  installment?: { planId: string; downPaymentCents: number; installments: number; totalCents: number } | null;
 }
 
 /** Buyer-facing reply when (part of) the cart can't be fulfilled: names the
@@ -242,6 +268,12 @@ export async function createChatOrder(
     deliveryCoords?: { latitude: number; longitude: number } | null;
     /** W27: redeem loyalty points at checkout (discount capped per rules). */
     loyaltyRedeem?: boolean;
+    /** W41: buyer chose installments — create a plan; the payment link
+     * charges the DOWN PAYMENT only (adjacent checkout-caller seam; the
+     * pinned paymentConfirm path settles it unchanged). */
+    installments?: number | null;
+    /** W41: buyer explicitly consented to save the card after paying. */
+    saveCardConsent?: boolean;
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -526,6 +558,46 @@ export async function createChatOrder(
     };
   }
 
+  // ── W41 (UC-1): buyer installments — create the plan BEFORE the payment
+  // link so the link charges the DOWN PAYMENT only. Adjacent checkout-caller
+  // seam: paymentConfirm.ts is untouched; the pinned path settles the down
+  // payment (escrow hold, stock commit, receipt) and the adjacent webhook
+  // hook (runBuyerCreditWebhookHook) activates the plan. An installment
+  // offer/eligibility failure NEVER blocks the order — fall back to full
+  // payment honestly.
+  let installment: ChatOrderResult["installment"] = null;
+  let installmentDownRef: string | null = null;
+  if (opts.installments != null) { // COD orders returned above — this is the online path
+    try {
+      const { createBuyerPlan } = await import("../services/buyerInstallments");
+      const plan = await createBuyerPlan(db, {
+        tenantId: opts.tenantId,
+        orderId,
+        buyerPhone: opts.waPhoneNumber,
+        totalCents: totalMinor,
+        currency,
+        installments: opts.installments,
+        saveCardConsent: opts.saveCardConsent === true,
+      });
+      installment = { planId: plan.planId, downPaymentCents: plan.downPaymentCents, installments: opts.installments, totalCents: totalMinor };
+      installmentDownRef = plan.downPaymentRef;
+      await db.update(orders).set({
+        metadata: sql`COALESCE(${orders.metadata}, '{}'::jsonb) || ${JSON.stringify({
+          installments: { planId: plan.planId, installments: opts.installments, totalCents: totalMinor, downPaymentCents: plan.downPaymentCents, status: "pending_down" },
+        })}::jsonb`,
+        updatedAt: new Date(),
+      }).where(eq(orders.id, orderId)).catch((e: unknown) =>
+        console.error("[nlp] order installment metadata failed (non-blocking):", (e as Error)?.message));
+    } catch (e: unknown) {
+      console.error(`[nlp] installment plan creation failed for order ${orderId} — falling back to full payment:`, (e as Error)?.message);
+      installment = null;
+      installmentDownRef = null;
+    }
+  }
+  // Amount charged NOW (major units): the down payment for installment
+  // orders, the full total otherwise. Integer cents → major via minor units.
+  const chargeNowMajor = installment ? installment.downPaymentCents / 100 : total;
+
   // ── Initiate payment via the PLATFORM's own gateway (amount = total incl.
   // fee) — tenants no longer bring their own Paystack/Flutterwave keys.
   // Every order is charged to the platform's account; escrow (custodyMode
@@ -540,7 +612,7 @@ export async function createChatOrder(
         ? "flutterwave"
         : null;
     if (provider) {
-      const txId = crypto.randomUUID();
+      const txId = installmentDownRef ?? crypto.randomUUID();
       const callbackUrl = `https://wa.me/${opts.waPhoneNumber}`;
       // Paystack rejects /transaction/initialize outright without an email —
       // WhatsApp customers never type one, so synthesize one from their phone
@@ -552,7 +624,7 @@ export async function createChatOrder(
         const resp = await fetch("https://api.paystack.co/transaction/initialize", {
           method: "POST",
           headers: { Authorization: `Bearer ${ENV.paystackSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ email: customerEmail, amount: Math.round(total * 100), currency, reference: txId, callback_url: callbackUrl }),
+          body: JSON.stringify({ email: customerEmail, amount: Math.round(chargeNowMajor * 100), currency, reference: txId, callback_url: callbackUrl }),
         }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Paystack initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
         if (resp && resp.status === false) {
           console.error(`[nlp] Paystack initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
@@ -562,7 +634,7 @@ export async function createChatOrder(
         const resp = await fetch("https://api.flutterwave.com/v3/payments", {
           method: "POST",
           headers: { Authorization: `Bearer ${ENV.flwSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ tx_ref: txId, amount: total, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber, email: customerEmail } }),
+          body: JSON.stringify({ tx_ref: txId, amount: chargeNowMajor, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber, email: customerEmail } }),
         }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Flutterwave initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
         if (resp && resp.status === "error") {
           console.error(`[nlp] Flutterwave initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
@@ -575,7 +647,7 @@ export async function createChatOrder(
         orderId,
         provider,
         providerRef: txId,
-        amount: total.toFixed(2),
+        amount: chargeNowMajor.toFixed(2),
         currency,
         status: "initiated",
         paymentUrl,
@@ -600,6 +672,7 @@ export async function createChatOrder(
     promoError,
     deliveryQuote: deliveryQuoteMeta,
     loyalty: loyaltyApplied,
+    installment,
   };
 }
 import { hermesConfigs } from "../../drizzle/schema";
@@ -838,6 +911,22 @@ export const nlpRouter = router({
             stepCtx.loyaltyRedeem = true;
           }
 
+          // W41 (UC-1): installment intent at any checkout step — "pay in 3",
+          // "installments", "pay small small" sticks to the session and is
+          // applied when the order is created (plan + down-payment link).
+          {
+            const m = lower.match(/\bpay\s+in\s+(\d+)\b/);
+            if (m) {
+              stepCtx.installments = Number(m[1]);
+            } else if (/\binstallments?\b|\bpay small small\b|\blayaway\b/.test(lower) && !/\b(status|balance|left|remaining)\b/.test(lower)) {
+              stepCtx.installments = 3; // default choice; plan validates eligibility
+            }
+            // Explicit save-card consent ("pay in 3 and save my card").
+            if (/\bsave (my )?(card|card details)\b/.test(lower)) {
+              stepCtx.saveCardConsent = true;
+            }
+          }
+
           const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
             const order = await createChatOrder(db, {
               tenantId: input.tenantId,
@@ -849,6 +938,8 @@ export const nlpRouter = router({
               promoCode: typeof stepCtx.promoCode === "string" ? stepCtx.promoCode : null,
               paymentMethod: stepCtx.paymentMethod === "cod" ? "cod" : "online",
               loyaltyRedeem: stepCtx.loyaltyRedeem === true,
+              installments: typeof stepCtx.installments === "number" ? (stepCtx.installments as number) : null,
+              saveCardConsent: stepCtx.saveCardConsent === true,
               deliveryCoords: (() => {
                 const dc = stepCtx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
                 return typeof dc?.latitude === "number" && typeof dc?.longitude === "number"
@@ -874,6 +965,7 @@ export const nlpRouter = router({
             stepIntent = "confirm_order";
             stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
             const summary = buildOrderSummary({
+              fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
               fulfillment,
               orderNumber: order.orderNumber!,
               items: order.items!,
@@ -889,6 +981,28 @@ export const nlpRouter = router({
               paymentMethod: order.paymentMethod ?? "online",
               trackingUrl: trackingUrlFor(order.orderId!),
             });
+            // W41 (UC-1): installment plan — the link charges the down
+            // payment only; explain the schedule honestly.
+            if (order.installment) {
+              delete stepCtx.installments; // one-shot flag consumed
+              delete stepCtx.saveCardConsent;
+              const inst = order.installment;
+              const rest = inst.totalCents - inst.downPaymentCents;
+              return summary +
+                `\n📅 *Installment plan:* you're paying ${fmtMoney(inst.downPaymentCents / 100, order.currency ?? "NGN")} now` +
+                ` and ${fmtMoney(rest / 100, order.currency ?? "NGN")} in ${inst.installments - 1} weekly payment${inst.installments - 1 === 1 ? "" : "s"}.` +
+                `\nYour order ships once the plan is fully paid.`;
+            }
+            // W41: installment offer when eligible (merchant opt-in + threshold).
+            if (stepCtx.paymentMethod !== "cod") {
+              try {
+                const { checkBuyerInstallmentEligibility, buildInstallmentOfferText } = await import("../services/buyerInstallments");
+                const elig = await checkBuyerInstallmentEligibility(db, input.tenantId, Math.round((order.total ?? 0) * 100));
+                if (elig.eligible) {
+                  return summary + buildInstallmentOfferText(Math.round((order.total ?? 0) * 100), elig.config, order.currency ?? "NGN");
+                }
+              } catch { /* offer is best-effort */ }
+            }
             // W27: annotate the loyalty redemption on the buyer's summary.
             if (order.loyalty && order.loyalty.points > 0) {
               return summary + `\n🎁 Redeemed ${order.loyalty.points} pts (−${fmtMoney(order.loyalty.discountCents / 100, order.currency ?? "NGN")}). Points balance: ${order.loyalty.balanceAfter}.`;
@@ -1061,6 +1175,116 @@ export const nlpRouter = router({
         }
       }
 
+      // 3f. W41 (UC-6/UC-1) buyer-credit commands — deterministic, no LLM.
+      // "my cards" lists saved payment methods (never the raw token);
+      // "remove card N" revokes; "buy again" is the one-tap reorder charged
+      // to the saved token; "save card" confirms the consent prompt issued
+      // at checkout. Parity: telegram buyers hit the SAME nlp.processMessage
+      // via the W37 telegram seam, so these replies work on both channels.
+      {
+        const cmd = input.message.trim().toLowerCase();
+        const cardsMatch = cmd === "my cards" || cmd === "saved cards" || cmd === "my card";
+        const removeMatch = cmd.match(/^remove card(?:\s+(\d+))?$/);
+        const saveMatch = cmd === "save card" || cmd === "save my card";
+        const reorderMatch = cmd === "buy again" || cmd === "one tap reorder";
+        if (cardsMatch || removeMatch || saveMatch || reorderMatch) {
+          const creditCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          let reply: string;
+          const tokensSvc = await import("../services/customerPaymentTokens");
+          if (cardsMatch) {
+            const list = await tokensSvc.listCustomerTokens(db, input.tenantId, input.waPhoneNumber);
+            creditCtx.lastTokenIds = list.map((t) => t.id);
+            reply = list.length === 0
+              ? "You have no saved cards. After your next card payment, reply SAVE CARD to save it for one-tap checkout and installments."
+              : "💳 *Your saved cards:*\n" +
+                list.map((t, i) => `${i + 1}. ${t.displayLabel ?? `${t.provider} card`}`).join("\n") +
+                "\n\nReply REMOVE CARD <number> to remove one, or BUY AGAIN to reorder your last purchase with one tap.";
+          } else if (removeMatch) {
+            const list = await tokensSvc.listCustomerTokens(db, input.tenantId, input.waPhoneNumber);
+            const idx = removeMatch[1] ? Number(removeMatch[1]) - 1 : 0;
+            const target = list[idx];
+            if (!target) {
+              reply = list.length === 0
+                ? "You have no saved cards to remove."
+                : `That card number doesn't match — reply MY CARDS to see your ${list.length} saved card${list.length === 1 ? "" : "s"}.`;
+            } else {
+              const res = await tokensSvc.revokeCustomerToken(db, { tenantId: input.tenantId, buyerPhone: input.waPhoneNumber, tokenId: target.id });
+              reply = res.ok
+                ? `✅ Removed ${target.displayLabel ?? "card"} — it won't be charged again.`
+                : "I couldn't remove that card just now — please try again.";
+            }
+          } else if (saveMatch) {
+            // Consent confirm: save the reusable authorization from the
+            // buyer's most recent successful card payment. Honest failure
+            // when the provider returned no reusable handle.
+            reply = "I couldn't find a recent card payment to save. Pay with your card first, then reply SAVE CARD.";
+            const candidates = await db.select().from(paymentTransactions)
+              .where(eq(paymentTransactions.tenantId, input.tenantId))
+              .orderBy(sql`${paymentTransactions.createdAt} DESC`)
+              .limit(20);
+            for (const tx of candidates) {
+              if (tx.status !== "completed" && tx.status !== "success") continue;
+              const [ord] = await db.select().from(orders).where(eq(orders.id, tx.orderId ?? "")).limit(1);
+              if (!ord || ord.customerId !== input.waPhoneNumber) continue;
+              const saved = await tokensSvc.saveTokenFromPayment(db, {
+                tenantId: input.tenantId,
+                buyerPhone: input.waPhoneNumber,
+                provider: tx.provider,
+                reference: tx.providerRef ?? tx.id,
+                consentText: tokensSvc.tokenConsentPrompt(null),
+              });
+              if (saved.ok) {
+                reply = `✅ Saved ${saved.displayLabel ?? "your card"} for faster checkouts. Reply MY CARDS anytime to manage it.`;
+              } else if (saved.error === "no_reusable_authorization") {
+                reply = "Your last payment didn't return a reusable card authorization, so there's nothing I can save — your card details stay with the payment provider.";
+              }
+              break;
+            }
+          } else {
+            // BUY AGAIN — one-tap reorder with the saved token. The message
+            // IS the explicit tap; reorderWithToken charges the token
+            // off-session and settles via the pinned confirm path.
+            const [lastOrder] = await db.select().from(orders)
+              .where(and(eq(orders.tenantId, input.tenantId), eq(orders.customerId, input.waPhoneNumber), eq(orders.paymentStatus, "completed")))
+              .orderBy(sql`${orders.createdAt} DESC`)
+              .limit(1);
+            if (!lastOrder) {
+              reply = "I couldn't find a previous paid order to repeat — tell me what you'd like and we'll start a fresh order.";
+            } else {
+              const list = await tokensSvc.listCustomerTokens(db, input.tenantId, input.waPhoneNumber);
+              const token = list[0];
+              if (!token) {
+                reply = "You don't have a saved card yet — reply SAVE CARD after your next card payment, then BUY AGAIN works with one tap.";
+              } else {
+                const { reorderWithToken } = await import("../services/buyerInstallments");
+                const res = await reorderWithToken(db, {
+                  tenantId: input.tenantId,
+                  buyerPhone: input.waPhoneNumber,
+                  tokenId: token.id,
+                  sourceOrderId: lastOrder.id,
+                });
+                reply = res.ok
+                  ? res.status === "pending"
+                    ? `⏳ Reorder ${res.orderNumber} placed — your saved ${token.displayLabel ?? "card"} is being charged ${fmtMoney((res.chargedCents ?? 0) / 100, lastOrder.currency)}. I'll confirm as soon as it clears.`
+                    : `✅ Reorder ${res.orderNumber} confirmed — charged ${fmtMoney((res.chargedCents ?? 0) / 100, lastOrder.currency)} to your saved ${token.displayLabel ?? "card"}. 🔎 Track it: ${trackingUrlFor(res.orderId!)}`
+                  : res.error === "reorder_already_charged"
+                    ? "That reorder was already placed — check your orders with STATUS."
+                    : `⚠️ I couldn't charge your saved card (${res.error ?? "charge failed"}). No money moved — try again or order the usual way.`;
+              }
+            }
+          }
+          await db.update(nlpSessions).set({ context: creditCtx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply,
+            intent: "buyer_credit",
+            state: session.state,
+            language: session.language,
+            sessionId: session.id,
+            confidence: 1,
+          };
+        }
+      }
+
       // 3e. Geospatial merchant discovery — deterministic, no LLM needed.
       // Free-text "…near me" searches (and category-menu replies after a pin
       // was shared) run discoverNearby centered on the session's
@@ -1196,6 +1420,70 @@ export const nlpRouter = router({
           };
         }
       }
+      // === W41 rma-fx (Coder C): 3g. Returns — buyer "RETURN ..." + merchant
+      // "RMA APPROVE/REJECT <id>" — deterministic, no LLM (covers WA AND TG;
+      // telegram inbound feeds through this same engine). ===
+      {
+        const trimmedMsg = input.message.trim();
+        // ── Merchant decision: RMA APPROVE <id> / RMA REJECT <id> [note] ──
+        const rmaCmd = /^rma\s+(approve|reject)\s+([0-9a-fA-F-]{8,36})\b[:\-\s]*(.*)$/i.exec(trimmedMsg);
+        if (rmaCmd) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, input.waPhoneNumber).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can approve or reject returns.";
+          } else {
+            try {
+              const { decideReturn } = await import("../services/rma");
+              const rma = await decideReturn(db, {
+                rmaId: rmaCmd[2],
+                tenantId: input.tenantId,
+                approve: rmaCmd[1].toLowerCase() === "approve",
+                note: rmaCmd[3]?.trim() || undefined,
+              });
+              reply = `RMA ${rma.id.slice(0, 8)} ${rma.status} — the buyer has been notified.`;
+            } catch (e: any) {
+              reply = `Could not update that return: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "rma_decide", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Buyer: RETURN [order] [reason…] ──
+        const returnCmd = /^return\b[\s:,-]*(.*)$/i.exec(trimmedMsg);
+        if (returnCmd) {
+          const rmaCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          let reply: string;
+          try {
+            const { rma, orderNumber } = await requestReturn(db, {
+              tenantId: input.tenantId,
+              buyerRef: input.waPhoneNumber,
+              orderId: typeof rmaCtx.lastOrderId === "string" ? rmaCtx.lastOrderId : null,
+              reason: returnCmd[1]?.trim() || "buyer requested return",
+              requestedVia: "whatsapp",
+            });
+            reply = `📦 Got it — your return request for order ${orderNumber} is in ` +
+              `(ref ${rma.id.slice(0, 8)}). The merchant will review it and we'll message you here ` +
+              `as soon as it's approved or rejected.`;
+          } catch (e: any) {
+            reply = e?.code === "NOT_FOUND"
+              ? "I couldn't find an order on this number to return — please share your order number."
+              : e?.code === "CONFLICT"
+                ? (e?.message ?? "There is already an open return for this order.")
+                : `Sorry, I couldn't start that return just now (${e?.message ?? "unknown error"}).`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "rma_request", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === END W41 rma-fx ===
       // === W27 Coder F: 3f. Wholesale marketplace + group buying commands ===
       // Deterministic, no LLM needed (discoveryMenu.ts exemplar). Parses
       // "wholesale [q]" / "buy <#> <qty>" / "deals" / "join <ref> <qty>" /
@@ -1440,7 +1728,8 @@ export const nlpRouter = router({
             // known, so the payment link always covers the true total.
             ctx.awaitingFulfillment = true;
             llmResult.nextState = "checkout_confirm";
-            llmResult.reply = buildFulfillmentPrompt(items, subtotal, currency);
+            llmResult.reply = buildFulfillmentPrompt(items, subtotal, currency,
+              (await dualFormatterFor(db, input.tenantId)) ?? undefined);
           } else {
             // Fulfillment already chosen earlier in the session — create the
             // order immediately (e.g. buyer re-confirming).
@@ -1476,6 +1765,7 @@ export const nlpRouter = router({
               if (order.loyalty) delete ctx.loyaltyRedeem; // W27: one-shot redeem flag consumed
               orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
               llmResult.reply = buildOrderSummary({
+                fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
                 fulfillment,
                 orderNumber: order.orderNumber!,
                 items: order.items!,
@@ -1517,9 +1807,15 @@ export const nlpRouter = router({
           tenantProducts.find((p) => p.name.toLowerCase() === q) ??
           tenantProducts.find((p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
         if (match?.imageUrl) {
+          // W41 UC-5: catalog card shows the dual price when configured
+          // (display-only — the charge stays in NGN).
+          const [fxTenant] = await db
+            .select({ displayCurrency: tenants.displayCurrency, displayFxRates: tenants.displayFxRates })
+            .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1)
+            .catch(() => [] as any[]);
           productImage = {
             link: match.imageUrl,
-            caption: `${match.name} — ${fmtMoney(Number(match.price), match.currency)}`,
+            caption: `${match.name} — ${formatPriceDual(fxTenant, Number(match.price), match.currency)}`,
           };
         }
       }

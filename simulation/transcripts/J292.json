@@ -1,0 +1,31 @@
+{
+  "id": "J292",
+  "title": "fulfillment gated until the installment plan is paid (UC-1)",
+  "feature": "assertOrderFulfillmentAllowed + orderCrud.updateStatus gate; paid-in-full releases",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348000000292",
+      "wamid": "wamid.sim.000748",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611206086,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J292-1789611206058\n\n\n*Total paid: ₦400.00*\nPayment ref: bipcap:0957bbb7-762c-4e9f-ab2f-510ab8e4835b:2\n\n🔎 Track your order: http://localhost:4173/track/j292-order-1789611206054.NOBww6vZwprCTgbCUGV5fKBX"
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000292",
+      "wamid": "wamid.sim.000749",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611206102,
+      "kind": "text",
+      "body": "🎉 Final installment received — your order is fully paid! The shop has been notified to prepare your order."
+    }
+  ]
+}

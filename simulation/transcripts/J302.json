@@ -1,0 +1,53 @@
+{
+  "id": "J302",
+  "title": "escrow release paused while RMA open",
+  "feature": "settleEscrowAtomic RMA guard",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348015211273",
+      "wamid": "wamid.sim.000766",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611212228,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j302-A26E (reason: wrong item). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000767",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611212233,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j302-A26E (reason: wrong item). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348015211273",
+      "wamid": "wamid.sim.000768",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611212277,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j302b-F289 (reason: no longer needed). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000769",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611212282,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j302b-F289 (reason: no longer needed). The merchant will review it shortly."
+    }
+  ]
+}

@@ -97,6 +97,11 @@ export const tenants = pgTable("tenants", {
   settings: jsonb("settings"),
   cogsRate: real("cogsRate").default(0.40).notNull(),
   smsFailoverEnabled: boolean("smsFailoverEnabled").default(false).notNull(),
+  // === W41 rma-fx (Coder C, mig 0129): multi-currency DISPLAY config ===
+  // Display-only: the ledger and PSP charge stay in NGN kobo. Rates are
+  // manual tenant-set ({ "USD": { "rate": "0.00066", "updatedAt": iso } }).
+  displayCurrency: varchar("displayCurrency", { length: 3 }),
+  displayFxRates: jsonb("displayFxRates"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -5347,3 +5352,224 @@ export const paymentDisputes = pgTable("payment_disputes", {
 ]);
 export type PaymentDispute = typeof paymentDisputes.$inferSelect;
 export type NewPaymentDispute = typeof paymentDisputes.$inferInsert;
+
+// === W41 buyer-credit (Coder A, UC-1/UC-6; migration 0127) ===
+// buyer_installment_plans: order-linked buyer installment plans (layaway).
+// Down payment is charged at order confirm via a normal payment link keyed by
+// downPaymentRef (the PINNED paymentConfirm path settles it; the adjacent
+// webhook hook activates the plan). The remaining schedule is charged
+// off-session against a saved customer_payment_tokens row by
+// services/buyerInstallments.ts. Status: pending_down | active | paid |
+// defaulted | cancelled. Fulfillment is gated on plan status (orderCrud
+// updateStatus → processing/shipped refuses while a non-terminal plan exists).
+export const buyerInstallmentPlans = pgTable("buyer_installment_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyer_phone", { length: 32 }).notNull(),
+  totalCents: bigint("total_cents", { mode: "number" }).notNull(),
+  downPaymentCents: bigint("down_payment_cents", { mode: "number" }).notNull(),
+  /** paymentTransactions.providerRef of the down-payment link (exactly-once). */
+  downPaymentRef: varchar("down_payment_ref", { length: 160 }).notNull(),
+  downPaymentPaidAt: timestamp("down_payment_paid_at"),
+  /** Total number of parts INCLUDING the down payment (down = part 1). */
+  installments: integer("installments").notNull(),
+  /** ScheduleEntry[] for parts 2..N (seq, dueAt ISO, amountCents, status, paidAt). */
+  schedule: jsonb("schedule").notNull(),
+  /** customer_payment_tokens.id used for off-session schedule charges. */
+  tokenId: uuid("token_id"),
+  /** Buyer explicitly consented to save the card after the down payment. */
+  saveCardConsent: boolean("save_card_consent").notNull().default(false),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending_down"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("buyer_installment_plans_down_ref_uniq").on(t.downPaymentRef),
+  index("buyer_installment_plans_tenant_status_idx").on(t.tenantId, t.status),
+  index("buyer_installment_plans_order_idx").on(t.orderId),
+]);
+export type BuyerInstallmentPlan = typeof buyerInstallmentPlans.$inferSelect;
+export type NewBuyerInstallmentPlan = typeof buyerInstallmentPlans.$inferInsert;
+
+// Durable ledger of every off-session buyer charge (installment `bipcap:` +
+// one-tap reorder `bipreorder:`), W38 pot_charges pattern: 'pending' and
+// 'settlement_failed' rows are converged by the verify-first reconcile sweep
+// via the provider's READ-ONLY fetchStatus — NEVER a blind re-charge.
+export const buyerPlanCharges = pgTable("buyer_plan_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Null for one-tap reorder charges (kind='reorder'). */
+  planId: uuid("plan_id").references(() => buyerInstallmentPlans.id),
+  orderId: varchar("order_id", { length: 36 }),
+  tokenId: uuid("token_id"),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(), // 'installment' | 'reorder'
+  seq: integer("seq"),
+  reference: varchar("reference", { length: 160 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  providerStatus: varchar("provider_status", { length: 40 }),
+  rawResponse: jsonb("raw_response"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("buyer_plan_charges_reference_uniq").on(t.reference),
+  index("buyer_plan_charges_plan_idx").on(t.planId),
+  index("buyer_plan_charges_status_idx").on(t.status),
+]);
+export type BuyerPlanCharge = typeof buyerPlanCharges.$inferSelect;
+export type NewBuyerPlanCharge = typeof buyerPlanCharges.$inferInsert;
+
+// Tokenized customer payment methods (UC-6): reusable PSP authorization
+// tokens saved ONLY after an explicit buyer consent prompt (consent_text
+// records the exact prompt agreed to). token_enc is AES-256-GCM encrypted
+// with the v1: envelope (services/crypto/secrets.ts). NEVER a PAN — only the
+// PSP authorization handle + a display label ("Visa •••• 4081").
+export const customerPaymentTokens = pgTable("customer_payment_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyer_phone", { length: 32 }).notNull(),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  /** v1:-envelope encrypted reusable authorization handle. */
+  tokenEnc: text("token_enc").notNull(),
+  /** Safe display label, e.g. "Visa •••• 4081" — never a PAN. */
+  displayLabel: varchar("display_label", { length: 64 }),
+  /** Exact consent prompt the buyer agreed to (audit). */
+  consentText: text("consent_text").notNull(),
+  consentAt: timestamp("consent_at").defaultNow().notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  revokedAt: timestamp("revoked_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("customer_payment_tokens_buyer_idx").on(t.tenantId, t.buyerPhone, t.status),
+]);
+export type CustomerPaymentToken = typeof customerPaymentTokens.$inferSelect;
+export type NewCustomerPaymentToken = typeof customerPaymentTokens.$inferInsert;
+// === END W41 buyer-credit ===
+
+// === W41 customer wallet + split payments (Coder B, UC-2/UC-3, mig 0128) ===
+// customer_wallets: per-tenant per-customer store credit. balance_cents is
+// integer kobo, NEVER negative — every debit is a claim-first guarded UPDATE
+// (balance_cents >= amount) in customerWallet.ts, so a concurrent race can
+// never push it below zero. currency is NGN-only this wave (honest doctrine:
+// no multi-currency ledger).
+export const customerWallets = pgTable("customer_wallets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Customer identity = E.164 WhatsApp/Telegram-linked phone. */
+  customerPhone: varchar("customer_phone", { length: 32 }).notNull(),
+  balanceCents: bigint("balance_cents", { mode: "number" }).notNull().default(0),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** Optional per-tenant expiry of the credit (null = never expires). */
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("customer_wallets_tenant_phone_uniq").on(t.tenantId, t.customerPhone),
+  index("customer_wallets_tenant_idx").on(t.tenantId),
+]);
+export type CustomerWallet = typeof customerWallets.$inferSelect;
+export type NewCustomerWallet = typeof customerWallets.$inferInsert;
+
+// customer_wallet_entries: APPEND-ONLY ledger (no UPDATE/DELETE — enforced by
+// convention + the service never exposing mutation). Double-entry style
+// reference: every row carries reason + refId back to the order / refund /
+// split session that moved the money. (refId, direction) is unique so
+// exactly-once credit/debit survives retries.
+export const customerWalletEntries = pgTable("customer_wallet_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  walletId: uuid("wallet_id").notNull().references(() => customerWallets.id),
+  customerPhone: varchar("customer_phone", { length: 32 }).notNull(),
+  /** credit | debit */
+  direction: varchar("direction", { length: 8 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  /** Wallet balance immediately after this entry (running balance). */
+  balanceAfterCents: bigint("balance_after_cents", { mode: "number" }).notNull(),
+  /** refund_to_wallet | merchant_goodwill | overpayment | checkout_spend | split_contribution | split_refund */
+  reason: varchar("reason", { length: 32 }).notNull(),
+  /** Deterministic idempotency reference (e.g. refund_wallet:<refundId>). */
+  refId: varchar("ref_id", { length: 160 }).notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("customer_wallet_entries_ref_uniq").on(t.refId, t.direction),
+  index("customer_wallet_entries_wallet_idx").on(t.walletId),
+  index("customer_wallet_entries_tenant_phone_idx").on(t.tenantId, t.customerPhone),
+]);
+export type CustomerWalletEntry = typeof customerWalletEntries.$inferSelect;
+export type NewCustomerWalletEntry = typeof customerWalletEntries.$inferInsert;
+
+// split_payment_sessions (UC-3): ONE order co-funded by N buyers. Each
+// participant has a computed share and pays via PSP payment link or wallet.
+// The order confirms ONLY when the claim-first tally reaches the target;
+// on the 48h timeout every contribution is auto-refunded (wallet credit
+// default, PSP reversal optional). participants jsonb shape:
+//   [{ phone, shareCents, paidCents, method, reference, status }]
+export const splitPaymentSessions = pgTable("split_payment_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  targetCents: bigint("target_cents", { mode: "number" }).notNull(),
+  fundedCents: bigint("funded_cents", { mode: "number" }).notNull().default(0),
+  participantCount: integer("participant_count").notNull(),
+  participants: jsonb("participants").notNull(),
+  /** open | funded | confirmed | refunding | refunded | expired_unfunded */
+  status: varchar("status", { length: 20 }).notNull().default("open"),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("split_payment_sessions_order_idx").on(t.orderId),
+  index("split_payment_sessions_status_idx").on(t.status, t.expiresAt),
+  index("split_payment_sessions_tenant_idx").on(t.tenantId),
+]);
+export type SplitPaymentSession = typeof splitPaymentSessions.$inferSelect;
+export type NewSplitPaymentSession = typeof splitPaymentSessions.$inferInsert;
+// === W41 rma-fx (Coder C): rma_requests (migration 0129) ===
+// ORD-6 / UC-4: buyer-initiated returns with a real lifecycle:
+//   requested → approved | rejected
+//   approved  → received → restocked → refunded | closed
+// Stock leg reuses the W38 unified restock helpers (orderCancel/inventory);
+// money leg goes through the W38 refund path (refundEscrowAtomic — caps +
+// idempotency) OR a customer-wallet credit (refundMethod "wallet", counts
+// toward the cumulative refunded total). Escrow release is paused while an
+// RMA is open (see settleEscrowAtomic guard in routers/escrow.ts).
+export const rmaRequests = pgTable("rma_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** Buyer identity: WA phone (E.164) or telegram chat id. */
+  buyerRef: varchar("buyer_ref", { length: 64 }).notNull(),
+  /** [{ productId, quantity }] — full-order return when empty array. */
+  items: jsonb("items").notNull(),
+  reason: text("reason").notNull(),
+  evidenceMediaId: varchar("evidence_media_id", { length: 128 }),
+  /** requested|approved|rejected|received|restocked|refunded|closed */
+  status: varchar("status", { length: 16 }).notNull().default("requested"),
+  /** Channel the buyer initiated on: whatsapp|telegram|admin */
+  requestedVia: varchar("requested_via", { length: 16 }).notNull().default("whatsapp"),
+  /** psp|wallet — chosen at refund time (wallet = store credit). */
+  refundMethod: varchar("refund_method", { length: 16 }),
+  refundedCents: bigint("refunded_cents", { mode: "number" }),
+  merchantNote: text("merchant_note"),
+  decidedAt: timestamp("decided_at"),
+  receivedAt: timestamp("received_at"),
+  restockedAt: timestamp("restocked_at"),
+  refundedAt: timestamp("refunded_at"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("rma_requests_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("rma_requests_tenant_status_idx").on(t.tenantId, t.status),
+  index("rma_requests_buyer_idx").on(t.tenantId, t.buyerRef),
+]);
+export type RmaRequest = typeof rmaRequests.$inferSelect;
+export type NewRmaRequest = typeof rmaRequests.$inferInsert;
+// === END W41 rma-fx ===

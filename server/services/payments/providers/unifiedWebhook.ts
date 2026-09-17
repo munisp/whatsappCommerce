@@ -194,6 +194,15 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
       try {
         const { runArInvoiceWebhookHook } = await import("../../arInvoices");
         await runArInvoiceWebhookHook(db, { provider: providerId, reference: norm.reference });
+        // === W41 buyer-credit hook (adjacent seam — plan activation +
+        // consented token save; exactly-once, never throws) ===
+        try {
+          const { runBuyerCreditWebhookHook } = await import("../../buyerInstallments");
+          await runBuyerCreditWebhookHook(db, { provider: providerId, reference: norm.reference, rawPayload: payload?.data ?? payload });
+        } catch (hookErr: any) {
+          console.warn(`[unified-payment-webhook] buyer-credit hook ${norm.reference}: ${hookErr?.message}`);
+        }
+        // === END W41 buyer-credit hook ===
       } catch (err: any) {
         console.warn(`[unified-payment-webhook] AR hook ${norm.reference}: ${err?.message}`);
       }

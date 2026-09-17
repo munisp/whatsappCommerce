@@ -367,7 +367,32 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j283-template-rejected-webhook"),
     import("./journeys/j284-broadcast-circuit-breaker"),
     import("./journeys/j285-broadcast-resume"),
+    import("./journeys/j286-buyer-installment-plan-creation"),
+    import("./journeys/j287-down-payment-at-confirm"),
+    import("./journeys/j288-installment-charge-exactly-once"),
+    import("./journeys/j289-installment-dunning-on-failure"),
+    import("./journeys/j290-token-consent-list-revoke"),
+    import("./journeys/j291-one-tap-reorder-with-token"),
+    import("./journeys/j292-fulfillment-gating-on-plan"),
     // === W40 Coder C END ===
+    // === W41 (Coder B): customer wallet + split payments (UC-2/UC-3) ===
+    import("./journeys/j293-wallet-credit-ledger"),
+    import("./journeys/j294-refund-to-wallet-caps"),
+    import("./journeys/j295-wallet-checkout-partial"),
+    import("./journeys/j296-wallet-race-never-negative"),
+    import("./journeys/j297-overpayment-auto-credit"),
+    import("./journeys/j298-split-full-funding-confirm"),
+    import("./journeys/j299-split-timeout-refunds"),
+    // === W41 Coder B END ===
+    // === W41 rma-fx (Coder C): RMA lifecycle + multi-currency display J300-J306 ===
+    import("./journeys/j300-rma-full-lifecycle"),
+    import("./journeys/j301-rma-chat-commands"),
+    import("./journeys/j302-rma-escrow-pause"),
+    import("./journeys/j303-rma-refund-caps"),
+    import("./journeys/j304-rma-wallet-refund"),
+    import("./journeys/j305-dual-currency-display"),
+    import("./journeys/j306-ngn-charge-unchanged"),
+    // === W41 Coder C END (merger owns registry count) ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),
