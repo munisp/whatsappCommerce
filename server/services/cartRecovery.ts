@@ -111,6 +111,10 @@ export interface RecoveryRunCounters {
   skippedOrdered: number;
   skippedNoConsent: number;
   skippedRecentlySent: number;
+  /** W45 MSG-10: recipient on the tenant's WA suppression list. */
+  skippedSuppressed: number;
+  /** W45 MSG-11: outside the 24h window and no usable template fallback. */
+  skippedWindowClosed: number;
   errors: number;
 }
 
@@ -122,6 +126,8 @@ export const recoveryCounters: RecoveryRunCounters = {
   skippedOrdered: 0,
   skippedNoConsent: 0,
   skippedRecentlySent: 0,
+  skippedSuppressed: 0,
+  skippedWindowClosed: 0,
   errors: 0,
 };
 
@@ -133,6 +139,8 @@ function zeroCounters(): RecoveryRunCounters {
     skippedOrdered: 0,
     skippedNoConsent: 0,
     skippedRecentlySent: 0,
+    skippedSuppressed: 0,
+    skippedWindowClosed: 0,
     errors: 0,
   };
 }
@@ -205,6 +213,13 @@ export interface CartRecoveryDeps {
   sendImpl?: (tenantId: string, phone: string, body: string) => Promise<unknown>;
   /** Injectable for tests; defaults to consent.hasConsent. */
   consentImpl?: (tenantId: string, phone: string) => Promise<boolean>;
+  /** === W45 messaging-services === injectable for tests/journeys. */
+  /** Defaults to waSuppressionList.isSuppressed. */
+  suppressionImpl?: (tenantId: string, phone: string) => Promise<boolean>;
+  /** Defaults to sessionWindow.getWindow (WhatsApp carts only). */
+  windowImpl?: (tenantId: string, phone: string) => Promise<{ open: boolean }>;
+  /** Defaults to the W45 template fallback (sendWhatsAppTemplate). */
+  templateSendImpl?: (tenantId: string, phone: string, body: string) => Promise<unknown>;
 }
 
 /**
@@ -247,6 +262,50 @@ export async function runCartRecovery(deps: CartRecoveryDeps = {}): Promise<Reco
       const { hasConsent } = await import("./consent");
       return hasConsent(tenantId, phone);
     });
+  // === W45 messaging-services ===
+  const suppressed: NonNullable<CartRecoveryDeps["suppressionImpl"]> =
+    deps.suppressionImpl ??
+    (async (tenantId, phone) => {
+      const { isSuppressed } = await import("./waSuppressionList");
+      return isSuppressed(deps.db ?? db, tenantId, phone);
+    });
+  const windowOf: NonNullable<CartRecoveryDeps["windowImpl"]> =
+    deps.windowImpl ??
+    (async (tenantId, phone) => {
+      const { getWindow } = await import("./sessionWindow");
+      return getWindow(deps.db ?? db, tenantId, phone, now);
+    });
+  const sendTemplate: NonNullable<CartRecoveryDeps["templateSendImpl"]> =
+    deps.templateSendImpl ??
+    (async (tenantId, phone, body) => {
+      // MSG-11 template fallback: outside the 24h window the recovery nudge
+      // must go out as an APPROVED TEMPLATE, never free-form text.
+      const { sendWhatsAppTemplate } = await import("./waSender");
+      const { tenants } = await import("../../drizzle/schema");
+      const [t] = await (deps.db ?? db)
+        .select({ settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId))
+        .limit(1)
+        .catch(() => [] as any[]);
+      const wa = (((t?.settings as any)?.whatsapp ?? {}) as Record<string, unknown>);
+      const templateName =
+        typeof wa.cartRecoveryTemplate === "string" && wa.cartRecoveryTemplate
+          ? wa.cartRecoveryTemplate
+          : "wac_cart_recovery";
+      const languageCode = typeof wa.cartRecoveryLanguage === "string" && wa.cartRecoveryLanguage
+        ? wa.cartRecoveryLanguage
+        : "en_US";
+      return sendWhatsAppTemplate(
+        tenantId,
+        phone,
+        templateName,
+        languageCode,
+        [{ type: "body", parameters: [{ type: "text", text: body.slice(0, 1000) }] }],
+        { notifType: "cart_recovery" },
+      );
+    });
+  // === END W45 messaging-services ===
 
   const idleSessions = await findIdleCartSessions(db, { idleBefore, limit: deps.limit, now });
   counters.scanned = idleSessions.length;
@@ -276,6 +335,12 @@ export async function runCartRecovery(deps: CartRecoveryDeps = {}): Promise<Reco
         continue;
       }
 
+      // === W45 messaging-services (MSG-10): suppressed numbers never get nudged ===
+      if (await suppressed(cart.tenantId, cart.waPhoneNumber)) {
+        counters.skippedSuppressed++;
+        continue;
+      }
+
       // Once per cart per 24h — the marker survives across cron runs.
       const marker = await markerGet(recoveryMarkerKey(cart.tenantId, cart.waPhoneNumber));
       if (marker) {
@@ -285,7 +350,26 @@ export async function runCartRecovery(deps: CartRecoveryDeps = {}): Promise<Reco
 
       const locale = await getStickyLocale(cart.tenantId, cart.waPhoneNumber);
       const message = tr(locale, "cartRecovery");
-      await send(cart.tenantId, cart.waPhoneNumber, message);
+
+      // === W45 messaging-services (MSG-11): 24h-window gate. Telegram has no
+      // session window; WhatsApp carts outside the window fall back to the
+      // approved template (a template failure lands in the outer catch as an
+      // error — free-form text is NEVER sent outside the window).
+      const isTelegram = cart.waPhoneNumber.startsWith("telegram:");
+      let windowOpen = true;
+      if (!isTelegram) {
+        try {
+          windowOpen = (await windowOf(cart.tenantId, cart.waPhoneNumber)).open;
+        } catch {
+          windowOpen = false; // fail-closed: unknown window → template path
+        }
+      }
+      if (windowOpen) {
+        await send(cart.tenantId, cart.waPhoneNumber, message);
+      } else {
+        await sendTemplate(cart.tenantId, cart.waPhoneNumber, message);
+      }
+      // === END W45 messaging-services ===
       await markerSet(
         recoveryMarkerKey(cart.tenantId, cart.waPhoneNumber),
         new Date().toISOString(),

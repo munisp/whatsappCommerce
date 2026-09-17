@@ -17,4 +17,8 @@ data:
   ML_STACK_URL: "http://ml-inference.whatsapp-commerce.svc.cluster.local:8099"
   # Mojaloop webhook signature validation — on by default.
   MOJALOOP_VALIDATE_SIG: "true"
+  # === W45 go-rust-services (MSG-20) ===
+  # Public base URL the Hermes Agent calls back on (no loopback — fail-closed
+  # at hermes-bridge boot). Replace with the real ingress host before deploy.
+  HERMES_CALLBACK_BASE_URL: "https://hermes-bridge.example.com"
 

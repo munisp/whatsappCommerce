@@ -2,6 +2,13 @@ module github.com/whatsapp-commerce/notification-service
 
 go 1.23.4
 
+// === W45 go-rust-services (MSG-19) === direct deps of the real pipeline
+require (
+	github.com/gin-gonic/gin v1.10.0
+	github.com/redis/go-redis/v9 v9.7.3
+	github.com/segmentio/kafka-go v0.4.47
+)
+
 require (
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect

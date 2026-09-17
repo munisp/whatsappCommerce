@@ -33,7 +33,7 @@ import crypto from "crypto";
 import { paymentTransactions, paymentIntents, walletTransactions, alertRules, alertRuleEvents, forecastSnapshots, tenants, escrowConfig, escrowTransactions, escrowSlaExtensions, logisticsShipments, merchantWallets, floatIncomeEntries, orders } from "../../drizzle/schema";
 import { broadcastCampaigns, broadcastRecipients, twentyContacts } from "../../drizzle/schema";
 import { hermesPODrafts, hermesHealthLog, fluvioEventLog } from "../../drizzle/schema";
-import { eq, and, gte, lte, lt } from "drizzle-orm";
+import { eq, and, desc, gte, lte, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { handleGetEvidencePortal, handleSubmitEvidence } from "../routers/evidencePortal";
 import { publishConversationEvent } from "../kafka";
@@ -104,6 +104,1155 @@ async function sendWhatsAppTextMetered(
   await recordUsage(db, tenantId, METRIC_MESSAGES);
   return result;
 }
+
+// === W45 webhook-core ===
+// Shared inbound-pipeline helpers for the Meta WhatsApp webhook and its DLQ
+// retry heartbeat (MSG-3/4/5/7/8/12/13/14/16/21/22). Both paths dispatch
+// through processWaWebhookValue below — the SAME per-message pipeline.
+
+type WaWebhookDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+interface WaValueProcessResult {
+  failures: string[];
+  duplicatesSkipped: number;
+  suppressed: number;
+  quarantined: number;
+}
+
+/**
+ * MSG-22: reverse a dedupe-ledger claim (best-effort). Used when a claimed
+ * message cannot be processed right now (e.g. over-quota) and must stay
+ * replayable after the condition clears. Never throws.
+ */
+async function releaseWaWebhookClaim(db: WaWebhookDb, claimId: string): Promise<void> {
+  try {
+    const { processedWebhookEvents } = await import("../../drizzle/schema");
+    await db.delete(processedWebhookEvents).where(eq(processedWebhookEvents.id, claimId));
+    console.warn(`[whatsapp-webhook] released wamid claim ${claimId} (replayable after quota reset)`);
+  } catch (e: any) {
+    console.error(`[whatsapp-webhook] claim release failed for ${claimId}:`, e?.message);
+  }
+}
+
+/**
+ * MSG-3: platform ops alert for a message delivered to an unknown
+ * phone_number_id. The message is quarantined (never dispatched under the
+ * shared "default" tenant); the alert goes to PLATFORM_OPS_ALERT_PHONE when
+ * configured and is always logged loudly. Never throws.
+ */
+async function alertUnknownPhoneNumberId(phoneNumberId: string, msg: any, from: string): Promise<void> {
+  console.error(
+    `[whatsapp-webhook] QUARANTINED inbound message: unknown phone_number_id='${phoneNumberId}' ` +
+    `wamid=${msg?.id ?? "?"} from=${from} type=${msg?.type ?? "?"} — refused default-tenant dispatch`,
+  );
+  try {
+    const opsPhone = process.env.PLATFORM_OPS_ALERT_PHONE ?? "";
+    if (opsPhone) {
+      await sendWhatsAppText("default", opsPhone,
+        `⚠️ WA webhook quarantine: message ${msg?.id ?? "?"} to unregistered phone_number_id ${phoneNumberId} from ${from} was NOT dispatched.`,
+        { notifType: "ops_alert", skipLog: false });
+    }
+  } catch (e: any) {
+    console.error("[whatsapp-webhook] quarantine ops alert send failed:", e?.message);
+  }
+}
+
+/**
+ * MSG-12: customer_changed_number (number port) — migrate identity
+ * (customers), consent records, cart sessions and the 24h session window to
+ * the new wa_id so the buyer's context is not orphaned. Conversations stay
+ * linked through the unchanged customer row. Best-effort per table: a
+ * failure on one table must not block the others.
+ */
+async function migrateWaIdentityOnNumberPort(db: WaWebhookDb, tenantId: string, oldWaId: string, newWaId: string): Promise<void> {
+  const { customers: customersT, consents: consentsT, cartSessions: cartSessionsT } = await import("../../drizzle/schema");
+  await db.update(customersT)
+    .set({ whatsappPhone: newWaId, updatedAt: new Date() })
+    .where(and(eq(customersT.tenantId, tenantId), eq(customersT.whatsappPhone, oldWaId)))
+    .catch((e: any) => console.error("[number-port] customers migrate failed:", e?.message));
+  await db.update(consentsT)
+    .set({ phone: newWaId, updatedAt: new Date() })
+    .where(and(eq(consentsT.tenantId, tenantId), eq(consentsT.phone, oldWaId)))
+    .catch((e: any) => console.error("[number-port] consents migrate failed:", e?.message));
+  await db.update(cartSessionsT)
+    .set({ waPhoneNumber: newWaId, updatedAt: new Date() })
+    .where(and(eq(cartSessionsT.tenantId, tenantId), eq(cartSessionsT.waPhoneNumber, oldWaId)))
+    .catch((e: any) => console.error("[number-port] cart_sessions migrate failed:", e?.message));
+  try {
+    // wa:sw:{tenant}:{new} window opened; the old key expires naturally.
+    const { recordInbound } = await import("../services/sessionWindow");
+    await recordInbound(tenantId, newWaId, new Date());
+  } catch (e: any) {
+    console.error("[number-port] session-window migrate failed:", e?.message);
+  }
+  console.log(`[number-port] tenant=${tenantId} ${oldWaId} → ${newWaId}: customers/consents/cart_sessions/session-window migrated`);
+}
+
+/**
+ * Process one Meta webhook change `value` (messages + delivery statuses)
+ * through the single shared per-message pipeline. Called by the live webhook
+ * handler for EVERY entry[]/changes[] fan-out (MSG-4) and by the DLQ retry
+ * heartbeat with a namespaced claim prefix (MSG-8). Per-message failures are
+ * collected into result.failures (MSG-7) so the caller can mark the DLQ row
+ * processed/failed+lastError.
+ */
+async function processWaWebhookValue(
+  db: WaWebhookDb,
+  value: any,
+  opts: { claimPrefix?: string } = {},
+): Promise<WaValueProcessResult> {
+  const messages: any[] = value?.messages ?? [];
+  const contacts: any[] = value?.contacts ?? [];
+  const phoneNumberId: string = value?.metadata?.phone_number_id ?? "";
+  const result: WaValueProcessResult = { failures: [], duplicatesSkipped: 0, suppressed: 0, quarantined: 0 };
+      for (const msg of messages) {
+        // === W45 webhook-core (MSG-7): per-message try/catch → the
+        // caller marks the DLQ event failed+lastError so the retry
+        // heartbeat has real work. ===
+        try {
+        const waPhoneNumber: string = msg.from ?? "";
+        const contactName: string = contacts.find((c: any) => c.wa_id === waPhoneNumber)?.profile?.name ?? "";
+// === W45 webhook-core (MSG-21) === claim-first ordering: the
+        // wamid dedupe claim now happens BEFORE the onboarding-intake branch
+        // (tenantId scope "onboarding") so intake deliveries are deduped like
+        // every other inbound message.
+        const isOnboardingIntake = isOnboardingIntakeNumber(phoneNumberId);
+        // Determine tenant from phone number ID (look up in tenants table)
+        const [tenant] = isOnboardingIntake
+          ? [null as any]
+          : await db.select().from(tenants)
+            .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
+            .limit(1).catch(() => [null as any]);
+        // === W40 tenancy (TEN-1): suspended/churned tenants get NO inbound
+        // processing — drop with a structured log, before the dedupe claim,
+        // metering, contact provisioning or NLP dispatch. The 200 ack was
+        // already sent, so Meta will not retry.
+        if (tenant && isTenantInactive((tenant as any).status)) {
+          logSuspendedTenantDrop("whatsapp", {
+            tenantId: (tenant as any).id,
+            tenantStatus: (tenant as any).status,
+            phoneNumberId,
+            wamid: msg.id ?? null,
+            from: waPhoneNumber,
+          });
+          continue;
+        }
+        // === W45 webhook-core (MSG-3 / TEN-21): unknown phone_number_id →
+        // quarantine. NEVER dispatch under the shared "default" tenant in
+        // production (cross-tenant contamination); outside production the
+        // shared-default fallback is allowed only when
+        // WHATSAPP_DEFAULT_TENANT_ID is explicitly configured. Quarantined
+        // messages raise a platform ops alert and are NOT processed. ===
+        if (!isOnboardingIntake && !tenant) {
+          const allowSharedDefault = !isProd && !!process.env.WHATSAPP_DEFAULT_TENANT_ID;
+          if (!allowSharedDefault) {
+            result.quarantined++;
+            await alertUnknownPhoneNumberId(phoneNumberId, msg, waPhoneNumber);
+            continue;
+          }
+        }
+        const tenantId: string = isOnboardingIntake
+          ? "onboarding"
+          : ((tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default");
+        // ── Platform ops: webhook idempotency (insert-first claim) ──────────
+        // Meta retries deliveries until a 200; the wamid is the ledger PK, so
+        // a retry collides (ON CONFLICT DO NOTHING) and is skipped — a
+        // message is never reprocessed. Production fails closed when the
+        // ledger is unavailable (dev/test use an in-memory fallback).
+        // Messages that don't match a real tenant (e.g. Meta's fixed-payload
+        // test button, always the same wamid) get a unique claim key per
+        // delivery instead, so they're never skipped as duplicates — real
+        // tenant-matched messages keep strict per-wamid dedup unchanged.
+        // On DLQ-heartbeat replay (MSG-8) the claim is namespaced by
+        // opts.claimPrefix so a failed first attempt can be reprocessed
+        // idempotently per retry attempt.
+        let claimedWamid: string | null = null;
+        if (msg.id) {
+          const claimId = opts.claimPrefix
+            ? `${opts.claimPrefix}${msg.id}`
+            : (tenant || isOnboardingIntake ? msg.id : `${msg.id}:${Date.now()}`);
+          let claim: "claimed" | "duplicate";
+          try {
+            claim = await claimWebhookEvent(db, { id: claimId, tenantId, type: msg.type ?? "unknown" });
+          } catch (dedupeErr: any) {
+            // Fail closed (production policy): the ack was already sent, but a
+            // blind dedupe ledger must NOT reprocess — skip the message.
+            console.error(`[whatsapp-webhook] dedupe ledger unavailable for ${msg.id} — failing closed, message NOT processed:`, dedupeErr?.message);
+            continue;
+          }
+          if (claim === "duplicate") {
+            result.duplicatesSkipped++;
+            console.log(`[whatsapp-webhook] duplicate delivery ${msg.id} — skipped`);
+            continue;
+          }
+          claimedWamid = claimId;
+          // ── Read receipt (blue ticks): fire-and-forget after the message ──
+          // is accepted for processing — NEVER blocks or throws.
+          if (!isOnboardingIntake) {
+            markMessageRead(tenantId, msg.id).catch(() => {});
+          }
+        }
+        // ── w9: platform conversational-onboarding intake number ────────────
+        // Messages to the platform's own onboarding number belong to a
+        // prospective tenant with no tenant row yet — hand them to the
+        // onboarding copilot and skip normal tenant dispatch entirely.
+        // Unset ONBOARDING_PHONE_NUMBER_ID → predicate is always false → zero
+        // behavior change for existing tenants. (W45 MSG-21: the wamid was
+        // already claimed above, so Meta retries of intake messages dedupe.)
+        if (isOnboardingIntake) {
+          try {
+            const { handleInbound } = await import("../services/waOnboarding");
+            await handleInbound(msg, waPhoneNumber);
+          } catch (e: any) {
+            // Fail-safe: the 200 ack was already sent; never rethrow.
+            console.error("[whatsapp-webhook] onboarding intake error:", e?.message);
+          }
+          continue;
+        }
+        // ── Platform ops: usage metering + monthly message quota gate ──────
+        // Count every inbound message; warn the tenant admin once per period
+        // at 80% and 100%; past the hard stop (limit + 10% grace) the buyer
+        // gets a polite "merchant busy" reply and the message is not processed.
+        try {
+          await recordUsage(db, tenantId, METRIC_MESSAGES_IN);
+          const totalUsage = await recordUsage(db, tenantId, METRIC_MESSAGES);
+          const plan = await getPlan(db, tenantId);
+          const quota = evaluateQuota(totalUsage, plan.limits.messagesPerMonth);
+          if (quota.warnLevel) await notifyQuotaWarning(db, tenantId, quota);
+          if (!quota.allowed) {
+            console.warn(`[whatsapp-webhook] tenant ${tenantId} over hard message quota (${quota.usage}/${quota.limit}) — busy reply sent`);
+            await sendWhatsAppText(tenantId, waPhoneNumber,
+              "Thanks for your message! We're experiencing unusually high volume right now — please try again a little later. 🙏",
+              { notifType: "quota_busy" }).catch((e: any) => console.warn("[whatsapp-webhook] busy reply send failed:", e?.message));
+            // === W45 webhook-core (MSG-22): over-quota messages were
+            // previously claimed then silently dropped — unrecoverable after
+            // quota reset. Reverse the wamid claim and surface the event to
+            // the DLQ retry heartbeat (throw → caller marks the event failed
+            // with nextRetryAt) so the message is replayed after reset. ===
+            if (claimedWamid) await releaseWaWebhookClaim(db, claimedWamid);
+            throw new Error(`over_quota: tenant ${tenantId} message quota exhausted (${quota.usage}/${quota.limit})`);
+          }
+        } catch (e: any) {
+          // Metering/quota failures must never block message processing.
+          console.error("[whatsapp-webhook] metering/quota check failed — processing anyway:", e?.message);
+        }
+        // === W45 webhook-core (MSG-5): human-agent takeover suppression ===
+        // When the (tenant, phone) conversation is human_active, the inbound
+        // message is persisted for the agent thread (and the conversation
+        // counters bumped) but ALL bot replies/dispatch are suppressed until
+        // an agent releases the thread back to the bot (escalation.releaseToBot
+        // / resolve). Fail-open: a lookup error must not drop the message.
+        try {
+          const { customers: customersT, conversations: convsT } = await import("../../drizzle/schema");
+          const [cust] = await db.select({ id: customersT.id }).from(customersT)
+            .where(and(eq(customersT.tenantId, tenantId), eq(customersT.whatsappPhone, waPhoneNumber)))
+            .limit(1).catch(() => [] as any[]);
+          if (cust?.id) {
+            const [humanConv] = await db.select().from(convsT)
+              .where(and(
+                eq(convsT.tenantId, tenantId),
+                eq(convsT.customerId, cust.id),
+                eq(convsT.status, "human_active"),
+              ))
+              .orderBy(desc(convsT.updatedAt)).limit(1).catch(() => [] as any[]);
+            if (humanConv) {
+              await db.insert(whatsappCustomerReplies).values({
+                id: crypto.randomUUID(),
+                tenantId,
+                userId: null,
+                fromPhone: waPhoneNumber,
+                toPhone: phoneNumberId,
+                wamid: msg.id ?? crypto.randomUUID(),
+                contextWamid: msg.context?.id ?? null,
+                messageType: msg.type ?? "unknown",
+                body: msg.text?.body ?? msg.image?.caption ?? msg.document?.caption ?? `[${msg.type ?? "unknown"}]`,
+                mediaId: msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? msg.audio?.id ?? null,
+              }).onConflictDoNothing()
+                .catch((e: any) => console.error("[whatsapp-webhook] human_active inbound persist error:", e?.message));
+              await db.update(convsT)
+                .set({ messageCount: sql`${convsT.messageCount} + 1`, updatedAt: new Date() })
+                .where(eq(convsT.id, humanConv.id)).catch(() => {});
+              result.suppressed++;
+              console.log(`[whatsapp-webhook] human_active conversation ${humanConv.id} — bot replies suppressed for ${waPhoneNumber} (tenant ${tenantId})`);
+              continue;
+            }
+          }
+        } catch (e: any) {
+          console.error("[whatsapp-webhook] human_active check failed — processing normally:", e?.message);
+        }
+        // ── WA messaging ops: contact auto-provisioning + 24h session window ──
+        // Upsert the customer from Meta's contacts[] payload (profile name
+        // fills only an empty name) and stamp the inbound window. Text
+        // messages are then checked against CTWA campaign keywords for
+        // attribution + mapped action. Never blocks message processing.
+        try {
+          const { provisionInboundContact } = await import("../services/waContacts");
+          await provisionInboundContact(db, tenantId, waPhoneNumber, contactName);
+          const { recordInbound } = await import("../services/sessionWindow");
+          await recordInbound(tenantId, waPhoneNumber, new Date());
+          if (msg.type === "text") {
+            const { handleCtwaInbound } = await import("../services/ctwa");
+            const claimed = await handleCtwaInbound({
+              db, tenantId, phone: waPhoneNumber, text: msg.text?.body ?? "", contactName: contactName || undefined,
+            });
+            if (claimed) continue;
+          }
+        } catch (e: any) {
+          console.error("[whatsapp-webhook] messaging-ops entry error:", e?.message);
+        }
+        // === W45 webhook-core (MSG-12): system messages — number port ===
+        // customer_changed_number carries system.new_wa_id; migrate identity
+        // (customers), consent, session-window and cart state to the new
+        // wa_id so the buyer's context is not orphaned.
+        if (msg.type === "system") {
+          const sysType: string = msg.system?.type ?? "";
+          if (sysType === "customer_changed_number") {
+            const newWaId = String(msg.system?.new_wa_id ?? "").replace(/[^0-9]/g, "");
+            const oldWaId = waPhoneNumber.replace(/[^0-9]/g, "");
+            if (newWaId && oldWaId && newWaId !== oldWaId) {
+              try {
+                await migrateWaIdentityOnNumberPort(db, tenantId, oldWaId, newWaId);
+                await sendWhatsAppText(tenantId, newWaId,
+                  "Your WhatsApp number changed — we've moved your account, consent and cart to your new number. ✅",
+                  { notifType: "number_port" })
+                  .catch((e: any) => console.error("[whatsapp-webhook] number-port notice send error:", e?.message));
+              } catch (e: any) {
+                console.error("[whatsapp-webhook] number-port migration error:", e?.message);
+              }
+            } else {
+              console.warn(`[whatsapp-webhook] customer_changed_number with unusable ids (old='${oldWaId}' new='${newWaId}') — skipped`);
+            }
+          } else {
+            console.log(`[whatsapp-webhook] unhandled system message subtype '${sysType}' — acknowledged`);
+          }
+          continue;
+        }
+        // ── Emoji-reaction tracking ─────────────────────────────────────────
+        // WhatsApp reaction payloads carry a `reaction` field; reply with the
+        // sender's latest order/shipment status + tracking link.
+        if (msg.type === "reaction" || msg.reaction) {
+          try {
+            const { handleReactionInbound } = await import("../services/useCases");
+            const reactionReply = await handleReactionInbound({ db, tenantId, phone: waPhoneNumber });
+            if (reactionReply) {
+              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, reactionReply, { notifType: "reaction_status" })
+                .catch((e: any) => console.error("[whatsapp-webhook] reaction reply send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] reaction tracking error:", e?.message);
+          }
+          continue;
+        }
+        // ── Interactive replies (button_reply / list_reply) ───────────────
+        // Menu buttons/lists carry `menu_<n>` ids and resolve through the
+        // SAME resolveMenuSelection logic as numeric text replies; order
+        // action cards carry `order_<action>:<orderId>` ids.
+        if (msg.type === "interactive") {
+          try {
+            const reply = msg.interactive?.button_reply ?? msg.interactive?.list_reply ?? null;
+            // === W27 catalog-ai (additive): merchant AI-listing draft buttons
+            // (catalog_ai:publish:<id> / catalog_ai:reject:<id>) resolve here;
+            // any other id falls through to the standard dispatch unchanged.
+            if ((reply?.id ?? "").startsWith("catalog_ai:")) {
+              const { handleCatalogDraftButton } = await import("../services/catalogAI");
+              const r = await handleCatalogDraftButton({ tenantId, phone: waPhoneNumber, replyId: reply!.id });
+              if (r?.reply) {
+                await sendWhatsAppText(tenantId, waPhoneNumber, r.reply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] catalog-ai reply send error:", e?.message));
+              }
+              continue;
+            }
+            // === W43 dispatch (Coder C): merchant address-change approval
+            // card buttons (addrchg:approve:<id> / addrchg:reject:<id>) resolve
+            // here; any other id falls through unchanged. TG inline-keyboard
+            // taps carry the SAME ids into the NLP engine (see routers/nlp.ts).
+            if ((reply?.id ?? "").startsWith("addrchg:")) {
+              try {
+                const m = /^addrchg:(approve|reject):([0-9a-fA-F-]{36})$/i.exec(reply!.id);
+                let cardReply = "Sorry, that address-change link is no longer valid.";
+                if (m) {
+                  const { isTenantStaffPhone } = await import("../services/catalogAI");
+                  const isStaff = await isTenantStaffPhone(db, tenantId, waPhoneNumber).catch(() => false);
+                  if (!isStaff) {
+                    cardReply = "Sorry, only store staff can approve or reject address changes.";
+                  } else {
+                    const { decideAddressChange } = await import("../services/addressChange");
+                    const decided = await decideAddressChange(db, {
+                      requestId: m[2],
+                      tenantId,
+                      approve: m[1].toLowerCase() === "approve",
+                      decidedBy: waPhoneNumber,
+                    });
+                    cardReply = `Address change ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+                  }
+                }
+                await sendWhatsAppText(tenantId, waPhoneNumber, cardReply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] addrchg reply send error:", e?.message));
+              } catch (e: any) {
+                await sendWhatsAppText(tenantId, waPhoneNumber, `Could not update that address change: ${e?.message ?? "unknown error"}`)
+                  .catch(() => {});
+              }
+              continue;
+            }
+            // === END W43 dispatch ===
+            // === W44 preorders-offers (Coder B): merchant offer approval
+            // card buttons (offer:accept|reject|counter:<id>) resolve here;
+            // counter via card prompts for the typed amount form. Customer
+            // counter-offer card taps (offer:caccept|cdecline:<id>) resolve
+            // here too (customerRef = waPhoneNumber). TG callbacks carry the
+            // SAME ids into the NLP engine (see routers/nlp.ts). ===
+            if ((reply?.id ?? "").startsWith("offer:")) {
+              const id = reply!.id;
+              const m = /^offer:(accept|reject|counter):([0-9a-fA-F-]{8,36})$/i.exec(id);
+              const cm = /^offer:(caccept|cdecline):([0-9a-fA-F-]{8,36})$/i.exec(id);
+              let cardReply = "Sorry, that offer link is no longer valid.";
+              try {
+                if (m) {
+                  const { isTenantStaffPhone } = await import("../services/catalogAI");
+                  const isStaff = await isTenantStaffPhone(db, tenantId, waPhoneNumber).catch(() => false);
+                  if (!isStaff) {
+                    cardReply = "Sorry, only store staff can respond to offers.";
+                  } else if (m[1].toLowerCase() === "counter") {
+                    cardReply = `To counter, type OFFER COUNTER ${m[2]} <amount> — e.g. OFFER COUNTER ${m[2]} 4800.`;
+                  } else {
+                    const { decideOffer } = await import("../services/customOffers");
+                    const decided = await decideOffer(db, {
+                      offerId: m[2],
+                      tenantId,
+                      action: m[1].toLowerCase() as "accept" | "reject",
+                      decidedBy: waPhoneNumber,
+                    });
+                    cardReply = decided.status === "accepted"
+                      ? `Offer ${decided.id.slice(0, 8)} accepted — the customer got a priced checkout link.`
+                      : `Offer ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+                  }
+                } else if (cm) {
+                  const { respondToCounter } = await import("../services/customOffers");
+                  const decided = await respondToCounter(db, {
+                    offerId: cm[2],
+                    tenantId,
+                    customerRef: waPhoneNumber,
+                    accept: cm[1].toLowerCase() === "caccept",
+                  });
+                  cardReply = decided.status === "accepted"
+                    ? "Deal! Your payment link is on its way here."
+                    : decided.status === "rejected"
+                      ? "Okay — that offer is closed. You can make a new one any time."
+                      : `That offer is ${decided.status} now.`;
+                }
+              } catch (e: any) {
+                cardReply = `Could not update that offer: ${e?.message ?? "unknown error"}`;
+              }
+              await sendWhatsAppText(tenantId, waPhoneNumber, cardReply)
+                .catch((e: any) => console.error("[whatsapp-webhook] offer reply send error:", e?.message));
+              continue;
+            }
+            // === END W44 preorders-offers ===
+            const { handleInteractiveInbound } = await import("../services/useCases");
+            const outcome = await handleInteractiveInbound({
+              db,
+              tenant: tenant ?? null,
+              tenantId,
+              phone: waPhoneNumber,
+              replyId: reply?.id ?? undefined,
+              replyTitle: reply?.title ?? undefined,
+              customerName: contactName || undefined,
+            });
+            if (outcome.interactive) {
+              await sendWhatsAppInteractive(tenantId, waPhoneNumber, outcome.interactive)
+                .catch((e: any) => console.error("[whatsapp-webhook] interactive reply send error:", e?.message));
+            } else if (outcome.reply) {
+              await sendWhatsAppText(tenantId, waPhoneNumber, outcome.reply)
+                .catch((e: any) => console.error("[whatsapp-webhook] interactive reply send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] interactive reply error:", e?.message);
+          }
+          continue;
+        }
+        if (msg.type === "text") {
+          const textBody: string = msg.text?.body ?? "";
+          // ── Capture customer reply in whatsapp_customer_replies ────────────
+          try {
+            const contextWamid: string | undefined = msg.context?.id;
+            // Resolve orderId from contextWamid (look up in notification log)
+            let replyOrderId: string | undefined;
+            let replyUserId: number | undefined;
+            if (contextWamid) {
+              const [notifLog] = await db.select()
+                .from(whatsappNotificationLog)
+                .where(eq(whatsappNotificationLog.wamid, contextWamid))
+                .limit(1).catch(() => [null as any]);
+              if (notifLog) {
+                replyOrderId = notifLog.orderId ?? undefined;
+                replyUserId = notifLog.userId ?? undefined;
+              }
+            }
+            // Resolve userId from phone if not found via contextWamid
+            if (!replyUserId) {
+              const [matchedUser] = await db.select({ id: users.id })
+                .from(users)
+                .where(eq(users.phone, waPhoneNumber))
+                .limit(1).catch(() => [null as any]);
+              if (matchedUser) replyUserId = matchedUser.id;
+            }
+            await db.insert(whatsappCustomerReplies).values({
+              id: crypto.randomUUID(),
+              tenantId,
+              orderId: replyOrderId ?? null,
+              userId: replyUserId ?? null,
+              fromPhone: waPhoneNumber,
+              toPhone: phoneNumberId,
+              wamid: msg.id ?? crypto.randomUUID(),
+              contextWamid: contextWamid ?? null,
+              messageType: "text",
+              body: textBody,
+            }).onConflictDoNothing();
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] customer reply capture error:", e?.message);
+          }
+          // ── Hermes PO approval/rejection via WhatsApp reply ───────────────
+          const poMatch = textBody.trim().match(/^(APPROVE|REJECT)\s+PO-([A-Z0-9]+)/i);
+          if (poMatch) {
+            const action = poMatch[1].toUpperCase();
+            const poId = poMatch[2];
+            try {
+              const { hermesPODrafts: hpd } = await import("../../drizzle/schema");
+              const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+              const dbInst = await getDb();
+              if (dbInst) {
+                // === W45 webhook-core (MSG-16) === sender verification: only
+                // the tenant's configured adminPhone may approve/reject POs
+                // (fail closed when adminPhone is not configured).
+                const { resolveAdminPhone } = await import("../services/adminAlerts");
+                const adminPhone = await resolveAdminPhone(dbInst, tenantId);
+                const normDigits = (p: string) => p.replace(/[^0-9]/g, "");
+                if (!adminPhone || normDigits(adminPhone) !== normDigits(waPhoneNumber)) {
+                  console.warn(`[hermes-webhook] PO ${action} command from non-admin phone ${waPhoneNumber} (tenant ${tenantId}) — ignored`);
+                  await sendWhatsAppText(tenantId, waPhoneNumber, "Sorry, only the store admin phone can approve or reject purchase orders.")
+                    .catch((e: any) => console.error("[hermes-webhook] non-admin notice send failed:", e?.message));
+                  continue; // Skip NLP processing for PO commands
+                }
+                // Unique match required: exact match on the full poId, or an
+                // UNAMBIGUOUS suffix match. More than one pending PO matching
+                // the token → reject as ambiguous (never act on the first hit).
+                // (W45 MSG-16: the dead first select was removed.)
+                const allPOs = await dbInst.select().from(hpd)
+                  .where(andOp(eqOp(hpd.tenantId, tenantId), eqOp(hpd.status, "pending")))
+                  .limit(50);
+                const token = poId.toUpperCase();
+                const poMatches = allPOs.filter(p => {
+                  const full = p.poId.toUpperCase();
+                  return full === token || full.endsWith(token);
+                });
+                if (poMatches.length > 1) {
+                  console.warn(`[hermes-webhook] PO-${poId} ambiguous for tenant ${tenantId} — ${poMatches.length} pending POs match`);
+                  await sendWhatsAppText(tenantId, waPhoneNumber,
+                    `PO-${poId} matches ${poMatches.length} pending purchase orders — please reply with the full PO id (e.g. APPROVE PO-${poMatches[0].poId}).`)
+                    .catch((e: any) => console.error("[hermes-webhook] ambiguity notice send failed:", e?.message));
+                  continue; // Skip NLP processing for PO commands
+                }
+                const matchedPO = poMatches[0];
+                if (matchedPO) {
+                  const newStatus = action === "APPROVE" ? "approved" : "rejected";
+                  await dbInst.update(hpd)
+                    .set({ status: newStatus as any, approvedAt: Date.now(), approvedBy: waPhoneNumber, note: `WhatsApp ${action} by ${waPhoneNumber}` })
+                    .where(eqOp(hpd.poId, matchedPO.poId));
+                  // If approved, trigger supplier email via hermes-skills
+                  if (action === "APPROVE") {
+                    const hermesSkillsUrl = process.env.HERMES_SKILLS_URL ?? "http://hermes-skills:8097";
+                    fetch(`${hermesSkillsUrl}/skills/po-approved`, {
+                      method: "POST",
+                      // hermes-skills /skills/* requires X-Internal-Token == INTERNAL_API_KEY
+                      headers: { "Content-Type": "application/json", "X-Internal-Token": process.env.INTERNAL_API_KEY ?? "" },
+                      body: JSON.stringify({
+                        po_id: matchedPO.poId,
+                        tenant_id: matchedPO.tenantId,
+                        supplier_email: matchedPO.supplierEmail,
+                        supplier_name: matchedPO.supplierName,
+                        product_name: matchedPO.productName,
+                        sku: matchedPO.sku,
+                        quantity: matchedPO.quantity,
+                        unit_cost: matchedPO.unitCost,
+                        total_cost: matchedPO.totalCost,
+                        currency: matchedPO.currency,
+                        approved_at: new Date().toISOString(),
+                      }),
+                      signal: AbortSignal.timeout(10000),
+                    }).catch((e: any) => console.error("[hermes-webhook] skills trigger failed:", e?.message));
+                  }
+                  // Send WhatsApp confirmation back to merchant
+                  const waToken = process.env.WA_TOKEN ?? process.env.META_WA_TOKEN ?? "";
+                  const waPNId = phoneNumberId || (process.env.WA_PHONE_NUMBER_ID ?? "");
+                  if (waToken && waPNId) {
+                    const confirmText = action === "APPROVE"
+                      ? `✅ PO-${poId} *approved*! Supplier email is being sent to ${matchedPO.supplierName}.`
+                      : `❌ PO-${poId} *rejected*. No supplier email will be sent.`;
+                    fetch(`https://graph.facebook.com/v19.0/${waPNId}/messages`, {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${waToken}`, "Content-Type": "application/json" },
+                      body: JSON.stringify({ messaging_product: "whatsapp", to: waPhoneNumber, type: "text", text: { body: confirmText } }),
+                    }).catch((e: any) => console.error("[hermes-webhook] WA confirm send failed:", e?.message));
+                  }
+                } else {
+                  console.warn(`[hermes-webhook] PO-${poId} not found for tenant ${tenantId}`);
+                }
+              }
+            } catch (e: any) {
+              console.error("[hermes-webhook] PO approval error:", e?.message);
+            }
+            continue; // Skip NLP processing for PO commands
+          }
+          // === W27 bookkeeping ===
+          // Merchant bookkeeping commands ("sales summary", "digest on/off",
+          // "expense", "confirm expense", "export"). Exact/prefix matching
+          // only — non-matching messages fall through to the NLP pipeline.
+          try {
+            const { handleBookkeepingText } = await import("../services/bookkeeping");
+            const bkReply = await handleBookkeepingText({ db, tenantId, phone: waPhoneNumber, text: textBody });
+            if (bkReply) {
+              await sendWhatsAppText(tenantId, waPhoneNumber, bkReply)
+                .catch((e: any) => console.error("[whatsapp-webhook] bookkeeping reply send error:", e?.message));
+              continue; // claimed — skip NLP
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] bookkeeping command error:", e?.message);
+          }
+          // ── CV-1 / J85: visual stock-take APPLY / REVIEW replies ────────
+          // "APPLY" applies the calibrated auto-apply items from the latest
+          // WhatsApp shelf-photo stock-take; "REVIEW" parks it for the
+          // dashboard. Tenant opt-in only — the service returns handled=false
+          // when settings.visualInventoryWhatsAppEnabled is off and the text
+          // falls through to the normal menu/NLP pipeline.
+          const stocktakeMatch = textBody.trim().match(/^(APPLY|REVIEW)$/i);
+          if (stocktakeMatch) {
+            try {
+              const { handleStocktakeApplyReply } = await import("../services/visualStocktake");
+              const stOutcome = await handleStocktakeApplyReply({
+                tenantId,
+                waPhoneNumber,
+                command: stocktakeMatch[1].toUpperCase() as "APPLY" | "REVIEW",
+              });
+              if (stOutcome.handled) continue; // Skip NLP processing for stock-take commands
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] visual stocktake reply error:", e?.message);
+            }
+          }
+          // ── W17/F10: rider cash-collection confirmation ─────────────────
+          // "RIDER_CONFIRM <orderNumber> [amount]" from a registered rider
+          // phone (tenant settings.codRiderPhones). Non-riders / other texts
+          // fall through to the normal menu/NLP pipeline (handled=false).
+          if (/^\s*RIDER_CONFIRM\s+\S+/i.test(textBody)) {
+            try {
+              const { handleRiderConfirm } = await import("../services/codFlow");
+              const riderOutcome = await handleRiderConfirm({
+                db,
+                tenantId,
+                waPhoneNumber,
+                text: textBody,
+              });
+              if (riderOutcome.handled) continue; // Skip NLP processing for rider commands
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] rider confirm error:", e?.message);
+            }
+          }
+          // ── W27 credit: merchant credit commands ────────────────────────
+          // "CREDIT [SCORE|OFFERS|STATUS|ACCEPT [amount]]" from the tenant's
+          // admin phone (settings.adminPhone). Non-admins / other texts fall
+          // through to the normal menu/NLP pipeline (handled=false).
+          if (/^\s*CREDIT\b/i.test(textBody)) {
+            try {
+              const { handleCreditCommand } = await import("../services/creditWhatsApp");
+              const creditOutcome = await handleCreditCommand({
+                db,
+                tenantId,
+                waPhoneNumber,
+                text: textBody,
+              });
+              if (creditOutcome.handled) {
+                if (creditOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, creditOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] credit reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for credit commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] credit command error:", e?.message);
+            }
+          }
+          // === W28 odoo-sync (Coder A): tenant-admin Odoo commands ────────
+          // "ODOO STATUS" / "ODOO SYNC NOW" from the tenant's admin phone
+          // (settings.adminPhone). Non-admins / other texts fall through to
+          // the normal menu/NLP pipeline (handled=false).
+          if (/^\s*ODOO\b/i.test(textBody)) {
+            try {
+              const { handleOdooCommand } = await import("../services/odoo/odooWhatsApp");
+              const odooOutcome = await handleOdooCommand({
+                db,
+                tenantId,
+                waPhoneNumber,
+                text: textBody,
+              });
+              if (odooOutcome.handled) {
+                if (odooOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, odooOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] odoo reply send error:", e?.message));
+                }
+                continue; // Skip NLP processing for odoo commands
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] odoo command error:", e?.message);
+            }
+          }
+          // === END W28 odoo-sync ===
+          // Publish inbound message to Kafka for event streaming
+          publishConversationEvent(
+            msg.id ?? randomUUID(),
+            tenantId,
+            "wa.messages.inbound",
+            { from: waPhoneNumber, textBody, contactName, waPhoneNumber }
+          ).catch(() => {});
+          // Cache conversation context in Dapr state store (Redis-backed)
+          // === W45 webhook-core (MSG-14): cache keyed by (tenant, phone) ===
+          daprSaveState("wacommerce-statestore", `conv:${tenantId}:${waPhoneNumber}:last_msg`, {
+            text: textBody, ts: Date.now(), waPhoneNumber, tenantId
+          }).catch(() => {});
+          // ── Conversational menu/session engine ──────────────────────────
+          // Consent gate → menu keywords → numeric selection / active
+          // use-case flows. Returns handled=false when the message should
+          // fall through to the NLP pipeline (fallback "nlp" or an active
+          // shop/NLP session).
+          let handledByMenu = false;
+          try {
+            const { handleConversationalInbound } = await import("../services/useCases");
+            const menuOutcome = await handleConversationalInbound({
+              db,
+              tenant: tenant ?? null,
+              tenantId,
+              phone: waPhoneNumber,
+              text: textBody,
+              customerName: contactName || undefined,
+            });
+            if (menuOutcome.handled) {
+              handledByMenu = true;
+              // Prefer the interactive (button/list) rendering on WhatsApp;
+              // fall back to the plain-text menu when the send fails.
+              if (menuOutcome.interactive) {
+                const interactiveRes = await sendWhatsAppInteractive(tenantId, waPhoneNumber, menuOutcome.interactive)
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] interactive menu send error:", e?.message);
+                    return null;
+                  });
+                if (interactiveRes) {
+                  // Platform ops metering: outbound interactive menu send.
+                  await recordUsage(db, tenantId, METRIC_MESSAGES_OUT);
+                  await recordUsage(db, tenantId, METRIC_MESSAGES);
+                }
+                if (!interactiveRes && menuOutcome.reply) {
+                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, menuOutcome.reply)
+                    .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
+                }
+              } else if (menuOutcome.reply) {
+                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, menuOutcome.reply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
+              }
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] menu engine error — falling back to NLP:", e?.message);
+          }
+          // Route text messages through the NLP engine, then DELIVER the reply
+          // back to the buyer over WhatsApp (previously the reply was computed
+          // and silently discarded).
+          if (!handledByMenu) {
+            try {
+              const { appRouter: ar } = await import("../routers");
+              const caller = ar.createCaller({ user: null } as any);
+              const nlpResult = await caller.nlp.processMessage({
+                tenantId,
+                waPhoneNumber,
+                message: textBody,
+                customerName: contactName || undefined,
+              });
+              if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
+                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, nlpResult.reply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
+                // Rich follow-ups annotated by the NLP engine:
+                // order action card after a confirm_order payment summary,
+                // and a product image card on single-product queries.
+                const orderCard = (nlpResult as any)?.orderCard as { orderId?: string; orderNumber?: string } | undefined;
+                if (orderCard?.orderId && orderCard?.orderNumber) {
+                  const { buildOrderActionCard } = await import("../services/useCases");
+                  await sendWhatsAppInteractive(
+                    tenantId,
+                    waPhoneNumber,
+                    buildOrderActionCard({ orderId: orderCard.orderId, orderNumber: orderCard.orderNumber }),
+                    { notifType: "order_action_card", orderId: orderCard.orderId },
+                  ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
+                }
+                const productImage = (nlpResult as any)?.productImage as { link?: string; caption?: string } | undefined;
+                if (productImage?.link) {
+                  await sendWhatsAppMedia(
+                    tenantId,
+                    waPhoneNumber,
+                    { type: "image", link: productImage.link, caption: productImage.caption },
+                    { notifType: "product_image" },
+                  ).catch((e: any) => console.error("[whatsapp-webhook] product image send error:", e?.message));
+                }
+              }
+            } catch (e: any) {
+              console.error("[whatsapp-webhook] NLP error:", e?.message);
+            }
+          }
+        } else if (msg.type === "location" && msg.location) {
+          // ── Native location messages ──────────────────────────────────
+          // Buyer shared a pin: if they're mid-checkout awaiting a delivery
+          // address, continue checkout exactly as the text-address path and
+          // attach the coords to the order; otherwise save it as their
+          // default delivery address.
+          try {
+            const { handleInboundLocationMessage } = await import("../services/locationInbound");
+            const outcome = await handleInboundLocationMessage({
+              tenantId,
+              waPhoneNumber,
+              customerName: contactName || undefined,
+              location: {
+                latitude: Number(msg.location.latitude),
+                longitude: Number(msg.location.longitude),
+                name: msg.location.name ?? null,
+                address: msg.location.address ?? null,
+              },
+            });
+            if (outcome.reply) {
+              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, outcome.reply)
+                .catch((e: any) => console.error("[whatsapp-webhook] location reply send error:", e?.message));
+            }
+            if (outcome.orderCard?.orderId && outcome.orderCard?.orderNumber) {
+              const { buildOrderActionCard } = await import("../services/useCases");
+              await sendWhatsAppInteractive(
+                tenantId,
+                waPhoneNumber,
+                buildOrderActionCard({ orderId: outcome.orderCard.orderId, orderNumber: outcome.orderCard.orderNumber }),
+                { notifType: "order_action_card", orderId: outcome.orderCard.orderId },
+              ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] location message error:", e?.message);
+          }
+          continue;
+        } else if (msg.type === "image" || msg.type === "document" || msg.type === "video" || msg.type === "audio") {
+          // ── Capture media reply in whatsapp_customer_replies ──────────────
+          try {
+            const contextWamid: string | undefined = msg.context?.id;
+            const mediaId: string = msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? msg.audio?.id ?? "";
+            let replyOrderId2: string | undefined;
+            let replyUserId2: number | undefined;
+            if (contextWamid) {
+              const [notifLog2] = await db.select()
+                .from(whatsappNotificationLog)
+                .where(eq(whatsappNotificationLog.wamid, contextWamid))
+                .limit(1).catch(() => [null as any]);
+              if (notifLog2) {
+                replyOrderId2 = notifLog2.orderId ?? undefined;
+                replyUserId2 = notifLog2.userId ?? undefined;
+              }
+            }
+            if (!replyUserId2) {
+              const [matchedUser2] = await db.select({ id: users.id })
+                .from(users)
+                .where(eq(users.phone, waPhoneNumber))
+                .limit(1).catch(() => [null as any]);
+              if (matchedUser2) replyUserId2 = matchedUser2.id;
+            }
+            await db.insert(whatsappCustomerReplies).values({
+              id: crypto.randomUUID(),
+              tenantId,
+              orderId: replyOrderId2 ?? null,
+              userId: replyUserId2 ?? null,
+              fromPhone: waPhoneNumber,
+              toPhone: phoneNumberId,
+              wamid: msg.id ?? crypto.randomUUID(),
+              contextWamid: contextWamid ?? null,
+              messageType: msg.type,
+              body: msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? null,
+              mediaId: mediaId || null,
+            }).onConflictDoNothing();
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] media reply capture error:", e?.message);
+          }
+          // === W45 webhook-core (A2 seam wired, MSG-6): mirror EVERY inbound
+          // media message (image/document/video/AUDIO — audio included in the
+          // mediaId fallback now) to internal object storage at webhook time
+          // via A2's mirrorInboundMedia. The helper inserts the
+          // whatsapp_media_files row itself (Graph URL fallback), then
+          // downloads + storagePut's the bytes and flips the row to the
+          // internal key. Fire-and-forget by contract: never throws, never
+          // blocks the 200 ack. ===
+          const mediaId: string = msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? msg.audio?.id ?? "";
+          const mimeType: string = msg.image?.mime_type ?? msg.document?.mime_type ?? msg.video?.mime_type ?? msg.audio?.mime_type ?? "application/octet-stream";
+          const caption: string = msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? "";
+          const filename: string = msg.document?.filename ?? `${msg.type}_${Date.now()}`;
+          if (mediaId) {
+            void import("../services/inboundMediaMirror")
+              .then((m) => m.mirrorInboundMedia({
+                tenantId,
+                waPhoneNumber,
+                mediaId,
+                kind: msg.type as "image" | "document" | "video" | "audio",
+                mimeType,
+                caption: caption || null,
+                filename: msg.document?.filename ?? null,
+              }))
+              .catch((e: any) => console.error("[whatsapp-webhook] media mirror error:", e?.message));
+          }
+          // === END W45 webhook-core (A2 seam MSG-6) ===
+          // ── Receipt-screenshot payment verification ─────────────────────
+          // If this sender has a recent order awaiting payment, scan the
+          // image, match the amount, and confirm via the shared payment path.
+          // Fully async — must NEVER delay the webhook 200 ack.
+          if (msg.type === "image" && mediaId) {
+            handleInboundReceiptImage({ tenantId, waPhoneNumber, mediaId })
+              .then(async (outcome) => {
+                // ── Visual product search ────────────────────────────────
+                // Only when the receipt pipeline did NOT claim the image
+                // (no pending unpaid order) — a receipt screenshot for an
+                // order must never be double-handled as a product search.
+                const { shouldRunVisualSearchAfterReceipt, handleInboundProductImage } = await import("../services/visualSearch");
+                if (!shouldRunVisualSearchAfterReceipt(outcome)) return;
+                // === W27 catalog-ai (additive): merchant product photo →
+                // AI draft listing. Only tenant staff phones are claimed;
+                // anything else falls through to expense OCR / stocktake /
+                // visual search.
+                const { handleInboundCatalogProductPhoto } = await import("../services/catalogAI");
+                const aiOutcome = await handleInboundCatalogProductPhoto({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] catalog-ai photo error:", e?.message);
+                    return { handled: false } as { handled: boolean; outcome?: string };
+                  });
+                if (aiOutcome?.handled) return;
+                // === W27 bookkeeping ===
+                // Expense receipt-photo capture claims the image ONLY when
+                // the sender has an open "expense" session; otherwise the
+                // stocktake / visual-search chain proceeds unchanged.
+                const { handleInboundExpenseImage } = await import("../services/bookkeeping");
+                const expOutcome = await handleInboundExpenseImage({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] expense OCR error:", e?.message);
+                    return { handled: false } as { handled: boolean };
+                  });
+                if (expOutcome?.handled) return;
+                // === W31 vendor-bills (Coder A) ===
+                // Supplier invoice forward: an image whose caption starts
+                // with "bill"/"invoice" is captured into vendor_bills via the
+                // shared OCR pipeline; anything else falls through to the
+                // stocktake / visual-search chain unchanged.
+                const { handleInboundVendorBillImage } = await import("../services/vendorBills");
+                const vbOutcome = await handleInboundVendorBillImage({ tenantId, waPhoneNumber, mediaId, caption })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] vendor bill capture error:", e?.message);
+                    return { handled: false } as { handled: boolean };
+                  });
+                if (vbOutcome?.handled) return;
+                // === END W31 vendor-bills ===
+                // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
+                // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
+                // Runs BEFORE visual product search when enabled — a
+                // stock-take tenant's shelf photos must not be mistaken
+                // for customer product lookups. Outcome "disabled" falls
+                // through to visual search unchanged.
+                const { handleInboundStocktakeImage } = await import("../services/visualStocktake");
+                const stOutcome = await handleInboundStocktakeImage({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] visual stocktake error:", e?.message);
+                    return { handled: false } as { handled: boolean; outcome?: string };
+                  });
+                if (stOutcome?.handled && stOutcome.outcome !== "disabled") return;
+                // === W43 dispatch (Coder C): proof-of-delivery photo. Claims
+                // the image ONLY when the sender has an order in the
+                // awaiting-POD state (tenant requirePod + shipment
+                // out_for_delivery/in_transit); anything else falls through
+                // to visual search unchanged. ===
+                const { handleInboundPodImage } = await import("../services/deliveryProof");
+                const podOutcome = await handleInboundPodImage({ tenantId, waPhoneNumber, mediaId, caption })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] POD capture error:", e?.message);
+                    return { handled: false } as { handled: boolean };
+                  });
+                if (podOutcome?.handled) return;
+                // === END W43 dispatch ===
+                await handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
+                  .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message));
+              })
+              // === W45 webhook-core (A2 seam wired, MSG-24): terminal catch of
+              // the receipt → catalog-ai → expense → vendor-bill → stocktake →
+              // POD → visual-search chain sends the localized "couldn't process
+              // that photo" fail-soft reply (channel-parity aware) instead of
+              // silence. Never throws. ===
+              .catch(async (e: any) => {
+                console.error("[whatsapp-webhook] receipt verify error:", e?.message);
+                const { replyImagePipelineFailed } = await import("../services/imagePipelineFallback");
+                await replyImagePipelineFailed(tenantId, waPhoneNumber).catch(() => {});
+              });
+          }
+          // === END W45 webhook-core (A2 seam MSG-24) ===
+          // ── Voice-note ordering ───────────────────────────────────────────
+          // Download the audio from the Graph API (per-tenant creds), run it
+          // through the pluggable transcriber, and feed the transcript into
+          // the SAME text pipeline. Fail-soft reply when voice isn't enabled.
+          // Fully async — must NEVER delay the webhook 200 ack.
+          if (msg.type === "audio" && msg.audio?.id) {
+            (async () => {
+              // === W27 catalog-ai (additive): merchant voice note → AI draft
+              // listing. Only tenant staff phones are claimed ("not_merchant"
+              // falls through to the buyer voice-ordering pipeline unchanged).
+              const { handleInboundCatalogVoiceNote } = await import("../services/catalogAI");
+              const aiOutcome = await handleInboundCatalogVoiceNote({
+                tenantId,
+                waPhoneNumber,
+                mediaId: msg.audio.id,
+                mimeType: msg.audio?.mime_type ?? null,
+              });
+              if (aiOutcome.handled && aiOutcome.outcome === "draft_created") return;
+              if (aiOutcome.handled && aiOutcome.outcome !== "not_merchant" && aiOutcome.outcome !== "disabled") return;
+              const { handleInboundVoiceNote } = await import("../services/transcribe");
+              await handleInboundVoiceNote({
+                tenantId,
+                waPhoneNumber,
+                mediaId: msg.audio.id,
+                mimeType: msg.audio?.mime_type ?? null,
+                customerName: contactName || undefined,
+              });
+            })().catch((e: any) => console.error("[whatsapp-webhook] voice note error:", e?.message));
+          }
+        } else if (msg.type === "order") {
+          // === W45 webhook-core (MSG-13): native catalog order message →
+          // build a cart from product_items (Meta product_retailer_id maps to
+          // products.id — see services/metaCatalog.ts) and reply with a priced
+          // summary. Previously this type got silence. ===
+          try {
+            const items: any[] = Array.isArray(msg.order?.product_items) ? msg.order.product_items : [];
+            if (items.length === 0) {
+              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber,
+                "Thanks for your order! We couldn't read the items — please try again or type what you'd like.",
+                { notifType: "order_inbound" }).catch(() => {});
+            } else {
+              const { cartSessions: cartSessionsT, cartItems: cartItemsT } = await import("../../drizzle/schema");
+              const cartNow = new Date();
+              let [cart] = await db.select().from(cartSessionsT)
+                .where(and(eq(cartSessionsT.tenantId, tenantId), eq(cartSessionsT.waPhoneNumber, waPhoneNumber)))
+                .orderBy(desc(cartSessionsT.updatedAt)).limit(1).catch(() => [] as any[]);
+              if (!cart) {
+                const cid = crypto.randomUUID();
+                await db.insert(cartSessionsT).values({
+                  id: cid, tenantId, waPhoneNumber, sessionData: {}, currentStep: "browse",
+                  createdAt: cartNow, updatedAt: cartNow,
+                }).catch((e: any) => console.error("[whatsapp-webhook] cart session create error:", e?.message));
+                [cart] = await db.select().from(cartSessionsT).where(eq(cartSessionsT.id, cid)).limit(1).catch(() => [] as any[]);
+              }
+              const lines: string[] = [];
+              let total = 0;
+              let currency: string = items[0]?.currency ?? "NGN";
+              for (const it of items) {
+                const retailerId = String(it?.product_retailer_id ?? "");
+                const qty = Math.max(1, parseInt(String(it?.quantity ?? "1"), 10) || 1);
+                const [prod] = retailerId
+                  ? await db.select().from(products)
+                      .where(and(eq(products.id, retailerId), eq(products.tenantId, tenantId)))
+                      .limit(1).catch(() => [] as any[])
+                  : [null as any];
+                const name: string = prod?.name ?? `Item ${retailerId || "?"}`;
+                const unit = prod ? Number(prod.price) : Number(it?.item_price ?? 0);
+                if (prod?.currency) currency = prod.currency;
+                lines.push(`• ${qty} × ${name} — ${(unit * qty).toFixed(2)} ${currency}`);
+                total += unit * qty;
+                if (cart?.id && prod) {
+                  await db.insert(cartItemsT).values({
+                    cartSessionId: cart.id, productId: prod.id, productName: prod.name,
+                    quantity: qty, unitPrice: String(unit), currency,
+                  }).catch((e: any) => console.error("[whatsapp-webhook] cart item insert error:", e?.message));
+                }
+              }
+              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber,
+                `🛒 Order received:\n${lines.join("\n")}\nTotal: ${total.toFixed(2)} ${currency}\nReply CHECKOUT to pay, or keep shopping.`,
+                { notifType: "order_inbound" })
+                .catch((e: any) => console.error("[whatsapp-webhook] order reply send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] order message error:", e?.message);
+          }
+        } else if (msg.type === "button") {
+          // === W45 webhook-core (MSG-13): legacy template quick-reply button
+          // (button.text / button.payload) → the SAME interactive dispatch as
+          // modern interactive button_reply payloads. ===
+          try {
+            const { handleInteractiveInbound } = await import("../services/useCases");
+            const outcome = await handleInteractiveInbound({
+              db,
+              tenant: tenant ?? null,
+              tenantId,
+              phone: waPhoneNumber,
+              replyId: msg.button?.payload ?? undefined,
+              replyTitle: msg.button?.text ?? undefined,
+              customerName: contactName || undefined,
+            });
+            if (outcome.interactive) {
+              await sendWhatsAppInteractive(tenantId, waPhoneNumber, outcome.interactive)
+                .catch((e: any) => console.error("[whatsapp-webhook] button reply send error:", e?.message));
+            } else if (outcome.reply) {
+              await sendWhatsAppText(tenantId, waPhoneNumber, outcome.reply)
+                .catch((e: any) => console.error("[whatsapp-webhook] button reply send error:", e?.message));
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] button message error:", e?.message);
+          }
+        } else if (msg.type && msg.type !== "system") {
+          // === W45 webhook-core (MSG-13): contacts / sticker / unsupported /
+          // unknown inbound types get a polite fallback instead of silence. ===
+          console.log(`[whatsapp-webhook] unsupported inbound type '${msg.type}' from ${waPhoneNumber} — polite fallback reply`);
+          await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber,
+            "Thanks for your message! We can't handle that type of content yet — please send text, a photo, or pick from the menu. 🙏",
+            { notifType: "unsupported_inbound" })
+            .catch((e: any) => console.error("[whatsapp-webhook] fallback reply send error:", e?.message));
+        }
+      } catch (msgErr: any) {
+        const m = String(msgErr?.message ?? msgErr).slice(0, 300);
+        console.error(`[whatsapp-webhook] per-message processing failed (wamid=${msg?.id ?? "?"} type=${msg?.type ?? "?"}):`, m);
+        result.failures.push(`${msg?.id ?? "no-wamid"}: ${m}`);
+      }
+      }
+      // ── Delivery status receipts ───────────────────────────────────────────
+      const statuses: any[] = value?.statuses ?? [];
+      for (const st of statuses) {
+        const waMessageId: string = st.id ?? "";
+        const recipientPhone: string = st.recipient_id ?? "";
+        const statusVal: string = st.status ?? "";
+        const tsUnix: number = parseInt(st.timestamp ?? "0", 10);
+        const errorCode: string = st.errors?.[0]?.code?.toString() ?? "";
+        const errorMessage: string = st.errors?.[0]?.title ?? "";
+        if (!waMessageId || !["sent","delivered","read","failed"].includes(statusVal)) continue;
+        const [stTenant] = await db.select({ id: tenants.id }).from(tenants)
+          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
+          .limit(1).catch(() => [null as any]);
+        const stTenantId: string = (stTenant as any)?.id ?? "default";
+        await db.insert(waMessageDeliveryReceipts).values({
+          tenantId: stTenantId,
+          waMessageId,
+          recipientPhone,
+          status: statusVal as any,
+          errorCode: errorCode || null,
+          errorMessage: errorMessage || null,
+          timestamp: tsUnix ? new Date(tsUnix * 1000) : new Date(),
+          rawPayload: st,
+        }).catch((e: any) => console.warn("[whatsapp-webhook] delivery receipt insert failed:", e?.message));
+        // Cross-reference: update whatsapp_notification_log if this wamid was
+        // sent by our platform (unknown wamids are ignored quietly inside;
+        // failed deliveries keep the full error payload and are metered).
+        await applyWaDeliveryStatus(db, stTenantId, st)
+          .catch((e: any) => console.warn("[whatsapp-webhook] notif log update failed:", e?.message));
+      }
+  return result;
+}
+// === END W45 webhook-core ===
+
 
 // ── Webhook security helpers ─────────────────────────────────────────────────
 
@@ -969,6 +2118,23 @@ async function startServer() {
           if (!result.ok) {
             console.warn(`[paystack-webhook] ref=${ref} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
           }
+          // === W45 money-intents seam (PAY-13) — paymentConfirm.ts PINNED ===
+          // Adjacent seam ONLY: quarantine + ops alert + auto-refund when the
+          // pinned confirm rejected a PSP mismatch with money in hand.
+          // Never throws. (HOOK CONTRACT for merger: keep immediately after
+          // the confirmProviderPayment call.)
+          {
+            const { runPaymentMismatchQuarantineHook } = await import("../services/payments/paymentMismatchQuarantine");
+            await runPaymentMismatchQuarantineHook(db, {
+              provider: "paystack",
+              reference: ref,
+              result,
+              amountMajor: Number.isFinite(amountKobo) ? amountKobo / 100 : null,
+              currency,
+              rawPayload: payload.data,
+            });
+          }
+          // === END W45 money-intents seam ===
           // === W31 AR webhook hook ===
           // After the PINNED confirmProviderPayment verified + completed the
           // intent, record any AR-invoice payment keyed by this reference
@@ -1115,6 +2281,19 @@ async function startServer() {
           if (!result.ok) {
             console.warn(`[flutterwave-webhook] tx_ref=${txRef} → ${result.action}${result.detail ? `: ${result.detail}` : ""}`);
           }
+          // === W45 money-intents seam (PAY-13) — paymentConfirm.ts PINNED ===
+          {
+            const { runPaymentMismatchQuarantineHook } = await import("../services/payments/paymentMismatchQuarantine");
+            await runPaymentMismatchQuarantineHook(db, {
+              provider: "flutterwave",
+              reference: txRef,
+              result,
+              amountMajor: Number.isFinite(amount) ? amount : null,
+              currency,
+              rawPayload: payload.data,
+            });
+          }
+          // === END W45 money-intents seam ===
           // === W31 AR webhook hook === (see paystack handler above)
           if (result.ok) {
             const { runArInvoiceWebhookHook } = await import("../services/arInvoices");
@@ -1623,816 +2802,47 @@ async function startServer() {
         console.error("[whatsapp-webhook] template-status handling failed:", e?.message);
       }
       // === END W40 MSG-2 ===
-      // Parse the Meta webhook payload
-      const entry = body?.entry?.[0];
-      const changes = entry?.changes?.[0];
-      const value = changes?.value;
-      if (!value) return;
-      const messages: any[] = value?.messages ?? [];
-      const contacts: any[] = value?.contacts ?? [];
-      const phoneNumberId: string = value?.metadata?.phone_number_id ?? "";
-      let duplicatesSkipped = 0;
-      for (const msg of messages) {
-        const waPhoneNumber: string = msg.from ?? "";
-        const contactName: string = contacts.find((c: any) => c.wa_id === waPhoneNumber)?.profile?.name ?? "";
-        // ── w9: platform conversational-onboarding intake number ────────────
-        // Messages to the platform's own onboarding number belong to a
-        // prospective tenant with no tenant row yet — hand them to the
-        // onboarding copilot BEFORE tenant resolution and skip normal tenant
-        // dispatch entirely. Unset ONBOARDING_PHONE_NUMBER_ID → predicate is
-        // always false → zero behavior change for existing tenants.
-        if (isOnboardingIntakeNumber(phoneNumberId)) {
+      // === W45 webhook-core (MSG-4): iterate ALL entry[]/changes[] — no
+      // more first-element-only fan-out; the full payload is persisted in the
+      // wa_webhook_events DLQ row above. ===
+      const waProcFailures: string[] = [];
+      const waEntries: any[] = Array.isArray(body?.entry) ? body.entry : [];
+      for (const entryItem of waEntries) {
+        const changeList: any[] = Array.isArray(entryItem?.changes) ? entryItem.changes : [];
+        for (const change of changeList) {
+          const value = change?.value;
+          if (!value) continue;
           try {
-            const { handleInbound } = await import("../services/waOnboarding");
-            await handleInbound(msg, waPhoneNumber);
-          } catch (e: any) {
-            // Fail-safe: the 200 ack was already sent; never rethrow.
-            console.error("[whatsapp-webhook] onboarding intake error:", e?.message);
-          }
-          continue;
-        }
-        // Determine tenant from phone number ID (look up in tenants table)
-        const [tenant] = await db.select().from(tenants)
-          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
-          .limit(1).catch(() => [null as any]);
-        // === W40 tenancy (TEN-1): suspended/churned tenants get NO inbound
-        // processing — drop with a structured log, before the dedupe claim,
-        // metering, contact provisioning or NLP dispatch. The 200 ack was
-        // already sent, so Meta will not retry.
-        if (tenant && isTenantInactive((tenant as any).status)) {
-          logSuspendedTenantDrop("whatsapp", {
-            tenantId: (tenant as any).id,
-            tenantStatus: (tenant as any).status,
-            phoneNumberId,
-            wamid: msg.id ?? null,
-            from: waPhoneNumber,
-          });
-          continue;
-        }
-        const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
-        // ── Platform ops: webhook idempotency (insert-first claim) ──────────
-        // Meta retries deliveries until a 200; the wamid is the ledger PK, so
-        // a retry collides (ON CONFLICT DO NOTHING) and is skipped — a
-        // message is never reprocessed. Production fails closed when the
-        // ledger is unavailable (dev/test use an in-memory fallback).
-        // Messages that don't match a real tenant (e.g. Meta's fixed-payload
-        // test button, always the same wamid) get a unique claim key per
-        // delivery instead, so they're never skipped as duplicates — real
-        // tenant-matched messages keep strict per-wamid dedup unchanged.
-        if (msg.id) {
-          const claimId = tenant ? msg.id : `${msg.id}:${Date.now()}`;
-          let claim: "claimed" | "duplicate";
-          try {
-            claim = await claimWebhookEvent(db, { id: claimId, tenantId, type: msg.type ?? "unknown" });
-          } catch (dedupeErr: any) {
-            // Fail closed (production policy): the ack was already sent, but a
-            // blind dedupe ledger must NOT reprocess — skip the message.
-            console.error(`[whatsapp-webhook] dedupe ledger unavailable for ${msg.id} — failing closed, message NOT processed:`, dedupeErr?.message);
-            continue;
-          }
-          if (claim === "duplicate") {
-            duplicatesSkipped++;
-            console.log(`[whatsapp-webhook] duplicate delivery ${msg.id} — skipped`);
-            continue;
-          }
-          // ── Read receipt (blue ticks): fire-and-forget after the message ──
-          // is accepted for processing — NEVER blocks or throws.
-          markMessageRead(tenantId, msg.id).catch(() => {});
-        }
-        // ── Platform ops: usage metering + monthly message quota gate ──────
-        // Count every inbound message; warn the tenant admin once per period
-        // at 80% and 100%; past the hard stop (limit + 10% grace) the buyer
-        // gets a polite "merchant busy" reply and the message is not processed.
-        try {
-          await recordUsage(db, tenantId, METRIC_MESSAGES_IN);
-          const totalUsage = await recordUsage(db, tenantId, METRIC_MESSAGES);
-          const plan = await getPlan(db, tenantId);
-          const quota = evaluateQuota(totalUsage, plan.limits.messagesPerMonth);
-          if (quota.warnLevel) await notifyQuotaWarning(db, tenantId, quota);
-          if (!quota.allowed) {
-            console.warn(`[whatsapp-webhook] tenant ${tenantId} over hard message quota (${quota.usage}/${quota.limit}) — busy reply sent`);
-            await sendWhatsAppText(tenantId, waPhoneNumber,
-              "Thanks for your message! We're experiencing unusually high volume right now — please try again a little later. 🙏",
-              { notifType: "quota_busy" }).catch((e: any) => console.warn("[whatsapp-webhook] busy reply send failed:", e?.message));
-            continue;
-          }
-        } catch (e: any) {
-          // Metering/quota failures must never block message processing.
-          console.error("[whatsapp-webhook] metering/quota check failed — processing anyway:", e?.message);
-        }
-        // ── WA messaging ops: contact auto-provisioning + 24h session window ──
-        // Upsert the customer from Meta's contacts[] payload (profile name
-        // fills only an empty name) and stamp the inbound window. Text
-        // messages are then checked against CTWA campaign keywords for
-        // attribution + mapped action. Never blocks message processing.
-        try {
-          const { provisionInboundContact } = await import("../services/waContacts");
-          await provisionInboundContact(db, tenantId, waPhoneNumber, contactName);
-          const { recordInbound } = await import("../services/sessionWindow");
-          await recordInbound(tenantId, waPhoneNumber, new Date());
-          if (msg.type === "text") {
-            const { handleCtwaInbound } = await import("../services/ctwa");
-            const claimed = await handleCtwaInbound({
-              db, tenantId, phone: waPhoneNumber, text: msg.text?.body ?? "", contactName: contactName || undefined,
-            });
-            if (claimed) continue;
-          }
-        } catch (e: any) {
-          console.error("[whatsapp-webhook] messaging-ops entry error:", e?.message);
-        }
-        // ── Emoji-reaction tracking ─────────────────────────────────────────
-        // WhatsApp reaction payloads carry a `reaction` field; reply with the
-        // sender's latest order/shipment status + tracking link.
-        if (msg.type === "reaction" || msg.reaction) {
-          try {
-            const { handleReactionInbound } = await import("../services/useCases");
-            const reactionReply = await handleReactionInbound({ db, tenantId, phone: waPhoneNumber });
-            if (reactionReply) {
-              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, reactionReply, { notifType: "reaction_status" })
-                .catch((e: any) => console.error("[whatsapp-webhook] reaction reply send error:", e?.message));
-            }
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] reaction tracking error:", e?.message);
-          }
-          continue;
-        }
-        // ── Interactive replies (button_reply / list_reply) ───────────────
-        // Menu buttons/lists carry `menu_<n>` ids and resolve through the
-        // SAME resolveMenuSelection logic as numeric text replies; order
-        // action cards carry `order_<action>:<orderId>` ids.
-        if (msg.type === "interactive") {
-          try {
-            const reply = msg.interactive?.button_reply ?? msg.interactive?.list_reply ?? null;
-            // === W27 catalog-ai (additive): merchant AI-listing draft buttons
-            // (catalog_ai:publish:<id> / catalog_ai:reject:<id>) resolve here;
-            // any other id falls through to the standard dispatch unchanged.
-            if ((reply?.id ?? "").startsWith("catalog_ai:")) {
-              const { handleCatalogDraftButton } = await import("../services/catalogAI");
-              const r = await handleCatalogDraftButton({ tenantId, phone: waPhoneNumber, replyId: reply!.id });
-              if (r?.reply) {
-                await sendWhatsAppText(tenantId, waPhoneNumber, r.reply)
-                  .catch((e: any) => console.error("[whatsapp-webhook] catalog-ai reply send error:", e?.message));
-              }
-              continue;
-            }
-            // === W43 dispatch (Coder C): merchant address-change approval
-            // card buttons (addrchg:approve:<id> / addrchg:reject:<id>) resolve
-            // here; any other id falls through unchanged. TG inline-keyboard
-            // taps carry the SAME ids into the NLP engine (see routers/nlp.ts).
-            if ((reply?.id ?? "").startsWith("addrchg:")) {
-              try {
-                const m = /^addrchg:(approve|reject):([0-9a-fA-F-]{36})$/i.exec(reply!.id);
-                let cardReply = "Sorry, that address-change link is no longer valid.";
-                if (m) {
-                  const { isTenantStaffPhone } = await import("../services/catalogAI");
-                  const isStaff = await isTenantStaffPhone(db, tenantId, waPhoneNumber).catch(() => false);
-                  if (!isStaff) {
-                    cardReply = "Sorry, only store staff can approve or reject address changes.";
-                  } else {
-                    const { decideAddressChange } = await import("../services/addressChange");
-                    const decided = await decideAddressChange(db, {
-                      requestId: m[2],
-                      tenantId,
-                      approve: m[1].toLowerCase() === "approve",
-                      decidedBy: waPhoneNumber,
-                    });
-                    cardReply = `Address change ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
-                  }
-                }
-                await sendWhatsAppText(tenantId, waPhoneNumber, cardReply)
-                  .catch((e: any) => console.error("[whatsapp-webhook] addrchg reply send error:", e?.message));
-              } catch (e: any) {
-                await sendWhatsAppText(tenantId, waPhoneNumber, `Could not update that address change: ${e?.message ?? "unknown error"}`)
-                  .catch(() => {});
-              }
-              continue;
-            }
-            // === END W43 dispatch ===
-            // === W44 preorders-offers (Coder B): merchant offer approval
-            // card buttons (offer:accept|reject|counter:<id>) resolve here;
-            // counter via card prompts for the typed amount form. Customer
-            // counter-offer card taps (offer:caccept|cdecline:<id>) resolve
-            // here too (customerRef = waPhoneNumber). TG callbacks carry the
-            // SAME ids into the NLP engine (see routers/nlp.ts). ===
-            if ((reply?.id ?? "").startsWith("offer:")) {
-              const id = reply!.id;
-              const m = /^offer:(accept|reject|counter):([0-9a-fA-F-]{8,36})$/i.exec(id);
-              const cm = /^offer:(caccept|cdecline):([0-9a-fA-F-]{8,36})$/i.exec(id);
-              let cardReply = "Sorry, that offer link is no longer valid.";
-              try {
-                if (m) {
-                  const { isTenantStaffPhone } = await import("../services/catalogAI");
-                  const isStaff = await isTenantStaffPhone(db, tenantId, waPhoneNumber).catch(() => false);
-                  if (!isStaff) {
-                    cardReply = "Sorry, only store staff can respond to offers.";
-                  } else if (m[1].toLowerCase() === "counter") {
-                    cardReply = `To counter, type OFFER COUNTER ${m[2]} <amount> — e.g. OFFER COUNTER ${m[2]} 4800.`;
-                  } else {
-                    const { decideOffer } = await import("../services/customOffers");
-                    const decided = await decideOffer(db, {
-                      offerId: m[2],
-                      tenantId,
-                      action: m[1].toLowerCase() as "accept" | "reject",
-                      decidedBy: waPhoneNumber,
-                    });
-                    cardReply = decided.status === "accepted"
-                      ? `Offer ${decided.id.slice(0, 8)} accepted — the customer got a priced checkout link.`
-                      : `Offer ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
-                  }
-                } else if (cm) {
-                  const { respondToCounter } = await import("../services/customOffers");
-                  const decided = await respondToCounter(db, {
-                    offerId: cm[2],
-                    tenantId,
-                    customerRef: waPhoneNumber,
-                    accept: cm[1].toLowerCase() === "caccept",
-                  });
-                  cardReply = decided.status === "accepted"
-                    ? "Deal! Your payment link is on its way here."
-                    : decided.status === "rejected"
-                      ? "Okay — that offer is closed. You can make a new one any time."
-                      : `That offer is ${decided.status} now.`;
-                }
-              } catch (e: any) {
-                cardReply = `Could not update that offer: ${e?.message ?? "unknown error"}`;
-              }
-              await sendWhatsAppText(tenantId, waPhoneNumber, cardReply)
-                .catch((e: any) => console.error("[whatsapp-webhook] offer reply send error:", e?.message));
-              continue;
-            }
-            // === END W44 preorders-offers ===
-            const { handleInteractiveInbound } = await import("../services/useCases");
-            const outcome = await handleInteractiveInbound({
-              db,
-              tenant: tenant ?? null,
-              tenantId,
-              phone: waPhoneNumber,
-              replyId: reply?.id ?? undefined,
-              replyTitle: reply?.title ?? undefined,
-              customerName: contactName || undefined,
-            });
-            if (outcome.interactive) {
-              await sendWhatsAppInteractive(tenantId, waPhoneNumber, outcome.interactive)
-                .catch((e: any) => console.error("[whatsapp-webhook] interactive reply send error:", e?.message));
-            } else if (outcome.reply) {
-              await sendWhatsAppText(tenantId, waPhoneNumber, outcome.reply)
-                .catch((e: any) => console.error("[whatsapp-webhook] interactive reply send error:", e?.message));
-            }
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] interactive reply error:", e?.message);
-          }
-          continue;
-        }
-        if (msg.type === "text") {
-          const textBody: string = msg.text?.body ?? "";
-          // ── Capture customer reply in whatsapp_customer_replies ────────────
-          try {
-            const contextWamid: string | undefined = msg.context?.id;
-            // Resolve orderId from contextWamid (look up in notification log)
-            let replyOrderId: string | undefined;
-            let replyUserId: number | undefined;
-            if (contextWamid) {
-              const [notifLog] = await db.select()
-                .from(whatsappNotificationLog)
-                .where(eq(whatsappNotificationLog.wamid, contextWamid))
-                .limit(1).catch(() => [null as any]);
-              if (notifLog) {
-                replyOrderId = notifLog.orderId ?? undefined;
-                replyUserId = notifLog.userId ?? undefined;
-              }
-            }
-            // Resolve userId from phone if not found via contextWamid
-            if (!replyUserId) {
-              const [matchedUser] = await db.select({ id: users.id })
-                .from(users)
-                .where(eq(users.phone, waPhoneNumber))
-                .limit(1).catch(() => [null as any]);
-              if (matchedUser) replyUserId = matchedUser.id;
-            }
-            await db.insert(whatsappCustomerReplies).values({
-              id: crypto.randomUUID(),
-              tenantId,
-              orderId: replyOrderId ?? null,
-              userId: replyUserId ?? null,
-              fromPhone: waPhoneNumber,
-              toPhone: phoneNumberId,
-              wamid: msg.id ?? crypto.randomUUID(),
-              contextWamid: contextWamid ?? null,
-              messageType: "text",
-              body: textBody,
-            }).onConflictDoNothing();
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] customer reply capture error:", e?.message);
-          }
-          // ── Hermes PO approval/rejection via WhatsApp reply ───────────────
-          const poMatch = textBody.trim().match(/^(APPROVE|REJECT)\s+PO-([A-Z0-9]+)/i);
-          if (poMatch) {
-            const action = poMatch[1].toUpperCase();
-            const poId = poMatch[2];
-            try {
-              const { hermesPODrafts: hpd } = await import("../../drizzle/schema");
-              const { eq: eqOp, and: andOp } = await import("drizzle-orm");
-              const dbInst = await getDb();
-              if (dbInst) {
-                // Find the PO by poId (partial match on poId suffix)
-                const [po] = await dbInst.select().from(hpd)
-                  .where(andOp(
-                    eqOp(hpd.tenantId, tenantId),
-                    eqOp(hpd.status, "pending"),
-                  ))
-                  .limit(20);
-                // Find the PO whose poId ends with the supplied suffix
-                const allPOs = await dbInst.select().from(hpd)
-                  .where(andOp(eqOp(hpd.tenantId, tenantId), eqOp(hpd.status, "pending")))
-                  .limit(50);
-                const matchedPO = allPOs.find(p =>
-                  p.poId.toUpperCase().endsWith(poId.toUpperCase()) ||
-                  p.poId.toUpperCase() === poId.toUpperCase()
-                );
-                if (matchedPO) {
-                  const newStatus = action === "APPROVE" ? "approved" : "rejected";
-                  await dbInst.update(hpd)
-                    .set({ status: newStatus as any, approvedAt: Date.now(), approvedBy: waPhoneNumber, note: `WhatsApp ${action} by ${waPhoneNumber}` })
-                    .where(eqOp(hpd.poId, matchedPO.poId));
-                  // If approved, trigger supplier email via hermes-skills
-                  if (action === "APPROVE") {
-                    const hermesSkillsUrl = process.env.HERMES_SKILLS_URL ?? "http://hermes-skills:8097";
-                    fetch(`${hermesSkillsUrl}/skills/po-approved`, {
-                      method: "POST",
-                      // hermes-skills /skills/* requires X-Internal-Token == INTERNAL_API_KEY
-                      headers: { "Content-Type": "application/json", "X-Internal-Token": process.env.INTERNAL_API_KEY ?? "" },
-                      body: JSON.stringify({
-                        po_id: matchedPO.poId,
-                        tenant_id: matchedPO.tenantId,
-                        supplier_email: matchedPO.supplierEmail,
-                        supplier_name: matchedPO.supplierName,
-                        product_name: matchedPO.productName,
-                        sku: matchedPO.sku,
-                        quantity: matchedPO.quantity,
-                        unit_cost: matchedPO.unitCost,
-                        total_cost: matchedPO.totalCost,
-                        currency: matchedPO.currency,
-                        approved_at: new Date().toISOString(),
-                      }),
-                      signal: AbortSignal.timeout(10000),
-                    }).catch((e: any) => console.error("[hermes-webhook] skills trigger failed:", e?.message));
-                  }
-                  // Send WhatsApp confirmation back to merchant
-                  const waToken = process.env.WA_TOKEN ?? process.env.META_WA_TOKEN ?? "";
-                  const waPNId = phoneNumberId || (process.env.WA_PHONE_NUMBER_ID ?? "");
-                  if (waToken && waPNId) {
-                    const confirmText = action === "APPROVE"
-                      ? `✅ PO-${poId} *approved*! Supplier email is being sent to ${matchedPO.supplierName}.`
-                      : `❌ PO-${poId} *rejected*. No supplier email will be sent.`;
-                    fetch(`https://graph.facebook.com/v19.0/${waPNId}/messages`, {
-                      method: "POST",
-                      headers: { Authorization: `Bearer ${waToken}`, "Content-Type": "application/json" },
-                      body: JSON.stringify({ messaging_product: "whatsapp", to: waPhoneNumber, type: "text", text: { body: confirmText } }),
-                    }).catch((e: any) => console.error("[hermes-webhook] WA confirm send failed:", e?.message));
-                  }
-                } else {
-                  console.warn(`[hermes-webhook] PO-${poId} not found for tenant ${tenantId}`);
-                }
-              }
-            } catch (e: any) {
-              console.error("[hermes-webhook] PO approval error:", e?.message);
-            }
-            continue; // Skip NLP processing for PO commands
-          }
-          // === W27 bookkeeping ===
-          // Merchant bookkeeping commands ("sales summary", "digest on/off",
-          // "expense", "confirm expense", "export"). Exact/prefix matching
-          // only — non-matching messages fall through to the NLP pipeline.
-          try {
-            const { handleBookkeepingText } = await import("../services/bookkeeping");
-            const bkReply = await handleBookkeepingText({ db, tenantId, phone: waPhoneNumber, text: textBody });
-            if (bkReply) {
-              await sendWhatsAppText(tenantId, waPhoneNumber, bkReply)
-                .catch((e: any) => console.error("[whatsapp-webhook] bookkeeping reply send error:", e?.message));
-              continue; // claimed — skip NLP
-            }
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] bookkeeping command error:", e?.message);
-          }
-          // ── CV-1 / J85: visual stock-take APPLY / REVIEW replies ────────
-          // "APPLY" applies the calibrated auto-apply items from the latest
-          // WhatsApp shelf-photo stock-take; "REVIEW" parks it for the
-          // dashboard. Tenant opt-in only — the service returns handled=false
-          // when settings.visualInventoryWhatsAppEnabled is off and the text
-          // falls through to the normal menu/NLP pipeline.
-          const stocktakeMatch = textBody.trim().match(/^(APPLY|REVIEW)$/i);
-          if (stocktakeMatch) {
-            try {
-              const { handleStocktakeApplyReply } = await import("../services/visualStocktake");
-              const stOutcome = await handleStocktakeApplyReply({
-                tenantId,
-                waPhoneNumber,
-                command: stocktakeMatch[1].toUpperCase() as "APPLY" | "REVIEW",
-              });
-              if (stOutcome.handled) continue; // Skip NLP processing for stock-take commands
-            } catch (e: any) {
-              console.error("[whatsapp-webhook] visual stocktake reply error:", e?.message);
-            }
-          }
-          // ── W17/F10: rider cash-collection confirmation ─────────────────
-          // "RIDER_CONFIRM <orderNumber> [amount]" from a registered rider
-          // phone (tenant settings.codRiderPhones). Non-riders / other texts
-          // fall through to the normal menu/NLP pipeline (handled=false).
-          if (/^\s*RIDER_CONFIRM\s+\S+/i.test(textBody)) {
-            try {
-              const { handleRiderConfirm } = await import("../services/codFlow");
-              const riderOutcome = await handleRiderConfirm({
-                db,
-                tenantId,
-                waPhoneNumber,
-                text: textBody,
-              });
-              if (riderOutcome.handled) continue; // Skip NLP processing for rider commands
-            } catch (e: any) {
-              console.error("[whatsapp-webhook] rider confirm error:", e?.message);
-            }
-          }
-          // ── W27 credit: merchant credit commands ────────────────────────
-          // "CREDIT [SCORE|OFFERS|STATUS|ACCEPT [amount]]" from the tenant's
-          // admin phone (settings.adminPhone). Non-admins / other texts fall
-          // through to the normal menu/NLP pipeline (handled=false).
-          if (/^\s*CREDIT\b/i.test(textBody)) {
-            try {
-              const { handleCreditCommand } = await import("../services/creditWhatsApp");
-              const creditOutcome = await handleCreditCommand({
-                db,
-                tenantId,
-                waPhoneNumber,
-                text: textBody,
-              });
-              if (creditOutcome.handled) {
-                if (creditOutcome.reply) {
-                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, creditOutcome.reply)
-                    .catch((e: any) => console.error("[whatsapp-webhook] credit reply send error:", e?.message));
-                }
-                continue; // Skip NLP processing for credit commands
-              }
-            } catch (e: any) {
-              console.error("[whatsapp-webhook] credit command error:", e?.message);
-            }
-          }
-          // === W28 odoo-sync (Coder A): tenant-admin Odoo commands ────────
-          // "ODOO STATUS" / "ODOO SYNC NOW" from the tenant's admin phone
-          // (settings.adminPhone). Non-admins / other texts fall through to
-          // the normal menu/NLP pipeline (handled=false).
-          if (/^\s*ODOO\b/i.test(textBody)) {
-            try {
-              const { handleOdooCommand } = await import("../services/odoo/odooWhatsApp");
-              const odooOutcome = await handleOdooCommand({
-                db,
-                tenantId,
-                waPhoneNumber,
-                text: textBody,
-              });
-              if (odooOutcome.handled) {
-                if (odooOutcome.reply) {
-                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, odooOutcome.reply)
-                    .catch((e: any) => console.error("[whatsapp-webhook] odoo reply send error:", e?.message));
-                }
-                continue; // Skip NLP processing for odoo commands
-              }
-            } catch (e: any) {
-              console.error("[whatsapp-webhook] odoo command error:", e?.message);
-            }
-          }
-          // === END W28 odoo-sync ===
-          // Publish inbound message to Kafka for event streaming
-          publishConversationEvent(
-            msg.id ?? randomUUID(),
-            tenantId,
-            "wa.messages.inbound",
-            { from: waPhoneNumber, textBody, contactName, waPhoneNumber }
-          ).catch(() => {});
-          // Cache conversation context in Dapr state store (Redis-backed)
-          daprSaveState("wacommerce-statestore", `conv:${waPhoneNumber}:last_msg`, {
-            text: textBody, ts: Date.now(), waPhoneNumber, tenantId
-          }).catch(() => {});
-          // ── Conversational menu/session engine ──────────────────────────
-          // Consent gate → menu keywords → numeric selection / active
-          // use-case flows. Returns handled=false when the message should
-          // fall through to the NLP pipeline (fallback "nlp" or an active
-          // shop/NLP session).
-          let handledByMenu = false;
-          try {
-            const { handleConversationalInbound } = await import("../services/useCases");
-            const menuOutcome = await handleConversationalInbound({
-              db,
-              tenant: tenant ?? null,
-              tenantId,
-              phone: waPhoneNumber,
-              text: textBody,
-              customerName: contactName || undefined,
-            });
-            if (menuOutcome.handled) {
-              handledByMenu = true;
-              // Prefer the interactive (button/list) rendering on WhatsApp;
-              // fall back to the plain-text menu when the send fails.
-              if (menuOutcome.interactive) {
-                const interactiveRes = await sendWhatsAppInteractive(tenantId, waPhoneNumber, menuOutcome.interactive)
-                  .catch((e: any) => {
-                    console.error("[whatsapp-webhook] interactive menu send error:", e?.message);
-                    return null;
-                  });
-                if (interactiveRes) {
-                  // Platform ops metering: outbound interactive menu send.
-                  await recordUsage(db, tenantId, METRIC_MESSAGES_OUT);
-                  await recordUsage(db, tenantId, METRIC_MESSAGES);
-                }
-                if (!interactiveRes && menuOutcome.reply) {
-                  await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, menuOutcome.reply)
-                    .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
-                }
-              } else if (menuOutcome.reply) {
-                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, menuOutcome.reply)
-                  .catch((e: any) => console.error("[whatsapp-webhook] menu reply send error:", e?.message));
-              }
-            }
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] menu engine error — falling back to NLP:", e?.message);
-          }
-          // Route text messages through the NLP engine, then DELIVER the reply
-          // back to the buyer over WhatsApp (previously the reply was computed
-          // and silently discarded).
-          if (!handledByMenu) {
-            try {
-              const { appRouter: ar } = await import("../routers");
-              const caller = ar.createCaller({ user: null } as any);
-              const nlpResult = await caller.nlp.processMessage({
-                tenantId,
-                waPhoneNumber,
-                message: textBody,
-                customerName: contactName || undefined,
-              });
-              if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
-                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, nlpResult.reply)
-                  .catch((e: any) => console.error("[whatsapp-webhook] reply send error:", e?.message));
-                // Rich follow-ups annotated by the NLP engine:
-                // order action card after a confirm_order payment summary,
-                // and a product image card on single-product queries.
-                const orderCard = (nlpResult as any)?.orderCard as { orderId?: string; orderNumber?: string } | undefined;
-                if (orderCard?.orderId && orderCard?.orderNumber) {
-                  const { buildOrderActionCard } = await import("../services/useCases");
-                  await sendWhatsAppInteractive(
-                    tenantId,
-                    waPhoneNumber,
-                    buildOrderActionCard({ orderId: orderCard.orderId, orderNumber: orderCard.orderNumber }),
-                    { notifType: "order_action_card", orderId: orderCard.orderId },
-                  ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
-                }
-                const productImage = (nlpResult as any)?.productImage as { link?: string; caption?: string } | undefined;
-                if (productImage?.link) {
-                  await sendWhatsAppMedia(
-                    tenantId,
-                    waPhoneNumber,
-                    { type: "image", link: productImage.link, caption: productImage.caption },
-                    { notifType: "product_image" },
-                  ).catch((e: any) => console.error("[whatsapp-webhook] product image send error:", e?.message));
-                }
-              }
-            } catch (e: any) {
-              console.error("[whatsapp-webhook] NLP error:", e?.message);
-            }
-          }
-        } else if (msg.type === "location" && msg.location) {
-          // ── Native location messages ──────────────────────────────────
-          // Buyer shared a pin: if they're mid-checkout awaiting a delivery
-          // address, continue checkout exactly as the text-address path and
-          // attach the coords to the order; otherwise save it as their
-          // default delivery address.
-          try {
-            const { handleInboundLocationMessage } = await import("../services/locationInbound");
-            const outcome = await handleInboundLocationMessage({
-              tenantId,
-              waPhoneNumber,
-              customerName: contactName || undefined,
-              location: {
-                latitude: Number(msg.location.latitude),
-                longitude: Number(msg.location.longitude),
-                name: msg.location.name ?? null,
-                address: msg.location.address ?? null,
-              },
-            });
-            if (outcome.reply) {
-              await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, outcome.reply)
-                .catch((e: any) => console.error("[whatsapp-webhook] location reply send error:", e?.message));
-            }
-            if (outcome.orderCard?.orderId && outcome.orderCard?.orderNumber) {
-              const { buildOrderActionCard } = await import("../services/useCases");
-              await sendWhatsAppInteractive(
-                tenantId,
-                waPhoneNumber,
-                buildOrderActionCard({ orderId: outcome.orderCard.orderId, orderNumber: outcome.orderCard.orderNumber }),
-                { notifType: "order_action_card", orderId: outcome.orderCard.orderId },
-              ).catch((e: any) => console.error("[whatsapp-webhook] order action card send error:", e?.message));
-            }
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] location message error:", e?.message);
-          }
-          continue;
-        } else if (msg.type === "image" || msg.type === "document" || msg.type === "video" || msg.type === "audio") {
-          // ── Capture media reply in whatsapp_customer_replies ──────────────
-          try {
-            const contextWamid: string | undefined = msg.context?.id;
-            const mediaId: string = msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? msg.audio?.id ?? "";
-            let replyOrderId2: string | undefined;
-            let replyUserId2: number | undefined;
-            if (contextWamid) {
-              const [notifLog2] = await db.select()
-                .from(whatsappNotificationLog)
-                .where(eq(whatsappNotificationLog.wamid, contextWamid))
-                .limit(1).catch(() => [null as any]);
-              if (notifLog2) {
-                replyOrderId2 = notifLog2.orderId ?? undefined;
-                replyUserId2 = notifLog2.userId ?? undefined;
-              }
-            }
-            if (!replyUserId2) {
-              const [matchedUser2] = await db.select({ id: users.id })
-                .from(users)
-                .where(eq(users.phone, waPhoneNumber))
-                .limit(1).catch(() => [null as any]);
-              if (matchedUser2) replyUserId2 = matchedUser2.id;
-            }
-            await db.insert(whatsappCustomerReplies).values({
-              id: crypto.randomUUID(),
-              tenantId,
-              orderId: replyOrderId2 ?? null,
-              userId: replyUserId2 ?? null,
-              fromPhone: waPhoneNumber,
-              toPhone: phoneNumberId,
-              wamid: msg.id ?? crypto.randomUUID(),
-              contextWamid: contextWamid ?? null,
-              messageType: msg.type,
-              body: msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? null,
-              mediaId: mediaId || null,
-            }).onConflictDoNothing();
-          } catch (e: any) {
-            console.error("[whatsapp-webhook] media reply capture error:", e?.message);
-          }
-          // Store media file reference for later download
-          const mediaId: string = msg.image?.id ?? msg.document?.id ?? msg.video?.id ?? "";
-          const mimeType: string = msg.image?.mime_type ?? msg.document?.mime_type ?? msg.video?.mime_type ?? "application/octet-stream";
-          const caption: string = msg.image?.caption ?? msg.document?.caption ?? msg.video?.caption ?? "";
-          const filename: string = msg.document?.filename ?? `${msg.type}_${Date.now()}`;
-          if (mediaId) {
-            await db.insert(whatsappMediaFiles).values({
-              id: crypto.randomUUID(),
-              tenantId,
-              waPhoneNumber,
-              mimeType,
-              fileName: filename,
-              storageKey: `wa-media/${mediaId}`,
-              storageUrl: `https://graph.facebook.com/v18.0/${mediaId}`,
-              documentType: msg.type === "document" ? "document" : msg.type === "image" ? "image" : "other",
-              aiScanResult: caption ? { caption } : null,
-              uploadedAt: new Date(),
-            }).catch((e: any) => console.error("[whatsapp-webhook] media insert error:", e?.message));
-          }
-          // ── Receipt-screenshot payment verification ─────────────────────
-          // If this sender has a recent order awaiting payment, scan the
-          // image, match the amount, and confirm via the shared payment path.
-          // Fully async — must NEVER delay the webhook 200 ack.
-          if (msg.type === "image" && mediaId) {
-            handleInboundReceiptImage({ tenantId, waPhoneNumber, mediaId })
-              .then(async (outcome) => {
-                // ── Visual product search ────────────────────────────────
-                // Only when the receipt pipeline did NOT claim the image
-                // (no pending unpaid order) — a receipt screenshot for an
-                // order must never be double-handled as a product search.
-                const { shouldRunVisualSearchAfterReceipt, handleInboundProductImage } = await import("../services/visualSearch");
-                if (!shouldRunVisualSearchAfterReceipt(outcome)) return;
-                // === W27 catalog-ai (additive): merchant product photo →
-                // AI draft listing. Only tenant staff phones are claimed;
-                // anything else falls through to expense OCR / stocktake /
-                // visual search.
-                const { handleInboundCatalogProductPhoto } = await import("../services/catalogAI");
-                const aiOutcome = await handleInboundCatalogProductPhoto({ tenantId, waPhoneNumber, mediaId })
-                  .catch((e: any) => {
-                    console.error("[whatsapp-webhook] catalog-ai photo error:", e?.message);
-                    return { handled: false } as { handled: boolean; outcome?: string };
-                  });
-                if (aiOutcome?.handled) return;
-                // === W27 bookkeeping ===
-                // Expense receipt-photo capture claims the image ONLY when
-                // the sender has an open "expense" session; otherwise the
-                // stocktake / visual-search chain proceeds unchanged.
-                const { handleInboundExpenseImage } = await import("../services/bookkeeping");
-                const expOutcome = await handleInboundExpenseImage({ tenantId, waPhoneNumber, mediaId })
-                  .catch((e: any) => {
-                    console.error("[whatsapp-webhook] expense OCR error:", e?.message);
-                    return { handled: false } as { handled: boolean };
-                  });
-                if (expOutcome?.handled) return;
-                // === W31 vendor-bills (Coder A) ===
-                // Supplier invoice forward: an image whose caption starts
-                // with "bill"/"invoice" is captured into vendor_bills via the
-                // shared OCR pipeline; anything else falls through to the
-                // stocktake / visual-search chain unchanged.
-                const { handleInboundVendorBillImage } = await import("../services/vendorBills");
-                const vbOutcome = await handleInboundVendorBillImage({ tenantId, waPhoneNumber, mediaId, caption })
-                  .catch((e: any) => {
-                    console.error("[whatsapp-webhook] vendor bill capture error:", e?.message);
-                    return { handled: false } as { handled: boolean };
-                  });
-                if (vbOutcome?.handled) return;
-                // === END W31 vendor-bills ===
-                // ── CV-1 / J85: WhatsApp shelf-photo stock-take ────────
-                // Tenant opt-in (settings.visualInventoryWhatsAppEnabled).
-                // Runs BEFORE visual product search when enabled — a
-                // stock-take tenant's shelf photos must not be mistaken
-                // for customer product lookups. Outcome "disabled" falls
-                // through to visual search unchanged.
-                const { handleInboundStocktakeImage } = await import("../services/visualStocktake");
-                const stOutcome = await handleInboundStocktakeImage({ tenantId, waPhoneNumber, mediaId })
-                  .catch((e: any) => {
-                    console.error("[whatsapp-webhook] visual stocktake error:", e?.message);
-                    return { handled: false } as { handled: boolean; outcome?: string };
-                  });
-                if (stOutcome?.handled && stOutcome.outcome !== "disabled") return;
-                // === W43 dispatch (Coder C): proof-of-delivery photo. Claims
-                // the image ONLY when the sender has an order in the
-                // awaiting-POD state (tenant requirePod + shipment
-                // out_for_delivery/in_transit); anything else falls through
-                // to visual search unchanged. ===
-                const { handleInboundPodImage } = await import("../services/deliveryProof");
-                const podOutcome = await handleInboundPodImage({ tenantId, waPhoneNumber, mediaId, caption })
-                  .catch((e: any) => {
-                    console.error("[whatsapp-webhook] POD capture error:", e?.message);
-                    return { handled: false } as { handled: boolean };
-                  });
-                if (podOutcome?.handled) return;
-                // === END W43 dispatch ===
-                await handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
-                  .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message));
-              })
-              .catch((e: any) => console.error("[whatsapp-webhook] receipt verify error:", e?.message));
-          }
-          // ── Voice-note ordering ───────────────────────────────────────────
-          // Download the audio from the Graph API (per-tenant creds), run it
-          // through the pluggable transcriber, and feed the transcript into
-          // the SAME text pipeline. Fail-soft reply when voice isn't enabled.
-          // Fully async — must NEVER delay the webhook 200 ack.
-          if (msg.type === "audio" && msg.audio?.id) {
-            (async () => {
-              // === W27 catalog-ai (additive): merchant voice note → AI draft
-              // listing. Only tenant staff phones are claimed ("not_merchant"
-              // falls through to the buyer voice-ordering pipeline unchanged).
-              const { handleInboundCatalogVoiceNote } = await import("../services/catalogAI");
-              const aiOutcome = await handleInboundCatalogVoiceNote({
-                tenantId,
-                waPhoneNumber,
-                mediaId: msg.audio.id,
-                mimeType: msg.audio?.mime_type ?? null,
-              });
-              if (aiOutcome.handled && aiOutcome.outcome === "draft_created") return;
-              if (aiOutcome.handled && aiOutcome.outcome !== "not_merchant" && aiOutcome.outcome !== "disabled") return;
-              const { handleInboundVoiceNote } = await import("../services/transcribe");
-              await handleInboundVoiceNote({
-                tenantId,
-                waPhoneNumber,
-                mediaId: msg.audio.id,
-                mimeType: msg.audio?.mime_type ?? null,
-                customerName: contactName || undefined,
-              });
-            })().catch((e: any) => console.error("[whatsapp-webhook] voice note error:", e?.message));
+            const r = await processWaWebhookValue(db, value, {});
+            waProcFailures.push(...r.failures);
+          } catch (changeErr: any) {
+            const m = String(changeErr?.message ?? changeErr).slice(0, 300);
+            console.error("[whatsapp-webhook] change processing failed:", m);
+            waProcFailures.push(m);
           }
         }
       }
-      // ── Delivery status receipts ───────────────────────────────────────────
-      const statuses: any[] = value?.statuses ?? [];
-      for (const st of statuses) {
-        const waMessageId: string = st.id ?? "";
-        const recipientPhone: string = st.recipient_id ?? "";
-        const statusVal: string = st.status ?? "";
-        const tsUnix: number = parseInt(st.timestamp ?? "0", 10);
-        const errorCode: string = st.errors?.[0]?.code?.toString() ?? "";
-        const errorMessage: string = st.errors?.[0]?.title ?? "";
-        if (!waMessageId || !["sent","delivered","read","failed"].includes(statusVal)) continue;
-        const [stTenant] = await db.select({ id: tenants.id }).from(tenants)
-          .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
-          .limit(1).catch(() => [null as any]);
-        const stTenantId: string = (stTenant as any)?.id ?? "default";
-        await db.insert(waMessageDeliveryReceipts).values({
-          tenantId: stTenantId,
-          waMessageId,
-          recipientPhone,
-          status: statusVal as any,
-          errorCode: errorCode || null,
-          errorMessage: errorMessage || null,
-          timestamp: tsUnix ? new Date(tsUnix * 1000) : new Date(),
-          rawPayload: st,
-        }).catch((e: any) => console.warn("[whatsapp-webhook] delivery receipt insert failed:", e?.message));
-        // Cross-reference: update whatsapp_notification_log if this wamid was
-        // sent by our platform (unknown wamids are ignored quietly inside;
-        // failed deliveries keep the full error payload and are metered).
-        await applyWaDeliveryStatus(db, stTenantId, st)
-          .catch((e: any) => console.warn("[whatsapp-webhook] notif log update failed:", e?.message));
+      // === W45 webhook-core (MSG-7): flip the DLQ row to processed/failed so
+      // the retry heartbeat's status='failed' select has real work
+      // (previously rows sat at "received" forever and nothing was retried). ===
+      const waProcNow = new Date();
+      if (waProcFailures.length > 0) {
+        await db.update(waWebhookEvents)
+          .set({
+            status: "failed",
+            lastError: waProcFailures.join(" | ").slice(0, 900),
+            nextRetryAt: new Date(Date.now() + 2 * 60 * 1000),
+            updatedAt: waProcNow,
+          })
+          .where(eq(waWebhookEvents.id, waEventId))
+          .catch((e: any) => console.warn("[whatsapp-webhook] DLQ status update failed:", e?.message));
+      } else {
+        await db.update(waWebhookEvents)
+          .set({ status: "processed", processedAt: waProcNow, updatedAt: waProcNow })
+          .where(eq(waWebhookEvents.id, waEventId))
+          .catch((e: any) => console.warn("[whatsapp-webhook] DLQ status update failed:", e?.message));
       }
+      // === END W45 webhook-core (handler fan-out + DLQ flip) ===
     } catch (err: any) {
       console.error("[whatsapp-webhook]", err);
     }
@@ -2618,6 +3028,28 @@ async function startServer() {
       return res.status(500).json({ error: err?.message });
     }
   });
+
+  // === W45 money-intents (Coder B2, PAY-24) ===
+  // ── POST /api/scheduled/transfer-sweep ──────────────────────────────────
+  // Sweeps STALE non-terminal Paystack transfers (merchant withdrawals whose
+  // webhook never arrived): verifyTransfer → failed/not-found gets a
+  // compensating credit; stale OTP-gated transfers are alerted + auto-
+  // cancelled. W42 cronAuth (scope+jti via sdk.authenticateRequest); route is
+  // on the services/scheduler/scheduler.mjs allowlist (J178 contract).
+  // After deploy: manus-heartbeat create --name transfer-sweep --cron "0 */10 * * * *" --path /api/scheduled/transfer-sweep
+  app.post("/api/scheduled/transfer-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runStaleTransferSweep } = await import("../services/payments/staleTransferSweep");
+      const result = await runStaleTransferSweep();
+      return res.json({ ok: result.errors.length === 0, ...result });
+    } catch (err: any) {
+      console.error("[transfer-sweep]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W45 money-intents (PAY-24) ===
 
   // ── PSP float income heartbeat ────────────────────────────────────────────
   app.post("/api/scheduled/float-income", async (req, res) => {
@@ -3355,6 +3787,39 @@ async function startServer() {
   });
   // === END W32 installment due ===
 
+  // === W45 money-ledger ===
+  // ── POST /api/scheduled/payment-outbox (every few minutes) ──────────────
+  // Payment outbox worker (PAY-16/PAY-18): delivers committed-but-undelivered
+  // external money legs (Mojaloop FX transfer initiation, TigerBeetle PoT
+  // transfers) with claim-first exactly-once + bounded retry, reaps stale
+  // 'delivering' claims, then runs the FX fulfil/error POLLER (PAY-16) so a
+  // lost Mojaloop callback still converges the quote. Auth: W42 cronAuth
+  // scope+jti via sdk.authenticateRequest (isCron fast-path).
+  // Registered in services/scheduler/scheduler.mjs allowlist.
+  app.post("/api/scheduled/payment-outbox", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { processPaymentOutbox } = await import("../services/paymentOutbox");
+      const outbox = await processPaymentOutbox(db);
+      let fx: Record<string, unknown> = {};
+      try {
+        const { pollFxTransfers } = await import("../services/fxPayouts");
+        fx = { fxPoll: await pollFxTransfers(db) };
+      } catch (fxErr: any) {
+        console.error("[payment-outbox] fx poll failed:", fxErr?.message);
+        fx = { fxPollError: fxErr?.message };
+      }
+      return res.json({ ok: true, outbox, ...fx });
+    } catch (err: any) {
+      console.error("[payment-outbox]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W45 money-ledger ===
+
   // === W44 deposits-subs-digital (Coder C) ===
   // ── POST /api/scheduled/subscription-billing (hourly) ─────────────────
   // Subscription auto-billing tick: charges due customer_subscriptions via
@@ -4008,49 +4473,34 @@ async function startServer() {
       const now = new Date();
       // Find failed events that are due for retry and haven't exceeded 3 attempts
       const due = await db.select().from(waWebhookEvents)
-        .where(sql`status = 'failed' AND "retryCount" < 3 AND ("nextRetryAt" IS NULL OR "nextRetryAt" <= ${now.toISOString()}::timestamp)`)
+        .where(sql`(status = 'failed' OR (status = 'received' AND "createdAt" < ${new Date(now.getTime() - 2 * 60 * 1000).toISOString()}::timestamp)) AND "retryCount" < 3 AND ("nextRetryAt" IS NULL OR "nextRetryAt" <= ${now.toISOString()}::timestamp)`)
         .limit(10);
       let retried = 0;
       let dead = 0;
       for (const evt of due) {
         const newRetryCount = (evt.retryCount ?? 0) + 1;
         try {
-          // Re-process the raw payload through the NLP engine
+          // === W45 webhook-core (MSG-8): re-dispatch the stored payload
+          // through the SAME per-message pipeline as the live webhook (all
+          // message types, not just text) with a namespaced wamid claim —
+          // idempotent per retry attempt (claim key dlqr<N>:<wamid>), so a
+          // replay never double-replies and never bypasses the dedupe ledger.
+          // Iterates ALL entry[]/changes[] (MSG-4); tenant resolution,
+          // suspended-tenant drops and unknown-phone_number_id quarantine
+          // (MSG-3) happen inside the shared pipeline. ===
           const payload = evt.rawPayload as any;
-          const messages: any[] = payload?.entry?.[0]?.changes?.[0]?.value?.messages ?? [];
-          const phoneNumberId: string = payload?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id ?? "";
-          for (const msg of messages) {
-            if (msg.type === "text") {
-              const [tenant] = await db.select().from(tenants)
-                .where(eq(tenants.whatsappPhoneNumberId, phoneNumberId))
-                .limit(1).catch(() => [null as any]);
-              // W40 tenancy (TEN-1): never re-process queued payloads for a
-              // suspended/churned tenant — the retry path acts "as tenant".
-              if (tenant && isTenantInactive((tenant as any).status)) {
-                logSuspendedTenantDrop("whatsapp", {
-                  path: "webhook-retry",
-                  tenantId: (tenant as any).id,
-                  tenantStatus: (tenant as any).status,
-                  wamid: msg.id ?? null,
-                });
-                continue;
-              }
-              const tenantId: string = (tenant as any)?.id ?? process.env.WHATSAPP_DEFAULT_TENANT_ID ?? "default";
-              const { appRouter: ar } = await import("../routers");
-              const caller = ar.createCaller({ user: null } as any);
-              const nlpResult = await caller.nlp.processMessage({
-                tenantId,
-                waPhoneNumber: msg.from ?? "",
-                message: msg.text?.body ?? "",
-              });
-              // Deliver the retried reply; a send failure must NOT mark the
-              // webhook event as failed (the NLP processing itself succeeded).
-              if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
-                await sendWhatsAppText(tenantId, msg.from ?? "", nlpResult.reply)
-                  .catch((e: any) => console.error("[wa-webhook-retry] reply send error:", e?.message));
-              }
+          const failures: string[] = [];
+          const hbEntries: any[] = Array.isArray(payload?.entry) ? payload.entry : [];
+          for (const entryItem of hbEntries) {
+            const changeList: any[] = Array.isArray(entryItem?.changes) ? entryItem.changes : [];
+            for (const change of changeList) {
+              const value = change?.value;
+              if (!value) continue;
+              const r = await processWaWebhookValue(db, value, { claimPrefix: `dlqr${newRetryCount}:` });
+              failures.push(...r.failures);
             }
           }
+          if (failures.length > 0) throw new Error(failures.join(" | ").slice(0, 800));
           // Mark as retried/processed
           await db.update(waWebhookEvents)
             .set({ status: "retried", retryCount: newRetryCount, processedAt: now, updatedAt: now })
@@ -4693,6 +5143,28 @@ function drawBbox(img,id){
   });
   // === END W31 approvals ===
 
+  // === W45 money-scheduled (Coder B1) ===
+  // ── POST /api/scheduled/dispute-deadline-sweep — PAY-21 dispute SLA sweep ──
+  // Escalates open/under_review disputes past merchantResponseDeadline and,
+  // after the grace window (config-gated DISPUTE_AUTO_RESOLVE_ENABLED),
+  // auto-resolves buyer-favour through the hardened refund path. Audited.
+  // Auth: W42 cronAuth (scope+jti) via sdk.authenticateRequest isCron.
+  // After deploy: manus-heartbeat create --name dispute-deadline-sweep --cron "0 */15 * * * *" --path /api/scheduled/dispute-deadline-sweep
+  app.post("/api/scheduled/dispute-deadline-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const { runDisputeDeadlineSweep } = await import("../routers/sla");
+      const summary = await runDisputeDeadlineSweep();
+      console.log(`[dispute-deadline-sweep] escalated=${summary.escalated} autoResolved=${summary.autoResolvedBuyer} failed=${summary.resolveFailed}`);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[dispute-deadline-sweep]", err);
+      return res.status(500).json({ error: String(err) });
+    }
+  });
+  // === END W45 money-scheduled ===
+
   // ── GET /health — lightweight liveness probe (no DB / external deps) ─────
   // Intended for k8s liveness/readiness probes and load-test warm checks.
   app.get("/health", (_req, res) => {
@@ -4877,6 +5349,17 @@ function drawBbox(img,id){
         `);
       }
       console.log(`[mojaloop-callback] transfer ${transferId} state=${body.transferState} fspiop=${fspiop}`);
+      // === W45 money-ledger === PAY-16 seam: converge the SAME fulfil/error
+      // onto executed FX payout quotes (idempotent; compensating re-credit on
+      // ABORT). Adjacent seam only — payment_confirm / intent logic above is
+      // untouched.
+      try {
+        const { handleFxTransferCallback } = await import("../services/fxPayouts");
+        await handleFxTransferCallback(db, { transferId, state: String(body.transferState ?? "") });
+      } catch (fxErr: any) {
+        console.error("[mojaloop-callback] fx convergence failed:", fxErr?.message);
+      }
+      // === END W45 money-ledger ===
       return res.status(200).json({ ok: true });
     } catch (err: any) {
       console.error("[mojaloop-callback]", err);

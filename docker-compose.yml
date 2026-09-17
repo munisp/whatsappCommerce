@@ -677,6 +677,11 @@ services:
       # /hermes/ingest and /hermes/approval require X-Internal-Token matching
       # this shared secret; also sent on downstream calls to hermes-skills.
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-key-change-in-prod}
+      # === W45 go-rust-services (MSG-15/20) ===
+      # Public callback base for Hermes Agent callbacks. Compose default is
+      # loopback (dev only); production/k8s must set a public URL (fail-closed).
+      HERMES_CALLBACK_BASE_URL: ${HERMES_CALLBACK_BASE_URL:-http://localhost:8096}
+      WA_PO_APPROVAL_TEMPLATE: ${WA_PO_APPROVAL_TEMPLATE:-po_approval_request}
       LOG_LEVEL: info
     depends_on:
       kafka:

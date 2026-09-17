@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00143",
-      "at": 1789657584131,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00145",
+      "at": 1789672531046,
       "kind": "text",
       "text": "menu"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00143",
-      "at": 1789657584135
+      "wamid": "wamid.sim.in.text.00145",
+      "at": 1789672531050
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000213",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000217",
       "statuses": [
         "sent"
       ],
-      "at": 1789657584167,
+      "at": 1789672531074,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -58,271 +58,200 @@
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00144",
-      "at": 1789657584678,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00146",
+      "at": 1789672531590,
       "kind": "text",
       "text": "4"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00144",
-      "at": 1789657584684
+      "wamid": "wamid.sim.in.text.00146",
+      "at": 1789672531594
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000214",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000218",
       "statuses": [
         "sent"
       ],
-      "at": 1789657584711,
+      "at": 1789672531614,
       "kind": "text",
       "body": "*Restock / Buy supplies*\n\n1. 🏭 Browse suppliers & restock\n2. 📋 My purchase orders\n\nReply with a number, or \"cancel\" to exit."
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00145",
-      "at": 1789657585224,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00147",
+      "at": 1789672532135,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00145",
-      "at": 1789657585231
+      "wamid": "wamid.sim.in.text.00147",
+      "at": 1789672532140
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000215",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000219",
       "statuses": [
         "sent"
       ],
-      "at": 1789657585252,
+      "at": 1789672532158,
       "kind": "text",
       "body": "*Choose a supplier:*\n\n1. Lagos Plastics Manufacturing — lead 5d · MOQ ₦1,000.00 — credit: ₦500,000.00 avail (net 14d)\n\nReply with a number."
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00146",
-      "at": 1789657585768,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00148",
+      "at": 1789672532679,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00146",
-      "at": 1789657585773
+      "wamid": "wamid.sim.in.text.00148",
+      "at": 1789672532683
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000216",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000220",
       "statuses": [
         "sent"
       ],
-      "at": 1789657585788,
+      "at": 1789672532702,
       "kind": "text",
       "body": "*Lagos Plastics Manufacturing — wholesale catalog* (lead time 5d)\nMinimum order: ₦1,000.00.\n\n1. PET Preforms 500ml — ₦40.00 (min 100)\n2. Plastic Crates 20L — ₦2,500.00\n\nReply with:\n• *add <item#> <qty>* to add (e.g. add 2 10)\n• *remove <line#>* to drop a cart line\n• *cart* to review\n• *done* to check out\n• *cancel* to exit"
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00147",
-      "at": 1789657586311,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00149",
+      "at": 1789672533223,
       "kind": "text",
       "text": "add 1 100"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00147",
-      "at": 1789657586316
+      "wamid": "wamid.sim.in.text.00149",
+      "at": 1789672533228
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000217",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000221",
       "statuses": [
         "sent"
       ],
-      "at": 1789657586329,
+      "at": 1789672533241,
       "kind": "text",
       "body": "Added PET Preforms 500ml × 100. Subtotal: ₦4,000.00\nReply \"done\" to check out, or keep adding."
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00148",
-      "at": 1789657586856,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00150",
+      "at": 1789672533766,
       "kind": "text",
       "text": "add 2 10"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00148",
-      "at": 1789657586860
+      "wamid": "wamid.sim.in.text.00150",
+      "at": 1789672533771
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000218",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000222",
       "statuses": [
         "sent"
       ],
-      "at": 1789657586871,
+      "at": 1789672533782,
       "kind": "text",
       "body": "Added Plastic Crates 20L × 10. Subtotal: ₦29,000.00\nReply \"done\" to check out, or keep adding."
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00149",
-      "at": 1789657587400,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00151",
+      "at": 1789672534311,
       "kind": "text",
       "text": "done"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00149",
-      "at": 1789657587405
+      "wamid": "wamid.sim.in.text.00151",
+      "at": 1789672534315
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000219",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000223",
       "statuses": [
         "sent"
       ],
-      "at": 1789657587418,
+      "at": 1789672534327,
       "kind": "text",
       "body": "*Review your PO — Lagos Plastics Manufacturing*\n\n1. PET Preforms 500ml × 100 — ₦4,000.00\n2. Plastic Crates 20L × 10 — ₦25,000.00\n\nSubtotal: ₦29,000.00\n\nHow would you like to pay?\n1. Pay on credit (net 7/14/30d) — ₦500,000.00 available\n2. Pay now"
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00150",
-      "at": 1789657587949,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00152",
+      "at": 1789672534857,
       "kind": "text",
       "text": "2"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00150",
-      "at": 1789657587955
+      "wamid": "wamid.sim.in.text.00152",
+      "at": 1789672534861
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000220",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000224",
       "statuses": [
         "sent"
       ],
-      "at": 1789657587985,
+      "at": 1789672534872,
       "kind": "text",
       "body": "Pay now — you'll receive a payment link once the supplier approves.\n\nReply *CONFIRM* to submit the PO, or \"cancel\"."
     },
     {
       "dir": "in",
-      "phone": "2348016048656",
-      "profileName": "Sim User 8656",
-      "inboundId": "wamid.sim.in.text.00151",
-      "at": 1789657588495,
+      "phone": "2348011464198",
+      "profileName": "Sim User 4198",
+      "inboundId": "wamid.sim.in.text.00153",
+      "at": 1789672535407,
       "kind": "text",
       "text": "CONFIRM"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00151",
-      "at": 1789657588500
-    },
-    {
-      "dir": "out",
-      "phone": "2348099911111",
-      "wamid": "wamid.sim.000221",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789657588518,
-      "kind": "interactive",
-      "body": "📦 PO-20260917-7Z59 from Sim Store — ₦29,000.00 — pay now",
-      "footer": "Approve to accept this purchase order.",
-      "buttons": [
-        {
-          "id": "po_approve:0c7605f6-7ce8-49f9-95a4-020066d8e976",
-          "title": "Approve"
-        },
-        {
-          "id": "po_reject:0c7605f6-7ce8-49f9-95a4-020066d8e976",
-          "title": "Reject"
-        }
-      ]
-    },
-    {
-      "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000222",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789657588520,
-      "kind": "text",
-      "body": "✅ *PO-20260917-7Z59* submitted to Lagos Plastics Manufacturing (₦29,000.00, pay now). We'll message you as soon as they approve or reject it."
-    },
-    {
-      "dir": "in",
-      "phone": "2348099911111",
-      "profileName": "Sim User 1111",
-      "inboundId": "wamid.sim.in.btn.00152",
-      "at": 1789657589040,
-      "kind": "button_reply",
-      "text": "Approve",
-      "payloadId": "po_approve:0c7605f6-7ce8-49f9-95a4-020066d8e976"
-    },
-    {
-      "dir": "out",
-      "kind": "read_receipt",
-      "wamid": "wamid.sim.in.btn.00152",
-      "at": 1789657589044
-    },
-    {
-      "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000223",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789657599591,
-      "kind": "text",
-      "body": "✅ PO-20260917-7Z59 approved! Complete payment (₦29,000.00):\nhttps://checkout.paystack.com/sim/PAY-1789657589055-39FFC3B9"
-    },
-    {
-      "dir": "out",
-      "phone": "2348016048656",
-      "wamid": "wamid.sim.000224",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789657599594,
-      "kind": "text",
-      "body": "✅ PO-20260917-7Z59 approved! Complete payment (₦29,000.00):\nhttps://checkout.paystack.com/sim/PAY-1789657589055-39FFC3B9"
+      "wamid": "wamid.sim.in.text.00153",
+      "at": 1789672535411
     },
     {
       "dir": "out",
@@ -331,31 +260,102 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789657599596,
-      "kind": "text",
-      "body": "✅ PO-20260917-7Z59 approved (pay now). Payment link sent to the buyer:\nhttps://checkout.paystack.com/sim/PAY-1789657589055-39FFC3B9"
+      "at": 1789672535429,
+      "kind": "interactive",
+      "body": "📦 PO-20260917-PUSA from Sim Store — ₦29,000.00 — pay now",
+      "footer": "Approve to accept this purchase order.",
+      "buttons": [
+        {
+          "id": "po_approve:511c0428-2fee-495b-889a-005c272ddf89",
+          "title": "Approve"
+        },
+        {
+          "id": "po_reject:511c0428-2fee-495b-889a-005c272ddf89",
+          "title": "Reject"
+        }
+      ]
     },
     {
       "dir": "out",
-      "phone": "2348016048656",
+      "phone": "2348011464198",
       "wamid": "wamid.sim.000226",
       "statuses": [
         "sent"
       ],
-      "at": 1789657599649,
+      "at": 1789672535431,
       "kind": "text",
-      "body": "✅ Payment received for PO-20260917-7Z59 (₦29,000.00). The supplier will fulfil your order shortly."
+      "body": "✅ *PO-20260917-PUSA* submitted to Lagos Plastics Manufacturing (₦29,000.00, pay now). We'll message you as soon as they approve or reject it."
+    },
+    {
+      "dir": "in",
+      "phone": "2348099911111",
+      "profileName": "Sim User 1111",
+      "inboundId": "wamid.sim.in.btn.00154",
+      "at": 1789672535955,
+      "kind": "button_reply",
+      "text": "Approve",
+      "payloadId": "po_approve:511c0428-2fee-495b-889a-005c272ddf89"
     },
     {
       "dir": "out",
-      "phone": "2348099911111",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00154",
+      "at": 1789672535960
+    },
+    {
+      "dir": "out",
+      "phone": "2348011464198",
       "wamid": "wamid.sim.000227",
       "statuses": [
         "sent"
       ],
-      "at": 1789657599653,
+      "at": 1789672546298,
       "kind": "text",
-      "body": "💰 PO-20260917-7Z59 is now PAID (₦29,000.00). Please fulfil the order."
+      "body": "✅ PO-20260917-PUSA approved! Complete payment (₦29,000.00):\nhttps://checkout.paystack.com/sim/PAY-1789672535982-87A4F310"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000228",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789672546301,
+      "kind": "text",
+      "body": "✅ PO-20260917-PUSA approved! Complete payment (₦29,000.00):\nhttps://checkout.paystack.com/sim/PAY-1789672535982-87A4F310"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099911111",
+      "wamid": "wamid.sim.000229",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789672546303,
+      "kind": "text",
+      "body": "✅ PO-20260917-PUSA approved (pay now). Payment link sent to the buyer:\nhttps://checkout.paystack.com/sim/PAY-1789672535982-87A4F310"
+    },
+    {
+      "dir": "out",
+      "phone": "2348011464198",
+      "wamid": "wamid.sim.000230",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789672546326,
+      "kind": "text",
+      "body": "✅ Payment received for PO-20260917-PUSA (₦29,000.00). The supplier will fulfil your order shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099911111",
+      "wamid": "wamid.sim.000231",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789672546330,
+      "kind": "text",
+      "body": "💰 PO-20260917-PUSA is now PAID (₦29,000.00). Please fulfil the order."
     }
   ]
 }

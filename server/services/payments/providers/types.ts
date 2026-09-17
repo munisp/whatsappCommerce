@@ -27,6 +27,18 @@ export interface PaymentInitiateResult {
   authorizationUrl?: string;
   instructions?: string;
   provider: string;
+  /**
+   * W45 (PAY-25): how a FAILED initiation (ok:false) should be treated by the
+   * fallback orchestrator.
+   *  - "definitive": the provider ANSWERED and refused (HTTP error response,
+   *    missing credentials, no checkout link) — safe to fall back.
+   *  - "ambiguous": the attempt ended inconclusively (network timeout, DNS,
+   *    socket reset) — the provider MAY have created the checkout; the
+   *    orchestrator MUST verify (fetchStatus) before falling back.
+   * Adapters that omit this on an ok:false result are treated as "ambiguous"
+   * (fail-safe: never mint a second checkout on an unclassified failure).
+   */
+  failureKind?: "definitive" | "ambiguous";
 }
 
 export interface WebhookNormalization {

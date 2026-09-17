@@ -220,6 +220,20 @@ class PayMockState {
    * in the map are answered; anything else falls through (404 as before).
    */
   verifyStatuses = new Map<string, string>();
+  // === W45 money-intents (Coder B2) ===
+  /**
+   * PAY-25: when true, Paystack POST /transaction/initialize NEVER responds
+   * (drives the adapter's AbortSignal timeout → the AMBIGUOUS failure path
+   * that must verify via fetchStatus before any fallback hop).
+   */
+  paystackInitiateTimeout = false;
+  /**
+   * PAY-24: scripted Paystack GET /transfer/verify/:ref verdicts, keyed by
+   * reference. Value: { found, status } — found:false answers "Transfer not
+   * found" (definitive NOT-FOUND). Unscripted refs keep the legacy success
+   * answer.
+   */
+  transferVerifyStatuses = new Map<string, { found: boolean; status: string | null }>();
   reset() {
     this.calls = [];
     this.hostStatus.clear();
@@ -231,6 +245,8 @@ class PayMockState {
     this.refundAcceptedRefs.clear();
     this.mandateChargeDataStatus = null;
     this.verifyStatuses.clear();
+    this.paystackInitiateTimeout = false;
+    this.transferVerifyStatuses.clear();
   }
 }
 
@@ -801,6 +817,12 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
     return jsonResponse({ error: { message: `sim: scripted ${forced} for ${url.hostname}` } }, forced);
   }
   if (url.hostname.includes("paystack.co") && url.pathname.includes("/transaction/initialize")) {
+    // W45 (PAY-25): scripted timeout — emulate the adapter's AbortSignal
+    // timeout firing (a fast TimeoutError rejection, not a hang, so journeys
+    // stay quick) → the AMBIGUOUS failure path (catch) in the adapter.
+    if (pay.paystackInitiateTimeout) {
+      return Promise.reject(new DOMException("The operation timed out.", "TimeoutError"));
+    }
     const ref = body?.reference ?? "sim-ref";
     return jsonResponse({
       status: true,
@@ -859,6 +881,18 @@ function handlePay(url: URL, method: string, body: any, rawBody: string | null):
   }
   if (url.hostname.includes("paystack.co") && url.pathname.includes("/transfer/verify/")) {
     const ref = decodeURIComponent(url.pathname.split("/transfer/verify/")[1] ?? "sim-ref");
+    // W45 (PAY-24): scripted verdicts drive the stale-transfer sweep.
+    const scripted = pay.transferVerifyStatuses.get(ref);
+    if (scripted) {
+      if (!scripted.found) {
+        return jsonResponse({ status: false, message: "Transfer not found" }, 404);
+      }
+      return jsonResponse({
+        status: true,
+        message: "Transfer retrieved",
+        data: { status: scripted.status, transfer_code: `TRF_sim_${ref}`, reference: ref },
+      });
+    }
     return jsonResponse({
       status: true,
       message: "Transfer retrieved",
@@ -1088,6 +1122,14 @@ export function installFetchMock(): void {
       return handlePay(u, method, body, bodyText);
     }
     if (u.hostname.includes("ledger-bridge")) {
+      // === W45 money-ledger === scripted bridge outage (PAY-18 outbox fault
+      // injection): meta.hostStatus >= 400 short-circuits the happy path.
+      const ledgerHostStatus = meta.hostStatus.get(u.hostname);
+      if (ledgerHostStatus !== undefined && ledgerHostStatus >= 400) {
+        record(url, method, bodyText, headers);
+        return jsonResponse({ error: { message: `sim: hostStatus ${ledgerHostStatus} for ledger-bridge` } }, ledgerHostStatus);
+      }
+      // === END W45 money-ledger ===
       const body = parseJsonSafe(bodyText);
       const call = record(url, method, bodyText, headers);
       ledger.calls.push(call);

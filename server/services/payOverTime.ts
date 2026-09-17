@@ -48,6 +48,25 @@
  *
  * Honest merchant copy: "Vendor paid in full · you're repaying ₦X in N
  * installments" — the vendor never waits.
+ *
+ * === W45 money-ledger ===
+ * PAY-18 (DECISION: post-commit outbox, not a recon job): every TigerBeetle
+ * leg (origination funding `potfund:`, repayment `potrepay:`, fee `potfee:`)
+ * is now a payment_outbox row (0151) committed IN THE SAME transaction as
+ * the PG money mutation, delivered post-commit by processPaymentOutbox with
+ * the leg's deterministic reference as the TB idempotency key. A bridge
+ * timeout can therefore no longer drift PG↔TB silently — the leg retries to
+ * convergence or lands 'dead' with a CRITICAL capture for ops. Chosen over a
+ * PG↔TB recon job because the outbox both prevents the drift and repairs it,
+ * while recon would only ever detect it after the fact.
+ * PAY-19: fee legs post to `platform-fees:${plan.currency}` — per-currency
+ * platform fee accounts, never a hardcoded NGN leg for a non-NGN plan.
+ * PAY-20: mandate revocation pauses auto-capture (plans flip to 'paused' —
+ * the capture sweep never touches them, ending infinite dunning), notifies
+ * the merchant on BOTH channels with a re-link CTA + a manual payment-link
+ * fallback (pot_manual_settle intent, settled exactly-once by the sweep),
+ * and exposes admin cancel/restructure. Re-linking a mandate (confirmMandateTx)
+ * auto-resumes paused plans.
  */
 import crypto from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
@@ -60,6 +79,7 @@ import {
   merchantLoans,
   paymentMandates,
   potCharges,
+  tenants,
   vendorBills,
   type InstallmentPlan,
   type MerchantLoan,
@@ -69,6 +89,7 @@ import { getDb } from "../db";
 import { ledgerBridgeRequest, LedgerBridgeError } from "./ledgerBridge";
 import { claimWebhookEvent } from "./webhookDedupe";
 import { captureException } from "./observability";
+import { enqueuePaymentOutbox, OutboxDefinitiveError } from "./paymentOutbox";
 import { DEFAULT_GRACE_DAYS } from "./tradeCredit/microLoans";
 
 type Db = any;
@@ -260,6 +281,10 @@ export function potSettleRef(planId: string): string {
   return `potsettle:${planId}`.slice(0, 128);
 }
 
+// === W45 money-ledger === PAY-18: TigerBeetle legs are post-commit outbox
+// deliveries. The PG mutation enqueues the leg atomically; the worker calls
+// deliverLedgerOutboxLeg → postLedgerTransfer. TB dedupes on the
+// idempotency key (== the outbox reference), so worker retries are no-ops.
 async function postLedgerTransfer(
   body: {
     debit_account_id: string;
@@ -273,7 +298,50 @@ async function postLedgerTransfer(
   } catch (err: any) {
     // 400/409 under the same idempotency key = already posted → no-op.
     if (err instanceof LedgerBridgeError && err.status != null && [400, 409].includes(err.status)) return;
+    // Other definitive 4xx rejections must not burn retries — fail the row.
+    if (err instanceof LedgerBridgeError && err.status != null && err.status >= 400 && err.status < 500) {
+      throw new OutboxDefinitiveError(err.message);
+    }
     throw err;
+  }
+}
+
+/** paymentOutbox deliverer for kind 'ledger_transfer' (PAY-18). */
+export async function deliverLedgerOutboxLeg(payload: {
+  debit_account_id: string;
+  credit_account_id: string;
+  amount: number;
+  idempotency_key: string;
+}): Promise<void> {
+  await postLedgerTransfer(payload);
+}
+
+/** Enqueue a TigerBeetle leg INSIDE the current money transaction (PAY-18). */
+async function enqueueLedgerLeg(
+  tx: Tx,
+  tenantId: string,
+  leg: { debit_account_id: string; credit_account_id: string; amount: number; idempotency_key: string },
+): Promise<void> {
+  await enqueuePaymentOutbox(tx, {
+    tenantId,
+    kind: "ledger_transfer",
+    reference: leg.idempotency_key.slice(0, 160),
+    payload: leg,
+  });
+}
+
+/**
+ * PAY-18 post-commit drain: after the PG money mutation COMMITS, attempt an
+ * immediate best-effort outbox delivery (the cron worker remains the durable
+ * backstop — a drain failure leaves the row pending for retry; exactly-once
+ * by reference either way). Never throws into the money path.
+ */
+async function drainPaymentOutboxBestEffort(db: Db): Promise<void> {
+  try {
+    const { processPaymentOutbox } = await import("./paymentOutbox");
+    await processPaymentOutbox(db, { batch: 20 });
+  } catch (err: any) {
+    console.warn("[payOverTime] post-commit outbox drain failed (cron worker retries):", err?.message);
   }
 }
 
@@ -414,9 +482,12 @@ export async function payBillOverTime(
       principalCents: remaining,
       ledgerRef,
     });
-    // TigerBeetle BEFORE the bill flip: a bridge failure throws and rolls
-    // the whole origination back — no unbacked "paid" bill.
-    await postLedgerTransfer({
+    // === W45 money-ledger === PAY-18: the TigerBeetle funding leg is a
+    // post-commit outbox row committed atomically with the funding mutation —
+    // a bridge outage no longer rolls back (or silently strands) the
+    // origination; the worker delivers/retries to convergence and a dead row
+    // pages ops (documented at the module header).
+    await enqueueLedgerLeg(tx, opts.tenantId, {
       debit_account_id: `credit-facility:${facility.id}`,
       credit_account_id: `vendor-bill:${bill.id}`,
       amount: remaining,
@@ -478,6 +549,9 @@ export async function payBillOverTime(
       message: potMerchantCopy(totalCents, opts.installments),
     };
   });
+  // PAY-18: the funding leg committed as an outbox row — best-effort drain
+  // post-commit (durable retry is the payment-outbox cron worker).
+  await drainPaymentOutboxBestEffort(db);
   return result;
 }
 
@@ -492,6 +566,8 @@ export interface InstallmentSweepResult {
   plansRepaid: number;
   plansDefaulted: number;
   skippedDuplicate: number;
+  /** === W45 money-ledger === PAY-20: manual payment-link settlements applied. */
+  manualSettled: number;
 }
 
 async function findActiveMandate(db: Db, tenantId: string) {
@@ -666,9 +742,11 @@ async function settleCapturedAmountTx(
   });
 
   // Fee/principal legs: restore the facility commitment by the principal
-  // portion (the funding becomes lendable again) and post both TigerBeetle
-  // transfers — principal back to the facility account, fee to platform
-  // fees (mirrors the escrow fee leg, integer cents).
+  // portion (the funding becomes lendable again) and enqueue both
+  // TigerBeetle transfers as post-commit outbox legs (PAY-18) — principal
+  // back to the facility account, fee to the PLAN-CURRENCY platform-fees
+  // account (PAY-19: platform-fees:${currency}, never a hardcoded NGN leg).
+  const planCurrency = (plan.currency ?? "NGN").toUpperCase();
   const funding = await tx.select().from(merchantLoanFunding)
     .where(eq(merchantLoanFunding.loanId, lockedLoan.id)).limit(1);
   const facilityId = funding[0]?.facilityId ?? null;
@@ -676,7 +754,7 @@ async function settleCapturedAmountTx(
     await tx.update(creditFacilities)
       .set({ commitmentCents: sql`${creditFacilities.commitmentCents} + ${entry.principalCents}`, updatedAt: now })
       .where(eq(creditFacilities.id, facilityId));
-    await postLedgerTransfer({
+    await enqueueLedgerLeg(tx, lockedLoan.tenantId, {
       debit_account_id: `mandate-clearing:${lockedLoan.tenantId}`,
       credit_account_id: `credit-facility:${facilityId}`,
       amount: entry.principalCents,
@@ -684,9 +762,9 @@ async function settleCapturedAmountTx(
     });
   }
   if (entry.feeCents > 0) {
-    await postLedgerTransfer({
+    await enqueueLedgerLeg(tx, lockedLoan.tenantId, {
       debit_account_id: `mandate-clearing:${lockedLoan.tenantId}`,
-      credit_account_id: "platform-fees:NGN",
+      credit_account_id: `platform-fees:${planCurrency}`,
       amount: entry.feeCents,
       idempotency_key: `potfee:${plan.id}:${entry.seq}`.slice(0, 64),
     });
@@ -808,6 +886,7 @@ export async function captureInstallment(
       providerStatus: "success",
       rawResponse: { status: "success" },
     }, now);
+    await drainPaymentOutboxBestEffort(db); // PAY-18 post-commit drain
     return { ok: true, reference, outstandingAfter: settled.outstandingAfter, repaid: settled.repaid };
   } catch (err: any) {
     // Money moved at the provider but settlement failed (W38/PAY-6): the
@@ -864,8 +943,16 @@ export async function runInstallmentCaptureSweep(
   const now = opts.now ?? new Date();
   const result: InstallmentSweepResult = {
     plansScanned: 0, captured: 0, capturedCents: 0, overdue: 0, dunned: 0,
-    plansRepaid: 0, plansDefaulted: 0, skippedDuplicate: 0,
+    plansRepaid: 0, plansDefaulted: 0, skippedDuplicate: 0, manualSettled: 0,
   };
+  // === W45 money-ledger === PAY-20: settle completed manual payment-link
+  // intents first (merchant paid off-rail after a mandate revocation).
+  result.manualSettled = (await settlePaidPotManualIntents(db, now).catch((e: any) => {
+    console.warn("[payOverTime] manual-intent settlement failed:", e?.message);
+    return { settled: 0 };
+  })).settled;
+  // NOTE: 'paused' plans (mandate revoked, PAY-20) are intentionally NOT
+  // selected — auto-capture AND dunning stop until re-link/admin action.
   const plans = await db.select().from(installmentPlans)
     .where(inArray(installmentPlans.status, ["active", "defaulted"]));
   result.plansScanned = plans.length;
@@ -952,7 +1039,9 @@ export async function settlePlanEarly(
   const [plan] = await db.select().from(installmentPlans)
     .where(and(eq(installmentPlans.id, opts.planId), eq(installmentPlans.tenantId, opts.tenantId)));
   if (!plan) throw Object.assign(new Error("Installment plan not found"), { code: "NOT_FOUND" });
-  if (plan.status !== "active" && plan.status !== "defaulted") {
+  // === W45 money-ledger === PAY-20: paused plans (mandate revoked) settle
+  // manually too — 'paused' only stops AUTO-capture, never repayment.
+  if (plan.status !== "active" && plan.status !== "defaulted" && plan.status !== "paused") {
     throw Object.assign(new Error(`Plan is ${plan.status} — nothing to settle`), { code: "CONFLICT" });
   }
   const schedule = (plan.schedule as ScheduleEntry[] | null) ?? [];
@@ -989,6 +1078,7 @@ export async function settlePlanEarly(
     const probe = await probePotChargeStatus(plan.tenantId, probeProvider, reference);
     if (probe.status === "success") {
       const settled = await applyEarlySettleTx(db, plan, reference, now);
+      await drainPaymentOutboxBestEffort(db); // PAY-18 post-commit drain
       if (existing) {
         await flipPotChargeStatus(db, existing.id, ["pending", "settlement_failed"], "success", "success", now);
       }
@@ -1058,6 +1148,7 @@ export async function settlePlanEarly(
   }
 
   const settled = await applyEarlySettleTx(db, plan, reference, now);
+  await drainPaymentOutboxBestEffort(db); // PAY-18 post-commit drain
   await persistPotCharge(db, {
     tenantId: plan.tenantId,
     planId: plan.id,
@@ -1162,7 +1253,7 @@ async function applyEarlySettleTx(
         .where(and(eq(merchantLoans.id, loan.id), eq(merchantLoans.outstandingCents, 0)));
       await tx.update(installmentPlans)
         .set({ status: "repaid", updatedAt: now })
-        .where(and(eq(installmentPlans.id, plan.id), inArray(installmentPlans.status, ["active", "defaulted"])));
+        .where(and(eq(installmentPlans.id, plan.id), inArray(installmentPlans.status, ["active", "defaulted", "paused"])));
     }
   });
   return out;
@@ -1206,6 +1297,7 @@ async function settlePotChargeRow(db: Db, plan: InstallmentPlan, row: any, now: 
   try {
     if (row.kind === "settle") {
       await applyEarlySettleTx(db, plan, row.reference, now);
+      await drainPaymentOutboxBestEffort(db); // PAY-18 post-commit drain
       return true;
     }
     const [loan] = await db.select().from(merchantLoans).where(eq(merchantLoans.id, plan.loanId ?? "")).limit(1);
@@ -1215,6 +1307,7 @@ async function settlePotChargeRow(db: Db, plan: InstallmentPlan, row: any, now: 
     if (!entry || entry.status === "paid") return true; // settled earlier
     await db.transaction(async (tx: Tx) =>
       settleCapturedAmountTx(tx, plan, loan, entry, Math.min(row.amountCents, entry.amountCents), row.reference, now));
+    await drainPaymentOutboxBestEffort(db); // PAY-18 post-commit drain
     return true;
   } catch (err: any) {
     // Already settled via the repayment-reference unique backstop (a lost
@@ -1358,6 +1451,387 @@ export async function reconcilePendingPotChargesGlobal(
   if (!db) throw new Error("[payOverTime] database unavailable");
   return reconcilePendingPotCharges(db, opts, opts.now ?? new Date());
 }
+
+// === W45 money-ledger === PAY-20: mandate revocation lifecycle ──────────────
+// Revoke → pause auto-capture + re-link CTA (both channels) + manual
+// payment-link fallback + admin cancel/restructure. Dunning ENDS while paused
+// (the capture sweep only selects active/defaulted plans) — no infinite
+// dunning against a mandate the merchant killed.
+
+/** Both-channels merchant notice for PoT lifecycle events (parity category pot_plan). */
+export async function notifyPotMerchant(db: Db, tenantId: string, text: string, paymentUrl?: string | null): Promise<void> {
+  try {
+    const [t] = await db.select({ settings: tenants.settings }).from(tenants)
+      .where(eq(tenants.id, tenantId)).limit(1).catch(() => [] as any[]);
+    const phone = (t?.settings as any)?.adminPhone ?? (t?.settings as any)?.whatsapp?.adminPhone ?? null;
+    if (!phone) {
+      console.info(`[payOverTime] no admin phone for tenant ${tenantId} — pot notice skipped`);
+      return;
+    }
+    const { notifyCustomer } = await import("./channelParity");
+    const routed = await notifyCustomer(tenantId, phone, "pot_plan", {
+      text: paymentUrl ? `${text}\n\nPay here: ${paymentUrl}` : text,
+      paymentUrl: paymentUrl ?? undefined,
+      notifType: "pot_plan",
+    } as any).catch(() => ({ handled: false }) as any);
+    if (routed?.handled) return; // telegram-linked admin got it via channelSender
+    const { sendWhatsAppText } = await import("./waSender");
+    await sendWhatsAppText(tenantId, phone, paymentUrl ? `${text}\n\nPay here: ${paymentUrl}` : text, { notifType: "pot_plan" })
+      .catch((e: any) => console.warn("[payOverTime] pot notice WA failed:", e?.message));
+  } catch (err: any) {
+    console.warn("[payOverTime] notifyPotMerchant failed:", err?.message);
+  }
+}
+
+/**
+ * PAY-20 manual payment-link fallback: mint (or reuse) a hosted-checkout
+ * payment intent for the plan's current early-settle amount through the
+ * EXISTING initiateWithFallback chain — never a fake URL. Idempotency key
+ * `pot-manual:<planId>`: a second call returns the still-open link. The
+ * completed intent is settled exactly-once by settlePaidPotManualIntents
+ * (sweep) — paymentConfirm.ts stays PINNED (adjacent seam only).
+ */
+export interface PotManualLinkResult {
+  ok: boolean;
+  paymentUrl: string | null;
+  reference?: string;
+  amountCents?: number;
+  currency?: string;
+  error?: string;
+}
+
+export async function createPotManualPaymentLink(
+  db: Db,
+  opts: { tenantId: string; planId: string; now?: Date },
+): Promise<PotManualLinkResult> {
+  const now = opts.now ?? new Date();
+  try {
+    const [plan] = await db.select().from(installmentPlans)
+      .where(and(eq(installmentPlans.id, opts.planId), eq(installmentPlans.tenantId, opts.tenantId)));
+    if (!plan) return { ok: false, paymentUrl: null, error: "plan_not_found" };
+    if (!["active", "defaulted", "paused"].includes(plan.status)) {
+      return { ok: false, paymentUrl: null, error: `plan_${plan.status}` };
+    }
+    const cfg = await getPayOverTimeConfig(db);
+    const schedule = (plan.schedule as ScheduleEntry[] | null) ?? [];
+    const amountCents = earlySettleAmountCents(schedule, { prorateEarlyFee: cfg.prorateEarlyFee, now });
+    if (amountCents <= 0) return { ok: false, paymentUrl: null, error: "nothing_outstanding" };
+    const currency = (plan.currency ?? "NGN").toUpperCase();
+    const idemKey = `pot-manual:${plan.id}`.slice(0, 128);
+
+    const { paymentIntents } = await import("../../drizzle/schema");
+    const [existing] = await db.select().from(paymentIntents)
+      .where(eq(paymentIntents.idempotencyKey, idemKey)).limit(1).catch(() => [] as any[]);
+    if (existing && !["completed", "failed"].includes(existing.status)) {
+      return {
+        ok: true,
+        paymentUrl: (existing.metadata as any)?.paymentUrl ?? null,
+        reference: existing.providerPaymentId ?? undefined,
+        amountCents: Math.round(Number(existing.amount) * 100),
+        currency: existing.currency,
+      };
+    }
+
+    const intentId = crypto.randomUUID();
+    const reference = `POTM-${now.getTime().toString(36).toUpperCase()}-${intentId.slice(0, 8).toUpperCase()}`;
+    await db.insert(paymentIntents).values({
+      id: intentId,
+      tenantId: opts.tenantId,
+      // Non-order reference: paymentConfirm treats unknown orderIds as
+      // non-order references (no escrow/order fan-out) — planId rides here.
+      orderId: plan.id,
+      customerId: opts.tenantId,
+      amount: (amountCents / 100).toFixed(2),
+      currency,
+      provider: "paystack",
+      providerPaymentId: reference,
+      idempotencyKey: idemKey,
+      status: "pending",
+      metadata: { kind: "pot_manual_settle", planId: plan.id, tenantId: opts.tenantId },
+      createdAt: now,
+      updatedAt: now,
+    });
+    let paymentUrl: string | null = null;
+    try {
+      const { initiateWithFallback } = await import("./payments/initiateWithFallback");
+      const { ENV } = await import("../_core/env");
+      const fallback = await initiateWithFallback(opts.tenantId, {
+        tenantId: opts.tenantId,
+        amountCents,
+        currency,
+        reference,
+        metadata: { payment_intent_id: intentId, tenant_id: opts.tenantId, kind: "pot_manual_settle", planId: plan.id },
+        customer: { phone: opts.tenantId },
+        callbackUrl: `${ENV.appUrl}/vendor-bills`,
+      });
+      paymentUrl = fallback.result.authorizationUrl ?? null;
+      await db.update(paymentIntents).set({
+        status: "initiated",
+        metadata: { kind: "pot_manual_settle", planId: plan.id, tenantId: opts.tenantId, paymentUrl, servedProvider: fallback.providerId },
+        updatedAt: new Date(),
+      }).where(eq(paymentIntents.id, intentId));
+    } catch (e: any) {
+      await db.update(paymentIntents).set({
+        status: "failed",
+        failureReason: `provider_init: ${String(e?.message ?? e).slice(0, 300)}`,
+        updatedAt: new Date(),
+      }).where(eq(paymentIntents.id, intentId)).catch(() => {});
+      return { ok: false, paymentUrl: null, error: `provider_init: ${String(e?.message ?? e).slice(0, 200)}` };
+    }
+    return { ok: true, paymentUrl, reference, amountCents, currency };
+  } catch (err: any) {
+    console.error("[payOverTime] createPotManualPaymentLink failed:", err?.message);
+    return { ok: false, paymentUrl: null, error: err?.message ?? "manual_link_error" };
+  }
+}
+
+/**
+ * Sweep seam (PINNED paymentConfirm stays untouched): completed
+ * pot_manual_settle intents settle their plan exactly once. Verify-first:
+ * the intent must be 'completed' (money confirmed by the pinned webhook
+ * pipeline) and the paid amount must cover the CURRENT early-settle amount —
+ * an underpayment is never applied blind; it pages ops for a refund/manual
+ * fix instead.
+ */
+export async function settlePaidPotManualIntents(db: Db, now: Date = new Date()): Promise<{ settled: number }> {
+  const { paymentIntents } = await import("../../drizzle/schema");
+  const rows = (await db.select().from(paymentIntents)
+    .where(and(
+      eq(paymentIntents.status, "completed"),
+      sql`${paymentIntents.metadata}->>'kind' = 'pot_manual_settle'`,
+      sql`${paymentIntents.metadata}->>'potSettled' IS NULL`,
+    ))
+    .limit(100)
+    .catch(() => [] as any[])) as any[];
+  let settled = 0;
+  for (const intent of rows) {
+    try {
+      // Claim-first: mark potSettled before settling (replay no-op).
+      const [claim] = await db.update(paymentIntents)
+        .set({ metadata: sql`COALESCE(metadata, '{}'::jsonb) || '{"potSettled": true}'::jsonb`, updatedAt: now })
+        .where(and(eq(paymentIntents.id, intent.id), sql`${paymentIntents.metadata}->>'potSettled' IS NULL`))
+        .returning({ id: paymentIntents.id });
+      if (!claim) continue;
+      const planId = intent.metadata?.planId;
+      const [plan] = await db.select().from(installmentPlans).where(eq(installmentPlans.id, planId)).limit(1);
+      if (!plan || plan.status === "repaid" || plan.status === "cancelled") continue;
+      const cfg = await getPayOverTimeConfig(db);
+      const schedule = (plan.schedule as ScheduleEntry[] | null) ?? [];
+      const dueCents = earlySettleAmountCents(schedule, { prorateEarlyFee: cfg.prorateEarlyFee, now });
+      const paidCents = Math.round(Number(intent.amount) * 100);
+      if (paidCents < dueCents) {
+        captureException(new Error(`pot manual settle underpaid: intent ${intent.id} paid ${paidCents} < ${dueCents} due`), {
+          service: "payOverTime", operation: "settlePaidPotManualIntents", tenantId: intent.tenantId,
+          severity: "critical", extra: { intentId: intent.id, planId, paidCents, dueCents },
+        });
+        continue; // claimed but not settled — ops resolves (refund/top-up)
+      }
+      await applyEarlySettleTx(db, plan, `potmanual:${intent.id}`.slice(0, 128), now);
+      await drainPaymentOutboxBestEffort(db); // PAY-18 post-commit drain
+      settled += 1;
+      await notifyPotMerchant(db, intent.tenantId,
+        `✅ Manual payment received — your pay-over-time plan is settled in full. Thank you!`);
+    } catch (err: any) {
+      console.warn(`[payOverTime] manual intent ${intent.id} settle failed:`, err?.message);
+    }
+  }
+  return { settled };
+}
+
+/**
+ * PAY-20 entry point (called from payments/mandates.revokeMandate after the
+ * local flip commits): pause auto-capture on every active/defaulted plan of
+ * the tenant (guarded flip to 'paused'), then notify the merchant on BOTH
+ * channels with a re-link CTA + a manual payment-link fallback. Never throws
+ * (mandates.ts fail-closed contract).
+ */
+export async function onMandateRevoked(
+  db: Db,
+  args: { tenantId: string; mandateId: string; mandateRef?: string | null },
+): Promise<{ pausedPlans: number }> {
+  try {
+    const now = new Date();
+    const paused = await db.update(installmentPlans)
+      .set({ status: "paused", updatedAt: now })
+      .where(and(
+        eq(installmentPlans.tenantId, args.tenantId),
+        inArray(installmentPlans.status, ["active", "defaulted"]),
+      ))
+      .returning({ id: installmentPlans.id });
+    for (const p of paused) {
+      const link = await createPotManualPaymentLink(db, { tenantId: args.tenantId, planId: p.id, now });
+      await notifyPotMerchant(db, args.tenantId,
+        `⚠️ Your payment mandate was revoked, so automatic collection for your pay-over-time plan is PAUSED — we won't keep retrying it. ` +
+        `To resume auto-collection, link a new mandate from the dashboard. You can also settle the plan manually right now:`,
+        link.paymentUrl);
+    }
+    return { pausedPlans: paused.length };
+  } catch (err: any) {
+    console.error("[payOverTime] onMandateRevoked failed:", err?.message);
+    captureException(err, {
+      service: "payOverTime", operation: "onMandateRevoked", tenantId: args.tenantId,
+      severity: "error", extra: { mandateId: args.mandateId },
+    });
+    return { pausedPlans: 0 };
+  }
+}
+
+/**
+ * PAY-20 re-link CTA follow-through (called from confirmMandateTx when a new
+ * mandate activates): paused plans resume auto-capture. Guarded flip; the
+ * next due sweep captures per the mandate rules.
+ */
+export async function resumePotPlansOnMandateLink(db: Db, tenantId: string): Promise<{ resumedPlans: number }> {
+  const now = new Date();
+  const resumed = await db.update(installmentPlans)
+    .set({ status: "active", updatedAt: now })
+    .where(and(eq(installmentPlans.tenantId, tenantId), eq(installmentPlans.status, "paused")))
+    .returning({ id: installmentPlans.id });
+  if (resumed.length > 0) {
+    await notifyPotMerchant(db, tenantId,
+      `✅ New payment mandate linked — automatic collection has RESUMED for ${resumed.length} pay-over-time plan(s).`);
+  }
+  return { resumedPlans: resumed.length };
+}
+
+/**
+ * PAY-20 admin cancel: terminal write-off of a plan (facility absorbs the
+ * remaining exposure honestly — outstanding recorded as written off in plan
+ * metadata, loan closed 'cancelled', no more captures/dunning ever). Audited.
+ */
+export async function adminCancelPlan(
+  db: Db,
+  opts: { tenantId: string; planId: string; actor: string; reason: string },
+): Promise<{ ok: true; planId: string; writeOffCents: number }> {
+  const now = new Date();
+  const result = await db.transaction(async (tx: Tx) => {
+    const [plan] = await tx.select().from(installmentPlans)
+      .where(and(eq(installmentPlans.id, opts.planId), eq(installmentPlans.tenantId, opts.tenantId)))
+      .for("update");
+    if (!plan) throw Object.assign(new Error("Installment plan not found"), { code: "NOT_FOUND" });
+    if (!["active", "defaulted", "paused"].includes(plan.status)) {
+      throw Object.assign(new Error(`Plan is ${plan.status} — cannot cancel`), { code: "CONFLICT" });
+    }
+    const [loan] = await tx.select().from(merchantLoans).where(eq(merchantLoans.id, plan.loanId ?? "")).limit(1).for("update");
+    const writeOffCents = loan?.outstandingCents ?? 0;
+    await tx.update(installmentPlans)
+      .set({
+        status: "cancelled",
+        metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ cancelledBy: opts.actor, cancelReason: opts.reason.slice(0, 300), writeOffCents, cancelledAt: now.toISOString() })}::jsonb`,
+        updatedAt: now,
+      })
+      .where(eq(installmentPlans.id, plan.id));
+    if (loan) {
+      await tx.update(merchantLoans)
+        .set({ status: "cancelled", outstandingCents: 0, updatedAt: now })
+        .where(and(eq(merchantLoans.id, loan.id), inArray(merchantLoans.status, ["active", "defaulted"])));
+    }
+    if (plan.vendorBillId) {
+      const { appendBillEvent } = await import("./vendorBills");
+      await appendBillEvent(tx, plan.vendorBillId, "payment_recorded", opts.actor, {
+        financing: "pay_over_time", planId: plan.id, planEvent: "cancelled",
+        writeOffCents, reason: opts.reason.slice(0, 300),
+      }).catch((e: any) => console.warn("[payOverTime] cancel bill-event failed:", e?.message));
+    }
+    return { writeOffCents };
+  });
+  try {
+    const { writeAuditLog } = await import("../routers/audit");
+    await writeAuditLog({
+      tenantId: opts.tenantId, actorId: opts.actor, action: "pay_over_time.cancel_plan",
+      entityType: "installment_plan", entityId: opts.planId,
+      summary: `plan=${opts.planId} writeOff=${result.writeOffCents} reason=${opts.reason.slice(0, 120)}`,
+    } as any);
+  } catch (e: any) {
+    console.warn("[payOverTime] cancel audit write failed:", e?.message);
+  }
+  await notifyPotMerchant(db, opts.tenantId,
+    `Your pay-over-time plan was cancelled by support (written off: ₦${naira(result.writeOffCents)}). Reason: ${opts.reason.slice(0, 200)}. No further collection attempts will be made.`);
+  return { ok: true, planId: opts.planId, writeOffCents: result.writeOffCents };
+}
+
+/**
+ * PAY-20 admin restructure: re-split the plan's REMAINING unpaid principal +
+ * fee over a new installment count starting now (no new fee is minted;
+ * integer cents, rounding remainder rides the last installment). The plan
+ * resumes 'active' when a mandate exists, else stays honestly 'paused'.
+ * Audited + merchant notified on both channels.
+ */
+export async function adminRestructurePlan(
+  db: Db,
+  opts: { tenantId: string; planId: string; installments: PotInstallments; actor: string; note?: string },
+): Promise<{ ok: true; planId: string; status: string; schedule: ScheduleEntry[] }> {
+  const now = new Date();
+  if (!POT_INSTALLMENT_CHOICES.includes(opts.installments)) {
+    throw Object.assign(new Error(`installments must be one of ${POT_INSTALLMENT_CHOICES.join("/")}`), { code: "BAD_REQUEST" });
+  }
+  const out = await db.transaction(async (tx: Tx) => {
+    const [plan] = await tx.select().from(installmentPlans)
+      .where(and(eq(installmentPlans.id, opts.planId), eq(installmentPlans.tenantId, opts.tenantId)))
+      .for("update");
+    if (!plan) throw Object.assign(new Error("Installment plan not found"), { code: "NOT_FOUND" });
+    if (!["active", "defaulted", "paused"].includes(plan.status)) {
+      throw Object.assign(new Error(`Plan is ${plan.status} — cannot restructure`), { code: "CONFLICT" });
+    }
+    const old = (plan.schedule as ScheduleEntry[] | null) ?? [];
+    const remPrincipal = old.filter((e) => e.status !== "paid").reduce((a, e) => a + e.principalCents, 0);
+    const remFee = old.filter((e) => e.status !== "paid").reduce((a, e) => a + e.feeCents, 0);
+    const paid = old.filter((e) => e.status === "paid");
+    if (remPrincipal + remFee <= 0) {
+      throw Object.assign(new Error("Plan has no outstanding installments"), { code: "CONFLICT" });
+    }
+    const n = opts.installments;
+    const perTotal = Math.floor((remPrincipal + remFee) / n);
+    const perPrincipal = Math.floor(remPrincipal / n);
+    const perFee = Math.floor(remFee / n);
+    const fresh: ScheduleEntry[] = [];
+    for (let i = 0; i < n; i++) {
+      const last = i === n - 1;
+      fresh.push({
+        seq: paid.length + i + 1,
+        dueAt: new Date(now.getTime() + (i + 1) * INSTALLMENT_PERIOD_DAYS * 24 * 3600 * 1000).toISOString(),
+        amountCents: last ? remPrincipal + remFee - perTotal * (n - 1) : perTotal,
+        principalCents: last ? remPrincipal - perPrincipal * (n - 1) : perPrincipal,
+        feeCents: last ? remFee - perFee * (n - 1) : perFee,
+        status: "due",
+        paidAt: null,
+      });
+    }
+    const schedule = [...paid, ...fresh];
+    const mandate = await findActiveMandate(tx, opts.tenantId);
+    const nextStatus = mandate ? "active" : "paused";
+    await tx.update(installmentPlans)
+      .set({
+        schedule,
+        installments: n,
+        perInstallmentCents: perTotal,
+        status: nextStatus,
+        metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ restructuredBy: opts.actor, restructuredAt: now.toISOString(), note: (opts.note ?? "").slice(0, 300) })}::jsonb`,
+        updatedAt: now,
+      })
+      .where(eq(installmentPlans.id, plan.id));
+    if (plan.loanId) {
+      await tx.update(merchantLoans)
+        .set({ dueAt: new Date(fresh[fresh.length - 1].dueAt), status: "active", updatedAt: now })
+        .where(and(eq(merchantLoans.id, plan.loanId), inArray(merchantLoans.status, ["active", "defaulted"])));
+    }
+    return { schedule, status: nextStatus };
+  });
+  try {
+    const { writeAuditLog } = await import("../routers/audit");
+    await writeAuditLog({
+      tenantId: opts.tenantId, actorId: opts.actor, action: "pay_over_time.restructure_plan",
+      entityType: "installment_plan", entityId: opts.planId,
+      summary: `plan=${opts.planId} installments=${opts.installments} status=${out.status}`,
+    } as any);
+  } catch (e: any) {
+    console.warn("[payOverTime] restructure audit write failed:", e?.message);
+  }
+  await notifyPotMerchant(db, opts.tenantId,
+    `Your pay-over-time plan was restructured into ${opts.installments} installments${out.status === "paused" ? " — link a payment mandate to resume automatic collection" : " — automatic collection has resumed"}.`);
+  return { ok: true, planId: opts.planId, status: out.status, schedule: out.schedule };
+}
+// === END W45 money-ledger ===
 
 // ── Read helpers ────────────────────────────────────────────────────────────
 

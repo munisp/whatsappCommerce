@@ -1,0 +1,135 @@
+{
+  "id": "J365",
+  "title": "PAY-21: dispute deadline sweep escalates then auto-resolves buyer-favour",
+  "feature": "W45 dispute merchantResponseDeadline sweep (config-gated, audited)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348013226815",
+      "profileName": "Sim User 6815",
+      "inboundId": "wamid.sim.in.text.00540",
+      "at": 1789673119391,
+      "kind": "text",
+      "text": "i want these [53a51f27]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00540",
+      "at": 1789673119395
+    },
+    {
+      "dir": "out",
+      "phone": "2348013226815",
+      "wamid": "wamid.sim.000966",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673119428,
+      "kind": "text",
+      "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348013226815",
+      "profileName": "Sim User 6815",
+      "inboundId": "wamid.sim.in.text.00541",
+      "at": 1789673119936,
+      "kind": "text",
+      "text": "confirm please [53a51f27]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00541",
+      "at": 1789673119940
+    },
+    {
+      "dir": "out",
+      "phone": "2348013226815",
+      "wamid": "wamid.sim.000967",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673119969,
+      "kind": "text",
+      "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348013226815",
+      "profileName": "Sim User 6815",
+      "inboundId": "wamid.sim.in.text.00542",
+      "at": 1789673120488,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00542",
+      "at": 1789673120492
+    },
+    {
+      "dir": "out",
+      "phone": "2348013226815",
+      "wamid": "wamid.sim.000968",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673120527,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MU5X61OH*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/ba6b9215-5d12-4246-888a-73b42732614f\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/f46fa380-bceb-4521-909d-8b5d119291d5.ixWierQlvJtNn3iVmtBjbB3j"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013226815",
+      "wamid": "wamid.sim.000969",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673120531,
+      "kind": "interactive",
+      "body": "Order ORD-MU5X61OH — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:f46fa380-bceb-4521-909d-8b5d119291d5",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:f46fa380-bceb-4521-909d-8b5d119291d5",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:f46fa380-bceb-4521-909d-8b5d119291d5",
+          "title": "Cancel Order"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348013226815",
+      "wamid": "wamid.sim.000970",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673121046,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MU5X61OH\n\n1 × Jollof Rice — ₦2,500.00\n\nSubtotal: ₦2,500.00\n*Total paid: ₦2,500.00*\nPayment ref: ba6b9215-5d12-4246-888a-73b42732614f\n\n🔎 Track your order: http://localhost:4173/track/f46fa380-bceb-4521-909d-8b5d119291d5.ixWierQlvJtNn3iVmtBjbB3j"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013226815",
+      "wamid": "wamid.sim.000971",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673122401,
+      "kind": "text",
+      "body": "Good news: your dispute on order f46fa380-bceb-4521-909d-8b5d119291d5 was resolved in your favour because the merchant did not respond in time. A full refund of 2500.00 has been executed."
+    }
+  ]
+}

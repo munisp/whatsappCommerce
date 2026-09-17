@@ -1,0 +1,50 @@
+{
+  "id": "J353",
+  "title": "human_active suppresses bot replies; release resumes",
+  "feature": "MSG-5 human-agent takeover suppression + release-to-bot",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348015612042",
+      "profileName": "Sim User 2042",
+      "inboundId": "wamid.sim.in.text.00535",
+      "at": 1789673106125,
+      "kind": "text",
+      "text": "is anyone there? j353"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00535",
+      "at": 1789673106130
+    },
+    {
+      "dir": "in",
+      "phone": "2348015612042",
+      "profileName": "Sim User 2042",
+      "inboundId": "wamid.sim.in.text.00536",
+      "at": 1789673106672,
+      "kind": "text",
+      "text": "hello again j353"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00536",
+      "at": 1789673106675
+    },
+    {
+      "dir": "out",
+      "phone": "2348015612042",
+      "wamid": "wamid.sim.000923",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789673106700,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}

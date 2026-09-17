@@ -1,0 +1,8 @@
+{
+  "id": "J379",
+  "title": "PO fulfillment credits buyer stock + audit, exactly once",
+  "feature": "ORD-18 markPoFulfilled → stockQuantity + stock_adjustments",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

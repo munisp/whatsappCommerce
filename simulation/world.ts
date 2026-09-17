@@ -583,6 +583,13 @@ export async function bootWorld(): Promise<World> {
           await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' IN ('gift_card_purchase')`);
         } catch { /* W44 A/B tables not migrated yet */ }
         // === END W44 merger ===
+        // === W45 messaging-services (Coder A2) === wipe the suppression list
+        // so J359's suppressed numbers never leak into other journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.waSuppressionList);
+        } catch { /* W45 table not migrated yet */ }
+        // === END W45 messaging-services ===
         // Restore seed stock so journeys never starve each other.
         try {
           const { products } = await import("../drizzle/schema");
@@ -941,6 +948,15 @@ export async function bootWorld(): Promise<World> {
             .where(inArr(schema.processedWebhookEvents.type, ["pot_installment", "pot_settle"]));
         } catch { /* w32 tables not migrated yet */ }
         // === END W32 pay-over-time ===
+        // === W45 money-ledger === wipe the payment outbox + pot manual-settle
+        // intents so J372–J376 never leak deliveries across journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW45 } = await import("drizzle-orm");
+          await world.db.delete(schema.paymentOutbox);
+          await world.db.execute(sqlW45`DELETE FROM payment_intents WHERE metadata->>'kind' IN ('pot_manual_settle')`);
+        } catch { /* W45 tables not migrated yet */ }
+        // === END W45 money-ledger ===
         // === W32 merger seam === recurring rules (B's journeys) never leak
         // between journeys on the merged branch.
         try {

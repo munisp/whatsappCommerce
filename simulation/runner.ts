@@ -456,6 +456,55 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j350-subscription-failure-chat-lifecycle"),
     import("./journeys/j351-digital-pin-delivery"),
     // === W44 Coder C END (merger owns registry count) ===
+    // === W45 webhook-core (Coder A1): MSG pipeline hardening J352-J356 ===
+    import("./journeys/j352-multi-entry-fanout"),
+    import("./journeys/j353-human-active-suppression"),
+    import("./journeys/j354-dlq-retry-idempotent"),
+    import("./journeys/j355-unknown-pnid-quarantine"),
+    import("./journeys/j356-number-port-migration"),
+    // === W45 Coder A1 END (merger owns registry count) ===
+    // === W45 messaging-services (Coder A2): J357–J361 ===
+    import("./journeys/j357-inbound-media-mirror"),
+    import("./journeys/j358-monotonic-delivery-status"),
+    import("./journeys/j359-suppression-list"),
+    import("./journeys/j360-cart-recovery-window-gate"),
+    import("./journeys/j361-ban-circuit-breaker"),
+    // === END W45 messaging-services ===
+    // === W45 money-scheduled (Coder B1): PAY-10/11/12/21/22 J362-J366 ===
+    import("./journeys/j362-pay10-schedule-amount-validation"),
+    import("./journeys/j363-pay11-stale-claim-reaper"),
+    import("./journeys/j364-pay12-approval-expiry-resolves"),
+    import("./journeys/j365-pay21-dispute-deadline-sweep"),
+    import("./journeys/j366-pay22-stale-escrow-queue"),
+    // === END W45 money-scheduled (merger owns registry count) ===
+    // === W45 money-intents (Coder B2): quarantine + intent replay + exponents + transfer sweep + fallback verify J367-J371 ===
+    import("./journeys/j367-payment-mismatch-quarantine"),
+    import("./journeys/j368-stale-amount-replay-remint"),
+    import("./journeys/j369-currency-exponent-dust"),
+    import("./journeys/j370-stale-transfer-sweep"),
+    import("./journeys/j371-fallback-verify-duplicate-refund"),
+    // === W45 Coder B2 END (merger owns registry count) ===
+    // === W45 money-ledger (Coder B3): FX outbox + PoT ledger/mandate lifecycle J372-J376 ===
+    import("./journeys/j372-fx-outbox-deterministic-transfer"),
+    import("./journeys/j373-fx-abort-compensation-poller"),
+    import("./journeys/j374-fx-wallet-currency-guard"),
+    import("./journeys/j375-pot-ledger-outbox-fee-currency"),
+    import("./journeys/j376-pot-mandate-revocation-lifecycle"),
+    // === W45 money-ledger END (merger owns registry count) ===
+    // === W45 orders-p0 (Coder C) — J377–J381 (merger owns registry count) ===
+    import("./journeys/j377-delivery-failure-escrow-pause"),
+    import("./journeys/j378-goods-receipt-3way-match"),
+    import("./journeys/j379-po-fulfill-stock-credit"),
+    import("./journeys/j380-pin-cap-ssrf-guard"),
+    import("./journeys/j381-buyer-cancel-weight-recon"),
+    // === W45 orders-p0 END ===
+    // === W45 go-rust-services (Coder D): J382-J386 ===
+    import("./journeys/j382-hermes-approval-persistence"),
+    import("./journeys/j383-hermes-callback-url-config"),
+    import("./journeys/j384-chatwoot-real-reply-resolve"),
+    import("./journeys/j385-message-processor-kafka-consumer"),
+    import("./journeys/j386-notification-service-pipeline"),
+    // === W45 go-rust-services END (merger owns registry count) ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

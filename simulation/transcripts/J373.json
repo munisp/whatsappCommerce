@@ -1,0 +1,8 @@
+{
+  "id": "J373",
+  "title": "FX payout: ABORT compensating re-credit + fulfil/error poller + fail-closed ambiguity (PAY-16)",
+  "feature": "W45 money-ledger: FX Mojaloop outbox",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

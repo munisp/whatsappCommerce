@@ -79,7 +79,7 @@
 6. Retrain fraud/credit models on real payment data via the lakehouse pipeline.
 
 ## Known remaining gaps (transparent)
-1. **3 empty Go modules** — crm-adapter, erp-adapter, notification-service declared in go.work, no code yet.
+1. **2 empty Go modules** — crm-adapter, erp-adapter declared in go.work, no code yet. (W45 MSG-19: notification-service is now implemented — Kafka `notifications.dispatch` consumer → Redis idempotency → platform notify POST with retries → `notifications.dlq` on terminal failure; see services/notification-service.)
 2. **~30% of tRPC procedures have no frontend caller** — many are server-to-server/cron by design.
 3. **PKCE verifier stored but not sent** on token exchange (Keycloak login works; complete the PKCE flow for full compliance).
 4. **Trained weights fit on synthetic data** — retrain before relying on fraud scores.

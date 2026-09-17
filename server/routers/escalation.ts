@@ -149,6 +149,30 @@ export const escalationRouter = router({
       return updated;
     }),
 
+  // === W45 webhook-core (MSG-5): agent "release to bot" ===
+  // human_active suppresses bot replies in the live webhook path (see
+  // server/_core/index.ts "W45 webhook-core"). This mutation hands the thread
+  // back: human_active → bot_active (aiHandled=true, agent unassigned).
+  /** Release a human_active conversation back to the bot. Idempotent. */
+  releaseToBot: protectedProcedure
+    .input(z.object({ conversationId: z.string().min(1) }))
+    .mutation(async ({ input, ctx }) => {
+      const { db, conv } = await loadConversation(input.conversationId);
+      assertTenantAccess(ctx.user, conv.tenantId);
+      if (conv.status === "resolved") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot release a resolved conversation" });
+      }
+      if (conv.status !== "bot_active") {
+        await db
+          .update(conversations)
+          .set({ status: "bot_active", aiHandled: true, assignedAgentId: null, updatedAt: new Date() })
+          .where(eq(conversations.id, conv.id));
+      }
+      const [updated] = await db.select().from(conversations).where(eq(conversations.id, conv.id)).limit(1);
+      return updated;
+    }),
+  // === END W45 webhook-core ===
+
   /**
    * Agent reply in-thread. Unlike conversation.sendMessage (global ENV
    * creds), this sends through the TENANT's WhatsApp channel credentials

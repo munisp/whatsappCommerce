@@ -151,7 +151,7 @@ beforeEach(() => {
 describe("runCartRecovery", () => {
   it("ignores carts inside the idle window (<30min)", async () => {
     seedCart({ idleMinutesAgo: 10 });
-    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes });
+    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(c.scanned).toBe(0);
     expect(c.sent).toBe(0);
     expect(sendImpl).not.toHaveBeenCalled();
@@ -159,7 +159,7 @@ describe("runCartRecovery", () => {
 
   it("sends one recovery message for an idle cart with items + consent", async () => {
     seedCart({ idleMinutesAgo: 45 });
-    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes });
+    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(c.scanned).toBe(1);
     expect(c.sent).toBe(1);
     expect(sendImpl).toHaveBeenCalledWith(
@@ -169,7 +169,7 @@ describe("runCartRecovery", () => {
 
   it("skips carts without items", async () => {
     seedCart({ idleMinutesAgo: 45, withItems: false });
-    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes });
+    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(c.skippedNoItems).toBe(1);
     expect(c.sent).toBe(0);
   });
@@ -185,7 +185,7 @@ describe("runCartRecovery", () => {
       createdAt: new Date(cart.updatedAt.getTime() + 5 * 60 * 1000), // after cart activity
       updatedAt: new Date(),
     });
-    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes });
+    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(c.skippedOrdered).toBe(1);
     expect(c.sent).toBe(0);
     expect(sendImpl).not.toHaveBeenCalled();
@@ -193,7 +193,7 @@ describe("runCartRecovery", () => {
 
   it("gates on NDPR consent", async () => {
     seedCart({ idleMinutesAgo: 45 });
-    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: vi.fn(async () => false) });
+    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: vi.fn(async () => false), suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(c.skippedNoConsent).toBe(1);
     expect(c.sent).toBe(0);
     expect(sendImpl).not.toHaveBeenCalled();
@@ -201,9 +201,9 @@ describe("runCartRecovery", () => {
 
   it("sends at most once per cart per 24h (marker survives reruns)", async () => {
     seedCart({ idleMinutesAgo: 45 });
-    const first = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes });
+    const first = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(first.sent).toBe(1);
-    const second = await runCartRecovery({ db, now: new Date(NOW.getTime() + 60 * 60 * 1000), sendImpl, consentImpl: consentYes });
+    const second = await runCartRecovery({ db, now: new Date(NOW.getTime() + 60 * 60 * 1000), sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(second.sent).toBe(0);
     expect(second.skippedRecentlySent).toBe(1);
     expect(sendImpl).toHaveBeenCalledTimes(1);
@@ -212,7 +212,7 @@ describe("runCartRecovery", () => {
   it("localizes the recovery message via the sticky locale", async () => {
     await setStickyLocale(T, PHONE, "fr");
     seedCart({ idleMinutesAgo: 45 });
-    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes });
+    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(c.sent).toBe(1);
     expect(sendImpl).toHaveBeenCalledWith(
       T, PHONE, expect.stringContaining("Vous avez laissé des articles"),
@@ -221,7 +221,7 @@ describe("runCartRecovery", () => {
 
   it("never sends across tenants (ownership)", async () => {
     seedCart({ idleMinutesAgo: 45, tenantId: "tenant-2", phone: "2348999999999" });
-    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes });
+    const c = await runCartRecovery({ db, now: NOW, sendImpl, consentImpl: consentYes, suppressionImpl: async () => false, windowImpl: async () => ({ open: true }) });
     expect(c.sent).toBe(1);
     // The send is strictly scoped to the cart's own tenant + phone.
     expect(sendImpl).toHaveBeenCalledWith("tenant-2", "2348999999999", expect.anything());

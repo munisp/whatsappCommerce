@@ -58,6 +58,9 @@ export const SCHEDULE = [
   { path: "/api/scheduled/forecast-snapshot", intervalMin: 1440 },
   { path: "/api/scheduled/leaderboard-top3", intervalMin: 1440 },
   { path: "/api/scheduled/escrow-auto-confirm", intervalMin: 10 },
+  // === W45 money-intents (Coder B2, PAY-24): stale transfer sweep ===
+  { path: "/api/scheduled/transfer-sweep", intervalMin: 10 },
+  // === END W45 money-intents ===
   { path: "/api/scheduled/float-income", intervalMin: 1440 },
   { path: "/api/scheduled/sla-scan", intervalMin: 15 },
   { path: "/api/scheduled/broadcast-scheduler", intervalMin: 1 },
@@ -96,6 +99,10 @@ export const SCHEDULE = [
   // honest overdue dunning (see server/services/payOverTime.ts).
   { path: "/api/scheduled/installment-due", intervalMin: 1440 },
   // === END W32 installment due ===
+  // === W45 money-ledger === payment outbox worker (Mojaloop FX + TigerBeetle
+  // PoT legs) + FX fulfil/error poller (PAY-16/18; server/services/paymentOutbox.ts).
+  { path: "/api/scheduled/payment-outbox", intervalMin: 5 },
+  // === END W45 money-ledger ===
   // === W32 recurring === daily recurring bills / auto-pay sweep.
   { path: "/api/scheduled/recurring-run", intervalMin: 1440 },
   // === END W32 recurring ===
@@ -116,6 +123,10 @@ export const SCHEDULE = [
   { path: "/api/scheduled/preorders-due", intervalMin: 5 },
   { path: "/api/scheduled/offers-expire", intervalMin: 30 },
   // === END W44 preorders-offers ===
+  // === W45 money-scheduled (Coder B1) === PAY-21 dispute merchant-response
+  // deadline sweep: escalate past deadline, buyer-favour auto-resolve after grace.
+  { path: "/api/scheduled/dispute-deadline-sweep", intervalMin: 15 },
+  // === END W45 money-scheduled ===
 ];
 
 function b64url(buf) {

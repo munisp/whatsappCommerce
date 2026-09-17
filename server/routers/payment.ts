@@ -26,6 +26,8 @@ import { writeAuditLog } from "./audit";
 import { initiateWithFallback } from "../services/payments/initiateWithFallback";
 import { toIntentProviderEnum } from "../services/payments/providers/providerEnum";
 import { fetchProviderPaymentStatus } from "../services/payments/verifyProviderStatus";
+// === W45 money-intents ===
+import { toMinorUnits as toMinorUnitsForCurrency } from "../services/payments/currencyExponent";
 
 // ── TigerBeetle ledger helper ─────────────────────────────────────────────────
 
@@ -55,9 +57,13 @@ function ledgerAccountId(kind: "customer" | "escrow" | "merchant", identifier: s
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-/** Major units (e.g. naira) → integer minor units (e.g. kobo), round half up. */
-function toMinorUnits(amountMajor: number): number {
-  return Math.round(amountMajor * 100);
+/**
+ * Major units → integer minor units, round half up.
+ * W45 (PAY-23): ISO-4217 exponent-aware via services/payments/currencyExponent
+ * — XOF/XAF (zero-decimal) amounts are NOT multiplied by 100.
+ */
+function toMinorUnits(amountMajor: number, currency = "NGN"): number {
+  return toMinorUnitsForCurrency(amountMajor, currency);
 }
 
 // Accounts are provisioned via POST /accounts/provision
@@ -275,7 +281,7 @@ export const paymentRouter = router({
           await releaseIdempotencyLock(idempotencyKey);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Order has an invalid total amount" });
         }
-        if (toMinorUnits(input.amount) !== toMinorUnits(orderAmount)) {
+        if (toMinorUnits(input.amount, orderCurrency) !== toMinorUnits(orderAmount, orderCurrency)) {
           await releaseIdempotencyLock(idempotencyKey);
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -298,7 +304,63 @@ export const paymentRouter = router({
         const [existing] = await database.select().from(paymentIntents)
           .where(eq(paymentIntents.idempotencyKey, idempotencyKey)).limit(1);
         if (existing) {
-          if (existing.status === "completed" || existing.status === "initiated") {
+          // === W45 money-intents (PAY-15): stale-amount replay guard ===
+          // The order may have been EDITED after this intent was minted. An
+          // in-flight intent whose amount/currency no longer matches the
+          // current order total must NOT be replayed — cancel it and mint a
+          // fresh intent at the CURRENT order total below. (Completed intents
+          // already took the money and are still returned idempotently.)
+          const existingCurrency = (existing.currency ?? "NGN").toUpperCase();
+          const stale =
+            existingCurrency !== currency ||
+            toMinorUnits(parseFloat(existing.amount), existingCurrency) !== toMinorUnits(amount, currency);
+          if (existing.status === "initiated" && stale) {
+            const staleReason =
+              `stale_amount_remint: intent was ${existing.amount} ${existingCurrency}, ` +
+              `order total is now ${amount} ${currency}`;
+            const cancelled = await database.update(paymentIntents)
+              .set({
+                status: "cancelled",
+                failureReason: staleReason,
+                // Free the idempotency key for the remint while keeping the
+                // cancelled row as an audit trail.
+                idempotencyKey: `${idempotencyKey}:stale:${existing.id}`,
+                updatedAt: new Date(),
+              })
+              .where(and(
+                eq(paymentIntents.id, existing.id),
+                eq(paymentIntents.status, "initiated"),
+              ))
+              .returning({ id: paymentIntents.id });
+            if (cancelled.length > 0) {
+              await writeAuditLog({
+                actorId: null,
+                actorRole: "system",
+                action: "payment.staleIntentRemint",
+                entityType: "payment_intent",
+                entityId: existing.id,
+                tenantId: input.tenantId,
+                summary: `Stale-amount payment intent cancelled for remint: ${staleReason}`,
+                before: { amount: existing.amount, currency: existingCurrency, status: "initiated" },
+                after: { amount, currency, status: "cancelled" },
+              });
+              console.warn(`[payment] PAY-15: cancelled stale intent ${existing.id} (${staleReason}) — minting fresh intent`);
+              // Fall through and mint a fresh intent at the current total.
+            } else {
+              // Lost the race — the intent transitioned concurrently; replay it.
+              const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
+              await releaseIdempotencyLock(idempotencyKey);
+              return {
+                paymentIntentId: existing.id,
+                reference: existing.providerPaymentId,
+                paymentUrl: (meta.paymentUrl as string | undefined) ?? null,
+                status: existing.status,
+                sagaWorkflowId: null,
+                tbDebitOk: !!existing.ledgerPendingId,
+                idempotentReplay: true,
+              };
+            }
+          } else if (existing.status === "completed" || existing.status === "initiated") {
             // Idempotent replay: return the existing in-flight/completed intent.
             const meta = (existing.metadata as Record<string, unknown> | null) ?? {};
             await releaseIdempotencyLock(idempotencyKey);
@@ -311,13 +373,15 @@ export const paymentRouter = router({
               tbDebitOk: !!existing.ledgerPendingId,
               idempotentReplay: true,
             };
+          } else {
+            // pending/failed/cancelled/refunded — the previous attempt never
+            // reached (or failed at) the provider. Delete it so the retry can
+            // insert a fresh row under the same idempotency key.
+            await database.delete(paymentIntents)
+              .where(and(eq(paymentIntents.id, existing.id), eq(paymentIntents.idempotencyKey, idempotencyKey)));
           }
-          // pending/failed/cancelled/refunded — the previous attempt never
-          // reached (or failed at) the provider. Delete it so the retry can
-          // insert a fresh row under the same idempotency key.
-          await database.delete(paymentIntents)
-            .where(and(eq(paymentIntents.id, existing.id), eq(paymentIntents.idempotencyKey, idempotencyKey)));
         }
+        // === END W45 PAY-15 ===
 
         // Step 1.9: Fraud screening — score with the shared heuristic (the
         // same fallback used by /api/ml/predict, so both paths agree).
@@ -425,7 +489,7 @@ export const paymentRouter = router({
             debit_account_id: debitAccountId,
             credit_account_id: creditAccountId,
             // Integer minor units (kobo), round half up — the /transfer contract.
-            amount: toMinorUnits(amount),
+            amount: toMinorUnits(amount, currency),
             ledger: 1,
             code: 1,
             idempotency_key: idempotencyKey,
@@ -482,7 +546,7 @@ export const paymentRouter = router({
         } else {
           const fallback = await initiateWithFallback(input.tenantId, {
             tenantId: input.tenantId,
-            amountCents: Math.round(amount * 100),
+            amountCents: toMinorUnits(amount, currency),
             currency: currency,
             reference,
             metadata: { payment_intent_id: paymentIntentId, tenant_id: input.tenantId, order_id: input.orderId },
@@ -611,8 +675,8 @@ export const paymentRouter = router({
           });
         }
         if (probe.status === "success" && probe.amountCents != null &&
-            probe.amountCents !== toMinorUnits(parseFloat(intent.amount))) {
-          console.error(`[payment.confirm] Provider amount mismatch for ${input.reference}: provider=${probe.amountCents}c expected=${toMinorUnits(parseFloat(intent.amount))}c`);
+            probe.amountCents !== toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN")) {
+          console.error(`[payment.confirm] Provider amount mismatch for ${input.reference}: provider=${probe.amountCents}c expected=${toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN")}c`);
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: "Provider-reported amount does not match the payment intent",
@@ -729,7 +793,7 @@ export const paymentRouter = router({
             await ledgerRequest("/transfer", "POST", {
               debit_account_id: ledgerAccountId("escrow", intent.tenantId),
               credit_account_id: ledgerAccountId("merchant", intent.tenantId),
-              amount: toMinorUnits(parseFloat(intent.amount)),
+              amount: toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN"),
               ledger: 1, code: 2,
               idempotency_key: `settle:${intent.id}`,
             });
@@ -763,7 +827,7 @@ export const paymentRouter = router({
             await ledgerRequest("/transfer", "POST", {
               debit_account_id: ledgerAccountId("escrow", intent.tenantId),
               credit_account_id: ledgerAccountId("customer", customerPhone),
-              amount: toMinorUnits(parseFloat(intent.amount)),
+              amount: toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN"),
               ledger: 1, code: 3,
               idempotency_key: `reversal:${intent.id}`,
             });
@@ -796,6 +860,19 @@ export const paymentRouter = router({
       await publishPaymentDaprEvent(eventTopic, {
         paymentIntentId: intent.id, tenantId: intent.tenantId, amount: intent.amount, status: newStatus,
       });
+
+      // === W45 money-intents (PAY-25): duplicate-completed detector ===
+      // This completion may be the SECOND completed payment for the order
+      // (e.g. a pre-W45 double-minted fallback checkout paid twice). Detect
+      // and auto-refund the duplicate + ops alert. Never throws.
+      if (newStatus === "completed" && intent.orderId) {
+        const { detectDuplicateCompletedPayments } = await import("../services/payments/duplicateCompletedPayments");
+        await detectDuplicateCompletedPayments(database, {
+          tenantId: intent.tenantId,
+          orderId: intent.orderId,
+        });
+      }
+      // === END W45 PAY-25 ===
 
       return { ok: true, skipped: false, status: newStatus, paymentIntentId: intent.id };
     }),

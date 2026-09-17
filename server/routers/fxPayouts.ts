@@ -79,6 +79,8 @@ export const fxPayoutsRouter = router({
           : r.reason === "no_corridor" ? "PRECONDITION_FAILED"
           : r.reason === "expired" ? "PRECONDITION_FAILED"
           : r.reason === "insufficient_funds" ? "BAD_REQUEST"
+          // === W45 money-ledger === PAY-17: fail-closed wallet/currency mismatch.
+          : r.reason === "currency_mismatch" ? "PRECONDITION_FAILED"
           : r.reason === "rail_failed" ? "BAD_GATEWAY"
           : "CONFLICT";
         throw new TRPCError({ code, message: r.detail ?? `FX payout ${r.reason}` });

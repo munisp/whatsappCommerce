@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -112,17 +111,20 @@ func (h *Handler) RequestHandoff(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "handed_off", "conversation_id": convID, "at": time.Now()})
 }
 
+// === W45 go-rust-services (MSG-17) ===
+// ResolveConversation now takes the real path back to the bot: Chatwoot
+// conversation marked resolved + local state bot_active (AI resumes).
 func (h *Handler) ResolveConversation(c *gin.Context) {
 	tenantID := mustUUID(c.GetHeader("X-Tenant-ID"))
 	convID := mustUUID(c.Param("id"))
 
-	if err := h.db.UpdateConversationState(c.Request.Context(), convID, "resolved"); err != nil {
+	if err := h.orch.ResolveToBot(c.Request.Context(), convID); err != nil {
+		h.logger.Error("resolve-to-bot failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	_ = json.NewEncoder(nil) // suppress unused import
-	h.logger.Info("conversation resolved", zap.String("tenant_id", tenantID.String()), zap.String("conv_id", convID.String()))
-	c.JSON(http.StatusOK, gin.H{"status": "resolved", "conversation_id": convID, "at": time.Now()})
+	h.logger.Info("conversation resolved — bot active", zap.String("tenant_id", tenantID.String()), zap.String("conv_id", convID.String()))
+	c.JSON(http.StatusOK, gin.H{"status": "bot_active", "conversation_id": convID, "at": time.Now()})
 }
 
 func mustUUID(s string) uuid.UUID {
