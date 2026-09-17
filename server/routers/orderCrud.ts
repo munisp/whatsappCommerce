@@ -289,6 +289,20 @@ export const orderCrudRouter = router({
           message: `Illegal status transition: ${order.status} → ${input.status}`,
         });
       }
+      // W41 (UC-1): fulfillment gating on installment-plan status — an order
+      // with a non-terminal buyer installment plan (COD-like exposure) may
+      // not enter fulfillment until the plan is fully paid.
+      if (input.status === "processing" || input.status === "shipped") {
+        try {
+          const { assertOrderFulfillmentAllowed } = await import("../services/buyerInstallments");
+          await assertOrderFulfillmentAllowed(db, order.id);
+        } catch (e: any) {
+          if (e?.code === "PRECONDITION_FAILED") {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+          }
+          throw e;
+        }
+      }
       // ORD-4: cancelling goes through the SAME unified cancelOrder path as
       // orderCrud.cancel — snapshot restock + reservation release (reserved
       // AND committed) + guarded status flip, exactly once.

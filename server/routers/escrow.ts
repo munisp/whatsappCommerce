@@ -303,7 +303,23 @@ export async function settleEscrowAtomic(
   db: Db,
   escrowId: string,
   opts: { autoConfirmed: boolean; allowedFromStates: string[]; descriptionPrefix?: string },
-): Promise<{ transitioned: boolean; newState?: "settled" | "release_instructed"; escrow?: EscrowTransaction }> {
+): Promise<{ transitioned: boolean; newState?: "settled" | "release_instructed"; escrow?: EscrowTransaction; rmaPaused?: boolean }> {
+  // === W41 rma-fx (Coder C): pause release while an RMA is open ===
+  // A buyer with a pending/approved/received return must not lose their
+  // refund window to an escrow release (manual OR SLA-scan auto-confirm).
+  // The release is PAUSED (transitioned:false, rmaPaused:true) — the escrow
+  // stays in its current state and can settle once the RMA closes.
+  {
+    const [esc] = await db.select({ orderId: escrowTransactions.orderId, tenantId: escrowTransactions.tenantId })
+      .from(escrowTransactions).where(eq(escrowTransactions.id, escrowId)).limit(1)
+      .catch(() => [] as any[]);
+    if (esc) {
+      const { hasOpenRma } = await import("../services/rma");
+      if (await hasOpenRma(db, esc.tenantId, esc.orderId).catch(() => false)) {
+        return { transitioned: false, rmaPaused: true };
+      }
+    }
+  }
   const cfg = await getEscrowConfig(db);
   const now = new Date();
   // Ledger pending-transfer ids committed (captured) inside the transaction.
@@ -957,6 +973,13 @@ export const escrowRouter = router({
         throw settleErr;
       });
       if (!result.transitioned || !result.escrow) {
+        // W41: an open return pauses the release instead of erroring blind.
+        if (result.rmaPaused) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Release paused: a return request (RMA) is open for this order — resolve it first.",
+          });
+        }
         throw new TRPCError({
           code: "CONFLICT",
           message: `Cannot confirm in state: ${escrow.state} (delivery must be confirmed first, and the escrow must not already be released/settled)`,

@@ -1,0 +1,31 @@
+{
+  "id": "J303",
+  "title": "RMA refund caps + idempotency",
+  "feature": "refundEscrowAtomic cumulative cap respected from RMA path",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348018860745",
+      "wamid": "wamid.sim.000770",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611212718,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j303-7FFA (reason: damaged). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000771",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611212721,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j303-7FFA (reason: damaged). The merchant will review it shortly."
+    }
+  ]
+}

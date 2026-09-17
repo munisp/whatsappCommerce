@@ -1,0 +1,31 @@
+{
+  "id": "J298",
+  "title": "split session: both-channel invites, full funding → order confirm",
+  "feature": "W41 UC-3 split_payment_sessions claim-first tally + confirm",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348016787737",
+      "wamid": "wamid.sim.000750",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611208396,
+      "kind": "text",
+      "body": "You've been invited to split order j298-1789611208381: your share is ₦1000.00 of ₦3000.00. Reply PAY SPLIT 43f61dce-1bdc-4383-a382-d7a41cbd6041 to pay from your wallet, or ask for a payment link. Expires in 48h."
+    },
+    {
+      "dir": "out",
+      "phone": "2348013206163",
+      "wamid": "wamid.sim.000751",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611208399,
+      "kind": "text",
+      "body": "You've been invited to split order j298-1789611208381: your share is ₦1000.00 of ₦3000.00. Reply PAY SPLIT 43f61dce-1bdc-4383-a382-d7a41cbd6041 to pay from your wallet, or ask for a payment link. Expires in 48h."
+    }
+  ]
+}

@@ -33,6 +33,8 @@ import { heartbeatRouter } from "./routers/heartbeat";
 import { nlpRouter } from "./routers/nlp";
 import { catalogBootstrapRouter } from "./routers/catalogBootstrap";
 import { orderCrudRouter } from "./routers/orderCrud";
+import { buyerCreditRouter } from "./routers/buyerCredit";
+import { rmaRouter } from "./routers/rma";
 import { codRouter } from "./routers/cod";
 import { promosRouter } from "./routers/promos";
 import { customersRouter } from "./routers/customers";
@@ -195,6 +197,10 @@ export const appRouter = router({
   nlp: nlpRouter,
   catalogBootstrap: catalogBootstrapRouter,
   orderCrud: orderCrudRouter,
+  buyerCredit: buyerCreditRouter,
+  // === W41 rma-fx (Coder C): returns lifecycle + display-FX config ===
+  rma: rmaRouter,
+  // === END W41 rma-fx ===
   cod: codRouter,
   promos: promosRouter,
   customers: customersRouter,

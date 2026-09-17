@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T00:06:31.172Z",
+  "generatedAt": "2026-09-17T02:14:00.086Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -1448,7 +1448,7 @@
       "feature": "W38 pay-over-time reconciliation",
       "pass": true,
       "file": "J255.json",
-      "messageCount": 0
+      "messageCount": 2
     },
     {
       "id": "J256",
@@ -1456,7 +1456,7 @@
       "feature": "W38 pay-over-time reconciliation",
       "pass": true,
       "file": "J256.json",
-      "messageCount": 0
+      "messageCount": 4
     },
     {
       "id": "J257",
@@ -1707,6 +1707,38 @@
       "messageCount": 0
     },
     {
+      "id": "J286",
+      "title": "buyer installment plan creation + eligibility (UC-1)",
+      "feature": "buyerInstallments.createBuyerPlan: opt-in + threshold fail-closed; integer-cent schedule; idempotent replay",
+      "pass": true,
+      "file": "J286.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J287",
+      "title": "installment down payment activates plan + consented token save (UC-1/UC-6)",
+      "feature": "runBuyerCreditWebhookHook: exactly-once activation; consent token saved v1:-encrypted; replay no-op",
+      "pass": true,
+      "file": "J287.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J288",
+      "title": "installment charge exactly-once + timeout-verify reconcile (UC-1)",
+      "feature": "captureBuyerInstallment: durable ledger + claim exactly-once; reconcilePendingBuyerCharges verify-first",
+      "pass": true,
+      "file": "J288.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J289",
+      "title": "installment failure → overdue + dunning (UC-1)",
+      "feature": "capture no_token → overdue + dunning; reconcile probe-failed → failed + overdue",
+      "pass": true,
+      "file": "J289.json",
+      "messageCount": 2
+    },
+    {
       "id": "J29",
       "title": "Meta catalog sync",
       "feature": "/items upsert + delete",
@@ -1715,12 +1747,148 @@
       "messageCount": 0
     },
     {
+      "id": "J290",
+      "title": "customer payment token consent + list + revoke (UC-6)",
+      "feature": "customerPaymentTokens: consent fail-closed, v1: encryption, masked list, revoke → charge refused",
+      "pass": true,
+      "file": "J290.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J291",
+      "title": "one-tap reorder charged to a saved token (UC-6)",
+      "feature": "buyerInstallments.reorderWithToken: clone + off-session charge + pinned settle; replay + ownership fail-closed",
+      "pass": true,
+      "file": "J291.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J292",
+      "title": "fulfillment gated until the installment plan is paid (UC-1)",
+      "feature": "assertOrderFulfillmentAllowed + orderCrud.updateStatus gate; paid-in-full releases",
+      "pass": true,
+      "file": "J292.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J293",
+      "title": "wallet credit (goodwill) + append-only ledger + idempotent retry",
+      "feature": "W41 UC-2 customer_wallets / customer_wallet_entries",
+      "pass": true,
+      "file": "J293.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J294",
+      "title": "refund-to-wallet honors cumulative caps; over-cap rejected",
+      "feature": "W41 UC-2 refund_to_wallet seam + W38 caps",
+      "pass": true,
+      "file": "J294.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J295",
+      "title": "checkout spend: wallet-first partial + idempotent retry",
+      "feature": "W41 UC-2 applyWalletAtCheckout seam",
+      "pass": true,
+      "file": "J295.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J296",
+      "title": "concurrent debits: claim-first, balance never negative",
+      "feature": "W41 UC-2 guarded debit race (FOR UPDATE / guarded UPDATE)",
+      "pass": true,
+      "file": "J296.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J297",
+      "title": "overpayment auto-credits the wallet, idempotent per reference",
+      "feature": "W41 UC-2 overpayment credit seam",
+      "pass": true,
+      "file": "J297.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J298",
+      "title": "split session: both-channel invites, full funding → order confirm",
+      "feature": "W41 UC-3 split_payment_sessions claim-first tally + confirm",
+      "pass": true,
+      "file": "J298.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J299",
+      "title": "split timeout: sweep auto-refunds contributors (wallet default)",
+      "feature": "W41 UC-3 48h timeout auto-refund sweep",
+      "pass": true,
+      "file": "J299.json",
+      "messageCount": 4
+    },
+    {
       "id": "J30",
       "title": "contact provisioning",
       "feature": "waContacts auto-create",
       "pass": true,
       "file": "J30.json",
       "messageCount": 9
+    },
+    {
+      "id": "J300",
+      "title": "RMA full lifecycle (restock + PSP refund)",
+      "feature": "rma_requests state machine + W38 restock/refund reuse",
+      "pass": true,
+      "file": "J300.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J301",
+      "title": "RMA via WA commands (buyer + merchant)",
+      "feature": "RETURN intake + RMA APPROVE/REJECT merchant command",
+      "pass": true,
+      "file": "J301.json",
+      "messageCount": 16
+    },
+    {
+      "id": "J302",
+      "title": "escrow release paused while RMA open",
+      "feature": "settleEscrowAtomic RMA guard",
+      "pass": true,
+      "file": "J302.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J303",
+      "title": "RMA refund caps + idempotency",
+      "feature": "refundEscrowAtomic cumulative cap respected from RMA path",
+      "pass": true,
+      "file": "J303.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J304",
+      "title": "RMA refund-to-wallet seam + cumulative cap",
+      "feature": "creditWallet contract seam; wallet credit counts toward refunded total",
+      "pass": true,
+      "file": "J304.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J305",
+      "title": "dual-currency rendering (catalog + order summary)",
+      "feature": "formatPriceDual wired into chat builders; display-only conversion",
+      "pass": false,
+      "file": "J305.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J306",
+      "title": "NGN charge unchanged under dual display",
+      "feature": "display-only FX: payment link + payment row stay NGN kobo",
+      "pass": true,
+      "file": "J306.json",
+      "messageCount": 10
     },
     {
       "id": "J31",

@@ -941,6 +941,15 @@ async function startServer() {
             await runArInvoiceWebhookHook(db, { provider: "paystack", reference: ref });
           }
           // === END W31 AR webhook hook ===
+          // === W41 buyer-credit hook (adjacent seam — paymentConfirm.ts untouched) ===
+          // Activates buyer installment plans whose down payment this charge
+          // settled, and saves a consented reusable authorization as a
+          // customer payment token. Exactly-once, never throws.
+          if (result.ok) {
+            const { runBuyerCreditWebhookHook } = await import("../services/buyerInstallments");
+            await runBuyerCreditWebhookHook(db, { provider: "paystack", reference: ref, rawPayload: payload.data });
+          }
+          // === END W41 buyer-credit hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -1053,6 +1062,12 @@ async function startServer() {
             await runArInvoiceWebhookHook(db, { provider: "flutterwave", reference: txRef });
           }
           // === END W31 AR webhook hook ===
+          // === W41 buyer-credit hook (adjacent seam — see paystack above) ===
+          if (result.ok) {
+            const { runBuyerCreditWebhookHook } = await import("../services/buyerInstallments");
+            await runBuyerCreditWebhookHook(db, { provider: "flutterwave", reference: txRef, rawPayload: payload.data });
+          }
+          // === END W41 buyer-credit hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -3029,7 +3044,20 @@ async function startServer() {
       if (!db) return res.status(503).json({ error: "db-unavailable" });
       const { runInstallmentCaptureSweep } = await import("../services/payOverTime");
       const summary = await runInstallmentCaptureSweep(db);
-      return res.json({ ok: true, ...summary });
+      // === W41 buyer-credit (UC-1): buyer installment capture + verify-first
+      // reconcile ride the SAME daily cron — independent failure domains.
+      let buyer: Record<string, unknown> = {};
+      try {
+        const { runBuyerInstallmentSweep, reconcilePendingBuyerCharges } = await import("../services/buyerInstallments");
+        const sweep = await runBuyerInstallmentSweep(db);
+        const reconcile = await reconcilePendingBuyerCharges(db);
+        buyer = { buyerSweep: sweep, buyerReconcile: reconcile };
+      } catch (buyerErr: any) {
+        console.error("[installment-due] buyer sweep failed:", buyerErr?.message);
+        buyer = { buyerError: buyerErr?.message };
+      }
+      // === END W41 buyer-credit ===
+      return res.json({ ok: true, ...summary, ...buyer });
     } catch (err: any) {
       console.error("[installment-due]", err);
       return res.status(500).json({ error: err?.message });

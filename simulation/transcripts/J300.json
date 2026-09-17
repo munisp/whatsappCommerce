@@ -1,0 +1,31 @@
+{
+  "id": "J300",
+  "title": "RMA full lifecycle (restock + PSP refund)",
+  "feature": "rma_requests state machine + W38 restock/refund reuse",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348012580653",
+      "wamid": "wamid.sim.000756",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611209244,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j300-F740 (reason: arrived damaged). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000757",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789611209247,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j300-F740 (reason: arrived damaged). The merchant will review it shortly."
+    }
+  ]
+}

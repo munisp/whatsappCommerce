@@ -8,82 +8,82 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "(dial)",
-      "at": 1789603053049
+      "at": 1789610686609
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789603053050
+      "at": 1789610686610
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "menu",
-      "at": 1789603053357
+      "at": 1789610686918
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789603053358
+      "at": 1789610686919
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "1",
-      "at": 1789603053671
+      "at": 1789610687230
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "END What would you like? We have Jollof Rice and more.",
-      "at": 1789603053672
+      "at": 1789610687231
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739-2",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301-2",
       "text": "2",
-      "at": 1789603053978
+      "at": 1789610687540
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739-2",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301-2",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789603053979
+      "at": 1789610687541
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "1*xyz-nonsense",
-      "at": 1789603054286
+      "at": 1789610687850
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348014091203",
-      "sessionId": "ussd-1789603052739",
+      "phone": "2348015284554",
+      "sessionId": "ussd-1789610686301",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789603054287
+      "at": 1789610687851
     }
   ]
 }
