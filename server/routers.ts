@@ -35,6 +35,7 @@ import { catalogBootstrapRouter } from "./routers/catalogBootstrap";
 import { orderCrudRouter } from "./routers/orderCrud";
 import { buyerCreditRouter } from "./routers/buyerCredit";
 import { rmaRouter } from "./routers/rma";
+import { exchangesRouter } from "./routers/exchanges"; // === W43 exchanges (Coder B) ===
 import { codRouter } from "./routers/cod";
 import { promosRouter } from "./routers/promos";
 import { customersRouter } from "./routers/customers";
@@ -201,6 +202,9 @@ export const appRouter = router({
   // === W41 rma-fx (Coder C): returns lifecycle + display-FX config ===
   rma: rmaRouter,
   // === END W41 rma-fx ===
+  // === W43 exchanges (Coder B): exchange lifecycle ===
+  exchanges: exchangesRouter,
+  // === END W43 exchanges ===
   cod: codRouter,
   promos: promosRouter,
   customers: customersRouter,

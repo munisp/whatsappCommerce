@@ -414,6 +414,27 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j320-pool-queue-bound"),
     import("./journeys/j321-temporal-stub-removed"),
     // === W42 Coder C END (merger owns registry count) ===
+    // === W43 fulfillment (Coder A): partial fulfillment + backorders J322-J326 ===
+    import("./journeys/j322-partial-fulfillment"),
+    import("./journeys/j323-fulfill-qty-guard"),
+    import("./journeys/j324-fulfill-idempotent-replay"),
+    import("./journeys/j325-backorder-at-confirm"),
+    import("./journeys/j326-restock-backorder-autofill"),
+    // === W43 Coder A END (merger owns registry count) ===
+    // === W43 exchanges (Coder B): exchanges + stock-adjustment audit J327-J331 ===
+    import("./journeys/j327-exchange-positive-delta-payment-link"),
+    import("./journeys/j328-exchange-negative-delta-wallet-credit"),
+    import("./journeys/j329-exchange-illegal-transitions"),
+    import("./journeys/j330-exchange-receive-stock-legs"),
+    import("./journeys/j331-stock-adjustment-audit-trail"),
+    // === W43 Coder B END (merger owns registry count) ===
+    // === W43 dispatch (Coder C): POD photo + post-dispatch address change J332-J336 ===
+    import("./journeys/j332-pod-courier-endpoint"),
+    import("./journeys/j333-pod-wa-chat-photo"),
+    import("./journeys/j334-requirepod-gates-delivered"),
+    import("./journeys/j335-address-change-chat-approve"),
+    import("./journeys/j336-address-change-terminal-paths"),
+    // === W43 Coder C END (merger owns registry count) ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

@@ -87,6 +87,17 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   { id: "annual_statement",    description: "Annual supplier tax statement document", telegram: "full", notes: "Telegram sendDocument carries the same PDF; falls back to WA when no telegram identity is linked." },
   { id: "installment_receipt", description: "Installment / scheduled-payment receipt", telegram: "full", notes: "scheduledPayments seam; same text body." },
   { id: "refund",              description: "Refund notice", telegram: "full", notes: "Plain-text notice; routed via notifyCustomer like every other category." },
+  // === W43 fulfillment (Coder A): partial fulfillment + backorders =========
+  { id: "partial_fulfillment", description: "Partial fulfillment / fulfillment tracking notice", telegram: "full", notes: "Plain-text notice sent by orderFulfill.fulfillOrderLines; routed via sendCustomerText so WA takes the original sendWhatsAppText path and telegram goes through channelSender." },
+  { id: "backorder_filled",    description: "Backorder auto-filled on restock", telegram: "full", notes: "Plain-text notice sent by backorders.restockAndFillBackorders / fillBackordersAfterRestock; both channels via sendCustomerText." },
+  // === END W43 fulfillment ===
+  // === W43 exchanges (Coder B): exchange lifecycle notices (additive) ===
+  { id: "exchange_status",     description: "Exchange request status updates (requested/approved/rejected/received/completed)", telegram: "full", notes: "Plain-text notice via sendCustomerText/notifyCustomer; a positive price-delta checkout rides the payment_link adapter (URL button on telegram, never wa.me)." },
+  // === END W43 exchanges ===
+  // === W43 dispatch ===
+  { id: "delivery_proof",      description: "Proof-of-delivery captured / order delivered notice", telegram: "full", notes: "Same delivered text both channels; POD photo itself is served on the tracking timeline (media URL in order timeline), text notice routed via sendCustomerText." },
+  { id: "address_change",      description: "Post-dispatch address change: merchant approval card + terminal status notices", telegram: "full", notes: "Merchant card: WA interactive buttons / TG inline keyboard with the SAME addrchg:approve|reject:<id> grammar via channelSender keyboard payload; customer terminal-path notices (applied/rejected/expired) via sendCustomerText." },
+  // === END W43 dispatch ===
 ] as const;
 
 export const PARITY_CATEGORY_IDS: readonly string[] = PARITY_CATEGORIES.map((c) => c.id);

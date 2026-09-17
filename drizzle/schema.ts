@@ -39,7 +39,9 @@ export type MembershipRole = (typeof membershipRoleEnum)[number];
 export const tenantStatusEnum = pgEnum("tenant_status", ["active", "suspended", "trial", "churned"]);
 export const productStatusEnum = pgEnum("product_status", ["active", "inactive", "archived"]);
 export const conversationStatusEnum = pgEnum("conversation_status", ["open", "resolved", "pending", "snoozed", "bot_active", "human_active"]);
-export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]);
+// === W43 fulfillment (Coder A, mig 0130): "partially_fulfilled" added
+// (additive enum value) — some-but-not-all order lines fulfilled.
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded", "partially_fulfilled"]);
 export const paymentStatusEnum = pgEnum("payment_status", ["unpaid", "initiated", "completed", "failed", "refunded", "refund_initiated", "refund_recorded", "refund_pending"]);
 export const paymentProviderEnum = pgEnum("payment_provider", ["mojaloop", "stripe", "paystack", "flutterwave", "manual"]);
 export const paymentIntentStatusEnum = pgEnum("payment_intent_status", ["initiated", "pending", "completed", "failed", "cancelled", "refunded"]);
@@ -102,6 +104,18 @@ export const tenants = pgTable("tenants", {
   // manual tenant-set ({ "USD": { "rate": "0.00066", "updatedAt": iso } }).
   displayCurrency: varchar("displayCurrency", { length: 3 }),
   displayFxRates: jsonb("displayFxRates"),
+  // === W43 fulfillment (Coder A, mig 0131): allow checkout to succeed with
+  // insufficient stock by marking the short lines 'backordered' instead of
+  // blocking (default false → current fail-closed behavior).
+  allowBackorders: boolean("allowBackorders").default(false).notNull(),
+  // === W43 dispatch (Coder C, mig 0134/0135) ===
+  // requirePod (default FALSE): when true the → delivered transition is
+  // gated on a delivery_proofs row; false keeps pre-W43 behavior.
+  requirePod: boolean("requirePod").default(false).notNull(),
+  // allowPostDispatchAddressChange (default TRUE): buyer may request a
+  // shipping-address change while the order is out_for_delivery/in_transit.
+  allowPostDispatchAddressChange: boolean("allowPostDispatchAddressChange").default(true).notNull(),
+  // === END W43 dispatch ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -1135,10 +1149,67 @@ export const orderItems = pgTable("order_items", {
   quantity: integer("quantity").notNull().default(1),
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  // === W43 fulfillment (Coder A, mig 0131): 'ordered' | 'backordered'.
+  // Backordered lines carry an open row in backorder_requests and are
+  // auto-filled oldest-first on restock.
+  status: varchar("status", { length: 16 }).default("ordered").notNull(),
 }, (t) => [
   index("order_items_order_idx").on(t.orderId),
   index("order_items_product_idx").on(t.productId),
 ]);
+
+// === W43 fulfillment (Coder A, mig 0130): partial fulfillment =============
+// order_fulfillments: one fulfillment event per merchant action; status
+// 'pending' | 'partial' | 'complete' | 'cancelled'. order_fulfillment_lines:
+// the per-line quantities; unique (fulfillmentId, orderLineId) is the
+// idempotency key making fulfillment replays safe.
+export const orderFulfillments = pgTable("order_fulfillments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  orderId: varchar("orderId", { length: 36 }).notNull().references(() => orders.id, { onDelete: "cascade" }),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  status: varchar("status", { length: 16 }).default("pending").notNull(),
+  trackingCarrier: varchar("trackingCarrier", { length: 64 }),
+  trackingNumber: varchar("trackingNumber", { length: 128 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("order_fulfillments_tenant_idx").on(t.tenantId, t.orderId),
+]);
+export const orderFulfillmentLines = pgTable("order_fulfillment_lines", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  fulfillmentId: varchar("fulfillmentId", { length: 36 }).notNull().references(() => orderFulfillments.id, { onDelete: "cascade" }),
+  orderLineId: varchar("orderLineId", { length: 36 }).notNull().references(() => orderItems.id, { onDelete: "cascade" }),
+  qty: integer("qty").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("ofl_line_idx").on(t.orderLineId),
+  uniqueIndex("ofl_idem_idx").on(t.fulfillmentId, t.orderLineId),
+]);
+export type OrderFulfillment = typeof orderFulfillments.$inferSelect;
+export type OrderFulfillmentLine = typeof orderFulfillmentLines.$inferSelect;
+
+// === W43 fulfillment (Coder A, mig 0131): backorders =======================
+// Open demand created when a line is 'backordered' at confirm (tenant flag
+// tenants.allowBackorders). Auto-filled oldest-first on restock in the same
+// transaction; the partial unique index (one open request per line) makes
+// backorder creation idempotent on checkout retry.
+export const backorderRequests = pgTable("backorder_requests", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderLineId: varchar("orderLineId", { length: 36 }).notNull().references(() => orderItems.id, { onDelete: "cascade" }),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  qty: integer("qty").notNull(),
+  filledQty: integer("filledQty").default(0).notNull(),
+  status: varchar("status", { length: 24 }).default("open").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  filledAt: timestamp("filledAt"),
+}, (t) => [
+  index("backorder_requests_tenant_product_idx").on(t.tenantId, t.productId, t.status),
+  index("backorder_requests_line_idx").on(t.orderLineId),
+]);
+export type BackorderRequest = typeof backorderRequests.$inferSelect;
+// === END W43 fulfillment ===
 
 // ── Type exports ──────────────────────────────────────────────────────────────
 export type CartSession = typeof cartSessions.$inferSelect;
@@ -5573,3 +5644,156 @@ export const rmaRequests = pgTable("rma_requests", {
 export type RmaRequest = typeof rmaRequests.$inferSelect;
 export type NewRmaRequest = typeof rmaRequests.$inferInsert;
 // === END W41 rma-fx ===
+// === W43 exchanges (Coder B): exchange_requests (migration 0132) ===
+// Swap one order line for another product. State machine:
+//   requested → approved | rejected | cancelled
+//   approved  → in_transit → received → completed
+// Money leg: positive priceDeltaCents → payment link (existing payment
+// intent path, idempotency-keyed); negative → customerWallet.creditWallet
+// (W41 contract, idempotent ref `exchange_refund:<id>`). Stock leg on
+// 'received': fromLine qty restocked (or written off when `damaged`) and
+// toLine stock reserved claim-first — both audited in stock_adjustments
+// (migration 0133) in the SAME transaction.
+export const exchangeRequests = pgTable("exchange_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** Optional link to the RMA that sent the goods back. */
+  rmaRequestId: uuid("rma_request_id"),
+  fromOrderLineId: varchar("from_order_line_id", { length: 36 }).notNull(),
+  toProductId: varchar("to_product_id", { length: 36 }).notNull(),
+  toVariantId: varchar("to_variant_id", { length: 36 }),
+  qty: integer("qty").notNull(),
+  /** Signed integer cents: positive = buyer pays more, negative = refund. */
+  priceDeltaCents: bigint("price_delta_cents", { mode: "number" }).notNull().default(0),
+  /** requested|approved|rejected|in_transit|received|completed|cancelled */
+  status: varchar("status", { length: 16 }).notNull().default("requested"),
+  /** Buyer identity (WA phone / telegram chat id) or merchant actor id. */
+  requestedBy: varchar("requested_by", { length: 64 }).notNull(),
+  requestedVia: varchar("requested_via", { length: 16 }).notNull().default("admin"),
+  /** Returned goods damaged → write off instead of restock on 'received'. */
+  damaged: boolean("damaged").notNull().default(false),
+  /** Payment intent created for a positive price delta. */
+  paymentIntentId: varchar("payment_intent_id", { length: 36 }),
+  /** Wallet ledger refId used for a negative price delta credit. */
+  walletEntryRef: varchar("wallet_entry_ref", { length: 128 }),
+  merchantNote: text("merchant_note"),
+  decidedAt: timestamp("decided_at"),
+  inTransitAt: timestamp("in_transit_at"),
+  receivedAt: timestamp("received_at"),
+  completedAt: timestamp("completed_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("exchange_requests_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("exchange_requests_tenant_status_idx").on(t.tenantId, t.status),
+  index("exchange_requests_from_line_idx").on(t.tenantId, t.fromOrderLineId),
+]);
+export type ExchangeRequest = typeof exchangeRequests.$inferSelect;
+export type NewExchangeRequest = typeof exchangeRequests.$inferInsert;
+
+// === W43 exchanges (Coder B): stock_adjustments (migration 0133) ===
+// Append-only audit trail for EVERY stock mutation (restock, fulfill,
+// cancel-release, exchange, backorder fill, manual count/correction). Rows
+// are written in the SAME transaction as the stock mutation via
+// server/services/stockAdjustments.ts recordStockAdjustment. Tenant-scoped
+// read path: inventory.adjustmentHistory (server/routers/inventory.ts).
+export const STOCK_ADJUSTMENT_REASONS = [
+  "restock", "damage", "theft", "correction", "count",
+  "backorder_fill", "exchange_in", "exchange_out", "other",
+] as const;
+export type StockAdjustmentReason = (typeof STOCK_ADJUSTMENT_REASONS)[number];
+
+export const stockAdjustments = pgTable("stock_adjustments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  variantId: varchar("variant_id", { length: 36 }),
+  /** Signed units: positive = stock in, negative = stock out. */
+  deltaQty: integer("delta_qty").notNull(),
+  reason: varchar("reason", { length: 20 }).notNull(),
+  /** What kind of document caused this (order_cancel, rma, exchange, ...). */
+  refType: varchar("ref_type", { length: 32 }),
+  refId: varchar("ref_id", { length: 64 }),
+  actorId: varchar("actor_id", { length: 64 }),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("stock_adjustments_tenant_product_idx").on(t.tenantId, t.productId),
+  index("stock_adjustments_tenant_created_idx").on(t.tenantId, t.createdAt),
+  index("stock_adjustments_ref_idx").on(t.tenantId, t.refType, t.refId),
+]);
+export type StockAdjustment = typeof stockAdjustments.$inferSelect;
+export type NewStockAdjustment = typeof stockAdjustments.$inferInsert;
+// === END W43 exchanges ===
+
+// === W43 dispatch (Coder C, mig 0134): proof-of-delivery evidence ===
+// Photo/signature/otp captured at handover — posted by the courier via
+// POST /api/delivery/proof OR sent by the customer in chat while the order
+// is awaiting POD (shipment out_for_delivery/in_transit + tenants.requirePod).
+// Media bytes reuse the existing WA media storage path (storagePut under
+// whatsapp-media/<tenantId>/…). tenants.requirePod gates → delivered.
+export const deliveryProofs = pgTable("delivery_proofs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** Optional W43-Coder-A fulfillment linkage (plain column, no FK — additive). */
+  fulfillmentId: varchar("fulfillment_id", { length: 36 }),
+  /** Latest logistics_shipments row the proof was captured against. */
+  shipmentId: varchar("shipment_id", { length: 36 }),
+  /** photo|signature|otp */
+  type: varchar("type", { length: 16 }).notNull().default("photo"),
+  /** Served URL (same /api/storage/<key> shape every storagePut caller gets). */
+  mediaUrl: text("media_url"),
+  /** Object-store key (tenant-scoped path). */
+  mediaKey: text("media_key"),
+  mimeType: varchar("mime_type", { length: 64 }),
+  capturedByDriverId: varchar("captured_by_driver_id", { length: 64 }),
+  /** endpoint|whatsapp|telegram */
+  capturedVia: varchar("captured_via", { length: 16 }).notNull().default("endpoint"),
+  /** External idempotency key (courier retries, webhook replays). */
+  idempotencyKey: varchar("idempotency_key", { length: 128 }),
+  capturedAt: timestamp("captured_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("delivery_proofs_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("delivery_proofs_order_idx").on(t.orderId),
+  uniqueIndex("delivery_proofs_idem_uidx").on(t.tenantId, t.idempotencyKey),
+]);
+export type DeliveryProof = typeof deliveryProofs.$inferSelect;
+export type NewDeliveryProof = typeof deliveryProofs.$inferInsert;
+
+// === W43 dispatch (Coder C, mig 0135): post-dispatch address change ===
+// Buyer asks in chat ("change my address …") on WhatsApp OR Telegram while
+// the order is out_for_delivery/in_transit; the merchant decides via the
+// channelParity approval card (WA interactive buttons / TG inline keyboard)
+// or the typed ADDR APPROVE/REJECT command. feeCents (integer kobo) is
+// charged claim-first from the customer wallet on approve.
+export const addressChangeRequests = pgTable("address_change_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** customer|merchant */
+  requestedBy: varchar("requested_by", { length: 16 }).notNull().default("customer"),
+  /** WA phone / telegram chat id / staff id of the requester. */
+  requesterRef: varchar("requester_ref", { length: 64 }),
+  oldAddress: jsonb("old_address"),
+  newAddress: jsonb("new_address").notNull(),
+  /** pending|approved|rejected|applied|expired */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  feeCents: integer("fee_cents").notNull().default(0),
+  /** null|charged|failed — fee leg is claim-first + idempotent (refId addrchg:<id>). */
+  feeStatus: varchar("fee_status", { length: 16 }),
+  decidedBy: varchar("decided_by", { length: 64 }),
+  decisionNote: text("decision_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  decidedAt: timestamp("decided_at"),
+  expiresAt: timestamp("expires_at"),
+}, (t) => [
+  index("address_change_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("address_change_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type AddressChangeRequest = typeof addressChangeRequests.$inferSelect;
+export type NewAddressChangeRequest = typeof addressChangeRequests.$inferInsert;
+// === END W43 dispatch ===

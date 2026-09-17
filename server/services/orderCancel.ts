@@ -29,8 +29,12 @@ import {
   releaseReservations,
   type TxHandle,
 } from "./inventory";
+// === W43 exchanges (Coder B): stock-adjustment audit (cancel restock leg) ===
+import { recordStockAdjustment } from "./stockAdjustments";
 
-type OrderStatus = "pending" | "confirmed" | "processing" | "shipped" | "delivered" | "cancelled" | "refunded";
+// === W43 fulfillment (Coder A): "partially_fulfilled" added (additive enum
+// value, mig 0130) — a partially-fulfilled order can still be cancelled.
+type OrderStatus = "pending" | "confirmed" | "processing" | "shipped" | "delivered" | "cancelled" | "refunded" | "partially_fulfilled";
 
 interface DbLike extends TxHandle {
   transaction: <T>(fn: (tx: any) => Promise<T>) => Promise<T>;
@@ -63,6 +67,18 @@ export async function cancelOrder(
             "availableQty" = CAST("availableQty" AS NUMERIC) + ${item.quantity}
         WHERE "productId" = ${item.productId} AND "tenantId" = ${order.tenantId}
       `);
+      // === W43 exchanges (Coder B): audit the cancel snapshot restock in
+      // the SAME txn (row + status flip commit or roll back together). ===
+      await recordStockAdjustment(tx, {
+        tenantId: order.tenantId,
+        productId: item.productId,
+        deltaQty: item.quantity,
+        reason: "restock",
+        refType: "order_cancel",
+        refId: order.id,
+        note: noteText,
+      });
+      // === END W43 exchanges ===
     }
 
     const transitioned = await tx.update(orders).set({

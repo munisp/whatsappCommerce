@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012628485",
-      "profileName": "Sim User 8485",
+      "phone": "2348019645458",
+      "profileName": "Sim User 5458",
       "inboundId": "wamid.sim.in.text.00285",
-      "at": 1789619982766,
+      "at": 1789626880013,
       "kind": "text",
       "text": "2 jollof rice and 1 chicken j90"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00285",
-      "at": 1789619982771
+      "at": 1789626880017
     },
     {
       "dir": "out",
-      "phone": "2348012628485",
+      "phone": "2348019645458",
       "wamid": "wamid.sim.000440",
       "statuses": [
         "sent"
       ],
-      "at": 1789619982799,
+      "at": 1789626880043,
       "kind": "text",
       "body": "✅ 2 × Jollof Rice\n✅ 1 × Grilled Chicken\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348012628485",
-      "profileName": "Sim User 8485",
+      "phone": "2348019645458",
+      "profileName": "Sim User 5458",
       "inboundId": "wamid.sim.in.text.00286",
-      "at": 1789619983317,
+      "at": 1789626880556,
       "kind": "text",
       "text": "confirm my order j90"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00286",
-      "at": 1789619983322
+      "at": 1789626880560
     },
     {
       "dir": "out",
-      "phone": "2348012628485",
+      "phone": "2348019645458",
       "wamid": "wamid.sim.000441",
       "statuses": [
         "sent"
       ],
-      "at": 1789619983350,
+      "at": 1789626880586,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦8,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348012628485",
-      "profileName": "Sim User 8485",
+      "phone": "2348019645458",
+      "profileName": "Sim User 5458",
       "inboundId": "wamid.sim.in.text.00287",
-      "at": 1789619983869,
+      "at": 1789626881101,
       "kind": "text",
       "text": "1 cash on delivery"
     },
@@ -70,96 +70,96 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00287",
-      "at": 1789619983873
+      "at": 1789626881105
     },
     {
       "dir": "out",
-      "phone": "2348012628485",
+      "phone": "2348019645458",
       "wamid": "wamid.sim.000442",
       "statuses": [
         "sent"
       ],
-      "at": 1789619983910,
+      "at": 1789626881151,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU51J57B*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦8,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💵 *Cash on pickup* — please have ₦8,000.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/0b8d8561-b28a-47d1-be58-39d7b9ea278e.QqmIqEjQX4eI6_Pm99zGrZRh"
+      "body": "🧾 *Pickup Order ORD-MU55MZ55*\n2 × Jollof Rice — ₦2,500.00 each\n1 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦8,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💵 *Cash on pickup* — please have ₦8,000.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/f00ea1fe-1c5b-4797-9d4e-7d3148c75e66.nELLLWVI2hT9vwMZOXDJ6vti"
     },
     {
       "dir": "out",
-      "phone": "2348012628485",
+      "phone": "2348019645458",
       "wamid": "wamid.sim.000443",
       "statuses": [
         "sent"
       ],
-      "at": 1789619983916,
+      "at": 1789626881157,
       "kind": "interactive",
-      "body": "Order ORD-MU51J57B — manage it here:",
+      "body": "Order ORD-MU55MZ55 — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:0b8d8561-b28a-47d1-be58-39d7b9ea278e",
+          "id": "order_track:f00ea1fe-1c5b-4797-9d4e-7d3148c75e66",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:0b8d8561-b28a-47d1-be58-39d7b9ea278e",
+          "id": "order_pay:f00ea1fe-1c5b-4797-9d4e-7d3148c75e66",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:0b8d8561-b28a-47d1-be58-39d7b9ea278e",
+          "id": "order_cancel:f00ea1fe-1c5b-4797-9d4e-7d3148c75e66",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348016913291",
-      "profileName": "Sim User 3291",
+      "phone": "2348014362820",
+      "profileName": "Sim User 2820",
       "inboundId": "wamid.sim.in.text.00288",
-      "at": 1789619984429,
+      "at": 1789626881659,
       "kind": "text",
-      "text": "RIDER_CONFIRM ORD-MU51J57B 5000"
+      "text": "RIDER_CONFIRM ORD-MU55MZ55 5000"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00288",
-      "at": 1789619984507
+      "at": 1789626881663
     },
     {
       "dir": "out",
-      "phone": "2348016913291",
+      "phone": "2348014362820",
       "wamid": "wamid.sim.000444",
       "statuses": [
         "sent"
       ],
-      "at": 1789619984658,
+      "at": 1789626881685,
       "kind": "text",
-      "body": "✅ Recorded 5000.00 for ORD-MU51J57B. Remaining balance: 3000.00."
+      "body": "✅ Recorded 5000.00 for ORD-MU55MZ55. Remaining balance: 3000.00."
     },
     {
       "dir": "in",
-      "phone": "2348016913291",
-      "profileName": "Sim User 3291",
+      "phone": "2348014362820",
+      "profileName": "Sim User 2820",
       "inboundId": "wamid.sim.in.text.00289",
-      "at": 1789619985001,
+      "at": 1789626882215,
       "kind": "text",
-      "text": "RIDER_CONFIRM ORD-MU51J57B 3000"
+      "text": "RIDER_CONFIRM ORD-MU55MZ55 3000"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00289",
-      "at": 1789619985006
+      "at": 1789626882219
     },
     {
       "dir": "out",
-      "phone": "2348016913291",
+      "phone": "2348014362820",
       "wamid": "wamid.sim.000445",
       "statuses": [
         "sent"
       ],
-      "at": 1789619985026,
+      "at": 1789626882246,
       "kind": "text",
-      "body": "✅ Cash for ORD-MU51J57B fully collected (8000.00). State: cash_collected."
+      "body": "✅ Cash for ORD-MU55MZ55 fully collected (8000.00). State: cash_collected."
     }
   ]
 }

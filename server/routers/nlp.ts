@@ -17,6 +17,7 @@ import { invokeLLM } from "../_core/llm";
 import {
   nlpSessions, cartSessions, cartItems, orders, orderItems,
   customers, products, conversations, agentEvents, tenants,
+  telegramIdentities,
 } from "../../drizzle/schema";
 import { paymentTransactions } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
@@ -1484,6 +1485,94 @@ export const nlpRouter = router({
         }
       }
       // === END W41 rma-fx ===
+      // === W43 dispatch (Coder C): post-dispatch address change — buyer
+      // "change my address …" (BOTH channels; telegram inbound feeds this
+      // same engine) + merchant decision via typed command ("ADDR APPROVE
+      // <id>") or approval-card callback ids ("addrchg:approve:<id>" — TG
+      // callback_query dispatches the id here as text; the WA interactive
+      // branch in server/_core/index.ts resolves the same ids). ===
+      {
+        const trimmedMsg = input.message.trim();
+        // ── Merchant decision: card callback id or typed ADDR command ──
+        const cb = /^addrchg:(approve|reject):([0-9a-fA-F-]{36})\s*$/i.exec(trimmedMsg);
+        const typed = /^addr\s+(approve|reject)\s+([0-9a-fA-F-]{8,36})\b[:\-\s]*(.*)$/i.exec(trimmedMsg);
+        const decideMatch = cb ?? typed;
+        if (decideMatch) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          // TG merchant: session key "telegram:<chatId>" → linked staff phone.
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, staffRef).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can approve or reject address changes.";
+          } else {
+            try {
+              const { decideAddressChange } = await import("../services/addressChange");
+              const decided = await decideAddressChange(db, {
+                requestId: decideMatch[2],
+                tenantId: input.tenantId,
+                approve: decideMatch[1].toLowerCase() === "approve",
+                decidedBy: input.waPhoneNumber,
+                note: typed?.[3]?.trim() || undefined,
+              });
+              reply = `Address change ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+            } catch (e: any) {
+              reply = `Could not update that address change: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "address_change_decide", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Buyer: change my address [to …] ──
+        const addrCmd = /^(?:change|update|edit)\s+(?:my\s+)?(?:delivery\s+|shipping\s+)?address\b[\s:,-]*(.*)$/i.exec(trimmedMsg);
+        if (addrCmd) {
+          let reply: string;
+          const remainder = (addrCmd[1] ?? "").replace(/^(?:to|as)\s+/i, "").trim();
+          if (!remainder) {
+            reply = "Sure — please send the new delivery address in one message, e.g. \"change my address to 12 Adeola Odeku St, Victoria Island, Lagos\". (Only orders already out for delivery can be changed.)";
+          } else {
+            try {
+              const { requestAddressChange, parseAddressFromText } = await import("../services/addressChange");
+              // buyerRef: E.164 phone (WA) or "telegram:<chatId>" session key
+              // (TG) — the service resolves linked phones either way.
+              const { req, orderNumber } = await requestAddressChange(db, {
+                tenantId: input.tenantId,
+                buyerRef: input.waPhoneNumber,
+                newAddress: parseAddressFromText(remainder),
+                requestedBy: "customer",
+              });
+              reply = `📍 Got it — your address change for order ${orderNumber} is pending merchant approval ` +
+                `(ref ${req.id.slice(0, 8)}). We'll message you here as soon as it's approved or rejected.` +
+                (req.feeCents > 0 ? ` A fee of ₦${(req.feeCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} applies on approval.` : "");
+            } catch (e: any) {
+              reply = e?.code === "FORBIDDEN"
+                ? "Sorry, this store doesn't allow address changes after dispatch."
+                : e?.code === "CONFLICT"
+                  ? (e?.message ?? "There is already a pending address change for this order.")
+                  : e?.code === "NOT_FOUND"
+                    ? "I couldn't find an order out for delivery on this number — address changes are only possible once your order is on its way."
+                    : `Sorry, I couldn't start that address change just now (${e?.message ?? "unknown error"}).`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "address_change_request", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === END W43 dispatch ===
       // === W27 Coder F: 3f. Wholesale marketplace + group buying commands ===
       // Deterministic, no LLM needed (discoveryMenu.ts exemplar). Parses
       // "wholesale [q]" / "buy <#> <qty>" / "deals" / "join <ref> <qty>" /

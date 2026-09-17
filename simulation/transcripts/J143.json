@@ -7,62 +7,62 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014246692",
-      "profileName": "Sim User 6692",
+      "phone": "2348014683942",
+      "profileName": "Sim User 3942",
       "inboundId": "wamid.sim.in.text.00353",
-      "at": 1789620105426,
+      "at": 1789627005341,
       "kind": "text",
-      "text": "i want these [22c1e556]"
+      "text": "i want these [7f709711]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00353",
-      "at": 1789620105430
+      "at": 1789627005346
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000586",
       "statuses": [
         "sent"
       ],
-      "at": 1789620105462,
+      "at": 1789627005370,
       "kind": "text",
       "body": "✅ 2 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348014246692",
-      "profileName": "Sim User 6692",
+      "phone": "2348014683942",
+      "profileName": "Sim User 3942",
       "inboundId": "wamid.sim.in.text.00354",
-      "at": 1789620105970,
+      "at": 1789627005887,
       "kind": "text",
-      "text": "confirm please [22c1e556]"
+      "text": "confirm please [7f709711]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00354",
-      "at": 1789620105975
+      "at": 1789627005892
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000587",
       "statuses": [
         "sent"
       ],
-      "at": 1789620105997,
+      "at": 1789627005915,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦5,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348014246692",
-      "profileName": "Sim User 6692",
+      "phone": "2348014683942",
+      "profileName": "Sim User 3942",
       "inboundId": "wamid.sim.in.text.00355",
-      "at": 1789620106521,
+      "at": 1789627006434,
       "kind": "text",
       "text": "1"
     },
@@ -70,51 +70,51 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00355",
-      "at": 1789620106526
+      "at": 1789627006444
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000588",
       "statuses": [
         "sent"
       ],
-      "at": 1789620106566,
+      "at": 1789627006491,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU51LRUG*\n2 × Jollof Rice — ₦2,500.00 each\n*Total: ₦5,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/62ddbd78-557f-4032-aa90-494a4d09a848\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/f2a60caa-3d75-4329-97c6-ad0c04c8e904.98M9k-GvOELjUFinsg4tz60g"
+      "body": "🧾 *Pickup Order ORD-MU55PNUW*\n2 × Jollof Rice — ₦2,500.00 each\n*Total: ₦5,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/5cabc38b-5cbb-44c3-a905-150932170b3c\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/5c02b36f-960c-4dd5-9864-c964c699e4ee.I25BlSGhbVGswqyJ3HmOK2Yk"
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000589",
       "statuses": [
         "sent"
       ],
-      "at": 1789620106570,
+      "at": 1789627006498,
       "kind": "interactive",
-      "body": "Order ORD-MU51LRUG — manage it here:",
+      "body": "Order ORD-MU55PNUW — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:f2a60caa-3d75-4329-97c6-ad0c04c8e904",
+          "id": "order_track:5c02b36f-960c-4dd5-9864-c964c699e4ee",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:f2a60caa-3d75-4329-97c6-ad0c04c8e904",
+          "id": "order_pay:5c02b36f-960c-4dd5-9864-c964c699e4ee",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:f2a60caa-3d75-4329-97c6-ad0c04c8e904",
+          "id": "order_cancel:5c02b36f-960c-4dd5-9864-c964c699e4ee",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348014246692",
-      "profileName": "Sim User 6692",
+      "phone": "2348014683942",
+      "profileName": "Sim User 3942",
       "inboundId": "wamid.sim.in.text.00356",
-      "at": 1789620112403,
+      "at": 1789627012440,
       "kind": "text",
       "text": "POINTS"
     },
@@ -122,25 +122,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00356",
-      "at": 1789620112407
+      "at": 1789627012445
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000590",
       "statuses": [
         "sent"
       ],
-      "at": 1789620112438,
+      "at": 1789627012476,
       "kind": "text",
       "body": "🎁 You have *50 loyalty points*. Earn 1 pt per ₦100 spent (points vest on delivery). Redeem at checkout with \"redeem points\" — up to 20% off your order."
     },
     {
       "dir": "in",
-      "phone": "2348014246692",
-      "profileName": "Sim User 6692",
+      "phone": "2348014683942",
+      "profileName": "Sim User 3942",
       "inboundId": "wamid.sim.in.text.00357",
-      "at": 1789620112949,
+      "at": 1789627012986,
       "kind": "text",
       "text": "redeem points"
     },
@@ -148,67 +148,67 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00357",
-      "at": 1789620112953
+      "at": 1789627012991
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000591",
       "statuses": [
         "sent"
       ],
-      "at": 1789620112980,
+      "at": 1789627013019,
       "kind": "text",
       "body": "👍 I'll apply your loyalty points to your next checkout (up to the store's cap). Send your order when ready!"
     },
     {
       "dir": "in",
-      "phone": "2348014246692",
-      "profileName": "Sim User 6692",
+      "phone": "2348014683942",
+      "profileName": "Sim User 3942",
       "inboundId": "wamid.sim.in.text.00358",
-      "at": 1789620113493,
+      "at": 1789627013531,
       "kind": "text",
-      "text": "confirm again [5cb19441]"
+      "text": "confirm again [2701244e]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00358",
-      "at": 1789620113497
+      "at": 1789627013535
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000592",
       "statuses": [
         "sent"
       ],
-      "at": 1789620113550,
+      "at": 1789627013587,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU51LX8B*\n2 × Jollof Rice — ₦2,500.00 each\n*Total: ₦4,950.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/7e0d4d1d-499e-4752-aac9-4428d143050f\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/f9667bbe-7796-487f-8ee4-d6a3279a48d4.b1arbuEefOzkzNymR8bXtOIk\n🎁 Redeemed 50 pts (−₦50.00). Points balance: 0."
+      "body": "🧾 *Pickup Order ORD-MU55PTBZ*\n2 × Jollof Rice — ₦2,500.00 each\n*Total: ₦4,950.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/22e2082c-64a3-4dd1-a879-b11db05b861c\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/ddc6cea7-54f2-42bc-a49a-8f09a2895a3b.I_eKs0pAVG9WBtP9GKOah9uy\n🎁 Redeemed 50 pts (−₦50.00). Points balance: 0."
     },
     {
       "dir": "out",
-      "phone": "2348014246692",
+      "phone": "2348014683942",
       "wamid": "wamid.sim.000593",
       "statuses": [
         "sent"
       ],
-      "at": 1789620113554,
+      "at": 1789627013591,
       "kind": "interactive",
-      "body": "Order ORD-MU51LX8B — manage it here:",
+      "body": "Order ORD-MU55PTBZ — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:f9667bbe-7796-487f-8ee4-d6a3279a48d4",
+          "id": "order_track:ddc6cea7-54f2-42bc-a49a-8f09a2895a3b",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:f9667bbe-7796-487f-8ee4-d6a3279a48d4",
+          "id": "order_pay:ddc6cea7-54f2-42bc-a49a-8f09a2895a3b",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:f9667bbe-7796-487f-8ee4-d6a3279a48d4",
+          "id": "order_cancel:ddc6cea7-54f2-42bc-a49a-8f09a2895a3b",
           "title": "Cancel Order"
         }
       ]

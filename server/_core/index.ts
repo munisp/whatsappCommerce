@@ -1112,6 +1112,82 @@ async function startServer() {
     }
   });
 
+  // === W43 dispatch (Coder C): courier proof-of-delivery capture ─────────
+  // POST /api/delivery/proof — base64 JSON body:
+  //   { tenantId, orderId, type?, imageBase64?, mimeType?, mediaUrl?,
+  //     capturedByDriverId?, idempotencyKey? }
+  // Auth: per-tenant courier token — tenants.settings.dispatch.courierToken
+  // or the DELIVERY_PROOF_TOKEN env fallback, presented as
+  // "x-delivery-proof-token". Fail-CLOSED when no token is configured (a POD
+  // gates the money-relevant delivered transition). Media bytes reuse the
+  // existing WA media storage path (storagePut). Idempotent on
+  // idempotencyKey — courier retries return the original proof.
+  app.post("/api/delivery/proof", express.json({ limit: "12mb" }), async (req, res) => {
+    try {
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const body = (req.body ?? {}) as Record<string, any>;
+      const tenantId = typeof body.tenantId === "string" ? body.tenantId : "";
+      const orderId = typeof body.orderId === "string" ? body.orderId : "";
+      if (!tenantId || !orderId) return res.status(400).json({ error: "tenantId and orderId are required" });
+
+      const [tenantRow] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId)).limit(1).catch(() => [] as any[]);
+      if (!tenantRow) return res.status(404).json({ error: "tenant-not-found" });
+      const settings = (tenantRow.settings ?? null) as any;
+      const expected: string | null =
+        (typeof settings?.dispatch?.courierToken === "string" && settings.dispatch.courierToken.trim()) ||
+        (process.env.DELIVERY_PROOF_TOKEN?.trim() || null);
+      if (!expected) {
+        console.error("[delivery-proof] no courier token configured (tenant settings.dispatch.courierToken or DELIVERY_PROOF_TOKEN) — refusing");
+        return res.status(503).json({ error: "proof-capture-not-configured" });
+      }
+      const presented = ((req.headers["x-delivery-proof-token"] as string) ?? "").trim();
+      if (presented !== expected) {
+        console.warn("[delivery-proof] invalid courier token — rejected");
+        return res.status(401).json({ error: "invalid-token" });
+      }
+
+      const type = ["photo", "signature", "otp"].includes(body.type) ? body.type : "photo";
+      let mediaBuffer: Buffer | null = null;
+      const mimeType: string | null = typeof body.mimeType === "string" ? body.mimeType : "image/jpeg";
+      if (typeof body.imageBase64 === "string" && body.imageBase64.length > 0) {
+        mediaBuffer = Buffer.from(body.imageBase64, "base64");
+        if (mediaBuffer.length === 0 || mediaBuffer.length > 8 * 1024 * 1024) {
+          return res.status(400).json({ error: "imageBase64 must decode to 1..8MiB" });
+        }
+      }
+      if (!mediaBuffer && typeof body.mediaUrl !== "string") {
+        return res.status(400).json({ error: "imageBase64 or mediaUrl is required" });
+      }
+
+      const { recordDeliveryProof } = await import("../services/deliveryProof");
+      const result = await recordDeliveryProof(db, {
+        tenantId,
+        orderId,
+        type,
+        mediaBuffer,
+        mimeType,
+        mediaUrl: typeof body.mediaUrl === "string" ? body.mediaUrl : null,
+        capturedByDriverId: typeof body.capturedByDriverId === "string" ? body.capturedByDriverId : null,
+        capturedVia: "endpoint",
+        idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey : null,
+        fulfillmentId: typeof body.fulfillmentId === "string" ? body.fulfillmentId : null,
+      });
+      return res.json({
+        ok: true,
+        proofId: result.proof.id,
+        duplicate: result.duplicate,
+        delivered: result.delivered,
+        mediaUrl: result.proof.mediaUrl,
+      });
+    } catch (err: any) {
+      if (err?.code === "NOT_FOUND") return res.status(404).json({ error: err.message });
+      console.error("[delivery-proof]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W43 dispatch ===
+
   // ── Shipbubble delivery webhook (/api/webhooks/shipbubble) ────────────────
   app.post("/api/webhooks/shipbubble", express.raw({ type: "application/json" }), async (req, res) => {
     try {
@@ -1148,6 +1224,27 @@ async function startServer() {
       const [shipment] = await db.select().from(logisticsShipments)
         .where(eq(logisticsShipments.trackingId, trackingId));
       if (!shipment) return res.status(200).json({ received: true, notFound: true });
+      // === W43 dispatch (Coder C): tenants.requirePod gates → delivered.
+      // When the tenant requires proof-of-delivery and none exists yet, the
+      // shipment advances to out_for_delivery instead and the carrier is told
+      // to capture POD (POST /api/delivery/proof). Flag OFF (default) =
+      // pre-W43 behavior byte-identical. ===
+      if (newStatus === "delivered") {
+        const { podDeliveryGate } = await import("../services/deliveryProof");
+        const gate = await podDeliveryGate(db, shipment.tenantId, shipment.orderId);
+        if (gate.required && !gate.satisfied) {
+          const podNow = new Date();
+          await db.update(logisticsShipments).set({
+            status: "out_for_delivery",
+            outForDeliveryAt: shipment.outForDeliveryAt ?? podNow,
+            webhookPayloads: sql`webhook_payloads || ${JSON.stringify([{ ...payload, receivedAt: podNow.toISOString(), podRequired: true }])}::jsonb`,
+            updatedAt: podNow,
+          }).where(eq(logisticsShipments.id, shipment.id));
+          console.log(`[shipbubble-webhook] delivered blocked: POD required (order=${shipment.orderId})`);
+          return res.status(200).json({ received: true, podRequired: true });
+        }
+      }
+      // === END W43 dispatch ===
       const now = new Date();
       const tsField: Record<string, object> = {
         picked_up: { pickedUpAt: now }, in_transit: { inTransitAt: now },
@@ -1600,6 +1697,39 @@ async function startServer() {
               }
               continue;
             }
+            // === W43 dispatch (Coder C): merchant address-change approval
+            // card buttons (addrchg:approve:<id> / addrchg:reject:<id>) resolve
+            // here; any other id falls through unchanged. TG inline-keyboard
+            // taps carry the SAME ids into the NLP engine (see routers/nlp.ts).
+            if ((reply?.id ?? "").startsWith("addrchg:")) {
+              try {
+                const m = /^addrchg:(approve|reject):([0-9a-fA-F-]{36})$/i.exec(reply!.id);
+                let cardReply = "Sorry, that address-change link is no longer valid.";
+                if (m) {
+                  const { isTenantStaffPhone } = await import("../services/catalogAI");
+                  const isStaff = await isTenantStaffPhone(db, tenantId, waPhoneNumber).catch(() => false);
+                  if (!isStaff) {
+                    cardReply = "Sorry, only store staff can approve or reject address changes.";
+                  } else {
+                    const { decideAddressChange } = await import("../services/addressChange");
+                    const decided = await decideAddressChange(db, {
+                      requestId: m[2],
+                      tenantId,
+                      approve: m[1].toLowerCase() === "approve",
+                      decidedBy: waPhoneNumber,
+                    });
+                    cardReply = `Address change ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+                  }
+                }
+                await sendWhatsAppText(tenantId, waPhoneNumber, cardReply)
+                  .catch((e: any) => console.error("[whatsapp-webhook] addrchg reply send error:", e?.message));
+              } catch (e: any) {
+                await sendWhatsAppText(tenantId, waPhoneNumber, `Could not update that address change: ${e?.message ?? "unknown error"}`)
+                  .catch(() => {});
+              }
+              continue;
+            }
+            // === END W43 dispatch ===
             const { handleInteractiveInbound } = await import("../services/useCases");
             const outcome = await handleInteractiveInbound({
               db,
@@ -2093,6 +2223,19 @@ async function startServer() {
                     return { handled: false } as { handled: boolean; outcome?: string };
                   });
                 if (stOutcome?.handled && stOutcome.outcome !== "disabled") return;
+                // === W43 dispatch (Coder C): proof-of-delivery photo. Claims
+                // the image ONLY when the sender has an order in the
+                // awaiting-POD state (tenant requirePod + shipment
+                // out_for_delivery/in_transit); anything else falls through
+                // to visual search unchanged. ===
+                const { handleInboundPodImage } = await import("../services/deliveryProof");
+                const podOutcome = await handleInboundPodImage({ tenantId, waPhoneNumber, mediaId, caption })
+                  .catch((e: any) => {
+                    console.error("[whatsapp-webhook] POD capture error:", e?.message);
+                    return { handled: false } as { handled: boolean };
+                  });
+                if (podOutcome?.handled) return;
+                // === END W43 dispatch ===
                 await handleInboundProductImage({ tenantId, waPhoneNumber, mediaId })
                   .catch((e: any) => console.error("[whatsapp-webhook] visual search error:", e?.message));
               })

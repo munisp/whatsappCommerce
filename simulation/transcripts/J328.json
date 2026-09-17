@@ -1,0 +1,8 @@
+{
+  "id": "J328",
+  "title": "exchange negative delta → wallet credit (W41 creditWallet)",
+  "feature": "exchange price-delta refund via customer wallet",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

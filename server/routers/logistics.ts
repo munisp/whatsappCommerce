@@ -533,6 +533,17 @@ export const logisticsRouter = router({
           providedPin: input.pin ?? null,
           isAdmin: (ctx as any)?.user?.role === "admin",
         });
+        // === W43 dispatch (Coder C): tenants.requirePod gates → delivered.
+        // Flag OFF (default) = pre-W43 behavior unchanged. ===
+        const { podDeliveryGate } = await import("../services/deliveryProof");
+        const gate = await podDeliveryGate(db, shipment.tenantId, shipment.orderId);
+        if (gate.required && !gate.satisfied) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Proof of delivery is required before this order can be marked delivered (capture a POD photo first).",
+          });
+        }
+        // === END W43 dispatch ===
       }
 
       const now = new Date();
