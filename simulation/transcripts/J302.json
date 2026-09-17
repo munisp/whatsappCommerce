@@ -7,14 +7,14 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348015211273",
+      "phone": "2348016021385",
       "wamid": "wamid.sim.000766",
       "statuses": [
         "sent"
       ],
-      "at": 1789611212228,
+      "at": 1789620288518,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302-A26E (reason: wrong item). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302-502B (reason: wrong item). The merchant will review it shortly."
     },
     {
       "dir": "out",
@@ -23,20 +23,20 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611212233,
+      "at": 1789620288522,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302-A26E (reason: wrong item). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302-502B (reason: wrong item). The merchant will review it shortly."
     },
     {
       "dir": "out",
-      "phone": "2348015211273",
+      "phone": "2348016021385",
       "wamid": "wamid.sim.000768",
       "statuses": [
         "sent"
       ],
-      "at": 1789611212277,
+      "at": 1789620288542,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302b-F289 (reason: no longer needed). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302b-3AB0 (reason: no longer needed). The merchant will review it shortly."
     },
     {
       "dir": "out",
@@ -45,9 +45,9 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611212282,
+      "at": 1789620288545,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j302b-F289 (reason: no longer needed). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j302b-3AB0 (reason: no longer needed). The merchant will review it shortly."
     }
   ]
 }

@@ -1,16 +1,16 @@
 {
   "id": "J45",
   "title": "secrets transparent round-trip",
-  "feature": "v1: envelope at rest, decrypted on the wire, legacy passthrough",
+  "feature": "v2:<kid> envelope at rest, decrypted on the wire, legacy v1 passthrough",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014850178",
-      "profileName": "Sim User 0178",
+      "phone": "2348018671375",
+      "profileName": "Sim User 1375",
       "inboundId": "wamid.sim.in.text.00176",
-      "at": 1789610749182,
+      "at": 1789619820502,
       "kind": "text",
       "text": "menu"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00176",
-      "at": 1789610749186
+      "at": 1789619820506
     },
     {
       "dir": "out",
-      "phone": "2348014850178",
+      "phone": "2348018671375",
       "wamid": "wamid.sim.000294",
       "statuses": [
         "sent"
       ],
-      "at": 1789610749204,
+      "at": 1789619820524,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -48,10 +48,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348013585629",
-      "profileName": "Sim User 5629",
+      "phone": "2348018762104",
+      "profileName": "Sim User 2104",
       "inboundId": "wamid.sim.in.text.00177",
-      "at": 1789610749732,
+      "at": 1789619821055,
       "kind": "text",
       "text": "menu"
     },
@@ -59,16 +59,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00177",
-      "at": 1789610749737
+      "at": 1789619821058
     },
     {
       "dir": "out",
-      "phone": "2348013585629",
+      "phone": "2348018762104",
       "wamid": "wamid.sim.000295",
       "statuses": [
         "sent"
       ],
-      "at": 1789610749753,
+      "at": 1789619821081,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -89,10 +89,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348013896625",
-      "profileName": "Sim User 6625",
+      "phone": "2348015709934",
+      "profileName": "Sim User 9934",
       "inboundId": "wamid.sim.in.text.00178",
-      "at": 1789610750289,
+      "at": 1789619821617,
       "kind": "text",
       "text": "menu"
     },
@@ -100,16 +100,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00178",
-      "at": 1789610750293
+      "at": 1789619821623
     },
     {
       "dir": "out",
-      "phone": "2348013896625",
+      "phone": "2348015709934",
       "wamid": "wamid.sim.000296",
       "statuses": [
         "sent"
       ],
-      "at": 1789610750306,
+      "at": 1789619821649,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",

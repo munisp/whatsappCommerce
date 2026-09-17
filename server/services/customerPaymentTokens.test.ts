@@ -101,7 +101,7 @@ describe("saveCustomerToken (consent-gated, encrypted, never a PAN)", () => {
     const row = await saveCustomerToken(db, base);
     expect(row.tokenEnc).not.toBe(base.token);
     expect(isEncrypted(row.tokenEnc)).toBe(true);
-    expect(row.tokenEnc.startsWith("v1:")).toBe(true);
+    expect(row.tokenEnc).toMatch(/^v2:[^:]+:/); // W42: v2:<kid> envelope
     expect(decryptSecret(row.tokenEnc)).toBe(base.token);
     expect(row.consentText).toBe(base.consentText);
     expect(row.status).toBe("active");

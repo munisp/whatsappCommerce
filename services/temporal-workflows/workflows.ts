@@ -9,6 +9,51 @@
  * Deploy: temporal worker start --task-queue whatsapp-commerce
  */
 
+// ─── Workflow Versioning (W42 / PLT-10) ───────────────────────────────────────
+// @temporalio/workflow is not a declared dependency in this repo (only the
+// client is), so Temporal's `patch()` API is unavailable at typecheck time.
+// These DETERMINISTIC version constants are the in-repo versioning story:
+// every behavior-changing edit to a workflow MUST bump that workflow's
+// version and add a `versionGate("<change-id>", <version>)` branch at the
+// change point so replays of in-flight histories stay deterministic.
+// When @temporalio/workflow is added, swap versionGate() call sites for
+// `patched("<change-id>")` — the change ids below are chosen to carry over.
+
+export const WORKFLOW_VERSIONS = {
+  tenantOnboarding: 2,
+  orderFulfillment: 2,
+  inventorySync: 1,
+  broadcastCampaign: 1,
+} as const;
+
+export type WorkflowName = keyof typeof WORKFLOW_VERSIONS;
+
+/** Worker build id (Temporal worker versioning). Overridable per deploy. */
+export const WORKER_BUILD_ID =
+  process.env.TEMPORAL_WORKER_BUILD_ID ??
+  `whatsapp-commerce@${Object.values(WORKFLOW_VERSIONS).join(".")}`;
+
+/**
+ * Deterministic version gate, `patched()`-compatible in shape: returns true
+ * when the running code version for `workflow` is >= `minVersion`. Replay
+ * safety comes from the rule that old code paths are never deleted below the
+ * recorded version — exactly the discipline Temporal's patch() enforces.
+ */
+export function versionGate(
+  workflow: WorkflowName,
+  changeId: string,
+  minVersion: number
+): boolean {
+  const current = WORKFLOW_VERSIONS[workflow];
+  const isNew = current >= minVersion;
+  if (!isNew) {
+    console.log(
+      `[workflow-version] ${workflow} replaying pre-${changeId} history (v${current} < v${minVersion})`
+    );
+  }
+  return isNew;
+}
+
 // ─── Type Definitions ─────────────────────────────────────────────────────────
 export interface TenantOnboardingInput {
   tenantId: string;
@@ -41,88 +86,123 @@ export interface BroadcastCampaignInput {
   scheduledAt: string;
 }
 
-// ─── Activity Stubs ───────────────────────────────────────────────────────────
-// In production, these call your tRPC/REST endpoints or database directly.
+// ─── Activity Handlers (W42 / PLT-10: auto-approve stubs REMOVED) ─────────────
+// The previous revision of this file carried console.log stubs whose
+// waitForKycApproval() returned the FIXED value "approved" and
+// confirmPayment()/reserveInventory() returned fixed `true` — deploying the
+// worker with those stubs would have auto-approved KYC and auto-confirmed
+// payments. That is gone. Activities are now:
+//   1. REAL handlers registered via registerActivityHandlers() — the worker
+//      (worker.ts) wires its API-backed implementations at boot; OR
+//   2. HONEST FAILURES: with no handler registered, every activity throws
+//      `activity_not_wired`. Money/KYC paths NEVER fabricate success.
 
-export const activities = {
-  // KYC Activities
-  async submitKycForReview(applicationId: string): Promise<void> {
-    console.log(`[temporal] Submitting KYC application ${applicationId} for review`);
-    // POST /api/trpc/kyc.submit
+export type KycDecision = "approved" | "rejected" | "resubmit_required";
+
+export interface ActivityHandlers {
+  submitKycForReview(applicationId: string): Promise<void>;
+  waitForKycApproval(applicationId: string): Promise<KycDecision>;
+  setupBillingPlan(tenantId: string, model: string): Promise<void>;
+  validateWhatsAppCredentials(tenantId: string): Promise<boolean>;
+  activateTenant(tenantId: string): Promise<void>;
+  sendWelcomeMessage(tenantId: string, email: string): Promise<void>;
+  confirmPayment(orderId: string): Promise<boolean>;
+  reserveInventory(items: OrderFulfillmentInput["items"]): Promise<boolean>;
+  syncOrderToOdoo(orderId: string): Promise<void>;
+  sendOrderConfirmationWhatsApp(orderId: string, phone: string): Promise<void>;
+  pullOdooStock(odooUrl: string, odooDb: string): Promise<Record<string, number>>;
+  updateInventorySnapshots(stockData: Record<string, number>): Promise<number>;
+  sendLowStockAlerts(lowStockItems: string[]): Promise<void>;
+  buildAudience(campaignId: string): Promise<string[]>;
+  sendBroadcastBatch(campaignId: string, recipients: string[], templateId: string): Promise<number>;
+}
+
+let _handlers: ActivityHandlers | null = null;
+
+/** Wire real activity implementations (worker.ts calls this at boot). */
+export function registerActivityHandlers(handlers: ActivityHandlers): void {
+  _handlers = handlers;
+}
+
+/** Test/diagnostics: true when real handlers are wired. */
+export function hasActivityHandlers(): boolean {
+  return _handlers !== null;
+}
+
+function notWired(name: keyof ActivityHandlers): never {
+  throw new Error(
+    `[temporal] activity_not_wired: "${String(name)}" has no registered handler. ` +
+      `Refusing to fabricate a result (the W36 auto-approve stub was removed in W42). ` +
+      `Register real handlers via registerActivityHandlers() — worker.ts does this at boot.`
+  );
+}
+
+function wired<K extends keyof ActivityHandlers>(name: K): ActivityHandlers[K] {
+  return (_handlers?.[name] ?? (() => notWired(name))) as ActivityHandlers[K];
+}
+
+export const activities: ActivityHandlers = {
+  async submitKycForReview(applicationId) {
+    return wired("submitKycForReview")(applicationId);
   },
 
-  async waitForKycApproval(applicationId: string): Promise<"approved" | "rejected" | "resubmit_required"> {
-    console.log(`[temporal] Polling KYC status for ${applicationId}`);
-    // Poll /api/trpc/kyc.getApplication every 30s until status changes
-    return "approved"; // stub
+  async waitForKycApproval(applicationId) {
+    // NEVER returns a fixed "approved" — a real handler polls
+    // kyc.getApplication and throws while the decision is still pending.
+    return wired("waitForKycApproval")(applicationId);
   },
 
-  // Billing Activities
-  async setupBillingPlan(tenantId: string, model: string): Promise<void> {
-    console.log(`[temporal] Setting up ${model} billing for tenant ${tenantId}`);
+  async setupBillingPlan(tenantId, model) {
+    return wired("setupBillingPlan")(tenantId, model);
   },
 
-  // WhatsApp Activities
-  async validateWhatsAppCredentials(tenantId: string): Promise<boolean> {
-    console.log(`[temporal] Validating WhatsApp credentials for ${tenantId}`);
-    return true;
+  async validateWhatsAppCredentials(tenantId) {
+    return wired("validateWhatsAppCredentials")(tenantId);
   },
 
-  async activateTenant(tenantId: string): Promise<void> {
-    console.log(`[temporal] Activating tenant ${tenantId}`);
-    // PATCH /api/trpc/tenant.update { status: "active" }
+  async activateTenant(tenantId) {
+    return wired("activateTenant")(tenantId);
   },
 
-  async sendWelcomeMessage(tenantId: string, email: string): Promise<void> {
-    console.log(`[temporal] Sending welcome email to ${email}`);
+  async sendWelcomeMessage(tenantId, email) {
+    return wired("sendWelcomeMessage")(tenantId, email);
   },
 
-  // Order Activities
-  async confirmPayment(orderId: string): Promise<boolean> {
-    console.log(`[temporal] Confirming payment for order ${orderId}`);
-    return true;
+  // Order Activities — money path: NEVER auto-true without a wired handler.
+  async confirmPayment(orderId) {
+    return wired("confirmPayment")(orderId);
   },
 
-  async reserveInventory(items: OrderFulfillmentInput["items"]): Promise<boolean> {
-    console.log(`[temporal] Reserving inventory for ${items.length} items`);
-    // Uses atomic SQL oversell guard
-    return true;
+  async reserveInventory(items) {
+    return wired("reserveInventory")(items);
   },
 
-  async syncOrderToOdoo(orderId: string): Promise<void> {
-    console.log(`[temporal] Syncing order ${orderId} to Odoo ERP`);
+  async syncOrderToOdoo(orderId) {
+    return wired("syncOrderToOdoo")(orderId);
   },
 
-  async sendOrderConfirmationWhatsApp(orderId: string, phone: string): Promise<void> {
-    console.log(`[temporal] Sending order confirmation to ${phone}`);
+  async sendOrderConfirmationWhatsApp(orderId, phone) {
+    return wired("sendOrderConfirmationWhatsApp")(orderId, phone);
   },
 
-  // Inventory Activities
-  async pullOdooStock(odooUrl: string, odooDb: string): Promise<Record<string, number>> {
-    console.log(`[temporal] Pulling stock from Odoo at ${odooUrl}`);
-    return {}; // stub: returns { productId: quantity }
+  async pullOdooStock(odooUrl, odooDb) {
+    return wired("pullOdooStock")(odooUrl, odooDb);
   },
 
-  async updateInventorySnapshots(stockData: Record<string, number>): Promise<number> {
-    console.log(`[temporal] Updating ${Object.keys(stockData).length} inventory snapshots`);
-    return Object.keys(stockData).length;
+  async updateInventorySnapshots(stockData) {
+    return wired("updateInventorySnapshots")(stockData);
   },
 
-  async sendLowStockAlerts(lowStockItems: string[]): Promise<void> {
-    if (lowStockItems.length > 0) {
-      console.log(`[temporal] Sending low-stock alerts for ${lowStockItems.length} items`);
-    }
+  async sendLowStockAlerts(lowStockItems) {
+    return wired("sendLowStockAlerts")(lowStockItems);
   },
 
-  // Broadcast Activities
-  async buildAudience(campaignId: string): Promise<string[]> {
-    console.log(`[temporal] Building audience for campaign ${campaignId}`);
-    return []; // stub: returns list of phone numbers
+  async buildAudience(campaignId) {
+    return wired("buildAudience")(campaignId);
   },
 
-  async sendBroadcastBatch(campaignId: string, recipients: string[], templateId: string): Promise<number> {
-    console.log(`[temporal] Sending batch of ${recipients.length} messages for campaign ${campaignId}`);
-    return recipients.length;
+  async sendBroadcastBatch(campaignId, recipients, templateId) {
+    return wired("sendBroadcastBatch")(campaignId, recipients, templateId);
   },
 };
 
@@ -136,7 +216,11 @@ export const activities = {
  * Timeout: 7 days (KYC review can take time)
  */
 export async function TenantOnboardingWorkflow(input: TenantOnboardingInput): Promise<void> {
-  console.log(`[workflow] TenantOnboarding started for ${input.tenantId}`);
+  console.log(`[workflow] TenantOnboarding started for ${input.tenantId} (v${WORKFLOW_VERSIONS.tenantOnboarding})`);
+
+  // W42 change marker "no-auto-approve-kyc": v2 requires a wired KYC handler;
+  // v1 replay histories (stub era) are retired — see WORKFLOW_VERSIONS notes.
+  versionGate("tenantOnboarding", "no-auto-approve-kyc", 2);
 
   // Step 1: Submit KYC for review
   await activities.submitKycForReview(input.kycApplicationId);
@@ -175,7 +259,11 @@ export async function TenantOnboardingWorkflow(input: TenantOnboardingInput): Pr
  * Timeout: 1 hour
  */
 export async function OrderFulfillmentWorkflow(input: OrderFulfillmentInput): Promise<void> {
-  console.log(`[workflow] OrderFulfillment started for order ${input.orderId}`);
+  console.log(`[workflow] OrderFulfillment started for order ${input.orderId} (v${WORKFLOW_VERSIONS.orderFulfillment})`);
+
+  // W42 change marker "no-auto-confirm-payment": payment confirmation must
+  // come from a wired handler reading the real payment status.
+  versionGate("orderFulfillment", "no-auto-confirm-payment", 2);
 
   const paymentOk = await activities.confirmPayment(input.orderId);
   if (!paymentOk) throw new Error(`Payment failed for order ${input.orderId}`);

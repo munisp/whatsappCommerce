@@ -12,7 +12,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611173695,
+      "at": 1789620249512,
       "kind": "text",
       "body": "⚠️ Telegram message dead-lettered after 4 attempts.\nChat: 770101\nKind: text\nError: {\"ok\":false,\"error_code\":400,\"description\":\"sim: hostStatus 400\"}"
     },
@@ -23,7 +23,7 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789611173706,
+      "at": 1789620249521,
       "kind": "text",
       "body": "⚠️ Telegram message dead-lettered after 4 attempts.\nChat: 770101\nKind: text\nError: {\"ok\":false,\"error_code\":503,\"description\":\"sim: hostStatus 503\"}"
     }

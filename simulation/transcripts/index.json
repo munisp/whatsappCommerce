@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T02:14:00.086Z",
+  "generatedAt": "2026-09-17T04:45:23.220Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -1260,7 +1260,7 @@
     },
     {
       "id": "J234",
-      "title": "telegram bot token: v1: encrypted round-trip via existing crypto helpers",
+      "title": "telegram bot token: v2:<kid> encrypted round-trip via existing crypto helpers",
       "feature": "W37 telegram outbound: tenant token storage parity with whatsapp.accessToken",
       "pass": true,
       "file": "J234.json",
@@ -1717,7 +1717,7 @@
     {
       "id": "J287",
       "title": "installment down payment activates plan + consented token save (UC-1/UC-6)",
-      "feature": "runBuyerCreditWebhookHook: exactly-once activation; consent token saved v1:-encrypted; replay no-op",
+      "feature": "runBuyerCreditWebhookHook: exactly-once activation; consent token saved v2:<kid>-encrypted; replay no-op",
       "pass": true,
       "file": "J287.json",
       "messageCount": 1
@@ -1749,7 +1749,7 @@
     {
       "id": "J290",
       "title": "customer payment token consent + list + revoke (UC-6)",
-      "feature": "customerPaymentTokens: consent fail-closed, v1: encryption, masked list, revoke → charge refused",
+      "feature": "customerPaymentTokens: consent fail-closed, v2:<kid> encryption, masked list, revoke → charge refused",
       "pass": true,
       "file": "J290.json",
       "messageCount": 0
@@ -1878,7 +1878,7 @@
       "id": "J305",
       "title": "dual-currency rendering (catalog + order summary)",
       "feature": "formatPriceDual wired into chat builders; display-only conversion",
-      "pass": false,
+      "pass": true,
       "file": "J305.json",
       "messageCount": 6
     },
@@ -1891,6 +1891,30 @@
       "messageCount": 10
     },
     {
+      "id": "J307",
+      "title": "WA webhook persists DLQ row before ack",
+      "feature": "wa_webhook_events DLQ insert on inbound webhook",
+      "pass": true,
+      "file": "J307.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J308",
+      "title": "publish/ingest failure never silently acked",
+      "feature": "unsigned webhook 401 + fluvio publish failure counter",
+      "pass": true,
+      "file": "J308.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J309",
+      "title": "wacommerce.* events reach the Fluvio consumer's broker",
+      "feature": "PLT-5 fluvio side-publish of platform events",
+      "pass": true,
+      "file": "J309.json",
+      "messageCount": 0
+    },
+    {
       "id": "J31",
       "title": "procurement menu browse",
       "feature": "waMenu procurement → supplier directory → wholesale catalog",
@@ -1899,12 +1923,108 @@
       "messageCount": 15
     },
     {
+      "id": "J310",
+      "title": "WA DLQ fallback durable across restart + replay",
+      "feature": "PLT-12 durable fallback (JSONL) + replay into wa_webhook_events",
+      "pass": true,
+      "file": "J310.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J311",
+      "title": "dead-letter replay path (alert + retry reset)",
+      "feature": "PLT-12 ops alert on DLQ-insert failure + failed-row requeue",
+      "pass": true,
+      "file": "J311.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J312",
+      "title": "Secrets rotation reads old+new generations",
+      "feature": "versioned keyring: multi-version read, current-kid write, re-encrypt sweep",
+      "pass": true,
+      "file": "J312.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J313",
+      "title": "OTP attempt cap shared across replicas",
+      "feature": "PLT-11 distributed OTP/PIN attempt counters",
+      "pass": true,
+      "file": "J313.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J314",
+      "title": "Wrong-scope cron JWT rejected",
+      "feature": "PLT-13 per-route cron JWT scope claims",
+      "pass": true,
+      "file": "J314.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J315",
+      "title": "Cron JWT jti replay rejected",
+      "feature": "PLT-13 jti replay protection with short exp",
+      "pass": true,
+      "file": "J315.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J316",
+      "title": "TLS misconfig honest error",
+      "feature": "PLT-14 rejectUnauthorized=true + CA bundle env override",
+      "pass": true,
+      "file": "J316.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J317",
+      "title": "temporal workflow version markers",
+      "feature": "WORKFLOW_VERSIONS + versionGate change markers + worker buildId",
+      "pass": true,
+      "file": "J317.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J318",
+      "title": "PG integration profile honest-skip",
+      "feature": "PG_INTEGRATION=1 gate: honest skip without real PG, never fake pass",
+      "pass": true,
+      "file": "J318.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J319",
+      "title": "withRetry client-swap ends old pool",
+      "feature": "leak fix: old pool ended before swap; DB recreated + usable",
+      "pass": true,
+      "file": "J319.json",
+      "messageCount": 0
+    },
+    {
       "id": "J32",
       "title": "PO build + submit",
       "feature": "poFlow chat → submitted PO + supplier approval card",
       "pass": true,
       "file": "J32.json",
       "messageCount": 31
+    },
+    {
+      "id": "J320",
+      "title": "pool queue bound sheds load",
+      "feature": "PG_POOL_QUEUE_MAX fast-fail: DB_POOL_QUEUE_SATURATED instead of unbounded queue",
+      "pass": true,
+      "file": "J320.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J321",
+      "title": "temporal auto-approve stubs removed",
+      "feature": "unwired activities honestly fail; never return fixed approved/true",
+      "pass": true,
+      "file": "J321.json",
+      "messageCount": 0
     },
     {
       "id": "J33",
@@ -2005,7 +2125,7 @@
     {
       "id": "J45",
       "title": "secrets transparent round-trip",
-      "feature": "v1: envelope at rest, decrypted on the wire, legacy passthrough",
+      "feature": "v2:<kid> envelope at rest, decrypted on the wire, legacy v1 passthrough",
       "pass": true,
       "file": "J45.json",
       "messageCount": 9

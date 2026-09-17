@@ -1,0 +1,8 @@
+{
+  "id": "J310",
+  "title": "WA DLQ fallback durable across restart + replay",
+  "feature": "PLT-12 durable fallback (JSONL) + replay into wa_webhook_events",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

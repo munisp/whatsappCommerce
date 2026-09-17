@@ -1,0 +1,8 @@
+{
+  "id": "J320",
+  "title": "pool queue bound sheds load",
+  "feature": "PG_POOL_QUEUE_MAX fast-fail: DB_POOL_QUEUE_SATURATED instead of unbounded queue",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

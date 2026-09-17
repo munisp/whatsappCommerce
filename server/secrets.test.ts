@@ -38,10 +38,13 @@ describe("encryptSecret/decryptSecret", () => {
     expect(decryptSecret(ct)).toBe("super-secret-token");
   });
 
-  it("produces the v1:<iv>:<tag>:<ct> envelope format with base64 parts", () => {
+  it("produces the v2:<kid>:<iv>:<tag>:<ct> envelope format with base64 parts (W42)", () => {
     const ct = encryptSecret("x");
-    expect(ct.startsWith("v1:")).toBe(true);
-    const [iv, tag, body] = ct.slice(3).split(":");
+    // W42 (PLT-9): writes are addressed to the current kid (legacy single
+    // SECRETS_MASTER_KEY registers as kid "k1").
+    expect(ct.startsWith("v2:k1:")).toBe(true);
+    const [kid, iv, tag, body] = ct.slice(3).split(":");
+    expect(kid).toBe("k1");
     expect(Buffer.from(iv, "base64")).toHaveLength(12); // 96-bit GCM nonce
     expect(Buffer.from(tag, "base64")).toHaveLength(16); // 128-bit auth tag
     expect(body.length).toBeGreaterThan(0);
@@ -89,9 +92,14 @@ describe("isEncrypted", () => {
     expect(isEncrypted(encryptSecret("x"))).toBe(true);
   });
 
+  it("is true for legacy v1: and current v2: envelope prefixes (W42)", () => {
+    expect(isEncrypted("v1:abc:def:ghi")).toBe(true);
+    expect(isEncrypted("v2:k1:abc:def:ghi")).toBe(true);
+  });
+
   it("is false for plaintext values", () => {
     expect(isEncrypted("plain")).toBe(false);
-    expect(isEncrypted("v2:something")).toBe(false);
+    expect(isEncrypted("v3:something")).toBe(false);
   });
 });
 
@@ -99,11 +107,12 @@ describe("isEncrypted", () => {
 
 describe("tamper detection", () => {
   function tamper(ct: string, part: 0 | 1 | 2): string {
-    const parts = ct.slice(3).split(":");
-    const target = parts[part];
+    // v2:<kid>:<iv>:<tag>:<ct> — flip one base64 char of the chosen part.
+    const [kid, ...rest] = ct.slice(3).split(":");
+    const target = rest[part];
     const flipped = (target.startsWith("A") ? "B" : "A") + target.slice(1);
-    parts[part] = flipped;
-    return `v1:${parts.join(":")}`;
+    rest[part] = flipped;
+    return `v2:${kid}:${rest.join(":")}`;
   }
 
   it("throws when a ciphertext byte is flipped", () => {
@@ -223,8 +232,8 @@ describe("no-secret-in-logs guard", () => {
       }),
     );
     try {
-      // Tampered ciphertext → throws.
-      const tampered = `v1:${ct.slice(3).split(":").map((p, i) => (i === 2 ? p.slice(0, -2) + "AA" : p)).join(":")}`;
+      // Tampered ciphertext → throws (v2 envelope: kid:iv:tag:ct).
+      const tampered = ct.slice(0, -2) + "AA";
       expect(() => decryptSecret(tampered)).toThrow();
       // Wrong key → throws.
       vi.stubEnv("SECRETS_MASTER_KEY", OTHER_KEY_B64);

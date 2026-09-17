@@ -589,6 +589,18 @@ class SDKServer {
           if (!isNonEmptyString(taskUid)) {
             throw ForbiddenError("Cron session missing task_uid");
           }
+          // === W42 (PLT-13) === per-route scope + jti replay protection.
+          // Scope mismatch / replay / over-long lifetime all fail closed.
+          try {
+            const { assertCronClaimsHardened } = await import("./cronAuth");
+            await assertCronClaimsHardened(claims, req.path ?? "");
+          } catch (err) {
+            if (err instanceof Error && err.name === "CronAuthError") {
+              throw ForbiddenError(err.message);
+            }
+            throw err;
+          }
+          // === END W42 (PLT-13) ===
           // === W34 otel-core === tag the (traceparent-linked) cron span. The
           // scheduler sends a `traceparent` header per fire; http
           // instrumentation extracts it, so the cron route span shares the

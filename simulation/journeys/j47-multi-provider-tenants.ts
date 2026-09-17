@@ -103,14 +103,14 @@ export const journey: Journey = {
     assert((chainB[0].creds as any).secretKey === FLW_SECRET_KEY, "tenant B creds decrypt back to the flw secret");
     assert((chainB[0].creds as any).secretHash === FLW_SECRET_HASH, "tenant B creds carry the flw secret hash");
 
-    // At rest the secret is AES-256-GCM encrypted (v1: envelope, no plaintext).
+    // At rest the secret is AES-256-GCM encrypted (W42: v2:<kid> key-versioned envelope, no plaintext).
     const [rowB] = await world.db
       .select()
       .from(schema.paymentGatewayConfigs)
       .where(and(eq(schema.paymentGatewayConfigs.tenantId, SUPPLIER_TENANT_ID), eq(schema.paymentGatewayConfigs.provider, "flutterwave")))
       .limit(1);
     assert(rowB, "tenant B config row persisted");
-    assert(typeof rowB.secretKey === "string" && rowB.secretKey.startsWith("v1:"), "tenant B secretKey encrypted at rest");
+    assert(typeof rowB.secretKey === "string" && rowB.secretKey.startsWith("v2:k1:"), "tenant B secretKey encrypted at rest");
     assert(!rowB.secretKey.includes(FLW_SECRET_KEY), "no plaintext secret at rest");
 
     // ── Tenant A checkout → platform's paystack link ────────────────────────

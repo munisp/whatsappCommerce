@@ -1,0 +1,8 @@
+{
+  "id": "J318",
+  "title": "PG integration profile honest-skip",
+  "feature": "PG_INTEGRATION=1 gate: honest skip without real PG, never fake pass",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

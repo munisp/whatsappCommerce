@@ -3,7 +3,7 @@
  * J290 — Token save / consent / list / revoke:
  *   1. Saving without explicit consent is refused (fail closed); a PAN-like
  *      value is refused.
- *   2. A consented save stores the token v1:-encrypted (never plaintext)
+ *   2. A consented save stores the token v2:<kid>-encrypted (never plaintext)
  *      and list returns only safe fields.
  *   3. Revoke flips active → revoked; charging a revoked token fails closed.
  */
@@ -14,7 +14,7 @@ import type { Journey } from "../runner";
 export const journey: Journey = {
   id: "J290",
   name: "customer payment token consent + list + revoke (UC-6)",
-  feature: "customerPaymentTokens: consent fail-closed, v1: encryption, masked list, revoke → charge refused",
+  feature: "customerPaymentTokens: consent fail-closed, v2:<kid> encryption, masked list, revoke → charge refused",
   async run(world: World) {
     const schema = await import("../../drizzle/schema");
     const tokensSvc = await import("../../server/services/customerPaymentTokens");
@@ -49,7 +49,7 @@ export const journey: Journey = {
       consentText: tokensSvc.tokenConsentPrompt("Dev card •••• 0290"),
     });
     assert(saved.id, "token saved");
-    assert(saved.tokenEnc.startsWith("v1:"), "stored encrypted v1:");
+    assert(saved.tokenEnc.startsWith("v2:k1:"), "stored encrypted v2:<kid>");
     assert(!saved.tokenEnc.includes("fake-auth-j290"), "never plaintext");
     assert(secrets.decryptSecret(saved.tokenEnc) === "fake-auth-j290", "decrypts to the handle");
 

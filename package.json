@@ -16,6 +16,7 @@
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "simulate": "tsx simulation/runner.ts",
+    "test:pg-integration": "tsx scripts/pg-integration-money-paths.ts",
     "simulate:gallery": "tsx simulation/render/generate.ts"
   },
   "dependencies": {

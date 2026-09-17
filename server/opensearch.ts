@@ -10,6 +10,7 @@
  * Falls back gracefully when OPENSEARCH_URL is not configured.
  */
 import { ENV } from "./_core/env";
+import { buildTlsOptions } from "./_core/tlsConfig";
 
 type OSClient = import("@opensearch-project/opensearch").Client;
 
@@ -29,7 +30,9 @@ async function getClient(): Promise<OSClient | null> {
     _client = new Client({
       node: ENV.opensearchUrl,
       auth: { username: ENV.opensearchUser, password: ENV.opensearchPass },
-      ssl: { rejectUnauthorized: false },
+      // W42 (PLT-14): verify certs by default; OPENSEARCH_TLS_CA provides a
+      // private-CA bundle (docs/TLS.md).
+      ssl: buildTlsOptions("OpenSearch", "OPENSEARCH"),
       requestTimeout: 10000,
     });
     return _client;

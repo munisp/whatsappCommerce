@@ -358,9 +358,9 @@ describe("registry", () => {
       creds: { secretKey: "sk_live_secret", webhookSecret: "wh_live", publicKey: "pk_x" },
       priority: 7,
     });
-    expect(lastInsertValues.secretKey).toMatch(/^v1:/);
+    expect(lastInsertValues.secretKey).toMatch(/^v2:[^:]+:/); // W42: v2:<kid> envelope
     expect(lastInsertValues.secretKey).not.toContain("sk_live_secret");
-    expect(lastInsertValues.webhookSecret).toMatch(/^v1:/);
+    expect(lastInsertValues.webhookSecret).toMatch(/^v2:[^:]+:/); // W42: v2:<kid> envelope
     expect(lastInsertValues.priority).toBe(7);
     // Simulate reading the stored row back through the registry.
     configRows = [row({ secretKey: lastInsertValues.secretKey, webhookSecret: lastInsertValues.webhookSecret, publicKey: "pk_x", priority: 7 })];

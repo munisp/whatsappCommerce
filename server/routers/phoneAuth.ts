@@ -24,7 +24,7 @@ import { eq, and, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "crypto";
 import { TRPCError } from "@trpc/server";
-import { ENV } from "../_core/env";
+import { ENV, isProd } from "../_core/env";
 import { sendOtpEmail } from "../services/email/resend";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,17 +88,34 @@ export function verifyOtpHash(stored: string, otp: string, pepper: string = otpP
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// ── OTP attempt caps (W26 security) ──────────────────────────────────────────
+// ── OTP attempt caps (W26 security; W42/PLT-11 distributed counters) ────────
 // Per-session cap (3 attempts) is enforced in verifyOtp below. These
 // per-phone fixed-window caps stop an attacker from simply requesting fresh
-// sessions to reset the per-session counter. In-memory (per-instance); the
-// OTP hash itself plus the per-session cap remain the primary controls.
+// sessions to reset the per-session counter. W42: counters are DISTRIBUTED —
+// backed by the shared Redis counter (redisIncrExStrict) so the cap holds
+// across every platform replica (previously per-replica memory let an
+// attacker multiply the cap by the replica count). Policy on Redis outage:
+// production fails CLOSED (503-style error; a blind cap is no cap),
+// dev/test falls back to the in-memory maps with a warning so local dev
+// without Redis keeps working. The OTP hash + per-session cap remain the
+// primary controls.
 const MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR = 10;
 const MAX_OTP_SENDS_PER_PHONE_PER_HOUR = 5;
+const OTP_COUNTER_WINDOW_SECONDS = 3600;
 const phoneVerifyAttempts = new Map<string, { windowStart: number; count: number }>();
 const phoneSendCounts = new Map<string, { windowStart: number; count: number }>();
 
-function bumpPhoneCounter(map: Map<string, { windowStart: number; count: number }>, phone: string, limit: number): boolean {
+/** Minimal atomic counter surface (Redis INCR+EXPIRE or a test double). */
+export interface OtpCounterStore {
+  incr(key: string, ttlSeconds: number): Promise<number>;
+}
+let injectedCounterStore: OtpCounterStore | null = null;
+/** Test/sim hook: share one store across "replica" module instances. */
+export function __setOtpCounterStoreForTest(store: OtpCounterStore | null): void {
+  injectedCounterStore = store;
+}
+
+function bumpPhoneCounterMemory(map: Map<string, { windowStart: number; count: number }>, phone: string, limit: number): boolean {
   const now = Date.now();
   const entry = map.get(phone);
   if (!entry || now - entry.windowStart >= 3_600_000) {
@@ -107,6 +124,28 @@ function bumpPhoneCounter(map: Map<string, { windowStart: number; count: number 
   }
   entry.count += 1;
   return entry.count <= limit;
+}
+
+export async function bumpPhoneCounter(kind: "send" | "verify", phone: string, limit: number): Promise<boolean> {
+  const key = `otp:${kind}:phone:${phone}`;
+  if (injectedCounterStore) {
+    return (await injectedCounterStore.incr(key, OTP_COUNTER_WINDOW_SECONDS)) <= limit;
+  }
+  try {
+    const { redisIncrExStrict } = await import("../_core/rateLimit");
+    return (await redisIncrExStrict(key, OTP_COUNTER_WINDOW_SECONDS)) <= limit;
+  } catch (e: any) {
+    if (isProd) {
+      // Fail closed: without a shared counter the cap is per-replica and
+      // effectively bypassable — refuse rather than pretend to limit.
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "OTP attempt limiting is temporarily unavailable. Try again shortly.",
+      });
+    }
+    console.warn(`[phoneAuth] Redis counter unavailable (${e?.message ?? e}) — dev in-memory cap fallback`);
+    return bumpPhoneCounterMemory(kind === "send" ? phoneSendCounts : phoneVerifyAttempts, phone, limit);
+  }
 }
 
 export function normalisePhone(phone: string): string {
@@ -197,7 +236,7 @@ export const phoneAuthRouter = router({
       const expiresAt = now + 10 * 60 * 1000; // 10 minutes
 
       // W26 security: per-phone hourly send cap (stops OTP flooding/SMS toll abuse).
-      if (!bumpPhoneCounter(phoneSendCounts, phone, MAX_OTP_SENDS_PER_PHONE_PER_HOUR)) {
+      if (!(await bumpPhoneCounter("send", phone, MAX_OTP_SENDS_PER_PHONE_PER_HOUR))) {
         throw new TRPCError({
           code: "TOO_MANY_REQUESTS",
           message: "Too many OTP requests for this phone number. Try again later.",
@@ -299,7 +338,7 @@ export const phoneAuthRouter = router({
       if (!verifyOtpHash(session.otpHash, input.otp)) {
         // W26 security: per-phone hourly verify cap (fresh sessions cannot
         // reset the per-session attempt counter to brute-force the code).
-        if (!bumpPhoneCounter(phoneVerifyAttempts, session.phone, MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR)) {
+        if (!(await bumpPhoneCounter("verify", session.phone, MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR))) {
           await db.delete(phoneOtpSessions).where(eq(phoneOtpSessions.id, input.sessionId));
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",

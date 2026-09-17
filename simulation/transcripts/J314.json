@@ -1,0 +1,8 @@
+{
+  "id": "J314",
+  "title": "Wrong-scope cron JWT rejected",
+  "feature": "PLT-13 per-route cron JWT scope claims",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

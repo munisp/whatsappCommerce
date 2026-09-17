@@ -331,21 +331,52 @@ export async function bootWorld(): Promise<World> {
     installFetchMock();
     onWaSend((call, wamid, failStatus) => recorder.recordOutbound(call, wamid, failStatus));
 
-    // 3. Embedded Postgres (PGlite) + socket server + migrations.
-    const { PGlite } = await import("@electric-sql/pglite");
-    const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
-    const pg = new PGlite();
-    await pg.waitReady;
+    // 3. Postgres + migrations. Default: embedded PGlite over a socket server.
+    // === W42 pg-integration (PLT-15) ===
+    // When SIM_DATABASE_URL points at a REAL PostgreSQL (e.g. the
+    // docker-compose postgres:16 service via scripts/pg-integration-money-paths.ts),
+    // boot against it instead of PGlite so money-path journeys exercise real
+    // PG behavior (advisory locks, SKIP LOCKED, deferrable/partial indexes).
+    // The database is MIGRATED then DROPPED-and-RECREATED clean by the caller
+    // script; here we just migrate + connect.
     const migDir = path.resolve(process.cwd(), "drizzle"); // cwd = repo root under tsx/vitest
     const migFiles = fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort();
-    for (const f of migFiles) {
-      const sqlText = fs.readFileSync(path.join(migDir, f), "utf8");
-      for (const stmt of sqlText.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) {
-        await pg.exec(stmt);
+    const migStatements = migFiles.flatMap((f) =>
+      fs.readFileSync(path.join(migDir, f), "utf8")
+        .split("--> statement-breakpoint")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
+    const externalPgUrl = process.env.SIM_DATABASE_URL;
+    let pg: { query: (text: string, params?: any[]) => Promise<any>; close: () => Promise<void> };
+    let pgServer: { stop: () => Promise<void> } | null = null;
+    if (externalPgUrl) {
+      const { default: postgresClient } = await import("postgres");
+      const mig = postgresClient(externalPgUrl, { max: 1 });
+      for (const stmt of migStatements) {
+        await mig.unsafe(stmt);
       }
+      await mig.end();
+      setEnv("DATABASE_URL", externalPgUrl);
+      setEnv("PG_POOL_MAX", process.env.PG_POOL_MAX ?? "4");
+      const sqlClient = postgresClient(externalPgUrl, { max: 2 });
+      pg = {
+        query: async (text, params) => sqlClient.unsafe(text, params ?? []),
+        close: async () => { await sqlClient.end(); },
+      };
+    } else {
+      const { PGlite } = await import("@electric-sql/pglite");
+      const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
+      const embedded = new PGlite();
+      await embedded.waitReady;
+      for (const stmt of migStatements) {
+        await embedded.exec(stmt);
+      }
+      pg = embedded as unknown as typeof pg;
+      pgServer = new PGLiteSocketServer({ db: embedded, port: pglitePort, host: "127.0.0.1" });
+      await pgServer.start();
     }
-    const pgServer = new PGLiteSocketServer({ db: pg, port: pglitePort, host: "127.0.0.1" });
-    await pgServer.start();
+    // === END W42 pg-integration ===
 
     const authServer = await startAuthMock(authPort);
 
@@ -362,8 +393,26 @@ export async function bootWorld(): Promise<World> {
     if (!up) throw new Error("sim server did not come up");
 
     const { getDb } = await import("../server/db");
-    const db = await getDb();
-    if (!db) throw new Error("getDb() returned null against PGlite");
+    const bootDb = await getDb();
+    if (!bootDb) throw new Error("getDb() returned null against PGlite");
+    // === W42 merger: live db handle ===
+    // W42 (PLT-17) added resetDbConnection(): a withRetry transient swap now
+    // ENDS the old postgres.js pool. A boot-time-captured drizzle handle would
+    // silently bind to that dead pool after any swap (J319 proved it). The
+    // world therefore exposes a PROXY that resolves every property access
+    // against the CURRENT pool (server/db keeps __currentDb updated whenever
+    // getDb() creates a new drizzle instance).
+    const { __currentDb } = await import("../server/db");
+    __currentDb.db = bootDb;
+    type LiveDb = NonNullable<typeof bootDb>;
+    const db = new Proxy({} as LiveDb, {
+      get(_t, prop) {
+        const cur = (__currentDb.db ?? bootDb) as LiveDb;
+        const v = (cur as any)[prop];
+        return typeof v === "function" ? v.bind(cur) : v;
+      },
+    }) as LiveDb;
+    // === END W42 merger ===
 
     const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -413,7 +462,7 @@ export async function bootWorld(): Promise<World> {
       pg,
       async stop() {
         authServer.close();
-        await pgServer.stop();
+        await pgServer?.stop();
         await pg.close();
       },
 

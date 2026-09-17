@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, like, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { buildTlsOptions } from "./_core/tlsConfig";
 import {
   InsertUser, users,
   tenants, InsertTenant, Tenant,
@@ -21,6 +22,14 @@ import { ENV } from "./_core/env";
 let _db: ReturnType<typeof drizzle<Record<string, never>>> | null = null;
 let _client: ReturnType<typeof postgres> | null = null;
 
+/**
+ * W42 merger: live-pointer to the CURRENT drizzle instance. Updated every
+ * time getDb() (re)creates the pool — lets long-lived holders (the sim
+ * world) follow withRetry/resetDbConnection pool swaps instead of binding
+ * to an ended client.
+ */
+export const __currentDb: { db: ReturnType<typeof drizzle<Record<string, never>>> | null } = { db: null };
+
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -36,16 +45,84 @@ export async function getDb() {
         idle_timeout: 30,
         connect_timeout: 10,
         max_lifetime: 1800,
-        ssl: connStr!.includes("sslmode=require") ? { rejectUnauthorized: false } : undefined,
+        // W42 (PLT-17): bound slow-query pile-ups at the session level so a
+        // stuck query cannot occupy a pooled connection (and queue every
+        // request behind it) indefinitely. Values are server-side ms.
+        connection: {
+          statement_timeout: parseInt(process.env.PG_STATEMENT_TIMEOUT_MS ?? "", 10) || 30_000,
+          lock_timeout: parseInt(process.env.PG_LOCK_TIMEOUT_MS ?? "", 10) || 10_000,
+          idle_in_transaction_session_timeout:
+            parseInt(process.env.PG_IDLE_TX_TIMEOUT_MS ?? "", 10) || 60_000,
+        },
+        // W42 (PLT-14): verify certs by default; PG_TLS_CA provides a
+        // private-CA bundle, PG_TLS_REJECT_UNAUTHORIZED=false is the loud
+        // dev-only escape hatch (docs/TLS.md).
+        ssl: connStr!.includes("sslmode=require") ? buildTlsOptions("Postgres", "PG") : undefined,
         transform: { undefined: null },
       });
       _db = drizzle(_client);
+      __currentDb.db = _db;
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
     }
   }
   return _db;
+}
+
+// ─── W42 (PLT-17): bounded retry queue + leak-free client swap ───────────────
+// postgres.js queues pending queries internally with NO depth limit; under a
+// slow-query pile-up requests queue until client timeout, masked as 5xx. We
+// bound the ops that go through withRetry(): when the in-flight/queued count
+// exceeds PG_POOL_QUEUE_MAX (default 4× pool max, floor 25) the operation is
+// rejected immediately with `db_pool_queue_saturated` instead of hanging.
+let _queuedOps = 0;
+let _poolResets = 0;
+
+function poolQueueMax(): number {
+  const explicit = parseInt(process.env.PG_POOL_QUEUE_MAX ?? "", 10);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const poolMax = parseInt(process.env.PG_POOL_MAX ?? "", 10);
+  return Math.max((Number.isFinite(poolMax) && poolMax > 0 ? poolMax : 10) * 4, 25);
+}
+
+/** Diagnostics/health: current number of ops inside withRetry(). */
+export function getDbQueueDepth(): number {
+  return _queuedOps;
+}
+
+/** Diagnostics/health: configured queue bound. */
+export function getDbQueueMax(): number {
+  return poolQueueMax();
+}
+
+/** Diagnostics: how many times a live pool was ended+swapped (leak guard). */
+export function getDbPoolResetCount(): number {
+  return _poolResets;
+}
+
+/**
+ * Swap the pooled client without leaking it: end the OLD client's sockets
+ * before clearing references. Previously withRetry() nulled `_db`/`_client`
+ * and dropped the old pool on the floor — its connections stayed open until
+ * PG/server reaped them, leaking sockets under error bursts.
+ */
+export async function resetDbConnection(reason = "unspecified"): Promise<void> {
+  const oldClient = _client;
+  _db = null;
+  _client = null;
+  if (oldClient) {
+    _poolResets++; // pinned by J319: a swap must END the old pool, not drop it
+    try {
+      // Bounded wait — a wedged pool must not hang the retry loop forever.
+      await Promise.race([
+        oldClient.end({ timeout: 5 }),
+        new Promise((r) => setTimeout(r, 5_000)),
+      ]);
+    } catch (err: any) {
+      console.warn(`[DB] Failed to end old pool during reset (${reason}):`, err?.message ?? err);
+    }
+  }
 }
 
 /**
@@ -57,28 +134,44 @@ export async function withRetry<T>(
   retries = 3,
   baseDelayMs = 200
 ): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      lastErr = err;
-      const isTransient =
-        err?.code === "ECONNRESET" ||
-        err?.code === "ECONNREFUSED" ||
-        err?.code === "ETIMEDOUT" ||
-        err?.message?.includes("connection") ||
-        err?.message?.includes("timeout");
-      if (!isTransient || attempt === retries - 1) throw err;
-      const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 50;
-      console.warn(`[DB] Transient error (attempt ${attempt + 1}/${retries}), retrying in ${Math.round(delay)}ms:`, err?.message);
-      await new Promise(r => setTimeout(r, delay));
-      // Reset connection on transient errors
-      _db = null;
-      _client = null;
-    }
+  // W42 (PLT-17): shed load instead of queueing unboundedly behind a
+  // saturated pool. This is NOT a connection limit (postgres.js `max` already
+  // bounds connections) — it bounds *queued work* so a pile-up fails fast.
+  if (_queuedOps >= poolQueueMax()) {
+    const err = new Error(
+      `db_pool_queue_saturated: ${_queuedOps}/${poolQueueMax()} ops in flight — rejecting instead of queueing`
+    ) as Error & { code: string; statusCode: number };
+    err.code = "DB_POOL_QUEUE_SATURATED";
+    err.statusCode = 503;
+    throw err;
   }
-  throw lastErr;
+  _queuedOps++;
+  try {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastErr = err;
+        const isTransient =
+          err?.code === "ECONNRESET" ||
+          err?.code === "ECONNREFUSED" ||
+          err?.code === "ETIMEDOUT" ||
+          err?.message?.includes("connection") ||
+          err?.message?.includes("timeout");
+        if (!isTransient || attempt === retries - 1) throw err;
+        const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 50;
+        console.warn(`[DB] Transient error (attempt ${attempt + 1}/${retries}), retrying in ${Math.round(delay)}ms:`, err?.message);
+        await new Promise(r => setTimeout(r, delay));
+        // W42 (PLT-17): end the old pool's sockets BEFORE swapping references
+        // — previously the old client was dropped un-ended and leaked.
+        await resetDbConnection("transient-error-retry");
+      }
+    }
+    throw lastErr;
+  } finally {
+    _queuedOps--;
+  }
 }
 
 // ─── User Helpers ─────────────────────────────────────────────────────────────

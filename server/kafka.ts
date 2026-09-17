@@ -9,6 +9,19 @@
  *   wacommerce.hermes.po     — Hermes PO draft events
  *
  * Falls back gracefully when KAFKA_BROKERS is not configured.
+ *
+ * === W42 PLT-5 broker-drift fix ===
+ * The only in-repo consumer of the wacommerce.* topics is
+ * services/fluvio-consumer, which polls the FLUVIO REST proxy
+ * (GET {FLUVIO_ENDPOINT}/topics/{topic}/records) — it does NOT read Kafka.
+ * The KafkaJS publishes below therefore had no consumer (broker drift:
+ * order/payment/inventory events were silently void). Minimal real fix:
+ * side-publish every event to the Fluvio REST produce endpoint
+ * (POST /topics/{topic}/produce — the same contract as the API gateway's Go
+ * Fluvio producer, services/gateway/internal/fluvio/producer.go) so the
+ * deployed consumer actually receives them. Kafka publish is kept for the
+ * Kafka-native services (webhook-ingestor / message-processor).
+ * Fluvio publish is fail-open but LOUD (warn + failure counter).
  */
 import { ENV } from "./_core/env";
 
@@ -185,11 +198,48 @@ export interface KafkaEvent {
   value: Record<string, unknown>;
 }
 
+// === W42 PLT-5 === observable failure counter (surfaced via kafkaHealthCheck
+// and assertable in journeys) — drift failures are loud, not silent.
+let fluvioPublishFailures = 0;
+export function getFluvioPublishFailureCount(): number {
+  return fluvioPublishFailures;
+}
+
+/**
+ * Side-publish events to the Fluvio REST produce endpoint so the deployed
+ * fluvio-consumer (the only in-repo consumer of wacommerce.*) actually
+ * receives them. No-op when FLUVIO_ENDPOINT is unset. Never throws.
+ */
+export async function publishFluvioEvents(events: KafkaEvent[]): Promise<void> {
+  const endpoint = (process.env.FLUVIO_ENDPOINT ?? "").trim();
+  if (!endpoint || events.length === 0) return;
+  const base = endpoint.replace(/\/+$/, "");
+  await Promise.all(events.map(async (e) => {
+    try {
+      const res = await fetch(`${base}/topics/${encodeURIComponent(e.topic)}/produce`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: e.key ?? null, value: JSON.stringify({ ...e.value, _ts: Date.now() }) }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) {
+        fluvioPublishFailures++;
+        console.warn(`[Kafka→Fluvio] produce topic=${e.topic} -> HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      fluvioPublishFailures++;
+      console.warn(`[Kafka→Fluvio] produce topic=${e.topic} failed:`, err?.message);
+    }
+  }));
+}
+// === END W42 PLT-5 ===
+
 /** Publish one or more events to Kafka. Best-effort — never throws. */
 export async function publishEvents(events: KafkaEvent[]): Promise<void> {
   const producer = await getProducer();
-  if (!producer) return;
-  try {
+  // W42 PLT-5: no early return when Kafka is down/unconfigured — the Fluvio
+  // side-publish below must still run so the deployed consumer gets events.
+  if (producer) try {
     // === W35 kafka-otel ===
     // Per-topic `kafka.produce` span + traceparent header injection (INSIDE
     // the span, so headers carry the produce span's context) — the Rust
@@ -220,6 +270,9 @@ export async function publishEvents(events: KafkaEvent[]): Promise<void> {
   } catch (err: any) {
     console.warn("[Kafka] publishEvents failed:", err.message);
   }
+  // === W42 PLT-5 === deliver the same events to the Fluvio consumer's broker
+  // (independent of the Kafka outcome; fail-open but counted + logged).
+  await publishFluvioEvents(events);
 }
 
 /** Publish a single typed platform event. */

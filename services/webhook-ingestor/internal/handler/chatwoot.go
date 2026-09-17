@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,7 +14,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/whatsapp-commerce/webhook-ingestor/internal/config"
-	"github.com/whatsapp-commerce/webhook-ingestor/internal/kafka"
 	"github.com/whatsapp-commerce/webhook-ingestor/internal/store"
 	"go.uber.org/zap"
 )
@@ -45,16 +45,36 @@ type ChatwootSender struct {
 	Type        string `json:"type"`
 }
 
+// Publisher abstracts the Kafka producer so handlers can be unit-tested
+// with a failing publisher (W42 PLT-6).
+type Publisher interface {
+	Publish(ctx context.Context, topic, key string, payload interface{}) error
+}
+
 // Handler holds dependencies for webhook processing.
 type Handler struct {
 	cfg      *config.Config
 	db       *store.DB
-	producer *kafka.Producer
+	producer Publisher
 	logger   *zap.Logger
 }
 
-func New(cfg *config.Config, db *store.DB, producer *kafka.Producer, logger *zap.Logger) *Handler {
+func New(cfg *config.Config, db *store.DB, producer Publisher, logger *zap.Logger) *Handler {
 	return &Handler{cfg: cfg, db: db, producer: producer, logger: logger}
+}
+
+// publishOrFail publishes the event envelope and, on broker failure, writes a
+// retryable 503 instead of acking (W42 PLT-6: a 200-ack on a failed publish
+// permanently drops the event — Chatwoot/Mojaloop/Twenty/Odoo all retry 5xx).
+// Returns true when the event was accepted by the broker.
+func (h *Handler) publishOrFail(c *gin.Context, topic, key string, envelope map[string]interface{}) bool {
+	if err := h.producer.Publish(c.Request.Context(), topic, key, envelope); err != nil {
+		h.logger.Error("event publish failed — returning retryable 503",
+			zap.Error(err), zap.String("topic", topic))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "event publish failed — retry"})
+		return false
+	}
+	return true
 }
 
 // HandleChatwoot processes inbound Chatwoot webhooks.
@@ -129,9 +149,7 @@ func (h *Handler) HandleChatwoot(c *gin.Context) {
 
 	// Publish to Kafka topic: prd.eu1.chat.message.received.v1
 	topic := fmt.Sprintf("chat.message.received.v1")
-	if err := h.producer.Publish(c.Request.Context(), topic, tenant.ID.String(), envelope); err != nil {
-		h.logger.Error("failed to publish event", zap.Error(err), zap.String("topic", topic))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "event publish failed"})
+	if !h.publishOrFail(c, topic, tenant.ID.String(), envelope) {
 		return
 	}
 
@@ -200,7 +218,9 @@ func (h *Handler) HandleMojaloopCallback(c *gin.Context) {
 		"payload":         payload,
 	}
 
-	h.producer.Publish(c.Request.Context(), "payment.mojaloop.callback.received.v1", tenant.ID.String(), envelope)
+	if !h.publishOrFail(c, "payment.mojaloop.callback.received.v1", tenant.ID.String(), envelope) {
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "accepted"})
 }
 
@@ -234,7 +254,9 @@ func (h *Handler) HandleTwentyWebhook(c *gin.Context) {
 		"payload":       payload,
 	}
 
-	h.producer.Publish(c.Request.Context(), "crm.twenty.event.received.v1", tenant.ID.String(), envelope)
+	if !h.publishOrFail(c, "crm.twenty.event.received.v1", tenant.ID.String(), envelope) {
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "accepted"})
 }
 
@@ -268,7 +290,9 @@ func (h *Handler) HandleOdooWebhook(c *gin.Context) {
 		"payload":       payload,
 	}
 
-	h.producer.Publish(c.Request.Context(), "erp.odoo.event.received.v1", tenant.ID.String(), envelope)
+	if !h.publishOrFail(c, "erp.odoo.event.received.v1", tenant.ID.String(), envelope) {
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "accepted"})
 }
 

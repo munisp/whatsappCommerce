@@ -1,10 +1,10 @@
 // === W37 telegram (Coder A) ===
 /**
- * J234 — tenant bot token encrypted round-trip REUSING the existing v1:
+ * J234 — tenant bot token encrypted round-trip REUSING the existing (W42: v2:<kid>)
  * crypto helpers (crypto/secrets — the same scheme whatsapp.accessToken
  * uses; no new crypto).
  *
- *   1. encryptSecret → v1: envelope; stored in settings.telegram.botToken;
+ *   1. encryptSecret → v2:<kid> envelope; stored in settings.telegram.botToken;
  *      resolveTenantTelegramCredentials decrypts back to the exact token.
  *   2. Legacy plaintext passthrough (decryptSecret contract) still resolves.
  *   3. Tampered ciphertext → GCM auth failure → credential resolution fails
@@ -26,7 +26,7 @@ async function setTelegramSettings(world: World, tg: Record<string, unknown>) {
 
 export const journey: Journey = {
   id: "J234",
-  name: "telegram bot token: v1: encrypted round-trip via existing crypto helpers",
+  name: "telegram bot token: v2:<kid> encrypted round-trip via existing crypto helpers",
   feature: "W37 telegram outbound: tenant token storage parity with whatsapp.accessToken",
   async run(world: World) {
     const tg = await import("../../server/services/telegramSender");
@@ -37,11 +37,11 @@ export const journey: Journey = {
 
     // ── 1. Encrypted round-trip ────────────────────────────────────────
     const stored = encryptSecret(TOKEN);
-    assert(isEncrypted(stored) && stored.startsWith("v1:"), "v1: envelope produced");
+    assert(isEncrypted(stored) && stored.startsWith("v2:k1:"), "v2:<kid> envelope produced");
     assert(!stored.includes(TOKEN), "token never stored in plaintext");
     await setTelegramSettings(world, { botToken: stored, enabled: true });
     const creds = await tg.resolveTenantTelegramCredentials(TENANT_ID);
-    assert(creds?.botToken === TOKEN, "resolver decrypts v1: token exactly");
+    assert(creds?.botToken === TOKEN, "resolver decrypts v2:<kid> token exactly");
     // The resolved token actually works against the Bot API base URL.
     const send = await tg.sendTelegramText(TENANT_ID, CHAT, "crypto round-trip");
     assert(send.sent === true, "live send with decrypted token");
