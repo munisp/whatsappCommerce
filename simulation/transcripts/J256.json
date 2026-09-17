@@ -2,7 +2,7 @@
   "id": "J256",
   "title": "pay over time: timeout mid-charge never double-charges or double-settles",
   "feature": "W38 pay-over-time reconciliation",
-  "pass": false,
+  "pass": true,
   "businessName": "Simply Green (simulated tenant)",
   "messages": []
 }

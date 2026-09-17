@@ -358,14 +358,22 @@ describe("channels: multi-channel messaging workflows", () => {
 // MARKETPLACE WORKFLOWS
 // ═══════════════════════════════════════════════════════════════════════════════
 describe("marketplace: multi-seller marketplace workflows", () => {
-  it("registerSeller: anonymous user can register as seller", async () => {
-    const result = await caller(makeAnonCtx()).marketplace.registerSeller({
+  it("registerSeller: anonymous registration is rejected (W40 TEN-11)", async () => {
+    // W40: arbitrary-tenant anonymous seller registration (bank details into
+    // a victim tenant's seller list) was removed — the procedure now
+    // requires an authenticated merchant on their OWN tenant with approved
+    // KYB. Anonymous callers are rejected at the auth gate.
+    await expect(caller(makeAnonCtx()).marketplace.registerSeller({
       tenantId: "t1",
       businessName: "Kano Grains Ltd",
       ownerPhone: "+2348098765432",
-      businessType: "distributor",
-    });
-    expect(result).toBeDefined();
+    })).rejects.toThrow();
+    // Cross-tenant: an authenticated merchant of t2 cannot register into t1.
+    await expect(caller(makeTenantOwnerCtx("t2")).marketplace.registerSeller({
+      tenantId: "t1",
+      businessName: "Kano Grains Ltd",
+      ownerPhone: "+2348098765432",
+    })).rejects.toThrow();
   });
 
   it("listSellers: admin can list all sellers", async () => {
@@ -709,7 +717,7 @@ describe("end-to-end: ML operator full training workflow", () => {
 });
 
 describe("end-to-end: B2B wholesale buyer workflow", () => {
-  it("B2B buyer can view price tiers → submit RFQ → register as marketplace seller", async () => {
+  it("B2B buyer can view price tiers → submit RFQ; anonymous marketplace registration blocked (W40)", async () => {
     const owner = caller(makeTenantOwnerCtx());
     const anon = caller(makeAnonCtx());
 
@@ -725,13 +733,13 @@ describe("end-to-end: B2B wholesale buyer workflow", () => {
     });
     expect(rfq).toBeDefined();
 
-    const seller = await anon.marketplace.registerSeller({
+    // W40 (TEN-11): anonymous seller registration no longer exists — the RFQ
+    // buyer converts by signing in and passing KYB on their own tenant.
+    await expect(anon.marketplace.registerSeller({
       tenantId: "t1",
       businessName: "Kano Grains Ltd",
       ownerPhone: "+2348098765432",
-      businessType: "distributor",
-    });
-    expect(seller).toBeDefined();
+    })).rejects.toThrow();
   });
 });
 

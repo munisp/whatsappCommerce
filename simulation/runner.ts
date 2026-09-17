@@ -348,6 +348,26 @@ export async function loadJourneys(): Promise<Journey[]> {
     // === W39 PAY-8 (Coder C): PSP dispute/refund webhook events (renumbered J263->J271 by merger; A owns J263-265) ===
     import("./journeys/j271-psp-dispute-refund-webhooks"),
     // === W39 END ===
+    // === W40 tenancy (Coder A): TEN-1/TEN-3/TEN-11/TEN-4 ===
+    import("./journeys/j272-tenant-suspension-enforcement"),
+    import("./journeys/j273-whatsapp-number-claim-conflict"),
+    import("./journeys/j274-channel-hijack-db-backstop"),
+    import("./journeys/j275-marketplace-register-seller-gate"),
+    import("./journeys/j276-admin-cross-tenant-audit"),
+    // === W40 Coder A END ===
+    // === W40 Coder B (privacy + KYC depth): J277-J280 ===
+    import("./journeys/j277-kyc-gdpr-erasure-export"),
+    import("./journeys/j278-erasure-guards-regression"),
+    import("./journeys/j279-ubo-sanctions-screening"),
+    import("./journeys/j280-kyb-periodic-rescreen"),
+    // === W40 Coder B END ===
+    // === W40 messaging compliance + resilience (Coder C): J281-J285 ===
+    import("./journeys/j281-stop-mid-conversation"),
+    import("./journeys/j282-stop-resubscribe-telegram-parity"),
+    import("./journeys/j283-template-rejected-webhook"),
+    import("./journeys/j284-broadcast-circuit-breaker"),
+    import("./journeys/j285-broadcast-resume"),
+    // === W40 Coder C END ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

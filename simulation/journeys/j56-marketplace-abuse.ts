@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
 import { SUPPLIER_TENANT_ID, TENANT_ID } from "../world";
-import { adminCaller, expectTrpcError, publicCaller, tenantCaller } from "./helpers";
+import { adminCaller, expectTrpcError, publicCaller, seedApprovedKyb, tenantCaller } from "./helpers";
 
 export const journey: Journey = {
   id: "J56",
@@ -15,16 +15,31 @@ export const journey: Journey = {
   feature: "updateSellerStatus admin gate",
   async run(world) {
     const schema = await import("../../drizzle/schema");
+    // W40 (TEN-11): registration is authenticated + own-tenant + KYB-gated;
+    // the anonymous arbitrary-tenant path no longer exists (asserted below).
+    await seedApprovedKyb(world, TENANT_ID, "Rival Retail Co");
+    await seedApprovedKyb(world, SUPPLIER_TENANT_ID, "Attacker Wholesale");
     const pub = await publicCaller();
+    await expectTrpcError(
+      pub.marketplace.registerSeller({
+        tenantId: TENANT_ID,
+        businessName: "Anonymous Hijack Co",
+        ownerPhone: "2348011100099",
+      }),
+      "UNAUTHORIZED",
+      "anonymous arbitrary-tenant registration removed (TEN-11)",
+    );
 
     // Two rival sellers on tenant A's marketplace.
-    const rival = await pub.marketplace.registerSeller({
+    const rivalOwner = await tenantCaller(TENANT_ID, { userId: 561 });
+    const attackerOwner = await tenantCaller(SUPPLIER_TENANT_ID, { userId: 562 });
+    const rival = await rivalOwner.marketplace.registerSeller({
       tenantId: TENANT_ID,
       businessName: "Rival Retail Co",
       ownerPhone: "2348011100001",
       category: "retail",
     });
-    const attackerSeller = await pub.marketplace.registerSeller({
+    const attackerSeller = await attackerOwner.marketplace.registerSeller({
       tenantId: SUPPLIER_TENANT_ID,
       businessName: "Attacker Wholesale",
       ownerPhone: "2348011100002",

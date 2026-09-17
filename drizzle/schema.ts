@@ -50,7 +50,9 @@ export const menuStatusEnum = pgEnum("menu_status", ["draft", "published", "arch
 export const menuPushStatusEnum = pgEnum("menu_push_status", ["idle", "pushing", "success", "failed"]);
 export const menuItemTypeEnum = pgEnum("menu_item_type", ["section", "button", "list_item", "quick_reply", "catalog_link", "url"]);
 export const templateCategoryEnum = pgEnum("template_category", ["order_confirmation", "shipping_update", "payment_reminder", "welcome", "promotion", "support", "custom"]);
-export const templateApprovalStatusEnum = pgEnum("template_approval_status", ["none", "draft", "submitted", "approved", "rejected", "paused"]);
+// W40 MSG-2: "disabled" added (migration 0126, additive enum value) for
+// Meta message_template_status_update DISABLED events.
+export const templateApprovalStatusEnum = pgEnum("template_approval_status", ["none", "draft", "submitted", "approved", "rejected", "paused", "disabled"]);
 
 // ─── Users (Auth) ─────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
@@ -732,7 +734,9 @@ export const broadcastAbTests = pgTable("broadcast_ab_tests", {
 ]);
 
 // ─── Broadcast Campaigns ──────────────────────────────────────────────────────
-export const broadcastStatusEnum = pgEnum("broadcast_status", ["draft", "scheduled", "sending", "completed", "cancelled", "failed"]);
+// W40 MSG-3: "paused" added (migration 0126, additive enum value) for the
+// broadcast circuit breaker (auto-pause on excessive failure rate).
+export const broadcastStatusEnum = pgEnum("broadcast_status", ["draft", "scheduled", "sending", "completed", "cancelled", "failed", "paused"]);
 export const recipientStatusEnum = pgEnum("recipient_status", ["pending", "sent", "delivered", "read", "failed", "opted_out"]);
 
 export const broadcastCampaigns = pgTable("broadcast_campaigns", {
@@ -755,6 +759,9 @@ export const broadcastCampaigns = pgTable("broadcast_campaigns", {
   deliveredCount: integer("deliveredCount").default(0).notNull(),
   readCount: integer("readCount").default(0).notNull(),
   failedCount: integer("failedCount").default(0).notNull(),
+  // W40 MSG-3 (migration 0126, additive): circuit-breaker pause metadata.
+  pausedReason: varchar("pausedReason", { length: 500 }),
+  pausedAt: timestamp("pausedAt"),
   createdBy: varchar("createdBy", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -914,6 +921,14 @@ export const kycApplications = pgTable("kyc_applications", {
   businessRegistrationNumber: varchar("businessRegistrationNumber", { length: 100 }),
   businessCountry: varchar("businessCountry", { length: 100 }),
   businessType: varchar("businessType", { length: 100 }),
+  // === W40 TEN-8: UBO/PEP capture (additive, nullable) — screened through ===
+  // the SAME fail-closed sanctions path as the business name.
+  uboName: varchar("uboName", { length: 255 }),
+  uboDob: varchar("uboDob", { length: 10 }), // ISO YYYY-MM-DD
+  pepDeclared: boolean("pepDeclared").default(false),
+  // W40 TEN-8: journaled by the periodic re-screen sweep.
+  lastScreenedAt: timestamp("lastScreenedAt"),
+  // === END W40 ===
   riskScore: varchar("riskScore", { length: 10 }),
   reviewedBy: varchar("reviewedBy", { length: 255 }),
   reviewNotes: text("reviewNotes"),
@@ -949,6 +964,13 @@ export const kycDocuments = pgTable("kyc_documents", {
   authenticityScore: varchar("authenticityScore", { length: 10 }),
   verificationNotes: text("verificationNotes"),
   processedAt: timestamp("processedAt"),
+  // === W40 TEN-5: GDPR erasure tombstones (additive, nullable) ===
+  // erasedAt: the S3 object was confirmed deleted (erasure complete).
+  // erasureScheduledAt: DB PII was scrubbed but the S3 delete failed — the
+  // scheduled kyc-erasure-sweep retries until erasedAt is set.
+  erasedAt: timestamp("erasedAt"),
+  erasureScheduledAt: timestamp("erasureScheduledAt"),
+  // === END W40 ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
   index("kyc_docs_app_idx").on(t.applicationId),

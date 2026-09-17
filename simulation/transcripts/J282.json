@@ -1,0 +1,169 @@
+{
+  "id": "J282",
+  "title": "resubscribe via YES + telegram STOP parity (MSG-1)",
+  "feature": "explicit re-opt-in re-opens the conversation on both channels",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348013009669",
+      "profileName": "Sim User 9669",
+      "inboundId": "wamid.sim.in.text.00457",
+      "at": 1789603561432,
+      "kind": "text",
+      "text": "hi"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00457",
+      "at": 1789603561436
+    },
+    {
+      "dir": "out",
+      "phone": "2348013009669",
+      "wamid": "wamid.sim.000734",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789603561448,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013009669",
+      "profileName": "Sim User 9669",
+      "inboundId": "wamid.sim.in.text.00458",
+      "at": 1789603561978,
+      "kind": "text",
+      "text": "YES"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00458",
+      "at": 1789603561982
+    },
+    {
+      "dir": "out",
+      "phone": "2348013009669",
+      "wamid": "wamid.sim.000735",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789603561997,
+      "kind": "text",
+      "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013009669",
+      "profileName": "Sim User 9669",
+      "inboundId": "wamid.sim.in.text.00459",
+      "at": 1789603562524,
+      "kind": "text",
+      "text": "STOP"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00459",
+      "at": 1789603562529
+    },
+    {
+      "dir": "out",
+      "phone": "2348013009669",
+      "wamid": "wamid.sim.000736",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789603562543,
+      "kind": "text",
+      "body": "You've been unsubscribed and will no longer receive WhatsApp messages from us. Reply YES anytime to resubscribe."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013009669",
+      "profileName": "Sim User 9669",
+      "inboundId": "wamid.sim.in.text.00460",
+      "at": 1789603563071,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00460",
+      "at": 1789603563075
+    },
+    {
+      "dir": "in",
+      "phone": "2348013009669",
+      "profileName": "Sim User 9669",
+      "inboundId": "wamid.sim.in.text.00461",
+      "at": 1789603563616,
+      "kind": "text",
+      "text": "YES"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00461",
+      "at": 1789603563620
+    },
+    {
+      "dir": "out",
+      "phone": "2348013009669",
+      "wamid": "wamid.sim.000737",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789603563634,
+      "kind": "text",
+      "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013009669",
+      "profileName": "Sim User 9669",
+      "inboundId": "wamid.sim.in.text.00462",
+      "at": 1789603564162,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00462",
+      "at": 1789603564166
+    },
+    {
+      "dir": "out",
+      "phone": "2348013009669",
+      "wamid": "wamid.sim.000738",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789603564178,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    }
+  ]
+}

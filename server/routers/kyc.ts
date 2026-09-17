@@ -10,6 +10,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { storagePut } from "../storage";
 import { runKybChecks, type KybCheckResult } from "../services/compliance";
+import { writeAuditLog } from "./audit";
 
 // ── A3-F01: KYB screening wiring ─────────────────────────────────────────────
 // runKybChecks (registry verification + sanctions) was dead code; it is now
@@ -39,6 +40,9 @@ async function runKybScreenFor(app: {
   businessName?: string | null;
   businessRegistrationNumber?: string | null;
   businessCountry?: string | null;
+  uboName?: string | null;
+  uboDob?: string | null;
+  pepDeclared?: boolean | null;
 }): Promise<KybCheckResult | null> {
   if (!kybScreeningEnabled()) return null;
   if (!app.businessName || !app.businessRegistrationNumber || !app.businessCountry) return null;
@@ -46,8 +50,15 @@ async function runKybScreenFor(app: {
     businessName: app.businessName,
     registrationNumber: app.businessRegistrationNumber,
     country: app.businessCountry,
+    // W40 TEN-8: UBO screened through the SAME fail-closed sanctions path.
+    ubo: app.uboName
+      ? { name: app.uboName, dob: app.uboDob ?? null, pepDeclared: app.pepDeclared ?? false }
+      : null,
   });
 }
+
+/** W40 TEN-8: exported for the periodic re-screen sweep (kycPrivacy service). */
+export { runKybScreenFor, kybScreeningEnabled, KYB_NOTE_RE };
 
 function kybNote(result: KybCheckResult): string {
   return `[kyb-screen] recommendation=${result.recommendation} at ${new Date().toISOString()} — ${result.reasons.join("; ")}`;
@@ -135,6 +146,11 @@ export const kycRouter = router({
       businessRegistrationNumber: z.string().optional(),
       businessCountry: z.string().optional(),
       businessType: z.string().optional(),
+      // === W40 TEN-8: UBO/PEP capture (screened fail-closed) ===
+      uboName: z.string().max(255).optional(),
+      uboDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      pepDeclared: z.boolean().optional(),
+      // === END W40 ===
       // === W33 tax-statements: OPTIONAL supplier tax capture ===
       taxId: z.string().max(64).optional(),
       taxIdType: z.enum(["tin", "vat", "cac", "nin", "other"]).optional(),
@@ -163,7 +179,7 @@ export const kycRouter = router({
           screenNote = kybNote(kyb);
           const prior = (app.reviewNotes ?? "").split("\n").filter((l) => !KYB_NOTE_RE.test(l));
           await db.update(kycApplications)
-            .set({ reviewNotes: [...prior, screenNote].filter(Boolean).join("\n"), updatedAt: new Date() })
+            .set({ reviewNotes: [...prior, screenNote].filter(Boolean).join("\n"), lastScreenedAt: new Date(), updatedAt: new Date() })
             .where(eq(kycApplications.id, applicationId));
         }
       } catch (err) {
@@ -321,6 +337,7 @@ export const kycRouter = router({
       // processing). Approving anyway requires the admin's explicit waiver,
       // which is recorded per document.
       let reviewNotes = input.notes;
+      let screenedNow = false; // W40 TEN-8: did approval screening run?
       if (input.decision === "approved") {
         // ── KYB screening gate (A3-F01, fail closed) ──────────────────────
         // Approval is blocked when screening says reject, when the sanctions
@@ -338,6 +355,7 @@ export const kycRouter = router({
           let kyb: KybCheckResult | null = null;
           try {
             kyb = await runKybScreenFor(app);
+            screenedNow = kyb != null;
           } catch (err) {
             console.error("[kyc.review] KYB screening error (fail-closed):", err);
           }
@@ -374,15 +392,32 @@ export const kycRouter = router({
         }
       }
 
+      // W40 (TEN-4): capture before-state for the admin audit row.
+      const [beforeApp] = await db.select().from(kycApplications)
+        .where(eq(kycApplications.id, input.applicationId)).limit(1);
       await db.update(kycApplications).set({
         status: input.decision,
         reviewedBy: reviewer,
         reviewNotes,
         rejectionReason: input.rejectionReason,
+        // W40 TEN-8: journal the screening timestamp when approval screening ran.
+        ...(screenedNow ? { lastScreenedAt: new Date() } : {}),
         reviewedAt: new Date(),
         approvedAt: input.decision === "approved" ? new Date() : undefined,
         updatedAt: new Date(),
       }).where(eq(kycApplications.id, input.applicationId));
+      // W40 (TEN-4): cross-tenant KYC adjudication is admin-audited.
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "kyc.review",
+        entityType: "kyc_application",
+        entityId: input.applicationId,
+        tenantId: beforeApp?.tenantId ?? null,
+        summary: `KYC application ${input.applicationId} (${beforeApp?.businessName ?? "unknown"}) reviewed: ${beforeApp?.status ?? "?"} → ${input.decision}${input.waivePendingDocuments ? " (pending-doc waiver)" : ""}`,
+        before: beforeApp ? { status: beforeApp.status, reviewedBy: beforeApp.reviewedBy ?? null } : null,
+        after: { status: input.decision, reviewedBy: reviewer },
+      });
       return { ok: true };
     }),
 

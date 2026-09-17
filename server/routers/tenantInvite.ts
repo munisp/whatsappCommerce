@@ -84,6 +84,20 @@ export const tenantInviteRouter = router({
         issuedBy: String(ctx.user.id),
         expiresAt,
       });
+      // W40 (TEN-4): minting a portal magic link is an admin action on a
+      // tenant — it must be attributable in the audit trail.
+      const { writeAuditLog } = await import("./audit");
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenantInvite.create",
+        entityType: "tenant_invite",
+        entityId: jti,
+        tenantId: input.tenantId,
+        summary: `Portal invite minted for tenant ${tenant.name} (${input.tenantId}), expires ${expiresAt.toISOString()}`,
+        before: null,
+        after: { jti, tenantId: input.tenantId, expiresAt: expiresAt.toISOString() },
+      });
       const portalUrl = `${ENV.appUrl}/portal/login?token=${token}`;
 
       return {
