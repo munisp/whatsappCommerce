@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T06:40:42.068Z",
+  "generatedAt": "2026-09-17T15:45:00.000Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -21,7 +21,7 @@
     {
       "id": "J03",
       "title": "NLP order + payment link",
-      "feature": "nlpCart → checkout → paystack link",
+      "feature": "nlpCart \u2192 checkout \u2192 paystack link",
       "pass": true,
       "file": "J03.json",
       "messageCount": 10
@@ -29,7 +29,7 @@
     {
       "id": "J04",
       "title": "menu-driven shop",
-      "feature": "numeric menu selection → shop flow",
+      "feature": "numeric menu selection \u2192 shop flow",
       "pass": true,
       "file": "J04.json",
       "messageCount": 10
@@ -37,7 +37,7 @@
     {
       "id": "J05",
       "title": "delivery + native location",
-      "feature": "location_request → coords + fee",
+      "feature": "location_request \u2192 coords + fee",
       "pass": true,
       "file": "J05.json",
       "messageCount": 14
@@ -45,7 +45,7 @@
     {
       "id": "J06",
       "title": "promo code discount",
-      "feature": "promos → discounted payment link",
+      "feature": "promos \u2192 discounted payment link",
       "pass": true,
       "file": "J06.json",
       "messageCount": 26
@@ -53,7 +53,7 @@
     {
       "id": "J07",
       "title": "payment confirm + receipt",
-      "feature": "paymentConfirm → receipt push",
+      "feature": "paymentConfirm \u2192 receipt push",
       "pass": true,
       "file": "J07.json",
       "messageCount": 11
@@ -61,7 +61,7 @@
     {
       "id": "J08",
       "title": "receipt screenshot verify",
-      "feature": "receiptVerification ±₦100",
+      "feature": "receiptVerification \u00b1\u20a6100",
       "pass": true,
       "file": "J08.json",
       "messageCount": 39
@@ -77,7 +77,7 @@
     {
       "id": "J10",
       "title": "shipment PIN + reaction",
-      "feature": "createShipment → PIN push → reaction status",
+      "feature": "createShipment \u2192 PIN push \u2192 reaction status",
       "pass": true,
       "file": "J10.json",
       "messageCount": 18
@@ -92,7 +92,7 @@
     },
     {
       "id": "J101",
-      "title": "LLM copilot — incident triage + merchant ask",
+      "title": "LLM copilot \u2014 incident triage + merchant ask",
       "feature": "fallback contract, runbook retrieval, aggregate-grounded answers, prompt redaction, copilot_queries audit log, tenant guards",
       "pass": true,
       "file": "J101.json",
@@ -100,23 +100,23 @@
     },
     {
       "id": "J102",
-      "title": "new merchant onboarding → first sale → wallet credit",
-      "feature": "onboarding.start → KYB approve → activate → product.create → WhatsApp sale → paystack confirm → merchant wallet credit",
+      "title": "new merchant onboarding \u2192 first sale \u2192 wallet credit",
+      "feature": "onboarding.start \u2192 KYB approve \u2192 activate \u2192 product.create \u2192 WhatsApp sale \u2192 paystack confirm \u2192 merchant wallet credit",
       "pass": true,
       "file": "J102.json",
       "messageCount": 11
     },
     {
       "id": "J103",
-      "title": "WhatsApp order → paystack → status transitions → receipt",
-      "feature": "payment initiation → webhook → order confirmed → receipt notification",
+      "title": "WhatsApp order \u2192 paystack \u2192 status transitions \u2192 receipt",
+      "feature": "payment initiation \u2192 webhook \u2192 order confirmed \u2192 receipt notification",
       "pass": true,
       "file": "J103.json",
       "messageCount": 11
     },
     {
       "id": "J104",
-      "title": "catalog → cart → checkout → payment → delivery → tracking",
+      "title": "catalog \u2192 cart \u2192 checkout \u2192 payment \u2192 delivery \u2192 tracking",
       "feature": "C1 customer purchase lifecycle end-to-end",
       "pass": true,
       "file": "J104.json",
@@ -156,7 +156,7 @@
     },
     {
       "id": "J109",
-      "title": "credit dunning → default → cure → recovery",
+      "title": "credit dunning \u2192 default \u2192 cure \u2192 recovery",
       "feature": "[dun:*] marker sequence, score drop on default, repayment cure, score recovery + terms improve",
       "pass": true,
       "file": "J109.json",
@@ -173,31 +173,31 @@
     {
       "id": "J110",
       "title": "merchant uplift-trained broadcast (M5)",
-      "feature": "uplift training on seeded cohorts → rankByUplift send → consent withdrawal excluded → frequency cap deferred → dryRun uplift scores",
+      "feature": "uplift training on seeded cohorts \u2192 rankByUplift send \u2192 consent withdrawal excluded \u2192 frequency cap deferred \u2192 dryRun uplift scores",
       "pass": true,
       "file": "J110.json",
       "messageCount": 23
     },
     {
       "id": "J111",
-      "title": "journey automation — win-back flow (M6)",
-      "feature": "send_template→wait_for_reply→condition→exit via journey-tick cron; reply branches path; frequency cap + Lagos quiet hours respected (injectable sim clock)",
+      "title": "journey automation \u2014 win-back flow (M6)",
+      "feature": "send_template\u2192wait_for_reply\u2192condition\u2192exit via journey-tick cron; reply branches path; frequency cap + Lagos quiet hours respected (injectable sim clock)",
       "pass": true,
       "file": "J111.json",
       "messageCount": 3
     },
     {
       "id": "J112",
-      "title": "ml lead scoring → at-risk win-back → pipeline movement (O3)",
-      "feature": "seed order history → trainLeadModel → atRiskList propensity + scoreSource ml → createWinBackCampaign → pipelineSummary movement",
+      "title": "ml lead scoring \u2192 at-risk win-back \u2192 pipeline movement (O3)",
+      "feature": "seed order history \u2192 trainLeadModel \u2192 atRiskList propensity + scoreSource ml \u2192 createWinBackCampaign \u2192 pipelineSummary movement",
       "pass": true,
       "file": "J112.json",
       "messageCount": 0
     },
     {
       "id": "J113",
-      "title": "collusion ring → credit flag (S4)",
-      "feature": "3-tenant trading ring → scanGraphCollusion cycle+cluster alerts → suggestLimit graph-collusion flag with reduced confidence → honest tenant unaffected",
+      "title": "collusion ring \u2192 credit flag (S4)",
+      "feature": "3-tenant trading ring \u2192 scanGraphCollusion cycle+cluster alerts \u2192 suggestLimit graph-collusion flag with reduced confidence \u2192 honest tenant unaffected",
       "pass": true,
       "file": "J113.json",
       "messageCount": 0
@@ -205,14 +205,14 @@
     {
       "id": "J114",
       "title": "bandit rewards + off-policy replay (O4)",
-      "feature": "seeded decisions + outcomes → reward tick → banditStatus coverage → banditReplay lift vs ×1.0 baseline → shadow suggest unchanged",
+      "feature": "seeded decisions + outcomes \u2192 reward tick \u2192 banditStatus coverage \u2192 banditReplay lift vs \u00d71.0 baseline \u2192 shadow suggest unchanged",
       "pass": true,
       "file": "J114.json",
       "messageCount": 0
     },
     {
       "id": "J115",
-      "title": "credit buy → repay link (idempotent) → webhook → mandate retry → cleared",
+      "title": "credit buy \u2192 repay link (idempotent) \u2192 webhook \u2192 mandate retry \u2192 cleared",
       "feature": "C2 credit repayment lifecycle end-to-end",
       "pass": true,
       "file": "J115.json",
@@ -220,7 +220,7 @@
     },
     {
       "id": "J116",
-      "title": "support conversation → bot → human escalation → resolution",
+      "title": "support conversation \u2192 bot \u2192 human escalation \u2192 resolution",
       "feature": "C3 escalation lifecycle end-to-end",
       "pass": true,
       "file": "J116.json",
@@ -228,7 +228,7 @@
     },
     {
       "id": "J117",
-      "title": "compliance officer: chain tamper → anomaly burst → copilot triage → resolve",
+      "title": "compliance officer: chain tamper \u2192 anomaly burst \u2192 copilot triage \u2192 resolve",
       "feature": "O1 incident-response lifecycle end-to-end",
       "pass": true,
       "file": "J117.json",
@@ -236,7 +236,7 @@
     },
     {
       "id": "J118",
-      "title": "access review → retention policy → legal hold → purge → export",
+      "title": "access review \u2192 retention policy \u2192 legal hold \u2192 purge \u2192 export",
       "feature": "O2 retention + portability lifecycle end-to-end",
       "pass": true,
       "file": "J118.json",
@@ -244,7 +244,7 @@
     },
     {
       "id": "J119",
-      "title": "paystack outage → flutterwave failover → reconciled confirmation",
+      "title": "paystack outage \u2192 flutterwave failover \u2192 reconciled confirmation",
       "feature": "E1 provider failover end-to-end",
       "pass": true,
       "file": "J119.json",
@@ -253,14 +253,14 @@
     {
       "id": "J12",
       "title": "smart reorder",
-      "feature": "reorder → repriced cart",
+      "feature": "reorder \u2192 repriced cart",
       "pass": true,
       "file": "J12.json",
       "messageCount": 14
     },
     {
       "id": "J120",
-      "title": "offline order sync — two devices, last stock unit",
+      "title": "offline order sync \u2014 two devices, last stock unit",
       "feature": "E2 offline sync + stock-conflict resolution end-to-end",
       "pass": true,
       "file": "J120.json",
@@ -268,7 +268,7 @@
     },
     {
       "id": "J121",
-      "title": "orchestrated full-stack (discovery → order → PD credit → VI → audit)",
+      "title": "orchestrated full-stack (discovery \u2192 order \u2192 PD credit \u2192 VI \u2192 audit)",
       "feature": "journey orchestrator local-fallback: checkpoints, durable resume via cron tick, compliance audit chain",
       "pass": true,
       "file": "J121.json",
@@ -277,15 +277,15 @@
     {
       "id": "J122",
       "title": "discover via pin + category filter",
-      "feature": "geo discovery: pin → menu → category",
+      "feature": "geo discovery: pin \u2192 menu \u2192 category",
       "pass": true,
       "file": "J122.json",
       "messageCount": 6
     },
     {
       "id": "J123",
-      "title": "free-text discovery → order",
-      "feature": "geo discovery: near-me query → pin → checkout",
+      "title": "free-text discovery \u2192 order",
+      "feature": "geo discovery: near-me query \u2192 pin \u2192 checkout",
       "pass": true,
       "file": "J123.json",
       "messageCount": 19
@@ -308,7 +308,7 @@
     },
     {
       "id": "J126",
-      "title": "escrow hold → SLA auto-release",
+      "title": "escrow hold \u2192 SLA auto-release",
       "feature": "settleEscrowAtomic + wallet credit conservation",
       "pass": true,
       "file": "J126.json",
@@ -316,16 +316,16 @@
     },
     {
       "id": "J127",
-      "title": "merchant voice note → listing",
-      "feature": "voice → STT → extract → draft → button publish",
+      "title": "merchant voice note \u2192 listing",
+      "feature": "voice \u2192 STT \u2192 extract \u2192 draft \u2192 button publish",
       "pass": true,
       "file": "J127.json",
       "messageCount": 6
     },
     {
       "id": "J128",
-      "title": "merchant photo → listing",
-      "feature": "photo → vision → draft → button publish (median price suggestion)",
+      "title": "merchant photo \u2192 listing",
+      "feature": "photo \u2192 vision \u2192 draft \u2192 button publish (median price suggestion)",
       "pass": true,
       "file": "J128.json",
       "messageCount": 6
@@ -341,7 +341,7 @@
     {
       "id": "J13",
       "title": "abandoned cart recovery",
-      "feature": "cartRecovery cron (1×/24h, consent-gated)",
+      "feature": "cartRecovery cron (1\u00d7/24h, consent-gated)",
       "pass": true,
       "file": "J13.json",
       "messageCount": 10
@@ -396,7 +396,7 @@
     },
     {
       "id": "J136",
-      "title": "language switch → menus in Hausa",
+      "title": "language switch \u2192 menus in Hausa",
       "feature": "language picker, sticky locale, localized menu chrome, localized intent keywords",
       "pass": true,
       "file": "J136.json",
@@ -405,7 +405,7 @@
     {
       "id": "J137",
       "title": "i18n fallback to en for missing keys",
-      "feature": "locale→en catalog fallback, tenant overrides, tenant default locale resolution",
+      "feature": "locale\u2192en catalog fallback, tenant overrides, tenant default locale resolution",
       "pass": true,
       "file": "J137.json",
       "messageCount": 0
@@ -420,7 +420,7 @@
     },
     {
       "id": "J139",
-      "title": "loan offer → accept → disburse",
+      "title": "loan offer \u2192 accept \u2192 disburse",
       "feature": "microLoans offers/accept via credit router + wallet rails",
       "pass": true,
       "file": "J139.json",
@@ -452,7 +452,7 @@
     },
     {
       "id": "J142",
-      "title": "delivery quote → book → status → escrow release",
+      "title": "delivery quote \u2192 book \u2192 status \u2192 escrow release",
       "feature": "courier adapter aggregation + escrow tie-in",
       "pass": true,
       "file": "J142.json",
@@ -460,7 +460,7 @@
     },
     {
       "id": "J143",
-      "title": "loyalty earn → redeem with caps",
+      "title": "loyalty earn \u2192 redeem with caps",
       "feature": "ledger-backed loyalty points",
       "pass": true,
       "file": "J143.json",
@@ -476,7 +476,7 @@
     },
     {
       "id": "J145",
-      "title": "review → trustScore effect on discovery ranking",
+      "title": "review \u2192 trustScore effect on discovery ranking",
       "feature": "review-driven trustScore via geoDiscovery hook",
       "pass": true,
       "file": "J145.json",
@@ -484,7 +484,7 @@
     },
     {
       "id": "J146",
-      "title": "wholesale browse → tiered order",
+      "title": "wholesale browse \u2192 tiered order",
       "feature": "wholesaleCatalog tiered pricing + WhatsApp browse/buy",
       "pass": true,
       "file": "J146.json",
@@ -501,14 +501,14 @@
     {
       "id": "J148",
       "title": "group deal threshold success",
-      "feature": "groupBuy join → threshold confirm + progress bar",
+      "feature": "groupBuy join \u2192 threshold confirm + progress bar",
       "pass": true,
       "file": "J148.json",
       "messageCount": 12
     },
     {
       "id": "J149",
-      "title": "group deal expiry → refunds/voids",
+      "title": "group deal expiry \u2192 refunds/voids",
       "feature": "groupBuy sweep: expire + refund/void, idempotent",
       "pass": true,
       "file": "J149.json",
@@ -517,7 +517,7 @@
     {
       "id": "J15",
       "title": "voice note ordering",
-      "feature": "transcribe → NLP pipeline; fail-soft",
+      "feature": "transcribe \u2192 NLP pipeline; fail-soft",
       "pass": true,
       "file": "J15.json",
       "messageCount": 6
@@ -525,7 +525,7 @@
     {
       "id": "J150",
       "title": "stokvel circle full rotation",
-      "feature": "group savings circle → rotating payout → completion + audit trail",
+      "feature": "group savings circle \u2192 rotating payout \u2192 completion + audit trail",
       "pass": true,
       "file": "J150.json",
       "messageCount": 30
@@ -540,7 +540,7 @@
     },
     {
       "id": "J152",
-      "title": "insurance add-on → policy → parametric claim",
+      "title": "insurance add-on \u2192 policy \u2192 parametric claim",
       "feature": "checkout opt-in + mock adapter + parametric trigger hook",
       "pass": true,
       "file": "J152.json",
@@ -548,7 +548,7 @@
     },
     {
       "id": "J153",
-      "title": "voucher issue → redeem → reconcile",
+      "title": "voucher issue \u2192 redeem \u2192 reconcile",
       "feature": "voucher rails + eligibility + double-redeem guard + issuer report",
       "pass": true,
       "file": "J153.json",
@@ -564,23 +564,23 @@
     },
     {
       "id": "J155",
-      "title": "odoo paid order → invoice",
-      "feature": "W28 odoo-sync sale → customer invoice",
+      "title": "odoo paid order \u2192 invoice",
+      "feature": "W28 odoo-sync sale \u2192 customer invoice",
       "pass": true,
       "file": "J155.json",
       "messageCount": 3
     },
     {
       "id": "J156",
-      "title": "odoo expense → vendor bill + receipt",
-      "feature": "W28 odoo-sync expense → vendor bill",
+      "title": "odoo expense \u2192 vendor bill + receipt",
+      "feature": "W28 odoo-sync expense \u2192 vendor bill",
       "pass": true,
       "file": "J156.json",
       "messageCount": 0
     },
     {
       "id": "J157",
-      "title": "odoo failure → retry → reconciliation",
+      "title": "odoo failure \u2192 retry \u2192 reconciliation",
       "feature": "W28 odoo-sync retry + reconciliation queue",
       "pass": true,
       "file": "J157.json",
@@ -597,7 +597,7 @@
     {
       "id": "J159",
       "title": "medusa catalog webhook replay-safety",
-      "feature": "HMAC webhook → idempotent upsert; platform-native products untouched",
+      "feature": "HMAC webhook \u2192 idempotent upsert; platform-native products untouched",
       "pass": true,
       "file": "J159.json",
       "messageCount": 0
@@ -620,15 +620,15 @@
     },
     {
       "id": "J161",
-      "title": "storefront order → medusa order → fulfillment → escrow release",
-      "feature": "order bridge + idempotent outbound create + fulfillment webhook → existing release rails",
+      "title": "storefront order \u2192 medusa order \u2192 fulfillment \u2192 escrow release",
+      "feature": "order bridge + idempotent outbound create + fulfillment webhook \u2192 existing release rails",
       "pass": true,
       "file": "J161.json",
       "messageCount": 11
     },
     {
       "id": "J162",
-      "title": "concurrent accepts → single loan",
+      "title": "concurrent accepts \u2192 single loan",
       "feature": "microLoans accept race hardening (verify-v1 #3)",
       "pass": true,
       "file": "J162.json",
@@ -636,7 +636,7 @@
     },
     {
       "id": "J163",
-      "title": "sweep + manual repayment race → conservation",
+      "title": "sweep + manual repayment race \u2192 conservation",
       "feature": "microLoans locked repayment helper (verify-v1 #4)",
       "pass": true,
       "file": "J163.json",
@@ -652,7 +652,7 @@
     },
     {
       "id": "J165",
-      "title": "mandate double-submit → single charge",
+      "title": "mandate double-submit \u2192 single charge",
       "feature": "tradeCredit capture exactly-once (verify-v1 #5)",
       "pass": true,
       "file": "J165.json",
@@ -660,7 +660,7 @@
     },
     {
       "id": "J166",
-      "title": "SLA scan: cancelled→refund, undelivered→skip",
+      "title": "SLA scan: cancelled\u2192refund, undelivered\u2192skip",
       "feature": "W30 runSlaScan order-status guard",
       "pass": true,
       "file": "J166.json",
@@ -668,7 +668,7 @@
     },
     {
       "id": "J167",
-      "title": "cancel of paid order → escrow refunded",
+      "title": "cancel of paid order \u2192 escrow refunded",
       "feature": "W30 orderCrud.cancel escrow refund",
       "pass": true,
       "file": "J167.json",
@@ -693,7 +693,7 @@
     {
       "id": "J17",
       "title": "visual product search",
-      "feature": "vision match → product card",
+      "feature": "vision match \u2192 product card",
       "pass": true,
       "file": "J17.json",
       "messageCount": 6
@@ -852,7 +852,7 @@
     },
     {
       "id": "J188",
-      "title": "insufficient funds honesty → top-up → merchant retry → executed",
+      "title": "insufficient funds honesty \u2192 top-up \u2192 merchant retry \u2192 executed",
       "feature": "W31 scheduled payments: honest insufficient_funds + retry after top-up",
       "pass": true,
       "file": "J188.json",
@@ -860,7 +860,7 @@
     },
     {
       "id": "J189",
-      "title": "batch of 5 with 1 insufficient → 4 executed, per-item idempotency",
+      "title": "batch of 5 with 1 insufficient \u2192 4 executed, per-item idempotency",
       "feature": "W31 batch payments: single confirmation, isolated per-item txs, honest outcomes",
       "pass": true,
       "file": "J189.json",
@@ -869,7 +869,7 @@
     {
       "id": "J19",
       "title": "restock waitlist notify",
-      "feature": "0→5 restock fan-out",
+      "feature": "0\u21925 restock fan-out",
       "pass": true,
       "file": "J19.json",
       "messageCount": 13
@@ -900,15 +900,15 @@
     },
     {
       "id": "J193",
-      "title": "AR invoice create → send link → customer pays in full",
-      "feature": "arInvoices create/send + paymentConfirm webhook rail → paid",
+      "title": "AR invoice create \u2192 send link \u2192 customer pays in full",
+      "feature": "arInvoices create/send + paymentConfirm webhook rail \u2192 paid",
       "pass": true,
       "file": "J193.json",
       "messageCount": 1
     },
     {
       "id": "J194",
-      "title": "AR invoice partial payments → partially_paid → paid; replay no-op",
+      "title": "AR invoice partial payments \u2192 partially_paid \u2192 paid; replay no-op",
       "feature": "arInvoices partial accumulation + exactly-once recording",
       "pass": true,
       "file": "J194.json",
@@ -916,7 +916,7 @@
     },
     {
       "id": "J195",
-      "title": "AR overdue sweep → 3-spaced reminders → stop",
+      "title": "AR overdue sweep \u2192 3-spaced reminders \u2192 stop",
       "feature": "W31 AR reminders cron (max 3, 3d spacing, dedupe)",
       "pass": true,
       "file": "J195.json",
@@ -924,7 +924,7 @@
     },
     {
       "id": "J196",
-      "title": "AR invoice cancel → link invalidated honestly",
+      "title": "AR invoice cancel \u2192 link invalidated honestly",
       "feature": "arInvoices cancel + honest 410 public surface + no silent money",
       "pass": true,
       "file": "J196.json",
@@ -933,7 +933,7 @@
     {
       "id": "J197",
       "title": "approval gate across vendor bills + scheduled payments (merger seam)",
-      "feature": "W31 approvals × vendor-bills × scheduled-payments cross-branch wiring",
+      "feature": "W31 approvals \u00d7 vendor-bills \u00d7 scheduled-payments cross-branch wiring",
       "pass": true,
       "file": "J197.json",
       "messageCount": 0
@@ -960,11 +960,11 @@
       "feature": "consent gate + window routing + quality block",
       "pass": true,
       "file": "J20.json",
-      "messageCount": 31
+      "messageCount": 30
     },
     {
       "id": "J200",
-      "title": "monthly recurring bill → cron creates bill + auto-pays under threshold → replay no-op",
+      "title": "monthly recurring bill \u2192 cron creates bill + auto-pays under threshold \u2192 replay no-op",
       "feature": "W32 recurring engine: crash-safe advance, recur:<ruleId>:<period> idempotency, auto-pay",
       "pass": true,
       "file": "J200.json",
@@ -972,7 +972,7 @@
     },
     {
       "id": "J201",
-      "title": "above auto-pay threshold → WA approval → approve executes; pause/cancel stop runs",
+      "title": "above auto-pay threshold \u2192 WA approval \u2192 approve executes; pause/cancel stop runs",
       "feature": "W32 recurring engine: approval parking + W31 approvals composition",
       "pass": true,
       "file": "J201.json",
@@ -988,7 +988,7 @@
     },
     {
       "id": "J203",
-      "title": "early pay within window → discounted debit; double-tap CONFLICT; after window unavailable",
+      "title": "early pay within window \u2192 discounted debit; double-tap CONFLICT; after window unavailable",
       "feature": "W32 early-payment discounts: claim-first guarded discount + honest supplier credit",
       "pass": true,
       "file": "J203.json",
@@ -996,7 +996,7 @@
     },
     {
       "id": "J204",
-      "title": "FX quote → accept → execute with exact fee math; expired refusal; replay no-op",
+      "title": "FX quote \u2192 accept \u2192 execute with exact fee math; expired refusal; replay no-op",
       "feature": "W32 FX payouts: deterministic labelled rates + guarded consume + Mojaloop delivery",
       "pass": true,
       "file": "J204.json",
@@ -1004,8 +1004,8 @@
     },
     {
       "id": "J205",
-      "title": "FX payout with no live corridor → honest UNAVAILABLE, nothing moves",
-      "feature": "W32 FX payouts: corridor gate fails honestly — no simulated cross-border delivery",
+      "title": "FX payout with no live corridor \u2192 honest UNAVAILABLE, nothing moves",
+      "feature": "W32 FX payouts: corridor gate fails honestly \u2014 no simulated cross-border delivery",
       "pass": true,
       "file": "J205.json",
       "messageCount": 0
@@ -1068,7 +1068,7 @@
     },
     {
       "id": "J212",
-      "title": "embedded API full flow: bill create → pay parks at approval gate → owner approves → paid",
+      "title": "embedded API full flow: bill create \u2192 pay parks at approval gate \u2192 owner approves \u2192 paid",
       "feature": "W33 embedded-api: /api/embedded/v1 bills + approval-gate composition",
       "pass": true,
       "file": "J212.json",
@@ -1100,7 +1100,7 @@
     },
     {
       "id": "J216",
-      "title": "traceparent propagation: scheduler→cron route + internal service call",
+      "title": "traceparent propagation: scheduler\u2192cron route + internal service call",
       "feature": "W34 otel-core: W3C trace context propagation across services",
       "pass": true,
       "file": "J216.json",
@@ -1124,7 +1124,7 @@
     },
     {
       "id": "J219",
-      "title": "alertmanager WhatsApp bridge: format → deliver, fail-open, disabled-default",
+      "title": "alertmanager WhatsApp bridge: format \u2192 deliver, fail-open, disabled-default",
       "feature": "W34 otel-stack: WhatsApp ops bridge",
       "pass": true,
       "file": "J219.json",
@@ -1276,7 +1276,7 @@
     },
     {
       "id": "J236",
-      "title": "telegram callback_query → WA-equivalent interactive payload + ack + keyboard cleared",
+      "title": "telegram callback_query \u2192 WA-equivalent interactive payload + ack + keyboard cleared",
       "feature": "W37 telegram inbound normalization",
       "pass": true,
       "file": "J236.json",
@@ -1388,7 +1388,7 @@
     },
     {
       "id": "J249",
-      "title": "PAY-2: sweep attempt cap → honest dead-letter",
+      "title": "PAY-2: sweep attempt cap \u2192 honest dead-letter",
       "feature": "W38 sla.ts capped refund sweep",
       "pass": true,
       "file": "J249.json",
@@ -1428,7 +1428,7 @@
     },
     {
       "id": "J253",
-      "title": "PAY-7: failed bulk refund → refund_pending + sweep executes it",
+      "title": "PAY-7: failed bulk refund \u2192 refund_pending + sweep executes it",
       "feature": "W38 escrow.bulkUpdateState refund_pending + sweep handoff",
       "pass": true,
       "file": "J253.json",
@@ -1468,7 +1468,7 @@
     },
     {
       "id": "J258",
-      "title": "recon: duplicate settlement reference rejected; underpayment → partial + alert",
+      "title": "recon: duplicate settlement reference rejected; underpayment \u2192 partial + alert",
       "feature": "W38 settlement reconciliation honesty",
       "pass": true,
       "file": "J258.json",
@@ -1517,7 +1517,7 @@
     {
       "id": "J263",
       "title": "stateful data volumes are PVC-backed (no emptyDir)",
-      "feature": "PLT-1/PLT-2 emptyDir → PVC for postgres + tigerbeetle",
+      "feature": "PLT-1/PLT-2 emptyDir \u2192 PVC for postgres + tigerbeetle",
       "pass": true,
       "file": "J263.json",
       "messageCount": 0
@@ -1581,7 +1581,7 @@
     {
       "id": "J271",
       "title": "PSP dispute + refund-status webhooks (PAY-8)",
-      "feature": "charge.dispute → payment_disputes + order flag + admin alert; refund.processed/failed reconcile refund_attempts; unknown events acked",
+      "feature": "charge.dispute \u2192 payment_disputes + order flag + admin alert; refund.processed/failed reconcile refund_attempts; unknown events acked",
       "pass": true,
       "file": "J271.json",
       "messageCount": 3
@@ -1645,7 +1645,7 @@
     {
       "id": "J279",
       "title": "UBO screened fail-closed (TEN-8)",
-      "feature": "uboName/uboDob/pepDeclared captured on KYB; UBO sanctions hit → reject at draft save blocks submit + approval; clean UBO does not block",
+      "feature": "uboName/uboDob/pepDeclared captured on KYB; UBO sanctions hit \u2192 reject at draft save blocks submit + approval; clean UBO does not block",
       "pass": true,
       "file": "J279.json",
       "messageCount": 0
@@ -1732,8 +1732,8 @@
     },
     {
       "id": "J289",
-      "title": "installment failure → overdue + dunning (UC-1)",
-      "feature": "capture no_token → overdue + dunning; reconcile probe-failed → failed + overdue",
+      "title": "installment failure \u2192 overdue + dunning (UC-1)",
+      "feature": "capture no_token \u2192 overdue + dunning; reconcile probe-failed \u2192 failed + overdue",
       "pass": true,
       "file": "J289.json",
       "messageCount": 2
@@ -1749,7 +1749,7 @@
     {
       "id": "J290",
       "title": "customer payment token consent + list + revoke (UC-6)",
-      "feature": "customerPaymentTokens: consent fail-closed, v2:<kid> encryption, masked list, revoke → charge refused",
+      "feature": "customerPaymentTokens: consent fail-closed, v2:<kid> encryption, masked list, revoke \u2192 charge refused",
       "pass": true,
       "file": "J290.json",
       "messageCount": 0
@@ -1812,7 +1812,7 @@
     },
     {
       "id": "J298",
-      "title": "split session: both-channel invites, full funding → order confirm",
+      "title": "split session: both-channel invites, full funding \u2192 order confirm",
       "feature": "W41 UC-3 split_payment_sessions claim-first tally + confirm",
       "pass": true,
       "file": "J298.json",
@@ -1917,7 +1917,7 @@
     {
       "id": "J31",
       "title": "procurement menu browse",
-      "feature": "waMenu procurement → supplier directory → wholesale catalog",
+      "feature": "waMenu procurement \u2192 supplier directory \u2192 wholesale catalog",
       "pass": true,
       "file": "J31.json",
       "messageCount": 15
@@ -2005,7 +2005,7 @@
     {
       "id": "J32",
       "title": "PO build + submit",
-      "feature": "poFlow chat → submitted PO + supplier approval card",
+      "feature": "poFlow chat \u2192 submitted PO + supplier approval card",
       "pass": true,
       "file": "J32.json",
       "messageCount": 31
@@ -2068,7 +2068,7 @@
     },
     {
       "id": "J327",
-      "title": "exchange positive delta → payment link, full lifecycle",
+      "title": "exchange positive delta \u2192 payment link, full lifecycle",
       "feature": "exchange_requests state machine + payment intent reuse",
       "pass": true,
       "file": "J327.json",
@@ -2076,7 +2076,7 @@
     },
     {
       "id": "J328",
-      "title": "exchange negative delta → wallet credit (W41 creditWallet)",
+      "title": "exchange negative delta \u2192 wallet credit (W41 creditWallet)",
       "feature": "exchange price-delta refund via customer wallet",
       "pass": true,
       "file": "J328.json",
@@ -2092,8 +2092,8 @@
     },
     {
       "id": "J33",
-      "title": "approve → credit draw",
-      "feature": "po_approve → drawOnCredit → invoiced + ledger",
+      "title": "approve \u2192 credit draw",
+      "feature": "po_approve \u2192 drawOnCredit \u2192 invoiced + ledger",
       "pass": true,
       "file": "J33.json",
       "messageCount": 35
@@ -2116,7 +2116,7 @@
     },
     {
       "id": "J332",
-      "title": "courier POD endpoint → delivered + timeline",
+      "title": "courier POD endpoint \u2192 delivered + timeline",
       "feature": "POST /api/delivery/proof (auth, idempotency, media storage, delivered completion)",
       "pass": true,
       "file": "J332.json",
@@ -2140,7 +2140,7 @@
     },
     {
       "id": "J335",
-      "title": "address change chat request → merchant card approve",
+      "title": "address change chat request \u2192 merchant card approve",
       "feature": "address_change_requests + WA approval card + apply + audit + notify",
       "pass": true,
       "file": "J335.json",
@@ -2155,25 +2155,145 @@
       "messageCount": 28
     },
     {
+      "id": "J337",
+      "title": "gift card purchase \u2192 payment intent \u2192 webhook activates card (idempotent)",
+      "feature": "W44 gift_cards purchase via existing payment path",
+      "pass": true,
+      "file": "J337.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J338",
+      "title": "gift card redeem: claim-first debit, CONFLICT on insufficient, idempotent replay",
+      "feature": "W44 gift_cards claim-first redemption",
+      "pass": true,
+      "file": "J338.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J339",
+      "title": "gift card balance in chat \u2014 WhatsApp + Telegram parity",
+      "feature": "W44 gift_card balance intent on BOTH channels",
+      "pass": true,
+      "file": "J339.json",
+      "messageCount": 23
+    },
+    {
       "id": "J34",
       "title": "overdraw refusal",
-      "feature": "drawOnCredit over_limit → buyer fallback, no ledger write",
+      "feature": "drawOnCredit over_limit \u2192 buyer fallback, no ledger write",
       "pass": true,
       "file": "J34.json",
       "messageCount": 35
     },
     {
+      "id": "J340",
+      "title": "referral: chat attribution \u2192 reward on referee order PAID \u2192 wallet credit",
+      "feature": "W44 referral_codes + referral_events + creditWallet reward",
+      "pass": true,
+      "file": "J340.json",
+      "messageCount": 43
+    },
+    {
+      "id": "J341",
+      "title": "merchant tRPC issue/disable/adjust + referral void on refund",
+      "feature": "W44 merchant gift card admin + referral void seam",
+      "pass": true,
+      "file": "J341.json",
+      "messageCount": 12
+    },
+    {
+      "id": "J342",
+      "title": "preorder checkout marks line + sweeper flips on availability",
+      "feature": "orderCrud seam + lazy sweeper + both-channel notify",
+      "pass": true,
+      "file": "J342.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J343",
+      "title": "preorder cancel before availability = full refund",
+      "feature": "cancelPreorder + escrow refund + notify + guards",
+      "pass": true,
+      "file": "J343.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J344",
+      "title": "preorder deposit pct snapshot + past-availableAt is normal",
+      "feature": "tenants.preorderDepositPct + integer-cents deposit math",
+      "pass": true,
+      "file": "J344.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J345",
+      "title": "chat offer \u2192 merchant card accept \u2192 priced checkout link",
+      "feature": "custom_offers + approval card + price override + audit + payment link",
+      "pass": true,
+      "file": "J345.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J346",
+      "title": "offer counter/expiry/floor + telegram parity",
+      "feature": "counter card + expiry sweep + minPriceCents floor + TG inline keyboard",
+      "pass": true,
+      "file": "J346.json",
+      "messageCount": 21
+    },
+    {
+      "id": "J347",
+      "title": "appointment booking + deposit + wallet remainder (WA+TG)",
+      "feature": "service_appointments + overlap guard + deposit/remainder + parity",
+      "pass": true,
+      "file": "J347.json",
+      "messageCount": 14
+    },
+    {
+      "id": "J348",
+      "title": "appointment cancel refund vs forfeit + no-show",
+      "feature": "cancel window policy + provider refund + audit + no-show",
+      "pass": true,
+      "file": "J348.json",
+      "messageCount": 26
+    },
+    {
+      "id": "J349",
+      "title": "subscription billing tick charges + advances + idempotent",
+      "feature": "customer_subscriptions + claim-first charge + order leg + parity",
+      "pass": true,
+      "file": "J349.json",
+      "messageCount": 1
+    },
+    {
       "id": "J35",
       "title": "pay-now PO",
-      "feature": "po_payment link → webhook settle → replay idempotent",
+      "feature": "po_payment link \u2192 webhook settle \u2192 replay idempotent",
       "pass": true,
       "file": "J35.json",
       "messageCount": 35
     },
     {
+      "id": "J350",
+      "title": "subscription failure dunning \u2192 past_due; pause/cancel in chat",
+      "feature": "retry max 3 + dunning both channels + pause/resume/cancel",
+      "pass": true,
+      "file": "J350.json",
+      "messageCount": 12
+    },
+    {
+      "id": "J351",
+      "title": "digital PIN upload \u2192 paid order \u2192 delivery + reveal + low-stock + OOS backorder",
+      "feature": "digital_pins encryption + claim-first allocation + parity + backorder",
+      "pass": true,
+      "file": "J351.json",
+      "messageCount": 21
+    },
+    {
       "id": "J36",
       "title": "partial credit repayment",
-      "feature": "creditRepayLink → applyRepayment, replay dedupe",
+      "feature": "creditRepayLink \u2192 applyRepayment, replay dedupe",
       "pass": true,
       "file": "J36.json",
       "messageCount": 0
@@ -2189,7 +2309,7 @@
     {
       "id": "J38",
       "title": "default freeze",
-      "feature": "dunning +7d → account frozen, new draws refused",
+      "feature": "dunning +7d \u2192 account frozen, new draws refused",
       "pass": true,
       "file": "J38.json",
       "messageCount": 1
@@ -2197,7 +2317,7 @@
     {
       "id": "J39",
       "title": "whatsapp full onboarding",
-      "feature": "copilot intake → proposals → approve → tenant live",
+      "feature": "copilot intake \u2192 proposals \u2192 approve \u2192 tenant live",
       "pass": true,
       "file": "J39.json",
       "messageCount": 30
@@ -2205,7 +2325,7 @@
     {
       "id": "J40",
       "title": "edit path re-draft",
-      "feature": "onb_edit → feedback → re-drafted proposals applied",
+      "feature": "onb_edit \u2192 feedback \u2192 re-drafted proposals applied",
       "pass": true,
       "file": "J40.json",
       "messageCount": 40
@@ -2221,7 +2341,7 @@
     {
       "id": "J42",
       "title": "validation-repair loop",
-      "feature": "failed checks → targeted repair → pass; cap → failed",
+      "feature": "failed checks \u2192 targeted repair \u2192 pass; cap \u2192 failed",
       "pass": true,
       "file": "J42.json",
       "messageCount": 0
@@ -2237,7 +2357,7 @@
     {
       "id": "J44",
       "title": "admin channel session",
-      "feature": "portal API: intake → approve → validate → live",
+      "feature": "portal API: intake \u2192 approve \u2192 validate \u2192 live",
       "pass": true,
       "file": "J44.json",
       "messageCount": 0
@@ -2253,7 +2373,7 @@
     {
       "id": "J46",
       "title": "observability capture",
-      "feature": "outbox DLQ → critical capture, redaction, error webhook sink",
+      "feature": "outbox DLQ \u2192 critical capture, redaction, error webhook sink",
       "pass": true,
       "file": "J46.json",
       "messageCount": 0
@@ -2293,7 +2413,7 @@
     {
       "id": "J51",
       "title": "credit repayment via flutterwave",
-      "feature": "creditRepayLink → registry chain → applyRepayment",
+      "feature": "creditRepayLink \u2192 registry chain \u2192 applyRepayment",
       "pass": true,
       "file": "J51.json",
       "messageCount": 0
@@ -2309,7 +2429,7 @@
     {
       "id": "J53",
       "title": "keycloak session forgery",
-      "feature": "exchangeCode identity↔tenant binding",
+      "feature": "exchangeCode identity\u2194tenant binding",
       "pass": true,
       "file": "J53.json",
       "messageCount": 0
@@ -2373,7 +2493,7 @@
     {
       "id": "J61",
       "title": "mandate-gated approval",
-      "feature": "approveAccount mandate gate (₦50k floor)",
+      "feature": "approveAccount mandate gate (\u20a650k floor)",
       "pass": true,
       "file": "J61.json",
       "messageCount": 0
@@ -2381,7 +2501,7 @@
     {
       "id": "J62",
       "title": "charge-first repayment",
-      "feature": "initiateRepayment → mandate charge → FIFO settle, exactly-once",
+      "feature": "initiateRepayment \u2192 mandate charge \u2192 FIFO settle, exactly-once",
       "pass": true,
       "file": "J62.json",
       "messageCount": 0
@@ -2389,7 +2509,7 @@
     {
       "id": "J63",
       "title": "mandate charge failure fallback",
-      "feature": "declined mandate charge → dunning + payment-link fallback",
+      "feature": "declined mandate charge \u2192 dunning + payment-link fallback",
       "pass": true,
       "file": "J63.json",
       "messageCount": 1
@@ -2405,7 +2525,7 @@
     {
       "id": "J65",
       "title": "tenure gate + suspension",
-      "feature": "first-draw tenure gate; dunning freeze → PO-submit suspension",
+      "feature": "first-draw tenure gate; dunning freeze \u2192 PO-submit suspension",
       "pass": true,
       "file": "J65.json",
       "messageCount": 62
@@ -2413,7 +2533,7 @@
     {
       "id": "J66",
       "title": "supplier-direct settlement",
-      "feature": "credit PO → paid-via-credit, zero payment-link outbounds",
+      "feature": "credit PO \u2192 paid-via-credit, zero payment-link outbounds",
       "pass": true,
       "file": "J66.json",
       "messageCount": 35
@@ -2429,7 +2549,7 @@
     {
       "id": "J68",
       "title": "bureau event payloads & lifecycle",
-      "feature": "disbursement→repayment→delinquency→cure→closure payloads",
+      "feature": "disbursement\u2192repayment\u2192delinquency\u2192cure\u2192closure payloads",
       "pass": true,
       "file": "J68.json",
       "messageCount": 0
@@ -2469,7 +2589,7 @@
     {
       "id": "J73",
       "title": "multilingual onboarding e2e",
-      "feature": "yo thread → explicit pcm switch → live; en byte-compat",
+      "feature": "yo thread \u2192 explicit pcm switch \u2192 live; en byte-compat",
       "pass": true,
       "file": "J73.json",
       "messageCount": 40
@@ -2484,8 +2604,8 @@
     },
     {
       "id": "J75",
-      "title": "photo → catalog bootstrap",
-      "feature": "extract → draft → confirm subset+edits → idempotent dedupe",
+      "title": "photo \u2192 catalog bootstrap",
+      "feature": "extract \u2192 draft \u2192 confirm subset+edits \u2192 idempotent dedupe",
       "pass": true,
       "file": "J75.json",
       "messageCount": 0
@@ -2517,7 +2637,7 @@
     {
       "id": "J79",
       "title": "shopify oauth + catalog sync e2e",
-      "feature": "signed-state OAuth → encrypted token → sync create/adopt/update → dry-run zero-write",
+      "feature": "signed-state OAuth \u2192 encrypted token \u2192 sync create/adopt/update \u2192 dry-run zero-write",
       "pass": true,
       "file": "J79.json",
       "messageCount": 0
@@ -2525,7 +2645,7 @@
     {
       "id": "J80",
       "title": "shopify order bridge e2e",
-      "feature": "HMAC fail-closed → kobo totals → exactly-once dedupe → unknown-SKU capture → customer link by phone",
+      "feature": "HMAC fail-closed \u2192 kobo totals \u2192 exactly-once dedupe \u2192 unknown-SKU capture \u2192 customer link by phone",
       "pass": true,
       "file": "J80.json",
       "messageCount": 0
@@ -2533,7 +2653,7 @@
     {
       "id": "J81",
       "title": "embedded signup e2e",
-      "feature": "code exchange + discovery → idempotent replay → error taxonomy → waSender credential seam → coexistence",
+      "feature": "code exchange + discovery \u2192 idempotent replay \u2192 error taxonomy \u2192 waSender credential seam \u2192 coexistence",
       "pass": true,
       "file": "J81.json",
       "messageCount": 1
@@ -2541,7 +2661,7 @@
     {
       "id": "J82",
       "title": "template library lifecycle",
-      "feature": "validate → submit ×2 → sync approved/rejected-with-reason → resubmit → idempotent double-submit",
+      "feature": "validate \u2192 submit \u00d72 \u2192 sync approved/rejected-with-reason \u2192 resubmit \u2192 idempotent double-submit",
       "pass": true,
       "file": "J82.json",
       "messageCount": 0
@@ -2549,7 +2669,7 @@
     {
       "id": "J83",
       "title": "marketplace lifecycle",
-      "feature": "catalog enrichment → awaiting_config → fail-closed health gate → cache → audited uninstall → FORBIDDEN",
+      "feature": "catalog enrichment \u2192 awaiting_config \u2192 fail-closed health gate \u2192 cache \u2192 audited uninstall \u2192 FORBIDDEN",
       "pass": true,
       "file": "J83.json",
       "messageCount": 0
@@ -2557,7 +2677,7 @@
     {
       "id": "J84",
       "title": "new-tenant w16 distribution e2e",
-      "feature": "embedded signup → template submit → shopify connect+sync → first bridged order → WhatsApp consent/menu on new creds",
+      "feature": "embedded signup \u2192 template submit \u2192 shopify connect+sync \u2192 first bridged order \u2192 WhatsApp consent/menu on new creds",
       "pass": true,
       "file": "J84.json",
       "messageCount": 6
@@ -2565,7 +2685,7 @@
     {
       "id": "J85",
       "title": "whatsapp visual stock-take",
-      "feature": "photo → counts → APPLY (calibrated)",
+      "feature": "photo \u2192 counts \u2192 APPLY (calibrated)",
       "pass": true,
       "file": "J85.json",
       "messageCount": 8
@@ -2573,7 +2693,7 @@
     {
       "id": "J86",
       "title": "broadcast journey lifecycle",
-      "feature": "enroll → template → reply advances → done",
+      "feature": "enroll \u2192 template \u2192 reply advances \u2192 done",
       "pass": true,
       "file": "J86.json",
       "messageCount": 4
@@ -2588,7 +2708,7 @@
     },
     {
       "id": "J88",
-      "title": "COD chat order → rider cash → settled",
+      "title": "COD chat order \u2192 rider cash \u2192 settled",
       "feature": "cod state machine + RIDER_CONFIRM reply",
       "pass": true,
       "file": "J88.json",
@@ -2596,7 +2716,7 @@
     },
     {
       "id": "J89",
-      "title": "COD delivery_failed → returned",
+      "title": "COD delivery_failed \u2192 returned",
       "feature": "failure branches + merchant alerts",
       "pass": true,
       "file": "J89.json",
@@ -2604,7 +2724,7 @@
     },
     {
       "id": "J90",
-      "title": "COD partial cash → balance → completion",
+      "title": "COD partial cash \u2192 balance \u2192 completion",
       "feature": "partial-payment tracking + reconciliation",
       "pass": true,
       "file": "J90.json",
@@ -2613,7 +2733,7 @@
     {
       "id": "J91",
       "title": "crm lead scoring + win-back",
-      "feature": "RFM+credit lead score → pipeline → at-risk win-back broadcast → reply lifts score",
+      "feature": "RFM+credit lead score \u2192 pipeline \u2192 at-risk win-back broadcast \u2192 reply lifts score",
       "pass": true,
       "file": "J91.json",
       "messageCount": 4

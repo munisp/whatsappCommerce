@@ -36,6 +36,10 @@ import { orderCrudRouter } from "./routers/orderCrud";
 import { buyerCreditRouter } from "./routers/buyerCredit";
 import { rmaRouter } from "./routers/rma";
 import { exchangesRouter } from "./routers/exchanges"; // === W43 exchanges (Coder B) ===
+// === W44 giftcards-referrals (Coder A) ===
+import { giftCardsRouter, referralsRouter } from "./routers/giftCards";
+// === END W44 giftcards-referrals ===
+import { subscriptionPlansRouter, digitalPinsRouter } from "./routers/w44SubscriptionsPins"; // === W44 deposits-subs-digital (Coder C) ===
 import { codRouter } from "./routers/cod";
 import { promosRouter } from "./routers/promos";
 import { customersRouter } from "./routers/customers";
@@ -205,6 +209,14 @@ export const appRouter = router({
   // === W43 exchanges (Coder B): exchange lifecycle ===
   exchanges: exchangesRouter,
   // === END W43 exchanges ===
+  // === W44 giftcards-referrals (Coder A): merchant gift card + referral admin ===
+  giftCards: giftCardsRouter,
+  referrals: referralsRouter,
+  // === END W44 giftcards-referrals ===
+  // === W44 deposits-subs-digital (Coder C): subscription plans + PIN batches ===
+  subscriptionPlans: subscriptionPlansRouter,
+  digitalPins: digitalPinsRouter,
+  // === END W44 deposits-subs-digital ===
   cod: codRouter,
   promos: promosRouter,
   customers: customersRouter,

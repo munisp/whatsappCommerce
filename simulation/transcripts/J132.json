@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018039567",
-      "profileName": "Sim User 9567",
-      "inboundId": "wamid.sim.in.img.00337",
-      "at": 1789626991394,
+      "phone": "2348016526337",
+      "profileName": "Sim User 6337",
+      "inboundId": "wamid.sim.in.img.00335",
+      "at": 1789657893208,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-stray"
@@ -18,41 +18,41 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00337",
-      "at": 1789626991398
+      "wamid": "wamid.sim.in.img.00335",
+      "at": 1789657893212
     },
     {
       "dir": "in",
-      "phone": "2348018039567",
-      "profileName": "Sim User 9567",
-      "inboundId": "wamid.sim.in.text.00338",
-      "at": 1789626991940,
+      "phone": "2348016526337",
+      "profileName": "Sim User 6337",
+      "inboundId": "wamid.sim.in.text.00336",
+      "at": 1789657893757,
       "kind": "text",
       "text": "expense"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00338",
-      "at": 1789626991944
+      "wamid": "wamid.sim.in.text.00336",
+      "at": 1789657893761
     },
     {
       "dir": "out",
-      "phone": "2348018039567",
-      "wamid": "wamid.sim.000567",
+      "phone": "2348016526337",
+      "wamid": "wamid.sim.000563",
       "statuses": [
         "sent"
       ],
-      "at": 1789626991954,
+      "at": 1789657893770,
       "kind": "text",
       "body": "🧾 Send a clear photo of the supplier receipt now. I'll read the amount and vendor, then ask you to confirm. Reply \"cancel expense\" to abort."
     },
     {
       "dir": "in",
-      "phone": "2348018039567",
-      "profileName": "Sim User 9567",
-      "inboundId": "wamid.sim.in.img.00339",
-      "at": 1789626992487,
+      "phone": "2348016526337",
+      "profileName": "Sim User 6337",
+      "inboundId": "wamid.sim.in.img.00337",
+      "at": 1789657894300,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-exp-1"
@@ -60,78 +60,78 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00339",
-      "at": 1789626992491
+      "wamid": "wamid.sim.in.img.00337",
+      "at": 1789657894305
     },
     {
       "dir": "out",
-      "phone": "2348018039567",
-      "wamid": "wamid.sim.000568",
+      "phone": "2348016526337",
+      "wamid": "wamid.sim.000564",
       "statuses": [
         "sent"
       ],
-      "at": 1789626992515,
+      "at": 1789657894323,
       "kind": "text",
       "body": "🧾 Expense captured: ₦15,000.50 at Chidi Supplies on 2026-02-10.\nReply \"confirm expense\" to save it, or \"cancel expense\" to discard."
     },
     {
       "dir": "in",
-      "phone": "2348018039567",
-      "profileName": "Sim User 9567",
-      "inboundId": "wamid.sim.in.text.00340",
-      "at": 1789626993034,
+      "phone": "2348016526337",
+      "profileName": "Sim User 6337",
+      "inboundId": "wamid.sim.in.text.00338",
+      "at": 1789657894847,
       "kind": "text",
       "text": "confirm expense"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00340",
-      "at": 1789626993038
+      "wamid": "wamid.sim.in.text.00338",
+      "at": 1789657894852
     },
     {
       "dir": "out",
-      "phone": "2348018039567",
-      "wamid": "wamid.sim.000569",
+      "phone": "2348016526337",
+      "wamid": "wamid.sim.000565",
       "statuses": [
         "sent"
       ],
-      "at": 1789626993050,
+      "at": 1789657894864,
       "kind": "text",
       "body": "✅ Expense confirmed: ₦15,000.50 at Chidi Supplies. View it any time in your portal: http://localhost:4173/portal/bookkeeping"
     },
     {
       "dir": "in",
-      "phone": "2348018039567",
-      "profileName": "Sim User 9567",
-      "inboundId": "wamid.sim.in.text.00341",
-      "at": 1789626993580,
+      "phone": "2348016526337",
+      "profileName": "Sim User 6337",
+      "inboundId": "wamid.sim.in.text.00339",
+      "at": 1789657895392,
       "kind": "text",
       "text": "expense"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00341",
-      "at": 1789626993585
+      "wamid": "wamid.sim.in.text.00339",
+      "at": 1789657895397
     },
     {
       "dir": "out",
-      "phone": "2348018039567",
-      "wamid": "wamid.sim.000570",
+      "phone": "2348016526337",
+      "wamid": "wamid.sim.000566",
       "statuses": [
         "sent"
       ],
-      "at": 1789626993594,
+      "at": 1789657895407,
       "kind": "text",
       "body": "🧾 Send a clear photo of the supplier receipt now. I'll read the amount and vendor, then ask you to confirm. Reply \"cancel expense\" to abort."
     },
     {
       "dir": "in",
-      "phone": "2348018039567",
-      "profileName": "Sim User 9567",
-      "inboundId": "wamid.sim.in.img.00342",
-      "at": 1789626994124,
+      "phone": "2348016526337",
+      "profileName": "Sim User 6337",
+      "inboundId": "wamid.sim.in.img.00340",
+      "at": 1789657895936,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-exp-2"
@@ -139,43 +139,43 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.img.00342",
-      "at": 1789626994129
+      "wamid": "wamid.sim.in.img.00340",
+      "at": 1789657895940
     },
     {
       "dir": "out",
-      "phone": "2348018039567",
-      "wamid": "wamid.sim.000571",
+      "phone": "2348016526337",
+      "wamid": "wamid.sim.000567",
       "statuses": [
         "sent"
       ],
-      "at": 1789626994146,
+      "at": 1789657895964,
       "kind": "text",
       "body": "🧾 Expense captured: ₦200 at Kola Kiosk on 2026-02-11.\nReply \"confirm expense\" to save it, or \"cancel expense\" to discard."
     },
     {
       "dir": "in",
-      "phone": "2348018039567",
-      "profileName": "Sim User 9567",
-      "inboundId": "wamid.sim.in.text.00343",
-      "at": 1789626994671,
+      "phone": "2348016526337",
+      "profileName": "Sim User 6337",
+      "inboundId": "wamid.sim.in.text.00341",
+      "at": 1789657896481,
       "kind": "text",
       "text": "cancel expense"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00343",
-      "at": 1789626994675
+      "wamid": "wamid.sim.in.text.00341",
+      "at": 1789657896485
     },
     {
       "dir": "out",
-      "phone": "2348018039567",
-      "wamid": "wamid.sim.000572",
+      "phone": "2348016526337",
+      "wamid": "wamid.sim.000568",
       "statuses": [
         "sent"
       ],
-      "at": 1789626994684,
+      "at": 1789657896495,
       "kind": "text",
       "body": "🗑️ Expense discarded."
     }

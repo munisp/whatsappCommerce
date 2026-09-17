@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018836185",
-      "profileName": "Sim User 6185",
-      "inboundId": "wamid.sim.in.loc.00317",
-      "at": 1789626975061,
+      "phone": "2348015281897",
+      "profileName": "Sim User 1897",
+      "inboundId": "wamid.sim.in.loc.00315",
+      "at": 1789657876845,
       "kind": "location",
       "lat": 6.53,
       "lng": 3.3792,
@@ -20,43 +20,43 @@
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.loc.00317",
-      "at": 1789626975066
+      "wamid": "wamid.sim.in.loc.00315",
+      "at": 1789657876852
     },
     {
       "dir": "out",
-      "phone": "2348018836185",
-      "wamid": "wamid.sim.000543",
+      "phone": "2348015281897",
+      "wamid": "wamid.sim.000539",
       "statuses": [
         "sent"
       ],
-      "at": 1789626975091,
+      "at": 1789657876885,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km\n\nReply with a category to filter, or tell me what you're looking for."
     },
     {
       "dir": "in",
-      "phone": "2348018836185",
-      "profileName": "Sim User 6185",
-      "inboundId": "wamid.sim.in.text.00318",
-      "at": 1789626975607,
+      "phone": "2348015281897",
+      "profileName": "Sim User 1897",
+      "inboundId": "wamid.sim.in.text.00316",
+      "at": 1789657877390,
       "kind": "text",
       "text": "Sim"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00318",
-      "at": 1789626975612
+      "wamid": "wamid.sim.in.text.00316",
+      "at": 1789657877395
     },
     {
       "dir": "out",
-      "phone": "2348018836185",
-      "wamid": "wamid.sim.000544",
+      "phone": "2348015281897",
+      "wamid": "wamid.sim.000540",
       "statuses": [
         "sent"
       ],
-      "at": 1789626975639,
+      "at": 1789657877425,
       "kind": "text",
       "body": "📍 Businesses near you (within 5 km):\n1. Sim Store — sim · 0.6 km"
     }

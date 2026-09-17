@@ -1,0 +1,135 @@
+{
+  "id": "J347",
+  "title": "appointment booking + deposit + wallet remainder (WA+TG)",
+  "feature": "service_appointments + overlap guard + deposit/remainder + parity",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348012025554",
+      "profileName": "Sim User 5554",
+      "inboundId": "wamid.sim.in.text.00519",
+      "at": 1789658145787,
+      "kind": "text",
+      "text": "services"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00519",
+      "at": 1789658145791
+    },
+    {
+      "dir": "out",
+      "phone": "2348012025554",
+      "wamid": "wamid.sim.000870",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789658145814,
+      "kind": "text",
+      "body": "📅 Bookable services:\n1. Braids Deluxe J347 — ₦200.00 (60 min, 50% deposit)\n\nReply \"book <service> at <time>\" — e.g. \"book Braids Deluxe J347 at 2026-01-05 14:00\"."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012025554",
+      "profileName": "Sim User 5554",
+      "inboundId": "wamid.sim.in.text.00520",
+      "at": 1789658146331,
+      "kind": "text",
+      "text": "book Braids Deluxe J347 at in 3 hours"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00520",
+      "at": 1789658146336
+    },
+    {
+      "dir": "out",
+      "phone": "2348012025554",
+      "wamid": "wamid.sim.000871",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789658146370,
+      "kind": "text",
+      "body": "📅 Braids Deluxe J347 on Thu, 17 Sep 2026 18:15:46 GMT (ref cc66db93).\nDeposit: ₦100.00 (remainder ₦100.00 at your appointment).\n💳 Pay deposit: https://checkout.paystack.com/sim/appt-deposit:cc66db93-8538-489a-8062-b9038c665c32"
+    },
+    {
+      "dir": "in",
+      "phone": "2348011635137",
+      "profileName": "Sim User 5137",
+      "inboundId": "wamid.sim.in.text.00521",
+      "at": 1789658146881,
+      "kind": "text",
+      "text": "book Braids Deluxe J347 at in 3 hours"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00521",
+      "at": 1789658146885
+    },
+    {
+      "dir": "out",
+      "phone": "2348011635137",
+      "wamid": "wamid.sim.000872",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789658146913,
+      "kind": "text",
+      "body": "That time slot is already booked — please pick another time."
+    },
+    {
+      "dir": "out",
+      "phone": "2348012025554",
+      "wamid": "wamid.sim.000873",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789658147444,
+      "kind": "text",
+      "body": "✅ Deposit ₦100.00 received — your Braids Deluxe J347 appointment on Thu, 17 Sep 2026 18:15:46 GMT is confirmed (ref cc66db93)."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012560794",
+      "profileName": "Sim User 0794",
+      "inboundId": "wamid.sim.in.text.00522",
+      "at": 1789658148332,
+      "kind": "text",
+      "text": "APPT COMPLETE cc66db93"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00522",
+      "at": 1789658148336
+    },
+    {
+      "dir": "out",
+      "phone": "2348012025554",
+      "wamid": "wamid.sim.000874",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789658148405,
+      "kind": "text",
+      "body": "✅ Your appointment (ref cc66db93) is complete — the ₦100.00 remainder was charged from your wallet. Thank you!"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012560794",
+      "wamid": "wamid.sim.000875",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789658148408,
+      "kind": "text",
+      "body": "Appointment cc66db93 completed — remainder charged from the customer's wallet."
+    }
+  ]
+}

@@ -435,6 +435,27 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j335-address-change-chat-approve"),
     import("./journeys/j336-address-change-terminal-paths"),
     // === W43 Coder C END (merger owns registry count) ===
+    // === W44 giftcards-referrals (Coder A): gift cards + referrals J337-J341 ===
+    import("./journeys/j337-giftcard-purchase-webhook-activates"),
+    import("./journeys/j338-giftcard-redeem-claim-first"),
+    import("./journeys/j339-giftcard-balance-chat-parity"),
+    import("./journeys/j340-referral-reward-on-paid"),
+    import("./journeys/j341-merchant-admin-and-referral-void"),
+    // === W44 Coder A END (merger owns registry count) ===
+    // === W44 preorders-offers (Coder B): pre-orders + haggling J342-J346 ===
+    import("./journeys/j342-preorder-checkout-flip"),
+    import("./journeys/j343-preorder-cancel-full-refund"),
+    import("./journeys/j344-preorder-deposit-pct"),
+    import("./journeys/j345-offer-accept-checkout"),
+    import("./journeys/j346-offer-counter-expiry-tg"),
+    // === W44 Coder B END (merger owns registry count) ===
+    // === W44 deposits-subs-digital (Coder C): appointments + subscriptions + PIN digital goods J347-J351 ===
+    import("./journeys/j347-appointment-booking-deposit"),
+    import("./journeys/j348-appointment-cancel-noshow"),
+    import("./journeys/j349-subscription-billing-tick"),
+    import("./journeys/j350-subscription-failure-chat-lifecycle"),
+    import("./journeys/j351-digital-pin-delivery"),
+    // === W44 Coder C END (merger owns registry count) ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

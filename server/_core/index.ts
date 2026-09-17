@@ -510,6 +510,43 @@ async function startServer() {
     }
   });
 
+  // === W44 preorders-offers (Coder B) ===
+  // ── Scheduled: pre-order availability sweep (lazy flip, every ~5 min) ────
+  // Flips due order lines 'preorder' → 'ordered' (claim-first guarded UPDATE)
+  // so the W43 fulfillment path takes over, and notifies each customer on
+  // BOTH channels. Idempotent — a replayed sweep flips nothing.
+  // After deploy: manus-heartbeat create --name preorders-due --cron "0 */5 * * * *" --path /api/scheduled/preorders-due
+  app.post("/api/scheduled/preorders-due", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { sweepDuePreorders } = await import("../services/preorders");
+      const run = await sweepDuePreorders();
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[preorders-due] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "preorders-due failed" });
+    }
+  });
+
+  // ── Scheduled: custom-offer expiry sweep (every ~30 min) ────────────────
+  // Open offers (pending/countered) past expiresAt flip to 'expired'; the
+  // customer is notified on their channel. Idempotent.
+  // After deploy: manus-heartbeat create --name offers-expire --cron "0 */30 * * * *" --path /api/scheduled/offers-expire
+  app.post("/api/scheduled/offers-expire", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const { sweepExpiredOffers } = await import("../services/customOffers");
+      const run = await sweepExpiredOffers();
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[offers-expire] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "offers-expire failed" });
+    }
+  });
+  // === END W44 preorders-offers ===
+
   // === W27 bookkeeping ===
   // ── Scheduled: opt-in merchant sales digests (daily/weekly) ─────────────
   // Sends "You made ₦X this week, up N%" to every opted-in merchant phone;
@@ -950,6 +987,28 @@ async function startServer() {
             await runBuyerCreditWebhookHook(db, { provider: "paystack", reference: ref, rawPayload: payload.data });
           }
           // === END W41 buyer-credit hook ===
+          // === W44 giftcards-referrals hook (adjacent seam — paymentConfirm.ts untouched) ===
+          // Activates gift cards whose purchase intent this charge settled
+          // (metadata.kind='gift_card_purchase') and rewards referrers when a
+          // referee's first order goes PAID. Exactly-once, never throws.
+          if (result.ok) {
+            const { runGiftCardPurchaseWebhookHook } = await import("../services/giftCards");
+            await runGiftCardPurchaseWebhookHook(db, { provider: "paystack", reference: ref });
+            const { runReferralRewardWebhookHook } = await import("../services/referrals");
+            await runReferralRewardWebhookHook(db, { provider: "paystack", reference: ref });
+          }
+          // === END W44 giftcards-referrals hook ===
+          // === W44 deposits-subs-digital hook (adjacent seam — paymentConfirm.ts PINNED/untouched) ===
+          // Appointment deposit/remainder confirmation (appt-deposit:<id> /
+          // appt-remainder:<id> references) + claim-first digital PIN
+          // allocation on the paid order. Exactly-once, never throws.
+          if (result.ok) {
+            const { runAppointmentWebhookHook } = await import("../services/appointments");
+            await runAppointmentWebhookHook(db, { provider: "paystack", reference: ref });
+            const { runDigitalPinWebhookHook } = await import("../services/digitalPins");
+            await runDigitalPinWebhookHook(db, { provider: "paystack", reference: ref });
+          }
+          // === END W44 deposits-subs-digital hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -1068,6 +1127,25 @@ async function startServer() {
             await runBuyerCreditWebhookHook(db, { provider: "flutterwave", reference: txRef, rawPayload: payload.data });
           }
           // === END W41 buyer-credit hook ===
+          // === W44 giftcards-referrals hook (adjacent seam — see paystack above) ===
+          if (result.ok) {
+            const { runGiftCardPurchaseWebhookHook } = await import("../services/giftCards");
+            await runGiftCardPurchaseWebhookHook(db, { provider: "flutterwave", reference: txRef });
+            const { runReferralRewardWebhookHook } = await import("../services/referrals");
+            await runReferralRewardWebhookHook(db, { provider: "flutterwave", reference: txRef });
+          }
+          // === END W44 giftcards-referrals hook ===
+          // === W44 deposits-subs-digital hook (adjacent seam — paymentConfirm.ts PINNED/untouched) ===
+          // Appointment deposit/remainder confirmation (appt-deposit:<id> /
+          // appt-remainder:<id> references) + claim-first digital PIN
+          // allocation on the paid order. Exactly-once, never throws.
+          if (result.ok) {
+            const { runAppointmentWebhookHook } = await import("../services/appointments");
+            await runAppointmentWebhookHook(db, { provider: "flutterwave", reference: txRef });
+            const { runDigitalPinWebhookHook } = await import("../services/digitalPins");
+            await runDigitalPinWebhookHook(db, { provider: "flutterwave", reference: txRef });
+          }
+          // === END W44 deposits-subs-digital hook ===
           return res.status(200).json({ received: true, ...result });
         }
       }
@@ -1730,6 +1808,59 @@ async function startServer() {
               continue;
             }
             // === END W43 dispatch ===
+            // === W44 preorders-offers (Coder B): merchant offer approval
+            // card buttons (offer:accept|reject|counter:<id>) resolve here;
+            // counter via card prompts for the typed amount form. Customer
+            // counter-offer card taps (offer:caccept|cdecline:<id>) resolve
+            // here too (customerRef = waPhoneNumber). TG callbacks carry the
+            // SAME ids into the NLP engine (see routers/nlp.ts). ===
+            if ((reply?.id ?? "").startsWith("offer:")) {
+              const id = reply!.id;
+              const m = /^offer:(accept|reject|counter):([0-9a-fA-F-]{8,36})$/i.exec(id);
+              const cm = /^offer:(caccept|cdecline):([0-9a-fA-F-]{8,36})$/i.exec(id);
+              let cardReply = "Sorry, that offer link is no longer valid.";
+              try {
+                if (m) {
+                  const { isTenantStaffPhone } = await import("../services/catalogAI");
+                  const isStaff = await isTenantStaffPhone(db, tenantId, waPhoneNumber).catch(() => false);
+                  if (!isStaff) {
+                    cardReply = "Sorry, only store staff can respond to offers.";
+                  } else if (m[1].toLowerCase() === "counter") {
+                    cardReply = `To counter, type OFFER COUNTER ${m[2]} <amount> — e.g. OFFER COUNTER ${m[2]} 4800.`;
+                  } else {
+                    const { decideOffer } = await import("../services/customOffers");
+                    const decided = await decideOffer(db, {
+                      offerId: m[2],
+                      tenantId,
+                      action: m[1].toLowerCase() as "accept" | "reject",
+                      decidedBy: waPhoneNumber,
+                    });
+                    cardReply = decided.status === "accepted"
+                      ? `Offer ${decided.id.slice(0, 8)} accepted — the customer got a priced checkout link.`
+                      : `Offer ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+                  }
+                } else if (cm) {
+                  const { respondToCounter } = await import("../services/customOffers");
+                  const decided = await respondToCounter(db, {
+                    offerId: cm[2],
+                    tenantId,
+                    customerRef: waPhoneNumber,
+                    accept: cm[1].toLowerCase() === "caccept",
+                  });
+                  cardReply = decided.status === "accepted"
+                    ? "Deal! Your payment link is on its way here."
+                    : decided.status === "rejected"
+                      ? "Okay — that offer is closed. You can make a new one any time."
+                      : `That offer is ${decided.status} now.`;
+                }
+              } catch (e: any) {
+                cardReply = `Could not update that offer: ${e?.message ?? "unknown error"}`;
+              }
+              await sendWhatsAppText(tenantId, waPhoneNumber, cardReply)
+                .catch((e: any) => console.error("[whatsapp-webhook] offer reply send error:", e?.message));
+              continue;
+            }
+            // === END W44 preorders-offers ===
             const { handleInteractiveInbound } = await import("../services/useCases");
             const outcome = await handleInteractiveInbound({
               db,
@@ -3223,6 +3354,34 @@ async function startServer() {
     }
   });
   // === END W32 installment due ===
+
+  // === W44 deposits-subs-digital (Coder C) ===
+  // ── POST /api/scheduled/subscription-billing (hourly) ─────────────────
+  // Subscription auto-billing tick: charges due customer_subscriptions via
+  // the saved W41 token (claim-first FOR UPDATE per row), creates the order
+  // + advances next_billing_at in the SAME txn on success, duns + retries
+  // (max 3 → past_due) on failure. Idempotency: sub_billing:<subId>:<period>.
+  // Auth: sdk.authenticateRequest fast-path enforces the W42 cronAuth
+  // scope+jti hardening (scope must equal THIS route path).
+  // Registered in services/scheduler/scheduler.mjs allowlist +
+  // k8s/cron-scheduler.yaml (cron-subscription-billing, hourly).
+  // After deploy: manus-heartbeat create --name subscription-billing --cron "0 0 * * * *" --path /api/scheduled/subscription-billing
+  app.post("/api/scheduled/subscription-billing", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runSubscriptionBillingSweep } = await import("../services/subscriptions");
+      const summary = await runSubscriptionBillingSweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[subscription-billing]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W44 deposits-subs-digital ===
+
 
   // === W32 recurring ===
   // ── POST /api/scheduled/recurring-run (daily) ──────────────────────────

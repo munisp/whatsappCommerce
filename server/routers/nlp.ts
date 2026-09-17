@@ -7,7 +7,7 @@
  *   checkout_address → checkout_confirm → payment → order_confirmed → support
  */
 import { z } from "zod";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc, inArray, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, internalProcedure, router, assertTenantAccess } from "../_core/trpc";
 // === W34 otel-core === traceparent propagation (internal ml call).
@@ -19,7 +19,7 @@ import {
   customers, products, conversations, agentEvents, tenants,
   telegramIdentities,
 } from "../../drizzle/schema";
-import { paymentTransactions } from "../../drizzle/schema";
+import { paymentTransactions, paymentIntents } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 
 /**
@@ -1573,6 +1573,489 @@ export const nlpRouter = router({
         }
       }
       // === END W43 dispatch ===
+      // === W44 giftcards-referrals (Coder A): gift-card + referral chat
+      // commands — deterministic, no LLM (BOTH channels: telegram inbound
+      // feeds this same engine; waPhoneNumber is the session key, E.164 on
+      // WA and "telegram:<chatId>" on TG). ===
+      {
+        const trimmedMsg = input.message.trim();
+        const w44Ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+        /** TG session keys resolve to the linked E.164 phone when bound. */
+        const resolveCustomerRef = async (): Promise<string> => {
+          const ref = input.waPhoneNumber;
+          if (/^telegram:/i.test(ref)) {
+            const chatId = ref.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) return ident.phone;
+          }
+          return ref;
+        };
+        const w44Return = async (reply: string, intent: string) => {
+          await db.update(nlpSessions).set({ context: w44Ctx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent, state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        };
+
+        // ── GIFT CARD BALANCE [CODE] ──
+        const gcBal = /^gift\s?card\s+balance(?:\s+([A-Za-z0-9-]{4,64}))?$/i.exec(trimmedMsg);
+        if (gcBal) {
+          const { getGiftCardBalance, fmtNaira } = await import("../services/giftCards");
+          const code = (gcBal[1] ?? (typeof w44Ctx.lastGiftCardCode === "string" ? w44Ctx.lastGiftCardCode : "")).toUpperCase();
+          let reply: string;
+          if (!code) {
+            reply = "Please send the card code, e.g. GIFT CARD BALANCE GC-ABCD-1234.";
+          } else {
+            const bal = await getGiftCardBalance(input.tenantId, code, db);
+            if (!bal) {
+              reply = `I couldn't find a gift card with code ${code} — please double-check the code.`;
+            } else {
+              w44Ctx.lastGiftCardCode = code;
+              reply = `🎁 Gift card *${code}*\nBalance: ${fmtNaira(bal.balanceCents, bal.currency)}\nStatus: ${bal.status}` +
+                (bal.expiresAt ? `\nExpires: ${bal.expiresAt.toISOString().slice(0, 10)}` : "") +
+                (bal.status === "active" || bal.status === "redeemed_partially"
+                  ? `\nRedeem it on your next order with "USE GIFT CARD ${code}".` : "");
+            }
+          }
+          return w44Return(reply, "gift_card_balance");
+        }
+
+        // ── USE/REDEEM/PAY WITH GIFT CARD <CODE> → apply to the session's
+        // last unpaid order (claim-first, idempotent per order+code) ──
+        const gcUse = /^(?:use|redeem|pay\s+with)\s+gift\s?card\s+([A-Za-z0-9-]{4,64})$/i.exec(trimmedMsg);
+        if (gcUse) {
+          const { applyGiftCardToOrder, fmtNaira } = await import("../services/giftCards");
+          const code = gcUse[1]!.toUpperCase();
+          w44Ctx.lastGiftCardCode = code;
+          const orderId = typeof w44Ctx.lastOrderId === "string" ? w44Ctx.lastOrderId : null;
+          let reply: string;
+          if (!orderId) {
+            reply = "You don't have an open checkout right now — start an order first, then say USE GIFT CARD <code> when I send the payment summary.";
+          } else {
+            const [ord] = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.tenantId, input.tenantId))).limit(1);
+            if (!ord || (ord.paymentStatus !== "unpaid" && ord.paymentStatus !== "initiated")) {
+              reply = "That order isn't awaiting payment anymore. Start a new order to use your gift card.";
+            } else {
+              const customerRef = await resolveCustomerRef();
+              const res = await applyGiftCardToOrder(input.tenantId, code, orderId, { customerRef, db });
+              if (!res.ok) {
+                reply = res.error === "insufficient_funds"
+                  ? `⚠️ That gift card couldn't cover any of this order (${res.error}).`
+                  : res.error === "gift_card_not_found"
+                    ? `I couldn't find a gift card with code ${code} — please double-check it.`
+                    : `⚠️ I couldn't redeem that gift card (${res.error ?? "unknown error"}). No money moved.`;
+              } else {
+                const [cur] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+                const totalCents = Math.round(parseFloat(String(cur?.totalAmount ?? "0")) * 100);
+                const curr = cur?.currency ?? "NGN";
+                reply = `🎁 Applied ${fmtNaira(res.appliedCents, curr)} from gift card *${res.code}* to order ${ord.orderNumber}.` +
+                  (res.remainderCents > 0
+                    ? `\nRemaining to pay: ${fmtNaira(res.remainderCents, curr)} of ${fmtNaira(totalCents, curr)} — I'll send a payment link for the rest.`
+                    : `\n✅ That covers the whole ${fmtNaira(totalCents, curr)} — your order is PAID. Thank you!`) +
+                  `\nCard balance left: ${fmtNaira(res.balanceCents ?? 0, curr)}.`;
+                if (res.remainderCents > 0 && res.orderPaidInFull !== true) {
+                  // PSP remainder via the EXISTING provider chain (payment_link
+                  // parity category; telegram gets a URL inline button).
+                  try {
+                    const { initiateWithFallback } = await import("../services/payments/initiateWithFallback");
+                    const ref = `GCR-${Date.now()}-${orderId.slice(0, 8).toUpperCase()}`;
+                    const outcome = await initiateWithFallback(input.tenantId, {
+                      tenantId: input.tenantId,
+                      amountCents: res.remainderCents,
+                      currency: curr,
+                      reference: ref,
+                      metadata: { kind: "gift_card_remainder", orderId, giftCardCode: res.code },
+                      customer: { phone: customerRef.replace(/^telegram:/i, "") },
+                    });
+                    const url = outcome.result.authorizationUrl;
+                    if (url) {
+                      await db.insert(paymentIntents).values({
+                        id: crypto.randomUUID(),
+                        tenantId: input.tenantId,
+                        orderId,
+                        customerId: customerRef.slice(0, 36),
+                        amount: (res.remainderCents / 100).toFixed(2),
+                        currency: curr,
+                        provider: "paystack",
+                        providerPaymentId: ref,
+                        idempotencyKey: `giftcard-remainder:${ref}`,
+                        metadata: { kind: "gift_card_remainder", orderId, giftCardCode: res.code },
+                      });
+                      reply += `\n💳 Pay the remainder: ${url}`;
+                    }
+                  } catch (e: any) {
+                    console.warn("[nlp] gift-card remainder link failed:", e?.message);
+                  }
+                }
+              }
+            }
+          }
+          return w44Return(reply, "gift_card_redeem");
+        }
+
+        // ── MY REFERRAL CODE ──
+        if (/^my referral( code)?$/i.test(trimmedMsg)) {
+          const { getOrCreateReferralCode } = await import("../services/referrals");
+          const customerRef = await resolveCustomerRef();
+          const codeRow = await getOrCreateReferralCode(input.tenantId, customerRef, db);
+          const reply = `📣 Your referral code is *${codeRow.code}* — share it with friends! When a friend's first order is paid, you earn store credit (if this store's program is on). Friends enter it here with "USE REFERRAL ${codeRow.code}".`;
+          return w44Return(reply, "referral_code");
+        }
+
+        // ── USE REFERRAL <CODE> / REFERRAL CODE <CODE> → attribute (first
+        // order only; self-referral rejected; one attribution per referee) ──
+        const refUse = /^(?:use\s+)?referral(?:\s+code)?\s+([A-Za-z0-9-]{4,64})$/i.exec(trimmedMsg);
+        if (refUse) {
+          const { attributeReferral } = await import("../services/referrals");
+          const customerRef = await resolveCustomerRef();
+          const res = await attributeReferral(input.tenantId, { code: refUse[1]!, refereeCustomerId: customerRef }, db);
+          const reply = res.ok
+            ? res.duplicate
+              ? "You're already linked to a referral code — one referral per person. Your reward tracks your first paid order."
+              : `✅ Referral code ${refUse[1]!.toUpperCase()} linked to you — it counts when your first order is paid. Happy shopping!`
+            : res.error === "self_referral_rejected"
+              ? "Sorry — you can't use your own referral code. Share it with a friend instead!"
+              : res.error === "referee_not_first_order"
+                ? "Referral codes can only be linked before your first paid order."
+                : res.error === "referral_code_not_found"
+                  ? "I couldn't find that referral code — please double-check it with your friend."
+                  : `⚠️ I couldn't link that referral code (${res.error ?? "unknown error"}).`;
+          return w44Return(reply, "referral_attribute");
+        }
+      }
+      // === END W44 giftcards-referrals ===
+      // === W44 preorders-offers (Coder B): haggling / custom offers — buyer
+      // "I'll pay X for Y" (BOTH channels; telegram inbound feeds this same
+      // engine), merchant decision via card callback ids
+      // ("offer:accept|reject|counter:<id>") or typed commands ("OFFER ACCEPT
+      // <id>" / "OFFER REJECT <id> [note]" / "OFFER COUNTER <id> <amount>"),
+      // customer counter response via "offer:caccept|cdecline:<id>" or typed
+      // "ACCEPT OFFER <id>" / "DECLINE OFFER <id>". ===
+      {
+        const trimmedMsg = input.message.trim();
+        // ── Merchant decision: card callback or typed OFFER command ──
+        const offerCb = /^offer:(accept|reject|counter):([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        const offerTyped = /^offer\s+(accept|reject|counter)\s+([0-9a-fA-F-]{8,36})\b[:\-\s]*(.*)$/i.exec(trimmedMsg);
+        const offerDecision = offerCb ?? offerTyped;
+        if (offerDecision) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          // TG merchant: session key "telegram:<chatId>" → linked staff phone.
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, staffRef).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can respond to offers.";
+          } else {
+            const action = offerDecision[1].toLowerCase() as "accept" | "reject" | "counter";
+            const remainder = offerTyped?.[3]?.trim() ?? "";
+            let counterPriceCents: number | null = null;
+            if (action === "counter") {
+              const amt = /([\d,]+(?:\.\d{1,2})?)/.exec(remainder);
+              counterPriceCents = amt ? Math.round(Number(amt[1].replace(/,/g, "")) * 100) : null;
+              if (!counterPriceCents) {
+                await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+                return {
+                  reply: `To counter, type OFFER COUNTER ${offerDecision[2]} <amount> — e.g. OFFER COUNTER ${offerDecision[2]} 4800.`,
+                  intent: "offer_decide", state: session.state,
+                  language: session.language, sessionId: session.id, confidence: 1,
+                };
+              }
+            }
+            try {
+              const { decideOffer } = await import("../services/customOffers");
+              const decided = await decideOffer(db, {
+                offerId: offerDecision[2],
+                tenantId: input.tenantId,
+                action,
+                counterPriceCents,
+                decidedBy: input.waPhoneNumber,
+                note: action === "reject" ? remainder || undefined : undefined,
+              });
+              reply = decided.status === "accepted"
+                ? `Offer ${decided.id.slice(0, 8)} accepted — the customer got a priced checkout link.`
+                : decided.status === "countered"
+                  ? `Counter of ₦${((decided.counterPriceCents ?? 0) / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} sent to the customer for offer ${decided.id.slice(0, 8)}.`
+                  : `Offer ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+            } catch (e: any) {
+              reply = `Could not update that offer: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "offer_decide", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Customer counter-offer response: card callback or typed ──
+        const counterCb = /^offer:(caccept|cdecline):([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        const counterTyped = /^(accept|decline)\s+offer\s+([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        if (counterCb ?? counterTyped) {
+          const accept = counterCb ? counterCb[1].toLowerCase() === "caccept" : counterTyped![1].toLowerCase() === "accept";
+          const idRef = (counterCb ?? counterTyped)![2];
+          let reply: string;
+          try {
+            const { respondToCounter } = await import("../services/customOffers");
+            const decided = await respondToCounter(db, {
+              offerId: idRef,
+              tenantId: input.tenantId,
+              customerRef: input.waPhoneNumber,
+              accept,
+            });
+            reply = decided.status === "accepted"
+              ? "Deal! Your payment link is on its way here."
+              : decided.status === "rejected"
+                ? "Okay — that offer is closed. You can make a new one any time."
+                : `That offer is ${decided.status} now.`;
+          } catch (e: any) {
+            reply = `Could not update that offer: ${e?.message ?? "unknown error"}`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "offer_counter_response", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Buyer makes an offer: "I'll pay 4500 for Ankara fabric" ──
+        const offerCmd = /^(?:i'?ll\s+pay|i\s+can\s+pay|i\s+offer|my\s+offer\s+is|offer)\s*(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:kobo)?\s+(?:for|on)\s+(.+)$/i.exec(trimmedMsg);
+        if (offerCmd) {
+          const rawAmt = Number(offerCmd[1].replace(/,/g, ""));
+          // "kobo" suffix means the amount is already in minor units.
+          const offeredPriceCents = /kobo/i.test(offerCmd[0]) ? Math.round(rawAmt) : Math.round(rawAmt * 100);
+          let productText = offerCmd[2].trim();
+          let qty = 1;
+          const qtyM = /(?:^|\s)(?:x\s*(\d+)|(\d+)\s*x)$/i.exec(productText);
+          if (qtyM) {
+            qty = Number(qtyM[1] ?? qtyM[2]);
+            productText = productText.replace(qtyM[0], "").trim();
+          }
+          let reply: string;
+          try {
+            const { makeOffer } = await import("../services/customOffers");
+            const { offer, productName } = await makeOffer(db, {
+              tenantId: input.tenantId,
+              customerRef: input.waPhoneNumber,
+              productName: productText,
+              qty,
+              offeredPriceCents,
+            });
+            reply = `🤝 Got it — your offer of ₦${(offeredPriceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} for ${qty} × ${productName} ` +
+              `is with the store (ref ${offer.id.slice(0, 8)}). We'll message you here as soon as they respond.`;
+          } catch (e: any) {
+            reply = e?.code === "CONFLICT"
+              ? (e?.message ?? "You already have an open offer for that product.")
+              : e?.code === "NOT_FOUND"
+                ? "I couldn't find that product in this store — check the name and try again."
+                : (e?.message ?? `Sorry, I couldn't place that offer just now (${e?.message ?? "unknown error"}).`);
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "offer_request", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === END W44 preorders-offers ===
+      // === W44 deposits-subs-digital (Coder C): appointments (book/cancel/
+      // merchant complete+no-show), subscription pause/resume/cancel, digital
+      // PIN reveal. BOTH channels — telegram inbound feeds this same engine;
+      // customerRef is the E.164 phone (WA) or "telegram:<chatId>" session key. ===
+      {
+        const trimmedMsg = input.message.trim();
+
+        // ── Merchant: APPT COMPLETE <id8> / APPT NOSHOW <id8> ──
+        const apptAdmin = /^appt\s+(complete|noshow|no-show)\s+([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        if (apptAdmin) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, staffRef).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can manage appointments.";
+          } else {
+            try {
+              const { serviceAppointments } = await import("../../drizzle/schema");
+              const matches = await db.select({ id: serviceAppointments.id }).from(serviceAppointments)
+                .where(and(eq(serviceAppointments.tenantId, input.tenantId),
+                  sql`CAST(${serviceAppointments.id} AS text) LIKE ${apptAdmin[2].toLowerCase() + "%"}`))
+                .limit(2);
+              if (matches.length !== 1) {
+                reply = matches.length === 0
+                  ? "No appointment with that reference — check the id."
+                  : "That reference is ambiguous — send more characters of the id.";
+              } else if (/^complete$/i.test(apptAdmin[1])) {
+                const { completeAppointment } = await import("../services/appointments");
+                const r = await completeAppointment(db, { tenantId: input.tenantId, appointmentId: matches[0]!.id, actorId: staffRef });
+                reply = `Appointment ${matches[0]!.id.slice(0, 8)} completed — ` +
+                  (r.remainder === "wallet" ? "remainder charged from the customer's wallet."
+                    : r.remainder === "link" ? "remainder payment link sent to the customer."
+                      : r.remainder === "failed" ? "⚠️ the remainder could not be collected yet."
+                        : "no remainder due.");
+              } else {
+                const { markNoShow } = await import("../services/appointments");
+                await markNoShow(db, { tenantId: input.tenantId, appointmentId: matches[0]!.id, actorId: staffRef });
+                reply = `Appointment ${matches[0]!.id.slice(0, 8)} marked no-show — deposit kept, customer notified.`;
+              }
+            } catch (e: any) {
+              reply = `Could not update that appointment: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_admin", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: list bookable services ──
+        if (/^(?:services|book a service|book an? appointment|appointments)\s*$/i.test(trimmedMsg)) {
+          const { listServiceProducts, appointmentDepositPct } = await import("../services/appointments");
+          const svcs = await listServiceProducts(db, input.tenantId);
+          const depositPct = await appointmentDepositPct(db, input.tenantId);
+          const reply = svcs.length === 0
+            ? "We don't have bookable services right now — browse our products with 'menu'."
+            : "📅 Bookable services:\n" + svcs.map((s, i) =>
+                `${i + 1}. ${s.name} — ₦${(s.priceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} (${s.durationMinutes} min, ${depositPct}% deposit)`).join("\n") +
+              `\n\nReply "book <service> at <time>" — e.g. "book ${svcs[0]!.name} at 2026-01-05 14:00".`;
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_list_services", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: book <service> at <time> ──
+        const bookCmd = /^book\s+(.+?)\s+(?:at|on)\s+(.+)$/i.exec(trimmedMsg);
+        if (bookCmd) {
+          const { listServiceProducts, bookAppointment, parseAppointmentTime } = await import("../services/appointments");
+          const svcs = await listServiceProducts(db, input.tenantId);
+          const wanted = bookCmd[1].trim().toLowerCase();
+          const svc = svcs.find((s) => s.name.toLowerCase() === wanted)
+            ?? svcs.find((s) => s.name.toLowerCase().includes(wanted) || wanted.includes(s.name.toLowerCase()));
+          let reply: string;
+          if (!svc) {
+            reply = svcs.length === 0
+              ? "We don't have bookable services right now."
+              : `I couldn't match "${bookCmd[1].trim()}" to a service. Bookable: ${svcs.map((s) => s.name).join(", ")}.`;
+          } else {
+            const startsAt = parseAppointmentTime(bookCmd[2]);
+            if (!startsAt) {
+              reply = `I couldn't parse that time — use e.g. "book ${svc.name} at 2026-01-05 14:00" or "book ${svc.name} at tomorrow 2pm".`;
+            } else {
+              try {
+                const r = await bookAppointment(db, {
+                  tenantId: input.tenantId,
+                  customerRef: input.waPhoneNumber,
+                  serviceProductId: svc.id,
+                  startsAt,
+                  channel: /^telegram:/i.test(input.waPhoneNumber) ? "telegram" : "whatsapp",
+                });
+                const fmt = (c: number) => `₦${(c / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+                reply = `📅 ${r.serviceName} on ${startsAt.toUTCString()} (ref ${r.appt.id.slice(0, 8)}).` +
+                  (r.depositCents > 0
+                    ? `\nDeposit: ${fmt(r.depositCents)}${r.remainderCents > 0 ? ` (remainder ${fmt(r.remainderCents)} at your appointment)` : ""}.` +
+                      (r.paymentUrl ? `\n💳 Pay deposit: ${r.paymentUrl}` : `\n⚠️ Deposit link unavailable right now — we'll retry shortly.`)
+                    : "\nNo deposit required — you're booked!");
+              } catch (e: any) {
+                reply = e?.code === "CONFLICT"
+                  ? (e?.message ?? "That time slot is already booked.")
+                  : e?.code === "NOT_FOUND"
+                    ? "That service is not available for booking."
+                    : `Sorry, I couldn't book that just now (${e?.message ?? "unknown error"}).`;
+              }
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_book", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: cancel appointment [id8] ──
+        const cancelAppt = /^cancel\s+(?:my\s+)?appointment\b\s*([0-9a-fA-F-]{0,36})\s*$/i.exec(trimmedMsg);
+        if (cancelAppt) {
+          let reply: string;
+          try {
+            const { serviceAppointments } = await import("../../drizzle/schema");
+            const { cancelAppointment } = await import("../services/appointments");
+            const ref = input.waPhoneNumber.replace(/^\+/, "");
+            const conds = [
+              eq(serviceAppointments.tenantId, input.tenantId),
+              inArray(serviceAppointments.status, ["booked", "confirmed"]),
+            ];
+            if (cancelAppt[1]) {
+              conds.push(sql`CAST(${serviceAppointments.id} AS text) LIKE ${cancelAppt[1].toLowerCase() + "%"}`);
+            } else {
+              conds.push(or(eq(serviceAppointments.customerId, ref), eq(serviceAppointments.customerId, input.waPhoneNumber))!);
+            }
+            const matches = await db.select({ id: serviceAppointments.id }).from(serviceAppointments)
+              .where(and(...conds))
+              .orderBy(desc(serviceAppointments.createdAt))
+              .limit(2);
+            if (matches.length === 0) {
+              reply = "I couldn't find an active appointment on this number.";
+            } else if (matches.length > 1) {
+              reply = "You have more than one active appointment — reply \"cancel appointment <ref>\" with the reference from your booking message.";
+            } else {
+              const r = await cancelAppointment(db, {
+                tenantId: input.tenantId,
+                appointmentId: matches[0]!.id,
+                actorId: ref,
+              });
+              reply = r.outcome === "refunded"
+                ? `✅ Appointment cancelled — your deposit is being refunded.`
+                : r.outcome === "forfeited"
+                  ? `Appointment cancelled. Because this was inside the cancel window, the deposit is forfeited.`
+                  : `✅ Appointment cancelled.`;
+            }
+          } catch (e: any) {
+            reply = `Could not cancel that appointment: ${e?.message ?? "unknown error"}`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_cancel", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: subscription lifecycle ──
+        const subCmd = /^(pause|resume|cancel)\s+(?:my\s+)?subscription\s*$/i.exec(trimmedMsg);
+        if (subCmd) {
+          const subs = await import("../services/subscriptions");
+          let reply: string;
+          try {
+            const action = subCmd[1].toLowerCase();
+            reply = action === "pause"
+              ? await subs.pauseSubscription(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber })
+              : action === "resume"
+                ? await subs.resumeSubscription(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber })
+                : await subs.cancelSubscriptionChat(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber });
+          } catch (e: any) {
+            reply = `Could not update your subscription: ${e?.message ?? "unknown error"}`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: `subscription_${subCmd[1].toLowerCase()}`, state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: reveal my pin ──
+        if (/^(?:reveal\s+(?:my\s+)?pin|my\s+pin|resend\s+(?:my\s+)?pin)\s*$/i.test(trimmedMsg)) {
+          let reply: string;
+          try {
+            const { revealPinAgain } = await import("../services/digitalPins");
+            reply = await revealPinAgain(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber });
+          } catch (e: any) {
+            reply = `Could not reveal your PIN just now (${e?.message ?? "unknown error"}).`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "digital_pin_reveal", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+      }
+      // === END W44 deposits-subs-digital ===
       // === W27 Coder F: 3f. Wholesale marketplace + group buying commands ===
       // Deterministic, no LLM needed (discoveryMenu.ts exemplar). Parses
       // "wholesale [q]" / "buy <#> <qty>" / "deals" / "join <ref> <qty>" /

@@ -8,22 +8,22 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000722",
+      "wamid": "wamid.sim.000718",
       "statuses": [
         "sent"
       ],
-      "at": 1789627150908,
+      "at": 1789658051229,
       "kind": "text",
       "body": "⚠️ Telegram message dead-lettered after 4 attempts.\nChat: 770101\nKind: text\nError: {\"ok\":false,\"error_code\":400,\"description\":\"sim: hostStatus 400\"}"
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000723",
+      "wamid": "wamid.sim.000719",
       "statuses": [
         "sent"
       ],
-      "at": 1789627150917,
+      "at": 1789658051238,
       "kind": "text",
       "body": "⚠️ Telegram message dead-lettered after 4 attempts.\nChat: 770101\nKind: text\nError: {\"ok\":false,\"error_code\":503,\"description\":\"sim: hostStatus 503\"}"
     }

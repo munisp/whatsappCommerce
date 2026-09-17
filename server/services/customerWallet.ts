@@ -32,14 +32,18 @@ export type WalletCreditReason =
   | "merchant_goodwill"
   | "overpayment"
   | "split_refund"
-  | "topup";
+  | "topup"
+  // === W44 giftcards-referrals (additive): referrer reward on referee PAID order ===
+  | "referral_reward";
 
 export type WalletDebitReason =
   | "checkout_spend"
   | "split_contribution"
   | "installment_charge"
   // === W43 dispatch (additive): post-dispatch address-change fee ===
-  | "address_change_fee";
+  | "address_change_fee"
+  // === W44 deposits-subs-digital (additive): appointment remainder ===
+  | "appointment_remainder";
 
 export interface WalletOpResult {
   ok: boolean;

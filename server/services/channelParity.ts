@@ -98,6 +98,19 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   { id: "delivery_proof",      description: "Proof-of-delivery captured / order delivered notice", telegram: "full", notes: "Same delivered text both channels; POD photo itself is served on the tracking timeline (media URL in order timeline), text notice routed via sendCustomerText." },
   { id: "address_change",      description: "Post-dispatch address change: merchant approval card + terminal status notices", telegram: "full", notes: "Merchant card: WA interactive buttons / TG inline keyboard with the SAME addrchg:approve|reject:<id> grammar via channelSender keyboard payload; customer terminal-path notices (applied/rejected/expired) via sendCustomerText." },
   // === END W43 dispatch ===
+  // === W44 giftcards-referrals (Coder A): gift cards + referrals ============
+  { id: "gift_card",          description: "Gift card purchase link / activation with code / issue notice", telegram: "full", notes: "Plain-text notices via sendCustomerText; the purchase checkout URL rides the payment_link adapter (URL button on telegram, never wa.me). Balance replies come from the shared NLP engine on BOTH channels." },
+  { id: "referral",           description: "Referral reward credit notice to the referrer", telegram: "full", notes: "Plain-text notice via sendCustomerText when a referee's first order is PAID and tenants.referralRewardCents > 0; attribution + code minting run in the shared NLP engine on BOTH channels." },
+  // === END W44 giftcards-referrals ===
+  // === W44 preorders-offers (Coder B): pre-order availability + haggling ===
+  { id: "preorder_status",    description: "Pre-order availability flip + pre-availability cancel/refund notices", telegram: "full", notes: "Plain-text notice via sendCustomerText from preorders.sweepDuePreorders (lines flip 'preorder'→'ordered') and preorders.cancelPreorder (full refund); both channels identical." },
+  { id: "custom_offer",       description: "Haggling: merchant offer approval card + counter-offer card + terminal status notices", telegram: "full", notes: "Merchant card: WA interactive buttons / TG inline keyboard with the SAME offer:accept|reject|counter:<id> grammar via channelSender keyboard payload; customer counter card offer:caccept|cdecline:<id>; the accepted-offer priced checkout rides the payment_link adapter (URL button on telegram, never wa.me)." },
+  // === END W44 preorders-offers ===
+  // === W44 deposits-subs-digital (Coder C): appointments + subscriptions + PINs (additive; J246 subset semantics) ===
+  { id: "appointment",         description: "Appointment booking lifecycle: deposit link (payment_link adapter), deposit/remainder confirmations, cancel (refund/forfeit) + no-show notices", telegram: "full", notes: "Plain-text notices via notifyCustomer/sendCustomerText; deposit/remainder payment URLs ride the payment_link adapter (TG URL inline button, never wa.me). Booking/cancel commands arrive via the shared nlp engine on both channels." },
+  { id: "subscription_status", description: "Subscription billing receipts + pause/resume/cancel confirmations", telegram: "full", notes: "Success receipt via sendCustomerText after the billing tick order leg; failure dunning rides the EXISTING dunning category. Chat commands (pause/resume/cancel) handled by the shared nlp engine on both channels." },
+  { id: "digital_pin",         description: "Digital PIN delivery + reveal-again", telegram: "full", notes: "PIN text delivered via notifyCustomer (decrypted server-side ONLY at delivery); reveal-again re-sends the SAME pin with an audit row on every reveal." },
+  // === END W44 deposits-subs-digital ===
 ] as const;
 
 export const PARITY_CATEGORY_IDS: readonly string[] = PARITY_CATEGORIES.map((c) => c.id);
