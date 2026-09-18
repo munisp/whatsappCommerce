@@ -66,6 +66,20 @@ Instead:
    logical backup first —
    `kubectl -n whatsapp-commerce exec deploy/postgres -- pg_dump -U wc_user whatsapp_commerce > backup-$(date +%F).sql`
    — and rehearse the restore in staging. Restore is the only true "down".
+
+   **W46 (PLT-22): automated pre-migration logical dump.** `scripts/migrate-prod.ts`
+   now runs `pg_dump --format=custom` itself before applying any pending
+   migration (after the CONFIRM_BACKUP gate, before the first statement):
+   - Output: `PRE_MIGRATION_DUMP_DIR` (default `./backups/pre-migration/`),
+     file `pre-migration-<UTC timestamp>.dump`.
+   - Object storage: when `PRE_MIGRATION_DUMP_S3_BUCKET` is set the dump is
+     also uploaded to `s3://<bucket>/pre-migration/<file>` via the platform
+     MinIO/S3 env (`S3_ENDPOINT`/`S3_ACCESS_KEY`/`S3_SECRET_KEY`).
+   - Modes: `PRE_MIGRATION_DUMP=auto` (default, loud warning on failure),
+     `required` (dump failure ABORTS the run — the prod posture), `off`.
+   - Restore drill: `pg_restore --clean --if-exists --dbname <restore-db>
+     backups/pre-migration/<file>.dump` — rehearse against a copy before
+     relying on any dump (an untested backup is not a backup).
 4. Pre-deploy gate: generate migrations in CI (`drizzle-kit generate`),
    review the SQL, and apply with `drizzle-kit migrate` as a Job *before*
    flipping the Deployment image.

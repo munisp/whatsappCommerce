@@ -54,13 +54,24 @@ export const tenantInviteRouter = router({
 
       // Verify tenant exists
       const [tenant] = await db
-        .select({ id: tenants.id, name: tenants.name, whatsappPhoneNumberId: tenants.whatsappPhoneNumberId })
+        .select({ id: tenants.id, name: tenants.name, whatsappPhoneNumberId: tenants.whatsappPhoneNumberId, settings: tenants.settings })
         .from(tenants)
         .where(eq(tenants.id, input.tenantId));
 
       if (!tenant) {
         throw new Error("Tenant not found");
       }
+
+      // === W46 privacy-consent (TEN-19 residual): bind redemption to the
+      // tenant's verified identity. The invite is pinned to the tenant
+      // admin's registered phone (settings.adminPhone); validate() then
+      // requires a phone-identity proof (phoneAuth OTP) for THAT number, so
+      // a leaked link alone can no longer mint a portal session. ===
+      const settings = (tenant.settings ?? {}) as Record<string, unknown>;
+      const boundPhone = typeof settings.adminPhone === "string" && settings.adminPhone
+        ? settings.adminPhone
+        : null;
+      // === END W46 privacy-consent ===
 
       // Generate signed JWT magic link token with a registered jti — the
       // registry row is what makes the link single-use at validate time.
@@ -72,6 +83,8 @@ export const tenantInviteRouter = router({
           tenantId: input.tenantId,
           tenantName: tenant.name,
           issuedBy: ctx.user.id,
+          // W46 TEN-19: carry the binding in the signed payload too.
+          ...(boundPhone ? { boundPhone } : {}),
         },
         ENV.jwtSecret,
         { expiresIn: `${input.expiryHours}h` }
@@ -83,6 +96,7 @@ export const tenantInviteRouter = router({
         tenantId: input.tenantId,
         issuedBy: String(ctx.user.id),
         expiresAt,
+        boundPhone,
       });
       // W40 (TEN-4): minting a portal magic link is an admin action on a
       // tenant — it must be attributable in the audit trail.
@@ -116,7 +130,12 @@ export const tenantInviteRouter = router({
    * Called by the portal login page
    */
   validate: publicProcedure
-    .input(z.object({ token: z.string() }))
+    .input(z.object({
+      token: z.string(),
+      // === W46 privacy-consent (TEN-19): phone-identity proof minted by
+      // phoneAuth.verifyOtp — required when the invite is phone-bound. ===
+      identityProof: z.string().optional(),
+    }))
     .mutation(async ({ input }) => {
       try {
         const payload = jwt.verify(input.token, ENV.jwtSecret) as any;
@@ -133,6 +152,38 @@ export const tenantInviteRouter = router({
         if (!payload.jti || typeof payload.jti !== "string") {
           throw new Error("Invite token is not registered (pre-registry links are no longer valid)");
         }
+
+        // === W46 privacy-consent (TEN-19 residual): verified-identity
+        // binding. When the invite row carries boundPhone, redemption
+        // requires a valid phone_identity proof for THAT number (checked
+        // BEFORE the single-use consume so a failed proof never burns the
+        // link). Legacy unbound rows keep the pre-W46 behavior. ===
+        const [inviteRow] = await db
+          .select({ boundPhone: tenantInviteTokens.boundPhone })
+          .from(tenantInviteTokens)
+          .where(eq(tenantInviteTokens.jti, payload.jti))
+          .limit(1);
+        const boundPhone = inviteRow?.boundPhone ?? payload.boundPhone ?? null;
+        if (boundPhone) {
+          if (!input.identityProof) {
+            throw new Error("This invite is bound to the merchant's verified phone — complete phone verification first (identityProof required).");
+          }
+          let proof: any;
+          try {
+            proof = jwt.verify(input.identityProof, ENV.jwtSecret);
+          } catch {
+            throw new Error("Identity proof is invalid or expired — re-verify your phone.");
+          }
+          if (proof?.type !== "phone_identity" || typeof proof.phone !== "string") {
+            throw new Error("Identity proof is not a phone-identity assertion.");
+          }
+          const digits = (p: string) => p.replace(/\D/g, "");
+          if (digits(proof.phone) !== digits(boundPhone)) {
+            throw new Error("This invite is bound to a different phone number.");
+          }
+        }
+        // === END W46 privacy-consent ===
+
         const consumed = await db
           .update(tenantInviteTokens)
           .set({ consumedAt: new Date() })

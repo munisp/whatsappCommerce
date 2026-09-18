@@ -365,9 +365,9 @@ const CHAR_HINTS: Array<[RegExp, Locale, number]> = [
  * nothing scores (English is the platform default and Nigerian English shares
  * vocabulary with all four languages, so a non-match defaults there).
  */
-export function detectLocale(text: string): Locale {
-  const lower = (text ?? "").toLowerCase();
-  if (!lower.trim()) return DEFAULT_LOCALE;
+// === W46 platform-p2 (MSG-23) === scoring shared by detectLocale and the
+// confidence-aware detectLocaleDetailed.
+function scoreLocales(lower: string): Record<Locale, number> {
   const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0, sw: 0, am: 0 };
   for (const [lang, words] of Object.entries(STOPWORDS) as Array<[Exclude<Locale, "en">, string[]]>) {
     for (const w of words) {
@@ -383,6 +383,10 @@ export function detectLocale(text: string): Locale {
   for (const [re, lang, pts] of CHAR_HINTS) {
     if (re.test(lower)) scores[lang] += pts;
   }
+  return scores;
+}
+
+function bestLocaleFromScores(scores: Record<Locale, number>): { best: Locale; bestScore: number } {
   let best: Locale = DEFAULT_LOCALE;
   let bestScore = 0;
   for (const lang of SUPPORTED_LOCALES) {
@@ -391,8 +395,105 @@ export function detectLocale(text: string): Locale {
       best = lang;
     }
   }
+  return { best, bestScore };
+}
+
+export function detectLocale(text: string): Locale {
+  const lower = (text ?? "").toLowerCase();
+  if (!lower.trim()) return DEFAULT_LOCALE;
+  const { best, bestScore } = bestLocaleFromScores(scoreLocales(lower));
   return bestScore > 0 ? best : DEFAULT_LOCALE;
 }
+
+// === W46 platform-p2 (MSG-23) === confidence-aware detection. Pre-W46 an
+// unsupported/ambiguous locale silently degraded to STICKY English — the
+// customer could be stuck in the wrong language for 30 days. Now detection
+// reports a confidence; LOW-confidence text routes to the language picker
+// (handled in useCases.handleConversationalInbound + telegramInbound) and is
+// never made sticky.
+/** A single stopword is 1.5pts, a phrase 2pts — confidence needs ≥3. */
+export const LOCALE_CONFIDENT_THRESHOLD = 3;
+
+export interface LocaleDetection {
+  locale: Locale;
+  score: number;
+  lowConfidence: boolean;
+}
+
+/** Common English function words — presence means "not an unknown locale". */
+export const ENGLISH_SIGNAL_WORDS: readonly string[] = [
+  "hello", "hi", "hey", "yes", "no", "ok", "okay", "thanks", "thank", "please",
+  "menu", "shop", "buy", "order", "track", "price", "how", "what", "where",
+  "when", "want", "need", "i", "my", "me", "you", "the", "is", "are", "do",
+  "can", "help", "good", "morning", "afternoon", "evening", "pay", "cart",
+  "checkout", "delivery", "status", "language", "start", "stop", "human",
+  "agent", "book", "booking", "support", "catalog", "products",
+];
+
+/**
+ * True when the text carries clear English signal — OR is not language-
+ * bearing at all (menu digits, punctuation, ≤2 chars). Such texts must NEVER
+ * trigger the low-confidence picker.
+ */
+export function looksLikeEnglish(text: string): boolean {
+  const lower = (text ?? "").trim().toLowerCase();
+  if (!lower) return true;
+  if (!/[a-zà-ỹ]/i.test(lower)) return true; // digits/punct only (menu picks)
+  if (lower.length <= 2) return true;
+  // Digit guard: commerce text with quantities ("2 jollof", "3kg rice") is an
+  // ORDER, not language signal — the picker must never hijack it.
+  if (/\d/.test(lower)) return true;
+  // Vowel guard: text without a single vowel ("asdfgh", "pls", "kg") is not
+  // pronounceable language in ANY supported locale — it is keyboard mash or
+  // an abbreviation, never a reason to show the language picker.
+  if (!/[aeiou]/.test(lower)) return true;
+  const tokens = lower.split(/[^a-zà-ỹ']+/i).filter(Boolean);
+  if (tokens.length === 0) return true;
+  // Single-token text carries no reliable language signal — one unknown word
+  // ("asdfgh" keyboard mash, a name, an abbreviation) must NEVER open the
+  // picker. Multi-word zero-signal text (e.g. unsupported Portuguese) still
+  // can. (Weak single-token signal in a SUPPORTED locale is handled by the
+  // score > 0 branch of detectLocaleDetailed, not here.)
+  if (tokens.length === 1) return true;
+  return tokens.some((t) => (ENGLISH_SIGNAL_WORDS as readonly string[]).includes(t));
+}
+
+/**
+ * True when any token of `text` also appears in a tenant catalog product
+ * name ("jollof rice" matches "2 jollof please"). Commerce text that names
+ * a sellable product is an order attempt — the low-confidence picker must
+ * not hijack it even when the words are otherwise unknown to the detector.
+ */
+export function sharesTokenWithCatalog(text: string, productNames: readonly string[]): boolean {
+  const tokens = new Set(
+    (text ?? "").toLowerCase().split(/[^a-zà-ỹ0-9']+/i).filter((t) => t.length > 2),
+  );
+  if (tokens.size === 0) return false;
+  for (const name of productNames) {
+    for (const t of (name ?? "").toLowerCase().split(/[^a-zà-ỹ0-9']+/i)) {
+      if (t.length > 2 && tokens.has(t)) return true;
+    }
+  }
+  return false;
+}
+
+export function detectLocaleDetailed(text: string): LocaleDetection {
+  const lower = (text ?? "").toLowerCase();
+  if (!lower.trim()) return { locale: DEFAULT_LOCALE, score: 0, lowConfidence: false };
+  const { best, bestScore } = bestLocaleFromScores(scoreLocales(lower));
+  if (bestScore >= LOCALE_CONFIDENT_THRESHOLD) {
+    return { locale: best, score: bestScore, lowConfidence: false };
+  }
+  if (bestScore > 0) {
+    // Weak signal of a supported non-English locale — offer the picker
+    // (rendered in the weakly-detected locale) instead of sticking it.
+    return { locale: best, score: bestScore, lowConfidence: true };
+  }
+  // Zero signal: English-looking text is fine; anything else (unsupported
+  // locale, e.g. Portuguese/Pidgin) is low-confidence → picker.
+  return { locale: DEFAULT_LOCALE, score: 0, lowConfidence: !looksLikeEnglish(lower) };
+}
+// === END W46 platform-p2 (MSG-23) ===
 
 // ── Sticky per-customer locale (Redis + in-memory dev/test fallback) ────────
 
@@ -485,10 +586,56 @@ export async function getStickyLocale(
   }
 }
 
+// === W46 platform-p2 (MSG-23) === confidence-aware resolution.
+export interface ResolvedLocale {
+  locale: Locale;
+  source: "sticky" | "detected" | "tenant-default" | "default";
+  /** True when detection was weak/unsupported — caller offers the picker. */
+  lowConfidence: boolean;
+  /**
+   * Detection score behind a lowConfidence flag: > 0 means a SUPPORTED
+   * locale has weak evidence (picker rendered in that locale); 0 means zero
+   * signal — ordinary commerce/chat text the picker must NOT hijack.
+   */
+  score?: number;
+}
+
 /**
  * Resolve the effective locale for an inbound text:
- *   sticky per-customer → detected from text (and made sticky) → tenant default.
+ *   sticky per-customer → detected from text (sticky ONLY when confident,
+ *   W46 MSG-23) → tenant default → English.
  */
+export async function resolveLocaleDetailed(opts: {
+  tenantId: string;
+  phone: string;
+  text?: string;
+  tenantSettings?: Record<string, unknown> | null;
+  customerLanguage?: string | null;
+}): Promise<ResolvedLocale> {
+  const sticky = await getStickyLocale(opts.tenantId, opts.phone, {
+    customerLanguage: opts.customerLanguage ?? undefined,
+  });
+  if (sticky) return { locale: sticky, source: "sticky", lowConfidence: false };
+  const tenantDefaultRaw = (opts.tenantSettings as any)?.locale;
+  const tenantDefault: Locale = isLocale(tenantDefaultRaw) ? tenantDefaultRaw : DEFAULT_LOCALE;
+  if (opts.text) {
+    const det = detectLocaleDetailed(opts.text);
+    if (det.lowConfidence) {
+      // W46 MSG-23: weak/unsupported detection is NOT made sticky — the
+      // caller shows the language picker instead (rendered in the weakly
+      // detected locale when there is one).
+      const locale = det.locale !== DEFAULT_LOCALE ? det.locale : tenantDefault;
+      return { locale, source: locale === tenantDefault ? "tenant-default" : "default", lowConfidence: true, score: det.score };
+    }
+    if (det.locale !== DEFAULT_LOCALE) {
+      await setStickyLocale(opts.tenantId, opts.phone, det.locale);
+      return { locale: det.locale, source: "detected", lowConfidence: false };
+    }
+  }
+  return { locale: tenantDefault, source: tenantDefault !== DEFAULT_LOCALE ? "tenant-default" : "default", lowConfidence: false };
+}
+
+/** Back-compat wrapper: effective locale only (see resolveLocaleDetailed). */
 export async function resolveLocale(opts: {
   tenantId: string;
   phone: string;
@@ -496,18 +643,9 @@ export async function resolveLocale(opts: {
   tenantSettings?: Record<string, unknown> | null;
   customerLanguage?: string | null;
 }): Promise<Locale> {
-  const sticky = await getStickyLocale(opts.tenantId, opts.phone, {
-    customerLanguage: opts.customerLanguage ?? undefined,
-  });
-  if (sticky) return sticky;
-  const detected = opts.text ? detectLocale(opts.text) : DEFAULT_LOCALE;
-  if (detected !== DEFAULT_LOCALE) {
-    await setStickyLocale(opts.tenantId, opts.phone, detected);
-    return detected;
-  }
-  const tenantDefault = (opts.tenantSettings as any)?.locale;
-  return isLocale(tenantDefault) ? tenantDefault : DEFAULT_LOCALE;
+  return (await resolveLocaleDetailed(opts)).locale;
 }
+// === END W46 platform-p2 (MSG-23) ===
 
 // ── Menu chrome localization ─────────────────────────────────────────────────
 

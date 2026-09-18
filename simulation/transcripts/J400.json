@@ -1,0 +1,31 @@
+{
+  "id": "J400",
+  "title": "open-amount donation checkout + min guard",
+  "feature": "UC-16 donations / pay-what-you-want",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348012846493",
+      "wamid": "wamid.sim.001000",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708128748,
+      "kind": "text",
+      "body": "🙏 Thank you! Your 2,500.00 NGN for W46 School Fees Fund is ready — complete it here:\n💳 Pay: https://checkout.paystack.com/sim/DON-1789708128739-22EC9345"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012846493",
+      "wamid": "wamid.sim.001001",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708128762,
+      "kind": "text",
+      "body": "🙏 Thank you! Your 1,000.00 NGN for W46 School Fees Fund is ready — complete it here:\n💳 Pay: https://checkout.paystack.com/sim/DON-1789708128754-1849FF75"
+    }
+  ]
+}

@@ -40,7 +40,7 @@
  * withdrawal executor replays with approvalId so requestWithdrawal knows the
  * gates were already satisfied exactly once. Compose, never bypass.
  */
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import type { getDb } from "../db";
 import {
@@ -49,6 +49,7 @@ import {
   tenantMemberships,
   users,
   type ApprovalRequest,
+  type MembershipRole,
   type TenantApprovalPolicy,
 } from "../../drizzle/schema";
 import { writeAuditLog } from "../routers/audit";
@@ -449,13 +450,15 @@ export async function sweepExpiredApprovals(db: DbHandle, now: Date = new Date()
 // ─── WhatsApp notifications (best-effort) ───────────────────────────────────
 
 async function resolvePhonesForRole(db: DbHandle, tenantId: string, role: string): Promise<string[]> {
-  const roles = role === "operator" ? ["owner", "operator"] : ["owner"];
+  const roles: MembershipRole[] = role === "operator" ? ["owner", "operator"] : ["owner"];
   const members = await db
     .select({ userId: tenantMemberships.userId })
     .from(tenantMemberships)
     .where(and(
       eq(tenantMemberships.tenantId, tenantId),
-      sql`${tenantMemberships.role} = ANY(${roles})`,
+      // W46 merger fix: `= ANY(${array})` binds a non-array on the
+      // PGlite/postgres.js stack — use inArray (equivalent, parameterized).
+      inArray(tenantMemberships.role, roles),
     ))
     .catch(() => [] as { userId: string }[]);
   const phones: string[] = [];

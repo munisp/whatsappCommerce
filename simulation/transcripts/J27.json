@@ -7,179 +7,179 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012101150",
-      "profileName": "Sim User 1150",
-      "inboundId": "wamid.sim.in.text.00100",
-      "at": 1789672501534,
+      "phone": "2348019623074",
+      "profileName": "Sim User 3074",
+      "inboundId": "wamid.sim.in.text.00098",
+      "at": 1789707455419,
       "kind": "text",
-      "text": "i want these [23392e18]"
+      "text": "i want these [b9ffc261]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00100",
-      "at": 1789672501538
+      "wamid": "wamid.sim.in.text.00098",
+      "at": 1789707455423
     },
     {
       "dir": "out",
-      "phone": "2348012101150",
-      "wamid": "wamid.sim.000161",
+      "phone": "2348019623074",
+      "wamid": "wamid.sim.000157",
       "statuses": [
         "sent"
       ],
-      "at": 1789672501566,
+      "at": 1789707455452,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348012101150",
-      "profileName": "Sim User 1150",
-      "inboundId": "wamid.sim.in.text.00101",
-      "at": 1789672502078,
+      "phone": "2348019623074",
+      "profileName": "Sim User 3074",
+      "inboundId": "wamid.sim.in.text.00099",
+      "at": 1789707455962,
       "kind": "text",
-      "text": "confirm please [23392e18]"
+      "text": "confirm please [b9ffc261]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00101",
-      "at": 1789672502082
+      "wamid": "wamid.sim.in.text.00099",
+      "at": 1789707455968
     },
     {
       "dir": "out",
-      "phone": "2348012101150",
-      "wamid": "wamid.sim.000162",
+      "phone": "2348019623074",
+      "wamid": "wamid.sim.000158",
       "statuses": [
         "sent"
       ],
-      "at": 1789672502102,
+      "at": 1789707456002,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348012101150",
-      "profileName": "Sim User 1150",
-      "inboundId": "wamid.sim.in.text.00102",
-      "at": 1789672502630,
+      "phone": "2348019623074",
+      "profileName": "Sim User 3074",
+      "inboundId": "wamid.sim.in.text.00100",
+      "at": 1789707456513,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00102",
-      "at": 1789672502634
+      "wamid": "wamid.sim.in.text.00100",
+      "at": 1789707456518
     },
     {
       "dir": "out",
-      "phone": "2348012101150",
-      "wamid": "wamid.sim.000163",
+      "phone": "2348019623074",
+      "wamid": "wamid.sim.000159",
       "statuses": [
         "sent"
       ],
-      "at": 1789672502667,
+      "at": 1789707456573,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU5WSSXP*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/48d8caed-06d4-4ef3-87a4-d9c751999565\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/7b48bb56-4bf5-482f-83fa-52592523e5c9.3pLHxZxVlvgFHTqUj0yoxlE4"
+      "body": "🧾 *Pickup Order ORD-MU6HLZJE*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/5fdaad69-823f-4ef9-87b7-f8d456b9c3a6\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/22a10bed-5e07-4b62-9c5d-6d555146fb60.l5IYO_F-UzHGjdjfyTiNer_d"
     },
     {
       "dir": "out",
-      "phone": "2348012101150",
-      "wamid": "wamid.sim.000164",
+      "phone": "2348019623074",
+      "wamid": "wamid.sim.000160",
       "statuses": [
         "sent"
       ],
-      "at": 1789672502671,
+      "at": 1789707456577,
       "kind": "interactive",
-      "body": "Order ORD-MU5WSSXP — manage it here:",
+      "body": "Order ORD-MU6HLZJE — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:7b48bb56-4bf5-482f-83fa-52592523e5c9",
+          "id": "order_track:22a10bed-5e07-4b62-9c5d-6d555146fb60",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:7b48bb56-4bf5-482f-83fa-52592523e5c9",
+          "id": "order_pay:22a10bed-5e07-4b62-9c5d-6d555146fb60",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:7b48bb56-4bf5-482f-83fa-52592523e5c9",
+          "id": "order_cancel:22a10bed-5e07-4b62-9c5d-6d555146fb60",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348012101150",
-      "profileName": "Sim User 1150",
-      "inboundId": "wamid.sim.in.text.00103",
-      "at": 1789672503181,
+      "phone": "2348019623074",
+      "profileName": "Sim User 3074",
+      "inboundId": "wamid.sim.in.text.00101",
+      "at": 1789707457062,
       "kind": "text",
       "text": "I have a complaint about my order — it never arrived"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00103",
-      "at": 1789672503191
+      "wamid": "wamid.sim.in.text.00101",
+      "at": 1789707457066
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000165",
+      "wamid": "wamid.sim.000161",
       "statuses": [
         "sent"
       ],
-      "at": 1789672503226,
+      "at": 1789707457111,
       "kind": "text",
-      "body": "⚠️ New dispute/complaint from 2348012101150 (Sim User 1150) on order ORD-MU5WSSXP (not received):\nI have a complaint about my order — it never arrived"
+      "body": "⚠️ New dispute/complaint from 2348019623074 (Sim User 3074) on order ORD-MU6HLZJE (not received):\nI have a complaint about my order — it never arrived"
     },
     {
       "dir": "out",
-      "phone": "2348012101150",
-      "wamid": "wamid.sim.000166",
+      "phone": "2348019623074",
+      "wamid": "wamid.sim.000162",
       "statuses": [
         "sent"
       ],
-      "at": 1789672503230,
+      "at": 1789707457117,
       "kind": "text",
-      "body": "Your complaint (order ORD-MU5WSSXP) has been logged as a dispute and our team has been notified. We'll get back to you shortly. 🙏"
+      "body": "Your complaint (order ORD-MU6HLZJE) has been logged as a dispute and our team has been notified. We'll get back to you shortly. 🙏"
     },
     {
       "dir": "in",
-      "phone": "2348011471078",
-      "profileName": "Sim User 1078",
-      "inboundId": "wamid.sim.in.text.00104",
-      "at": 1789672503727,
+      "phone": "2348016024672",
+      "profileName": "Sim User 4672",
+      "inboundId": "wamid.sim.in.text.00102",
+      "at": 1789707457612,
       "kind": "text",
       "text": "I have a complaint about my order"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00104",
-      "at": 1789672503732
+      "wamid": "wamid.sim.in.text.00102",
+      "at": 1789707457616
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000167",
+      "wamid": "wamid.sim.000163",
       "statuses": [
         "sent"
       ],
-      "at": 1789672503753,
+      "at": 1789707457644,
       "kind": "text",
-      "body": "⚠️ Complaint from 2348011471078 (Sim User 1078) (no order found):\nI have a complaint about my order"
+      "body": "⚠️ Complaint from 2348016024672 (Sim User 4672) (no order found):\nI have a complaint about my order"
     },
     {
       "dir": "out",
-      "phone": "2348011471078",
-      "wamid": "wamid.sim.000168",
+      "phone": "2348016024672",
+      "wamid": "wamid.sim.000164",
       "statuses": [
         "sent"
       ],
-      "at": 1789672503758,
+      "at": 1789707457658,
       "kind": "text",
       "body": "We've logged your complaint and notified our team — we couldn't find a recent order on this number, so please share your order number if you have it. 🙏"
     }

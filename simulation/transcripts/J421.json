@@ -1,0 +1,31 @@
+{
+  "id": "J421",
+  "title": "po-breach-sweep cron route: cronAuth + allowlist + end-to-end alert",
+  "feature": "ORD-19 /api/scheduled/po-breach-sweep",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348012694352",
+      "wamid": "wamid.sim.001013",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708147990,
+      "kind": "text",
+      "body": "⚠️ PO-W46-J421-MU6I0T1M is past its promised delivery date (Mon Sep 14 2026 — 5d overdue). The supplier has been notified; reply here if you'd like an update or to cancel."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099911111",
+      "wamid": "wamid.sim.001014",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708147997,
+      "kind": "text",
+      "body": "⚠️ Promise breached: PO-W46-J421-MU6I0T1M was promised by Mon Sep 14 2026 and is still unfulfilled. Fulfil it or message the buyer today to protect your supplier rating."
+    }
+  ]
+}

@@ -53,6 +53,13 @@ export function clearSessionCaches(): void {
   membershipCache.clear();
 }
 
+// === W46 kyc === TEN-10: bust one user's cached membership snapshot
+// immediately (member removal must take effect now, not after the 60s TTL).
+export function invalidateMembershipCache(userId: string | number): void {
+  membershipCache.delete(String(userId));
+}
+// === END W46 kyc ===
+
 async function lookupRevocations(keys: string[]): Promise<Set<string> | null> {
   const conn = await db.getDb();
   if (!conn) return null; // no database configured (unit tests) — nothing to check

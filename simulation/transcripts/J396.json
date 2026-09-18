@@ -1,0 +1,20 @@
+{
+  "id": "J396",
+  "title": "KYB SLA sweep cron + versioned supplier tax profiles",
+  "feature": "TEN-22 SLA escalation + TEN-18 effective dating",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348011291460",
+      "wamid": "wamid.sim.001017",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708153605,
+      "kind": "text",
+      "body": "⏰ Your business verification (KYB) review has exceeded our 48h SLA and has been escalated to a senior reviewer. Application kyb-j396-overdue."
+    }
+  ]
+}

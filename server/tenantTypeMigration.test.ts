@@ -83,6 +83,7 @@ describe("schema tenant classification", () => {
     expect(schemaSrc).toMatch(/pgTable\("session_revocations"/);
   });
   it("exposes typed TenantType/MembershipRole unions", () => {
-    expect(schemaSrc).toMatch(/membershipRoleEnum = \["owner", "operator", "analyst"\] as const/);
+    // W46 TEN-9 widened the union with scoped staff roles (finance/catalog).
+    expect(schemaSrc).toMatch(/membershipRoleEnum = \["owner", "operator", "analyst", "finance", "catalog"\] as const/);
   });
 });

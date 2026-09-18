@@ -42,6 +42,8 @@ export interface ReadinessReport {
     keycloak: ComponentCheck;
     tigerbeetle: ComponentCheck;
     odooB2bOutbox: OdooB2bOutboxCheck;
+    /** === W46 platform-p2 (PLT-18) === Kafka reconnect state probe. */
+    kafka: ComponentCheck;
   };
 }
 
@@ -138,11 +140,35 @@ export function readinessHttpStatus(report: ReadinessReport, production: boolean
   return !report.ok && production ? 503 : 200;
 }
 
+/**
+ * === W46 platform-p2 (PLT-18) === Kafka readiness: reports the reconnect
+ * state machine (backoff/jitter, latch resets). Kafka is an OPTIONAL dep —
+ * unconfigured counts ok; configured-but-failing counts NOT ok so a wedged
+ * producer drains the pod in production.
+ */
+async function checkKafka(): Promise<ComponentCheck> {
+  const t0 = Date.now();
+  try {
+    const { getKafkaConnectionState } = await import("../kafka");
+    const state = getKafkaConnectionState();
+    if (!state.configured) return { ok: true, latencyMs: Date.now() - t0, error: "not_configured" };
+    // Lazy connect: a configured-but-never-attempted producer is ok; only
+    // actual connect failures (retrying) or a dropped connection fail.
+    if (state.connected || state.consecutiveFailures === 0) {
+      return { ok: true, latencyMs: Date.now() - t0 };
+    }
+    return { ok: false, latencyMs: Date.now() - t0, error: `kafka_disconnected (failures=${state.consecutiveFailures}, nextRetryAt=${state.nextRetryAt ?? "now"})` };
+  } catch (err: any) {
+    return { ok: false, latencyMs: Date.now() - t0, error: String(err?.message ?? err) };
+  }
+}
+// === END W46 platform-p2 (PLT-18) ===
+
 /** Run all component probes in parallel. */
 export async function checkReadiness(): Promise<ReadinessReport> {
-  const [db, redis, keycloak, tigerbeetle, odooB2bOutbox] = await Promise.all([
-    checkDb(), checkRedis(), checkKeycloak(), checkTigerBeetle(), checkOdooB2bOutbox(),
+  const [db, redis, keycloak, tigerbeetle, odooB2bOutbox, kafka] = await Promise.all([
+    checkDb(), checkRedis(), checkKeycloak(), checkTigerBeetle(), checkOdooB2bOutbox(), checkKafka(),
   ]);
-  const components = { db, redis, keycloak, tigerbeetle, odooB2bOutbox };
+  const components = { db, redis, keycloak, tigerbeetle, odooB2bOutbox, kafka };
   return { ok: Object.values(components).every(c => c.ok), components };
 }

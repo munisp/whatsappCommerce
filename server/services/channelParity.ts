@@ -120,6 +120,34 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   // === W45 money-ledger (Coder B3): pay-over-time lifecycle (additive; J246 subset semantics) ===
   { id: "pot_plan",            description: "Pay-over-time plan lifecycle: mandate-revocation pause + re-link CTA (manual payment link rides the paymentUrl field as text), resume, admin cancel/restructure, manual-settle receipt", telegram: "full", notes: "Plain-text notices via notifyCustomer/sendWhatsAppText from payOverTime.notifyPotMerchant (tenant admin phone); telegram-linked admins route via channelSender. Manual payment URL is appended to the text body on BOTH channels (never a wa.me link)." },
   // === END W45 money-ledger ===
+  // === W46 uc-money (Coder C): auctions + tips + donations + amendments (additive; J246 subset semantics) ===
+  { id: "auction_status",    description: "Auction lifecycle: outbid notice, winner invoice link, loser/reserve close notices", telegram: "full", notes: "Plain-text notices via notifyCustomer (WA text / TG channelSender); the winner's invoice URL rides the payment_link adapter (TG URL inline button, never wa.me). BID commands arrive via the shared nlp engine on both channels." },
+  { id: "tip_prompt",        description: "Tip prompt at checkout + tip confirmation", telegram: "full", notes: "Prompt line rendered inside the shared nlp order summary (buildOrderSummary) on BOTH channels when tenant settings.tipping.enabled; TIP <amount> command handled by the shared nlp engine; tip rides the order total through the existing escrow hold/release unchanged." },
+  { id: "donation_link",     description: "Open-amount/donation buyer-entered amount checkout link", telegram: "full", notes: "Checkout URL rides the payment_link adapter (TG URL inline button, never wa.me); DONATE <amount> TO <product> command handled by the shared nlp engine on both channels; min-amount guard in donations.openAmountOk." },
+  { id: "order_amendment",   description: "Pre-confirmation order amendment: delta payment link / refund notice", telegram: "full", notes: "Delta URL rides the payment_link adapter; refund notices are plain text via notifyCustomer; amendments recompute in integer minor units via shared/escrowAmounts and write order_amendments + audit rows." },
+  // === END W46 uc-money ===
+  // === W46 uc-docs (Coder D): statements / proformas / agent commissions (additive; J246 subset semantics) ===
+  { id: "customer_statement",  description: "UC-12 per-customer statement of account document", telegram: "full", notes: "PDF chat document: telegram sendDocument via channelSender media (buffer upload); WA document push via the existing waSender media path (link) — same as the annual_statement category." },
+  { id: "proforma_invoice",    description: "UC-19 proforma invoice / quotation document", telegram: "full", notes: "PDF chat document on both channels via ucDocsPdf.sendChatDocument (notifyCustomer media route → telegram sendDocument; waSender document fallback). Convert-to-order confirm rides plain-text/keyboard notices." },
+  { id: "agent_commission",    description: "UC-20 agent commission statement document + payout notice", telegram: "full", notes: "PDF chat document to the agent's phone on both channels via ucDocsPdf.sendChatDocument; payout rides the customer-wallet rail (creditWallet 'agent_commission') with a plain-text paid notice." },
+  // === END W46 uc-docs ===
+  // === W46 uc-ux (Coder E): UC-17/21/23/24 (additive; J246 subset semantics) ===
+  { id: "venue_order",        description: "Venue-table QR order notices (kitchen board confirmation to buyer)", telegram: "full", notes: "TABLE:<token> deep-link grammar is identical on both channels via the shared nlp engine; notices via sendCustomerText." },
+  { id: "delivery_slot",      description: "Delivery slot picker + slot-booked confirmation", telegram: "full", notes: "Slot picker list + confirmation via the shared nlp engine / sendCustomerText; SLOT <n> grammar identical on both channels." },
+  { id: "price_drop_alert",   description: "Wishlist price-drop alert", telegram: "full", notes: "Plain-text alert via sendCustomerText from wishlists.sweepWishlistPriceDrops; telegram always free-form (no session window), WA keeps the existing window behavior." },
+  { id: "gift_order",         description: "Gift recipient notice (prices hidden) + gift checkout annotation", telegram: "full", notes: "Recipient gift receipt via sendCustomerText with prices suppressed (giftOrders.renderGiftReceipt); buyer's own receipt unchanged." },
+  // === END W46 uc-ux ===
+  // === W46 inventory-depth (ORD-21): batch expiry admin alert (additive; J246 subset semantics) ===
+  { id: "inventory_alert",    description: "Inventory expiry sweep alert: expired/expiring-soon batches to the tenant admin", telegram: "full", notes: "Plain-text alert via sendCustomerText from inventoryDepth.sweepExpiringBatches (cron /api/scheduled/inventory-expiry-sweep + merchant-triggered runExpirySweep); identical body on both channels, telegram-linked admins route via channelSender." },
+  // === END W46 inventory-depth ===
+  // === W46 orders-p2 (Coder G): recall + merge notices (additive; J246 subset semantics) ===
+  { id: "recall_notice",       description: "Product recall notice to affected buyers (ORD-22 targeted broadcast)", telegram: "full", notes: "Plain-text safety notice via notifyCustomer from recalls.dispatchRecall; opt-outs are NEVER sent (consent withdrawn/absent) and durably logged as recall_recipients status='skipped_opt_out'. Identical body on both channels." },
+  { id: "order_merge",         description: "Order-merge notice to the buyer (ORD-23)", telegram: "full", notes: "Plain-text notice via sendCustomerText from orderMerge.mergeOrders after two pre-ship orders combine into one shipment; identical body on both channels." },
+  // === END W46 orders-p2 ===
+  // === W46 privacy-consent (Coder B): age attestation + consent prompts (additive; J246 subset semantics) ===
+  { id: "age_attestation",     description: "Age-restricted checkout attestation prompt (TEN-15) — 'confirm you are N+' reply request", telegram: "full", notes: "Plain-text prompt rendered by buildAgeAttestationPrompt inside the SHARED nlp checkout flow (createChatOrder); both channels route through the same engine and the buyer's affirmative reply is parsed identically (AGE_AFFIRM_RE) — no channel-specific affordance." },
+  { id: "kyb_sla",             description: "KYB review-queue SLA breach/escalation notice to the tenant admin (TEN-22)", telegram: "full", notes: "Plain-text notice via sendAdminOpsAlert → waSender on WA; telegram-linked admins route via the ops_alert category seam. Log-only when no admin phone is configured (unchanged ops_alert doctrine)." },
+  // === END W46 privacy-consent ===
 ] as const;
 
 export const PARITY_CATEGORY_IDS: readonly string[] = PARITY_CATEGORIES.map((c) => c.id);

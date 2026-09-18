@@ -112,11 +112,19 @@ export const procurementRouter = router({
     }),
 
   getWholesaleCatalog: protectedProcedure
-    .input(z.object({ tenantId: z.string(), supplierTenantId: z.string(), limit: z.number().int().min(1).max(50).default(20) }))
+    // === W46 uc-docs (UC-18): optional buyer identity for tier resolution ===
+    .input(z.object({
+      tenantId: z.string(),
+      supplierTenantId: z.string(),
+      limit: z.number().int().min(1).max(50).default(20),
+      buyerType: z.enum(["retail", "wholesale", "distributor", "government"]).optional(),
+      buyerPhone: z.string().max(30).optional(),
+    }))
+    // === END W46 uc-docs ===
     .query(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = await requireDb();
-      const catalog = await getWholesaleCatalog(db, { supplierTenantId: input.supplierTenantId, limit: input.limit });
+      const catalog = await getWholesaleCatalog(db, { supplierTenantId: input.supplierTenantId, limit: input.limit, buyerType: input.buyerType, buyerPhone: input.buyerPhone });
       if (!catalog) throw new TRPCError({ code: "NOT_FOUND", message: "Supplier not available for procurement" });
       return catalog;
     }),

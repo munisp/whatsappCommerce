@@ -23,6 +23,7 @@ import { phoneOtpSessions, users } from "../../drizzle/schema";
 import { eq, and, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "crypto";
+import jwt from "jsonwebtoken";
 import { TRPCError } from "@trpc/server";
 import { ENV, isProd } from "../_core/env";
 import { sendOtpEmail } from "../services/email/resend";
@@ -303,6 +304,11 @@ export const phoneAuthRouter = router({
       z.object({
         sessionId: z.string().uuid(),
         otp: z.string().length(6).regex(/^\d{6}$/),
+        // === W46 privacy-consent (TEN-20): optional client device
+        // fingerprint hash — unknown devices on a KNOWN account require the
+        // independent email second factor before the login completes. ===
+        deviceHash: z.string().min(8).max(128).optional(),
+        deviceLabel: z.string().max(120).optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -368,13 +374,146 @@ export const phoneAuthRouter = router({
           .where(eq(users.id, session.userId));
       }
 
+      // === W46 privacy-consent (TEN-20): new-device second factor ========
+      // On LOGIN with a device fingerprint, a phone that belongs to a known
+      // user with an email on file must ALSO pass the independent email OTP
+      // when the device is unknown (SIM-swap defense — the WhatsApp OTP
+      // alone proves only number possession). The login is HELD (no
+      // verified result) until verifyDeviceFactor succeeds.
+      if (session.purpose === "login" && input.deviceHash) {
+        const [acct] = await db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(eq(users.phone, session.phone))
+          .limit(1);
+        if (acct?.email) {
+          const { isKnownDevice, issueDeviceChallenge, notifyOwnerNewDevice, rememberDevice } =
+            await import("../services/deviceAuth");
+          const known = await isKnownDevice(db, acct.id, input.deviceHash);
+          if (!known) {
+            const deviceSessionId = await issueDeviceChallenge(db, {
+              userId: acct.id,
+              phone: session.phone,
+              email: acct.email,
+            });
+            await notifyOwnerNewDevice(db, { userId: acct.id, deviceHash: input.deviceHash });
+            console.info(`[phoneAuth] TEN-20 new-device login held for email factor: user=${acct.id}`);
+            return {
+              verified: false,
+              deviceFactorRequired: true,
+              deviceSessionId,
+              phone: session.phone,
+              purpose: session.purpose,
+              userId: acct.id,
+            };
+          }
+          // Known device: refresh lastSeen (best-effort).
+          await rememberDevice(db, { userId: acct.id, deviceHash: input.deviceHash, label: input.deviceLabel });
+        }
+      }
+      // === END W46 privacy-consent ===
+
       return {
         verified: true,
         phone: session.phone,
         purpose: session.purpose,
         userId: session.userId,
+        // === W46 privacy-consent (TEN-19): verified-identity proof — a
+        // short-lived signed assertion that THIS phone passed OTP
+        // verification; tenantInvite.validate requires it to redeem a
+        // bound invite. ===
+        identityProof: jwt.sign(
+          { type: "phone_identity", phone: session.phone },
+          ENV.jwtSecret,
+          { expiresIn: "15m" },
+        ),
+        // === END W46 privacy-consent ===
       };
     }),
+
+  // === W46 privacy-consent (TEN-20): device-factor endpoints ==============
+  /**
+   * Complete a held new-device login: verify the INDEPENDENT email OTP
+   * (purpose "device_email" — a different code/channel than the WhatsApp
+   * login OTP) and remember the device.
+   */
+  verifyDeviceFactor: publicProcedure
+    .input(z.object({
+      sessionId: z.string().uuid(),
+      otp: z.string().length(6).regex(/^\d{6}$/),
+      deviceHash: z.string().min(8).max(128),
+      deviceLabel: z.string().max(120).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const { verifyDeviceChallenge } = await import("../services/deviceAuth");
+      const result = await verifyDeviceChallenge(db, {
+        sessionId: input.sessionId,
+        otp: input.otp,
+        deviceHash: input.deviceHash,
+        label: input.deviceLabel,
+      });
+      if (!result.ok) {
+        const code = result.reason === "not_found" ? "NOT_FOUND" : "UNAUTHORIZED";
+        throw new TRPCError({ code, message: `Device verification failed (${result.reason}).` });
+      }
+      return { verified: true };
+    }),
+
+  /** Self-service: list the current user's remembered devices. */
+  listMyDevices: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    const { listKnownDevices } = await import("../services/deviceAuth");
+    return listKnownDevices(db, ctx.user.id);
+  }),
+
+  /**
+   * TEN-20 admin recovery: reset a user's known devices so the next login
+   * requires the email second factor again. Platform-admin only, behind a
+   * consumed step-up challenge (purpose account_recovery) + audit row.
+   */
+  adminResetDevices: protectedProcedure
+    .input(z.object({
+      tenantId: z.string().min(1),
+      userId: z.number().int().positive(),
+      stepUpChallengeId: z.string().min(1),
+      stepUpOtp: z.string().length(6).regex(/^\d{6}$/),
+      reason: z.string().min(3).max(500),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only platform admins can reset devices" });
+      }
+      const { requireStepUp } = await import("../services/stepUp");
+      await requireStepUp(db, {
+        required: true,
+        tenantId: input.tenantId,
+        userId: ctx.user.id,
+        purpose: "account_recovery",
+        stepUpChallengeId: input.stepUpChallengeId,
+        stepUpOtp: input.stepUpOtp,
+      });
+      const { resetKnownDevices } = await import("../services/deviceAuth");
+      const cleared = await resetKnownDevices(db, input.userId);
+      const { writeAuditLog } = await import("./audit");
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "phoneAuth.adminResetDevices",
+        entityType: "auth_known_devices",
+        entityId: String(input.userId),
+        tenantId: input.tenantId,
+        summary: `Admin device reset for user ${input.userId}: ${cleared} known device(s) cleared (${input.reason})`,
+        before: { knownDevices: cleared },
+        after: { knownDevices: 0, reason: input.reason },
+      });
+      return { ok: true, cleared };
+    }),
+  // === END W46 privacy-consent ===
 
   /**
    * Link a verified phone number to the currently authenticated user.
@@ -501,7 +640,7 @@ export const phoneAuthRouter = router({
   stepUpRequest: protectedProcedure
     .input(z.object({
       tenantId: z.string().min(1),
-      purpose: z.enum(["payout_change", "withdrawal", "owner_grant", "payment_override"]),
+      purpose: z.enum(["payout_change", "withdrawal", "owner_grant", "payment_override", "account_recovery"]),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();

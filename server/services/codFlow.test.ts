@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   codEvents,
   customers,
+  inventoryBatches,
   inventoryReservations,
   merchantNotifications,
   orderItems,
@@ -20,6 +21,8 @@ import {
   paymentTransactions,
   products,
   tenants,
+  warehouses,
+  warehouseStock,
 } from "../../drizzle/schema";
 
 vi.mock("./lowStock", () => ({ scheduleLowStockCheck: vi.fn() }));
@@ -46,6 +49,11 @@ const TABLES: Record<string, unknown> = {
   payment_transactions: paymentTransactions,
   merchant_notifications: merchantNotifications,
   inventory_reservations: inventoryReservations,
+  // W46 inventory-depth: reserveStock now probes warehouse/batch depth rows
+  // (empty here → allocation is a documented no-op).
+  warehouses,
+  warehouse_stock: warehouseStock,
+  inventory_batches: inventoryBatches,
 };
 
 function tableName(table: unknown): string {
@@ -135,6 +143,9 @@ interface Store {
   order_items: any[];
   inventory_reservations: any[];
   tenants: any[];
+  warehouses: any[];
+  warehouse_stock: any[];
+  inventory_batches: any[];
 }
 
 function makeDb(store: Store) {
@@ -292,6 +303,7 @@ function freshStore(): Store {
     orders: [], cod_events: [], payment_transactions: [], merchant_notifications: [],
     customers: [], products: [], order_items: [], inventory_reservations: [],
     tenants: [{ id: "t1", settings: { codRiderPhones: ["2348000000001"] } }],
+    warehouses: [], warehouse_stock: [], inventory_batches: [],
   };
 }
 
