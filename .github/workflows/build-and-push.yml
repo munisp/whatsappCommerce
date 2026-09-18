@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - id: tag
         run: echo "tag=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
@@ -35,7 +35,16 @@ jobs:
       # 8 are self-contained in their own directory).
       - id: detect
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD || echo "")
+          # Diff against the push's real "before" SHA so a multi-commit push
+          # (e.g. a merge plus a follow-up fix) sees every changed file, not
+          # just the last commit's. Falls back to HEAD~1 for a new branch or
+          # a force-push whose old tip is no longer reachable.
+          BASE="${{ github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+             || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE="HEAD~1"
+          fi
+          CHANGED=$(git diff --name-only "$BASE" HEAD || echo "")
           echo "Changed files:"
           echo "$CHANGED"
 
@@ -85,7 +94,7 @@ jobs:
             [ledger-bridge]="services/ledger-bridge/"
             [payment-orchestrator]="services/payment-orchestrator/ shared/go/otelx/"
             [recon-worker]="rust/recon-worker/"
-            [server]="server/ Dockerfile"
+            [server]="server/ client/ ui/ drizzle/ patches/ shared/_core/ shared/const.ts shared/escrowAmounts.ts shared/prng.ts shared/tenantConfig.ts shared/types shared/waMenu.ts package.json package-lock.json vite.config.ts tsconfig.json Dockerfile"
             [webhook-ingestor]="services/webhook-ingestor/"
             [fluvio-consumer]="services/fluvio-consumer/"
             [ml-stack]="services/ml-stack/"
@@ -128,9 +137,27 @@ jobs:
           password: ${{ secrets.DO_API_TOKEN }}
 
       - name: Build and push ${{ matrix.service.name }}
+        if: matrix.service.name != 'server'
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
           push: true
+          tags: registry.digitalocean.com/talentgraph-auth/whatsapp-${{ matrix.service.name }}:${{ needs.changes.outputs.tag }}
+
+      # The server's Vite UI bakes the Keycloak config in at build time (see
+      # the Dockerfile) - without these build args the bundle falls back to
+      # http://localhost:8080 and every login redirects there. Values are
+      # public client config, read from the currently deployed bundle.
+      - name: Build and push server
+        if: matrix.service.name == 'server'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          build-args: |
+            VITE_KEYCLOAK_URL=https://keycloak-servers.newfire.app
+            VITE_KEYCLOAK_REALM=wacommerce
+            VITE_KEYCLOAK_CLIENT_ID=wacommerce-app
           tags: registry.digitalocean.com/talentgraph-auth/whatsapp-${{ matrix.service.name }}:${{ needs.changes.outputs.tag }}
