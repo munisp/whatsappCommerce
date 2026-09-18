@@ -177,7 +177,7 @@ spec:
           value: http://alertmanager.otel.svc.cluster.local:9093
         - name: PERMIFY_URL
           value: http://permify.permify.svc.cluster.local:3476
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-server:20260831-1135 # {"$imagepolicy": "flux-system:whatsapp-server"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-server:20260918-1642 # {"$imagepolicy": "flux-system:whatsapp-server"}
         imagePullPolicy: Always
         name: server
         ports:

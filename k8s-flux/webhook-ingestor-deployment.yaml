@@ -42,7 +42,7 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-webhook-ingestor:0.0.2 # {"$imagepolicy": "flux-system:whatsapp-webhook-ingestor"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-webhook-ingestor:20260918-1642 # {"$imagepolicy": "flux-system:whatsapp-webhook-ingestor"}
         imagePullPolicy: Always
         name: webhook-ingestor
         ports:
