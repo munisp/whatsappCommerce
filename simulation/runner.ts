@@ -315,6 +315,274 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j228-alert-rules-dashboards"),
     import("./journeys/j229-mig0116-component-status"),
     import("./journeys/j230-otel-stack-probes"),
+    // === W37 telegram (Coder A): outbound sender + facade ===
+    import("./journeys/j231-telegram-sender-payloads"),
+    import("./journeys/j232-telegram-retry-dlq"),
+    import("./journeys/j233-channel-sender-facade"),
+    import("./journeys/j234-telegram-token-crypto"),
+    // === END W37 telegram (Coder A) ===
+    // === W37 telegram (Coder B): inbound webhook + identity + consent ===
+    import("./journeys/j235-telegram-webhook-security"),
+    import("./journeys/j236-telegram-callback-query"),
+    import("./journeys/j237-telegram-contact-binding"),
+    import("./journeys/j238-telegram-consent"),
+    import("./journeys/j239-telegram-session-key"),
+    // === END W37 telegram (Coder B) ===
+    // === W37 telegram (Coder C — caller parity; J231-J239 owned by Coders A/B, merged separately) ===
+    import("./journeys/j240-order-confirmation-parity"),
+    import("./journeys/j241-delivery-pin-telegram"),
+    import("./journeys/j242-payment-link-url-button"),
+    import("./journeys/j243-broadcast-telegram-throttle"),
+    import("./journeys/j244-cart-nudge-no-window"),
+    import("./journeys/j245-escalation-parity"),
+    import("./journeys/j246-parity-matrix-snapshot"),
+    // === W38 stock integrity (Coder C) ===
+    import("./journeys/j259-paid-cancel-restock-cancel-path"),
+    import("./journeys/j260-paid-cancel-restock-updatestatus-path"),
+    import("./journeys/j261-reservation-ttl-extension"),
+    import("./journeys/j262-wholesale-oversell-guard"),
+    import("./journeys/j267-csrf-origin-check"),
+    import("./journeys/j268-samesite-lax-cookie"),
+    import("./journeys/j269-medusa-ssrf-update-guard"),
+    import("./journeys/j270-medusa-ssrf-calltime-guard"),
+    // === W39 PAY-8 (Coder C): PSP dispute/refund webhook events (renumbered J263->J271 by merger; A owns J263-265) ===
+    import("./journeys/j271-psp-dispute-refund-webhooks"),
+    // === W39 END ===
+    // === W40 tenancy (Coder A): TEN-1/TEN-3/TEN-11/TEN-4 ===
+    import("./journeys/j272-tenant-suspension-enforcement"),
+    import("./journeys/j273-whatsapp-number-claim-conflict"),
+    import("./journeys/j274-channel-hijack-db-backstop"),
+    import("./journeys/j275-marketplace-register-seller-gate"),
+    import("./journeys/j276-admin-cross-tenant-audit"),
+    // === W40 Coder A END ===
+    // === W40 Coder B (privacy + KYC depth): J277-J280 ===
+    import("./journeys/j277-kyc-gdpr-erasure-export"),
+    import("./journeys/j278-erasure-guards-regression"),
+    import("./journeys/j279-ubo-sanctions-screening"),
+    import("./journeys/j280-kyb-periodic-rescreen"),
+    // === W40 Coder B END ===
+    // === W40 messaging compliance + resilience (Coder C): J281-J285 ===
+    import("./journeys/j281-stop-mid-conversation"),
+    import("./journeys/j282-stop-resubscribe-telegram-parity"),
+    import("./journeys/j283-template-rejected-webhook"),
+    import("./journeys/j284-broadcast-circuit-breaker"),
+    import("./journeys/j285-broadcast-resume"),
+    import("./journeys/j286-buyer-installment-plan-creation"),
+    import("./journeys/j287-down-payment-at-confirm"),
+    import("./journeys/j288-installment-charge-exactly-once"),
+    import("./journeys/j289-installment-dunning-on-failure"),
+    import("./journeys/j290-token-consent-list-revoke"),
+    import("./journeys/j291-one-tap-reorder-with-token"),
+    import("./journeys/j292-fulfillment-gating-on-plan"),
+    // === W40 Coder C END ===
+    // === W41 (Coder B): customer wallet + split payments (UC-2/UC-3) ===
+    import("./journeys/j293-wallet-credit-ledger"),
+    import("./journeys/j294-refund-to-wallet-caps"),
+    import("./journeys/j295-wallet-checkout-partial"),
+    import("./journeys/j296-wallet-race-never-negative"),
+    import("./journeys/j297-overpayment-auto-credit"),
+    import("./journeys/j298-split-full-funding-confirm"),
+    import("./journeys/j299-split-timeout-refunds"),
+    // === W41 Coder B END ===
+    // === W41 rma-fx (Coder C): RMA lifecycle + multi-currency display J300-J306 ===
+    import("./journeys/j300-rma-full-lifecycle"),
+    import("./journeys/j301-rma-chat-commands"),
+    import("./journeys/j302-rma-escrow-pause"),
+    import("./journeys/j303-rma-refund-caps"),
+    import("./journeys/j304-rma-wallet-refund"),
+    import("./journeys/j305-dual-currency-display"),
+    import("./journeys/j306-ngn-charge-unchanged"),
+    // === W41 Coder C END (merger owns registry count) ===
+    // === W42 pipeline-durability (Coder A): messaging pipeline J307-J311 ===
+    import("./journeys/j307-wa-webhook-dlq-persists"),
+    import("./journeys/j308-publish-fail-never-silent-ack"),
+    import("./journeys/j309-fluvio-side-publish"),
+    import("./journeys/j310-wa-dlq-fallback-durability"),
+    import("./journeys/j311-dead-letter-replay-path"),
+    // === W42 Coder A END (merger owns registry count) ===
+    // === W42 secrets/auth (Coder B): PLT-9/11/13/14 hardening J312-J316 ===
+    import("./journeys/j312-secrets-key-rotation"),
+    import("./journeys/j313-otp-cap-shared"),
+    import("./journeys/j314-cron-jwt-scope"),
+    import("./journeys/j315-cron-jti-replay"),
+    import("./journeys/j316-tls-honest-errors"),
+    // === W42 Coder B END ===
+    // === W42 workflows (Coder C): temporal versioning + PG integration + pool leaks J317-J321 ===
+    import("./journeys/j317-temporal-version-markers"),
+    import("./journeys/j318-pg-integration-honest-skip"),
+    import("./journeys/j319-pool-client-swap-leak"),
+    import("./journeys/j320-pool-queue-bound"),
+    import("./journeys/j321-temporal-stub-removed"),
+    // === W42 Coder C END (merger owns registry count) ===
+    // === W43 fulfillment (Coder A): partial fulfillment + backorders J322-J326 ===
+    import("./journeys/j322-partial-fulfillment"),
+    import("./journeys/j323-fulfill-qty-guard"),
+    import("./journeys/j324-fulfill-idempotent-replay"),
+    import("./journeys/j325-backorder-at-confirm"),
+    import("./journeys/j326-restock-backorder-autofill"),
+    // === W43 Coder A END (merger owns registry count) ===
+    // === W43 exchanges (Coder B): exchanges + stock-adjustment audit J327-J331 ===
+    import("./journeys/j327-exchange-positive-delta-payment-link"),
+    import("./journeys/j328-exchange-negative-delta-wallet-credit"),
+    import("./journeys/j329-exchange-illegal-transitions"),
+    import("./journeys/j330-exchange-receive-stock-legs"),
+    import("./journeys/j331-stock-adjustment-audit-trail"),
+    // === W43 Coder B END (merger owns registry count) ===
+    // === W43 dispatch (Coder C): POD photo + post-dispatch address change J332-J336 ===
+    import("./journeys/j332-pod-courier-endpoint"),
+    import("./journeys/j333-pod-wa-chat-photo"),
+    import("./journeys/j334-requirepod-gates-delivered"),
+    import("./journeys/j335-address-change-chat-approve"),
+    import("./journeys/j336-address-change-terminal-paths"),
+    // === W43 Coder C END (merger owns registry count) ===
+    // === W44 giftcards-referrals (Coder A): gift cards + referrals J337-J341 ===
+    import("./journeys/j337-giftcard-purchase-webhook-activates"),
+    import("./journeys/j338-giftcard-redeem-claim-first"),
+    import("./journeys/j339-giftcard-balance-chat-parity"),
+    import("./journeys/j340-referral-reward-on-paid"),
+    import("./journeys/j341-merchant-admin-and-referral-void"),
+    // === W44 Coder A END (merger owns registry count) ===
+    // === W44 preorders-offers (Coder B): pre-orders + haggling J342-J346 ===
+    import("./journeys/j342-preorder-checkout-flip"),
+    import("./journeys/j343-preorder-cancel-full-refund"),
+    import("./journeys/j344-preorder-deposit-pct"),
+    import("./journeys/j345-offer-accept-checkout"),
+    import("./journeys/j346-offer-counter-expiry-tg"),
+    // === W44 Coder B END (merger owns registry count) ===
+    // === W44 deposits-subs-digital (Coder C): appointments + subscriptions + PIN digital goods J347-J351 ===
+    import("./journeys/j347-appointment-booking-deposit"),
+    import("./journeys/j348-appointment-cancel-noshow"),
+    import("./journeys/j349-subscription-billing-tick"),
+    import("./journeys/j350-subscription-failure-chat-lifecycle"),
+    import("./journeys/j351-digital-pin-delivery"),
+    // === W44 Coder C END (merger owns registry count) ===
+    // === W45 webhook-core (Coder A1): MSG pipeline hardening J352-J356 ===
+    import("./journeys/j352-multi-entry-fanout"),
+    import("./journeys/j353-human-active-suppression"),
+    import("./journeys/j354-dlq-retry-idempotent"),
+    import("./journeys/j355-unknown-pnid-quarantine"),
+    import("./journeys/j356-number-port-migration"),
+    // === W45 Coder A1 END (merger owns registry count) ===
+    // === W45 messaging-services (Coder A2): J357–J361 ===
+    import("./journeys/j357-inbound-media-mirror"),
+    import("./journeys/j358-monotonic-delivery-status"),
+    import("./journeys/j359-suppression-list"),
+    import("./journeys/j360-cart-recovery-window-gate"),
+    import("./journeys/j361-ban-circuit-breaker"),
+    // === END W45 messaging-services ===
+    // === W45 money-scheduled (Coder B1): PAY-10/11/12/21/22 J362-J366 ===
+    import("./journeys/j362-pay10-schedule-amount-validation"),
+    import("./journeys/j363-pay11-stale-claim-reaper"),
+    import("./journeys/j364-pay12-approval-expiry-resolves"),
+    import("./journeys/j365-pay21-dispute-deadline-sweep"),
+    import("./journeys/j366-pay22-stale-escrow-queue"),
+    // === END W45 money-scheduled (merger owns registry count) ===
+    // === W45 money-intents (Coder B2): quarantine + intent replay + exponents + transfer sweep + fallback verify J367-J371 ===
+    import("./journeys/j367-payment-mismatch-quarantine"),
+    import("./journeys/j368-stale-amount-replay-remint"),
+    import("./journeys/j369-currency-exponent-dust"),
+    import("./journeys/j370-stale-transfer-sweep"),
+    import("./journeys/j371-fallback-verify-duplicate-refund"),
+    // === W45 Coder B2 END (merger owns registry count) ===
+    // === W45 money-ledger (Coder B3): FX outbox + PoT ledger/mandate lifecycle J372-J376 ===
+    import("./journeys/j372-fx-outbox-deterministic-transfer"),
+    import("./journeys/j373-fx-abort-compensation-poller"),
+    import("./journeys/j374-fx-wallet-currency-guard"),
+    import("./journeys/j375-pot-ledger-outbox-fee-currency"),
+    import("./journeys/j376-pot-mandate-revocation-lifecycle"),
+    // === W45 money-ledger END (merger owns registry count) ===
+    // === W45 orders-p0 (Coder C) — J377–J381 (merger owns registry count) ===
+    import("./journeys/j377-delivery-failure-escrow-pause"),
+    import("./journeys/j378-goods-receipt-3way-match"),
+    import("./journeys/j379-po-fulfill-stock-credit"),
+    import("./journeys/j380-pin-cap-ssrf-guard"),
+    import("./journeys/j381-buyer-cancel-weight-recon"),
+    // === W45 orders-p0 END ===
+    // === W45 go-rust-services (Coder D): J382-J386 ===
+    import("./journeys/j382-hermes-approval-persistence"),
+    import("./journeys/j383-hermes-callback-url-config"),
+    import("./journeys/j384-chatwoot-real-reply-resolve"),
+    import("./journeys/j385-message-processor-kafka-consumer"),
+    import("./journeys/j386-notification-service-pipeline"),
+    // === W45 go-rust-services END (merger owns registry count) ===
+    // === W46 uc-money (Coder C): UC-11/15/16/26 — J397-J401 (merger owns registry count) ===
+    import("./journeys/j397-auction-lifecycle"),
+    import("./journeys/j398-auction-guards"),
+    import("./journeys/j399-tipping"),
+    import("./journeys/j400-donation-open-amount"),
+    import("./journeys/j401-order-amendment"),
+    // === END W46 uc-money ===
+    // === W46 uc-docs (Coder D): J402-J406 ===
+    import("./journeys/j402-customer-statement"),
+    import("./journeys/j403-statement-chat-delivery"),
+    import("./journeys/j404-proforma-convert"),
+    import("./journeys/j405-agent-commission-payout"),
+    import("./journeys/j406-tier-pricing"),
+    // === W46 uc-docs END (merger owns registry count) ===
+    // === W46 uc-ux (Coder E): J407-J411 ===
+    import("./journeys/j407-venue-table-qr-ordering"),
+    import("./journeys/j408-delivery-slot-capacity"),
+    import("./journeys/j409-wishlist-price-drop"),
+    import("./journeys/j410-gift-order-flow"),
+    import("./journeys/j411-min-order-guard"),
+    // === W46 uc-ux END (merger owns registry count) ===
+    // === W46 inventory-depth (Coder F) — J412–J416 (merger owns registry count) ===
+    import("./journeys/j412-barcode-scan"),
+    import("./journeys/j413-variant-reservation"),
+    import("./journeys/j414-warehouse-allocation"),
+    import("./journeys/j415-delivery-claims"),
+    import("./journeys/j416-fefo-expiry-sweep"),
+    // === W46 inventory-depth END ===
+    // === W46 orders-p2 (Coder G) === J417–J421.
+    import("./journeys/j417-po-promised-date-breach"),
+    import("./journeys/j418-product-recall-broadcast"),
+    import("./journeys/j419-order-merge"),
+    import("./journeys/j420-buyer-note-checkout"),
+    import("./journeys/j421-po-breach-cron"),
+    // === END W46 orders-p2 ===
+    // === W46 kyc (Coder A): J387-J391 ===
+    import("./journeys/j387-kyc-expiry-lifecycle"),
+    import("./journeys/j388-kyc-appeal-four-eyes"),
+    import("./journeys/j389-scoped-staff-capabilities"),
+    import("./journeys/j390-member-removal-erasure-guard"),
+    import("./journeys/j391-dsar-wallet-owner-gate"),
+    // === W46 kyc END ===
+    // === W46 privacy-consent (Coder B): J392-J396 (merger owns registry count) ===
+    import("./journeys/j392-age-restricted-checkout"),
+    import("./journeys/j393-consent-proof-regrant"),
+    import("./journeys/j394-po-kyb-gates-dispute-routing"),
+    import("./journeys/j395-device-factor-invite-binding"),
+    import("./journeys/j396-kyb-sla-tax-versioning"),
+    // === W46 privacy-consent END ===
+    // === W46 platform-p2 (Coder H): J422-J426 ===
+    import("./journeys/j422-internal-hmac-auth"),
+    import("./journeys/j423-kafka-reconnect"),
+    import("./journeys/j424-dbclock-premigration-dump"),
+    import("./journeys/j425-kafka-topics-idempotence"),
+    import("./journeys/j426-redact-language-picker"),
+    // === W46 platform-p2 END ===
+    // === W37 telegram END ===
+    // === W38 money-integrity (Coder A): refund/escrow money integrity ===
+    import("./journeys/j247-pay2-refund-idempotent-retry"),
+    import("./journeys/j248-pay2-sweep-verify-first"),
+    import("./journeys/j249-pay2-sweep-dead-letter"),
+    import("./journeys/j250-pay3-refund-after-payout-clawback"),
+    import("./journeys/j251-pay1-cumulative-cap-processed"),
+    import("./journeys/j252-pay7-bulk-refund-provider-calls"),
+    import("./journeys/j253-pay7-bulk-refund-pending-sweep"),
+    import("./journeys/j254-pay9-scheduled-skip-paid-bill"),
+    // === END W38 money-integrity (Coder A) ===
+    // === W38 pot-recon ===
+    import("./journeys/j255-pot-pending-charge-reconciles"),
+    import("./journeys/j256-pot-timeout-no-double-charge"),
+    import("./journeys/j257-pot-early-settle-lifecycle"),
+    import("./journeys/j258-recon-settlement-dedupe-partial"),
+    // === W38 pot-recon END ===
+    // === W39 durability (Coder A): PLT-1/PLT-2/PLT-8 PVC + backups ===
+    import("./journeys/j263-stateful-pvc-durability"),
+    import("./journeys/j264-backup-cronjobs"),
+    import("./journeys/j265-tigerbeetle-backup-doc"),
+    // === END W39 durability (Coder A) ===
     // === END W35 infra-receivers ===
   ]);
   return mods.map((m) => m.journey as Journey);

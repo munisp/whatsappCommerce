@@ -1,35 +1,91 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure, adminProcedure, operatorProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, operatorProcedure, assertTenantAccess } from "../_core/trpc";
 import * as connectorMarketplace from "../services/marketplace";
 import { getDb } from "../db";
-import { marketplaceSellers, marketplaceCommissions } from "../../drizzle/schema";
+import { kycApplications, marketplaceSellers, marketplaceCommissions } from "../../drizzle/schema";
+import { writeAuditLog } from "./audit";
 import { randomUUID } from "crypto";
+
+/**
+ * W40 tenancy (TEN-11): a tenant may only onboard marketplace sellers once
+ * its own KYB is approved — an unvetted tenant must not be able to attach
+ * payout bank details to the platform. Returns true when an approved KYB
+ * application exists for the tenant.
+ */
+async function hasApprovedKyb(db: any, tenantId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: kycApplications.id })
+    .from(kycApplications)
+    .where(and(
+      eq(kycApplications.tenantId, tenantId),
+      eq(kycApplications.type, "kyb"),
+      eq(kycApplications.status, "approved"),
+    ))
+    .limit(1)
+    .catch(() => []);
+  return rows.length > 0;
+}
 
 export const marketplaceRouter = router({
   // ── Seller Onboarding ────────────────────────────────────────────────────
-  registerSeller: publicProcedure
+  /**
+   * W40 (TEN-11): seller registration is an authenticated merchant action —
+   * the anonymous arbitrary-tenantId registration (bank details dropped into
+   * a VICTIM tenant's seller list) is removed. Callers must be signed in and
+   * may only register into their OWN tenant (platform admins bypass), the
+   * tenant must have passed KYB, and bank details are validated as a set.
+   */
+  registerSeller: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
       businessName: z.string().min(2),
-      ownerPhone: z.string(),
+      ownerPhone: z.string().min(7).max(20).regex(/^\+?[0-9][0-9\s-]*$/, "Invalid owner phone number"),
       ownerName: z.string().optional(),
       email: z.string().email().optional(),
       category: z.string().optional(),
       commissionRate: z.string().default("10.00"),
-      bankAccountNumber: z.string().optional(),
-      bankCode: z.string().optional(),
-      bankName: z.string().optional(),
+      bankAccountNumber: z.string().regex(/^[0-9]{6,20}$/, "Bank account number must be 6-20 digits").optional(),
+      bankCode: z.string().regex(/^[A-Za-z0-9]{2,12}$/, "Invalid bank code").optional(),
+      bankName: z.string().min(2).max(120).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // Own tenant only (admins bypass for back-office onboarding).
+      assertTenantAccess(ctx.user, input.tenantId);
+      // Bank details are all-or-nothing: a partial payout destination is
+      // never stored (a payout to an unverifiable account is a TEN-23 loss).
+      const bankFields = [input.bankAccountNumber, input.bankCode, input.bankName];
+      if (bankFields.some((f) => f !== undefined && f !== "") && bankFields.some((f) => f === undefined || f === "")) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Bank details must include account number, bank code and bank name together (or none)",
+        });
+      }
       const db = (await getDb())!;
+      // KYB gate: the tenant itself must be verified before it can attach
+      // sellers with payout destinations.
+      if (!(await hasApprovedKyb(db, input.tenantId))) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Tenant KYB must be approved before registering marketplace sellers",
+        });
+      }
       const id = randomUUID();
       const now = new Date();
+      // W40 merger fix-forward: bank fields are NOT table columns — the
+      // all-or-nothing set is stored in the bankAccount jsonb column (a
+      // bare {...input} spread silently DROPPED them, losing the seller's
+      // payout destination while claiming it was stored).
+      const { bankAccountNumber, bankCode, bankName, ...sellerFields } = input;
       await db.insert(marketplaceSellers).values({
-        id, ...input, status: "pending", createdAt: now, updatedAt: now,
+        id,
+        ...sellerFields,
+        bankAccount: bankAccountNumber ? { accountNumber: bankAccountNumber, bankCode, bankName } : null,
+        status: "pending", createdAt: now, updatedAt: now,
       });
       return { id, status: "pending" };
+      // === END W40 merger fix ===
     }),
 
   listSellers: protectedProcedure
@@ -54,17 +110,43 @@ export const marketplaceRouter = router({
 
   updateSellerStatus: adminProcedure
     .input(z.object({ id: z.string(), status: z.enum(["active", "suspended", "rejected"]) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      // W40 (TEN-4): admin lifecycle actions on sellers are audited with
+      // before/after state (cross-tenant admin actions must be attributable).
+      const [before] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, input.id)).catch(() => []);
       await db.update(marketplaceSellers).set({ status: input.status, updatedAt: new Date() }).where(eq(marketplaceSellers.id, input.id));
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "marketplace.updateSellerStatus",
+        entityType: "marketplace_seller",
+        entityId: input.id,
+        tenantId: before?.tenantId ?? null,
+        summary: `Seller ${before?.businessName ?? input.id} status ${before?.status ?? "?"} → ${input.status}`,
+        before: before ? { status: before.status } : null,
+        after: { status: input.status },
+      });
       return { ok: true };
     }),
 
   updateSellerCommission: adminProcedure
     .input(z.object({ id: z.string(), commissionRate: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
+      const [before] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, input.id)).catch(() => []);
       await db.update(marketplaceSellers).set({ commissionRate: input.commissionRate, updatedAt: new Date() }).where(eq(marketplaceSellers.id, input.id));
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "marketplace.updateSellerCommission",
+        entityType: "marketplace_seller",
+        entityId: input.id,
+        tenantId: before?.tenantId ?? null,
+        summary: `Seller ${before?.businessName ?? input.id} commission ${before?.commissionRate ?? "?"} → ${input.commissionRate}`,
+        before: before ? { commissionRate: before.commissionRate } : null,
+        after: { commissionRate: input.commissionRate },
+      });
       return { ok: true };
     }),
 

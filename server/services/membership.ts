@@ -157,5 +157,32 @@ export async function removeMember(
     }
   }
   await db.delete(tenantMemberships).where(eq(tenantMemberships.id, membership.id));
+
+  // === W46 kyc === TEN-10 access kill (best-effort after the row delete —
+  // the membership row is already gone, so a failure here can only delay,
+  // never grant, access). Previously the removed user's sessions and cached
+  // membership snapshot kept working for up to 60s (and users.tenantId kept
+  // the legacy shortcut alive indefinitely).
+  try {
+    const { users } = await import("../../drizzle/schema");
+    const numericId = Number(userId);
+    if (Number.isInteger(numericId)) {
+      // users.id is a serial — only clear the legacy shortcut when the
+      // membership userId maps to a users row.
+      await db.update(users)
+        .set({ tenantId: null, updatedAt: new Date() })
+        .where(and(eq(users.id, numericId), eq(users.tenantId, tenantId)));
+    }
+  } catch (err) {
+    console.error("[membership.removeMember] clearing users.tenantId failed:", (err as Error)?.message);
+  }
+  try {
+    const sdk = await import("../_core/sdk");
+    await sdk.revokeAllUserSessions(userId);
+    sdk.invalidateMembershipCache(userId);
+  } catch (err) {
+    console.error("[membership.removeMember] session revocation failed:", (err as Error)?.message);
+  }
+  // === END W46 kyc ===
   return { removed: true };
 }

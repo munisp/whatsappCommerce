@@ -1,0 +1,8 @@
+{
+  "id": "J293",
+  "title": "wallet credit (goodwill) + append-only ledger + idempotent retry",
+  "feature": "W41 UC-2 customer_wallets / customer_wallet_entries",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

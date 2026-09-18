@@ -22,11 +22,26 @@
  *    and NOTHING moves (honest UNAVAILABLE / failed).
  *  - The wallet_tx reference `fxpayout:<quoteId>` is the durable idempotency
  *    backstop via wallet_tx_wallet_ref_uniq (0053).
+ *
+ * === W45 money-ledger ===
+ * PAY-16: the Mojaloop leg is a POST-COMMIT outbox delivery (payment_outbox
+ * 0151, reference `fxmoja:<quoteId>`) with a DETERMINISTIC transferId derived
+ * from the quoteId (fxDeterministicTransferId) — a worker retry replays the
+ * SAME transferId so the switch dedupes. The execute transaction only flips
+ * the quote + debits the wallet + enqueues the outbox row; fulfil/error
+ * arrives via handleFxTransferCallback (wired into the existing
+ * PUT /api/callbacks/mojaloop/transfers/:id route) or the pollFxTransfers
+ * poller. An ABORTED delivery compensates honestly: guarded wallet re-credit
+ * (`fxrefund:<quoteId>` backstop) + quote 'failed' + CRITICAL capture.
+ * PAY-17: execute refuses fail-closed when the wallet row currency does not
+ * equal the quote's from_currency (nothing moves, reason currency_mismatch).
  */
 import crypto from "crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { fxQuotes, merchantWallets, walletTransactions } from "../../drizzle/schema";
+import { enqueuePaymentOutbox, OutboxDefinitiveError } from "./paymentOutbox";
+import { captureException } from "./observability";
 
 export type DbHandle = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 type DbOrTx = DbHandle | any;
@@ -227,7 +242,7 @@ export async function acceptFxQuoteTx(
 
 export type FxExecuteResult =
   | { ok: true; quote: typeof fxQuotes.$inferSelect; payoutRef: string; walletTxId: string; feeCents: number; netCents: number }
-  | { ok: false; reason: "not_found" | "not_accepted" | "expired" | "no_corridor" | "insufficient_funds" | "rail_failed"; detail?: string };
+  | { ok: false; reason: "not_found" | "not_accepted" | "expired" | "no_corridor" | "currency_mismatch" | "insufficient_funds" | "rail_failed"; detail?: string };
 
 async function getOrCreateWalletFx(db: DbOrTx, tenantId: string) {
   const [existing] = await db.select().from(merchantWallets).where(eq(merchantWallets.tenantId, tenantId));
@@ -247,8 +262,10 @@ async function getOrCreateWalletFx(db: DbOrTx, tenantId: string) {
 /** Mojaloop FSPIOP transfer initiation (async — the switch returns 202). */
 async function mojaloopTransfer(opts: {
   baseUrl: string; amountMajor: string; currency: string; payeeNote: string; ref: string;
+  /** === W45 money-ledger === PAY-16: deterministic transferId (worker replays reuse it). */
+  transferId: string;
 }): Promise<{ transferId: string }> {
-  const transferId = crypto.randomUUID();
+  const transferId = opts.transferId;
   const payerFsp = (process.env.MOJALOOP_PAYER_FSP ?? "wa-commerce-dfsp").slice(0, 64);
   const res = await fetch(`${opts.baseUrl.replace(/\/$/, "")}/transfers`, {
     method: "POST",
@@ -265,21 +282,71 @@ async function mojaloopTransfer(opts: {
     }),
     signal: AbortSignal.timeout(15_000),
   });
-  if (res.status !== 202 && !res.ok) throw new Error(`Mojaloop transfer rejected: HTTP ${res.status}`);
-  return { transferId };
+  if (res.status === 202 || res.ok) return { transferId };
+  // A rail-side 4xx rejection is DEFINITIVE (no retry); 5xx/unreachable retry.
+  if (res.status >= 400 && res.status < 500) {
+    throw new OutboxDefinitiveError(`Mojaloop transfer rejected definitively: HTTP ${res.status}`);
+  }
+  throw new Error(`Mojaloop transfer rejected: HTTP ${res.status}`);
+}
+
+/**
+ * === W45 money-ledger === PAY-16: DETERMINISTIC Mojaloop transferId derived
+ * from the quoteId (UUID v5-style: sha256 namespace+quoteId with version/
+ * variant bits set). The outbox worker's retries and the fulfil/error poller
+ * all agree on the SAME transferId — a replayed initiation is deduped by the
+ * switch, and the callback/poller resolves the quote via payoutRef.
+ */
+export function fxDeterministicTransferId(quoteId: string): string {
+  const h = crypto.createHash("sha256").update(`wacommerce:fxpayout:transfer:${quoteId}`).digest();
+  h[6] = (h[6] & 0x0f) | 0x50; // version 5
+  h[8] = (h[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = h.subarray(0, 16).toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * PAY-16 outbox deliverer (called by paymentOutbox.processPaymentOutbox).
+ * Delivers the Mojaloop /transfers initiation for an executed quote. The
+ * transferId is deterministic from the payload's quoteId, so worker retries
+ * are idempotent at the switch. Throws on failure (the worker retries;
+ * definitive 4xx → 'failed' + CRITICAL).
+ */
+export async function deliverMojaloopOutboxLeg(payload: {
+  quoteId: string; transferId?: string; amountMajor: string; currency: string; ref: string;
+}): Promise<void> {
+  const mojaloopUrl = (process.env.MOJALOOP_URL ?? "").trim();
+  if (!mojaloopUrl) {
+    throw new OutboxDefinitiveError("Mojaloop rail not configured (MOJALOOP_URL unset) at delivery time");
+  }
+  const transferId = payload.transferId ?? fxDeterministicTransferId(payload.quoteId);
+  await mojaloopTransfer({
+    baseUrl: mojaloopUrl,
+    amountMajor: payload.amountMajor,
+    currency: payload.currency,
+    payeeNote: `fx payout ${payload.quoteId}`,
+    ref: payload.ref,
+    transferId,
+  });
 }
 
 /**
  * Execute an ACCEPTED quote. Order of operations:
  *   1. Corridor check FIRST — no live (from→to) corridor → honest
  *      UNAVAILABLE before any state change (NOTHING moves).
- *   2. One DB transaction: locked conditional wallet debit of the GROSS
- *      (from_currency), fee + net wallet_tx legs (fee+net==gross), guarded
- *      accepted→executed flip, and the Mojaloop transfer initiation inside
- *      the transaction (mirrors escrow's in-tx ledger bridge call) — a rail
- *      rejection rolls the debit back, so money never moves without a
- *      delivery instruction and a delivery is never instructed without the
- *      debit having committed atomically with it.
+ *   2. === W45 money-ledger === PAY-17 fail-closed currency guard: the
+ *      wallet row's currency MUST equal the quote's from_currency, else the
+ *      execute refuses honestly (currency_mismatch) and NOTHING moves — a
+ *      non-NGN debit never hits an NGN wallet 1:1.
+ *   3. One DB transaction: guarded accepted→executed flip (payoutRef set to
+ *      the DETERMINISTIC transferId), locked conditional wallet debit of the
+ *      GROSS (from_currency), fee + net wallet_tx legs (fee+net==gross), and
+ *      the payment_outbox row for the Mojaloop leg — committed atomically.
+ *   4. PAY-16: the Mojaloop /transfers initiation is delivered POST-COMMIT
+ *      by the processPaymentOutbox worker (retries reuse the deterministic
+ *      transferId); fulfil/error converge via handleFxTransferCallback /
+ *      pollFxTransfers. A definitive rail rejection or ABORTED callback
+ *      compensates with a guarded wallet re-credit (fxrefund:<quoteId>).
  */
 export async function executeFxQuoteTx(
   db: DbHandle,
@@ -312,6 +379,17 @@ export async function executeFxQuoteTx(
   }
 
   const wallet = await getOrCreateWalletFx(db, q.tenantId);
+  // === W45 money-ledger === PAY-17: fail-closed currency guard — the wallet
+  // row currency must equal the quote's from_currency. A mismatch means the
+  // debit would hit a different-currency wallet 1:1; refuse honestly BEFORE
+  // anything moves (never debit across currencies silently).
+  if ((wallet.currency ?? "").toUpperCase() !== q.fromCurrency.toUpperCase()) {
+    return {
+      ok: false,
+      reason: "currency_mismatch",
+      detail: `wallet currency ${wallet.currency ?? "?"} does not match quote from_currency ${q.fromCurrency} — refused fail-closed; nothing moved`,
+    };
+  }
   const grossMajor = (q.totalCents / 100).toFixed(2);
   const feeMajor = (q.feeCents / 100).toFixed(2);
   const netCents = q.amountCents - q.feeCents;
@@ -321,13 +399,16 @@ export async function executeFxQuoteTx(
   const walletTxId = crypto.randomUUID();
   const feeTxId = crypto.randomUUID();
   const deliveredMajor = (Math.floor(netCents * Number(q.rate)) / 100).toFixed(2);
+  const transferId = fxDeterministicTransferId(q.id);
+  const outboxRef = `fxmoja:${q.id}`;
 
   try {
     const payoutRef = await db.transaction(async (tx: DbOrTx) => {
-      // Guarded consume: accepted→executed (exactly once).
+      // Guarded consume: accepted→executed (exactly once), payoutRef set to
+      // the deterministic Mojaloop transferId at flip time.
       const won = await tx
         .update(fxQuotes)
-        .set({ status: "executed", updatedAt: new Date() })
+        .set({ status: "executed", payoutRef: transferId, updatedAt: new Date() })
         .where(and(eq(fxQuotes.id, q.id), eq(fxQuotes.tenantId, args.tenantId), eq(fxQuotes.status, "accepted")))
         .returning();
       if (won.length !== 1) {
@@ -335,7 +416,13 @@ export async function executeFxQuoteTx(
       }
       // Locked conditional wallet debit of the gross in from_currency.
       const locked = await tx.execute(sql`SELECT available_balance, currency FROM merchant_wallets WHERE id = ${wallet.id} FOR UPDATE`);
-      if (!(locked as unknown as Record<string, unknown>[])[0]) throw new Error("wallet not found");
+      const lockedRow = (locked as unknown as Record<string, unknown>[])[0];
+      if (!lockedRow) throw new Error("wallet not found");
+      // PAY-17 re-check under the row lock (fail-closed): never debit a
+      // wallet whose currency differs from the quote's from_currency.
+      if (String(lockedRow.currency ?? "").toUpperCase() !== q.fromCurrency.toUpperCase()) {
+        throw Object.assign(new Error("CURRENCY_MISMATCH: wallet currency does not match quote from_currency"), { code: "CURRENCY_MISMATCH" });
+      }
       const debited = await tx.execute(sql`
         UPDATE merchant_wallets
         SET available_balance = available_balance - ${grossMajor}::numeric,
@@ -392,23 +479,29 @@ export async function executeFxQuoteTx(
           createdAt: new Date(),
         });
       }
-      // Mojaloop delivery INSIDE the transaction: a rail rejection rolls the
-      // whole debit back (escrow in-tx bridge-call convention).
-      const { transferId } = await mojaloopTransfer({
-        baseUrl: mojaloopUrl,
-        amountMajor: deliveredMajor,
-        currency: q.toCurrency,
-        payeeNote: `fx payout ${q.id}`,
-        ref: payoutDebitRef,
+      // === W45 money-ledger === PAY-16: Mojaloop delivery is a POST-COMMIT
+      // outbox leg — enqueue INSIDE this transaction so the debit and the
+      // delivery instruction commit atomically; the worker delivers with
+      // retry using the deterministic transferId. Replay-safe (unique ref).
+      await enqueuePaymentOutbox(tx, {
+        tenantId: q.tenantId,
+        kind: "mojaloop_transfer",
+        reference: outboxRef,
+        payload: {
+          quoteId: q.id,
+          transferId,
+          amountMajor: deliveredMajor,
+          currency: q.toCurrency,
+          ref: payoutDebitRef,
+        },
       });
-      const [fin] = await tx.update(fxQuotes).set({ payoutRef: transferId, updatedAt: new Date() })
-        .where(eq(fxQuotes.id, q.id)).returning();
-      return fin.payoutRef as string;
+      return transferId;
     });
     const [finalQuote] = await db.select().from(fxQuotes).where(eq(fxQuotes.id, q.id)).limit(1);
     return { ok: true, quote: finalQuote, payoutRef, walletTxId, feeCents: q.feeCents, netCents };
   } catch (err: any) {
     if (err?.code === "INSUFFICIENT_FUNDS") return { ok: false, reason: "insufficient_funds" };
+    if (err?.code === "CURRENCY_MISMATCH") return { ok: false, reason: "currency_mismatch", detail: "wallet currency does not match quote from_currency — refused fail-closed; nothing moved" };
     if (err?.code === "CONFLICT") return { ok: false, reason: "not_accepted", detail: "quote no longer in accepted state" };
     if (err?.code === "23505") {
       // Wallet-ref unique backstop: the original execution committed.
@@ -417,12 +510,13 @@ export async function executeFxQuoteTx(
         return { ok: true, quote: cur, payoutRef: cur.payoutRef ?? "", walletTxId: "", feeCents: cur.feeCents, netCents: cur.amountCents - cur.feeCents };
       }
     }
-    // Rail failure: the transaction rolled back — NOTHING moved. Mark the
-    // quote failed honestly (accepted → failed; merchant may re-quote).
+    // Execution failure: the transaction rolled back — NOTHING moved (no
+    // debit, no outbox row). Mark the quote failed honestly (accepted →
+    // failed; merchant may re-quote).
     await db.update(fxQuotes)
       .set({ status: "failed", metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ failedReason: String(err?.message ?? err).slice(0, 300) })}::jsonb`, updatedAt: new Date() })
       .where(and(eq(fxQuotes.id, q.id), eq(fxQuotes.status, "accepted")));
-    return { ok: false, reason: "rail_failed", detail: `Mojaloop delivery failed honestly (rolled back, nothing moved): ${err?.message ?? err}` };
+    return { ok: false, reason: "rail_failed", detail: `FX execute failed honestly (rolled back, nothing moved): ${err?.message ?? err}` };
   }
 }
 
@@ -434,4 +528,206 @@ export async function expireFxQuotesTx(db: DbHandle, now = new Date()): Promise<
     .returning({ id: fxQuotes.id });
   return rows.length;
 }
+
+// === W45 money-ledger === PAY-16: fulfil/error callback + poller ────────────
+
+/** PAY-17 shared guard: a wallet leg only ever posts when currencies match. */
+export function walletCurrencyMatches(walletCurrency: string | null | undefined, legCurrency: string): boolean {
+  return (walletCurrency ?? "").toUpperCase() === legCurrency.toUpperCase();
+}
+
+export type FxTransferCallbackResult =
+  | { ok: true; quoteId: string; action: "fulfilled" | "compensated" | "noop" }
+  | { ok: false; reason: "not_found" | "conflict"; detail?: string };
+
+/**
+ * Converge one Mojaloop fulfil/error notification onto the executed quote.
+ * Called from the existing PUT /api/callbacks/mojaloop/transfers/:id route
+ * (JWS-verified upstream; fail-closed) AND from pollFxTransfers. Idempotent:
+ * replays are no-ops keyed on metadata.transferState.
+ *
+ *  - COMMITTED/fulfil → metadata.transferState='fulfilled' (quote stays
+ *    'executed' — the debit stands, delivery confirmed).
+ *  - ABORTED/error → compensating re-credit in ONE locked transaction:
+ *    wallet available_balance += gross (wallet currency MUST equal
+ *    from_currency — PAY-17 fail-closed), wallet_tx leg `fxrefund:<quoteId>`
+ *    (unique backstop; replay no-op), quote executed→failed with
+ *    failedReason 'delivery_aborted', CRITICAL capture for ops.
+ *  - ABORTED on an already-FULFILLED quote is a money ambiguity — fail
+ *    CLOSED: never reverse a delivered transfer; alert CRITICAL.
+ */
+export async function handleFxTransferCallback(
+  db: DbHandle,
+  args: { transferId: string; state: string; detail?: string },
+): Promise<FxTransferCallbackResult> {
+  const transferId = String(args.transferId ?? "").slice(0, 128);
+  if (!transferId) return { ok: false, reason: "not_found", detail: "empty transferId" };
+  const [q] = await db.select().from(fxQuotes).where(eq(fxQuotes.payoutRef, transferId)).limit(1);
+  if (!q) return { ok: false, reason: "not_found" };
+  const meta = ((q.metadata as Record<string, unknown> | null) ?? {});
+  const state = args.state.toUpperCase();
+  const now = new Date();
+
+  if (state === "COMMITTED" || state === "FULFILLED") {
+    if (meta.transferState === "fulfilled") return { ok: true, quoteId: q.id, action: "noop" };
+    if (meta.transferState === "aborted" || q.status === "failed") {
+      // Fulfil AFTER an abort compensation — money ambiguity, fail closed.
+      captureException(new Error(`fx transfer ${transferId} fulfilled AFTER abort compensation`), {
+        service: "fxPayouts", operation: "handleFxTransferCallback", tenantId: q.tenantId,
+        severity: "critical", extra: { quoteId: q.id, transferId },
+      });
+      return { ok: false, reason: "conflict", detail: "transfer fulfilled after abort compensation — ops review required" };
+    }
+    await db.update(fxQuotes)
+      .set({ metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ transferState: "fulfilled", fulfilledAt: now.toISOString() })}::jsonb`, updatedAt: now })
+      .where(and(eq(fxQuotes.id, q.id), eq(fxQuotes.status, "executed"), isNull(sql`metadata->>'transferState'`)));
+    return { ok: true, quoteId: q.id, action: "fulfilled" };
+  }
+
+  if (state === "ABORTED" || state === "ERROR" || state === "FAILED") {
+    if (meta.transferState === "aborted") return { ok: true, quoteId: q.id, action: "noop" };
+    if (meta.transferState === "fulfilled") {
+      captureException(new Error(`fx transfer ${transferId} aborted AFTER fulfil — never reversing a delivered transfer`), {
+        service: "fxPayouts", operation: "handleFxTransferCallback", tenantId: q.tenantId,
+        severity: "critical", extra: { quoteId: q.id, transferId },
+      });
+      return { ok: false, reason: "conflict", detail: "transfer aborted after fulfil — ops review required; nothing reversed" };
+    }
+    if (q.status !== "executed") return { ok: true, quoteId: q.id, action: "noop" };
+
+    // Compensating re-credit in ONE locked transaction.
+    const wallet = await getOrCreateWalletFx(db, q.tenantId);
+    if (!walletCurrencyMatches(wallet.currency, q.fromCurrency)) {
+      // PAY-17 fail-closed: the debit never should have hit this wallet —
+      // do NOT credit a mismatched wallet; alert ops.
+      captureException(new Error(`fx abort compensation refused: wallet currency ${wallet.currency} != ${q.fromCurrency}`), {
+        service: "fxPayouts", operation: "handleFxTransferCallback", tenantId: q.tenantId,
+        severity: "critical", extra: { quoteId: q.id, transferId },
+      });
+      return { ok: false, reason: "conflict", detail: "wallet currency mismatch — compensation refused, ops review required" };
+    }
+    const grossMajor = (q.totalCents / 100).toFixed(2);
+    try {
+      await db.transaction(async (tx: DbOrTx) => {
+        const locked = await tx.execute(sql`SELECT available_balance FROM merchant_wallets WHERE id = ${wallet.id} FOR UPDATE`);
+        const lrow = (locked as unknown as Record<string, unknown>[])[0];
+        if (!lrow) throw new Error("wallet not found");
+        const before = parseFloat(String(lrow.available_balance));
+        await tx.execute(sql`
+          UPDATE merchant_wallets
+          SET available_balance = available_balance + ${grossMajor}::numeric,
+              total_withdrawn = GREATEST(0, total_withdrawn - ${grossMajor}::numeric),
+              updated_at = now()
+          WHERE id = ${wallet.id}
+        `);
+        const after = before + q.totalCents / 100;
+        await tx.insert(walletTransactions).values({
+          id: crypto.randomUUID(),
+          walletId: wallet.id,
+          tenantId: q.tenantId,
+          type: "fx_refund",
+          amount: grossMajor,
+          balanceBefore: before.toFixed(2),
+          balanceAfter: after.toFixed(2),
+          currency: q.fromCurrency,
+          description: `FX payout delivery ABORTED — compensating re-credit for quote ${q.id}`,
+          reference: `fxrefund:${q.id}`,
+          metadata: { status: "executed", source: "fx_payout_refund", quoteId: q.id, transferId },
+          createdAt: now,
+        });
+        const [flipped] = await tx.update(fxQuotes)
+          .set({
+            status: "failed",
+            metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ transferState: "aborted", failedReason: `delivery_aborted: ${(args.detail ?? "aborted by switch").slice(0, 200)}`, abortedAt: now.toISOString() })}::jsonb`,
+            updatedAt: now,
+          })
+          .where(and(eq(fxQuotes.id, q.id), eq(fxQuotes.status, "executed")))
+          .returning({ id: fxQuotes.id });
+        if (!flipped) throw Object.assign(new Error("quote no longer executed"), { code: "CONFLICT" });
+      });
+    } catch (err: any) {
+      if (err?.code === "23505") return { ok: true, quoteId: q.id, action: "noop" }; // refund leg already committed
+      throw err;
+    }
+    captureException(new Error(`fx transfer ${transferId} ABORTED — wallet re-credited, quote failed`), {
+      service: "fxPayouts", operation: "handleFxTransferCallback", tenantId: q.tenantId,
+      severity: "critical", extra: { quoteId: q.id, transferId, grossCents: q.totalCents },
+    });
+    return { ok: true, quoteId: q.id, action: "compensated" };
+  }
+
+  return { ok: true, quoteId: q.id, action: "noop" }; // unknown state — nothing to converge
+}
+
+export interface FxPollResult {
+  scanned: number;
+  fulfilled: number;
+  compensated: number;
+  stillPending: number;
+  errors: number;
+}
+
+/**
+ * PAY-16 poller: executed quotes whose Mojaloop transfer never reported a
+ * terminal state (no callback, callback lost) are polled READ-ONLY via
+ * GET /transfers/:transferId and converged through handleFxTransferCallback.
+ * Unreachable rail / unknown state → left for the next tick (never guessed).
+ * Quotes pending beyond FX_TRANSFER_STALE_MS with the rail silent surface a
+ * CRITICAL ops event (still converged honestly when the rail answers later).
+ */
+export async function pollFxTransfers(
+  db: DbHandle,
+  opts: { olderThanMs?: number; limit?: number; now?: Date } = {},
+): Promise<FxPollResult> {
+  const now = opts.now ?? new Date();
+  const result: FxPollResult = { scanned: 0, fulfilled: 0, compensated: 0, stillPending: 0, errors: 0 };
+  const baseUrl = (process.env.MOJALOOP_URL ?? "").trim();
+  if (!baseUrl) return result;
+  const olderThan = new Date(now.getTime() - (opts.olderThanMs ?? 60_000));
+  const staleMs = Number(process.env.FX_TRANSFER_STALE_MS) > 0 ? Number(process.env.FX_TRANSFER_STALE_MS) : 24 * 3600 * 1000;
+
+  const rows = await db.select().from(fxQuotes)
+    .where(and(
+      eq(fxQuotes.status, "executed"),
+      sql`${fxQuotes.payoutRef} IS NOT NULL`,
+      isNull(sql`metadata->>'transferState'`),
+      sql`${fxQuotes.updatedAt} <= ${olderThan.toISOString()}`,
+    ))
+    .limit(Math.max(1, Math.min(opts.limit ?? 50, 200)))
+    .catch(() => [] as any[]);
+
+  for (const q of rows as (typeof fxQuotes.$inferSelect)[]) {
+    result.scanned += 1;
+    try {
+      const res = await fetch(`${baseUrl.replace(/\/$/, "")}/transfers/${encodeURIComponent(q.payoutRef!)}`, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.status === 404 || !res.ok) {
+        result.stillPending += 1;
+        if (now.getTime() - new Date(q.updatedAt).getTime() > staleMs) {
+          captureException(new Error(`fx transfer ${q.payoutRef} stale with rail silent beyond ${staleMs}ms`), {
+            service: "fxPayouts", operation: "pollFxTransfers", tenantId: q.tenantId,
+            severity: "critical", extra: { quoteId: q.id, transferId: q.payoutRef },
+          });
+        }
+        continue;
+      }
+      const body = (await res.json().catch(() => ({}))) as { transferState?: string };
+      if (!body.transferState) {
+        result.stillPending += 1;
+        continue;
+      }
+      const r = await handleFxTransferCallback(db, { transferId: q.payoutRef!, state: body.transferState });
+      if (r.ok && r.action === "fulfilled") result.fulfilled += 1;
+      else if (r.ok && r.action === "compensated") result.compensated += 1;
+      else result.stillPending += 1;
+    } catch (err: any) {
+      result.errors += 1;
+      console.warn(`[fxPayouts] poll transfer ${q.payoutRef} failed:`, err?.message);
+    }
+  }
+  return result;
+}
+// === END W45 money-ledger ===
 // === END W32 earlypay-fx (fxPayouts service) ===

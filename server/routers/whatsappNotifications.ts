@@ -118,6 +118,41 @@ export interface SendOrderNotifResult {
  */
 export async function sendOrderNotification(p: OrderNotifPayload): Promise<SendOrderNotifResult> {
   const { templateName, languageCode, components } = orderNotifTemplate(p);
+  // === W37 telegram ===
+  // Order confirmation/status parity: a telegram-linked customer receives the
+  // SAME semantic content (template {{1}}-{{4}} params) rendered as formatted
+  // text via channelSender — Telegram has no Meta template approval flow.
+  // WhatsApp recipients fall through to the byte-identical template path.
+  try {
+    const { resolveCustomerChannel, renderOrderStatusText } = await import("../services/channelParity");
+    const __w37Route = await resolveCustomerChannel(p.tenantId, p.phone);
+    if (__w37Route.channel === "telegram") {
+      const statusLabels: Record<OrderNotifType, string> = {
+        order_confirmation: "confirmed",
+        order_shipped: "shipped",
+        order_delivered: "delivered",
+        order_cancelled: "cancelled",
+      };
+      const text = renderOrderStatusText({
+        customerName: p.customerName,
+        orderNumber: p.orderNumber,
+        totalAmount: p.totalAmount,
+        currency: p.currency,
+        statusLabel: statusLabels[p.notifType],
+      });
+      const { sendChannelMessage } = await import("../services/channelSender");
+      const res = await sendChannelMessage(p.tenantId, "telegram", __w37Route.to, {
+        kind: "text",
+        text,
+      }, { notifType: p.notifType });
+      console.info(`[whatsappNotif] telegram ${p.notifType} → chat ${__w37Route.to} (template ${templateName} rendered as text)`);
+      return { sent: res.sent, simulated: res.simulated, wamid: null };
+    }
+  } catch (e: any) {
+    // Fail-open: resolution/routing problems must not block the WA path.
+    console.warn("[whatsappNotif] W37 telegram route failed, using WA:", e?.message);
+  }
+  // === W37 telegram END ===
   try {
     const result = await sendWhatsAppTemplate(p.tenantId, p.phone, templateName, languageCode, components, {
       notifType: p.notifType,

@@ -27,6 +27,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -59,6 +60,15 @@ type Config struct {
 	PlatformAPIKey         string  // Platform internal API key
 	WAPhoneNumberID        string  // WhatsApp Business phone number ID
 	WAAccessToken          string  // Meta Graph API access token
+	// === W45 go-rust-services ===
+	PublicCallbackBaseURL  string  // HERMES_CALLBACK_BASE_URL — public base URL Hermes calls back on (required in production; never localhost)
+	RedisURL               string  // REDIS_URL — pending-approval store (required in production)
+	ApprovalTemplateName   string  // WA_PO_APPROVAL_TEMPLATE — approved WA template w/ quick-reply buttons
+	ApprovalTemplateLang   string  // WA_PO_APPROVAL_TEMPLATE_LANG
+	ApprovalTTLMinutes     int     // APPROVAL_TTL_MINUTES — approval expiry
+	ApprovalReminderIntervalSeconds int // APPROVAL_REMINDER_INTERVAL_SECONDS
+	KafkaDLQTopic          string  // KAFKA_HERMES_DLQ_TOPIC
+	// === END W45 go-rust-services ===
 	MaxConcurrentEvents    int
 	EventTimeoutSeconds    int
 	CircuitBreakerThreshold int   // consecutive failures before opening circuit
@@ -82,6 +92,15 @@ func configFromEnv() Config {
 		PlatformAPIKey:          getEnv("PLATFORM_API_KEY", ""),
 		WAPhoneNumberID:         getEnv("WA_PHONE_NUMBER_ID", ""),
 		WAAccessToken:           getEnv("WA_ACCESS_TOKEN", ""),
+		// === W45 go-rust-services ===
+		PublicCallbackBaseURL:   os.Getenv("HERMES_CALLBACK_BASE_URL"), // no default — validated in validateConfig
+		RedisURL:                os.Getenv("REDIS_URL"),
+		ApprovalTemplateName:    getEnv("WA_PO_APPROVAL_TEMPLATE", "po_approval_request"),
+		ApprovalTemplateLang:    getEnv("WA_PO_APPROVAL_TEMPLATE_LANG", "en"),
+		ApprovalTTLMinutes:      getEnvInt("APPROVAL_TTL_MINUTES", 24*60),
+		ApprovalReminderIntervalSeconds: getEnvInt("APPROVAL_REMINDER_INTERVAL_SECONDS", 6*3600),
+		KafkaDLQTopic:           getEnv("KAFKA_HERMES_DLQ_TOPIC", "hermes.events.dlq"),
+		// === END W45 go-rust-services ===
 		MaxConcurrentEvents:     getEnvInt("MAX_CONCURRENT_EVENTS", 20),
 		EventTimeoutSeconds:     getEnvInt("EVENT_TIMEOUT_SECONDS", 30),
 		CircuitBreakerThreshold: getEnvInt("CIRCUIT_BREAKER_THRESHOLD", 5),
@@ -294,6 +313,8 @@ func (hc *HermesClient) ForwardEvent(ctx context.Context, req HermesRequest) err
 type WASender struct {
 	phoneNumberID string
 	accessToken   string
+	templateName  string // === W45 go-rust-services ===
+	templateLang  string // === W45 go-rust-services ===
 	httpClient    *http.Client
 	logger        *slog.Logger
 }
@@ -302,12 +323,27 @@ func NewWASender(cfg Config, logger *slog.Logger) *WASender {
 	return &WASender{
 		phoneNumberID: cfg.WAPhoneNumberID,
 		accessToken:   cfg.WAAccessToken,
+		templateName:  cfg.ApprovalTemplateName,
+		templateLang:  cfg.ApprovalTemplateLang,
 		httpClient:    &http.Client{Timeout: 15 * time.Second},
 		logger:        logger,
 	}
 }
 
-// SendApprovalRequest sends a PO approval request to the merchant via WhatsApp.
+// === W45 go-rust-services (MSG-15) ===
+// SendApprovalRequest sends a PO approval request to the merchant via an
+// APPROVED WhatsApp template with quick-reply buttons. Templates are the only
+// 24h-window-safe message type — the previous free-form text version failed
+// delivery whenever the merchant's customer-service window had lapsed.
+//
+// Template contract (must exist in Meta Business Manager, default name
+// "po_approval_request", language "en"):
+//   Body params: {{1}} supplier, {{2}} product, {{3}} sku, {{4}} quantity,
+//                {{5}} currency, {{6}} total cost
+//   Buttons:     quick_reply "Approve" (payload "APPROVE <token>"),
+//                quick_reply "Reject"  (payload "REJECT <token>")
+// The button payload round-trips through parseApprovalReply unchanged, so
+// both button taps and typed replies resolve the same pending approval.
 func (wa *WASender) SendApprovalRequest(ctx context.Context, po PODraftPayload) error {
 	if wa.phoneNumberID == "" || wa.accessToken == "" {
 		wa.logger.Warn("whatsapp credentials not configured — skipping approval send",
@@ -315,24 +351,45 @@ func (wa *WASender) SendApprovalRequest(ctx context.Context, po PODraftPayload) 
 		return nil
 	}
 
-	message := fmt.Sprintf(
-		"🛒 *Purchase Order Request*\n\n"+
-			"Supplier: %s\n"+
-			"Product: %s (SKU: %s)\n"+
-			"Quantity: %d units\n"+
-			"Total Cost: %s %.2f\n\n"+
-			"Reply *APPROVE %s* to confirm\n"+
-			"Reply *REJECT %s* to decline",
-		po.SupplierName, po.ProductName, po.SKU,
-		po.Quantity, po.Currency, po.TotalCost,
-		po.ApprovalToken, po.ApprovalToken,
-	)
-
+	textParam := func(v string) map[string]string {
+		return map[string]string{"type": "text", "text": v}
+	}
+	payloadParam := func(v string) map[string]string {
+		return map[string]string{"type": "payload", "payload": v}
+	}
 	payload := map[string]interface{}{
 		"messaging_product": "whatsapp",
 		"to":                po.MerchantPhone,
-		"type":              "text",
-		"text":              map[string]string{"body": message},
+		"type":              "template",
+		"template": map[string]interface{}{
+			"name":     wa.templateName,
+			"language": map[string]string{"code": wa.templateLang},
+			"components": []map[string]interface{}{
+				{
+					"type": "body",
+					"parameters": []map[string]string{
+						textParam(po.SupplierName),
+						textParam(po.ProductName),
+						textParam(po.SKU),
+						textParam(strconv.Itoa(po.Quantity)),
+						textParam(po.Currency),
+						textParam(fmt.Sprintf("%.2f", po.TotalCost)),
+					},
+				},
+				{
+					"type":      "button",
+					"sub_type":  "quick_reply",
+					"index":     "0",
+					"parameters": []map[string]string{payloadParam("APPROVE " + po.ApprovalToken)},
+				},
+				{
+					"type":      "button",
+					"sub_type":  "quick_reply",
+					"index":     "1",
+					"parameters": []map[string]string{payloadParam("REJECT " + po.ApprovalToken)},
+				},
+			},
+		},
 	}
 
 	body, _ := json.Marshal(payload)
@@ -427,11 +484,17 @@ type EventProcessor struct {
 	platform  *PlatformNotifier
 	logger    *slog.Logger
 	semaphore chan struct{}
-	// In-memory approval token store (production: use Redis)
-	pendingApprovals sync.Map // token → PODraftPayload
+	// === W45 go-rust-services (MSG-15) ===
+	// Durable pending-approval store (Redis in production) — replaces the old
+	// restart-lossy in-process pendingApprovals map.
+	approvals ApprovalStore
 }
 
-func NewEventProcessor(cfg Config, logger *slog.Logger) *EventProcessor {
+func NewEventProcessor(cfg Config, logger *slog.Logger) (*EventProcessor, error) {
+	approvals, err := NewApprovalStore(cfg, logger)
+	if err != nil {
+		return nil, fmt.Errorf("approval store: %w", err)
+	}
 	return &EventProcessor{
 		cfg:       cfg,
 		hermes:    NewHermesClient(cfg, logger),
@@ -439,7 +502,22 @@ func NewEventProcessor(cfg Config, logger *slog.Logger) *EventProcessor {
 		platform:  NewPlatformNotifier(cfg, logger),
 		logger:    logger,
 		semaphore: make(chan struct{}, cfg.MaxConcurrentEvents),
+		approvals: approvals,
+	}, nil
+}
+
+// callbackURL builds the public URL Hermes Agent calls back on.
+// The base comes from HERMES_CALLBACK_BASE_URL (validated at startup —
+// fail-closed in production so Hermes never receives an unreachable
+// localhost callback); development may use the per-port fallback with a
+// loud warning.
+func (ep *EventProcessor) callbackURL() string {
+	base := ep.cfg.PublicCallbackBaseURL
+	if base == "" {
+		ep.logger.Warn("HERMES_CALLBACK_BASE_URL not set — using localhost callback (dev only, unreachable from Hermes outside this host)")
+		base = fmt.Sprintf("http://localhost:%s", ep.cfg.Port)
 	}
+	return strings.TrimRight(base, "/") + "/hermes/callback"
 }
 
 // ProcessEvent handles a single platform event from Kafka.
@@ -451,34 +529,42 @@ func (ep *EventProcessor) ProcessEvent(ctx context.Context, event PlatformEvent)
 	ep.semaphore <- struct{}{}
 	go func() {
 		defer func() { <-ep.semaphore }()
-
-		callbackURL := fmt.Sprintf("http://localhost:%s/hermes/callback", ep.cfg.Port)
-		req := HermesRequest{
-			EventID:    event.ID,
-			TenantID:   event.TenantID,
-			EventType:  event.EventType,
-			OccurredAt: event.OccurredAt,
-			Payload:    event.Payload,
-			Context: HermesContext{
-				PlatformAPIURL: ep.cfg.PlatformAPIURL,
-				CallbackURL:    callbackURL,
-				Language:       "en", // TODO: derive from tenant config
-			},
-		}
-
-		if err := ep.hermes.ForwardEvent(ctx, req); err != nil {
+		if err := ep.processEvent(ctx, event); err != nil {
 			ep.logger.Error("failed to forward event to hermes",
 				"event_id", event.ID,
 				"event_type", event.EventType,
 				"error", err)
-			return
 		}
-
-		ep.logger.Info("event forwarded to hermes",
-			"event_id", event.ID,
-			"event_type", event.EventType,
-			"tenant_id", event.TenantID)
 	}()
+}
+
+// === W45 go-rust-services (MSG-20) ===
+// processEvent is the synchronous forward path used by the real Kafka
+// consumer (kafka.go): the consumer commits the offset only after this
+// returns nil. The async HTTP-ingest path (ProcessEvent above) shares it.
+func (ep *EventProcessor) processEvent(ctx context.Context, event PlatformEvent) error {
+	req := HermesRequest{
+		EventID:    event.ID,
+		TenantID:   event.TenantID,
+		EventType:  event.EventType,
+		OccurredAt: event.OccurredAt,
+		Payload:    event.Payload,
+		Context: HermesContext{
+			PlatformAPIURL: ep.cfg.PlatformAPIURL,
+			CallbackURL:    ep.callbackURL(),
+			Language:       "en", // TODO: derive from tenant config
+		},
+	}
+
+	if err := ep.hermes.ForwardEvent(ctx, req); err != nil {
+		return err
+	}
+
+	ep.logger.Info("event forwarded to hermes",
+		"event_id", event.ID,
+		"event_type", event.EventType,
+		"tenant_id", event.TenantID)
+	return nil
 }
 
 // HandleCallback processes a callback from Hermes Agent.
@@ -494,9 +580,13 @@ func (ep *EventProcessor) HandleCallback(ctx context.Context, cb HermesCallback)
 		if err := json.Unmarshal(cb.Payload, &po); err != nil {
 			return fmt.Errorf("unmarshal po_draft payload: %w", err)
 		}
-		// Store pending approval
-		ep.pendingApprovals.Store(po.ApprovalToken, po)
-		// Send WhatsApp approval request to merchant
+		// === W45 go-rust-services (MSG-15) ===
+		// Persist the pending approval (durable, with TTL) BEFORE notifying
+		// the merchant — if the send fails the sweep still tracks expiry.
+		if err := ep.approvals.Save(ctx, po, time.Duration(ep.cfg.ApprovalTTLMinutes)*time.Minute); err != nil {
+			return fmt.Errorf("persist pending approval: %w", err)
+		}
+		// Send WhatsApp approval request (approved template w/ buttons) to merchant
 		return ep.waSender.SendApprovalRequest(ctx, po)
 
 	case "approval_request":
@@ -521,20 +611,25 @@ func (ep *EventProcessor) HandleCallback(ctx context.Context, cb HermesCallback)
 }
 
 // HandleMerchantApproval processes a merchant's WhatsApp approval/rejection reply.
+// === W45 go-rust-services (MSG-15) ===
 func (ep *EventProcessor) HandleMerchantApproval(ctx context.Context, reply ApprovalReply) error {
-	val, ok := ep.pendingApprovals.Load(reply.ApprovalToken)
-	if !ok {
-		return fmt.Errorf("approval token not found: %s", reply.ApprovalToken)
+	po, err := ep.approvals.Get(ctx, reply.ApprovalToken)
+	if err != nil {
+		if err == ErrApprovalNotFound {
+			return fmt.Errorf("approval token not found (unknown or expired): %s", reply.ApprovalToken)
+		}
+		return fmt.Errorf("load approval: %w", err)
 	}
-	po := val.(PODraftPayload)
 
 	ep.logger.Info("merchant approval received",
 		"po_id", po.POID,
 		"decision", reply.Decision,
 		"merchant_phone", reply.MerchantPhone)
 
-	// Remove from pending store
-	ep.pendingApprovals.Delete(reply.ApprovalToken)
+	// Remove from pending store (decision reached — sweep stops tracking it)
+	if err := ep.approvals.Delete(ctx, reply.ApprovalToken); err != nil {
+		ep.logger.Error("failed to delete decided approval", "token", reply.ApprovalToken, "error", err)
+	}
 
 	// Notify platform
 	return ep.platform.NotifyPODecision(ctx, reply)
@@ -608,6 +703,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"otel_enabled":    otelx.Status(), // === W35 otel ===
 		"uptime_seconds":  time.Since(s.startTime).Seconds(),
 		"circuit_breaker": s.processor.hermes.circuitBreaker.StateString(),
+		"approval_store":   s.processor.approvals.Backend(), // === W45 go-rust-services ===
 		"events_processed": s.processor.hermes.processed.Load(),
 		"events_errored":   s.processor.hermes.errors.Load(),
 	}
@@ -706,33 +802,6 @@ func (s *Server) routes() http.Handler {
 	return r
 }
 
-// ─── Kafka Consumer (stub — production: use confluent-kafka-go) ───────────────
-// In production this would use the confluent-kafka-go library to consume from
-// hermes.events.inbound. For the sandbox build we use a polling HTTP endpoint
-// instead to avoid CGO dependencies.
-
-type KafkaConsumerStub struct {
-	processor *EventProcessor
-	logger    *slog.Logger
-	done      chan struct{}
-}
-
-func NewKafkaConsumerStub(processor *EventProcessor, logger *slog.Logger) *KafkaConsumerStub {
-	return &KafkaConsumerStub{
-		processor: processor,
-		logger:    logger,
-		done:      make(chan struct{}),
-	}
-}
-
-func (kc *KafkaConsumerStub) Start(ctx context.Context) {
-	kc.logger.Info("kafka consumer stub started (HTTP ingest mode)")
-	// In production: subscribe to hermes.events.inbound and call processor.ProcessEvent
-	// For now the /hermes/ingest HTTP endpoint serves as the event ingestion path
-	<-ctx.Done()
-	kc.logger.Info("kafka consumer stub stopped")
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 func main() {
@@ -742,6 +811,11 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := configFromEnv()
+	// === W45 go-rust-services ===
+	if err := validateConfig(cfg); err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 
 	// === W35 otel ===
 	otelShutdown, _ := otelx.Init(context.Background(), "hermes-bridge")
@@ -753,14 +827,20 @@ func main() {
 		"hermes_url", cfg.HermesAgentURL,
 		"kafka_brokers", cfg.KafkaBrokers)
 
-	processor := NewEventProcessor(cfg, logger)
+	processor, err := NewEventProcessor(cfg, logger)
+	if err != nil {
+		logger.Error("failed to initialise event processor", "error", err)
+		os.Exit(1)
+	}
 
-	// Start Kafka consumer
+	// Start Kafka consumer + approval sweep
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	consumer := NewKafkaConsumerStub(processor, logger)
+	// === W45 go-rust-services ===
+	consumer := NewKafkaConsumer(cfg, processor, logger)
 	go consumer.Start(ctx)
+	go processor.StartApprovalSweep(ctx)
 
 	// Start HTTP server
 	srv := NewServer(cfg, processor, logger)
@@ -794,6 +874,34 @@ func main() {
 		logger.Error("http server shutdown error", "error", err)
 	}
 	logger.Info("hermes-bridge stopped")
+}
+
+// === W45 go-rust-services ===
+// validateConfig enforces production-critical configuration at startup.
+// HERMES_CALLBACK_BASE_URL must be an absolute http(s) URL reachable by the
+// Hermes Agent — never a loopback host. In development the localhost fallback
+// is allowed (with a warning in callbackURL()) so local runs still boot.
+func validateConfig(cfg Config) error {
+	if cfg.PublicCallbackBaseURL == "" {
+		if cfg.IsProduction() {
+			return fmt.Errorf("HERMES_CALLBACK_BASE_URL is required in production (public base URL for Hermes callbacks)")
+		}
+		return nil
+	}
+	u, err := url.Parse(cfg.PublicCallbackBaseURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return fmt.Errorf("HERMES_CALLBACK_BASE_URL must be an absolute URL (got %q)", cfg.PublicCallbackBaseURL)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("HERMES_CALLBACK_BASE_URL must use http(s) scheme (got %q)", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		if cfg.IsProduction() {
+			return fmt.Errorf("HERMES_CALLBACK_BASE_URL must not be a loopback host in production (got %q)", host)
+		}
+	}
+	return nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

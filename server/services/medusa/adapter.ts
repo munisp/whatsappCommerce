@@ -16,6 +16,7 @@
  */
 import { createHmac } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { assertSafeOutboundUrl } from "../ssrfGuard";
 import { getDb } from "../../db";
 import { medusaStoreMappings } from "../../../drizzle/schema";
 
@@ -96,6 +97,10 @@ export class HttpMedusaAdapter implements MedusaAdapter {
   }
 
   private async call(path: string, init?: RequestInit): Promise<any> {
+    // W39 (PLT-4): re-validate at call time (defense in depth) — the admin
+    // API key in the header below must never leave for an unvalidated host,
+    // even if a baseUrl was persisted before the write-time guard existed.
+    assertSafeOutboundUrl(this.baseUrl, "Medusa baseUrl");
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {

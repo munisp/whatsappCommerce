@@ -7,116 +7,116 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015676317",
-      "profileName": "Sim User 6317",
-      "inboundId": "wamid.sim.in.text.00084",
-      "at": 1788020200769,
+      "phone": "2348019100748",
+      "profileName": "Sim User 0748",
+      "inboundId": "wamid.sim.in.text.00082",
+      "at": 1789707436284,
       "kind": "text",
       "text": "restock widget please"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00084",
-      "at": 1788020200771
+      "wamid": "wamid.sim.in.text.00082",
+      "at": 1789707436296
     },
     {
       "dir": "out",
-      "phone": "2348015676317",
-      "wamid": "wamid.sim.000105",
+      "phone": "2348019100748",
+      "wamid": "wamid.sim.000102",
       "statuses": [
         "sent"
       ],
-      "at": 1788020200786,
+      "at": 1789707436358,
       "kind": "text",
       "body": "✅ 1 × Restock Widget\nAdded!"
     },
     {
       "dir": "in",
-      "phone": "2348015676317",
-      "profileName": "Sim User 6317",
-      "inboundId": "wamid.sim.in.text.00085",
-      "at": 1788020201314,
+      "phone": "2348019100748",
+      "profileName": "Sim User 0748",
+      "inboundId": "wamid.sim.in.text.00083",
+      "at": 1789707436833,
       "kind": "text",
       "text": "confirm widget order"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00085",
-      "at": 1788020201316
+      "wamid": "wamid.sim.in.text.00083",
+      "at": 1789707436840
     },
     {
       "dir": "out",
-      "phone": "2348015676317",
-      "wamid": "wamid.sim.000106",
+      "phone": "2348019100748",
+      "wamid": "wamid.sim.000103",
       "statuses": [
         "sent"
       ],
-      "at": 1788020201330,
+      "at": 1789707436893,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Restock Widget — ₦750.00 each\nSubtotal: ₦750.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348015676317",
-      "profileName": "Sim User 6317",
-      "inboundId": "wamid.sim.in.text.00086",
-      "at": 1788020201857,
+      "phone": "2348019100748",
+      "profileName": "Sim User 0748",
+      "inboundId": "wamid.sim.in.text.00084",
+      "at": 1789707437378,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00086",
-      "at": 1788020201860
+      "wamid": "wamid.sim.in.text.00084",
+      "at": 1789707437384
     },
     {
       "dir": "out",
-      "phone": "2348015676317",
-      "wamid": "wamid.sim.000107",
+      "phone": "2348019100748",
+      "wamid": "wamid.sim.000104",
       "statuses": [
         "sent"
       ],
-      "at": 1788020201872,
+      "at": 1789707437423,
       "kind": "text",
       "body": "😔 *Some items are out of stock right now:*\n• Restock Widget — out of stock\n\nNone of the items in your cart are available right now — please check back soon.\n\n🔔 Reply *NOTIFY ME* and I'll message you the moment it's back in stock."
     },
     {
       "dir": "in",
-      "phone": "2348015676317",
-      "profileName": "Sim User 6317",
-      "inboundId": "wamid.sim.in.text.00087",
-      "at": 1788020202401,
+      "phone": "2348019100748",
+      "profileName": "Sim User 0748",
+      "inboundId": "wamid.sim.in.text.00085",
+      "at": 1789707437925,
       "kind": "text",
       "text": "NOTIFY ME"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00087",
-      "at": 1788020202403
+      "wamid": "wamid.sim.in.text.00085",
+      "at": 1789707437934
     },
     {
       "dir": "out",
-      "phone": "2348015676317",
-      "wamid": "wamid.sim.000108",
+      "phone": "2348019100748",
+      "wamid": "wamid.sim.000105",
       "statuses": [
         "sent"
       ],
-      "at": 1788020202415,
+      "at": 1789707437972,
       "kind": "text",
       "body": "🔔 Got it — I'll message you the moment it's back in stock. Reply STOP to unsubscribe."
     },
     {
       "dir": "out",
-      "phone": "2348015676317",
-      "wamid": "wamid.sim.000109",
+      "phone": "2348019100748",
+      "wamid": "wamid.sim.000106",
       "statuses": [
         "sent"
       ],
-      "at": 1788020202949,
+      "at": 1789707438494,
       "kind": "text",
       "body": "🎉 Good news — *Restock Widget* is back in stock! Order now before it sells out again. Reply STOP to stop these alerts."
     }

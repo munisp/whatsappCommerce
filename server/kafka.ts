@@ -9,6 +9,19 @@
  *   wacommerce.hermes.po     — Hermes PO draft events
  *
  * Falls back gracefully when KAFKA_BROKERS is not configured.
+ *
+ * === W42 PLT-5 broker-drift fix ===
+ * The only in-repo consumer of the wacommerce.* topics is
+ * services/fluvio-consumer, which polls the FLUVIO REST proxy
+ * (GET {FLUVIO_ENDPOINT}/topics/{topic}/records) — it does NOT read Kafka.
+ * The KafkaJS publishes below therefore had no consumer (broker drift:
+ * order/payment/inventory events were silently void). Minimal real fix:
+ * side-publish every event to the Fluvio REST produce endpoint
+ * (POST /topics/{topic}/produce — the same contract as the API gateway's Go
+ * Fluvio producer, services/gateway/internal/fluvio/producer.go) so the
+ * deployed consumer actually receives them. Kafka publish is kept for the
+ * Kafka-native services (webhook-ingestor / message-processor).
+ * Fluvio publish is fail-open but LOUD (warn + failure counter).
  */
 import { ENV } from "./_core/env";
 
@@ -131,22 +144,73 @@ export async function withKafkaConsumeSpan<T>(
 }
 // === END W35 kafka-otel ===
 
+// === W46 platform-p2 (PLT-18) === reconnect with backoff/jitter + latch
+// reset. Pre-W46 a sticky module-level "connect attempted" flag latched on
+// the FIRST failure forever — a broker restart at boot permanently disabled
+// Kafka for the process.
+// Now: failures are retried with exponential backoff + full jitter
+// (base 1s, cap 60s), and a producer disconnect/crash resets the latch so
+// the next publish re-dials. State is surfaced via getKafkaConnectionState()
+// on /health/ready.
+const KAFKA_RETRY_BASE_MS = 1000;
+const KAFKA_RETRY_CAP_MS = 60_000;
+
 // Lazy-loaded KafkaJS instance
 let _kafka: import("kafkajs").Kafka | null = null;
 let _producer: import("kafkajs").Producer | null = null;
-let _connectAttempted = false;
+let _connectFailures = 0;
+let _lastAttemptAt = 0;
+let _nextRetryAt = 0;
+let _disabledUnconfigured = false;
+
+export interface KafkaConnectionState {
+  configured: boolean;
+  connected: boolean;
+  consecutiveFailures: number;
+  lastAttemptAt: number | null;
+  nextRetryAt: number | null;
+  retrying: boolean;
+}
+
+export function getKafkaConnectionState(): KafkaConnectionState {
+  const configured = !_disabledUnconfigured && !!(process.env.KAFKA_BROKERS || (ENV.kafkaBrokers && ENV.kafkaBrokers !== "kafka:9092"));
+  return {
+    configured,
+    connected: _producer != null,
+    consecutiveFailures: _connectFailures,
+    lastAttemptAt: _lastAttemptAt || null,
+    nextRetryAt: _nextRetryAt || null,
+    retrying: !_disabledUnconfigured && _producer == null && _connectFailures > 0,
+  };
+}
+
+/** Backoff delay with FULL jitter: uniform(0, min(cap, base * 2^failures)). */
+export function kafkaReconnectDelayMs(consecutiveFailures: number, rand: () => number = Math.random): number {
+  const exp = Math.min(KAFKA_RETRY_CAP_MS, KAFKA_RETRY_BASE_MS * 2 ** Math.max(0, consecutiveFailures - 1));
+  return Math.floor(rand() * exp);
+}
+
+/** Reset the reconnect latch (used by tests and by the disconnect handler). */
+export function resetKafkaReconnectLatch(): void {
+  _connectFailures = 0;
+  _nextRetryAt = 0;
+}
 
 async function getKafka() {
   if (_kafka) return _kafka;
-  if (_connectAttempted) return null;
-  _connectAttempted = true;
+  // W46 PLT-18: latch is TIME-BOXED, not permanent — retry after backoff.
+  const nowMs = Date.now();
+  if (_nextRetryAt && nowMs < _nextRetryAt) return null;
+  if (_disabledUnconfigured) return null;
   if (!ENV.kafkaBrokers || ENV.kafkaBrokers === "kafka:9092") {
     // Only attempt if explicitly configured beyond the default placeholder
     if (!process.env.KAFKA_BROKERS) {
+      _disabledUnconfigured = true;
       console.info("[Kafka] KAFKA_BROKERS not set — Kafka features disabled");
       return null;
     }
   }
+  _lastAttemptAt = nowMs;
   try {
     const { Kafka } = await import("kafkajs");
     _kafka = new Kafka({
@@ -158,22 +222,43 @@ async function getKafka() {
     });
     return _kafka;
   } catch (err: any) {
-    console.warn("[Kafka] Failed to initialise:", err.message);
+    _connectFailures++;
+    _nextRetryAt = Date.now() + kafkaReconnectDelayMs(_connectFailures);
+    console.warn(`[Kafka] Failed to initialise (attempt ${_connectFailures}, next retry in ${_nextRetryAt - Date.now()}ms):`, err.message);
     return null;
   }
 }
+// === END W46 platform-p2 (PLT-18) ===
 
 async function getProducer() {
   if (_producer) return _producer;
   const kafka = await getKafka();
   if (!kafka) return null;
   try {
-    _producer = kafka.producer({ allowAutoTopicCreation: true });
+    // === W46 platform-p2 (PLT-24) === auto-topic-creation DISABLED (topics
+    // are pre-provisioned — see docs/KAFKA_TOPICS.md) and the idempotent
+    // producer enabled (enable.idempotence semantics: per-partition
+    // in-order, deduped retries with RequiredAcks=all).
+    _producer = kafka.producer({ allowAutoTopicCreation: false, idempotent: true });
+    // === END W46 platform-p2 (PLT-24) ===
+    _producer.on("producer.disconnect", () => {
+      // W46 PLT-18: broker dropped us — reset the latch so the next publish
+      // re-dials immediately instead of staying wedged.
+      _producer = null;
+      _kafka = null;
+      resetKafkaReconnectLatch();
+      console.warn("[Kafka] producer disconnected — reconnect latch reset, next publish re-dials");
+    });
     await _producer.connect();
+    _connectFailures = 0;
+    _nextRetryAt = 0;
     console.info("[Kafka] Producer connected");
     return _producer;
   } catch (err: any) {
-    console.warn("[Kafka] Producer connect failed:", err.message);
+    // W46 PLT-18: connect failure is retryable with backoff (no sticky latch).
+    _connectFailures++;
+    _nextRetryAt = Date.now() + kafkaReconnectDelayMs(_connectFailures);
+    console.warn(`[Kafka] Producer connect failed (attempt ${_connectFailures}, next retry in ${_nextRetryAt - Date.now()}ms):`, err.message);
     _producer = null;
     return null;
   }
@@ -185,11 +270,48 @@ export interface KafkaEvent {
   value: Record<string, unknown>;
 }
 
+// === W42 PLT-5 === observable failure counter (surfaced via kafkaHealthCheck
+// and assertable in journeys) — drift failures are loud, not silent.
+let fluvioPublishFailures = 0;
+export function getFluvioPublishFailureCount(): number {
+  return fluvioPublishFailures;
+}
+
+/**
+ * Side-publish events to the Fluvio REST produce endpoint so the deployed
+ * fluvio-consumer (the only in-repo consumer of wacommerce.*) actually
+ * receives them. No-op when FLUVIO_ENDPOINT is unset. Never throws.
+ */
+export async function publishFluvioEvents(events: KafkaEvent[]): Promise<void> {
+  const endpoint = (process.env.FLUVIO_ENDPOINT ?? "").trim();
+  if (!endpoint || events.length === 0) return;
+  const base = endpoint.replace(/\/+$/, "");
+  await Promise.all(events.map(async (e) => {
+    try {
+      const res = await fetch(`${base}/topics/${encodeURIComponent(e.topic)}/produce`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: e.key ?? null, value: JSON.stringify({ ...e.value, _ts: Date.now() }) }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) {
+        fluvioPublishFailures++;
+        console.warn(`[Kafka→Fluvio] produce topic=${e.topic} -> HTTP ${res.status}`);
+      }
+    } catch (err: any) {
+      fluvioPublishFailures++;
+      console.warn(`[Kafka→Fluvio] produce topic=${e.topic} failed:`, err?.message);
+    }
+  }));
+}
+// === END W42 PLT-5 ===
+
 /** Publish one or more events to Kafka. Best-effort — never throws. */
 export async function publishEvents(events: KafkaEvent[]): Promise<void> {
   const producer = await getProducer();
-  if (!producer) return;
-  try {
+  // W42 PLT-5: no early return when Kafka is down/unconfigured — the Fluvio
+  // side-publish below must still run so the deployed consumer gets events.
+  if (producer) try {
     // === W35 kafka-otel ===
     // Per-topic `kafka.produce` span + traceparent header injection (INSIDE
     // the span, so headers carry the produce span's context) — the Rust
@@ -220,6 +342,9 @@ export async function publishEvents(events: KafkaEvent[]): Promise<void> {
   } catch (err: any) {
     console.warn("[Kafka] publishEvents failed:", err.message);
   }
+  // === W42 PLT-5 === deliver the same events to the Fluvio consumer's broker
+  // (independent of the Kafka outcome; fail-open but counted + logged).
+  await publishFluvioEvents(events);
 }
 
 /** Publish a single typed platform event. */

@@ -1,0 +1,20 @@
+{
+  "id": "J410",
+  "title": "gift order: wrap fee line + price-hidden recipient receipt",
+  "feature": "UC-24 orders.isGift/giftMessage/recipientPhone + gift-wrap fee",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348016225474",
+      "wamid": "wamid.sim.001004",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708133206,
+      "kind": "text",
+      "body": "🎁 *A gift is on its way to you!*\nOrder: ORD-MU6I0HMS\n\n\n💌 \"Happy birthday!\"\n\nNo prices shown — enjoy your gift! 🎉"
+    }
+  ]
+}

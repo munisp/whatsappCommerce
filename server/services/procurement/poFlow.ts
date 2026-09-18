@@ -27,6 +27,10 @@ import { sendWhatsAppInteractive, sendWhatsAppText, type SendInteractiveInput } 
 import { drawOnCredit, getCreditAccount, suggestLimit } from "../tradeCredit";
 import { checkOrderSuspension, settleCreditDrawToSupplier, suspensionMessage } from "./creditEnforcement";
 import { getActiveSupplierProfile, type DbHandle } from "./directory";
+// === W46 orders-p2 (ORD-19): promised-date bookkeeping (breach sweep in
+// poBreach.ts claims + alerts on breached promises). ===
+import { computePromisedDate, resolveLeadTimeDays } from "./poBreach";
+// === END W46 orders-p2 ===
 
 // ── Formatting helpers ───────────────────────────────────────────────────────
 
@@ -143,6 +147,17 @@ export async function notifyTenantAdminPhone(
     console.info(`[procurement] no admin phone for tenant ${tenantId} — notification skipped`);
     return;
   }
+  // === W37 telegram ===
+  // PO approval notify parity: a telegram-linked admin receives the same
+  // text via channelSender (interactive cards degrade to text + inline
+  // keyboard buttons with the SAME id grammar, handled by channelSender).
+  if (!interactive) {
+    const { notifyCustomer } = await import("../channelParity");
+    const __w37 = await notifyCustomer(tenantId, phone, "po_approval", { text: message, notifType: "admin_alert" })
+      .catch(() => ({ handled: false }) as any);
+    if (__w37?.handled) return;
+  }
+  // === W37 telegram END ===
   const send = interactive ? sendWhatsAppInteractive : sendWhatsAppText;
   await (send as any)(tenantId, phone, interactive ?? message, { notifType: "admin_alert" })
     .catch((e: any) => console.warn("[procurement] admin notify failed:", e?.message));
@@ -154,6 +169,12 @@ export async function notifyBuyer(db: DbHandle, po: PurchaseOrder, message: stri
     console.info(`[procurement] PO ${po.poNumber} has no buyerPhone — buyer notification skipped`);
     return;
   }
+  // === W37 telegram === telegram-linked buyers route via channelSender; WA unchanged.
+  const { notifyCustomer } = await import("../channelParity");
+  const __w37 = await notifyCustomer(po.buyerTenantId, po.buyerPhone, "po_approval", { text: message, notifType: "po_update" })
+    .catch(() => ({ handled: false }) as any);
+  if (__w37?.handled) return;
+  // === W37 telegram END ===
   await sendWhatsAppText(po.buyerTenantId, po.buyerPhone, message, { notifType: "po_update" })
     .catch((e: any) => console.warn("[procurement] buyer notify failed:", e?.message));
 }
@@ -213,7 +234,7 @@ export interface PoLineInput {
 
 export interface SubmitPoResult {
   ok: boolean;
-  reason?: "supplier_inactive" | "empty" | "below_moq" | "suspended";
+  reason?: "supplier_inactive" | "empty" | "below_moq" | "suspended" | "buyer_kyb_required" | "tenant_suspended";
   moqCents?: number;
   /** Present when reason === "suspended": UX copy for the block. */
   suspensionReason?: string | null;
@@ -248,6 +269,32 @@ export async function submitPurchaseOrder(
 ): Promise<SubmitPoResult> {
   const profile = await getActiveSupplierProfile(db, opts.supplierTenantId);
   if (!profile) return { ok: false, reason: "supplier_inactive" };
+  // === W46 privacy-consent (TEN-17): buyer-side inter-tenant gates ========
+  // A PO between two platform tenants is B2B trade: the BUYER tenant must
+  // hold an approved KYB (same fail-closed gate the supplier side already
+  // passes via procurement.ts) and NEITHER tenant may be suspended/churned
+  // (tenant lifecycle propagates into poFlow — a suspended counterparty
+  // cannot receive new POs). The escape hatch is kycGate's own non-prod
+  // KYC_GATE_DISABLED flag; in production both gates are always on.
+  {
+    const { hasApprovedKyb, isKycGateDisabled } = await import("../kycGate");
+    if (!isKycGateDisabled() && !(await hasApprovedKyb(db, opts.buyerTenantId))) {
+      console.info(`[procurement] PO submit blocked: buyer ${opts.buyerTenantId} has no approved KYB`);
+      return { ok: false, reason: "buyer_kyb_required" };
+    }
+    const { getTenantStatus, isTenantInactive } = await import("../tenantGuard");
+    const buyerStatus = await getTenantStatus(db, opts.buyerTenantId);
+    if (isTenantInactive(buyerStatus)) {
+      console.info(`[procurement] PO submit blocked: buyer tenant ${opts.buyerTenantId} is ${buyerStatus}`);
+      return { ok: false, reason: "tenant_suspended" };
+    }
+    const supplierStatus = await getTenantStatus(db, opts.supplierTenantId);
+    if (isTenantInactive(supplierStatus)) {
+      console.info(`[procurement] PO submit blocked: supplier tenant ${opts.supplierTenantId} is ${supplierStatus}`);
+      return { ok: false, reason: "tenant_suspended" };
+    }
+  }
+  // === END W46 privacy-consent ===
   // Enforcement gate: a buyer whose credit access is suspended may keep
   // drafting but may not SUBMIT — this blocks both the manual path and the
   // auto-approve-below-threshold path below (which only runs post-submit).
@@ -408,11 +455,17 @@ export async function approvePurchaseOrder(
     // A crash-replay that finds the draw already persisted (alreadyDrawn)
     // simply completes the bookkeeping — it never drew twice.
     const dueDate = new Date(now.getTime() + termsDays * 24 * 60 * 60 * 1000);
+    // === W46 orders-p2 (ORD-19) === stamp the approval instant + the
+    // promised delivery date (approvedAt + supplier leadTimeDays) so the
+    // breach sweep has a durable commitment to measure against.
+    const promisedDate = computePromisedDate(now, await resolveLeadTimeDays(db, po.supplierTenantId));
     await db.update(purchaseOrders).set({
       status: "invoiced",
       creditAccountId: (account as any)?.id ?? null,
       termsDays,
       dueDate,
+      approvedAt: now,
+      promisedDate,
       updatedAt: now,
     }).where(eq(purchaseOrders.id, po.id));
     // Supplier-direct settlement: the draw settles straight to the supplier,
@@ -424,7 +477,10 @@ export async function approvePurchaseOrder(
 
   // paynow — approved pending payment; create the payment link for the buyer.
   if (po.status !== "submitted") return { ok: false, reason: "wrong_status" };
-  await db.update(purchaseOrders).set({ status: "approved", updatedAt: now })
+  // === W46 orders-p2 (ORD-19) === approvedAt + promisedDate (approvedAt +
+  // supplier leadTimeDays) — the breach sweep's durable commitment.
+  const promisedDate = computePromisedDate(now, await resolveLeadTimeDays(db, po.supplierTenantId));
+  await db.update(purchaseOrders).set({ status: "approved", approvedAt: now, promisedDate, updatedAt: now })
     .where(eq(purchaseOrders.id, po.id));
   const link = await createPoPaymentLink(db, po).catch((e: any) => {
     console.warn("[procurement] payment link creation failed:", e?.message);
@@ -540,8 +596,24 @@ export async function markPoFulfilled(
   const po = await getPoById(db, opts.poId);
   if (!po) return { ok: false, reason: "not_found" };
   if (!["approved", "invoiced", "paid"].includes(po.status)) return { ok: false, reason: "wrong_status" };
-  await db.update(purchaseOrders).set({ status: "fulfilled", updatedAt: new Date() })
-    .where(eq(purchaseOrders.id, po.id));
+  // === W45 orders-p0 (ORD-18) ===
+  // Fulfillment is a goods receipt: in ONE transaction flip the status
+  // (guarded on the pre-read status — a concurrent fulfil/receipt is a
+  // no-op), receive every not-yet-received unit, credit the buyer's
+  // products.stockQuantity per matched productRef, and append
+  // stock_adjustments audit rows. Before W45 this was a bare status flip and
+  // buyer inventory was never restocked.
+  const { fulfillPoWithReceiptTx } = await import("../goodsReceipts");
+  let receiptSummary: { stockCredited: Record<string, number>; unmatchedRefs: string[] } | null = null;
+  await (db as any).transaction(async (tx: any) => {
+    const transitioned = await tx.update(purchaseOrders)
+      .set({ status: "fulfilled", updatedAt: new Date() })
+      .where(and(eq(purchaseOrders.id, po.id), eq(purchaseOrders.status, po.status)))
+      .returning({ id: purchaseOrders.id });
+    if (transitioned.length === 0) return; // lost the race — nothing to do
+    receiptSummary = await fulfillPoWithReceiptTx(tx, po, {});
+  });
+  // === END W45 orders-p0 ===
   await notifyBuyer(db, po, `🚚 ${po.poNumber} has been fulfilled by the supplier. Thanks for your business!`);
   return { ok: true };
 }

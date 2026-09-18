@@ -1,0 +1,35 @@
+{
+  "id": "J239",
+  "title": "telegram session-key normalization (tg identity isolated from wa identity of same phone)",
+  "feature": "W37 telegram channel identity",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348016655880",
+      "profileName": "WA User",
+      "inboundId": "wamid.sim.in.text.00443",
+      "at": 1789707959097,
+      "kind": "text",
+      "text": "zzqx do you deliver to Yaba on Sundays"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00443",
+      "at": 1789707959101
+    },
+    {
+      "dir": "out",
+      "phone": "2348016655880",
+      "wamid": "wamid.sim.000723",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707959144,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}

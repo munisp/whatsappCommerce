@@ -11,7 +11,7 @@
  * every tenant that has Odoo-synced products, logs per-tenant failures, and
  * never throws (fail-closed logging).
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { getDb } from "../db";
 import {
@@ -90,6 +90,19 @@ export async function syncTenantInventoryFromOdoo(
       .update(inventorySyncLog)
       .set({ status: "success", recordsSynced: synced, syncedAt: new Date() })
       .where(eq(inventorySyncLog.id, logId));
+    // === W45 orders-p0 (ORD-26): post-sync reconciliation ===
+    // After every sync, compare inventory_snapshots (Odoo ledger) against the
+    // local products.stockQuantity ledger and alert on drift. Best-effort:
+    // reconciliation NEVER fails the sync itself.
+    try {
+      const recon = await reconcileInventoryDrift(db, tenantId);
+      if (recon.drifted > 0) {
+        console.warn(`[inventorySync] tenant ${tenantId}: ${recon.drifted} product(s) drifted post-sync`, recon.drifts.slice(0, 10));
+      }
+    } catch (reconErr: any) {
+      console.error(`[inventorySync] post-sync reconciliation failed (tenant ${tenantId}):`, reconErr?.message ?? reconErr);
+    }
+    // === END W45 orders-p0 ===
     return { tenantId, recordsSynced: synced, syncedReservations: false };
   } catch (err: any) {
     await db
@@ -99,6 +112,73 @@ export async function syncTenantInventoryFromOdoo(
     throw err;
   }
 }
+
+// === W45 orders-p0 (ORD-26): post-sync reconciliation job ===
+export interface InventoryDriftRow {
+  productId: string;
+  snapshotQty: number;
+  ledgerQty: number;
+  drift: number;
+}
+
+export interface InventoryReconResult {
+  tenantId: string;
+  compared: number;
+  drifted: number;
+  drifts: InventoryDriftRow[];
+  alerted: boolean;
+  reconciledAt: string;
+}
+
+/** Drift tolerance in units — sub-unit rounding noise is not drift. */
+const DRIFT_TOLERANCE = 0.001;
+
+/**
+ * Compare inventory_snapshots.stockQty (the Odoo-synced snapshot) against
+ * products.stockQuantity (the local stock ledger) for a tenant; on drift,
+ * alert the tenant admin (adminAlerts) and log loudly. Read-only — the
+ * reconciliation REPORTS, it never silently "fixes" either ledger.
+ */
+export async function reconcileInventoryDrift(db: Db, tenantId: string): Promise<InventoryReconResult> {
+  const rows = await db.execute(sql`
+    SELECT s."productId" AS "productId",
+           CAST(s."stockQty" AS NUMERIC) AS "snapshotQty",
+           p."stockQuantity" AS "ledgerQty"
+    FROM inventory_snapshots s
+    JOIN products p ON p.id = s."productId" AND p."tenantId" = s."tenantId"
+    WHERE s."tenantId" = ${tenantId}
+  `) as unknown as Array<{ productId: string; snapshotQty: number | string; ledgerQty: number }>;
+  const drifts: InventoryDriftRow[] = [];
+  for (const r of rows) {
+    const snapshotQty = Number(r.snapshotQty);
+    const ledgerQty = Number(r.ledgerQty);
+    const drift = snapshotQty - ledgerQty;
+    if (Math.abs(drift) > DRIFT_TOLERANCE) {
+      drifts.push({ productId: r.productId, snapshotQty, ledgerQty, drift });
+    }
+  }
+  let alerted = false;
+  if (drifts.length > 0) {
+    const lines = drifts.slice(0, 10).map(
+      (d) => `• product ${d.productId.slice(0, 8)}: snapshot ${d.snapshotQty} vs ledger ${d.ledgerQty} (drift ${d.drift > 0 ? "+" : ""}${d.drift})`,
+    );
+    const { notifyTenantAdminWhatsApp } = await import("./adminAlerts");
+    alerted = await notifyTenantAdminWhatsApp(
+      db,
+      tenantId,
+      `⚠️ Inventory reconciliation drift after Odoo sync (${drifts.length} product${drifts.length === 1 ? "" : "s"}):\n${lines.join("\n")}\nReview inventory before selling — the snapshot and the stock ledger disagree.`,
+    );
+  }
+  return {
+    tenantId,
+    compared: rows.length,
+    drifted: drifts.length,
+    drifts,
+    alerted,
+    reconciledAt: new Date().toISOString(),
+  };
+}
+// === END W45 orders-p0 ===
 
 export interface HeartbeatSyncSummary {
   tenants: number;

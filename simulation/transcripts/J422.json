@@ -1,0 +1,8 @@
+{
+  "id": "J422",
+  "title": "internal HMAC auth (sign/verify, kid rotation, fail-closed)",
+  "feature": "platform-p2: PLT-15 internal auth",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

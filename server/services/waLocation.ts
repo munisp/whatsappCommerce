@@ -15,6 +15,10 @@
  */
 
 import { resolveTenantWaCredentials, normalizeWaPhone } from "./waSender";
+// === W46 platform-p2 (PLT-25) === central redacting logger — toPhone and
+// message bodies are PII and never hit logs raw.
+import { rlog, redactString } from "./logRedact";
+// === END W46 platform-p2 (PLT-25) ===
 
 export interface LocationRequestResult {
   sent: boolean;
@@ -35,7 +39,7 @@ export async function sendWhatsAppLocationRequest(
   try {
     const creds = await resolveTenantWaCredentials(tenantId);
     if (!creds) {
-      console.info(`[waLocation] simulated location request → ${toPhone}: ${bodyText.slice(0, 80)}`);
+      rlog.info(`[waLocation] simulated location request → ${redactString(toPhone)}`, { body: bodyText.slice(0, 80) });
       return { sent: false, simulated: true };
     }
     const resp = await fetch(`https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`, {
@@ -59,7 +63,8 @@ export async function sendWhatsAppLocationRequest(
     });
     if (!resp.ok) {
       const detail = await resp.text().catch(() => "");
-      console.error(`[waLocation] Graph API ${resp.status}: ${detail.slice(0, 300)}`);
+      // W46 PLT-25: Graph error bodies can embed the recipient phone — redact.
+      rlog.error(`[waLocation] Graph API ${resp.status}`, redactString(detail.slice(0, 300)));
       return { sent: false, simulated: false };
     }
     const json: any = await resp.json().catch(() => null);

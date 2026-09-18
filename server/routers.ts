@@ -24,6 +24,9 @@ import { broadcastRouter } from "./routers/broadcast";
 import { waTemplatesRouter } from "./routers/waTemplates";
 import { ctwaRouter } from "./routers/ctwa";
 import { inventoryRouter } from "./routers/inventory";
+// === W46 inventory-depth ===
+import { inventoryDepthRouter } from "./routers/inventoryDepth";
+// === END W46 inventory-depth ===
 import { broadcastAbRouter } from "./routers/broadcastAb";
 import { journeysRouter } from "./routers/journeys";
 import { consentsRouter } from "./routers/consents";
@@ -33,6 +36,16 @@ import { heartbeatRouter } from "./routers/heartbeat";
 import { nlpRouter } from "./routers/nlp";
 import { catalogBootstrapRouter } from "./routers/catalogBootstrap";
 import { orderCrudRouter } from "./routers/orderCrud";
+// === W46 uc-money (Coder C) ===
+import { ucMoneyRouter } from "./routers/ucMoney";
+// === END W46 uc-money ===
+import { buyerCreditRouter } from "./routers/buyerCredit";
+import { rmaRouter } from "./routers/rma";
+import { exchangesRouter } from "./routers/exchanges"; // === W43 exchanges (Coder B) ===
+// === W44 giftcards-referrals (Coder A) ===
+import { giftCardsRouter, referralsRouter } from "./routers/giftCards";
+// === END W44 giftcards-referrals ===
+import { subscriptionPlansRouter, digitalPinsRouter } from "./routers/w44SubscriptionsPins"; // === W44 deposits-subs-digital (Coder C) ===
 import { codRouter } from "./routers/cod";
 import { promosRouter } from "./routers/promos";
 import { customersRouter } from "./routers/customers";
@@ -108,6 +121,9 @@ import { embeddedRouter } from "./routers/embedded";
 // === END W33 embedded-api ===
 // === W34 otel-sidecars (Coder C) ===
 import { telemetryRouter } from "./routers/telemetry";
+// === W46 uc-docs (Coder D) ===
+import { ucDocsRouter } from "./routers/ucDocs";
+// === END W46 uc-docs ===
 // === END W34 otel-sidecars ===
 import { erpProvisionRouter } from "./routers/erpProvision";
 import { embeddedSignupRouter } from "./routers/embeddedSignup";
@@ -186,6 +202,9 @@ export const appRouter = router({
   waTemplates: waTemplatesRouter,
   ctwa: ctwaRouter,
   inventory: inventoryRouter,
+  // === W46 inventory-depth ===
+  inventoryDepth: inventoryDepthRouter,
+  // === END W46 inventory-depth ===
   broadcastAb: broadcastAbRouter,
   journeys: journeysRouter,
   consents: consentsRouter,
@@ -195,6 +214,24 @@ export const appRouter = router({
   nlp: nlpRouter,
   catalogBootstrap: catalogBootstrapRouter,
   orderCrud: orderCrudRouter,
+  // === W46 uc-money (Coder C): auctions + tips + donations + amendments ===
+  ucMoney: ucMoneyRouter,
+  // === END W46 uc-money ===
+  buyerCredit: buyerCreditRouter,
+  // === W41 rma-fx (Coder C): returns lifecycle + display-FX config ===
+  rma: rmaRouter,
+  // === END W41 rma-fx ===
+  // === W43 exchanges (Coder B): exchange lifecycle ===
+  exchanges: exchangesRouter,
+  // === END W43 exchanges ===
+  // === W44 giftcards-referrals (Coder A): merchant gift card + referral admin ===
+  giftCards: giftCardsRouter,
+  referrals: referralsRouter,
+  // === END W44 giftcards-referrals ===
+  // === W44 deposits-subs-digital (Coder C): subscription plans + PIN batches ===
+  subscriptionPlans: subscriptionPlansRouter,
+  digitalPins: digitalPinsRouter,
+  // === END W44 deposits-subs-digital ===
   cod: codRouter,
   promos: promosRouter,
   customers: customersRouter,
@@ -321,6 +358,9 @@ export const appRouter = router({
   // === W34 otel-sidecars (Coder C) ===
   telemetry: telemetryRouter,
   // === END W34 otel-sidecars ===
+  // === W46 uc-docs (Coder D): statements/proformas/agents/tier-pricing ===
+  ucDocs: ucDocsRouter,
+  // === END W46 uc-docs ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";

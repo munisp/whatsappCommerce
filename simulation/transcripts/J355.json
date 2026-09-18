@@ -1,0 +1,18 @@
+{
+  "id": "J355",
+  "title": "unknown phone_number_id quarantined (no default-tenant dispatch)",
+  "feature": "MSG-3 quarantine unknown phone_number_id",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348019032458",
+      "profileName": "Rogue J355",
+      "inboundId": "wamid.sim.in.j355.00001",
+      "at": 1789708075501,
+      "kind": "text",
+      "text": "hello j355 rogue"
+    }
+  ]
+}

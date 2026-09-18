@@ -1,0 +1,135 @@
+{
+  "id": "J341",
+  "title": "merchant tRPC issue/disable/adjust + referral void on refund",
+  "feature": "W44 merchant gift card admin + referral void seam",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348014218175",
+      "profileName": "Sim User 8175",
+      "inboundId": "wamid.sim.in.text.00507",
+      "at": 1789708041215,
+      "kind": "text",
+      "text": "i want these [389c8c03]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00507",
+      "at": 1789708041220
+    },
+    {
+      "dir": "out",
+      "phone": "2348014218175",
+      "wamid": "wamid.sim.000845",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708041250,
+      "kind": "text",
+      "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348014218175",
+      "profileName": "Sim User 8175",
+      "inboundId": "wamid.sim.in.text.00508",
+      "at": 1789708041763,
+      "kind": "text",
+      "text": "confirm please [389c8c03]"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00508",
+      "at": 1789708041770
+    },
+    {
+      "dir": "out",
+      "phone": "2348014218175",
+      "wamid": "wamid.sim.000846",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708041803,
+      "kind": "text",
+      "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348014218175",
+      "profileName": "Sim User 8175",
+      "inboundId": "wamid.sim.in.text.00509",
+      "at": 1789708042313,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00509",
+      "at": 1789708042317
+    },
+    {
+      "dir": "out",
+      "phone": "2348014218175",
+      "wamid": "wamid.sim.000847",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708042374,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MU6HYJJC*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/fcb2467e-ebd6-48e4-80ad-70f9cd7d33e2\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/8deb9550-e794-4212-b188-80760d164f5c.LnjbhMxjXmtfFSvSvCe7GNYv"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014218175",
+      "wamid": "wamid.sim.000848",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708042378,
+      "kind": "interactive",
+      "body": "Order ORD-MU6HYJJC — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:8deb9550-e794-4212-b188-80760d164f5c",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:8deb9550-e794-4212-b188-80760d164f5c",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:8deb9550-e794-4212-b188-80760d164f5c",
+          "title": "Cancel Order"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348014218175",
+      "wamid": "wamid.sim.000849",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708042876,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MU6HYJJC\n\n1 × Jollof Rice — ₦2,500.00\n\nSubtotal: ₦2,500.00\n*Total paid: ₦2,500.00*\nPayment ref: fcb2467e-ebd6-48e4-80ad-70f9cd7d33e2\n\n🔎 Track your order: http://localhost:4173/track/8deb9550-e794-4212-b188-80760d164f5c.LnjbhMxjXmtfFSvSvCe7GNYv"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014067202",
+      "wamid": "wamid.sim.000850",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708042908,
+      "kind": "text",
+      "body": "🎉 Your referral code REF-EFCVVB just earned you ₦250.00 store credit — a friend placed their first order! Wallet balance: ₦250.00."
+    }
+  ]
+}

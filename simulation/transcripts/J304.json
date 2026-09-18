@@ -1,0 +1,75 @@
+{
+  "id": "J304",
+  "title": "RMA refund-to-wallet seam + cumulative cap",
+  "feature": "creditWallet contract seam; wallet credit counts toward refunded total",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348011341629",
+      "wamid": "wamid.sim.000769",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707996069,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304-54DA (reason: wrong size). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000770",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707996072,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304-54DA (reason: wrong size). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011341629",
+      "wamid": "wamid.sim.000771",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707996126,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304b-FEB3 (reason: damaged). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000772",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707996129,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304b-FEB3 (reason: damaged). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011341629",
+      "wamid": "wamid.sim.000773",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707996166,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304c-72DE (reason: late delivery). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000774",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707996170,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304c-72DE (reason: late delivery). The merchant will review it shortly."
+    }
+  ]
+}

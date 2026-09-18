@@ -1,0 +1,120 @@
+{
+  "id": "J350",
+  "title": "subscription failure dunning → past_due; pause/cancel in chat",
+  "feature": "retry max 3 + dunning both channels + pause/resume/cancel",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348014252515",
+      "wamid": "wamid.sim.000892",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708062515,
+      "kind": "text",
+      "body": "⚠️ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) — attempt 1/3. We'll retry automatically; update your card with \"my cards\" if it keeps failing."
+    },
+    {
+      "dir": "out",
+      "phone": "2348014252515",
+      "wamid": "wamid.sim.000893",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708062961,
+      "kind": "text",
+      "body": "⚠️ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) — attempt 2/3. We'll retry automatically; update your card with \"my cards\" if it keeps failing."
+    },
+    {
+      "dir": "out",
+      "phone": "2348014252515",
+      "wamid": "wamid.sim.000894",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708063403,
+      "kind": "text",
+      "body": "❌ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) after 3 attempts — your subscription is now past due. Update your card (\"my cards\") and reply \"resume subscription\"."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013177754",
+      "profileName": "Sim User 7754",
+      "inboundId": "wamid.sim.in.text.00529",
+      "at": 1789708064268,
+      "kind": "text",
+      "text": "pause subscription"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00529",
+      "at": 1789708064273
+    },
+    {
+      "dir": "out",
+      "phone": "2348013177754",
+      "wamid": "wamid.sim.000895",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708064304,
+      "kind": "text",
+      "body": "⏸️ Your subscription is paused — no more charges until you reply \"resume subscription\"."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013177754",
+      "profileName": "Sim User 7754",
+      "inboundId": "wamid.sim.in.text.00530",
+      "at": 1789708064814,
+      "kind": "text",
+      "text": "resume subscription"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00530",
+      "at": 1789708064821
+    },
+    {
+      "dir": "out",
+      "phone": "2348013177754",
+      "wamid": "wamid.sim.000896",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708064854,
+      "kind": "text",
+      "body": "▶️ Your subscription is active again — the next charge runs on the next billing tick."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012715969",
+      "profileName": "Sim User 5969",
+      "inboundId": "wamid.sim.in.text.00531",
+      "at": 1789708065543,
+      "kind": "text",
+      "text": "pause subscription"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00531",
+      "at": 1789708065548
+    },
+    {
+      "dir": "out",
+      "phone": "2348012715969",
+      "wamid": "wamid.sim.000897",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708065574,
+      "kind": "text",
+      "body": "I couldn't find a subscription on this number that can be changed like that."
+    }
+  ]
+}

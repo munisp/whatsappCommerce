@@ -13,8 +13,10 @@ import { TRPCError } from "@trpc/server";
 import { operatorProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import * as membership from "../services/membership";
+import { writeAuditLog } from "./audit";
 
-const roleEnum = z.enum(["owner", "operator", "analyst"]);
+// === W46 kyc === TEN-9: scoped finance/catalog roles are grantable.
+const roleEnum = z.enum(["owner", "operator", "analyst", "finance", "catalog"]);
 const tenantInput = z.object({ tenantId: z.string().min(1) });
 
 export const membershipRouter = router({
@@ -67,12 +69,25 @@ export const membershipRouter = router({
           stepUpOtp: input.stepUpOtp,
         });
       }
-      return membership.addMember({
+      const result = await membership.addMember({
         tenantId: input.tenantId,
         userId: input.userId,
         role: input.role,
         invitedBy: ctx.user!.id,
       });
+      // W40 (TEN-4): staff grants (incl. owner escalation) are audited.
+      await writeAuditLog({
+        actorId: String(ctx.user!.id),
+        actorRole: ctx.user!.role,
+        action: "membership.add",
+        entityType: "tenant_membership",
+        entityId: `${input.tenantId}:${input.userId}`,
+        tenantId: input.tenantId,
+        summary: `User ${input.userId} granted role ${input.role ?? "default"} on tenant ${input.tenantId} by ${ctx.user!.id}`,
+        before: null,
+        after: { userId: String(input.userId), role: input.role ?? "default" },
+      });
+      return result;
     }),
 
   /** Remove a staff member. The last owner of a tenant cannot be removed. */
@@ -82,7 +97,22 @@ export const membershipRouter = router({
         userId: z.union([z.string().min(1), z.number()]),
       }),
     )
-    .mutation(({ input }) => membership.removeMember(input.tenantId, input.userId)),
+    .mutation(async ({ ctx, input }) => {
+      const result = await membership.removeMember(input.tenantId, input.userId);
+      // W40 (TEN-4): staff removals are audited.
+      await writeAuditLog({
+        actorId: String(ctx.user!.id),
+        actorRole: ctx.user!.role,
+        action: "membership.remove",
+        entityType: "tenant_membership",
+        entityId: `${input.tenantId}:${input.userId}`,
+        tenantId: input.tenantId,
+        summary: `User ${input.userId} removed from tenant ${input.tenantId} by ${ctx.user!.id}`,
+        before: { userId: String(input.userId) },
+        after: null,
+      });
+      return result;
+    }),
 });
 
 export type MembershipRouter = typeof membershipRouter;

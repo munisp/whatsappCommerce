@@ -3,6 +3,9 @@ import { nanoid } from "nanoid";
 import { eq, and } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
+// === W46 kyc === TEN-9: catalog mutations require the "catalog" capability
+// (scoped "catalog" role passes; a finance-only role does not).
+import { assertCapabilityAccess } from "../services/capabilities";
 import * as db from "../db";
 import { getDb } from "../db";
 import { products } from "../../drizzle/schema";
@@ -60,6 +63,7 @@ export const productRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
+      await assertCapabilityAccess(ctx.user, input.tenantId, "catalog"); // W46 kyc (TEN-9)
       const id = nanoid();
       try {
         await db.createProduct({ id, ...input, status: "active" });
@@ -96,6 +100,7 @@ export const productRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
+      await assertCapabilityAccess(ctx.user, input.tenantId, "catalog"); // W46 kyc (TEN-9)
       const { id, tenantId, ...data } = input;
       // Back-in-stock waitlist hook: capture previous stock so a 0→>0
       // transition can fan out alerts (fire-and-forget, never blocks).
@@ -113,6 +118,16 @@ export const productRouter = router({
         const conn = await getDb();
         if (conn) {
           void triggerRestockNotification(conn, tenantId, id, prevStock, data.stockQuantity);
+          // === W43 fulfillment (Coder A): a stock increase auto-fills open
+          // backorders for this SKU oldest-first (same txn inside the
+          // service) and notifies customers on both channels. Fire-and-forget
+          // like the waitlist hook; never blocks the update.
+          if (prevStock !== null && data.stockQuantity > prevStock) {
+            void import("../services/backorders")
+              .then((m) => m.fillBackordersAfterRestock(conn, tenantId, id))
+              .catch((e: unknown) => console.error("[product] backorder fill error:", (e as Error)?.message));
+          }
+          // === END W43 fulfillment ===
         }
       }
       await enqueueProductSync(tenantId, id, "updated", { ...data });
@@ -141,6 +156,7 @@ export const productRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
+      await assertCapabilityAccess(ctx.user, input.tenantId, "catalog"); // W46 kyc (TEN-9)
       const results = { inserted: 0, skipped: 0, errors: [] as string[] };
       for (const row of input.rows) {
         try {

@@ -217,6 +217,8 @@ export function isGuarded(b: ProcBlock): boolean {
     return true;
   // Same pattern via local fail-closed helpers (menu/template/visualInventory/…).
   if (/getTenantId\(ctx/.test(b.stripped)) return true;
+  // W46 ucMoney: local tenantCtx(ctx, tid) helper wraps assertTenantAccess.
+  if (/tenantCtx\(ctx/.test(b.stripped)) return true;
   // Session-tenant via explicit cast: (ctx.user as { tenantId?: string }).tenantId
   if (/ctx\.user\s+as\s+\{[^}]*tenantId/.test(b.stripped)) return true;
   return false;

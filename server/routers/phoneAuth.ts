@@ -23,8 +23,9 @@ import { phoneOtpSessions, users } from "../../drizzle/schema";
 import { eq, and, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "crypto";
+import jwt from "jsonwebtoken";
 import { TRPCError } from "@trpc/server";
-import { ENV } from "../_core/env";
+import { ENV, isProd } from "../_core/env";
 import { sendOtpEmail } from "../services/email/resend";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -88,17 +89,34 @@ export function verifyOtpHash(stored: string, otp: string, pepper: string = otpP
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// ── OTP attempt caps (W26 security) ──────────────────────────────────────────
+// ── OTP attempt caps (W26 security; W42/PLT-11 distributed counters) ────────
 // Per-session cap (3 attempts) is enforced in verifyOtp below. These
 // per-phone fixed-window caps stop an attacker from simply requesting fresh
-// sessions to reset the per-session counter. In-memory (per-instance); the
-// OTP hash itself plus the per-session cap remain the primary controls.
+// sessions to reset the per-session counter. W42: counters are DISTRIBUTED —
+// backed by the shared Redis counter (redisIncrExStrict) so the cap holds
+// across every platform replica (previously per-replica memory let an
+// attacker multiply the cap by the replica count). Policy on Redis outage:
+// production fails CLOSED (503-style error; a blind cap is no cap),
+// dev/test falls back to the in-memory maps with a warning so local dev
+// without Redis keeps working. The OTP hash + per-session cap remain the
+// primary controls.
 const MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR = 10;
 const MAX_OTP_SENDS_PER_PHONE_PER_HOUR = 5;
+const OTP_COUNTER_WINDOW_SECONDS = 3600;
 const phoneVerifyAttempts = new Map<string, { windowStart: number; count: number }>();
 const phoneSendCounts = new Map<string, { windowStart: number; count: number }>();
 
-function bumpPhoneCounter(map: Map<string, { windowStart: number; count: number }>, phone: string, limit: number): boolean {
+/** Minimal atomic counter surface (Redis INCR+EXPIRE or a test double). */
+export interface OtpCounterStore {
+  incr(key: string, ttlSeconds: number): Promise<number>;
+}
+let injectedCounterStore: OtpCounterStore | null = null;
+/** Test/sim hook: share one store across "replica" module instances. */
+export function __setOtpCounterStoreForTest(store: OtpCounterStore | null): void {
+  injectedCounterStore = store;
+}
+
+function bumpPhoneCounterMemory(map: Map<string, { windowStart: number; count: number }>, phone: string, limit: number): boolean {
   const now = Date.now();
   const entry = map.get(phone);
   if (!entry || now - entry.windowStart >= 3_600_000) {
@@ -107,6 +125,28 @@ function bumpPhoneCounter(map: Map<string, { windowStart: number; count: number 
   }
   entry.count += 1;
   return entry.count <= limit;
+}
+
+export async function bumpPhoneCounter(kind: "send" | "verify", phone: string, limit: number): Promise<boolean> {
+  const key = `otp:${kind}:phone:${phone}`;
+  if (injectedCounterStore) {
+    return (await injectedCounterStore.incr(key, OTP_COUNTER_WINDOW_SECONDS)) <= limit;
+  }
+  try {
+    const { redisIncrExStrict } = await import("../_core/rateLimit");
+    return (await redisIncrExStrict(key, OTP_COUNTER_WINDOW_SECONDS)) <= limit;
+  } catch (e: any) {
+    if (isProd) {
+      // Fail closed: without a shared counter the cap is per-replica and
+      // effectively bypassable — refuse rather than pretend to limit.
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "OTP attempt limiting is temporarily unavailable. Try again shortly.",
+      });
+    }
+    console.warn(`[phoneAuth] Redis counter unavailable (${e?.message ?? e}) — dev in-memory cap fallback`);
+    return bumpPhoneCounterMemory(kind === "send" ? phoneSendCounts : phoneVerifyAttempts, phone, limit);
+  }
 }
 
 export function normalisePhone(phone: string): string {
@@ -197,7 +237,7 @@ export const phoneAuthRouter = router({
       const expiresAt = now + 10 * 60 * 1000; // 10 minutes
 
       // W26 security: per-phone hourly send cap (stops OTP flooding/SMS toll abuse).
-      if (!bumpPhoneCounter(phoneSendCounts, phone, MAX_OTP_SENDS_PER_PHONE_PER_HOUR)) {
+      if (!(await bumpPhoneCounter("send", phone, MAX_OTP_SENDS_PER_PHONE_PER_HOUR))) {
         throw new TRPCError({
           code: "TOO_MANY_REQUESTS",
           message: "Too many OTP requests for this phone number. Try again later.",
@@ -264,6 +304,11 @@ export const phoneAuthRouter = router({
       z.object({
         sessionId: z.string().uuid(),
         otp: z.string().length(6).regex(/^\d{6}$/),
+        // === W46 privacy-consent (TEN-20): optional client device
+        // fingerprint hash — unknown devices on a KNOWN account require the
+        // independent email second factor before the login completes. ===
+        deviceHash: z.string().min(8).max(128).optional(),
+        deviceLabel: z.string().max(120).optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -299,7 +344,7 @@ export const phoneAuthRouter = router({
       if (!verifyOtpHash(session.otpHash, input.otp)) {
         // W26 security: per-phone hourly verify cap (fresh sessions cannot
         // reset the per-session attempt counter to brute-force the code).
-        if (!bumpPhoneCounter(phoneVerifyAttempts, session.phone, MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR)) {
+        if (!(await bumpPhoneCounter("verify", session.phone, MAX_VERIFY_ATTEMPTS_PER_PHONE_PER_HOUR))) {
           await db.delete(phoneOtpSessions).where(eq(phoneOtpSessions.id, input.sessionId));
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
@@ -329,13 +374,146 @@ export const phoneAuthRouter = router({
           .where(eq(users.id, session.userId));
       }
 
+      // === W46 privacy-consent (TEN-20): new-device second factor ========
+      // On LOGIN with a device fingerprint, a phone that belongs to a known
+      // user with an email on file must ALSO pass the independent email OTP
+      // when the device is unknown (SIM-swap defense — the WhatsApp OTP
+      // alone proves only number possession). The login is HELD (no
+      // verified result) until verifyDeviceFactor succeeds.
+      if (session.purpose === "login" && input.deviceHash) {
+        const [acct] = await db
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(eq(users.phone, session.phone))
+          .limit(1);
+        if (acct?.email) {
+          const { isKnownDevice, issueDeviceChallenge, notifyOwnerNewDevice, rememberDevice } =
+            await import("../services/deviceAuth");
+          const known = await isKnownDevice(db, acct.id, input.deviceHash);
+          if (!known) {
+            const deviceSessionId = await issueDeviceChallenge(db, {
+              userId: acct.id,
+              phone: session.phone,
+              email: acct.email,
+            });
+            await notifyOwnerNewDevice(db, { userId: acct.id, deviceHash: input.deviceHash });
+            console.info(`[phoneAuth] TEN-20 new-device login held for email factor: user=${acct.id}`);
+            return {
+              verified: false,
+              deviceFactorRequired: true,
+              deviceSessionId,
+              phone: session.phone,
+              purpose: session.purpose,
+              userId: acct.id,
+            };
+          }
+          // Known device: refresh lastSeen (best-effort).
+          await rememberDevice(db, { userId: acct.id, deviceHash: input.deviceHash, label: input.deviceLabel });
+        }
+      }
+      // === END W46 privacy-consent ===
+
       return {
         verified: true,
         phone: session.phone,
         purpose: session.purpose,
         userId: session.userId,
+        // === W46 privacy-consent (TEN-19): verified-identity proof — a
+        // short-lived signed assertion that THIS phone passed OTP
+        // verification; tenantInvite.validate requires it to redeem a
+        // bound invite. ===
+        identityProof: jwt.sign(
+          { type: "phone_identity", phone: session.phone },
+          ENV.jwtSecret,
+          { expiresIn: "15m" },
+        ),
+        // === END W46 privacy-consent ===
       };
     }),
+
+  // === W46 privacy-consent (TEN-20): device-factor endpoints ==============
+  /**
+   * Complete a held new-device login: verify the INDEPENDENT email OTP
+   * (purpose "device_email" — a different code/channel than the WhatsApp
+   * login OTP) and remember the device.
+   */
+  verifyDeviceFactor: publicProcedure
+    .input(z.object({
+      sessionId: z.string().uuid(),
+      otp: z.string().length(6).regex(/^\d{6}$/),
+      deviceHash: z.string().min(8).max(128),
+      deviceLabel: z.string().max(120).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const { verifyDeviceChallenge } = await import("../services/deviceAuth");
+      const result = await verifyDeviceChallenge(db, {
+        sessionId: input.sessionId,
+        otp: input.otp,
+        deviceHash: input.deviceHash,
+        label: input.deviceLabel,
+      });
+      if (!result.ok) {
+        const code = result.reason === "not_found" ? "NOT_FOUND" : "UNAUTHORIZED";
+        throw new TRPCError({ code, message: `Device verification failed (${result.reason}).` });
+      }
+      return { verified: true };
+    }),
+
+  /** Self-service: list the current user's remembered devices. */
+  listMyDevices: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    const { listKnownDevices } = await import("../services/deviceAuth");
+    return listKnownDevices(db, ctx.user.id);
+  }),
+
+  /**
+   * TEN-20 admin recovery: reset a user's known devices so the next login
+   * requires the email second factor again. Platform-admin only, behind a
+   * consumed step-up challenge (purpose account_recovery) + audit row.
+   */
+  adminResetDevices: protectedProcedure
+    .input(z.object({
+      tenantId: z.string().min(1),
+      userId: z.number().int().positive(),
+      stepUpChallengeId: z.string().min(1),
+      stepUpOtp: z.string().length(6).regex(/^\d{6}$/),
+      reason: z.string().min(3).max(500),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only platform admins can reset devices" });
+      }
+      const { requireStepUp } = await import("../services/stepUp");
+      await requireStepUp(db, {
+        required: true,
+        tenantId: input.tenantId,
+        userId: ctx.user.id,
+        purpose: "account_recovery",
+        stepUpChallengeId: input.stepUpChallengeId,
+        stepUpOtp: input.stepUpOtp,
+      });
+      const { resetKnownDevices } = await import("../services/deviceAuth");
+      const cleared = await resetKnownDevices(db, input.userId);
+      const { writeAuditLog } = await import("./audit");
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "phoneAuth.adminResetDevices",
+        entityType: "auth_known_devices",
+        entityId: String(input.userId),
+        tenantId: input.tenantId,
+        summary: `Admin device reset for user ${input.userId}: ${cleared} known device(s) cleared (${input.reason})`,
+        before: { knownDevices: cleared },
+        after: { knownDevices: 0, reason: input.reason },
+      });
+      return { ok: true, cleared };
+    }),
+  // === END W46 privacy-consent ===
 
   /**
    * Link a verified phone number to the currently authenticated user.
@@ -462,7 +640,7 @@ export const phoneAuthRouter = router({
   stepUpRequest: protectedProcedure
     .input(z.object({
       tenantId: z.string().min(1),
-      purpose: z.enum(["payout_change", "withdrawal", "owner_grant", "payment_override"]),
+      purpose: z.enum(["payout_change", "withdrawal", "owner_grant", "payment_override", "account_recovery"]),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();

@@ -10,6 +10,9 @@ import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { storagePut } from "../storage";
 import { runKybChecks, type KybCheckResult } from "../services/compliance";
+import { writeAuditLog } from "./audit";
+// === W46 kyc === TEN-6 (expiry stamping at approval) + TEN-7 (appeals).
+import { kycExpiresAt, computeRiskTier, KYC_VALIDITY_DAYS } from "../services/kycExpiry";
 
 // ── A3-F01: KYB screening wiring ─────────────────────────────────────────────
 // runKybChecks (registry verification + sanctions) was dead code; it is now
@@ -39,6 +42,9 @@ async function runKybScreenFor(app: {
   businessName?: string | null;
   businessRegistrationNumber?: string | null;
   businessCountry?: string | null;
+  uboName?: string | null;
+  uboDob?: string | null;
+  pepDeclared?: boolean | null;
 }): Promise<KybCheckResult | null> {
   if (!kybScreeningEnabled()) return null;
   if (!app.businessName || !app.businessRegistrationNumber || !app.businessCountry) return null;
@@ -46,8 +52,15 @@ async function runKybScreenFor(app: {
     businessName: app.businessName,
     registrationNumber: app.businessRegistrationNumber,
     country: app.businessCountry,
+    // W40 TEN-8: UBO screened through the SAME fail-closed sanctions path.
+    ubo: app.uboName
+      ? { name: app.uboName, dob: app.uboDob ?? null, pepDeclared: app.pepDeclared ?? false }
+      : null,
   });
 }
+
+/** W40 TEN-8: exported for the periodic re-screen sweep (kycPrivacy service). */
+export { runKybScreenFor, kybScreeningEnabled, KYB_NOTE_RE };
 
 function kybNote(result: KybCheckResult): string {
   return `[kyb-screen] recommendation=${result.recommendation} at ${new Date().toISOString()} — ${result.reasons.join("; ")}`;
@@ -135,6 +148,11 @@ export const kycRouter = router({
       businessRegistrationNumber: z.string().optional(),
       businessCountry: z.string().optional(),
       businessType: z.string().optional(),
+      // === W40 TEN-8: UBO/PEP capture (screened fail-closed) ===
+      uboName: z.string().max(255).optional(),
+      uboDob: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      pepDeclared: z.boolean().optional(),
+      // === END W40 ===
       // === W33 tax-statements: OPTIONAL supplier tax capture ===
       taxId: z.string().max(64).optional(),
       taxIdType: z.enum(["tin", "vat", "cac", "nin", "other"]).optional(),
@@ -163,7 +181,7 @@ export const kycRouter = router({
           screenNote = kybNote(kyb);
           const prior = (app.reviewNotes ?? "").split("\n").filter((l) => !KYB_NOTE_RE.test(l));
           await db.update(kycApplications)
-            .set({ reviewNotes: [...prior, screenNote].filter(Boolean).join("\n"), updatedAt: new Date() })
+            .set({ reviewNotes: [...prior, screenNote].filter(Boolean).join("\n"), lastScreenedAt: new Date(), updatedAt: new Date() })
             .where(eq(kycApplications.id, applicationId));
         }
       } catch (err) {
@@ -214,9 +232,14 @@ export const kycRouter = router({
           message: "Cannot submit: KYB screening returned a reject recommendation. Contact support.",
         });
       }
+      // === W46 privacy-consent (TEN-22): stamp the review-queue SLA at
+      // submit — the kyb-sla-sweep cron escalates + records breaches. ===
+      const submittedAt = new Date();
+      const { kybSlaDueAt } = await import("../services/kybSla");
       await db.update(kycApplications)
-        .set({ status: "pending", submittedAt: new Date(), updatedAt: new Date() })
+        .set({ status: "pending", submittedAt, slaDueAt: kybSlaDueAt(submittedAt), updatedAt: submittedAt })
         .where(eq(kycApplications.id, input.applicationId));
+      // === END W46 privacy-consent ===
       return { ok: true };
     }),
 
@@ -321,6 +344,7 @@ export const kycRouter = router({
       // processing). Approving anyway requires the admin's explicit waiver,
       // which is recorded per document.
       let reviewNotes = input.notes;
+      let screenedNow = false; // W40 TEN-8: did approval screening run?
       if (input.decision === "approved") {
         // ── KYB screening gate (A3-F01, fail closed) ──────────────────────
         // Approval is blocked when screening says reject, when the sanctions
@@ -338,6 +362,7 @@ export const kycRouter = router({
           let kyb: KybCheckResult | null = null;
           try {
             kyb = await runKybScreenFor(app);
+            screenedNow = kyb != null;
           } catch (err) {
             console.error("[kyc.review] KYB screening error (fail-closed):", err);
           }
@@ -374,17 +399,108 @@ export const kycRouter = router({
         }
       }
 
+      // W40 (TEN-4): capture before-state for the admin audit row.
+      const [beforeApp] = await db.select().from(kycApplications)
+        .where(eq(kycApplications.id, input.applicationId)).limit(1);
+
+      // === W46 kyc === TEN-7 (4-eyes): an APPEALED application must be
+      // adjudicated by a DIFFERENT reviewer than the one who rejected it.
+      if (beforeApp?.status === "appealed") {
+        const original = beforeApp.reviewedBy;
+        if (original && original === reviewer) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Appealed applications must be reviewed by a different admin than the original reviewer (4-eyes rule).",
+          });
+        }
+      }
+      // === W46 kyc === TEN-6: stamp expiresAt at approval per risk tier.
+      const approvedNow = input.decision === "approved" ? new Date() : undefined;
+      const expiresAt = approvedNow
+        ? kycExpiresAt(beforeApp ?? {}, approvedNow)
+        : undefined;
+
       await db.update(kycApplications).set({
         status: input.decision,
         reviewedBy: reviewer,
         reviewNotes,
         rejectionReason: input.rejectionReason,
+        // W40 TEN-8: journal the screening timestamp when approval screening ran.
+        ...(screenedNow ? { lastScreenedAt: new Date() } : {}),
         reviewedAt: new Date(),
-        approvedAt: input.decision === "approved" ? new Date() : undefined,
+        approvedAt: approvedNow,
+        // === W46 kyc === TEN-6/TEN-7 additive stamps.
+        ...(expiresAt ? { expiresAt } : {}),
+        ...(beforeApp?.status === "appealed" ? { appealReviewedBy: reviewer } : {}),
+        // === END W46 kyc ===
         updatedAt: new Date(),
       }).where(eq(kycApplications.id, input.applicationId));
+      // W40 (TEN-4): cross-tenant KYC adjudication is admin-audited.
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "kyc.review",
+        entityType: "kyc_application",
+        entityId: input.applicationId,
+        tenantId: beforeApp?.tenantId ?? null,
+        summary: `KYC application ${input.applicationId} (${beforeApp?.businessName ?? "unknown"}) reviewed: ${beforeApp?.status ?? "?"} → ${input.decision}${input.waivePendingDocuments ? " (pending-doc waiver)" : ""}${beforeApp?.status === "appealed" ? ` (appeal re-review by ${reviewer}; original reviewer ${beforeApp.reviewedBy ?? "?"})` : ""}${expiresAt ? ` (expires ${expiresAt.toISOString()}, tier=${computeRiskTier(beforeApp ?? {})}, validity ${KYC_VALIDITY_DAYS[computeRiskTier(beforeApp ?? {})]}d)` : ""}`,
+        before: beforeApp ? { status: beforeApp.status, reviewedBy: beforeApp.reviewedBy ?? null } : null,
+        after: { status: input.decision, reviewedBy: reviewer },
+      });
       return { ok: true };
     }),
+
+  // === W46 kyc === TEN-7: merchant appeal of a rejected application.
+  // Moves status rejected → appealed (guarded flip: only a rejected
+  // application can be appealed, exactly once); the re-review must then be
+  // performed by a DIFFERENT admin (enforced in `review` above) and BOTH
+  // decisions carry audit rows (kyc.review + kyc.appeal here).
+  appeal: protectedProcedure
+    .input(z.object({
+      applicationId: z.string(),
+      reason: z.string().min(10).max(2000),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("Database unavailable");
+      const [app] = await db.select().from(kycApplications)
+        .where(eq(kycApplications.id, input.applicationId)).limit(1);
+      if (!app) throw new TRPCError({ code: "NOT_FOUND", message: "KYC application not found" });
+      assertTenantAccess(ctx.user, app.tenantId);
+      const now = new Date();
+      const flipped = await db.update(kycApplications)
+        .set({
+          status: "appealed",
+          appealedAt: now,
+          appealReason: input.reason,
+          appealReviewedBy: null,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(kycApplications.id, input.applicationId),
+          eq(kycApplications.status, "rejected"), // claim-first: exactly once
+        ))
+        .returning({ id: kycApplications.id });
+      if (!flipped.length) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Only a rejected application can be appealed (current status: ${app.status})`,
+        });
+      }
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "kyc.appeal",
+        entityType: "kyc_application",
+        entityId: input.applicationId,
+        tenantId: app.tenantId,
+        summary: `KYC application ${input.applicationId} appealed by tenant ${app.tenantId}; original reviewer ${app.reviewedBy ?? "?"}; reason: ${input.reason.slice(0, 200)}`,
+        before: { status: app.status, reviewedBy: app.reviewedBy ?? null, rejectionReason: app.rejectionReason ?? null },
+        after: { status: "appealed", appealReason: input.reason },
+      });
+      return { ok: true, status: "appealed" as const };
+    }),
+  // === END W46 kyc ===
 
   // Create liveness session via KYC Python service
   createLivenessSession: protectedProcedure

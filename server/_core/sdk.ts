@@ -53,6 +53,13 @@ export function clearSessionCaches(): void {
   membershipCache.clear();
 }
 
+// === W46 kyc === TEN-10: bust one user's cached membership snapshot
+// immediately (member removal must take effect now, not after the 60s TTL).
+export function invalidateMembershipCache(userId: string | number): void {
+  membershipCache.delete(String(userId));
+}
+// === END W46 kyc ===
+
 async function lookupRevocations(keys: string[]): Promise<Set<string> | null> {
   const conn = await db.getDb();
   if (!conn) return null; // no database configured (unit tests) — nothing to check
@@ -589,6 +596,18 @@ class SDKServer {
           if (!isNonEmptyString(taskUid)) {
             throw ForbiddenError("Cron session missing task_uid");
           }
+          // === W42 (PLT-13) === per-route scope + jti replay protection.
+          // Scope mismatch / replay / over-long lifetime all fail closed.
+          try {
+            const { assertCronClaimsHardened } = await import("./cronAuth");
+            await assertCronClaimsHardened(claims, req.path ?? "");
+          } catch (err) {
+            if (err instanceof Error && err.name === "CronAuthError") {
+              throw ForbiddenError(err.message);
+            }
+            throw err;
+          }
+          // === END W42 (PLT-13) ===
           // === W34 otel-core === tag the (traceparent-linked) cron span. The
           // scheduler sends a `traceparent` header per fire; http
           // instrumentation extracts it, so the cron route span shares the

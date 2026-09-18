@@ -1,0 +1,8 @@
+{
+  "id": "J423",
+  "title": "Kafka reconnect backoff + latch reset + readiness surface",
+  "feature": "platform-p2: PLT-18 kafka reconnect",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

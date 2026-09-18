@@ -1,0 +1,8 @@
+{
+  "id": "J329",
+  "title": "exchange state machine rejects illegal transitions",
+  "feature": "exchange_requests guarded transitions",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

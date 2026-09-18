@@ -20,6 +20,7 @@ import { and, asc, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import {
   merchantWallets,
+  products,
   walletTransactions,
   wholesaleListings,
   wholesaleListingTiers,
@@ -221,6 +222,7 @@ export type WholesaleCheckoutResult =
         | "below_moq"
         | "no_tier"
         | "invalid_qty"
+        | "insufficient_stock"
         | "credit_score_too_low"
         | "credit_draw_failed";
       detail?: string;
@@ -263,6 +265,34 @@ export async function placeWholesaleOrderTx(
 
   const priced = computeTieredPrice(tiers, args.quantity, listing.moq);
   if (!priced.ok) return { ok: false, reason: priced.reason };
+
+  // ── ORD-5: wholesale stock guard (never a silent oversell) ─────────────
+  // Listings linked to a seller catalog product (listing.productId) are
+  // stock-tracked: reject any quantity the seller cannot fulfill, BEFORE any
+  // credit draw or order row. Listings without a resolvable catalog product
+  // cannot be verified — the order is honestly flagged fulfillment_untracked
+  // so downstream fulfillment/reporting never treats it as stock-backed.
+  let fulfillmentUntracked = false;
+  if (listing.productId) {
+    const [prod] = await db
+      .select({ stockQuantity: products.stockQuantity })
+      .from(products)
+      .where(and(eq(products.id, listing.productId), eq(products.tenantId, listing.tenantId)))
+      .limit(1);
+    if (prod) {
+      if ((prod.stockQuantity ?? 0) < args.quantity) {
+        return {
+          ok: false,
+          reason: "insufficient_stock",
+          detail: `seller stock ${prod.stockQuantity ?? 0} below requested ${args.quantity}`,
+        };
+      }
+    } else {
+      fulfillmentUntracked = true; // linked product not in the seller's catalog
+    }
+  } else {
+    fulfillmentUntracked = true; // no catalog link — stock cannot be verified
+  }
 
   const paymentMode = args.paymentMode ?? "pay_now";
   const orderId = args.idempotencyKey ?? randomUUID();
@@ -321,6 +351,7 @@ export async function placeWholesaleOrderTx(
       paymentMode,
       creditLedgerId: credit?.ledgerId ?? null,
       creditScore: credit?.score ?? null,
+      fulfillmentUntracked,
       notes: args.notes ?? null,
       createdAt: now,
       updatedAt: now,

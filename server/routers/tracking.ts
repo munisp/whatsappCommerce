@@ -78,6 +78,29 @@ export const trackingRouter = router({
         }
       }
 
+      // === W43 dispatch (Coder C): proof-of-delivery on the order timeline.
+      // PII-safe: only the media URL/type/timestamp — no driver identity.
+      let deliveryProof: { type: string; mediaUrl: string | null; capturedAt: string } | null = null;
+      try {
+        const { deliveryProofs } = await import("../../drizzle/schema");
+        const [proof] = await db.select().from(deliveryProofs)
+          .where(eq(deliveryProofs.orderId, order.id))
+          .orderBy(desc(deliveryProofs.capturedAt))
+          .limit(1)
+          .catch(() => [] as any[]);
+        if (proof) {
+          deliveryProof = {
+            type: proof.type,
+            mediaUrl: proof.mediaUrl ?? null,
+            capturedAt: proof.capturedAt.toISOString(),
+          };
+          if (!shipmentHistory.some((h) => h.status === "pod_captured")) {
+            shipmentHistory.push({ status: "pod_captured", at: proof.capturedAt.toISOString() });
+          }
+        }
+      } catch { /* pre-0134 table or db hiccup — timeline unchanged */ }
+      // === END W43 dispatch ===
+
       return {
         orderNumber: order.orderNumber,
         status: order.status,
@@ -103,6 +126,7 @@ export const trackingRouter = router({
               history: shipmentHistory,
             }
           : null,
+        deliveryProof,
       };
     }),
 });

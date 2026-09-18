@@ -40,7 +40,7 @@
  * withdrawal executor replays with approvalId so requestWithdrawal knows the
  * gates were already satisfied exactly once. Compose, never bypass.
  */
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import type { getDb } from "../db";
 import {
@@ -49,6 +49,7 @@ import {
   tenantMemberships,
   users,
   type ApprovalRequest,
+  type MembershipRole,
   type TenantApprovalPolicy,
 } from "../../drizzle/schema";
 import { writeAuditLog } from "../routers/audit";
@@ -398,6 +399,49 @@ export async function sweepExpiredApprovals(db: DbHandle, now: Date = new Date()
       summary: `Approval ${row.id} (${row.kind}) expired without a decision`,
       after: { status: "expired", kind: row.kind, amountCents: row.amountCents },
     }).catch(() => {});
+    // === W45 money-scheduled (PAY-12) === an expired approval must also
+    // RESOLVE the payment it parked: without this the scheduled_payment row
+    // re-parked +15min forever (the W32 guard only re-parked, never resolved).
+    // Guarded single transition pending/claimed → 'approval_expired', keyed
+    // on metadata.approvalId === THIS approval (a re-parked row carrying a
+    // NEWER approvalId is untouched). Nothing moves money-wise; for
+    // recurring rules the period's payment is now terminal ("released") —
+    // the rule itself already advanced next_run_at when the period was
+    // created, so the next period proceeds normally.
+    if (row.kind === "scheduled_payment" && row.targetId) {
+      try {
+        const { scheduledPayments } = await import("../../drizzle/schema");
+        const resolved = await db.update(scheduledPayments)
+          .set({
+            status: "approval_expired",
+            lastError: `APPROVAL_EXPIRED: approval ${row.id} expired without a decision — nothing moved`,
+            updatedAt: now,
+          })
+          .where(and(
+            eq(scheduledPayments.id, row.targetId),
+            eq(scheduledPayments.tenantId, row.tenantId),
+            sql`${scheduledPayments.status} IN ('pending','claimed')`,
+            sql`COALESCE(${scheduledPayments.metadata}->>'approvalId', '') = ${row.id}`,
+            sql`COALESCE(${scheduledPayments.metadata}->>'approvalExecutedFor', '') = ''`,
+          ))
+          .returning({ id: scheduledPayments.id });
+        if (resolved.length === 1) {
+          await writeAuditLog({
+            actorId: "system",
+            actorRole: "system",
+            action: "scheduled_payment.approval_expired",
+            entityType: "scheduled_payment",
+            entityId: row.targetId,
+            tenantId: row.tenantId,
+            summary: `Parked scheduled payment ${row.targetId} resolved as approval_expired (approval ${row.id} expired)`,
+            after: { status: "approval_expired", approvalId: row.id },
+          }).catch(() => {});
+        }
+      } catch (err) {
+        console.error(`[approvals] PAY-12 parked-payment resolution failed for approval ${row.id}:`, (err as Error)?.message);
+      }
+    }
+    // === END W45 money-scheduled (PAY-12) ===
     await notifyRequester(db, row.tenantId, row, false, false, { ok: false, detail: "expired" }).catch(() => {});
   }
   return expired;
@@ -406,13 +450,15 @@ export async function sweepExpiredApprovals(db: DbHandle, now: Date = new Date()
 // ─── WhatsApp notifications (best-effort) ───────────────────────────────────
 
 async function resolvePhonesForRole(db: DbHandle, tenantId: string, role: string): Promise<string[]> {
-  const roles = role === "operator" ? ["owner", "operator"] : ["owner"];
+  const roles: MembershipRole[] = role === "operator" ? ["owner", "operator"] : ["owner"];
   const members = await db
     .select({ userId: tenantMemberships.userId })
     .from(tenantMemberships)
     .where(and(
       eq(tenantMemberships.tenantId, tenantId),
-      sql`${tenantMemberships.role} = ANY(${roles})`,
+      // W46 merger fix: `= ANY(${array})` binds a non-array on the
+      // PGlite/postgres.js stack — use inArray (equivalent, parameterized).
+      inArray(tenantMemberships.role, roles),
     ))
     .catch(() => [] as { userId: string }[]);
   const phones: string[] = [];
@@ -434,10 +480,17 @@ async function notifyApprovers(
   const phones = await resolvePhonesForRole(db, tenantId, approverRole);
   if (phones.length === 0) return;
   const { sendWhatsAppText } = await import("./waSender");
+  // === W37 telegram ===
+  const { notifyCustomer } = await import("./channelParity");
+  // === W37 telegram END ===
   const body =
     `Approval needed (${approverRole}): ${req.kind} of ${(req.amountCents / 100).toFixed(2)} ` +
     `requested by ${req.requestedBy}. Approve/reject in the dashboard under Approvals. Ref ${req.id.slice(0, 8)}.`;
   for (const phone of phones) {
+    // === W37 telegram === telegram-linked approvers route via channelSender; WA unchanged.
+    const __w37 = await notifyCustomer(tenantId, phone, "po_approval", { text: body, notifType: "approval_request" }).catch(() => ({ handled: false }) as any);
+    if (__w37?.handled) continue;
+    // === W37 telegram END ===
     await sendWhatsAppText(tenantId, phone, body, { notifType: "approval_request" }).catch(() => {});
   }
 }
@@ -463,5 +516,10 @@ async function notifyRequester(
         ? `Your ${req.kind} of ${amount} was approved and executed. Ref ${req.id.slice(0, 8)}.`
         : `Your ${req.kind} of ${amount} was approved but could not execute yet (${execution?.detail ?? "pending"}). Nothing moved. Ref ${req.id.slice(0, 8)}.`
       : `Your ${req.kind} of ${amount} was rejected${req.decisionNote ? `: ${req.decisionNote}` : ""}. Nothing moved. Ref ${req.id.slice(0, 8)}.`;
+  // === W37 telegram === telegram-linked requesters route via channelSender; WA unchanged.
+  const { notifyCustomer } = await import("./channelParity");
+  const __w37 = await notifyCustomer(tenantId, u.phone, "po_approval", { text: body, notifType: "approval_result" }).catch(() => ({ handled: false }) as any);
+  if (__w37?.handled) return;
+  // === W37 telegram END ===
   await sendWhatsAppText(tenantId, u.phone, body, { notifType: "approval_result" }).catch(() => {});
 }

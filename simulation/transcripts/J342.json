@@ -1,0 +1,31 @@
+{
+  "id": "J342",
+  "title": "preorder checkout marks line + sweeper flips on availability",
+  "feature": "orderCrud seam + lazy sweeper + both-channel notify",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348018149320",
+      "wamid": "wamid.sim.000851",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708044001,
+      "kind": "text",
+      "body": "🎉 Good news — your pre-order W44-J342 is now available and has entered fulfillment. We'll message you here as it ships."
+    },
+    {
+      "dir": "out",
+      "phone": "2348018149320",
+      "wamid": "wamid.sim.000852",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708044020,
+      "kind": "text",
+      "body": "📦 Order W44-J342: 1 line(s) is on its way."
+    }
+  ]
+}

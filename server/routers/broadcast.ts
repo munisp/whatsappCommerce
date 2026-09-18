@@ -32,8 +32,39 @@ import {
   trainUpliftModelsTx,
 } from "../services/mlUplift";
 import { toMinorUnitsExact } from "../../shared/escrowAmounts";
+// === W40 (Coder C): template-dead gate (MSG-2) + circuit breaker (MSG-3) ===
+import { assertTemplateSendable } from "../services/templateStatus";
+import { notifyTenantAdminWhatsApp } from "../services/adminAlerts";
+// === END W40 ===
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
+
+// === W40 MSG-3: broadcast circuit breaker ===
+/**
+ * Campaign-level failure breaker: once at least BREAKER_MIN_ATTEMPTS real
+ * sends were attempted (sent+failed; deferrals and simulations excluded —
+ * those are policy/environment, not delivery failures) and the failure rate
+ * exceeds BREAKER_MAX_FAILURE_RATE, the campaign auto-pauses:
+ *   status → "paused", pausedReason documents the trip, the tenant admin
+ *   gets a WhatsApp alert, and remaining recipients stay "pending".
+ *
+ * RESUME PROCEDURE (documented ops flow):
+ *   1. Investigate the failures (per-recipient failureReason, Meta quality
+ *      rating, template status — a dead template also trips MSG-2's gate).
+ *   2. Fix the root cause (new approved template / quality recovery).
+ *   3. Call broadcast.resume — the campaign returns to "draft" with the
+ *      pause metadata cleared; the next broadcast.send re-dispatches the
+ *      full audience (recipients already sent get fresh rows — resume is a
+ *      deliberate re-send decision by the merchant, never automatic).
+ */
+export const BROADCAST_BREAKER_MIN_ATTEMPTS = 20;
+export const BROADCAST_BREAKER_MAX_FAILURE_RATE = 0.2;
+
+/** Pure trip predicate — exported for tests/journeys. */
+export function circuitBreakerShouldTrip(attempted: number, failed: number): boolean {
+  return attempted >= BROADCAST_BREAKER_MIN_ATTEMPTS && failed / attempted > BROADCAST_BREAKER_MAX_FAILURE_RATE;
+}
+// === END W40 MSG-3 ===
 
 /** WhatsApp customer-service window: free-form text allowed within 24h of last inbound. */
 export const WA_WINDOW_MS = SESSION_WINDOW_MS;
@@ -214,12 +245,19 @@ export async function buildBroadcastAudience(
     .where(eq(customers.tenantId, tenantId));
   const consented = await getConsentedPhones(db, tenantId);
   if (consented.size === 0) return [];
+  // === W45 messaging-services (MSG-10): permanently-undeliverable numbers
+  // (suppression list) are excluded from every broadcast audience — sending
+  // to them only burns quality rating. ===
+  const { getSuppressedPhones } = await import("../services/waSuppressionList");
+  const suppressedPhones = await getSuppressedPhones(db, tenantId);
   const lastInbound = await getLastInboundMap(db, tenantId);
   const now = Date.now();
   const toMember = (c: typeof custs[number], seg?: SegmentFilter): BroadcastAudienceMember | null => {
     if (seg && !matchesSegment(c, seg)) return null;
-    if (!consented.has(normalizeWaPhone(c.whatsappPhone))) return null;
-    const last = lastInbound.get(normalizeWaPhone(c.whatsappPhone));
+    const normalized = normalizeWaPhone(c.whatsappPhone);
+    if (!consented.has(normalized)) return null;
+    if (suppressedPhones.has(normalized)) return null; // W45 MSG-10
+    const last = lastInbound.get(normalized);
     return {
       customerId: c.id,
       phone: c.whatsappPhone,
@@ -296,6 +334,10 @@ export interface CampaignSendResult {
   simulated: number;
   /** Recipients not sent because of the marketing frequency cap / quiet hours. */
   deferred: number;
+  /** W40 MSG-3: true when the circuit breaker auto-paused the campaign. */
+  paused?: boolean;
+  /** W40 MSG-3: why the campaign was paused (also persisted on the row). */
+  pausedReason?: string | null;
 }
 
 type CampaignRow = typeof broadcastCampaigns.$inferSelect;
@@ -340,6 +382,29 @@ export async function executeCampaignSend(
     templateName = campaignVarMap.__templateName.trim();
   }
 
+  // === W40 MSG-2: never send with a dead template ===
+  // A REJECTED/PAUSED/DISABLED template (learned via the
+  // message_template_status_update webhook or the settings cache) blocks the
+  // whole campaign honestly instead of failing per recipient.
+  try {
+    await assertTemplateSendable(db, campaign.tenantId, {
+      templateId: campaign.templateId,
+      templateName,
+    });
+  } catch (e: any) {
+    await db
+      .update(broadcastCampaigns)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(eq(broadcastCampaigns.id, campaign.id));
+    await notifyTenantAdminWhatsApp(
+      db,
+      campaign.tenantId,
+      `🚫 Broadcast campaign "${campaign.name}" was blocked: ${String(e?.message ?? e).slice(0, 300)}`,
+    );
+    throw e;
+  }
+  // === END W40 MSG-2 ===
+
   await db
     .update(broadcastCampaigns)
     .set({
@@ -354,6 +419,11 @@ export async function executeCampaignSend(
   let failed = 0;
   let deferred = 0;
   let simulatedCount = 0;
+  let breakerTripped = false; // === W40 MSG-3 ===
+  // === W37 telegram === lazily-created Bot API rate pacer (30 msg/s), shared
+  // across the whole fan-out (chunks run concurrently, so lazy-init here).
+  let __w37Pacer: { waitForSlot: () => Promise<void> } | undefined;
+  // === W37 telegram END ===
   const CHUNK_SIZE = 25;
   for (let i = 0; i < audience.length; i += CHUNK_SIZE) {
     const chunk = audience.slice(i, i + CHUNK_SIZE);
@@ -397,6 +467,41 @@ export async function executeCampaignSend(
           }
           let wamid: string | null = null;
           let simulated = false;
+          // === W37 telegram ===
+          // Mixed-channel fan-out: telegram-linked recipients get the text
+          // body via channelSender (no Meta template requirement — telegram
+          // has no 24h window), throttled to the Bot API ~30 msg/s fair-use
+          // limit. WA recipients fall through to the unchanged path below.
+          const { resolveCustomerChannel, createTelegramBroadcastPacer } = await import("../services/channelParity");
+          const __w37Route = await resolveCustomerChannel(campaign.tenantId, member.phone);
+          if (__w37Route.channel === "telegram") {
+            const { sendChannelMessage } = await import("../services/channelSender");
+            await (__w37Pacer ??= createTelegramBroadcastPacer()).waitForSlot();
+            const res = await sendChannelMessage(campaign.tenantId, "telegram", __w37Route.to, {
+              kind: "text",
+              text: substituteVars(templateBody ?? "", variables),
+            }, { notifType: "broadcast" });
+            simulated = res.simulated;
+            if (simulated) {
+              simulatedCount++;
+              await db
+                .update(broadcastRecipients)
+                .set({
+                  status: "failed",
+                  failedAt: new Date(),
+                  failureReason: "Telegram bot not configured for tenant — send simulated",
+                })
+                .where(eq(broadcastRecipients.id, recipientId));
+              return;
+            }
+            sent++;
+            await db
+              .update(broadcastRecipients)
+              .set({ status: "sent", sentAt: new Date() })
+              .where(eq(broadcastRecipients.id, recipientId));
+            return;
+          }
+          // === W37 telegram END ===
           if (member.inWindow && templateBody) {
             const res = await sendWhatsAppText(
               campaign.tenantId,
@@ -459,7 +564,44 @@ export async function executeCampaignSend(
         }
       }),
     );
+    // === W40 MSG-3: circuit breaker — stop fanning out into a failure storm ===
+    if (circuitBreakerShouldTrip(sent + failed, failed)) {
+      breakerTripped = true;
+      break;
+    }
+    // === END W40 MSG-3 ===
   }
+
+  // === W40 MSG-3: auto-pause + admin alert on breaker trip ===
+  if (breakerTripped) {
+    const attempted = sent + failed;
+    const rate = attempted > 0 ? Math.round((failed / attempted) * 100) : 0;
+    const pausedReason =
+      `circuit_breaker: ${failed}/${attempted} sends failed (${rate}% > ` +
+      `${Math.round(BROADCAST_BREAKER_MAX_FAILURE_RATE * 100)}% threshold after ≥${BROADCAST_BREAKER_MIN_ATTEMPTS} attempts). ` +
+      "Investigate per-recipient failureReason / template status / Meta quality, then resume via broadcast.resume.";
+    await db
+      .update(broadcastCampaigns)
+      .set({
+        status: "paused",
+        pausedReason,
+        pausedAt: new Date(),
+        totalRecipients: audience.length,
+        sentCount: sent,
+        failedCount: failed,
+        updatedAt: new Date(),
+      })
+      .where(eq(broadcastCampaigns.id, campaign.id));
+    await notifyTenantAdminWhatsApp(
+      db,
+      campaign.tenantId,
+      `🚨 Broadcast campaign "${campaign.name}" was AUTO-PAUSED by the circuit breaker: ` +
+        `${failed}/${attempted} sends failed (${rate}%). ${sent} sent, ${audience.length - attempted} not attempted. ` +
+        "Check the dashboard, fix the cause (template/quality), then resume the campaign.",
+    );
+    return { total: audience.length, sent, delivered: 0, read: 0, failed, simulated: simulatedCount, deferred, paused: true, pausedReason };
+  }
+  // === END W40 MSG-3 ===
 
   await db
     .update(broadcastCampaigns)
@@ -506,7 +648,7 @@ export const broadcastRouter = router({
   list: protectedProcedure
     .input(z.object({
       tenantId: z.string().optional(),
-      status: z.enum(["draft", "scheduled", "sending", "completed", "cancelled", "failed"]).optional(),
+      status: z.enum(["draft", "scheduled", "sending", "completed", "cancelled", "failed", "paused"]).optional(),
       limit: z.number().default(20),
       offset: z.number().default(0),
     }))
@@ -730,6 +872,39 @@ export const broadcastRouter = router({
       return { dryRun: false as const, ...result };
     }),
 
+
+  /**
+   * === W40 MSG-3 ===
+   * Resume a circuit-breaker-paused campaign. Documented resume procedure:
+   * investigate + fix the failure root cause FIRST (per-recipient
+   * failureReason, template status — MSG-2 blocks dead templates at send
+   * time — Meta quality rating), then resume. The campaign returns to
+   * "draft" with pause metadata cleared; a subsequent broadcast.send
+   * re-dispatches the audience. Resume is always an explicit merchant
+   * action — never automatic.
+   */
+  resume: protectedProcedure
+    .input(z.object({ campaignId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const [campaign] = await db.select().from(broadcastCampaigns)
+        .where(eq(broadcastCampaigns.id, input.campaignId)).limit(1);
+      if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+      assertTenantAccess(ctx.user, campaign.tenantId);
+      if (campaign.status !== "paused") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Campaign is ${campaign.status} — only circuit-breaker-paused campaigns can be resumed`,
+        });
+      }
+      await db
+        .update(broadcastCampaigns)
+        .set({ status: "draft", pausedReason: null, pausedAt: null, updatedAt: new Date() })
+        .where(eq(broadcastCampaigns.id, input.campaignId));
+      return { success: true, status: "draft" as const };
+    }),
+  // === END W40 MSG-3 ===
 
   // Cancel a campaign
   cancel: protectedProcedure

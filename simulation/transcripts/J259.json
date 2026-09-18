@@ -1,0 +1,8 @@
+{
+  "id": "J259",
+  "title": "paid-cancel restocks exactly once (cancel path)",
+  "feature": "ORD-1 releaseCommittedReservations + ORD-4 unified cancelOrder",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

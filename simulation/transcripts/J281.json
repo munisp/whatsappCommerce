@@ -1,0 +1,188 @@
+{
+  "id": "J281",
+  "title": "STOP honored mid-conversation (MSG-1)",
+  "feature": "always-on opt-out interceptor: revoke + one confirmation + silence thereafter",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00447",
+      "at": 1789707974845,
+      "kind": "text",
+      "text": "hello there"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00447",
+      "at": 1789707974850
+    },
+    {
+      "dir": "out",
+      "phone": "2348012620842",
+      "wamid": "wamid.sim.000727",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707974867,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00448",
+      "at": 1789707975391,
+      "kind": "text",
+      "text": "YES"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00448",
+      "at": 1789707975397
+    },
+    {
+      "dir": "out",
+      "phone": "2348012620842",
+      "wamid": "wamid.sim.000728",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707975421,
+      "kind": "text",
+      "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00449",
+      "at": 1789707975938,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00449",
+      "at": 1789707975943
+    },
+    {
+      "dir": "out",
+      "phone": "2348012620842",
+      "wamid": "wamid.sim.000729",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707975959,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "buttons": [
+        {
+          "id": "menu_1",
+          "title": "Shop products"
+        },
+        {
+          "id": "menu_2",
+          "title": "Track my order"
+        },
+        {
+          "id": "menu_3",
+          "title": "Talk to a human"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00450",
+      "at": 1789707976484,
+      "kind": "text",
+      "text": "STOP"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00450",
+      "at": 1789707976489
+    },
+    {
+      "dir": "out",
+      "phone": "2348012620842",
+      "wamid": "wamid.sim.000730",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707976513,
+      "kind": "text",
+      "body": "You've been unsubscribed and will no longer receive WhatsApp messages from us. Reply YES anytime to resubscribe."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00451",
+      "at": 1789707977032,
+      "kind": "text",
+      "text": "hello again"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00451",
+      "at": 1789707977037
+    },
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00452",
+      "at": 1789707977577,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00452",
+      "at": 1789707977583
+    },
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00453",
+      "at": 1789707978124,
+      "kind": "text",
+      "text": "2"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00453",
+      "at": 1789707978129
+    },
+    {
+      "dir": "in",
+      "phone": "2348012620842",
+      "profileName": "Sim User 0842",
+      "inboundId": "wamid.sim.in.text.00454",
+      "at": 1789707978669,
+      "kind": "text",
+      "text": "no"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00454",
+      "at": 1789707978674
+    }
+  ]
+}

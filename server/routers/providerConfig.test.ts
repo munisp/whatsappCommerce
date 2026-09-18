@@ -165,7 +165,7 @@ describe("paymentGateway.configureProvider", () => {
     const caller = appRouter.createCaller(makeCtx("admin"));
     await caller.paymentGateway.configureProvider({ tenantId: "t1", provider: "paystack", secretKey: "sk_live_secret" });
     const row = store.rows.find((r) => r.provider === "paystack")!;
-    expect(row.secretKey).toMatch(/^v1:/);
+    expect(row.secretKey).toMatch(/^v2:[^:]+:/); // W42: v2:<kid> envelope
     expect(row.secretKey).not.toContain("sk_live_secret");
   });
 

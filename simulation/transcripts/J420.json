@@ -1,0 +1,20 @@
+{
+  "id": "J420",
+  "title": "buyer free-text note lands on orders.notes at chat checkout",
+  "feature": "ORD-25 extractBuyerNote + createChatOrder buyerNote",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348011291460",
+      "wamid": "wamid.sim.001012",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708147540,
+      "kind": "text",
+      "body": "⚠️ *Low stock alert*: *W46 Note Product* is down to 3 units left (threshold 3). Restock soon to avoid losing sales."
+    }
+  ]
+}

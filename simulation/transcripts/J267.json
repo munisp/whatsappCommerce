@@ -1,0 +1,8 @@
+{
+  "id": "J267",
+  "title": "CSRF origin check: cross-origin 403, same-origin OK, webhook unaffected",
+  "feature": "PLT-3 CSRF origin middleware (server/_core/csrf.ts)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

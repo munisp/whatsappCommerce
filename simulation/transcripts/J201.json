@@ -8,46 +8,46 @@
     {
       "dir": "out",
       "phone": "2348012010001",
-      "wamid": "wamid.sim.000708",
+      "wamid": "wamid.sim.000705",
       "statuses": [
         "sent"
       ],
-      "at": 1788020641671,
+      "at": 1789707909754,
       "kind": "text",
-      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 8b4e3b43) and it pays immediately."
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 55d62364) and it pays immediately."
     },
     {
       "dir": "out",
       "phone": "2348012010001",
-      "wamid": "wamid.sim.000709",
+      "wamid": "wamid.sim.000706",
       "statuses": [
         "sent"
       ],
-      "at": 1788020642103,
+      "at": 1789707910204,
       "kind": "text",
       "body": "Reminder: your Scheduled payment — scheduled ad-hoc payment of NGN 50000.00 is scheduled within the next 24 hours and will be paid automatically from your wallet. Ensure your balance covers it."
     },
     {
       "dir": "out",
       "phone": "2348012010001",
-      "wamid": "wamid.sim.000710",
+      "wamid": "wamid.sim.000707",
       "statuses": [
         "sent"
       ],
-      "at": 1788020642536,
+      "at": 1789707910671,
       "kind": "text",
-      "body": "Your scheduled_payment of 50000.00 was approved and executed. Ref 8b4e3b43."
+      "body": "Your scheduled_payment of 50000.00 was approved and executed. Ref 55d62364."
     },
     {
       "dir": "out",
       "phone": "2348012010001",
-      "wamid": "wamid.sim.000711",
+      "wamid": "wamid.sim.000708",
       "statuses": [
         "sent"
       ],
-      "at": 1788020642979,
+      "at": 1789707911137,
       "kind": "text",
-      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 96267979) and it pays immediately."
+      "body": "Recurring payment of NGN 50000.00 is above your auto-pay limit and needs approval. Approve in the dashboard under Approvals (ref 95ac205a) and it pays immediately."
     }
   ]
 }

@@ -86,3 +86,62 @@ export async function confirmEscrowDelivery(
 
   return { transitioned: rows.map((r) => r.id), buyerConfirmDeadline };
 }
+
+// === W45 orders-p0 (ORD-7) ===
+/**
+ * Pause the buyer-protection clock + auto-release for a failed/returned
+ * delivery. Sets buyerConfirmDeadline = NULL (the SLA scan / auto-confirm
+ * cron skips null deadlines, so auto-release stops dead) and flags
+ * metadata.buyerProtectionPaused with the reason. Guarded to the active
+ * states so settled/refunded escrows are never touched. Returns the paused
+ * escrow ids.
+ */
+export async function pauseEscrowProtection(
+  db: Db,
+  opts: { escrowTxId?: string; orderId?: string; reason: string; at?: Date },
+): Promise<{ paused: string[] }> {
+  const at = opts.at ?? new Date();
+  const match = opts.escrowTxId
+    ? eq(escrowTransactions.id, opts.escrowTxId)
+    : eq(escrowTransactions.orderId, opts.orderId!);
+  const { inArray } = await import("drizzle-orm");
+  const rows = await db.update(escrowTransactions).set({
+    buyerConfirmDeadline: null,
+    metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
+      buyerProtectionPaused: true,
+      protectionPausedAt: at.toISOString(),
+      protectionPausedReason: opts.reason,
+    })}::jsonb`,
+    updatedAt: at,
+  }).where(and(match, inArray(escrowTransactions.state, ["payment_received", "escrow_held", "delivery_confirmed"])))
+    .returning({ id: escrowTransactions.id });
+  return { paused: rows.map((r) => r.id) };
+}
+
+/**
+ * Resume the buyer-protection clock after a successful redelivery: clears the
+ * pause flag and restarts the window from NOW (the buyer gets the FULL
+ * protection window from actual delivery, never the paused remainder).
+ */
+export async function resumeEscrowProtection(
+  db: Db,
+  opts: { escrowTxId?: string; orderId?: string; at?: Date },
+): Promise<{ resumed: string[]; buyerConfirmDeadline: Date }> {
+  const at = opts.at ?? new Date();
+  const windowHours = await getBuyerConfirmWindowHours(db);
+  const buyerConfirmDeadline = new Date(at.getTime() + windowHours * 3600 * 1000);
+  const match = opts.escrowTxId
+    ? eq(escrowTransactions.id, opts.escrowTxId)
+    : eq(escrowTransactions.orderId, opts.orderId!);
+  const rows = await db.update(escrowTransactions).set({
+    buyerConfirmDeadline,
+    metadata: sql`COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
+      buyerProtectionPaused: false,
+      protectionResumedAt: at.toISOString(),
+    })}::jsonb`,
+    updatedAt: at,
+  }).where(and(match, eq(escrowTransactions.state, "escrow_held")))
+    .returning({ id: escrowTransactions.id });
+  return { resumed: rows.map((r) => r.id), buyerConfirmDeadline };
+}
+// === END W45 orders-p0 ===

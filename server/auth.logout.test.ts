@@ -60,7 +60,10 @@ describe("auth.logout", () => {
     expect(waSessionClear?.options).toMatchObject({
       maxAge: -1,
       secure: true,
-      sameSite: "none",
+      // W39 merger (PLT-3): cookies.ts now sets SameSite=Lax intentionally
+      // (CSRF defense; journey J268 pins it) — logout must clear with the
+      // SAME attributes or the browser won't match the cookie to delete.
+      sameSite: "lax",
       httpOnly: true,
       path: "/",
     });

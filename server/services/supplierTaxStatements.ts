@@ -31,10 +31,11 @@
 import crypto from "crypto";
 import { mkdirSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, or, lte, sql } from "drizzle-orm";
 import {
   annualStatements,
   supplierTaxProfiles,
+  supplierTaxProfileVersions,
   tenants,
   vendorBillEvents,
   vendorBills,
@@ -65,7 +66,116 @@ export interface UpsertTaxProfileInput {
   withholdingBps?: number | null;
   metadata?: Record<string, unknown> | null;
   actor?: string | null;
+  /** W46 TEN-18: when this profile version takes effect (default: now). */
+  effectiveFrom?: Date | null;
 }
+
+// === W46 privacy-consent (TEN-18): versioned/effective-dated profiles ======
+/**
+ * Append an immutable version row for a supplier tax profile state. The
+ * version is the guarded MAX(version)+1 per (tenantId, supplierKey) — the
+ * unique index makes concurrent upserts fail loudly instead of silently
+ * sharing a version number. Also writes the audit event (never throws into
+ * the upsert — audit failure is logged, the version row stands as the
+ * system of record).
+ */
+async function appendTaxProfileVersion(
+  db: Db,
+  profile: { tenantId: string; supplierTenantId: string | null; vendorRef: string | null; vendorName: string; taxId: string | null; taxIdType: string | null; countryCode: string | null; withholdingBps: number },
+  actor: string | null,
+  effectiveFrom: Date,
+): Promise<number> {
+  const supplierKey = profile.supplierTenantId ?? profile.vendorRef ?? profile.vendorName;
+  // MAX(version) via drizzle builders (raw db.execute Date/param binding is
+  // driver-fragile in the sim stack).
+  const existing = await db
+    .select({ version: supplierTaxProfileVersions.version })
+    .from(supplierTaxProfileVersions)
+    .where(and(
+      eq(supplierTaxProfileVersions.tenantId, profile.tenantId),
+      eq(supplierTaxProfileVersions.supplierKey, supplierKey),
+    ))
+    .orderBy(desc(supplierTaxProfileVersions.version))
+    .limit(1);
+  const nextVersion = Number(existing[0]?.version ?? 0) + 1;
+  await db.insert(supplierTaxProfileVersions).values({
+    tenantId: profile.tenantId,
+    supplierKey,
+    supplierTenantId: profile.supplierTenantId ?? null,
+    vendorRef: profile.vendorRef ?? null,
+    vendorName: profile.vendorName,
+    taxId: profile.taxId ?? null,
+    taxIdType: profile.taxIdType ?? null,
+    countryCode: profile.countryCode ?? null,
+    withholdingBps: profile.withholdingBps ?? 0,
+    version: nextVersion,
+    effectiveFrom,
+    actor,
+  });
+  try {
+    const { writeAuditLog } = await import("../routers/audit");
+    await writeAuditLog({
+      actorId: actor ?? "system",
+      actorRole: "system",
+      action: "supplierTaxProfile.version",
+      entityType: "supplier_tax_profile",
+      entityId: supplierKey,
+      tenantId: profile.tenantId,
+      summary: `Tax profile v${nextVersion} for supplier ${supplierKey} effective ${effectiveFrom.toISOString()} (withholding ${profile.withholdingBps ?? 0}bps)`,
+      before: null,
+      after: { version: nextVersion, effectiveFrom: effectiveFrom.toISOString() },
+    });
+  } catch (e: any) {
+    console.warn("[tax-profile] TEN-18 audit write failed (version row stands):", e?.message);
+  }
+  return nextVersion;
+}
+
+/**
+ * Resolve a supplier's tax profile AS OF a date: the latest version row
+ * with effectiveFrom <= asOf. Falls back to the live profile when no
+ * version history exists (pre-W46 profiles). Statements use this so a
+ * historical statement keeps the withholding rate in force at the time.
+ */
+export async function resolveTaxProfileAsOf(
+  db: Db,
+  tenantId: string,
+  supplierRef: string,
+  asOf: Date,
+) {
+  const rows = await db
+    .select()
+    .from(supplierTaxProfileVersions)
+    .where(and(
+      eq(supplierTaxProfileVersions.tenantId, tenantId),
+      or(
+        eq(supplierTaxProfileVersions.supplierKey, supplierRef),
+        eq(supplierTaxProfileVersions.supplierTenantId, supplierRef),
+        eq(supplierTaxProfileVersions.vendorRef, supplierRef),
+        eq(supplierTaxProfileVersions.vendorName, supplierRef),
+      ),
+      lte(supplierTaxProfileVersions.effectiveFrom, asOf),
+    ))
+    .orderBy(desc(supplierTaxProfileVersions.effectiveFrom), desc(supplierTaxProfileVersions.version))
+    .limit(1);
+  if (rows[0]) {
+    const r = rows[0];
+    return {
+      vendorName: r.vendorName as string,
+      taxId: (r.taxId ?? null) as string | null,
+      taxIdType: (r.taxIdType ?? null) as string | null,
+      countryCode: (r.countryCode ?? null) as string | null,
+      withholdingBps: Number(r.withholdingBps ?? 0),
+      version: Number(r.version),
+      effectiveFrom: r.effectiveFrom,
+      metadata: null as Record<string, unknown> | null,
+      asOfResolved: true,
+    };
+  }
+  const live = await findProfileForSupplier(db, tenantId, supplierRef);
+  return live ? { ...live, version: null, asOfResolved: false } : null;
+}
+// === END W46 privacy-consent ===
 
 /**
  * Create or update the supplier's profile (unique on tenant + COALESCE(
@@ -93,6 +203,8 @@ export async function upsertSupplierTaxProfile(db: Db, input: UpsertTaxProfileIn
       sql`coalesce(${supplierTaxProfiles.supplierTenantId}, ${supplierTaxProfiles.vendorRef}) = ${input.supplierTenantId ?? vendorRef}`,
     )).limit(1);
   const now = new Date();
+  // W46 TEN-18: every mutation is a new effective-dated version + audit.
+  const effectiveFrom = input.effectiveFrom ?? now;
   if (existing) {
     await db.update(supplierTaxProfiles).set({
       vendorName: input.vendorName ?? existing.vendorName,
@@ -104,7 +216,8 @@ export async function upsertSupplierTaxProfile(db: Db, input: UpsertTaxProfileIn
       updatedAt: now,
     }).where(eq(supplierTaxProfiles.id, existing.id));
     const [row] = await db.select().from(supplierTaxProfiles).where(eq(supplierTaxProfiles.id, existing.id));
-    return { profile: row, created: false };
+    const version = await appendTaxProfileVersion(db, row, input.actor ?? null, effectiveFrom);
+    return { profile: row, created: false, version };
   }
   const id = crypto.randomUUID();
   await db.insert(supplierTaxProfiles).values({
@@ -122,7 +235,8 @@ export async function upsertSupplierTaxProfile(db: Db, input: UpsertTaxProfileIn
     updatedAt: now,
   });
   const [row] = await db.select().from(supplierTaxProfiles).where(eq(supplierTaxProfiles.id, id));
-  return { profile: row, created: true };
+  const version = await appendTaxProfileVersion(db, row, input.actor ?? null, effectiveFrom);
+  return { profile: row, created: true, version };
 }
 
 export async function findProfileForSupplier(db: Db, tenantId: string, supplierRef: string) {
@@ -207,8 +321,9 @@ export async function computeAnnualTotals(db: Db, tenantId: string, year: number
   // Resolve supplier tenant display names where possible.
   const supplierIds = Array.from(new Set(Array.from(buckets.values()).filter((b) => b.supplierTenantId).map((b) => b.supplierTenantId!)));
   if (supplierIds.length) {
+    // W46 merger fix: ANY(array) → inArray (driver-safe).
     const rows = await db.select({ id: tenants.id, name: tenants.name }).from(tenants)
-      .where(sql`${tenants.id} = ANY(${supplierIds})`);
+      .where(inArray(tenants.id, supplierIds));
     const names = new Map<string, string>(rows.map((r: any) => [r.id as string, r.name as string]));
     for (const b of Array.from(buckets.values())) {
       if (b.supplierTenantId && names.get(b.supplierTenantId)) b.vendorName = names.get(b.supplierTenantId)!;
@@ -328,8 +443,12 @@ export async function generateAnnualStatement(
   const totals = (await computeAnnualTotals(db, tenantId, year))
     .filter((t) => t.supplierRef === supplierRef || t.vendorName === supplierRef);
   if (!totals.length) throw Object.assign(new Error("NO_PAYMENTS: no real payments to this supplier in that year"), { code: "NO_PAYMENTS" });
-  const profile = await findProfileForSupplier(db, tenantId, totals[0].supplierRef)
-    ?? await findProfileForSupplier(db, tenantId, supplierRef);
+  // W46 TEN-18: statements resolve the profile AS OF the statement period
+  // end — the withholding rate in force on Dec 31 of the statement year,
+  // not whatever the live row says today.
+  const asOf = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+  const profile = await resolveTaxProfileAsOf(db, tenantId, totals[0].supplierRef, asOf)
+    ?? await resolveTaxProfileAsOf(db, tenantId, supplierRef, asOf);
 
   const out: any[] = [];
   for (const t of totals) {

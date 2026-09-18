@@ -1,0 +1,53 @@
+{
+  "id": "J256",
+  "title": "pay over time: timeout mid-charge never double-charges or double-settles",
+  "feature": "W38 pay-over-time reconciliation",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348000000289",
+      "wamid": "wamid.sim.001055",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708176666,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 1 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000289",
+      "wamid": "wamid.sim.001056",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708176672,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 2 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000289",
+      "wamid": "wamid.sim.001057",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708177117,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 1 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000289",
+      "wamid": "wamid.sim.001058",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708177122,
+      "kind": "text",
+      "body": "⚠️ We couldn't collect installment 2 of 2 for your order (₦200.00): no saved card is linked to your plan. Reply \"my cards\" to manage saved cards or pay the balance in the shop chat."
+    }
+  ]
+}

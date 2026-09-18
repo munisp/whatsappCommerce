@@ -1,0 +1,79 @@
+{
+  "id": "J333",
+  "title": "buyer WA photo POD while awaiting_pod",
+  "feature": "inbound-chat POD capture (awaiting_pod claim) + requirePod gating of delivered",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348013277795",
+      "profileName": "Sim User 7795",
+      "inboundId": "wamid.sim.in.img.00471",
+      "at": 1789708012034,
+      "kind": "image",
+      "mediaKind": "image",
+      "mediaId": "m-pod-off"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.img.00471",
+      "at": 1789708012038
+    },
+    {
+      "dir": "in",
+      "phone": "2348016219458",
+      "profileName": "Sim User 9458",
+      "inboundId": "wamid.sim.in.img.00472",
+      "at": 1789708014096,
+      "kind": "image",
+      "mediaKind": "image",
+      "mediaId": "m-pod-on"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.img.00472",
+      "at": 1789708014101
+    },
+    {
+      "dir": "out",
+      "phone": "2348016219458",
+      "wamid": "wamid.sim.000786",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708014158,
+      "kind": "text",
+      "body": "✅ Proof of delivery received for order W43-j333b-6BAA — your order is now marked delivered. Enjoy! If anything is wrong, just reply here."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016219458",
+      "wamid": "wamid.sim.000787",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708014160,
+      "kind": "text",
+      "body": "📷 Proof of delivery received for order W43-j333b-6BAA — thank you!"
+    },
+    {
+      "dir": "in",
+      "phone": "2348016219458",
+      "profileName": "Sim User 9458",
+      "inboundId": "wamid.sim.in.img.00473",
+      "at": 1789708014650,
+      "kind": "image",
+      "mediaKind": "image",
+      "mediaId": "m-pod-on"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.img.00473",
+      "at": 1789708014654
+    }
+  ]
+}

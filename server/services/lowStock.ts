@@ -88,6 +88,14 @@ export async function maybeSendLowStockAlert(tenantId: string, productId: string
     const claimed = await claimDedupeSlot(`lowstock:${tenantId}:${productId}`);
     if (!claimed) return;
 
+    // === W37 telegram === ops-alert parity: telegram-linked admin routes via
+    // channelSender; WA admin unchanged.
+    const __w37Body = `⚠️ *Low stock alert*: *${product.name}* is down to ${product.stockQuantity} unit${product.stockQuantity === 1 ? "" : "s"} left (threshold ${threshold}). Restock soon to avoid losing sales.`;
+    const { notifyCustomer } = await import("./channelParity");
+    const __w37 = await notifyCustomer(tenantId, adminPhone, "ops_alert", { text: __w37Body, notifType: "low_stock_alert" })
+      .catch(() => ({ handled: false }) as any);
+    if (__w37?.handled) return;
+    // === W37 telegram END ===
     await sendWhatsAppText(
       tenantId,
       adminPhone,

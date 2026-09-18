@@ -1,0 +1,8 @@
+{
+  "id": "J295",
+  "title": "checkout spend: wallet-first partial + idempotent retry",
+  "feature": "W41 UC-2 applyWalletAtCheckout seam",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

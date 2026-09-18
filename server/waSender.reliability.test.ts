@@ -11,7 +11,7 @@ vi.mock("./services/consent", () => ({ hasConsent: vi.fn().mockResolvedValue(tru
 
 import { getDb } from "./db";
 import { hasConsent } from "./services/consent";
-import { tenants } from "../drizzle/schema";
+import { tenants, waSuppressionList, whatsappNotificationLog } from "../drizzle/schema";
 import {
   applyWaDeliveryStatus,
   classifyWaSendError,
@@ -40,6 +40,9 @@ interface FakeDbOpts {
   tenantRow?: unknown | null;
   /** rows returned by the retry due-select */
   logRows?: any[];
+  /** W45 MSG-9: applyWaDeliveryStatus now reads the existing notif-log row
+   *  first (monotonic guard) — these rows answer THAT select. */
+  statusRows?: any[];
   /** what update().returning() resolves to (status pipeline) */
   updateReturning?: any[];
 }
@@ -51,10 +54,21 @@ function makeDb(opts: FakeDbOpts = {}) {
     select: () => ({
       from: (table: unknown) => ({
         where: () => {
-          const isTenants = table === tenants;
-          const rows = isTenants ? (opts.tenantRow ? [opts.tenantRow] : []) : (opts.logRows ?? []);
+          // W45 MSG-10: the suppression-list consult (isSuppressed) runs on
+          // every retry — default to NOT suppressed.
+          const rows = table === tenants
+            ? (opts.tenantRow ? [opts.tenantRow] : [])
+            : table === waSuppressionList
+              ? []
+              : table === whatsappNotificationLog && opts.statusRows
+                ? opts.statusRows
+                : (opts.logRows ?? []);
           const p: any = Promise.resolve(rows);
-          p.limit = (n: number) => Promise.resolve(rows.slice(0, n));
+          p.limit = (n: number) => {
+            const q: any = Promise.resolve(rows.slice(0, n));
+            q.catch = () => q;
+            return q;
+          };
           return p;
         },
       }),
@@ -111,7 +125,9 @@ describe("applyWaDeliveryStatus (status pipeline)", () => {
 
   it("applies sent → delivered → read transitions by wamid", async () => {
     for (const status of ["sent", "delivered", "read"] as const) {
-      const { updates } = makeDb({ updateReturning: [{ id: "log-1" }] });
+      // W45 MSG-9: existing row starts with no scalar status → every forward
+      // transition is allowed.
+      const { updates } = makeDb({ updateReturning: [{ id: "log-1" }], statusRows: [{ id: "log-1", status: null, phone: "23480123456", statusTimestamps: null }] });
       const db = await (getDb as any)();
       const matched = await applyWaDeliveryStatus(db, "t1", {
         id: "wamid.1",
@@ -127,7 +143,7 @@ describe("applyWaDeliveryStatus (status pipeline)", () => {
   });
 
   it("records the full error payload on failed deliveries", async () => {
-    const { updates } = makeDb({ updateReturning: [{ id: "log-1" }] });
+    const { updates } = makeDb({ updateReturning: [{ id: "log-1" }], statusRows: [{ id: "log-1", status: "sent", phone: "23480123456", statusTimestamps: null }] });
     const db = await (getDb as any)();
     const matched = await applyWaDeliveryStatus(db, "t1", {
       id: "wamid.1",

@@ -26,6 +26,40 @@ import { and, eq, isNotNull, lte, lt, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { tenants, whatsappNotificationLog } from "../../drizzle/schema";
 import { decryptSecret } from "./crypto/secrets";
+import { isBanCircuitOpen, recordWaSendErrorSignal } from "./banCircuitBreaker";
+import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
+
+// === W45 messaging-services (MSG-25) ===
+/**
+ * Circuit-gate helper shared by every send path: when the sender's
+ * phone_number_id is circuit-broken (banned/restricted), log a permanent
+ * failure locally and throw WITHOUT touching the Graph API — no retry storm
+ * against a banned number.
+ */
+async function assertBanCircuitClosed(
+  creds: WaCredentials,
+  logBase: Parameters<typeof logSend>[0],
+): Promise<void> {
+  if (!(await isBanCircuitOpen(creds.phoneNumberId))) return;
+  console.error(`[waSender] ban circuit OPEN for phone_number_id ${creds.phoneNumberId} — send suppressed (not sent to Graph)`);
+  await logSend(logBase, {
+    status: "failed",
+    failReason: `ban_circuit_open: sender ${creds.phoneNumberId} restricted`,
+    failureClass: "permanent",
+  });
+  throw new Error(`WhatsApp send suppressed: ban circuit open for phone_number_id ${creds.phoneNumberId}`);
+}
+
+/** Record a failed Graph response as a possible ban signal (fire-and-forget semantics). */
+async function noteBanSignal(tenantId: string, creds: WaCredentials, httpStatus: number | null, errBody: string): Promise<void> {
+  try {
+    const db = await getDb();
+    await recordWaSendErrorSignal(db ?? null, tenantId, creds.phoneNumberId, httpStatus, errBody);
+  } catch (e: any) {
+    console.warn("[waSender] ban signal handling failed:", e?.message);
+  }
+}
+// === END W45 messaging-services ===
 
 /** Metering imports waSender (alert sends) — lazy import avoids the cycle. */
 async function meterFailedSend(db: WaDb, tenantId: string): Promise<void> {
@@ -222,6 +256,9 @@ export async function sendWhatsAppText(
     return { sent: false, simulated: true, wamids: [], chunks: chunks.length };
   }
 
+  // === W45 messaging-services (MSG-25): never hit Graph with a banned sender ===
+  await assertBanCircuitClosed(creds, { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, skipLog: opts?.skipLog });
+
   const wamids: string[] = [];
   for (const chunk of chunks) {
     const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
@@ -257,6 +294,7 @@ export async function sendWhatsAppText(
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       console.error(`[waSender] API error ${res.status}: ${errBody}`);
+      await noteBanSignal(tenantId, creds, res.status, errBody); // W45 MSG-25
       await logSend(logBase, {
         status: "failed",
         failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}`,
@@ -436,6 +474,9 @@ async function deliverWaPayload(
     return { sent: false, simulated: true, wamid: null };
   }
 
+  // === W45 messaging-services (MSG-25) ===
+  await assertBanCircuitClosed(creds, { ...logBase, payload });
+
   const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
   let res: Response;
   try {
@@ -468,6 +509,7 @@ async function deliverWaPayload(
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     console.error(`[waSender] ${logCtx.notifType} API error ${res.status}: ${errBody}`);
+    await noteBanSignal(tenantId, creds, res.status, errBody); // W45 MSG-25
     await logSend({ ...logBase, payload }, {
       status: "failed",
       failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}`,
@@ -564,6 +606,9 @@ export async function sendWhatsAppTemplate(
     return { sent: false, simulated: true, wamid: null };
   }
 
+  // === W45 messaging-services (MSG-25) ===
+  await assertBanCircuitClosed(creds, { tenantId, phone: to, notifType, orderId: opts?.orderId, userId: opts?.userId, templateName, skipLog: opts?.skipLog, payload: { type: "template" } });
+
   const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/messages`;
   const templatePayload: Record<string, unknown> = {
     type: "template",
@@ -604,6 +649,7 @@ export async function sendWhatsAppTemplate(
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     console.error(`[waSender] template API error ${res.status}: ${errBody}`);
+    await noteBanSignal(tenantId, creds, res.status, errBody); // W45 MSG-25
     await logSend(logBase, {
       status: "failed",
       failReason: `Graph API ${res.status}: ${errBody.slice(0, 500)}`,
@@ -624,6 +670,26 @@ export async function sendWhatsAppTemplate(
 /** Metering metric for failed outbound sends (delivery receipts + retries). */
 export const METRIC_WA_MESSAGES_FAILED = "wa.messages.failed";
 
+// === W45 messaging-services (MSG-9): monotonic delivery status ===
+/**
+ * Meta delivery receipts arrive out of order (read before delivered, a late
+ * "sent" after "delivered"). The scalar `status` must NEVER regress:
+ * sent < delivered < read, and `failed` is terminal. Per-status timestamps
+ * are merged with a newer-wins compare so a stale receipt never rewrites a
+ * newer one.
+ */
+export const WA_STATUS_RANK: Readonly<Record<string, number>> = { sent: 1, delivered: 2, read: 3 };
+
+/** True when the scalar status may move from `current` to `incoming`. */
+export function waStatusTransitionAllowed(current: string | null | undefined, incoming: string): boolean {
+  if (incoming === "failed") return current !== "failed" && current !== "read"; // terminal-ish: a read receipt wins over a late failure
+  if (current === "failed") return false; // failed is terminal
+  const cur = WA_STATUS_RANK[current ?? ""] ?? 0;
+  const inc = WA_STATUS_RANK[incoming] ?? 0;
+  return inc > cur;
+}
+// === END W45 messaging-services ===
+
 export interface WaStatusEntry {
   /** wamid of the original outbound send. */
   id?: string;
@@ -640,7 +706,12 @@ type WaDb = NonNullable<Awaited<ReturnType<typeof getDb>>>;
  * Apply a Meta `statuses[]` webhook entry to whatsapp_notification_log,
  * keyed by the wamid returned on send. Unknown wamids (messages not sent by
  * this platform) are ignored quietly — returns false. Failed deliveries keep
- * the full error payload in errorText and are metered.
+ * the full error payload in errorText, are metered, and feed the per-tenant
+ * suppression list when the error code is permanent + recipient-level.
+ *
+ * Monotonic (MSG-9): the scalar status only moves forward
+ * (sent<delivered<read, failed terminal); out-of-order receipts still merge
+ * their per-status timestamp but never regress the scalar.
  */
 export async function applyWaDeliveryStatus(db: WaDb, tenantId: string, st: WaStatusEntry): Promise<boolean> {
   const wamid = st?.id ?? "";
@@ -653,29 +724,67 @@ export async function applyWaDeliveryStatus(db: WaDb, tenantId: string, st: WaSt
   const errSummary = status === "failed"
     ? (st.errors?.[0]?.title ?? st.errors?.[0]?.message ?? String(st.errors?.[0]?.code ?? "Unknown error"))
     : null;
-  const updated = await db
-    .update(whatsappNotificationLog)
-    .set({
-      status: status as "sent" | "delivered" | "read" | "failed",
-      sentAt: status === "sent" ? ts : undefined,
-      deliveredAt: status === "delivered" ? ts : undefined,
-      readAt: status === "read" ? ts : undefined,
-      failedAt: status === "failed" ? ts : undefined,
-      failReason: status === "failed" ? errSummary : undefined,
-      errorText: status === "failed" ? errPayload : undefined,
-      // Merge the per-status timestamp into the jsonb map without a read.
-      statusTimestamps: sql`COALESCE(${whatsappNotificationLog.statusTimestamps}, '{}'::jsonb) || ${JSON.stringify({ [status]: iso })}::jsonb`,
-      updatedAt: new Date(),
+
+  // === W45 messaging-services (MSG-9) ===
+  // Read the current row first: the monotonic guard needs the existing
+  // scalar status + per-status timestamps before deciding what to overwrite.
+  const [existing] = await db
+    .select({
+      id: whatsappNotificationLog.id,
+      status: whatsappNotificationLog.status,
+      phone: whatsappNotificationLog.phone,
+      statusTimestamps: whatsappNotificationLog.statusTimestamps,
     })
+    .from(whatsappNotificationLog)
     .where(eq(whatsappNotificationLog.wamid, wamid))
-    .returning({ id: whatsappNotificationLog.id })
+    .limit(1)
+    .catch((e: any) => {
+      console.warn("[waSender] notif log status read failed:", e?.message);
+      return [] as any[];
+    });
+  if (!existing) return false; // unknown wamid — ignore quietly
+
+  const scalarAllowed = waStatusTransitionAllowed(existing.status, status);
+  // Newer-wins per-status timestamp merge: a stale receipt must not rewrite
+  // a newer timestamp for the same status.
+  const existingStamps = (existing.statusTimestamps ?? {}) as Record<string, string>;
+  const priorIso = existingStamps[status];
+  const stampAllowed = !priorIso || iso >= priorIso;
+
+  const setFields: Record<string, unknown> = { updatedAt: new Date() };
+  if (stampAllowed) {
+    setFields.statusTimestamps = sql`COALESCE(${whatsappNotificationLog.statusTimestamps}, '{}'::jsonb) || ${JSON.stringify({ [status]: iso })}::jsonb`;
+  }
+  if (scalarAllowed) {
+    setFields.status = status as "sent" | "delivered" | "read" | "failed";
+    if (status === "sent") setFields.sentAt = ts;
+    if (status === "delivered") setFields.deliveredAt = ts;
+    if (status === "read") setFields.readAt = ts;
+    if (status === "failed") {
+      setFields.failedAt = ts;
+      setFields.failReason = errSummary;
+      setFields.errorText = errPayload;
+    }
+  }
+  await db
+    .update(whatsappNotificationLog)
+    .set(setFields)
+    .where(eq(whatsappNotificationLog.id, existing.id))
     .catch((e: any) => {
       console.warn("[waSender] notif log status update failed:", e?.message);
-      return [] as Array<{ id: string }>;
     });
-  if (!updated.length) return false; // unknown wamid — ignore quietly
+
   if (status === "failed") {
     await meterFailedSend(db, tenantId);
+    // === W45 messaging-services (MSG-10): failed receipts feed the
+    // suppression list when the Meta error code is permanent +
+    // recipient-level (recipient_id from the receipt, else the logged phone).
+    try {
+      const { recordSuppressionSignal } = await import("./waSuppressionList");
+      await recordSuppressionSignal(db, tenantId, st.recipient_id ?? existing.phone, st.errors, "delivery_receipt");
+    } catch (e: any) {
+      console.warn("[waSender] suppression signal failed:", e?.message);
+    }
   }
   return true;
 }
@@ -710,7 +819,7 @@ export async function markMessageRead(tenantId: string, wamid: string): Promise<
     });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      console.warn(`[waSender] read receipt failed ${res.status}: ${errBody.slice(0, 200)}`);
+      console.warn(`[waSender] read receipt failed ${res.status}: ${redactString(errBody.slice(0, 200))}`); // W46 platform-p2 (PLT-25)
       return false;
     }
     return true;
@@ -843,6 +952,17 @@ export async function runWaSendRetries(opts?: { now?: Date; limit?: number }): P
       continue;
     }
 
+    // === W45 messaging-services (MSG-10): never retry suppressed recipients —
+    // a permanent recipient-level failure already told us this number is dead.
+    try {
+      const { isSuppressed } = await import("./waSuppressionList");
+      if (await isSuppressed(db, row.tenantId, row.phone)) {
+        await clearRetry();
+        result.skipped++;
+        continue;
+      }
+    } catch { /* suppression lookup failure must not stall retries */ }
+
     const payload = row.payload as Record<string, unknown> | null;
     if (!payload || typeof payload.type !== "string") {
       // Nothing to replay (e.g. pre-retry-era log rows) — stop scheduling.
@@ -855,6 +975,20 @@ export async function runWaSendRetries(opts?: { now?: Date; limit?: number }): P
     const creds = await resolveTenantWaCredentials(row.tenantId);
     if (!creds) {
       // Credentials withdrawn — treat like a transient failure, push back.
+      await db.update(whatsappNotificationLog)
+        .set({ attempts: attempt, nextRetryAt: new Date(now.getTime() + retryBackoffMs(attempt)), updatedAt: new Date() })
+        .where(eq(whatsappNotificationLog.id, row.id))
+        .catch(() => {});
+      result.retried++;
+      continue;
+    }
+
+    // === W45 messaging-services (MSG-25): circuit-broken sender — push the
+    // retry back instead of hammering a banned number; the row dead-letters
+    // normally if the restriction is never lifted. The dead-letter alert's
+    // WhatsApp send is itself blocked by the open circuit, and the ban trip
+    // already alerted off-channel (email/audit).
+    if (await isBanCircuitOpen(creds.phoneNumberId)) {
       await db.update(whatsappNotificationLog)
         .set({ attempts: attempt, nextRetryAt: new Date(now.getTime() + retryBackoffMs(attempt)), updatedAt: new Date() })
         .where(eq(whatsappNotificationLog.id, row.id))
@@ -887,6 +1021,9 @@ export async function runWaSendRetries(opts?: { now?: Date; limit?: number }): P
         newWamid = data?.messages?.[0]?.id ?? null;
       } else {
         errText = await res.text().catch(() => "");
+        // W45 MSG-25: a banned/restricted sender trips the circuit here too,
+        // so subsequent sends in this and future runs stop hitting Graph.
+        await noteBanSignal(row.tenantId, creds, res.status, errText).catch(() => {});
       }
     } catch (netErr: any) {
       httpStatus = null;

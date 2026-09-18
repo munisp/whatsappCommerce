@@ -1,0 +1,20 @@
+{
+  "id": "J349",
+  "title": "subscription billing tick charges + advances + idempotent",
+  "feature": "customer_subscriptions + claim-first charge + order leg + parity",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348013230976",
+      "wamid": "wamid.sim.000891",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708061693,
+      "kind": "text",
+      "body": "✅ Your Jollof Weekly Box subscription payment of ₦2,500.00 went through (order SUB-9D35-20260918). Next billing: Fri, 25 Sep 2026 05:07:11 GMT. Reply \"pause subscription\" or \"cancel subscription\" anytime."
+    }
+  ]
+}

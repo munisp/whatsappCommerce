@@ -799,6 +799,300 @@
       "when": 1787900500000,
       "tag": "0116_telemetry_component_status",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1787900600000,
+      "tag": "0117_telegram_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1787900700000,
+      "tag": "0118_telegram_identities",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1787900800000,
+      "tag": "0119_refund_money_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1787900900000,
+      "tag": "0120_pot_charges",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1787901000000,
+      "tag": "0121_wholesale_fulfillment_untracked",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1787901100000,
+      "tag": "0122_payment_disputes",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1787901200000,
+      "tag": "0123_tenant_channel_uniqueness",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1787901300000,
+      "tag": "0124_kyc_erasure_tombstones",
+      "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1787901400000,
+      "tag": "0125_kyb_ubo_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1787901500000,
+      "tag": "0126_messaging_resilience",
+      "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1787901600000,
+      "tag": "0127_buyer_credit",
+      "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1787901700000,
+      "tag": "0128_customer_wallet_split",
+      "breakpoints": true
+    },
+    {
+      "idx": 129,
+      "version": "7",
+      "when": 1787901800000,
+      "tag": "0129_rma_display_fx",
+      "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1787901900000,
+      "tag": "0130_order_fulfillments",
+      "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1787902000000,
+      "tag": "0131_backorders",
+      "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1787902100000,
+      "tag": "0132_w43_exchanges",
+      "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1787902200000,
+      "tag": "0133_w43_stock_adjustments",
+      "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1787902300000,
+      "tag": "0134_delivery_proofs",
+      "breakpoints": true
+    },
+    {
+      "idx": 135,
+      "version": "7",
+      "when": 1787902400000,
+      "tag": "0135_address_change_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1787902500000,
+      "tag": "0136_gift_cards",
+      "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1787902600000,
+      "tag": "0137_referrals",
+      "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1787902700000,
+      "tag": "0138_w44_preorders",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1787902800000,
+      "tag": "0139_w44_custom_offers",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1787902900000,
+      "tag": "0140_service_appointments",
+      "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1787903000000,
+      "tag": "0141_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 142,
+      "version": "7",
+      "when": 1787903100000,
+      "tag": "0142_digital_pins",
+      "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1788000000000,
+      "tag": "0143_w45_goods_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1788000060000,
+      "tag": "0144_w45_vendor_bill_po",
+      "breakpoints": true
+    },
+    {
+      "idx": 148,
+      "version": "7",
+      "when": 1788000120000,
+      "tag": "0148_wa_suppression_list",
+      "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1788000180000,
+      "tag": "0150_payment_mismatch_quarantine",
+      "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1788000240000,
+      "tag": "0151_payment_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1788000360000,
+      "tag": "0152_w46_auctions_tips_donations",
+      "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1788000420000,
+      "tag": "0153_w46_order_amendments",
+      "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1788000480000,
+      "tag": "0154_w46_uc_docs",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1788000540000,
+      "tag": "0155_w46_uc_ux",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1788000600000,
+      "tag": "0156_w46_uc_ux_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1788000660000,
+      "tag": "0157_w46_inventory_depth",
+      "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "7",
+      "when": 1788000720000,
+      "tag": "0158_w46_warehouse_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1788000780000,
+      "tag": "0159_w46_orders_p2",
+      "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1788000840000,
+      "tag": "0160_w46_kyc_expiry_appeals",
+      "breakpoints": true
+    },
+    {
+      "idx": 161,
+      "version": "7",
+      "when": 1788000900000,
+      "tag": "0161_w46_privacy_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1788000720000,
+      "tag": "0162_w46_merge_fixes",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "id": "J264",
+  "title": "backup CronJobs: nightly pg_dump gzip + 7d retention + S3 honest degrade",
+  "feature": "PLT-1/PLT-8 backup CronJobs #42/#43",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

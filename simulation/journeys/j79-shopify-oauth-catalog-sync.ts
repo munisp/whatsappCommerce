@@ -12,7 +12,7 @@
  *   2. Tampered state (bad HMAC) and an unknown-but-validly-signed nonce are
  *      both REJECTED before any token exchange.
  *   3. Valid callback → code exchanged against the scripted Shopify OAuth
- *      endpoint → token persisted ENCRYPTED (v1: envelope, raw token never
+ *      endpoint → token persisted ENCRYPTED (W42 v2:<kid> envelope, raw token never
  *      appears in settings) and resolvable via getShopifyConnection; the
  *      nonce is consumed (replay rejected).
  *   4. syncCatalogToShopify: search-before-create ADOPTS a pre-existing
@@ -129,8 +129,8 @@ export const journey: Journey = {
       const connState = (await shopifyState()).connection;
       assert(connState?.shop === SHOP, "connection persisted");
       assert(
-        typeof connState?.accessTokenEncrypted === "string" && connState.accessTokenEncrypted.startsWith("v1:"),
-        "access token stored ENCRYPTED (v1: envelope)",
+        typeof connState?.accessTokenEncrypted === "string" && connState.accessTokenEncrypted.startsWith("v2:k1:"),
+        "access token stored ENCRYPTED (v2:<kid> envelope)",
       );
       const settingsRaw = JSON.stringify(await world.tenantSettings());
       assert(!settingsRaw.includes("shpat_j79_secret_token"), "raw token never appears in settings json");

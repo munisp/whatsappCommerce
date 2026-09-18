@@ -1,0 +1,31 @@
+{
+  "id": "J337",
+  "title": "gift card purchase → payment intent → webhook activates card (idempotent)",
+  "feature": "W44 gift_cards purchase via existing payment path",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348014436934",
+      "wamid": "wamid.sim.000810",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708024612,
+      "kind": "text",
+      "body": "🎁 Your gift card purchase (₦2,500.00) is ready — complete payment here: https://checkout.paystack.com/sim/GC-1789708024606-BAF8DC07\nThe card activates as soon as payment clears."
+    },
+    {
+      "dir": "out",
+      "phone": "2348014436934",
+      "wamid": "wamid.sim.000811",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708024631,
+      "kind": "text",
+      "body": "🎁 Payment received — your gift card is ACTIVE!\nCode: *GC-XYBB-VFCQ*\nBalance: ₦2,500.00\nUse it at checkout with \"USE GIFT CARD GC-XYBB-VFCQ\". Check it anytime with \"GIFT CARD BALANCE GC-XYBB-VFCQ\"."
+    }
+  ]
+}

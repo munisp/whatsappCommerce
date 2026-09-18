@@ -4,7 +4,7 @@
  * journeys J158–J161 (PGlite world); these tests never hit a live endpoint.
  */
 import { describe, expect, it } from "vitest";
-import { MockMedusaAdapter, type MedusaProduct } from "./adapter";
+import { HttpMedusaAdapter, MockMedusaAdapter, type MedusaProduct } from "./adapter";
 import { centsToDecimalString } from "./sync";
 
 describe("centsToDecimalString", () => {
@@ -97,5 +97,42 @@ describe("MockMedusaAdapter", () => {
     expect((await a.listProducts()).count).toBe(0);
     expect(a.orders.size).toBe(0);
     expect(a.createOrderCalls).toHaveLength(0);
+  });
+});
+
+describe("HttpMedusaAdapter SSRF guard (W39, PLT-4)", () => {
+  const BAD_BASE_URLS = [
+    "http://169.254.169.254/latest/meta-data", // cloud metadata
+    "http://127.0.0.1:9000",                   // loopback
+    "http://10.0.0.5",                         // RFC1918
+    "http://192.168.1.1",                      // RFC1918
+    "http://localhost:9000",                   // localhost hostname
+    "ftp://medusa.example.com",                // bad scheme
+    "not-a-url",
+  ];
+
+  it("never sends the admin API key to an unvalidated host (call-time guard)", async () => {
+    for (const baseUrl of BAD_BASE_URLS) {
+      const a = new HttpMedusaAdapter(baseUrl, "sk_admin_secret");
+      await expect(a.listProducts()).rejects.toThrow(/SSRF guard rejected/);
+      await expect(
+        a.createOrder({
+          platformOrderId: "o", platformOrderNumber: "N", currency: "NGN",
+          email: "e", phone: "p", items: [], totalCents: 0,
+        }),
+      ).rejects.toThrow(/SSRF guard rejected/);
+    }
+  });
+
+  it("testConnection reports the SSRF rejection as an honest error", async () => {
+    const a = new HttpMedusaAdapter("http://169.254.169.254", "sk_admin_secret");
+    const r = await a.testConnection();
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/SSRF guard rejected/);
+  });
+
+  it("trailing-slash normalization happens before the guard runs", async () => {
+    const a = new HttpMedusaAdapter("http://169.254.169.254/", "k");
+    await expect(a.listProducts()).rejects.toThrow(/SSRF guard rejected/);
   });
 });

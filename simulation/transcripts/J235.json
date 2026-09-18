@@ -1,0 +1,8 @@
+{
+  "id": "J235",
+  "title": "telegram webhook: fail-closed secret + ack-then-process + tg:<update_id> dedupe",
+  "feature": "W37 telegram inbound webhook",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -58,6 +58,9 @@ export const SCHEDULE = [
   { path: "/api/scheduled/forecast-snapshot", intervalMin: 1440 },
   { path: "/api/scheduled/leaderboard-top3", intervalMin: 1440 },
   { path: "/api/scheduled/escrow-auto-confirm", intervalMin: 10 },
+  // === W45 money-intents (Coder B2, PAY-24): stale transfer sweep ===
+  { path: "/api/scheduled/transfer-sweep", intervalMin: 10 },
+  // === END W45 money-intents ===
   { path: "/api/scheduled/float-income", intervalMin: 1440 },
   { path: "/api/scheduled/sla-scan", intervalMin: 15 },
   { path: "/api/scheduled/broadcast-scheduler", intervalMin: 1 },
@@ -73,6 +76,9 @@ export const SCHEDULE = [
   { path: "/api/scheduled/wa-media-download", intervalMin: 5 },
   { path: "/api/scheduled/wa-webhook-retry", intervalMin: 2 },
   { path: "/api/scheduled/inventory-reservation-sweep", intervalMin: 1 },
+  // === W46 inventory-depth (ORD-21): daily batch expiry alert sweep ===
+  { path: "/api/scheduled/inventory-expiry-sweep", intervalMin: 1440 },
+  // === END W46 inventory-depth ===
   { path: "/api/scheduled/integration-outbox-dispatch", intervalMin: 1 },
   { path: "/api/scheduled/odoo-inventory-sync", intervalMin: 10 },
   { path: "/api/scheduled/medusa-catalog-sync", intervalMin: 30 },
@@ -96,19 +102,60 @@ export const SCHEDULE = [
   // honest overdue dunning (see server/services/payOverTime.ts).
   { path: "/api/scheduled/installment-due", intervalMin: 1440 },
   // === END W32 installment due ===
+  // === W45 money-ledger === payment outbox worker (Mojaloop FX + TigerBeetle
+  // PoT legs) + FX fulfil/error poller (PAY-16/18; server/services/paymentOutbox.ts).
+  { path: "/api/scheduled/payment-outbox", intervalMin: 5 },
+  // === END W45 money-ledger ===
   // === W32 recurring === daily recurring bills / auto-pay sweep.
   { path: "/api/scheduled/recurring-run", intervalMin: 1440 },
   // === END W32 recurring ===
+  // === W44 deposits-subs-digital (Coder C) === hourly subscription
+  // auto-billing tick (see server/services/subscriptions.ts).
+  { path: "/api/scheduled/subscription-billing", intervalMin: 60 },
+  // === END W44 deposits-subs-digital ===
+  // === W46 privacy-consent (TEN-22) === hourly KYB review-queue SLA sweep
+  // (escalation + breach alerts; see server/services/kybSla.ts).
+  { path: "/api/scheduled/kyb-sla-sweep", intervalMin: 60 },
+  // === END W46 privacy-consent ===
   // === W33 forecast === weekly cash-flow forecast snapshot sweep.
   { path: "/api/scheduled/cashflow-forecast", intervalMin: 10080 },
   // === END W33 forecast ===
+  // === W40 Coder B (TEN-5) === retry tombstoned KYC S3 scan deletions (30 min).
+  { path: "/api/scheduled/kyc-erasure-sweep", intervalMin: 30 },
+  // === END W40 Coder B (TEN-5) ===
+  // === W40 Coder B (TEN-8) === daily KYB periodic sanctions re-screen.
+  { path: "/api/scheduled/kyb-rescreen", intervalMin: 1440 },
+  // === END W40 Coder B (TEN-8) ===
+  // === W46 kyc (Coder A, TEN-6) === hourly KYC/KYB expiry sweep + re-verification notify.
+  { path: "/api/scheduled/kyc-expiry-sweep", intervalMin: 60 },
+  // === END W46 kyc ===
+  // === W44 preorders-offers (Coder B) === pre-order availability flip (5 min) + offer expiry (30 min).
+  { path: "/api/scheduled/preorders-due", intervalMin: 5 },
+  { path: "/api/scheduled/offers-expire", intervalMin: 30 },
+  // === END W44 preorders-offers ===
+  // === W45 money-scheduled (Coder B1) === PAY-21 dispute merchant-response
+  // deadline sweep: escalate past deadline, buyer-favour auto-resolve after grace.
+  { path: "/api/scheduled/dispute-deadline-sweep", intervalMin: 15 },
+  // === END W45 money-scheduled ===
+  // === W46 uc-ux (Coder E) === UC-23 wishlist price-drop sweep (6h).
+  { path: "/api/scheduled/wishlist-price-drop-sweep", intervalMin: 360 },
+  // === END W46 uc-ux ===
+  // === W46 orders-p2 (Coder G) === ORD-19 PO promise-breach alerts (6h).
+  { path: "/api/scheduled/po-breach-sweep", intervalMin: 360 },
+  // === END W46 orders-p2 ===
 ];
 
 function b64url(buf) {
   return Buffer.from(buf).toString("base64url");
 }
 
-/** Sign an HS256 cron JWT the platform accepts (server/_core/sdk.ts local path). */
+/**
+ * Sign an HS256 cron JWT the platform accepts (server/_core/sdk.ts local
+ * path). W42 (PLT-13): the token now carries a per-route `scope` claim (the
+ * exact /api/scheduled/* path this token may invoke — the verifier rejects
+ * it for any other route) and a unique `jti` for replay protection (the
+ * platform remembers consumed jtis until exp). Lifetime stays short (300s).
+ */
 export function signCronToken(secret, routePath) {
   const header = b64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = b64url(JSON.stringify({
@@ -116,6 +163,8 @@ export function signCronToken(secret, routePath) {
     appId: "wacommerce",
     name: "Cron Scheduler",
     task_uid: `scheduler:${routePath}`,
+    scope: routePath,
+    jti: randomBytes(16).toString("hex"),
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 300,
   }));

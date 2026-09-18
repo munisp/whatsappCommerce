@@ -1,0 +1,31 @@
+{
+  "id": "J331",
+  "title": "stock_adjustments audit rows on cancel-release + RMA restock; tenant-scoped history",
+  "feature": "stock_adjustments audit + inventory.adjustmentHistory",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017064474",
+      "wamid": "wamid.sim.000783",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708011106,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j331-CCB9 (reason: wrong size). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000784",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708011111,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j331-CCB9 (reason: wrong size). The merchant will review it shortly."
+    }
+  ]
+}

@@ -30,6 +30,9 @@ resources:
   # none of it was whatsapp-specific, it monitored the whole cluster. Now
   # lives in github.com/AfroNG/monitoring_dashboard, applied by Flux
   # (GitRepository + Kustomization `monitoring-dashboard` in flux-system).
+  # === W39 durability (Coder A): PVC-backed backups, CronJobs #42/#43 ===
+  - backups.yaml
+  # === END W39 durability ===
   # monitoring/ requires the Prometheus Operator CRDs (ServiceMonitor,
   # PrometheusRule), which don't exist in this cluster - dead, never
   # actually applied. Not migrated; a candidate for deletion.

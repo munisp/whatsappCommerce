@@ -1,0 +1,8 @@
+{
+  "id": "J315",
+  "title": "Cron JWT jti replay rejected",
+  "feature": "PLT-13 jti replay protection with short exp",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

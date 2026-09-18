@@ -1,0 +1,53 @@
+{
+  "id": "J299",
+  "title": "split timeout: sweep auto-refunds contributors (wallet default)",
+  "feature": "W41 UC-3 48h timeout auto-refund sweep",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348015410091",
+      "wamid": "wamid.sim.000749",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707991772,
+      "kind": "text",
+      "body": "You've been invited to split order j299-1789707991761: your share is ₦1000.00 of ₦2000.00. Reply PAY SPLIT bfff3450-ec38-4fd1-aaf1-ff188387973b to pay from your wallet, or ask for a payment link. Expires in 48h."
+    },
+    {
+      "dir": "out",
+      "phone": "2348019968692",
+      "wamid": "wamid.sim.000750",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707991776,
+      "kind": "text",
+      "body": "You've been invited to split order j299-1789707991761: your share is ₦1000.00 of ₦2000.00. Reply PAY SPLIT bfff3450-ec38-4fd1-aaf1-ff188387973b to pay from your wallet, or ask for a payment link. Expires in 48h."
+    },
+    {
+      "dir": "out",
+      "phone": "2348015410091",
+      "wamid": "wamid.sim.000751",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707991798,
+      "kind": "text",
+      "body": "The split payment for order j299-1789707991761 timed out before it was fully funded — your ₦1000.00 has been refunded to your wallet."
+    },
+    {
+      "dir": "out",
+      "phone": "2348019968692",
+      "wamid": "wamid.sim.000752",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789707991801,
+      "kind": "text",
+      "body": "The split payment for order j299-1789707991761 timed out before it was fully funded — your ₦500.00 has been refunded to your wallet."
+    }
+  ]
+}

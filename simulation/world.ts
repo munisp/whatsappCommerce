@@ -317,6 +317,12 @@ export async function bootWorld(): Promise<World> {
     setEnv("META_APP_ID", META_APP_ID_VALUE);
     setEnv("META_APP_SECRET", META_APP_SECRET_VALUE);
     // === W28 medusa-storefront (Coder B): deterministic adapter + webhook secret ===
+    // === W37 telegram (Coder B): the sim world runs telegram-enabled so
+    // journeys J235–J239 exercise the real webhook route. WA behavior is
+    // unaffected (Telegram code only runs on /api/webhooks/telegram/*).
+    setEnv("TELEGRAM_ENABLED", "true");
+    setEnv("TELEGRAM_MEDIA_ENABLED", "true");
+    // === END W37 telegram ===
     setEnv("MEDUSA_ADAPTER", "mock");
     setEnv("MEDUSA_WEBHOOK_SECRET", "sim-medusa-webhook-secret-0123456789");
     // === END W28 medusa-storefront ===
@@ -325,21 +331,52 @@ export async function bootWorld(): Promise<World> {
     installFetchMock();
     onWaSend((call, wamid, failStatus) => recorder.recordOutbound(call, wamid, failStatus));
 
-    // 3. Embedded Postgres (PGlite) + socket server + migrations.
-    const { PGlite } = await import("@electric-sql/pglite");
-    const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
-    const pg = new PGlite();
-    await pg.waitReady;
+    // 3. Postgres + migrations. Default: embedded PGlite over a socket server.
+    // === W42 pg-integration (PLT-15) ===
+    // When SIM_DATABASE_URL points at a REAL PostgreSQL (e.g. the
+    // docker-compose postgres:16 service via scripts/pg-integration-money-paths.ts),
+    // boot against it instead of PGlite so money-path journeys exercise real
+    // PG behavior (advisory locks, SKIP LOCKED, deferrable/partial indexes).
+    // The database is MIGRATED then DROPPED-and-RECREATED clean by the caller
+    // script; here we just migrate + connect.
     const migDir = path.resolve(process.cwd(), "drizzle"); // cwd = repo root under tsx/vitest
     const migFiles = fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort();
-    for (const f of migFiles) {
-      const sqlText = fs.readFileSync(path.join(migDir, f), "utf8");
-      for (const stmt of sqlText.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) {
-        await pg.exec(stmt);
+    const migStatements = migFiles.flatMap((f) =>
+      fs.readFileSync(path.join(migDir, f), "utf8")
+        .split("--> statement-breakpoint")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
+    const externalPgUrl = process.env.SIM_DATABASE_URL;
+    let pg: { query: (text: string, params?: any[]) => Promise<any>; close: () => Promise<void> };
+    let pgServer: { stop: () => Promise<void> } | null = null;
+    if (externalPgUrl) {
+      const { default: postgresClient } = await import("postgres");
+      const mig = postgresClient(externalPgUrl, { max: 1 });
+      for (const stmt of migStatements) {
+        await mig.unsafe(stmt);
       }
+      await mig.end();
+      setEnv("DATABASE_URL", externalPgUrl);
+      setEnv("PG_POOL_MAX", process.env.PG_POOL_MAX ?? "4");
+      const sqlClient = postgresClient(externalPgUrl, { max: 2 });
+      pg = {
+        query: async (text, params) => sqlClient.unsafe(text, params ?? []),
+        close: async () => { await sqlClient.end(); },
+      };
+    } else {
+      const { PGlite } = await import("@electric-sql/pglite");
+      const { PGLiteSocketServer } = await import("@electric-sql/pglite-socket");
+      const embedded = new PGlite();
+      await embedded.waitReady;
+      for (const stmt of migStatements) {
+        await embedded.exec(stmt);
+      }
+      pg = embedded as unknown as typeof pg;
+      pgServer = new PGLiteSocketServer({ db: embedded, port: pglitePort, host: "127.0.0.1" });
+      await pgServer.start();
     }
-    const pgServer = new PGLiteSocketServer({ db: pg, port: pglitePort, host: "127.0.0.1" });
-    await pgServer.start();
+    // === END W42 pg-integration ===
 
     const authServer = await startAuthMock(authPort);
 
@@ -356,8 +393,26 @@ export async function bootWorld(): Promise<World> {
     if (!up) throw new Error("sim server did not come up");
 
     const { getDb } = await import("../server/db");
-    const db = await getDb();
-    if (!db) throw new Error("getDb() returned null against PGlite");
+    const bootDb = await getDb();
+    if (!bootDb) throw new Error("getDb() returned null against PGlite");
+    // === W42 merger: live db handle ===
+    // W42 (PLT-17) added resetDbConnection(): a withRetry transient swap now
+    // ENDS the old postgres.js pool. A boot-time-captured drizzle handle would
+    // silently bind to that dead pool after any swap (J319 proved it). The
+    // world therefore exposes a PROXY that resolves every property access
+    // against the CURRENT pool (server/db keeps __currentDb updated whenever
+    // getDb() creates a new drizzle instance).
+    const { __currentDb } = await import("../server/db");
+    __currentDb.db = bootDb;
+    type LiveDb = NonNullable<typeof bootDb>;
+    const db = new Proxy({} as LiveDb, {
+      get(_t, prop) {
+        const cur = (__currentDb.db ?? bootDb) as LiveDb;
+        const v = (cur as any)[prop];
+        return typeof v === "function" ? v.bind(cur) : v;
+      },
+    }) as LiveDb;
+    // === END W42 merger ===
 
     const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -407,7 +462,7 @@ export async function bootWorld(): Promise<World> {
       pg,
       async stop() {
         authServer.close();
-        await pgServer.stop();
+        await pgServer?.stop();
         await pg.close();
       },
 
@@ -500,6 +555,55 @@ export async function bootWorld(): Promise<World> {
           await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' = 'ar_invoice_payment'`);
         } catch { /* W31 tables not migrated yet */ }
         // === END W31 ar-invoices ===
+        // === W44 deposits-subs-digital === wipe appointment/subscription/PIN
+        // tables + their payment intents so J347–J351 never leak charges,
+        // bookings or PIN allocations into each other.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql } = await import("drizzle-orm");
+          await world.db.delete(schema.digitalPins);
+          await world.db.delete(schema.digitalPinBatches);
+          await world.db.delete(schema.customerSubscriptions);
+          await world.db.delete(schema.subscriptionPlans);
+          await world.db.delete(schema.serviceAppointments);
+          await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' IN ('appointment_deposit','appointment_remainder')`);
+        } catch { /* W44 tables not migrated yet */ }
+        // === END W44 deposits-subs-digital ===
+        // === W44 merger === wipe gift-card/referral/custom-offer tables so
+        // J337–J346 never leak codes, balances or open offers across journeys
+        // (A/B branches added no world.ts wipes of their own).
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql } = await import("drizzle-orm");
+          await world.db.delete(schema.giftCardTransactions);
+          await world.db.delete(schema.giftCards);
+          await world.db.delete(schema.referralEvents);
+          await world.db.delete(schema.referralCodes);
+          await world.db.delete(schema.customOffers);
+          await world.db.execute(sql`DELETE FROM payment_intents WHERE metadata->>'kind' IN ('gift_card_purchase')`);
+        } catch { /* W44 A/B tables not migrated yet */ }
+        // === END W44 merger ===
+        // === W45 messaging-services (Coder A2) === wipe the suppression list
+        // so J359's suppressed numbers never leak into other journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.waSuppressionList);
+        } catch { /* W45 table not migrated yet */ }
+        // === END W45 messaging-services ===
+        // === W46 uc-docs === wipe statement/proforma/agent tables so
+        // J402–J406 never leak rows (statements, commission bindings) into
+        // each other across reruns.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW46 } = await import("drizzle-orm");
+          await world.db.delete(schema.agentCommissions);
+          await world.db.delete(schema.agentCommissionStatements);
+          await world.db.delete(schema.agents);
+          await world.db.delete(schema.proformaInvoices);
+          await world.db.delete(schema.customerStatements);
+          await world.db.execute(sqlW46`DELETE FROM payment_intents WHERE idempotency_key LIKE 'w46:%'`);
+        } catch { /* W46 tables not migrated yet */ }
+        // === END W46 uc-docs ===
         // Restore seed stock so journeys never starve each other.
         try {
           const { products } = await import("../drizzle/schema");
@@ -847,11 +951,26 @@ export async function bootWorld(): Promise<World> {
         try {
           const schema = await import("../drizzle/schema");
           const { inArray: inArr } = await import("drizzle-orm");
+          // === W38 merger === pot_charges (PAY-4/5/6, FK plan_id →
+          // installment_plans) must be wiped FIRST — leftover rows otherwise
+          // make the installment_plans delete throw (silently caught) and
+          // stale plans leak into later journeys' capture sweeps.
+          await world.db.delete(schema.potCharges);
+          // === END W38 merger ===
           await world.db.delete(schema.installmentPlans);
           await world.db.delete(schema.processedWebhookEvents)
             .where(inArr(schema.processedWebhookEvents.type, ["pot_installment", "pot_settle"]));
         } catch { /* w32 tables not migrated yet */ }
         // === END W32 pay-over-time ===
+        // === W45 money-ledger === wipe the payment outbox + pot manual-settle
+        // intents so J372–J376 never leak deliveries across journeys.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW45 } = await import("drizzle-orm");
+          await world.db.delete(schema.paymentOutbox);
+          await world.db.execute(sqlW45`DELETE FROM payment_intents WHERE metadata->>'kind' IN ('pot_manual_settle')`);
+        } catch { /* W45 tables not migrated yet */ }
+        // === END W45 money-ledger ===
         // === W32 merger seam === recurring rules (B's journeys) never leak
         // between journeys on the merged branch.
         try {

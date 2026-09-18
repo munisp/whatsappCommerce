@@ -1,0 +1,75 @@
+{
+  "id": "J376",
+  "title": "pay over time: mandate revoke → pause + re-link CTA + manual link; restructure/resume/cancel (PAY-20)",
+  "feature": "W45 money-ledger: mandate revocation lifecycle",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2349037600376",
+      "wamid": "wamid.sim.000984",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708122669,
+      "kind": "text",
+      "body": "⚠️ Your payment mandate was revoked, so automatic collection for your pay-over-time plan is PAUSED — we won't keep retrying it. To resume auto-collection, link a new mandate from the dashboard. You can also settle the plan manually right now:\n\nPay here: https://checkout.paystack.com/sim/POTM-MU6I09I9-3F0F648C"
+    },
+    {
+      "dir": "out",
+      "phone": "2349037600376",
+      "wamid": "wamid.sim.000985",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708122737,
+      "kind": "text",
+      "body": "✅ Manual payment received — your pay-over-time plan is settled in full. Thank you!"
+    },
+    {
+      "dir": "out",
+      "phone": "2349037600376",
+      "wamid": "wamid.sim.000986",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708122818,
+      "kind": "text",
+      "body": "⚠️ Your payment mandate was revoked, so automatic collection for your pay-over-time plan is PAUSED — we won't keep retrying it. To resume auto-collection, link a new mandate from the dashboard. You can also settle the plan manually right now:\n\nPay here: https://checkout.paystack.com/sim/POTM-MU6I09ME-79DE9A94"
+    },
+    {
+      "dir": "out",
+      "phone": "2349037600376",
+      "wamid": "wamid.sim.000987",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708122831,
+      "kind": "text",
+      "body": "Your pay-over-time plan was restructured into 6 installments — link a payment mandate to resume automatic collection."
+    },
+    {
+      "dir": "out",
+      "phone": "2349037600376",
+      "wamid": "wamid.sim.000988",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708122839,
+      "kind": "text",
+      "body": "✅ New payment mandate linked — automatic collection has RESUMED for 1 pay-over-time plan(s)."
+    },
+    {
+      "dir": "out",
+      "phone": "2349037600376",
+      "wamid": "wamid.sim.000989",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708122854,
+      "kind": "text",
+      "body": "Your pay-over-time plan was cancelled by support (written off: ₦1,230.00). Reason: merchant hardship — facility absorbs. No further collection attempts will be made."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "J319",
+  "title": "withRetry client-swap ends old pool",
+  "feature": "leak fix: old pool ended before swap; DB recreated + usable",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

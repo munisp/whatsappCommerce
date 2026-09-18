@@ -4,6 +4,7 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   inventorySnapshots, inventorySyncLog, products, odooSyncedProducts,
+  stockAdjustments, // === W43 exchanges (Coder B) ===
 } from "../../drizzle/schema";
 import { eq, and, desc, sql, lt, lte } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -153,6 +154,33 @@ export const inventoryRouter = router({
       `);
       return { released: true };
     }),
+
+  // === W43 exchanges (Coder B): stock-adjustment audit trail ────────────────
+  // ── Adjustment history (append-only stock_adjustments, tenant-scoped) ─────
+  adjustmentHistory: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      productId: z.string().optional(),
+      reason: z.enum(["restock", "damage", "theft", "correction", "count", "backorder_fill", "exchange_in", "exchange_out", "other"]).optional(),
+      refType: z.string().optional(),
+      refId: z.string().optional(),
+      limit: z.number().int().min(1).max(500).default(100),
+    }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const db = await getDb();
+      if (!db) return [];
+      const conds = [eq(stockAdjustments.tenantId, input.tenantId)];
+      if (input.productId) conds.push(eq(stockAdjustments.productId, input.productId));
+      if (input.reason) conds.push(eq(stockAdjustments.reason, input.reason));
+      if (input.refType) conds.push(eq(stockAdjustments.refType, input.refType));
+      if (input.refId) conds.push(eq(stockAdjustments.refId, input.refId));
+      return db.select().from(stockAdjustments)
+        .where(and(...conds))
+        .orderBy(desc(stockAdjustments.createdAt))
+        .limit(input.limit);
+    }),
+  // === END W43 exchanges ===
 
   // ── Sync history ───────────────────────────────────────────────────────────
   getSyncHistory: protectedProcedure

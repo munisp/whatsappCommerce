@@ -2,9 +2,30 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { router, protectedProcedure, publicProcedure, operatorProcedure, assertTenantAccess } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
+import { and, eq, ne } from "drizzle-orm";
 import * as db from "../db";
+import { tenants } from "../../drizzle/schema";
 import { DEFAULT_TENANT_ID, getTenantByIdForTheme } from "../_core/tenantDomain";
 import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
+import { writeAuditLog } from "./audit";
+
+/**
+ * W40 tenancy (TEN-3): one WhatsApp phone number id maps to exactly one
+ * tenant. The DB-level partial unique index (migration 0123) is the
+ * backstop; this pre-check gives the honest CONFLICT error instead of a
+ * raw 23505. Returns the conflicting tenant id, or null.
+ */
+async function findWhatsAppNumberConflict(phoneNumberId: string, excludeTenantId: string): Promise<string | null> {
+  const d = await db.getDb();
+  if (!d) return null;
+  const [row] = await d
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(and(eq(tenants.whatsappPhoneNumberId, phoneNumberId), ne(tenants.id, excludeTenantId)))
+    .limit(1)
+    .catch(() => []);
+  return row?.id ?? null;
+}
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
@@ -90,9 +111,21 @@ export const tenantRouter = router({
       defaultLanguage: z.string().default("en"),
       aiEnabled: z.boolean().default(true),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const id = nanoid();
       await db.createTenant({ id, ...input, status: "trial" });
+      // W40 (TEN-4): tenant lifecycle changes are admin-audited.
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenant.create",
+        entityType: "tenant",
+        entityId: id,
+        tenantId: id,
+        summary: `Tenant created: ${input.name} (slug ${input.slug}, plan ${input.plan})`,
+        before: null,
+        after: { id, ...input, status: "trial" },
+      });
       return { id, ...input };
     }),
 
@@ -134,6 +167,15 @@ export const tenantRouter = router({
       assertTenantAccess(ctx.user, input.tenantId);
       const t = await db.getTenantById(input.tenantId);
       if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      // W40 (TEN-3): reject number hijack with an honest CONFLICT — the
+      // 0123 partial unique index is the DB backstop for races.
+      const conflictId = await findWhatsAppNumberConflict(input.phoneNumberId, input.tenantId);
+      if (conflictId) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `WhatsApp phone number id ${input.phoneNumberId} is already configured on another tenant`,
+        });
+      }
       const settings = { ...((t.settings ?? {}) as Record<string, unknown>) };
       settings.whatsapp = {
         ...((settings.whatsapp ?? {}) as Record<string, unknown>),
@@ -146,8 +188,109 @@ export const tenantRouter = router({
         webhookVerifyToken: input.verifyToken,
         settings,
       });
+      // W40 (TEN-4): channel-config changes are security-relevant — audit.
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenant.updateWhatsAppConfig",
+        entityType: "tenant",
+        entityId: input.tenantId,
+        tenantId: input.tenantId,
+        summary: `WhatsApp config updated (phoneNumberId ${t.whatsappPhoneNumberId ?? "∅"} → ${input.phoneNumberId})`,
+        before: { phoneNumberId: t.whatsappPhoneNumberId ?? null, wabaId: t.whatsappBusinessAccountId ?? null },
+        after: { phoneNumberId: input.phoneNumberId, wabaId: input.wabaId },
+      });
       return { success: true };
     }),
+
+  // === W37 telegram (Coder B): per-tenant Telegram Bot config ===
+  // Mirrors getWhatsAppConfig/updateWhatsAppConfig: the bot token + webhook
+  // secret live in settings.telegram encrypted at rest (v1: envelope, same
+  // helpers as whatsapp.accessToken) and are only ever returned masked.
+  getTelegramConfig: operatorProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const settings = (t.settings ?? {}) as Record<string, unknown>;
+      const tg = (settings.telegram ?? {}) as Record<string, unknown>;
+      const rawToken = typeof tg.botToken === "string" ? tg.botToken : "";
+      const botToken = rawToken ? decryptSecret(rawToken) : "";
+      return {
+        tenantId: t.id,
+        enabled: tg.enabled === true,
+        botUsername: typeof tg.botUsername === "string" ? tg.botUsername : "",
+        botToken: botToken ? "••••••••" + botToken.slice(-4) : "",
+        webhookSecretSet: Boolean(typeof tg.webhookSecret === "string" && tg.webhookSecret),
+        configured: Boolean(tg.enabled === true && botToken),
+      };
+    }),
+
+  updateTelegramConfig: operatorProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      // Bot API token format: <bot_id>:<35-char secret>.
+      botToken: z.string().regex(/^\d{5,}:[A-Za-z0-9_-]{30,}$/, "Invalid Telegram bot token format"),
+      botUsername: z.string().min(3).max(64).regex(/^@?[A-Za-z0-9_]{3,}$/, "Invalid Telegram bot username"),
+      enabled: z.boolean().default(false),
+      // Optional: rotating the webhook secret. Unset/empty → a fresh random
+      // secret is generated (returned once so the operator can setWebhook).
+      webhookSecret: z.string().max(128).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const t = await db.getTenantById(input.tenantId);
+      if (!t) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      const botUsername = input.botUsername.replace(/^@/, "");
+      // Honest uniqueness guard: one bot username maps to exactly one tenant
+      // (a shared bot would misroute tenant-scoped webhooks — TEN-3 class).
+      // settings is a JSON blob, so scan tenant settings directly.
+      const all = await db.getTenants(1000, 0);
+      const conflict = all.find((other: any) => {
+        if (other.id === input.tenantId) return false;
+        const tg = (((other.settings ?? {}) as Record<string, unknown>).telegram ?? {}) as Record<string, unknown>;
+        return typeof tg.botUsername === "string" && tg.botUsername.toLowerCase() === botUsername.toLowerCase();
+      });
+      if (conflict) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Telegram bot @${botUsername} is already configured on another tenant`,
+        });
+      }
+      const settings = { ...((t.settings ?? {}) as Record<string, unknown>) };
+      const prev = (settings.telegram ?? {}) as Record<string, unknown>;
+      const generatedSecret = !input.webhookSecret && !prev.webhookSecret;
+      const webhookSecret = input.webhookSecret
+        ? input.webhookSecret
+        : typeof prev.webhookSecret === "string" && prev.webhookSecret
+          ? decryptSecret(prev.webhookSecret as string)
+          : nanoid(32);
+      settings.telegram = {
+        ...prev,
+        enabled: input.enabled,
+        botUsername,
+        botToken: encryptSecret(input.botToken),
+        webhookSecret: encryptSecret(webhookSecret),
+      };
+      await db.updateTenant(input.tenantId, { settings });
+      // W40 (TEN-4): channel-config changes are security-relevant — audit.
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenant.updateTelegramConfig",
+        entityType: "tenant",
+        entityId: input.tenantId,
+        tenantId: input.tenantId,
+        summary: `Telegram config updated (bot @${botUsername}, enabled=${input.enabled})`,
+        before: { botUsername: typeof prev.botUsername === "string" ? prev.botUsername : null, enabled: prev.enabled === true },
+        after: { botUsername, enabled: input.enabled },
+      });
+      // The webhook secret is returned ONCE when freshly generated so the
+      // operator can pass it to setWebhook; afterwards it is only masked.
+      return { success: true, ...(generatedSecret ? { webhookSecret } : {}) };
+    }),
+  // === END W37 telegram ===
 
   update: adminProcedure
     .input(z.object({
@@ -164,9 +307,36 @@ export const tenantRouter = router({
       cogsRate: z.number().min(0).max(0.99).optional(),
       smsFailoverEnabled: z.boolean().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
+      // W40 (TEN-3): the admin update path can also move a WhatsApp number
+      // — same honest CONFLICT pre-check as updateWhatsAppConfig.
+      if (data.whatsappPhoneNumberId) {
+        const conflictId = await findWhatsAppNumberConflict(data.whatsappPhoneNumberId, id);
+        if (conflictId) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `WhatsApp phone number id ${data.whatsappPhoneNumberId} is already configured on another tenant`,
+          });
+        }
+      }
+      // W40 (TEN-4): capture the before-state for the audit row (lifecycle
+      // changes like suspension MUST be attributable).
+      const beforeTenant = await db.getTenantById(id).catch(() => null);
       await db.updateTenant(id, data);
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenant.update",
+        entityType: "tenant",
+        entityId: id,
+        tenantId: id,
+        summary: `Tenant ${id} updated: ${Object.keys(data).join(", ")}${data.status ? ` (status ${beforeTenant?.status ?? "?"} → ${data.status})` : ""}`,
+        before: beforeTenant
+          ? { name: beforeTenant.name, plan: beforeTenant.plan, status: beforeTenant.status, whatsappPhoneNumberId: beforeTenant.whatsappPhoneNumberId ?? null }
+          : null,
+        after: data,
+      });
       return { success: true };
     }),
 });

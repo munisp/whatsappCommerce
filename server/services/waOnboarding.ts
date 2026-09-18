@@ -31,6 +31,7 @@ import {
   WA_BUTTONS_MAX,
 } from "./waSender";
 import { isTranscriptionConfigured, transcribeAudio } from "./transcribe";
+import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
 
 // ── w9 C1 copilot contract (structural) ─────────────────────────────────────
 // These interfaces mirror the API exported by
@@ -183,12 +184,12 @@ async function postOnboardingMessage(
     });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      console.error(`[waOnboarding] send failed (${res.status}): ${errBody.slice(0, 300)}`);
+      console.error(`[waOnboarding] send failed (${res.status}): ${redactString(errBody.slice(0, 300))}`); // W46 platform-p2 (PLT-25): redact PII in Graph error bodies
       return { sent: false, simulated: false };
     }
     return { sent: true, simulated: false };
   } catch (e: any) {
-    console.error("[waOnboarding] send network error:", e?.message);
+    console.error("[waOnboarding] send network error:", redactString(e?.message ?? "")); // W46 platform-p2 (PLT-25)
     return { sent: false, simulated: false };
   }
 }

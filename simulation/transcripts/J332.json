@@ -1,0 +1,20 @@
+{
+  "id": "J332",
+  "title": "courier POD endpoint → delivered + timeline",
+  "feature": "POST /api/delivery/proof (auth, idempotency, media storage, delivered completion)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348012966428",
+      "wamid": "wamid.sim.000785",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708011562,
+      "kind": "text",
+      "body": "✅ Proof of delivery received for order W43-j332-75B7 — your order is now marked delivered. Enjoy! If anything is wrong, just reply here."
+    }
+  ]
+}

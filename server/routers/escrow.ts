@@ -303,7 +303,23 @@ export async function settleEscrowAtomic(
   db: Db,
   escrowId: string,
   opts: { autoConfirmed: boolean; allowedFromStates: string[]; descriptionPrefix?: string },
-): Promise<{ transitioned: boolean; newState?: "settled" | "release_instructed"; escrow?: EscrowTransaction }> {
+): Promise<{ transitioned: boolean; newState?: "settled" | "release_instructed"; escrow?: EscrowTransaction; rmaPaused?: boolean }> {
+  // === W41 rma-fx (Coder C): pause release while an RMA is open ===
+  // A buyer with a pending/approved/received return must not lose their
+  // refund window to an escrow release (manual OR SLA-scan auto-confirm).
+  // The release is PAUSED (transitioned:false, rmaPaused:true) — the escrow
+  // stays in its current state and can settle once the RMA closes.
+  {
+    const [esc] = await db.select({ orderId: escrowTransactions.orderId, tenantId: escrowTransactions.tenantId })
+      .from(escrowTransactions).where(eq(escrowTransactions.id, escrowId)).limit(1)
+      .catch(() => [] as any[]);
+    if (esc) {
+      const { hasOpenRma } = await import("../services/rma");
+      if (await hasOpenRma(db, esc.tenantId, esc.orderId).catch(() => false)) {
+        return { transitioned: false, rmaPaused: true };
+      }
+    }
+  }
   const cfg = await getEscrowConfig(db);
   const now = new Date();
   // Ledger pending-transfer ids committed (captured) inside the transaction.
@@ -686,6 +702,20 @@ export async function finalizeWalletWithdrawal(
   return { ok: true, action: "refunded" };
 }
 
+// === W45 orders-p0 (PLT-13): call-time SSRF gate for the PSSP bank client ===
+// Every outbound call to the configured bank API MUST resolve its base URL
+// through this helper (never read escrowConfig.bankApiBaseUrl raw): the
+// stored value is re-validated against ssrfGuard at CALL time so a config
+// row written before this guard existed — or tampered with out-of-band —
+// cannot redirect money instructions to internal endpoints. Throws on
+// unsafe/unset URLs (fail-closed).
+export async function assertSafeBankApiBaseUrl(raw: string | null | undefined): Promise<URL> {
+  if (!raw) throw new Error("bankApiBaseUrl is not configured");
+  const { assertSafeOutboundUrl } = await import("../services/ssrfGuard");
+  return assertSafeOutboundUrl(raw, "bankApiBaseUrl");
+}
+// === END W45 orders-p0 ===
+
 // ─── Escrow Router ────────────────────────────────────────────────────────────
 export const escrowRouter = router({
 
@@ -701,7 +731,13 @@ export const escrowRouter = router({
       custodyMode: z.enum(["pssp", "psp"]).optional(),
       bankPartnerName: z.string().optional(),
       bankPartnerCode: z.string().optional(),
-      bankApiBaseUrl: z.string().optional(),
+      // === W45 orders-p0 (PLT-13): bankApiBaseUrl was accepted with ZERO
+      // validation — an admin (or a compromised admin session) could point
+      // the PSSP bank client at an internal/metadata endpoint (SSRF). Now:
+      // a syntactically valid URL at the schema layer + ssrfGuard at write
+      // time; call time re-validates via assertSafeBankApiBaseUrl (below). ===
+      bankApiBaseUrl: z.string().url().optional(),
+      // === END W45 orders-p0 ===
       bankEscrowAccountNumber: z.string().optional(),
       shipbubbleApiKey: z.string().optional(),
       shipbubbleWebhookSecret: z.string().optional(),
@@ -712,9 +748,37 @@ export const escrowRouter = router({
       floatYieldRate: z.string().optional(),
       minScanConfidence: z.string().optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
+      // === W45 orders-p0 (PLT-13): write-time SSRF gate + audit trail ===
+      if (input.bankApiBaseUrl !== undefined) {
+        const { assertSafeOutboundUrl } = await import("../services/ssrfGuard");
+        try {
+          assertSafeOutboundUrl(input.bankApiBaseUrl, "bankApiBaseUrl");
+        } catch (e: any) {
+          await writeAuditLog({
+            actorId: String(ctx.user?.id ?? "unknown"),
+            actorRole: ctx.user?.role,
+            action: "escrow.setConfig.bankApiBaseUrl.rejected",
+            entityType: "escrow_config",
+            entityId: "1",
+            summary: `Rejected unsafe bankApiBaseUrl: ${e?.message ?? "ssrfGuard refusal"}`,
+            after: { bankApiBaseUrl: input.bankApiBaseUrl },
+          }).catch(() => {});
+          throw e;
+        }
+        await writeAuditLog({
+          actorId: String(ctx.user?.id ?? "unknown"),
+          actorRole: ctx.user?.role,
+          action: "escrow.setConfig.bankApiBaseUrl",
+          entityType: "escrow_config",
+          entityId: "1",
+          summary: "Escrow bankApiBaseUrl updated (SSRF-validated)",
+          after: { bankApiBaseUrl: input.bankApiBaseUrl },
+        }).catch((e) => console.error("[escrow.setConfig] audit log failed:", e));
+      }
+      // === END W45 orders-p0 ===
       await db.update(escrowConfig).set({
         ...input,
         updatedAt: new Date(),
@@ -957,6 +1021,13 @@ export const escrowRouter = router({
         throw settleErr;
       });
       if (!result.transitioned || !result.escrow) {
+        // W41: an open return pauses the release instead of erroring blind.
+        if (result.rmaPaused) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Release paused: a return request (RMA) is open for this order — resolve it first.",
+          });
+        }
         throw new TRPCError({
           code: "CONFLICT",
           message: `Cannot confirm in state: ${escrow.state} (delivery must be confirmed first, and the escrow must not already be released/settled)`,
@@ -1286,6 +1357,61 @@ export const escrowRouter = router({
             });
             if (!result.success) {
               results.push({ id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` });
+              continue;
+            }
+            // ── W38 (PAY-7) bulk refund honesty: the internal ledger refund
+            // above is NOT money back to the buyer's bank when custody is PSP
+            // (the platform still holds the funds at the provider). Execute
+            // the REAL provider refund per escrow (the dispute-review path
+            // pattern) and report honest statuses — never "refunded" without
+            // money movement. On provider failure the order is honestly
+            // "refund_pending" and the escrow is flagged for the SLA refund
+            // sweep (verify-first, capped) — never silently dropped.
+            if (escrow.custodyMode === "psp") {
+              const { executeProviderRefund, honestOrderRefundStatus, honestRefundVocabulary } = await import("../services/payments/refunds");
+              const outcome = await executeProviderRefund(db, {
+                tenantId: escrow.tenantId,
+                orderId: escrow.orderId,
+                amountCents: Math.round(result.refundedAmount * 100),
+                currency: escrow.currency ?? "NGN",
+                reason: `Bulk escrow refund: ${input.reason}`,
+              });
+              if (outcome.status === "failed") {
+                const meta = (escrow.metadata ?? {}) as Record<string, unknown>;
+                await db.update(escrowTransactions).set({
+                  metadata: {
+                    ...meta,
+                    refundSweepRequired: true,
+                    providerRefundOnly: true,
+                    providerRefundFailed: true,
+                    providerRefundError: outcome.error ?? null,
+                    providerRefundVocabulary: "refund_failed",
+                  },
+                  updatedAt: new Date(),
+                }).where(eq(escrowTransactions.id, escrow.id));
+                await db.update(orders).set({ status: "refunded", paymentStatus: "refund_pending", updatedAt: new Date() })
+                  .where(eq(orders.id, escrow.orderId));
+                emitNotification({
+                  id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
+                  title: "Refund Pending (Bulk Operation)",
+                  body: `₦${result.refundedAmount.toLocaleString()} from order ${escrow.orderId}: internal refund done, provider refund FAILED (${outcome.error ?? "unknown"}) — queued for the refund sweep.`,
+                  metadata: { orderId: escrow.orderId, escrowId: escrow.id, refundPending: true },
+                  read: false, readAt: null, createdAt: new Date(),
+                }).catch(() => {});
+                results.push({ id: escrow.id, success: true, newState: "refund_pending" });
+                continue;
+              }
+              const honestStatus = honestOrderRefundStatus(outcome);
+              await db.update(orders).set({ status: "refunded", paymentStatus: honestStatus, updatedAt: new Date() })
+                .where(eq(orders.id, escrow.orderId));
+              emitNotification({
+                id: crypto.randomUUID(), tenantId: escrow.tenantId, type: "escrow_refunded",
+                title: "Escrow Refunded (Bulk Operation)",
+                body: `₦${result.refundedAmount.toLocaleString()} from order ${escrow.orderId} refunded via bulk operation (provider: ${honestRefundVocabulary(outcome)}).`,
+                metadata: { orderId: escrow.orderId, escrowId: escrow.id, providerRefund: outcome.status },
+                read: false, readAt: null, createdAt: new Date(),
+              }).catch(() => {});
+              results.push({ id: escrow.id, success: true, newState: honestStatus });
               continue;
             }
             await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })

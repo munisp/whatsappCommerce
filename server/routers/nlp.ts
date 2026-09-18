@@ -7,7 +7,7 @@
  *   checkout_address → checkout_confirm → payment → order_confirmed → support
  */
 import { z } from "zod";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, inArray, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, internalProcedure, router, assertTenantAccess } from "../_core/trpc";
 // === W34 otel-core === traceparent propagation (internal ml call).
@@ -17,8 +17,9 @@ import { invokeLLM } from "../_core/llm";
 import {
   nlpSessions, cartSessions, cartItems, orders, orderItems,
   customers, products, conversations, agentEvents, tenants,
+  telegramIdentities,
 } from "../../drizzle/schema";
-import { paymentTransactions } from "../../drizzle/schema";
+import { paymentTransactions, paymentIntents } from "../../drizzle/schema";
 import { ENV } from "../_core/env";
 
 /**
@@ -49,7 +50,7 @@ import {
   syncContactToTwenty,
   pushOrderActivityToTwenty,
 } from "../services/integrationSync";
-import { normalizeExtractedItems, addExtractedItemsToCart } from "../services/nlpCart";
+import { normalizeExtractedItems, addExtractedItemsToCart, matchCatalogItem } from "../services/nlpCart";
 import { quoteDeliveryFee } from "../services/deliveryQuote";
 import { trackingUrlFor } from "../services/trackingToken";
 import {
@@ -66,6 +67,19 @@ import { localeFromSessionLanguage, tr } from "../services/i18n";
 import { validatePromo, applyPromo } from "../services/promos";
 import { subscribeToWaitlist, unsubscribeFromWaitlist } from "../services/waitlist";
 import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
+import { makeDualFormatter, DUAL_DISPLAY_FOOTER, formatPriceDual } from "../services/displayFx";
+import { requestReturn } from "../services/rma";
+
+/** W41 UC-5: load the tenant's dual-display formatter (null when unconfigured). */
+async function dualFormatterFor(db: any, tenantId: string): Promise<((amount: number, currency?: string) => string) | null> {
+  const [row] = await db
+    .select({ displayCurrency: tenants.displayCurrency, displayFxRates: tenants.displayFxRates })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1)
+    .catch(() => [] as any[]);
+  return makeDualFormatter(row);
+}
 
 // ── Checkout message builders ────────────────────────────────────────────────
 type CartLine = { productName: string; quantity: number; unitPrice: string; currency: string };
@@ -77,8 +91,11 @@ export function fmtMoney(amount: number, currency: string): string {
   return `${sym}${amount.toLocaleString("en-NG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function itemizedLines(items: CartLine[]): string[] {
-  return items.map(i => `${i.quantity} × ${i.productName} — ${fmtMoney(Number(i.unitPrice), i.currency)} each`);
+/** W41 UC-5: optional dual-display price formatter (NGN + tenant display currency). */
+type PriceFmt = (amount: number, currency: string) => string;
+
+function itemizedLines(items: CartLine[], fmt: PriceFmt = fmtMoney): string[] {
+  return items.map(i => `${i.quantity} × ${i.productName} — ${fmt(Number(i.unitPrice), i.currency)} each`);
 }
 
 /** Extract a promo code from chat text, e.g. "use code SAVE10" or "code: SAVE10". */
@@ -86,6 +103,21 @@ export function extractPromoCode(text: string): string | null {
   const m = /\b(?:use\s+)?code[:\s]+([A-Za-z0-9_-]{2,32})\b/i.exec(text);
   return m ? m[1] : null;
 }
+
+// === W46 orders-p2 (ORD-25) ===
+/**
+ * Extract a buyer free-text note from a checkout message:
+ * "note: leave at the gate", "add note — call when you arrive",
+ * "delivery note: knock twice", "instructions: no onions". Returns null when
+ * the message carries no explicit note marker (we NEVER guess — a plain
+ * address line is not a note). Capped at 500 chars.
+ */
+export function extractBuyerNote(text: string): string | null {
+  const m = /\b(?:note|add (?:a )?note|delivery note|instruction[s]?)\s*[:–—-]\s*([\s\S]+)$/i.exec(text ?? "");
+  const note = m?.[1]?.trim();
+  return note ? note.slice(0, 500) : null;
+}
+// === END W46 orders-p2 ===
 
 /** Buyer-facing reason a promo code was not applied. */
 function promoRejectText(reason: string): string {
@@ -99,16 +131,18 @@ function promoRejectText(reason: string): string {
 }
 
 /** Step-1 checkout card: itemized cart + subtotal + fulfillment prompt. */
-function buildFulfillmentPrompt(items: CartLine[], subtotal: number, currency: string): string {
-  return [
+function buildFulfillmentPrompt(items: CartLine[], subtotal: number, currency: string, fmt?: PriceFmt): string {
+  const lines = [
     "🛒 *Your order*",
-    ...itemizedLines(items),
-    `Subtotal: ${fmtMoney(subtotal, currency)}`,
+    ...itemizedLines(items, fmt),
+    `Subtotal: ${(fmt ?? fmtMoney)(subtotal, currency)}`,
     "",
     "How would you like to receive your order?",
     "1️⃣ Pickup",
     "2️⃣ Delivery",
-  ].join("\n");
+  ];
+  if (fmt) lines.push("", DUAL_DISPLAY_FOOTER);
+  return lines.join("\n");
 }
 
 /** Final order summary (pickup or delivery) incl. payment + tracking links. */
@@ -130,32 +164,42 @@ function buildOrderSummary(opts: {
   /** W17/F10: cash-on-delivery orders show a pay-on-receipt line instead. */
   paymentMethod?: "online" | "cod";
   trackingUrl: string;
+  /** W46 uc-money (UC-15): optional tip prompt line (tenant opt-in). */
+  tipPrompt?: string | null;
+  /** W41 UC-5: dual-display price formatter (NGN + tenant display currency). */
+  fmt?: PriceFmt;
 }): string {
+  const fmt = opts.fmt ?? fmtMoney;
   const lines: string[] = [
     opts.fulfillment === "delivery"
       ? `🧾 *Delivery Order ${opts.orderNumber}*`
       : `🧾 *Pickup Order ${opts.orderNumber}*`,
-    ...itemizedLines(opts.items),
+    ...itemizedLines(opts.items, opts.fmt),
   ];
   if (opts.fulfillment === "delivery") {
     if (opts.address) lines.push(`📍 Deliver to: ${opts.address}`);
-    lines.push(`Subtotal: ${fmtMoney(opts.subtotal, opts.currency)}`);
-    lines.push(`Delivery fee${opts.deliveryZone ? ` (${opts.deliveryZone})` : ""}: ${fmtMoney(opts.deliveryFee, opts.currency)}`);
+    lines.push(`Subtotal: ${fmt(opts.subtotal, opts.currency)}`);
+    lines.push(`Delivery fee${opts.deliveryZone ? ` (${opts.deliveryZone})` : ""}: ${fmt(opts.deliveryFee, opts.currency)}`);
   }
   if (opts.promo && opts.promo.discount > 0) {
-    lines.push(`🏷️ Promo ${opts.promo.code}: −${fmtMoney(opts.promo.discount, opts.currency)}`);
+    lines.push(`🏷️ Promo ${opts.promo.code}: −${fmt(opts.promo.discount, opts.currency)}`);
   }
-  lines.push(`*Total: ${fmtMoney(opts.total, opts.currency)}*`);
+  lines.push(`*Total: ${fmt(opts.total, opts.currency)}*`);
+  // W46 uc-money (UC-15): tip prompt rides the shared summary (BOTH channels).
+  if (opts.tipPrompt) lines.push(opts.tipPrompt);
   if (opts.promoError) lines.push(`⚠️ Promo not applied — ${opts.promoError}.`);
   if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
   if (opts.paymentMethod === "cod") {
-    lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmtMoney(opts.total, opts.currency)} ready for the rider.`);
+    lines.push("", `💵 *Cash on ${opts.fulfillment === "delivery" ? "delivery" : "pickup"}* — please have ${fmt(opts.total, opts.currency)} ready for the rider.`);
   } else if (opts.paymentUrl) {
     lines.push("", `💳 Click here to complete payment: ${opts.paymentUrl}`);
     lines.push("📱 No data? Dial *712*amount# to pay via MTN MoMo");
   }
   lines.push("", `🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.`);
   lines.push(`🔎 Track your order: ${opts.trackingUrl}`);
+  // W41 UC-5: honest footer whenever a converted price was shown — the
+  // charge itself stays in NGN.
+  if (opts.fmt) lines.push("", DUAL_DISPLAY_FOOTER);
   return lines.join("\n");
 }
 
@@ -188,6 +232,21 @@ export interface ChatOrderResult {
   deliveryQuote?: { courier: string; quoteId: string; feeCents: number; etaMinutes: number; label: string } | null;
   /** W27: loyalty redemption applied at checkout (integer points/cents). */
   loyalty?: { points: number; discountCents: number; balanceAfter: number } | null;
+  /** W41: buyer installment plan created for this order (payment link = down payment). */
+  installment?: { planId: string; downPaymentCents: number; installments: number; totalCents: number } | null;
+  // === W46 uc-ux (Coder E) ===
+  /** UC-27: set when checkout was BLOCKED by the tenant minimum order value. */
+  minOrderBlock?: import("../services/minOrder").MinOrderCheck;
+  /** UC-24: gift wrap fee line charged on this order (integer cents). */
+  giftWrapFeeCents?: number;
+  /** UC-21: delivery slot booking outcome for this order. */
+  slotBooking?: { booked: boolean; reason?: string };
+  /** UC-17: venue table the order was placed from (QR deep link). */
+  venueTable?: { tableId: string; label: string } | null;
+  // === END W46 uc-ux ===
+  /** === W46 privacy-consent (TEN-15): age gate blocked the order — the
+   * buyer must attest to `requiredAge` before checkout proceeds. === */
+  ageGate?: { requiredAge: number; restrictedProductIds: string[] } | null;
 }
 
 /** Buyer-facing reply when (part of) the cart can't be fulfilled: names the
@@ -242,6 +301,25 @@ export async function createChatOrder(
     deliveryCoords?: { latitude: number; longitude: number } | null;
     /** W27: redeem loyalty points at checkout (discount capped per rules). */
     loyaltyRedeem?: boolean;
+    /** W41: buyer chose installments — create a plan; the payment link
+     * charges the DOWN PAYMENT only (adjacent checkout-caller seam; the
+     * pinned paymentConfirm path settles it unchanged). */
+    installments?: number | null;
+    /** W41: buyer explicitly consented to save the card after paying. */
+    saveCardConsent?: boolean;
+    // === W46 uc-ux (Coder E) ===
+    /** UC-24: gift options captured at checkout (wrap/message/recipient). */
+    gift?: import("../services/giftOrders").GiftOptions;
+    /** UC-21: pre-armed delivery slot id (buyer picked SLOT <n> earlier). */
+    deliverySlotId?: string | null;
+    // === END W46 uc-ux ===
+    /** W46 orders-p2 (ORD-25): buyer free-text note captured at chat
+     *  checkout ("note: leave at the gate") — persisted to orders.notes so
+     *  the merchant sees it on the order. Capped at 500 chars. */
+    buyerNote?: string | null;
+    /** === W46 privacy-consent (TEN-15): buyer attested their age in this
+     * checkout turn (affirmative reply verified by the caller). === */
+    ageAttested?: boolean;
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -263,7 +341,68 @@ export async function createChatOrder(
     };
   }
 
+  // === W46 privacy-consent (TEN-15): age-restricted checkout gate ========
+  // Runs BEFORE any order/payment link exists, on the single order-creation
+  // seam shared by the WhatsApp, Telegram and LLM/agent checkout paths.
+  // A durable attestation (age_attestations) covers returning buyers; an
+  // in-turn affirmation (opts.ageAttested) is persisted as evidence.
+  try {
+    const { assertAgeGate } = await import("../services/ageGate");
+    const gate = await assertAgeGate(db, {
+      tenantId: opts.tenantId,
+      phone: opts.waPhoneNumber,
+      productIds: items.map((i) => i.productId),
+      attested: opts.ageAttested === true,
+      source: "chat_reply",
+    });
+    if (!gate.ok) {
+      return {
+        created: false,
+        ageGate: { requiredAge: gate.requiredAge!, restrictedProductIds: gate.restrictedProductIds ?? [] },
+        currency: items[0].currency,
+      };
+    }
+  } catch (e: unknown) {
+    // Fail CLOSED on a gate lookup error only when the cart actually
+    // contains restricted products is impossible to know here — so we
+    // re-check cheaply; unrestricted carts proceed unaffected.
+    console.error("[nlp] age gate check failed:", (e as Error)?.message);
+    try {
+      const { requiredAgeForProducts } = await import("../services/ageGate");
+      const requirement = await requiredAgeForProducts(db, opts.tenantId, items.map((i) => i.productId));
+      if (requirement) {
+        return {
+          created: false,
+          ageGate: { requiredAge: requirement.requiredAge, restrictedProductIds: requirement.restrictedProductIds },
+          currency: items[0].currency,
+        };
+      }
+    } catch (e2: unknown) {
+      console.error("[nlp] age gate re-check failed (allowing unrestricted cart only):", (e2 as Error)?.message);
+    }
+  }
+  // === END W46 privacy-consent ===
+
   const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+  // === W46 uc-ux (Coder E): UC-27 minimum order guard =====================
+  // Runs BEFORE any order/payment link exists — a below-minimum cart blocks
+  // checkout with an additive prompt (both channels render the same text).
+  {
+    try {
+      const { checkMinOrder } = await import("../services/minOrder");
+      const minCheck = await checkMinOrder(db, {
+        tenantId: opts.tenantId,
+        fulfillment: opts.fulfillment,
+        subtotalMajor: subtotal,
+      });
+      if (!minCheck.ok) {
+        return { created: false, minOrderBlock: minCheck, currency: items[0].currency };
+      }
+    } catch (e: unknown) {
+      console.error("[nlp] min-order guard failed (non-blocking):", (e as Error)?.message);
+    }
+  }
+  // === END W46 uc-ux ===
   // ── W27: aggregated courier quote — cheapest of the tenant's enabled
   // courier adapters (distance-priced local dispatch when coordinates are
   // known), falling back to the honest zone rate. Non-blocking. ────────────
@@ -282,9 +421,40 @@ export async function createChatOrder(
       console.error("[nlp] aggregated delivery quote failed (non-blocking):", (e as Error)?.message);
     }
   }
+  // === W45 orders-p0 (ORD-9): weight-aware, tenant-zone quoting ===
+  // Sum the order weight (qty × products.weightKg; unknown-weight lines use
+  // the 1kg floor) and load the tenant's configured delivery zones
+  // (merchant_locations.deliveryZones — geo.ts) so the fallback quote prices
+  // the ACTUAL parcel and the merchant's real zones instead of Lagos hints.
+  let orderWeightKg = 0;
+  let tenantDeliveryZones: { name: string }[] | null = null;
+  if (opts.fulfillment === "delivery") {
+    try {
+      const weightRows = await db.select({ id: products.id, weightKg: products.weightKg })
+        .from(products)
+        .where(inArray(products.id, items.map((i) => i.productId)));
+      const weightById = new Map(weightRows.map((r) => [r.id, Number(r.weightKg ?? 0)]));
+      orderWeightKg = items.reduce((s, i) => {
+        const w = weightById.get(i.productId);
+        return s + i.quantity * (w && w > 0 ? w : 1);
+      }, 0);
+      const { merchantLocations } = await import("../../drizzle/schema");
+      const [loc] = await db.select({ deliveryZones: merchantLocations.deliveryZones })
+        .from(merchantLocations)
+        .where(eq(merchantLocations.tenantId, opts.tenantId))
+        .orderBy(desc(merchantLocations.createdAt))
+        .limit(1);
+      tenantDeliveryZones = (loc?.deliveryZones as { name: string }[] | null) ?? null;
+    } catch (e: unknown) {
+      console.warn("[nlp] weight/zone quote inputs failed (non-blocking):", (e as Error)?.message);
+    }
+  }
+  // === END W45 orders-p0 ===
   const quote = aggQuote
     ? { fee: aggQuote.feeMajor, zone: aggQuote.zone ?? "same_city", carrier: aggQuote.label }
-    : (opts.fulfillment === "delivery" ? quoteDeliveryFee({ address: opts.address }) : null);
+    : (opts.fulfillment === "delivery"
+        ? quoteDeliveryFee({ address: opts.address, weightKg: orderWeightKg || undefined, deliveryZones: tenantDeliveryZones })
+        : null);
   const deliveryFee = quote?.fee ?? 0;
 
   // ── Promo code (optional) ─────────────────────────────────────────────
@@ -335,8 +505,23 @@ export async function createChatOrder(
       console.error("[nlp] loyalty preview failed (non-blocking):", (e as Error)?.message);
     }
   }
+  // === W46 uc-ux (Coder E): UC-24 gift-wrap fee line ======================
+  // The tenant's configured wrap fee (integer cents) is an explicit fee line
+  // folded into the charged total; 0/absent = no wrap charge.
+  let giftWrapFeeCents = 0;
+  if (opts.gift && (opts.gift.isGift || opts.gift.wrap)) {
+    try {
+      const { getGiftWrapFeeCents } = await import("../services/giftOrders");
+      giftWrapFeeCents = opts.gift.wrap ? await getGiftWrapFeeCents(db, opts.tenantId) : 0;
+    } catch (e: unknown) {
+      console.error("[nlp] gift wrap fee lookup failed (non-blocking):", (e as Error)?.message);
+      giftWrapFeeCents = 0;
+    }
+  }
+  // === END W46 uc-ux ===
   const totalMinor = Math.max(0,
     toMinorUnitsExact(subtotal + deliveryFee)
+    + giftWrapFeeCents
     - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0)
     - (loyaltyPreview?.discountCents ?? 0));
   const total = Number(minorUnitsToString(totalMinor));
@@ -383,7 +568,16 @@ export async function createChatOrder(
         currency,
         paymentStatus: "unpaid",
         codState: opts.paymentMethod === "cod" ? "cod_pending" : null,
+        // === W46 uc-ux (Coder E): UC-24 gift order columns ===
+        isGift: opts.gift?.isGift === true || opts.gift?.wrap === true,
+        giftMessage: opts.gift?.message ?? null,
+        giftRecipientPhone: opts.gift?.recipientPhone ?? null,
+        giftWrapFeeCents,
+        // === END W46 uc-ux ===
         shippingAddress: opts.address ? { raw: opts.address } : null,
+        // === W46 orders-p2 (ORD-25): buyer free-text note → orders.notes ===
+        notes: opts.buyerNote?.trim() ? opts.buyerNote.trim().slice(0, 500) : null,
+        // === END W46 orders-p2 ===
         items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
         metadata: {
           fulfillment: opts.fulfillment,
@@ -393,6 +587,11 @@ export async function createChatOrder(
           source: "whatsapp_chat",
           paymentMethod: opts.paymentMethod === "cod" ? "cod" : "online",
           ...(promoMeta ? { promo: promoMeta } : {}),
+          // === W46 uc-ux (Coder E): UC-24 gift metadata (wrap fee line) ===
+          ...(opts.gift && (opts.gift.isGift || opts.gift.wrap) ? {
+            gift: { wrap: opts.gift.wrap === true, wrapFeeCents: giftWrapFeeCents, message: opts.gift.message ?? null, recipientPhone: opts.gift.recipientPhone ?? null },
+          } : {}),
+          // === END W46 uc-ux ===
           // W27: aggregated courier quote snapshot + loyalty redemption.
           ...(aggQuote ? {
             deliveryQuote: {
@@ -428,6 +627,32 @@ export async function createChatOrder(
     }
     throw err;
   }
+
+  // === W46 uc-ux (Coder E): UC-17 venue-table stamp + UC-21 slot claim ====
+  // Adjacent post-commit seams — a failure here NEVER rolls back the order.
+  let venueTable: { tableId: string; label: string } | null = null;
+  try {
+    const { attachVenueTableToOrder } = await import("../services/venueTables");
+    venueTable = await attachVenueTableToOrder(db, { orderId, cartSessionId: opts.cartSessionId });
+  } catch (e: unknown) {
+    console.error("[nlp] venue-table attach failed (non-blocking):", (e as Error)?.message);
+  }
+  let slotBooking: ChatOrderResult["slotBooking"];
+  if (opts.deliverySlotId && opts.fulfillment === "delivery") {
+    try {
+      const slotsSvc = await import("../services/deliverySlots");
+      const booked = await slotsSvc.bookDeliverySlot(db, { tenantId: opts.tenantId, orderId, slotId: opts.deliverySlotId });
+      slotBooking = booked;
+      if (booked.booked) {
+        // Courier booking seam (quote window recorded on order metadata).
+        await slotsSvc.bookCourierForSlot(db, { tenantId: opts.tenantId, orderId, slotId: opts.deliverySlotId, dropoffAddress: opts.address ?? null });
+      }
+    } catch (e: unknown) {
+      console.error("[nlp] delivery-slot booking failed (non-blocking):", (e as Error)?.message);
+      slotBooking = { booked: false, reason: "error" };
+    }
+  }
+  // === END W46 uc-ux ===
 
   // ── Claim the promo usage only AFTER the order transaction committed ──
   // (a rolled-back order must never consume a use). Claim-first + atomic —
@@ -523,8 +748,51 @@ export async function createChatOrder(
       promoError,
       deliveryQuote: deliveryQuoteMeta,
       loyalty: loyaltyApplied,
+      giftWrapFeeCents,
+      slotBooking,
+      venueTable,
     };
   }
+
+  // ── W41 (UC-1): buyer installments — create the plan BEFORE the payment
+  // link so the link charges the DOWN PAYMENT only. Adjacent checkout-caller
+  // seam: paymentConfirm.ts is untouched; the pinned path settles the down
+  // payment (escrow hold, stock commit, receipt) and the adjacent webhook
+  // hook (runBuyerCreditWebhookHook) activates the plan. An installment
+  // offer/eligibility failure NEVER blocks the order — fall back to full
+  // payment honestly.
+  let installment: ChatOrderResult["installment"] = null;
+  let installmentDownRef: string | null = null;
+  if (opts.installments != null) { // COD orders returned above — this is the online path
+    try {
+      const { createBuyerPlan } = await import("../services/buyerInstallments");
+      const plan = await createBuyerPlan(db, {
+        tenantId: opts.tenantId,
+        orderId,
+        buyerPhone: opts.waPhoneNumber,
+        totalCents: totalMinor,
+        currency,
+        installments: opts.installments,
+        saveCardConsent: opts.saveCardConsent === true,
+      });
+      installment = { planId: plan.planId, downPaymentCents: plan.downPaymentCents, installments: opts.installments, totalCents: totalMinor };
+      installmentDownRef = plan.downPaymentRef;
+      await db.update(orders).set({
+        metadata: sql`COALESCE(${orders.metadata}, '{}'::jsonb) || ${JSON.stringify({
+          installments: { planId: plan.planId, installments: opts.installments, totalCents: totalMinor, downPaymentCents: plan.downPaymentCents, status: "pending_down" },
+        })}::jsonb`,
+        updatedAt: new Date(),
+      }).where(eq(orders.id, orderId)).catch((e: unknown) =>
+        console.error("[nlp] order installment metadata failed (non-blocking):", (e as Error)?.message));
+    } catch (e: unknown) {
+      console.error(`[nlp] installment plan creation failed for order ${orderId} — falling back to full payment:`, (e as Error)?.message);
+      installment = null;
+      installmentDownRef = null;
+    }
+  }
+  // Amount charged NOW (major units): the down payment for installment
+  // orders, the full total otherwise. Integer cents → major via minor units.
+  const chargeNowMajor = installment ? installment.downPaymentCents / 100 : total;
 
   // ── Initiate payment via the PLATFORM's own gateway (amount = total incl.
   // fee) — tenants no longer bring their own Paystack/Flutterwave keys.
@@ -540,7 +808,7 @@ export async function createChatOrder(
         ? "flutterwave"
         : null;
     if (provider) {
-      const txId = crypto.randomUUID();
+      const txId = installmentDownRef ?? crypto.randomUUID();
       const callbackUrl = `https://wa.me/${opts.waPhoneNumber}`;
       // Paystack rejects /transaction/initialize outright without an email —
       // WhatsApp customers never type one, so synthesize one from their phone
@@ -552,7 +820,7 @@ export async function createChatOrder(
         const resp = await fetch("https://api.paystack.co/transaction/initialize", {
           method: "POST",
           headers: { Authorization: `Bearer ${ENV.paystackSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ email: customerEmail, amount: Math.round(total * 100), currency, reference: txId, callback_url: callbackUrl }),
+          body: JSON.stringify({ email: customerEmail, amount: Math.round(chargeNowMajor * 100), currency, reference: txId, callback_url: callbackUrl }),
         }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Paystack initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
         if (resp && resp.status === false) {
           console.error(`[nlp] Paystack initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
@@ -562,7 +830,7 @@ export async function createChatOrder(
         const resp = await fetch("https://api.flutterwave.com/v3/payments", {
           method: "POST",
           headers: { Authorization: `Bearer ${ENV.flwSecretKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ tx_ref: txId, amount: total, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber, email: customerEmail } }),
+          body: JSON.stringify({ tx_ref: txId, amount: chargeNowMajor, currency, redirect_url: callbackUrl, customer: { phone_number: opts.waPhoneNumber, email: customerEmail } }),
         }).then(r => r.json()).catch((err: unknown) => { console.error(`[nlp] Flutterwave initialize request failed for order ${orderId}:`, (err as Error)?.message); return null; });
         if (resp && resp.status === "error") {
           console.error(`[nlp] Flutterwave initialize rejected for order ${orderId}: ${resp.message ?? "unknown error"}`);
@@ -575,7 +843,7 @@ export async function createChatOrder(
         orderId,
         provider,
         providerRef: txId,
-        amount: total.toFixed(2),
+        amount: chargeNowMajor.toFixed(2),
         currency,
         status: "initiated",
         paymentUrl,
@@ -600,6 +868,10 @@ export async function createChatOrder(
     promoError,
     deliveryQuote: deliveryQuoteMeta,
     loyalty: loyaltyApplied,
+    installment,
+    giftWrapFeeCents,
+    slotBooking,
+    venueTable,
   };
 }
 import { hermesConfigs } from "../../drizzle/schema";
@@ -682,11 +954,12 @@ CONVERSATION RULES:
 6. Keep responses SHORT (under 160 chars when possible) — this is WhatsApp.
 7. If the customer wants to REPEAT a previous order ("repeat my last order", "same as last time", "the usual", "reorder"), use intent "reorder" — the system rebuilds the cart from their last paid order automatically.
 8. If the customer raises a DISPUTE or complaint about an order ("I want to dispute", "my order never arrived", "you sent the wrong item", "I'm not happy with my order"), use intent "dispute" — the system logs the dispute and notifies the team automatically.
+9. If the customer wants to CANCEL an order they placed ("cancel my order", "cancel the order", "I don't want it anymore", "please cancel order #..."), use intent "cancel_order" — the system cancels it if it hasn't shipped and refunds any payment. Do NOT use "dispute" for plain cancellation requests.
 
 RESPOND WITH JSON (no markdown):
 {
   "reply": "<message to send to customer>",
-  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|discover_nearby|browse_wholesale|join_group_deal|unknown",
+  "intent": "browse|search|add_to_cart|remove_from_cart|view_cart|checkout|confirm_order|order_status|support|greeting|reorder|dispute|cancel_order|discover_nearby|browse_wholesale|join_group_deal|unknown",
   "nextState": "greeting|browse|product_detail|add_to_cart|checkout_address|checkout_confirm|payment|order_confirmed|support",
   "extractedItems": [{"product": "<product name>", "quantity": <number>}] — EVERY product the customer wants to add in this message (multi-item orders are common, e.g. "2 spicy wraps and 1 malt"); empty array if none,
   "extractedProduct": "<single product name if exactly one mentioned, else null>",
@@ -709,6 +982,11 @@ export const nlpRouter = router({
      message: z.string().max(4096),
      customerName: z.string().optional(),
       ussdMode: z.boolean().optional(),
+      // === W37 telegram === optional channel tag (default whatsapp). Only
+      // affects the session-key computation below via sessionKeyFor; the
+      // WhatsApp path is byte-equivalent (key == waPhoneNumber).
+      channel: z.string().optional(),
+      // === END W37 telegram ===
    }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -736,8 +1014,16 @@ export const nlpRouter = router({
       }
 
       // 1. Upsert NLP session
+      // === W37 telegram === channel-aware session key. For whatsapp (or an
+      // absent channel) sessionKeyFor returns input.waPhoneNumber unchanged,
+      // so the WA lookup/insert below is behavior-identical to pre-W37.
+      // Telegram sessions key on `telegram:<chat_id>` so they never collide
+      // with the WA identity of the same linked phone.
+      const { sessionKeyFor } = await import("../services/channelIdentity");
+      const sessionKey = sessionKeyFor(input.channel ?? "whatsapp", input.waPhoneNumber);
+      // === END W37 telegram ===
       const existing = await db.select().from(nlpSessions)
-        .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, input.waPhoneNumber)))
+        .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, sessionKey)))
         .limit(1);
 
       const detectedLang = detectLanguage(input.message);
@@ -747,7 +1033,7 @@ export const nlpRouter = router({
         const [newSession] = await db.insert(nlpSessions).values({
           id: crypto.randomUUID(),
           tenantId: input.tenantId,
-          waPhoneNumber: input.waPhoneNumber,
+          waPhoneNumber: sessionKey, // === W37 telegram === (== input.waPhoneNumber for whatsapp)
           customerName: input.customerName,
           language: detectedLang,
           state: "greeting",
@@ -818,11 +1104,54 @@ export const nlpRouter = router({
             stepCtx.paymentMethod = "cod";
           }
 
+          // === W46 orders-p2 (ORD-25): buyer free-text note capture =======
+          // "note: leave at the gate" / "add note — call when you arrive"
+          // at any checkout step sticks to the session and is written to
+          // orders.notes when the order is created (both channels — Telegram
+          // runs the SAME processMessage path).
+          {
+            const captured = extractBuyerNote(text);
+            if (captured) stepCtx.buyerNote = captured;
+          }
+          // === END W46 orders-p2 ===
+
           // W27: loyalty redemption intent at any checkout step ("redeem my
           // points", "2 delivery use points") sticks to the session like the
           // promo/COD capture above and is applied when the order is created.
           if (/\b(redeem|use)\b[^.]*\bpoints?\b|\bpoints?\s+(discount|don jazzy)?$/i.test(lower) && !/\b(balance|how many|check)\b/.test(lower)) {
             stepCtx.loyaltyRedeem = true;
+          }
+
+          // === W46 uc-ux (Coder E): UC-24 gift intent capture =============
+          // "this is a gift", "gift wrap it", "send to 234… as a gift" sticks
+          // gift options to the session; createChatOrder charges the wrap fee
+          // line and stamps the order's gift columns. One-shot: consumed when
+          // the order is created (deleted from stepCtx below).
+          if (/\bgift\b/i.test(text)) {
+            const recipient = text.match(/(?:send|ship|deliver)\s+(?:it\s+)?to\s*(\+?[\d][\d\s-]{7,16}\d)/i);
+            stepCtx.gift = {
+              isGift: true,
+              wrap: /\bwrap(ped|ping)?\b/i.test(text),
+              recipientPhone: recipient ? recipient[1].replace(/[\s-]/g, "") : null,
+              message: null,
+            };
+          }
+          // === END W46 uc-ux ===
+
+          // W41 (UC-1): installment intent at any checkout step — "pay in 3",
+          // "installments", "pay small small" sticks to the session and is
+          // applied when the order is created (plan + down-payment link).
+          {
+            const m = lower.match(/\bpay\s+in\s+(\d+)\b/);
+            if (m) {
+              stepCtx.installments = Number(m[1]);
+            } else if (/\binstallments?\b|\bpay small small\b|\blayaway\b/.test(lower) && !/\b(status|balance|left|remaining)\b/.test(lower)) {
+              stepCtx.installments = 3; // default choice; plan validates eligibility
+            }
+            // Explicit save-card consent ("pay in 3 and save my card").
+            if (/\bsave (my )?(card|card details)\b/.test(lower)) {
+              stepCtx.saveCardConsent = true;
+            }
           }
 
           const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
@@ -836,6 +1165,14 @@ export const nlpRouter = router({
               promoCode: typeof stepCtx.promoCode === "string" ? stepCtx.promoCode : null,
               paymentMethod: stepCtx.paymentMethod === "cod" ? "cod" : "online",
               loyaltyRedeem: stepCtx.loyaltyRedeem === true,
+              installments: typeof stepCtx.installments === "number" ? (stepCtx.installments as number) : null,
+              saveCardConsent: stepCtx.saveCardConsent === true,
+              // === W46 uc-ux (Coder E): UC-24 gift + UC-21 slot opts ===
+              gift: (stepCtx.gift as import("../services/giftOrders").GiftOptions | undefined) ?? undefined,
+              deliverySlotId: typeof stepCtx.deliverySlotId === "string" ? stepCtx.deliverySlotId : null,
+              // === END W46 uc-ux ===
+              // W46 orders-p2 (ORD-25): attach the captured buyer note.
+              buyerNote: typeof stepCtx.buyerNote === "string" ? stepCtx.buyerNote : null,
               deliveryCoords: (() => {
                 const dc = stepCtx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
                 return typeof dc?.latitude === "number" && typeof dc?.longitude === "number"
@@ -843,6 +1180,12 @@ export const nlpRouter = router({
                   : null;
               })(),
             });
+            // === W46 uc-ux (Coder E): UC-27 min-order block ===============
+            if (order.minOrderBlock) {
+              const { minOrderBlockReply } = await import("../services/minOrder");
+              return minOrderBlockReply(order.minOrderBlock, order.currency ?? "NGN", fulfillment);
+            }
+            // === END W46 uc-ux ===
             if (order.fraudBlocked) {
               return `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
             }
@@ -856,11 +1199,18 @@ export const nlpRouter = router({
             stepCtx.fulfillment = fulfillment;
             stepCtx.lastOrderId = order.orderId;
             stepCtx.lastOrderNumber = order.orderNumber;
+            // === W46 uc-ux (Coder E): consume one-shot gift/slot opts ======
+            const w46Gift = (stepCtx.gift as import("../services/giftOrders").GiftOptions | undefined) ?? undefined;
+            const w46SlotFailed = order.slotBooking && order.slotBooking.booked === false;
+            delete stepCtx.gift;
+            delete stepCtx.deliverySlotId;
+            // === END W46 uc-ux ===
             if (order.loyalty) delete stepCtx.loyaltyRedeem; // W27: one-shot redeem flag consumed
             nextState = "payment";
             stepIntent = "confirm_order";
             stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
             const summary = buildOrderSummary({
+              fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
               fulfillment,
               orderNumber: order.orderNumber!,
               items: order.items!,
@@ -875,7 +1225,38 @@ export const nlpRouter = router({
               paymentUrl: order.paymentUrl ?? null,
               paymentMethod: order.paymentMethod ?? "online",
               trackingUrl: trackingUrlFor(order.orderId!),
+              // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
+              tipPrompt: order.paymentMethod === "cod" ? null
+                : await (async () => {
+                    try {
+                      const { tipCheckoutPrompt } = await import("../services/tipping");
+                      return await tipCheckoutPrompt(db, input.tenantId, order.currency ?? "NGN");
+                    } catch { return null; }
+                  })(),
+              // === END W46 uc-money ===
             });
+            // W41 (UC-1): installment plan — the link charges the down
+            // payment only; explain the schedule honestly.
+            if (order.installment) {
+              delete stepCtx.installments; // one-shot flag consumed
+              delete stepCtx.saveCardConsent;
+              const inst = order.installment;
+              const rest = inst.totalCents - inst.downPaymentCents;
+              return summary +
+                `\n📅 *Installment plan:* you're paying ${fmtMoney(inst.downPaymentCents / 100, order.currency ?? "NGN")} now` +
+                ` and ${fmtMoney(rest / 100, order.currency ?? "NGN")} in ${inst.installments - 1} weekly payment${inst.installments - 1 === 1 ? "" : "s"}.` +
+                `\nYour order ships once the plan is fully paid.`;
+            }
+            // W41: installment offer when eligible (merchant opt-in + threshold).
+            if (stepCtx.paymentMethod !== "cod") {
+              try {
+                const { checkBuyerInstallmentEligibility, buildInstallmentOfferText } = await import("../services/buyerInstallments");
+                const elig = await checkBuyerInstallmentEligibility(db, input.tenantId, Math.round((order.total ?? 0) * 100));
+                if (elig.eligible) {
+                  return summary + buildInstallmentOfferText(Math.round((order.total ?? 0) * 100), elig.config, order.currency ?? "NGN");
+                }
+              } catch { /* offer is best-effort */ }
+            }
             // W27: annotate the loyalty redemption on the buyer's summary.
             if (order.loyalty && order.loyalty.points > 0) {
               return summary + `\n🎁 Redeemed ${order.loyalty.points} pts (−${fmtMoney(order.loyalty.discountCents / 100, order.currency ?? "NGN")}). Points balance: ${order.loyalty.balanceAfter}.`;
@@ -883,7 +1264,24 @@ export const nlpRouter = router({
             if (stepCtx.loyaltyRedeem === true) {
               return summary + `\n🎁 No loyalty points available to redeem yet — points vest when orders are delivered.`;
             }
-            return summary;
+            // === W46 uc-ux (Coder E): gift/slot/venue summary annotations ==
+            {
+              let annotated = summary;
+              if (w46Gift && (w46Gift.isGift || w46Gift.wrap)) {
+                const { giftSummaryLine } = await import("../services/giftOrders");
+                annotated += giftSummaryLine(w46Gift, order.giftWrapFeeCents ?? 0, order.currency ?? "NGN");
+              }
+              if (order.slotBooking?.booked) {
+                annotated += "\n📅 Your chosen delivery slot is booked for this order.";
+              } else if (w46SlotFailed) {
+                annotated += "\n⚠️ That delivery slot just filled up — reply SLOTS to pick another; this order will be scheduled as soon as possible.";
+              }
+              if (order.venueTable) {
+                annotated += `\n🍽️ Order sent to the kitchen for *${order.venueTable.label}*.`;
+              }
+              return annotated;
+            }
+            // === END W46 uc-ux ===
           };
 
           if (stepCtx.awaitingFulfillment === true) {
@@ -1048,6 +1446,208 @@ export const nlpRouter = router({
         }
       }
 
+      // 3f. W41 (UC-6/UC-1) buyer-credit commands — deterministic, no LLM.
+      // "my cards" lists saved payment methods (never the raw token);
+      // "remove card N" revokes; "buy again" is the one-tap reorder charged
+      // to the saved token; "save card" confirms the consent prompt issued
+      // at checkout. Parity: telegram buyers hit the SAME nlp.processMessage
+      // via the W37 telegram seam, so these replies work on both channels.
+      {
+        const cmd = input.message.trim().toLowerCase();
+        const cardsMatch = cmd === "my cards" || cmd === "saved cards" || cmd === "my card";
+        const removeMatch = cmd.match(/^remove card(?:\s+(\d+))?$/);
+        const saveMatch = cmd === "save card" || cmd === "save my card";
+        const reorderMatch = cmd === "buy again" || cmd === "one tap reorder";
+        if (cardsMatch || removeMatch || saveMatch || reorderMatch) {
+          const creditCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          let reply: string;
+          const tokensSvc = await import("../services/customerPaymentTokens");
+          if (cardsMatch) {
+            const list = await tokensSvc.listCustomerTokens(db, input.tenantId, input.waPhoneNumber);
+            creditCtx.lastTokenIds = list.map((t) => t.id);
+            reply = list.length === 0
+              ? "You have no saved cards. After your next card payment, reply SAVE CARD to save it for one-tap checkout and installments."
+              : "💳 *Your saved cards:*\n" +
+                list.map((t, i) => `${i + 1}. ${t.displayLabel ?? `${t.provider} card`}`).join("\n") +
+                "\n\nReply REMOVE CARD <number> to remove one, or BUY AGAIN to reorder your last purchase with one tap.";
+          } else if (removeMatch) {
+            const list = await tokensSvc.listCustomerTokens(db, input.tenantId, input.waPhoneNumber);
+            const idx = removeMatch[1] ? Number(removeMatch[1]) - 1 : 0;
+            const target = list[idx];
+            if (!target) {
+              reply = list.length === 0
+                ? "You have no saved cards to remove."
+                : `That card number doesn't match — reply MY CARDS to see your ${list.length} saved card${list.length === 1 ? "" : "s"}.`;
+            } else {
+              const res = await tokensSvc.revokeCustomerToken(db, { tenantId: input.tenantId, buyerPhone: input.waPhoneNumber, tokenId: target.id });
+              reply = res.ok
+                ? `✅ Removed ${target.displayLabel ?? "card"} — it won't be charged again.`
+                : "I couldn't remove that card just now — please try again.";
+            }
+          } else if (saveMatch) {
+            // Consent confirm: save the reusable authorization from the
+            // buyer's most recent successful card payment. Honest failure
+            // when the provider returned no reusable handle.
+            reply = "I couldn't find a recent card payment to save. Pay with your card first, then reply SAVE CARD.";
+            const candidates = await db.select().from(paymentTransactions)
+              .where(eq(paymentTransactions.tenantId, input.tenantId))
+              .orderBy(sql`${paymentTransactions.createdAt} DESC`)
+              .limit(20);
+            for (const tx of candidates) {
+              if (tx.status !== "completed" && tx.status !== "success") continue;
+              const [ord] = await db.select().from(orders).where(eq(orders.id, tx.orderId ?? "")).limit(1);
+              if (!ord || ord.customerId !== input.waPhoneNumber) continue;
+              const saved = await tokensSvc.saveTokenFromPayment(db, {
+                tenantId: input.tenantId,
+                buyerPhone: input.waPhoneNumber,
+                provider: tx.provider,
+                reference: tx.providerRef ?? tx.id,
+                consentText: tokensSvc.tokenConsentPrompt(null),
+              });
+              if (saved.ok) {
+                reply = `✅ Saved ${saved.displayLabel ?? "your card"} for faster checkouts. Reply MY CARDS anytime to manage it.`;
+              } else if (saved.error === "no_reusable_authorization") {
+                reply = "Your last payment didn't return a reusable card authorization, so there's nothing I can save — your card details stay with the payment provider.";
+              }
+              break;
+            }
+          } else {
+            // BUY AGAIN — one-tap reorder with the saved token. The message
+            // IS the explicit tap; reorderWithToken charges the token
+            // off-session and settles via the pinned confirm path.
+            const [lastOrder] = await db.select().from(orders)
+              .where(and(eq(orders.tenantId, input.tenantId), eq(orders.customerId, input.waPhoneNumber), eq(orders.paymentStatus, "completed")))
+              .orderBy(sql`${orders.createdAt} DESC`)
+              .limit(1);
+            if (!lastOrder) {
+              reply = "I couldn't find a previous paid order to repeat — tell me what you'd like and we'll start a fresh order.";
+            } else {
+              const list = await tokensSvc.listCustomerTokens(db, input.tenantId, input.waPhoneNumber);
+              const token = list[0];
+              if (!token) {
+                reply = "You don't have a saved card yet — reply SAVE CARD after your next card payment, then BUY AGAIN works with one tap.";
+              } else {
+                const { reorderWithToken } = await import("../services/buyerInstallments");
+                const res = await reorderWithToken(db, {
+                  tenantId: input.tenantId,
+                  buyerPhone: input.waPhoneNumber,
+                  tokenId: token.id,
+                  sourceOrderId: lastOrder.id,
+                });
+                reply = res.ok
+                  ? res.status === "pending"
+                    ? `⏳ Reorder ${res.orderNumber} placed — your saved ${token.displayLabel ?? "card"} is being charged ${fmtMoney((res.chargedCents ?? 0) / 100, lastOrder.currency)}. I'll confirm as soon as it clears.`
+                    : `✅ Reorder ${res.orderNumber} confirmed — charged ${fmtMoney((res.chargedCents ?? 0) / 100, lastOrder.currency)} to your saved ${token.displayLabel ?? "card"}. 🔎 Track it: ${trackingUrlFor(res.orderId!)}`
+                  : res.error === "reorder_already_charged"
+                    ? "That reorder was already placed — check your orders with STATUS."
+                    : `⚠️ I couldn't charge your saved card (${res.error ?? "charge failed"}). No money moved — try again or order the usual way.`;
+              }
+            }
+          }
+          await db.update(nlpSessions).set({ context: creditCtx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply,
+            intent: "buyer_credit",
+            state: session.state,
+            language: session.language,
+            sessionId: session.id,
+            confidence: 1,
+          };
+        }
+      }
+
+      // === W46 uc-ux (Coder E): 3h. UC-17/21/23 deterministic commands =====
+      // No LLM. Parity: telegram buyers hit the SAME nlp.processMessage via
+      // the W37 telegram seam, so these replies work on both channels.
+      //   TABLE:<token>  — UC-17 venue-table QR deep link → cart metadata
+      //   SLOTS / SLOT n — UC-21 delivery slot picker + arming
+      //   SAVE <product> / MY LIST / REMOVE n — UC-23 wishlist
+      {
+        const ucCmd = input.message.trim();
+        const ucLower = ucCmd.toLowerCase();
+        const ucCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+
+        // UC-17: venue-table QR deep link (prefilled TABLE:<token> text).
+        const tableMatch = ucCmd.match(/^TABLE:([A-Za-z0-9_-]{8,128})$/i);
+        if (tableMatch) {
+          const { seedCartFromTableQr } = await import("../services/venueTables");
+          const seeded = await seedCartFromTableQr(db, {
+            tenantId: input.tenantId,
+            qrToken: tableMatch[1],
+            waPhoneNumber: input.waPhoneNumber,
+          });
+          if (seeded && !session.cartSessionId) {
+            session.cartSessionId = seeded.cartSessionId;
+            cartSession = (await db.select().from(cartSessions).where(eq(cartSessions.id, seeded.cartSessionId)).limit(1))[0] ?? cartSession;
+          }
+          const reply = seeded
+            ? `🍽️ You're ordering from *${seeded.tableLabel}*. Browse the menu and tell me what you'd like — I'll send it to your table!`
+            : "Sorry, that table QR code isn't active — please ask the staff for help.";
+          return { reply, intent: "venue_table_scan", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // UC-21: delivery slot picker (SLOTS lists, SLOT n arms for checkout).
+        if (ucLower === "slots" || ucLower === "delivery slots") {
+          const slotsSvc = await import("../services/deliverySlots");
+          const slots = await slotsSvc.listAvailableSlots(db, input.tenantId);
+          ucCtx.lastSlotIds = slots.map((s) => s.id);
+          await db.update(nlpSessions).set({ context: ucCtx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply: slotsSvc.formatSlotPicker(slots), intent: "delivery_slots", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+        const slotMatch = ucLower.match(/^slot\s+(\d+)$/);
+        if (slotMatch) {
+          const ids = Array.isArray(ucCtx.lastSlotIds) ? ucCtx.lastSlotIds as string[] : [];
+          const picked = ids[Number(slotMatch[1]) - 1];
+          let reply: string;
+          if (picked) {
+            ucCtx.deliverySlotId = picked;
+            reply = "✅ Slot reserved for your next delivery order — complete checkout and I'll book it.";
+          } else {
+            reply = "That slot number doesn't match the list — reply SLOTS to see the available delivery slots first.";
+          }
+          await db.update(nlpSessions).set({ context: ucCtx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "delivery_slot_pick", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // UC-23: wishlist commands.
+        const saveMatch = ucCmd.match(/^save(?:\s+this)?(?:\s+(.+))?$/i);
+        const myListMatch = /^(my list|wishlist|my wishlist|saved items)$/.test(ucLower);
+        const wishRemoveMatch = ucLower.match(/^remove\s+(\d+)$/);
+        if (saveMatch || myListMatch || wishRemoveMatch) {
+          const wishSvc = await import("../services/wishlists");
+          let reply: string;
+          if (myListMatch) {
+            const list = await wishSvc.listWishlist(db, { tenantId: input.tenantId, phone: input.waPhoneNumber });
+            reply = wishSvc.formatWishlist(list, (m, c) => fmtMoney(m, c));
+          } else if (wishRemoveMatch) {
+            const res = await wishSvc.removeWishlistEntry(db, { tenantId: input.tenantId, phone: input.waPhoneNumber, position: Number(wishRemoveMatch[1]) });
+            reply = res.removed ? "✅ Removed from your wishlist." : "That number doesn't match your list — reply MY LIST to see it.";
+          } else {
+            const mention = saveMatch?.[1]?.trim() ?? "";
+            if (!mention) {
+              reply = "Tell me what to save — e.g. SAVE <product name> — and I'll keep it on your wishlist and alert you when the price drops. ❤️";
+            } else {
+              const prods = await db.select({ id: products.id, name: products.name, price: products.price, currency: products.currency, stockQuantity: products.stockQuantity })
+                .from(products)
+                .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")));
+              const match = matchCatalogItem(prods, mention);
+              if (match.status === "matched") {
+                const res = await wishSvc.saveToWishlist(db, { tenantId: input.tenantId, phone: input.waPhoneNumber, productId: match.product.id });
+                reply = res.already
+                  ? `${match.product.name} is already on your wishlist — I'll alert you when the price drops. ❤️`
+                  : `❤️ Saved *${match.product.name}* to your wishlist. Reply MY LIST anytime; I'll message you if the price drops.`;
+              } else if (match.status === "ambiguous") {
+                reply = `Which one? ${match.candidates.map((c) => c.name).join(", ")} — reply SAVE <full name>.`;
+              } else {
+                reply = `I couldn't find "${mention}" in the catalog — try the exact product name.`;
+              }
+            }
+          }
+          return { reply, intent: "wishlist", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+      }
+      // === END W46 uc-ux ===
+
       // 3e. Geospatial merchant discovery — deterministic, no LLM needed.
       // Free-text "…near me" searches (and category-menu replies after a pin
       // was shared) run discoverNearby centered on the session's
@@ -1183,6 +1783,856 @@ export const nlpRouter = router({
           };
         }
       }
+      // === W41 rma-fx (Coder C): 3g. Returns — buyer "RETURN ..." + merchant
+      // "RMA APPROVE/REJECT <id>" — deterministic, no LLM (covers WA AND TG;
+      // telegram inbound feeds through this same engine). ===
+      {
+        const trimmedMsg = input.message.trim();
+        // ── Merchant decision: RMA APPROVE <id> / RMA REJECT <id> [note] ──
+        const rmaCmd = /^rma\s+(approve|reject)\s+([0-9a-fA-F-]{8,36})\b[:\-\s]*(.*)$/i.exec(trimmedMsg);
+        if (rmaCmd) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, input.waPhoneNumber).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can approve or reject returns.";
+          } else {
+            try {
+              const { decideReturn } = await import("../services/rma");
+              const rma = await decideReturn(db, {
+                rmaId: rmaCmd[2],
+                tenantId: input.tenantId,
+                approve: rmaCmd[1].toLowerCase() === "approve",
+                note: rmaCmd[3]?.trim() || undefined,
+              });
+              reply = `RMA ${rma.id.slice(0, 8)} ${rma.status} — the buyer has been notified.`;
+            } catch (e: any) {
+              reply = `Could not update that return: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "rma_decide", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Buyer: RETURN [order] [reason…] ──
+        const returnCmd = /^return\b[\s:,-]*(.*)$/i.exec(trimmedMsg);
+        if (returnCmd) {
+          const rmaCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+          let reply: string;
+          try {
+            const { rma, orderNumber } = await requestReturn(db, {
+              tenantId: input.tenantId,
+              buyerRef: input.waPhoneNumber,
+              orderId: typeof rmaCtx.lastOrderId === "string" ? rmaCtx.lastOrderId : null,
+              reason: returnCmd[1]?.trim() || "buyer requested return",
+              requestedVia: "whatsapp",
+            });
+            reply = `📦 Got it — your return request for order ${orderNumber} is in ` +
+              `(ref ${rma.id.slice(0, 8)}). The merchant will review it and we'll message you here ` +
+              `as soon as it's approved or rejected.`;
+          } catch (e: any) {
+            reply = e?.code === "NOT_FOUND"
+              ? "I couldn't find an order on this number to return — please share your order number."
+              : e?.code === "CONFLICT"
+                ? (e?.message ?? "There is already an open return for this order.")
+                : `Sorry, I couldn't start that return just now (${e?.message ?? "unknown error"}).`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "rma_request", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === END W41 rma-fx ===
+      // === W43 dispatch (Coder C): post-dispatch address change — buyer
+      // "change my address …" (BOTH channels; telegram inbound feeds this
+      // same engine) + merchant decision via typed command ("ADDR APPROVE
+      // <id>") or approval-card callback ids ("addrchg:approve:<id>" — TG
+      // callback_query dispatches the id here as text; the WA interactive
+      // branch in server/_core/index.ts resolves the same ids). ===
+      {
+        const trimmedMsg = input.message.trim();
+        // ── Merchant decision: card callback id or typed ADDR command ──
+        const cb = /^addrchg:(approve|reject):([0-9a-fA-F-]{36})\s*$/i.exec(trimmedMsg);
+        const typed = /^addr\s+(approve|reject)\s+([0-9a-fA-F-]{8,36})\b[:\-\s]*(.*)$/i.exec(trimmedMsg);
+        const decideMatch = cb ?? typed;
+        if (decideMatch) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          // TG merchant: session key "telegram:<chatId>" → linked staff phone.
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, staffRef).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can approve or reject address changes.";
+          } else {
+            try {
+              const { decideAddressChange } = await import("../services/addressChange");
+              const decided = await decideAddressChange(db, {
+                requestId: decideMatch[2],
+                tenantId: input.tenantId,
+                approve: decideMatch[1].toLowerCase() === "approve",
+                decidedBy: input.waPhoneNumber,
+                note: typed?.[3]?.trim() || undefined,
+              });
+              reply = `Address change ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+            } catch (e: any) {
+              reply = `Could not update that address change: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "address_change_decide", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Buyer: change my address [to …] ──
+        const addrCmd = /^(?:change|update|edit)\s+(?:my\s+)?(?:delivery\s+|shipping\s+)?address\b[\s:,-]*(.*)$/i.exec(trimmedMsg);
+        if (addrCmd) {
+          let reply: string;
+          const remainder = (addrCmd[1] ?? "").replace(/^(?:to|as)\s+/i, "").trim();
+          if (!remainder) {
+            reply = "Sure — please send the new delivery address in one message, e.g. \"change my address to 12 Adeola Odeku St, Victoria Island, Lagos\". (Only orders already out for delivery can be changed.)";
+          } else {
+            try {
+              const { requestAddressChange, parseAddressFromText } = await import("../services/addressChange");
+              // buyerRef: E.164 phone (WA) or "telegram:<chatId>" session key
+              // (TG) — the service resolves linked phones either way.
+              const { req, orderNumber } = await requestAddressChange(db, {
+                tenantId: input.tenantId,
+                buyerRef: input.waPhoneNumber,
+                newAddress: parseAddressFromText(remainder),
+                requestedBy: "customer",
+              });
+              reply = `📍 Got it — your address change for order ${orderNumber} is pending merchant approval ` +
+                `(ref ${req.id.slice(0, 8)}). We'll message you here as soon as it's approved or rejected.` +
+                (req.feeCents > 0 ? ` A fee of ₦${(req.feeCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} applies on approval.` : "");
+            } catch (e: any) {
+              reply = e?.code === "FORBIDDEN"
+                ? "Sorry, this store doesn't allow address changes after dispatch."
+                : e?.code === "CONFLICT"
+                  ? (e?.message ?? "There is already a pending address change for this order.")
+                  : e?.code === "NOT_FOUND"
+                    ? "I couldn't find an order out for delivery on this number — address changes are only possible once your order is on its way."
+                    : `Sorry, I couldn't start that address change just now (${e?.message ?? "unknown error"}).`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "address_change_request", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === END W43 dispatch ===
+      // === W44 giftcards-referrals (Coder A): gift-card + referral chat
+      // commands — deterministic, no LLM (BOTH channels: telegram inbound
+      // feeds this same engine; waPhoneNumber is the session key, E.164 on
+      // WA and "telegram:<chatId>" on TG). ===
+      {
+        const trimmedMsg = input.message.trim();
+        const w44Ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+        /** TG session keys resolve to the linked E.164 phone when bound. */
+        const resolveCustomerRef = async (): Promise<string> => {
+          const ref = input.waPhoneNumber;
+          if (/^telegram:/i.test(ref)) {
+            const chatId = ref.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) return ident.phone;
+          }
+          return ref;
+        };
+        const w44Return = async (reply: string, intent: string) => {
+          await db.update(nlpSessions).set({ context: w44Ctx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent, state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        };
+
+        // ── GIFT CARD BALANCE [CODE] ──
+        const gcBal = /^gift\s?card\s+balance(?:\s+([A-Za-z0-9-]{4,64}))?$/i.exec(trimmedMsg);
+        if (gcBal) {
+          const { getGiftCardBalance, fmtNaira } = await import("../services/giftCards");
+          const code = (gcBal[1] ?? (typeof w44Ctx.lastGiftCardCode === "string" ? w44Ctx.lastGiftCardCode : "")).toUpperCase();
+          let reply: string;
+          if (!code) {
+            reply = "Please send the card code, e.g. GIFT CARD BALANCE GC-ABCD-1234.";
+          } else {
+            const bal = await getGiftCardBalance(input.tenantId, code, db);
+            if (!bal) {
+              reply = `I couldn't find a gift card with code ${code} — please double-check the code.`;
+            } else {
+              w44Ctx.lastGiftCardCode = code;
+              reply = `🎁 Gift card *${code}*\nBalance: ${fmtNaira(bal.balanceCents, bal.currency)}\nStatus: ${bal.status}` +
+                (bal.expiresAt ? `\nExpires: ${bal.expiresAt.toISOString().slice(0, 10)}` : "") +
+                (bal.status === "active" || bal.status === "redeemed_partially"
+                  ? `\nRedeem it on your next order with "USE GIFT CARD ${code}".` : "");
+            }
+          }
+          return w44Return(reply, "gift_card_balance");
+        }
+
+        // ── USE/REDEEM/PAY WITH GIFT CARD <CODE> → apply to the session's
+        // last unpaid order (claim-first, idempotent per order+code) ──
+        const gcUse = /^(?:use|redeem|pay\s+with)\s+gift\s?card\s+([A-Za-z0-9-]{4,64})$/i.exec(trimmedMsg);
+        if (gcUse) {
+          const { applyGiftCardToOrder, fmtNaira } = await import("../services/giftCards");
+          const code = gcUse[1]!.toUpperCase();
+          w44Ctx.lastGiftCardCode = code;
+          const orderId = typeof w44Ctx.lastOrderId === "string" ? w44Ctx.lastOrderId : null;
+          let reply: string;
+          if (!orderId) {
+            reply = "You don't have an open checkout right now — start an order first, then say USE GIFT CARD <code> when I send the payment summary.";
+          } else {
+            const [ord] = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.tenantId, input.tenantId))).limit(1);
+            if (!ord || (ord.paymentStatus !== "unpaid" && ord.paymentStatus !== "initiated")) {
+              reply = "That order isn't awaiting payment anymore. Start a new order to use your gift card.";
+            } else {
+              const customerRef = await resolveCustomerRef();
+              const res = await applyGiftCardToOrder(input.tenantId, code, orderId, { customerRef, db });
+              if (!res.ok) {
+                reply = res.error === "insufficient_funds"
+                  ? `⚠️ That gift card couldn't cover any of this order (${res.error}).`
+                  : res.error === "gift_card_not_found"
+                    ? `I couldn't find a gift card with code ${code} — please double-check it.`
+                    : `⚠️ I couldn't redeem that gift card (${res.error ?? "unknown error"}). No money moved.`;
+              } else {
+                const [cur] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+                const totalCents = Math.round(parseFloat(String(cur?.totalAmount ?? "0")) * 100);
+                const curr = cur?.currency ?? "NGN";
+                reply = `🎁 Applied ${fmtNaira(res.appliedCents, curr)} from gift card *${res.code}* to order ${ord.orderNumber}.` +
+                  (res.remainderCents > 0
+                    ? `\nRemaining to pay: ${fmtNaira(res.remainderCents, curr)} of ${fmtNaira(totalCents, curr)} — I'll send a payment link for the rest.`
+                    : `\n✅ That covers the whole ${fmtNaira(totalCents, curr)} — your order is PAID. Thank you!`) +
+                  `\nCard balance left: ${fmtNaira(res.balanceCents ?? 0, curr)}.`;
+                if (res.remainderCents > 0 && res.orderPaidInFull !== true) {
+                  // PSP remainder via the EXISTING provider chain (payment_link
+                  // parity category; telegram gets a URL inline button).
+                  try {
+                    const { initiateWithFallback } = await import("../services/payments/initiateWithFallback");
+                    const ref = `GCR-${Date.now()}-${orderId.slice(0, 8).toUpperCase()}`;
+                    const outcome = await initiateWithFallback(input.tenantId, {
+                      tenantId: input.tenantId,
+                      amountCents: res.remainderCents,
+                      currency: curr,
+                      reference: ref,
+                      metadata: { kind: "gift_card_remainder", orderId, giftCardCode: res.code },
+                      customer: { phone: customerRef.replace(/^telegram:/i, "") },
+                    });
+                    const url = outcome.result.authorizationUrl;
+                    if (url) {
+                      await db.insert(paymentIntents).values({
+                        id: crypto.randomUUID(),
+                        tenantId: input.tenantId,
+                        orderId,
+                        customerId: customerRef.slice(0, 36),
+                        amount: (res.remainderCents / 100).toFixed(2),
+                        currency: curr,
+                        provider: "paystack",
+                        providerPaymentId: ref,
+                        idempotencyKey: `giftcard-remainder:${ref}`,
+                        metadata: { kind: "gift_card_remainder", orderId, giftCardCode: res.code },
+                      });
+                      reply += `\n💳 Pay the remainder: ${url}`;
+                    }
+                  } catch (e: any) {
+                    console.warn("[nlp] gift-card remainder link failed:", e?.message);
+                  }
+                }
+              }
+            }
+          }
+          return w44Return(reply, "gift_card_redeem");
+        }
+
+        // ── MY REFERRAL CODE ──
+        if (/^my referral( code)?$/i.test(trimmedMsg)) {
+          const { getOrCreateReferralCode } = await import("../services/referrals");
+          const customerRef = await resolveCustomerRef();
+          const codeRow = await getOrCreateReferralCode(input.tenantId, customerRef, db);
+          const reply = `📣 Your referral code is *${codeRow.code}* — share it with friends! When a friend's first order is paid, you earn store credit (if this store's program is on). Friends enter it here with "USE REFERRAL ${codeRow.code}".`;
+          return w44Return(reply, "referral_code");
+        }
+
+        // ── USE REFERRAL <CODE> / REFERRAL CODE <CODE> → attribute (first
+        // order only; self-referral rejected; one attribution per referee) ──
+        const refUse = /^(?:use\s+)?referral(?:\s+code)?\s+([A-Za-z0-9-]{4,64})$/i.exec(trimmedMsg);
+        if (refUse) {
+          const { attributeReferral } = await import("../services/referrals");
+          const customerRef = await resolveCustomerRef();
+          const res = await attributeReferral(input.tenantId, { code: refUse[1]!, refereeCustomerId: customerRef }, db);
+          const reply = res.ok
+            ? res.duplicate
+              ? "You're already linked to a referral code — one referral per person. Your reward tracks your first paid order."
+              : `✅ Referral code ${refUse[1]!.toUpperCase()} linked to you — it counts when your first order is paid. Happy shopping!`
+            : res.error === "self_referral_rejected"
+              ? "Sorry — you can't use your own referral code. Share it with a friend instead!"
+              : res.error === "referee_not_first_order"
+                ? "Referral codes can only be linked before your first paid order."
+                : res.error === "referral_code_not_found"
+                  ? "I couldn't find that referral code — please double-check it with your friend."
+                  : `⚠️ I couldn't link that referral code (${res.error ?? "unknown error"}).`;
+          return w44Return(reply, "referral_attribute");
+        }
+      }
+      // === END W44 giftcards-referrals ===
+      // === W44 preorders-offers (Coder B): haggling / custom offers — buyer
+      // "I'll pay X for Y" (BOTH channels; telegram inbound feeds this same
+      // engine), merchant decision via card callback ids
+      // ("offer:accept|reject|counter:<id>") or typed commands ("OFFER ACCEPT
+      // <id>" / "OFFER REJECT <id> [note]" / "OFFER COUNTER <id> <amount>"),
+      // customer counter response via "offer:caccept|cdecline:<id>" or typed
+      // "ACCEPT OFFER <id>" / "DECLINE OFFER <id>". ===
+      {
+        const trimmedMsg = input.message.trim();
+        // ── Merchant decision: card callback or typed OFFER command ──
+        const offerCb = /^offer:(accept|reject|counter):([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        const offerTyped = /^offer\s+(accept|reject|counter)\s+([0-9a-fA-F-]{8,36})\b[:\-\s]*(.*)$/i.exec(trimmedMsg);
+        const offerDecision = offerCb ?? offerTyped;
+        if (offerDecision) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          // TG merchant: session key "telegram:<chatId>" → linked staff phone.
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, staffRef).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can respond to offers.";
+          } else {
+            const action = offerDecision[1].toLowerCase() as "accept" | "reject" | "counter";
+            const remainder = offerTyped?.[3]?.trim() ?? "";
+            let counterPriceCents: number | null = null;
+            if (action === "counter") {
+              const amt = /([\d,]+(?:\.\d{1,2})?)/.exec(remainder);
+              counterPriceCents = amt ? Math.round(Number(amt[1].replace(/,/g, "")) * 100) : null;
+              if (!counterPriceCents) {
+                await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+                return {
+                  reply: `To counter, type OFFER COUNTER ${offerDecision[2]} <amount> — e.g. OFFER COUNTER ${offerDecision[2]} 4800.`,
+                  intent: "offer_decide", state: session.state,
+                  language: session.language, sessionId: session.id, confidence: 1,
+                };
+              }
+            }
+            try {
+              const { decideOffer } = await import("../services/customOffers");
+              const decided = await decideOffer(db, {
+                offerId: offerDecision[2],
+                tenantId: input.tenantId,
+                action,
+                counterPriceCents,
+                decidedBy: input.waPhoneNumber,
+                note: action === "reject" ? remainder || undefined : undefined,
+              });
+              reply = decided.status === "accepted"
+                ? `Offer ${decided.id.slice(0, 8)} accepted — the customer got a priced checkout link.`
+                : decided.status === "countered"
+                  ? `Counter of ₦${((decided.counterPriceCents ?? 0) / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} sent to the customer for offer ${decided.id.slice(0, 8)}.`
+                  : `Offer ${decided.id.slice(0, 8)} ${decided.status} — the customer has been notified.`;
+            } catch (e: any) {
+              reply = `Could not update that offer: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "offer_decide", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Customer counter-offer response: card callback or typed ──
+        const counterCb = /^offer:(caccept|cdecline):([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        const counterTyped = /^(accept|decline)\s+offer\s+([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        if (counterCb ?? counterTyped) {
+          const accept = counterCb ? counterCb[1].toLowerCase() === "caccept" : counterTyped![1].toLowerCase() === "accept";
+          const idRef = (counterCb ?? counterTyped)![2];
+          let reply: string;
+          try {
+            const { respondToCounter } = await import("../services/customOffers");
+            const decided = await respondToCounter(db, {
+              offerId: idRef,
+              tenantId: input.tenantId,
+              customerRef: input.waPhoneNumber,
+              accept,
+            });
+            reply = decided.status === "accepted"
+              ? "Deal! Your payment link is on its way here."
+              : decided.status === "rejected"
+                ? "Okay — that offer is closed. You can make a new one any time."
+                : `That offer is ${decided.status} now.`;
+          } catch (e: any) {
+            reply = `Could not update that offer: ${e?.message ?? "unknown error"}`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "offer_counter_response", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+        // ── Buyer makes an offer: "I'll pay 4500 for Ankara fabric" ──
+        const offerCmd = /^(?:i'?ll\s+pay|i\s+can\s+pay|i\s+offer|my\s+offer\s+is|offer)\s*(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:kobo)?\s+(?:for|on)\s+(.+)$/i.exec(trimmedMsg);
+        if (offerCmd) {
+          const rawAmt = Number(offerCmd[1].replace(/,/g, ""));
+          // "kobo" suffix means the amount is already in minor units.
+          const offeredPriceCents = /kobo/i.test(offerCmd[0]) ? Math.round(rawAmt) : Math.round(rawAmt * 100);
+          let productText = offerCmd[2].trim();
+          let qty = 1;
+          const qtyM = /(?:^|\s)(?:x\s*(\d+)|(\d+)\s*x)$/i.exec(productText);
+          if (qtyM) {
+            qty = Number(qtyM[1] ?? qtyM[2]);
+            productText = productText.replace(qtyM[0], "").trim();
+          }
+          let reply: string;
+          try {
+            const { makeOffer } = await import("../services/customOffers");
+            const { offer, productName } = await makeOffer(db, {
+              tenantId: input.tenantId,
+              customerRef: input.waPhoneNumber,
+              productName: productText,
+              qty,
+              offeredPriceCents,
+            });
+            reply = `🤝 Got it — your offer of ₦${(offeredPriceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} for ${qty} × ${productName} ` +
+              `is with the store (ref ${offer.id.slice(0, 8)}). We'll message you here as soon as they respond.`;
+          } catch (e: any) {
+            reply = e?.code === "CONFLICT"
+              ? (e?.message ?? "You already have an open offer for that product.")
+              : e?.code === "NOT_FOUND"
+                ? "I couldn't find that product in this store — check the name and try again."
+                : (e?.message ?? `Sorry, I couldn't place that offer just now (${e?.message ?? "unknown error"}).`);
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply, intent: "offer_request", state: session.state,
+            language: session.language, sessionId: session.id, confidence: 1,
+          };
+        }
+      }
+      // === END W44 preorders-offers ===
+      // === W44 deposits-subs-digital (Coder C): appointments (book/cancel/
+      // merchant complete+no-show), subscription pause/resume/cancel, digital
+      // PIN reveal. BOTH channels — telegram inbound feeds this same engine;
+      // customerRef is the E.164 phone (WA) or "telegram:<chatId>" session key. ===
+      {
+        const trimmedMsg = input.message.trim();
+
+        // ── Merchant: APPT COMPLETE <id8> / APPT NOSHOW <id8> ──
+        const apptAdmin = /^appt\s+(complete|noshow|no-show)\s+([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        if (apptAdmin) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, staffRef).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can manage appointments.";
+          } else {
+            try {
+              const { serviceAppointments } = await import("../../drizzle/schema");
+              const matches = await db.select({ id: serviceAppointments.id }).from(serviceAppointments)
+                .where(and(eq(serviceAppointments.tenantId, input.tenantId),
+                  sql`CAST(${serviceAppointments.id} AS text) LIKE ${apptAdmin[2].toLowerCase() + "%"}`))
+                .limit(2);
+              if (matches.length !== 1) {
+                reply = matches.length === 0
+                  ? "No appointment with that reference — check the id."
+                  : "That reference is ambiguous — send more characters of the id.";
+              } else if (/^complete$/i.test(apptAdmin[1])) {
+                const { completeAppointment } = await import("../services/appointments");
+                const r = await completeAppointment(db, { tenantId: input.tenantId, appointmentId: matches[0]!.id, actorId: staffRef });
+                reply = `Appointment ${matches[0]!.id.slice(0, 8)} completed — ` +
+                  (r.remainder === "wallet" ? "remainder charged from the customer's wallet."
+                    : r.remainder === "link" ? "remainder payment link sent to the customer."
+                      : r.remainder === "failed" ? "⚠️ the remainder could not be collected yet."
+                        : "no remainder due.");
+              } else {
+                const { markNoShow } = await import("../services/appointments");
+                await markNoShow(db, { tenantId: input.tenantId, appointmentId: matches[0]!.id, actorId: staffRef });
+                reply = `Appointment ${matches[0]!.id.slice(0, 8)} marked no-show — deposit kept, customer notified.`;
+              }
+            } catch (e: any) {
+              reply = `Could not update that appointment: ${e?.message ?? "unknown error"}`;
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_admin", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: list bookable services ──
+        if (/^(?:services|book a service|book an? appointment|appointments)\s*$/i.test(trimmedMsg)) {
+          const { listServiceProducts, appointmentDepositPct } = await import("../services/appointments");
+          const svcs = await listServiceProducts(db, input.tenantId);
+          const depositPct = await appointmentDepositPct(db, input.tenantId);
+          const reply = svcs.length === 0
+            ? "We don't have bookable services right now — browse our products with 'menu'."
+            : "📅 Bookable services:\n" + svcs.map((s, i) =>
+                `${i + 1}. ${s.name} — ₦${(s.priceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} (${s.durationMinutes} min, ${depositPct}% deposit)`).join("\n") +
+              `\n\nReply "book <service> at <time>" — e.g. "book ${svcs[0]!.name} at 2026-01-05 14:00".`;
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_list_services", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: book <service> at <time> ──
+        const bookCmd = /^book\s+(.+?)\s+(?:at|on)\s+(.+)$/i.exec(trimmedMsg);
+        if (bookCmd) {
+          const { listServiceProducts, bookAppointment, parseAppointmentTime } = await import("../services/appointments");
+          const svcs = await listServiceProducts(db, input.tenantId);
+          const wanted = bookCmd[1].trim().toLowerCase();
+          const svc = svcs.find((s) => s.name.toLowerCase() === wanted)
+            ?? svcs.find((s) => s.name.toLowerCase().includes(wanted) || wanted.includes(s.name.toLowerCase()));
+          let reply: string;
+          if (!svc) {
+            reply = svcs.length === 0
+              ? "We don't have bookable services right now."
+              : `I couldn't match "${bookCmd[1].trim()}" to a service. Bookable: ${svcs.map((s) => s.name).join(", ")}.`;
+          } else {
+            const startsAt = parseAppointmentTime(bookCmd[2]);
+            if (!startsAt) {
+              reply = `I couldn't parse that time — use e.g. "book ${svc.name} at 2026-01-05 14:00" or "book ${svc.name} at tomorrow 2pm".`;
+            } else {
+              try {
+                const r = await bookAppointment(db, {
+                  tenantId: input.tenantId,
+                  customerRef: input.waPhoneNumber,
+                  serviceProductId: svc.id,
+                  startsAt,
+                  channel: /^telegram:/i.test(input.waPhoneNumber) ? "telegram" : "whatsapp",
+                });
+                const fmt = (c: number) => `₦${(c / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+                reply = `📅 ${r.serviceName} on ${startsAt.toUTCString()} (ref ${r.appt.id.slice(0, 8)}).` +
+                  (r.depositCents > 0
+                    ? `\nDeposit: ${fmt(r.depositCents)}${r.remainderCents > 0 ? ` (remainder ${fmt(r.remainderCents)} at your appointment)` : ""}.` +
+                      (r.paymentUrl ? `\n💳 Pay deposit: ${r.paymentUrl}` : `\n⚠️ Deposit link unavailable right now — we'll retry shortly.`)
+                    : "\nNo deposit required — you're booked!");
+              } catch (e: any) {
+                reply = e?.code === "CONFLICT"
+                  ? (e?.message ?? "That time slot is already booked.")
+                  : e?.code === "NOT_FOUND"
+                    ? "That service is not available for booking."
+                    : `Sorry, I couldn't book that just now (${e?.message ?? "unknown error"}).`;
+              }
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_book", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: cancel appointment [id8] ──
+        const cancelAppt = /^cancel\s+(?:my\s+)?appointment\b\s*([0-9a-fA-F-]{0,36})\s*$/i.exec(trimmedMsg);
+        if (cancelAppt) {
+          let reply: string;
+          try {
+            const { serviceAppointments } = await import("../../drizzle/schema");
+            const { cancelAppointment } = await import("../services/appointments");
+            const ref = input.waPhoneNumber.replace(/^\+/, "");
+            const conds = [
+              eq(serviceAppointments.tenantId, input.tenantId),
+              inArray(serviceAppointments.status, ["booked", "confirmed"]),
+            ];
+            if (cancelAppt[1]) {
+              conds.push(sql`CAST(${serviceAppointments.id} AS text) LIKE ${cancelAppt[1].toLowerCase() + "%"}`);
+            } else {
+              conds.push(or(eq(serviceAppointments.customerId, ref), eq(serviceAppointments.customerId, input.waPhoneNumber))!);
+            }
+            const matches = await db.select({ id: serviceAppointments.id }).from(serviceAppointments)
+              .where(and(...conds))
+              .orderBy(desc(serviceAppointments.createdAt))
+              .limit(2);
+            if (matches.length === 0) {
+              reply = "I couldn't find an active appointment on this number.";
+            } else if (matches.length > 1) {
+              reply = "You have more than one active appointment — reply \"cancel appointment <ref>\" with the reference from your booking message.";
+            } else {
+              const r = await cancelAppointment(db, {
+                tenantId: input.tenantId,
+                appointmentId: matches[0]!.id,
+                actorId: ref,
+              });
+              reply = r.outcome === "refunded"
+                ? `✅ Appointment cancelled — your deposit is being refunded.`
+                : r.outcome === "forfeited"
+                  ? `Appointment cancelled. Because this was inside the cancel window, the deposit is forfeited.`
+                  : `✅ Appointment cancelled.`;
+            }
+          } catch (e: any) {
+            reply = `Could not cancel that appointment: ${e?.message ?? "unknown error"}`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "appointment_cancel", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: subscription lifecycle ──
+        const subCmd = /^(pause|resume|cancel)\s+(?:my\s+)?subscription\s*$/i.exec(trimmedMsg);
+        if (subCmd) {
+          const subs = await import("../services/subscriptions");
+          let reply: string;
+          try {
+            const action = subCmd[1].toLowerCase();
+            reply = action === "pause"
+              ? await subs.pauseSubscription(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber })
+              : action === "resume"
+                ? await subs.resumeSubscription(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber })
+                : await subs.cancelSubscriptionChat(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber });
+          } catch (e: any) {
+            reply = `Could not update your subscription: ${e?.message ?? "unknown error"}`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: `subscription_${subCmd[1].toLowerCase()}`, state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: reveal my pin ──
+        if (/^(?:reveal\s+(?:my\s+)?pin|my\s+pin|resend\s+(?:my\s+)?pin)\s*$/i.test(trimmedMsg)) {
+          let reply: string;
+          try {
+            const { revealPinAgain } = await import("../services/digitalPins");
+            reply = await revealPinAgain(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber });
+          } catch (e: any) {
+            reply = `Could not reveal your PIN just now (${e?.message ?? "unknown error"}).`;
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "digital_pin_reveal", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+      }
+      // === END W44 deposits-subs-digital ===
+      // === W46 uc-money (Coder C): UC-11 auctions (BID / AUCTION / CLOSE
+      // AUCTION), UC-15 tips (TIP <amount>), UC-16 donations (DONATE <amount>
+      // TO <product>), UC-26 pre-confirmation amendments (AMEND <orderRef>
+      // SET <product> x<qty>). BOTH channels — telegram inbound feeds this
+      // same engine; customerRef is the E.164 phone (WA) or
+      // "telegram:<chatId>" session key. ===
+      {
+        const trimmedMsg = input.message.trim();
+        const parseAmountCents = (raw: string, kobo: boolean) => {
+          const n = Number(raw.replace(/,/g, ""));
+          if (!Number.isFinite(n) || n <= 0) return null;
+          return kobo ? Math.round(n) : Math.round(n * 100);
+        };
+        const resolveStaffRef = async (): Promise<string> => {
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          return staffRef;
+        };
+
+        // ── Merchant: AUCTION START <product> AT <amount> FOR <hours>H ──
+        const auctionStart = /^auction\s+(?:start\s+)?(.+?)\s+(?:at|for)\s*(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:kobo)?\s+(?:for|ends?\s+in)\s+(\d{1,3})\s*h(?:ours?)?\s*$/i.exec(trimmedMsg);
+        if (auctionStart) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, await resolveStaffRef()).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can start auctions.";
+          } else {
+            try {
+              const { createAuction } = await import("../services/auctions");
+              const startPriceCents = parseAmountCents(auctionStart[2], /kobo/i.test(auctionStart[0]));
+              if (!startPriceCents) throw new Error("Give a start price, e.g. AUCTION START Ankara fabric AT 5000 FOR 24H");
+              const a = await createAuction(db, {
+                tenantId: input.tenantId,
+                productName: auctionStart[1],
+                startPriceCents,
+                durationHours: Number(auctionStart[3]),
+                createdBy: input.waPhoneNumber,
+              });
+              reply = `🔨 Auction live for ${a.title} (ref ${a.id.slice(0, 8)}) — starts at ₦${(startPriceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}, ends ${a.endsAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Customers bid with: BID <amount> ${a.title}.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not start that auction.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "auction_create", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Merchant: CLOSE AUCTION <ref> (manual close sweep) ──
+        const auctionClose = /^close\s+auction\s+([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        if (auctionClose) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, await resolveStaffRef()).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can close auctions.";
+          } else {
+            try {
+              const { sweepDueAuctions } = await import("../services/auctions");
+              // Force-close: mark the ref-matched active auction due, then run
+              // the claim-first sweep (which owns the guarded flip + invoice).
+              await db.execute(sql`
+                UPDATE auctions SET ends_at = now()
+                WHERE tenant_id = ${input.tenantId} AND status = 'active'
+                  AND id::text LIKE ${auctionClose[1] + "%"}
+              `);
+              const r = await sweepDueAuctions(db, input.tenantId, {});
+              reply = r.closed > 0
+                ? `🔨 Closed ${r.closed} auction(s) — ${r.invoiced} winner(s) invoiced${r.reserveMissed ? `, ${r.reserveMissed} ended below reserve` : ""}.`
+                : "No active auction matched that ref (already closed?).";
+            } catch (e: any) {
+              reply = e?.message ?? "Could not close that auction.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "auction_close", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: BID <amount> <product-or-ref> ──
+        const bidCmd = /^bid\s+(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(kobo)?\s+(?:for|on)\s+(.+)$/i.exec(trimmedMsg);
+        if (bidCmd) {
+          const amountCents = parseAmountCents(bidCmd[1], !!bidCmd[2]);
+          let reply: string;
+          if (!amountCents) {
+            reply = "Bid like this: BID 5500 Ankara fabric";
+          } else {
+            try {
+              const { placeBid } = await import("../services/auctions");
+              const target = bidCmd[3].trim();
+              const isRef = /^[0-9a-fA-F-]{8,36}$/.test(target);
+              const r = await placeBid(db, {
+                tenantId: input.tenantId,
+                bidderRef: input.waPhoneNumber,
+                amountCents,
+                ...(isRef ? { auctionRef: target } : { productName: target }),
+              });
+              reply = `🔨 You're the high bidder at ₦${(amountCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} on "${r.auction.title}" (ref ${r.auction.id.slice(0, 8)})` +
+                `${r.extended ? " — the end time was extended (anti-snipe)." : "."} We'll message you if you're outbid.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not place that bid just now.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "auction_bid", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: DONATE <amount> TO <product> ──
+        const donateCmd = /^(?:donate|give)\s+(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(kobo)?\s+(?:to|for|towards?)\s+(.+)$/i.exec(trimmedMsg);
+        if (donateCmd) {
+          const amountCents = parseAmountCents(donateCmd[1], !!donateCmd[2]);
+          let reply: string;
+          if (!amountCents) {
+            reply = "Donate like this: DONATE 5000 to School fees fund";
+          } else {
+            try {
+              const { createDonationCheckout } = await import("../services/donations");
+              const r = await createDonationCheckout(db, {
+                tenantId: input.tenantId,
+                customerRef: input.waPhoneNumber,
+                productName: donateCmd[3].trim(),
+                amountCents,
+              });
+              reply = r.paymentUrl
+                ? `🙏 Thank you! Your ₦${(amountCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} for ${r.productName} is ready:\n💳 Pay: ${r.paymentUrl}`
+                : `🙏 Thank you! Your pledge for ${r.productName} (ref ${r.orderNumber}) is recorded — the store will send your payment link shortly.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not set up that donation just now.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "donation_request", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: TIP <amount> (applies to latest pending unpaid order) ──
+        const tipCmd = /^(?:tip|add\s+tip)\s+(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(kobo)?\s*$/i.exec(trimmedMsg);
+        if (tipCmd) {
+          const tipCents = parseAmountCents(tipCmd[1], !!tipCmd[2]);
+          let reply: string;
+          if (tipCents == null) {
+            reply = "Tip like this: TIP 500";
+          } else {
+            try {
+              const { setOrderTip } = await import("../services/tipping");
+              const r = await setOrderTip(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber, tipCents });
+              reply = tipCents === 0
+                ? `Tip removed from order ${r.orderNumber}. Total is now ₦${(r.totalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}.`
+                : `💝 Tip of ₦${(tipCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} added to order ${r.orderNumber}. New total: ₦${(r.totalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not add that tip just now.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "tip_set", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer/staff: AMEND <orderRef> SET <product> x<qty> [, …] ──
+        const amendCmd = /^amend\s+(?:order\s+)?([A-Za-z0-9-]{4,40})\s+set\s+(.+)$/i.exec(trimmedMsg);
+        if (amendCmd) {
+          let reply: string;
+          try {
+            const { amendOrder } = await import("../services/orderAmendments");
+            // Parse "product name x2, other product x1" segments.
+            const segs = amendCmd[2].split(",").map((s) => s.trim()).filter(Boolean);
+            const lines: { productId: string; qty: number }[] = [];
+            for (const seg of segs) {
+              const m = /^(.*?)\s*(?:x\s*(\d+)|(\d+)\s*x)$/i.exec(seg);
+              if (!m) throw new Error(`I couldn't parse "${seg}" — use "<product> x<qty>".`);
+              const name = m[1].trim();
+              const qty = Number(m[2] ?? m[3]);
+              const prows = (await db.execute(
+                sql`SELECT id FROM "products" WHERE "tenantId" = ${input.tenantId} AND "status" = 'active' AND "name" ILIKE ${"%" + name.slice(0, 80) + "%"} ORDER BY "name" LIMIT 1`,
+              )) as unknown as any[];
+              const plist: any[] = Array.isArray(prows) ? prows : (prows as any)?.rows ?? [];
+              if (!plist[0]) throw new Error(`I couldn't find "${name}" in this store.`);
+              lines.push({ productId: String((plist[0] as any).id), qty });
+            }
+            // Resolve order ref: full id or orderNumber suffix.
+            const orows = (await db.execute(
+              sql`SELECT id, "customerId" FROM orders WHERE "tenantId" = ${input.tenantId} AND (id = ${amendCmd[1]} OR "orderNumber" ILIKE ${"%" + amendCmd[1]}) ORDER BY "createdAt" DESC LIMIT 2`,
+            )) as unknown as any[];
+            const olist: any[] = Array.isArray(orows) ? orows : (orows as any)?.rows ?? [];
+            if (olist.length !== 1) throw new Error("I couldn't find exactly one order with that ref.");
+            if (olist[0].customerId !== input.waPhoneNumber) {
+              const { isTenantStaffPhone } = await import("../services/catalogAI");
+              const isStaff = await isTenantStaffPhone(db, input.tenantId, await resolveStaffRef()).catch(() => false);
+              if (!isStaff) throw new Error("You can only amend your own orders.");
+            }
+            const r = await amendOrder(db, {
+              tenantId: input.tenantId,
+              orderId: String(olist[0].id),
+              lines,
+              actorId: input.waPhoneNumber,
+              customerRef: String(olist[0].customerId),
+              reason: "chat amend command",
+            });
+            const a = r.amendment;
+            const deltaTxt = a.deltaCents === 0 ? "no change to the total"
+              : a.deltaCents > 0 ? `₦${(a.deltaCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} more${r.deltaPaymentUrl ? ` — pay the difference: ${r.deltaPaymentUrl}` : ""}`
+              : `₦${(-a.deltaCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} less${r.refundStatus ? ` — refund ${r.refundStatus.replace(/_/g, " ")}` : ""}`;
+            reply = `📝 Order amended (new total ₦${(a.newTotalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}, ${deltaTxt}).`;
+          } catch (e: any) {
+            reply = e?.message ?? "Could not amend that order just now.";
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "order_amend", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+      }
+      // === END W46 uc-money ===
       // === W27 Coder F: 3f. Wholesale marketplace + group buying commands ===
       // Deterministic, no LLM needed (discoveryMenu.ts exemplar). Parses
       // "wholesale [q]" / "buy <#> <qty>" / "deals" / "join <ref> <qty>" /
@@ -1340,6 +2790,35 @@ export const nlpRouter = router({
         // guessed; they get a clarification line appended to the reply.
         const itemsToAdd = normalizeExtractedItems(llmResult);
         if (itemsToAdd.length > 0) {
+          // W46 merge-close: the catalog context window above is limited to
+          // 30 rows (unordered) — on tenants with larger catalogs an
+          // extracted item can legitimately fall outside the window and be
+          // misreported as "not on the menu". Rescue by name with a targeted
+          // lookup before declaring not_found.
+          const windowNames = new Set(tenantProducts.map((p) => p.name.toLowerCase()));
+          const rescueNames = Array.from(new Set(
+            itemsToAdd.map((i) => (i.product ?? "").trim()).filter((n) => n.length > 0),
+          )).filter((n) => {
+            const q = n.toLowerCase();
+            return !windowNames.has(q) &&
+              !tenantProducts.some((p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
+          });
+          for (const name of rescueNames) {
+            const hits = await db.select({
+              id: products.id, name: products.name, price: products.price,
+              currency: products.currency, stockQuantity: products.stockQuantity,
+              description: products.description, imageUrl: products.imageUrl,
+            }).from(products)
+              .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active"), ilike(products.name, `%${name}%`)))
+              .limit(5)
+              .catch(() => [] as any[]);
+            for (const h of hits) {
+              if (!windowNames.has(h.name.toLowerCase())) {
+                tenantProducts.push(h);
+                windowNames.add(h.name.toLowerCase());
+              }
+            }
+          }
           const result = await addExtractedItemsToCart(db, {
             tenantId: input.tenantId,
             waPhoneNumber: input.waPhoneNumber,
@@ -1410,10 +2889,68 @@ export const nlpRouter = router({
         }
       }
 
+      // === W45 orders-p0 (ORD-27): buyer "cancel order" chat intent ===
+      // Both channels reach this handler (Telegram inbound routes through the
+      // same processMessage). Runs the guarded PRE-SHIP buyer cancel in
+      // orderCrud.buyerCancel (phone-ownership check + unified W38
+      // cancelOrder incl. escrow refund). Shipped orders are redirected to
+      // the dispute path honestly.
+      if (llmResult.intent === "cancel_order") {
+        try {
+          const { appRouter } = await import("../routers");
+          const caller = appRouter.createCaller({
+            user: { id: 0, role: "user", tenantId: input.tenantId, name: "chat-buyer-cancel" },
+          } as any);
+          const result = await caller.orderCrud.buyerCancel({
+            tenantId: input.tenantId,
+            phone: input.waPhoneNumber,
+            reason: input.message.slice(0, 200),
+          });
+          llmResult.reply = result.escrowRefunded
+            ? `✅ Your order has been cancelled and your payment refund is on its way. Sorry to see it go — type "menu" anytime to shop again.`
+            : `✅ Your order has been cancelled.${result.refundSweepRequired ? " Your refund is being processed by our team." : ""} Type "menu" anytime to shop again.`;
+          llmResult.nextState = "browse";
+        } catch (e: any) {
+          const msg = e?.message ?? "";
+          if (/already shipped|terminal/i.test(msg)) {
+            llmResult.reply = `⚠️ That order has already shipped, so it can't be cancelled here — reply "dispute" and our team will help you with a return or refund.`;
+          } else if (/No cancellable order/i.test(msg)) {
+            llmResult.reply = `I couldn't find an open order on this number to cancel. If you meant a specific order, reply with "cancel order <order id>".`;
+          } else {
+            console.error("[nlp] cancel_order intent failed:", msg);
+            llmResult.reply = `⚠️ I couldn't cancel the order just now — our team has been notified. You can also reply "dispute" for help.`;
+            try {
+              const { notifyTenantAdminWhatsApp } = await import("../services/adminAlerts");
+              await notifyTenantAdminWhatsApp(db, input.tenantId, `⚠️ Buyer cancel-order request failed for ${input.waPhoneNumber}: ${msg.slice(0, 200)}`);
+            } catch { /* best-effort */ }
+          }
+        }
+      }
+      // === END W45 orders-p0 ===
+
       if (llmResult.intent === "confirm_order" && cartSession) {
         // Promo code capture ("use code SAVE10") — sticks to the session.
         const mentionedPromo = extractPromoCode(input.message);
         if (mentionedPromo) ctx.promoCode = mentionedPromo;
+        // === W46 uc-ux (Coder E): UC-24 gift intent capture (LLM path) ====
+        if (/\bgift\b/i.test(input.message) && !ctx.gift) {
+          const recipient = input.message.match(/(?:send|ship|deliver)\s+(?:it\s+)?to\s*(\+?[\d][\d\s-]{7,16}\d)/i);
+          ctx.gift = {
+            isGift: true,
+            wrap: /\bwrap(ped|ping)?\b/i.test(input.message),
+            recipientPhone: recipient ? recipient[1].replace(/[\s-]/g, "") : null,
+            message: null,
+          };
+        }
+        // === END W46 uc-ux ===
+        // === W46 privacy-consent (TEN-15): age attestation capture — an
+        // affirmative reply ("yes 18+", "I am 21") at any confirm turn is a
+        // one-shot attestation for THIS checkout (persisted by the gate). ===
+        const { AGE_AFFIRM_RE } = await import("../services/ageGate");
+        const ageAffirm = AGE_AFFIRM_RE.exec(input.message ?? "");
+        const ageAttested = ctx.awaitingAgeAttestation === true && !!ageAffirm;
+        if (ageAttested) delete ctx.awaitingAgeAttestation;
+        // === END W46 privacy-consent ===
         const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
         if (items.length > 0) {
           const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
@@ -1427,7 +2964,8 @@ export const nlpRouter = router({
             // known, so the payment link always covers the true total.
             ctx.awaitingFulfillment = true;
             llmResult.nextState = "checkout_confirm";
-            llmResult.reply = buildFulfillmentPrompt(items, subtotal, currency);
+            llmResult.reply = buildFulfillmentPrompt(items, subtotal, currency,
+              (await dualFormatterFor(db, input.tenantId)) ?? undefined);
           } else {
             // Fulfillment already chosen earlier in the session — create the
             // order immediately (e.g. buyer re-confirming).
@@ -1444,14 +2982,36 @@ export const nlpRouter = router({
               promoCode: typeof ctx.promoCode === "string" ? ctx.promoCode : null,
               paymentMethod: ctx.paymentMethod === "cod" ? "cod" : "online",
               loyaltyRedeem: ctx.loyaltyRedeem === true,
+              // W46 orders-p2 (ORD-25): attach any captured buyer note.
+              buyerNote: typeof ctx.buyerNote === "string" ? ctx.buyerNote : null,
               deliveryCoords: (() => {
                 const dc = ctx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
                 return typeof dc?.latitude === "number" && typeof dc?.longitude === "number"
                   ? { latitude: dc.latitude, longitude: dc.longitude }
                   : null;
               })(),
+              // === W46 uc-ux (Coder E): UC-24 gift + UC-21 slot opts ===
+              gift: (ctx.gift as import("../services/giftOrders").GiftOptions | undefined) ?? undefined,
+              deliverySlotId: typeof ctx.deliverySlotId === "string" ? ctx.deliverySlotId : null,
+              // === END W46 uc-ux ===
+              // === W46 privacy-consent (TEN-15): one-shot age attestation ===
+              ageAttested,
             });
-            if (order.fraudBlocked) {
+            // === W46 privacy-consent (TEN-15): gate blocked — prompt attestation ===
+            if (order.ageGate) {
+              ctx.awaitingAgeAttestation = true;
+              const { buildAgeAttestationPrompt } = await import("../services/ageGate");
+              const gated = new Set(order.ageGate.restrictedProductIds);
+              const names = items.filter((i) => gated.has(i.productId)).map((i) => i.productName);
+              llmResult.reply = buildAgeAttestationPrompt(order.ageGate.requiredAge, names);
+              llmResult.nextState = "checkout_confirm";
+            // === END W46 privacy-consent ===
+            // === W46 uc-ux (Coder E): UC-27 min-order block ===============
+            } else if (order.minOrderBlock) {
+              const { minOrderBlockReply } = await import("../services/minOrder");
+              llmResult.reply = minOrderBlockReply(order.minOrderBlock, order.currency ?? "NGN", fulfillment);
+            // === END W46 uc-ux ===
+            } else if (order.fraudBlocked) {
               llmResult.reply = `\u26a0\ufe0f Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
             } else if (order.shortages?.length) {
               // Out-of-stock guard tripped — no order, no payment link.
@@ -1463,6 +3023,7 @@ export const nlpRouter = router({
               if (order.loyalty) delete ctx.loyaltyRedeem; // W27: one-shot redeem flag consumed
               orderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
               llmResult.reply = buildOrderSummary({
+                fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
                 fulfillment,
                 orderNumber: order.orderNumber!,
                 items: order.items!,
@@ -1477,6 +3038,15 @@ export const nlpRouter = router({
                 paymentUrl: order.paymentUrl ?? null,
                 paymentMethod: order.paymentMethod ?? "online",
                 trackingUrl: trackingUrlFor(order.orderId!),
+                // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
+                tipPrompt: order.paymentMethod === "cod" ? null
+                  : await (async () => {
+                      try {
+                        const { tipCheckoutPrompt } = await import("../services/tipping");
+                        return await tipCheckoutPrompt(db, input.tenantId, order.currency ?? "NGN");
+                      } catch { return null; }
+                    })(),
+                // === END W46 uc-money ===
               });
               if (order.loyalty && order.loyalty.points > 0) {
                 llmResult.reply += `\n🎁 Redeemed ${order.loyalty.points} pts (−${fmtMoney(order.loyalty.discountCents / 100, order.currency ?? "NGN")}). Points balance: ${order.loyalty.balanceAfter}.`;
@@ -1504,9 +3074,15 @@ export const nlpRouter = router({
           tenantProducts.find((p) => p.name.toLowerCase() === q) ??
           tenantProducts.find((p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
         if (match?.imageUrl) {
+          // W41 UC-5: catalog card shows the dual price when configured
+          // (display-only — the charge stays in NGN).
+          const [fxTenant] = await db
+            .select({ displayCurrency: tenants.displayCurrency, displayFxRates: tenants.displayFxRates })
+            .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1)
+            .catch(() => [] as any[]);
           productImage = {
             link: match.imageUrl,
-            caption: `${match.name} — ${fmtMoney(Number(match.price), match.currency)}`,
+            caption: `${match.name} — ${formatPriceDual(fxTenant, Number(match.price), match.currency)}`,
           };
         }
       }

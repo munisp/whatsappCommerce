@@ -1,0 +1,233 @@
+{
+  "id": "J351",
+  "title": "digital PIN upload → paid order → delivery + reveal + low-stock + OOS backorder",
+  "feature": "digital_pins encryption + claim-first allocation + parity + backorder",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000898",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708066511,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: W44-J351A-3793\n\n\n*Total paid: ₦50.00*\nPayment ref: w44pin-j351a-cf39cad3\n\n🔎 Track your order: http://localhost:4173/track/3c03cd5a-db84-4f0e-aa10-40add98716fd.ptnyPcE2n72GOKjW6f5YKY0C"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000899",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708066555,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351A-3793):\n\n*PIN-351-000*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016133773",
+      "profileName": "Sim User 3773",
+      "inboundId": "wamid.sim.in.text.00532",
+      "at": 1789708067430,
+      "kind": "text",
+      "text": "reveal my pin"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00532",
+      "at": 1789708067434
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000900",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708067465,
+      "kind": "text",
+      "body": "🔑 Your PIN for order W44-J351A-3793 (reveal):\n\n*PIN-351-000*"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000901",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708067468,
+      "kind": "text",
+      "body": "🔑 I've re-sent your PIN for order W44-J351A-3793 — check the message above."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011291460",
+      "wamid": "wamid.sim.000902",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708068047,
+      "kind": "text",
+      "body": "⚠️ Low PIN stock: \"Recharge PIN Pack J351\" has 9 PIN(s) left (threshold 10). Upload more via the dashboard (digitalPins.uploadBatch)."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000903",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708068489,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: W44-J351C-6A5E\n\n\n*Total paid: ₦50.00*\nPayment ref: w44pin-j351c-4a751008\n\n🔎 Track your order: http://localhost:4173/track/d02f450b-c38b-49fc-89f5-b83ce617a1cd.UevkwScGF63BM8pcGaQSpLgn"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000904",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708068527,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351C-6A5E):\n\n*PIN-351-002*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000905",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069513,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: W44-J351D-83C4\n\n\n*Total paid: ₦400.00*\nPayment ref: w44pin-j351d-1971d5f3\n\n🔎 Track your order: http://localhost:4173/track/3e1e35b6-1ed8-4bc5-8121-83fb4cf16929.X8xcgtmZB_3L4OIuVciFlpAi"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000906",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069551,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-003*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000907",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069562,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-004*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000908",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069573,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-005*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000909",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069587,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-006*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000910",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069600,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-007*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000911",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069615,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-008*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000912",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069634,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-009*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000913",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708069646,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351D-83C4):\n\n*PIN-351-010*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000914",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708070090,
+      "kind": "text",
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: W44-J351E-0FD9\n\n\n*Total paid: ₦50.00*\nPayment ref: w44pin-j351e-1666c4b3\n\n🔎 Track your order: http://localhost:4173/track/16bb8c40-8ffd-4d80-99f1-951279e2e1b5.c2hNvGbMAt-Fy9bIhDIa4YXr"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016133773",
+      "wamid": "wamid.sim.000915",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708070587,
+      "kind": "text",
+      "body": "🔑 Your Recharge PIN Pack J351 PIN (order W44-J351E-0FD9):\n\n*PIN-351-RESTOCK*\n\nKeep it safe — reply \"reveal my pin\" anytime to see it again."
+    },
+    {
+      "dir": "out",
+      "phone": "2348011291460",
+      "wamid": "wamid.sim.000916",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708070608,
+      "kind": "text",
+      "body": "⚠️ Low PIN stock: \"Recharge PIN Pack J351\" has 0 PIN(s) left (threshold 10). Upload more via the dashboard (digitalPins.uploadBatch)."
+    }
+  ]
+}

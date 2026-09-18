@@ -33,14 +33,23 @@ export const tenantPlanEnum = pgEnum("tenant_plan", ["starter", "growth", "enter
 export const tenantTypeEnum = ["retailer", "supplier", "hybrid"] as const;
 export type TenantType = (typeof tenantTypeEnum)[number];
 // tenant_memberships roles: owner > operator > analyst.
-export const membershipRoleEnum = ["owner", "operator", "analyst"] as const;
+// === W46 kyc === TEN-9 capability model: scoped staff roles appended.
+// "finance" may ONLY perform money-moving actions (moneyProcedure);
+// "catalog" may ONLY manage the product catalog. Stored as varchar on
+// tenant_memberships.role, so this is type-level only (no DB enum change).
+// Full per-tenant Permify capability graphs remain DEFERRED (see
+// server/services/capabilities.ts for the enforced static map).
+export const membershipRoleEnum = ["owner", "operator", "analyst", "finance", "catalog"] as const;
 export type MembershipRole = (typeof membershipRoleEnum)[number];
+// === END W46 kyc ===
 // ─── end W12 tenancy ─────────────────────────────────────────────────────────
 export const tenantStatusEnum = pgEnum("tenant_status", ["active", "suspended", "trial", "churned"]);
 export const productStatusEnum = pgEnum("product_status", ["active", "inactive", "archived"]);
 export const conversationStatusEnum = pgEnum("conversation_status", ["open", "resolved", "pending", "snoozed", "bot_active", "human_active"]);
-export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"]);
-export const paymentStatusEnum = pgEnum("payment_status", ["unpaid", "initiated", "completed", "failed", "refunded", "refund_initiated", "refund_recorded"]);
+// === W43 fulfillment (Coder A, mig 0130): "partially_fulfilled" added
+// (additive enum value) — some-but-not-all order lines fulfilled.
+export const orderStatusEnum = pgEnum("order_status", ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded", "partially_fulfilled"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["unpaid", "initiated", "completed", "failed", "refunded", "refund_initiated", "refund_recorded", "refund_pending"]);
 export const paymentProviderEnum = pgEnum("payment_provider", ["mojaloop", "stripe", "paystack", "flutterwave", "manual"]);
 export const paymentIntentStatusEnum = pgEnum("payment_intent_status", ["initiated", "pending", "completed", "failed", "cancelled", "refunded"]);
 export const webhookStatusEnum = pgEnum("webhook_status", ["received", "processing", "processed", "failed"]);
@@ -50,7 +59,9 @@ export const menuStatusEnum = pgEnum("menu_status", ["draft", "published", "arch
 export const menuPushStatusEnum = pgEnum("menu_push_status", ["idle", "pushing", "success", "failed"]);
 export const menuItemTypeEnum = pgEnum("menu_item_type", ["section", "button", "list_item", "quick_reply", "catalog_link", "url"]);
 export const templateCategoryEnum = pgEnum("template_category", ["order_confirmation", "shipping_update", "payment_reminder", "welcome", "promotion", "support", "custom"]);
-export const templateApprovalStatusEnum = pgEnum("template_approval_status", ["none", "draft", "submitted", "approved", "rejected", "paused"]);
+// W40 MSG-2: "disabled" added (migration 0126, additive enum value) for
+// Meta message_template_status_update DISABLED events.
+export const templateApprovalStatusEnum = pgEnum("template_approval_status", ["none", "draft", "submitted", "approved", "rejected", "paused", "disabled"]);
 
 // ─── Users (Auth) ─────────────────────────────────────────────────────────────
 export const users = pgTable("users", {
@@ -95,6 +106,46 @@ export const tenants = pgTable("tenants", {
   settings: jsonb("settings"),
   cogsRate: real("cogsRate").default(0.40).notNull(),
   smsFailoverEnabled: boolean("smsFailoverEnabled").default(false).notNull(),
+  // === W41 rma-fx (Coder C, mig 0129): multi-currency DISPLAY config ===
+  // Display-only: the ledger and PSP charge stay in NGN kobo. Rates are
+  // manual tenant-set ({ "USD": { "rate": "0.00066", "updatedAt": iso } }).
+  displayCurrency: varchar("displayCurrency", { length: 3 }),
+  displayFxRates: jsonb("displayFxRates"),
+  // === W43 fulfillment (Coder A, mig 0131): allow checkout to succeed with
+  // insufficient stock by marking the short lines 'backordered' instead of
+  // blocking (default false → current fail-closed behavior).
+  allowBackorders: boolean("allowBackorders").default(false).notNull(),
+  // === W43 dispatch (Coder C, mig 0134/0135) ===
+  // requirePod (default FALSE): when true the → delivered transition is
+  // gated on a delivery_proofs row; false keeps pre-W43 behavior.
+  requirePod: boolean("requirePod").default(false).notNull(),
+  // allowPostDispatchAddressChange (default TRUE): buyer may request a
+  // shipping-address change while the order is out_for_delivery/in_transit.
+  allowPostDispatchAddressChange: boolean("allowPostDispatchAddressChange").default(true).notNull(),
+  // === END W43 dispatch ===
+  // === W44 giftcards-referrals (Coder A, mig 0137): referrer wallet credit
+  // (integer kobo) paid when a referee's first order is PAID. 0 = OFF.
+  referralRewardCents: integer("referralRewardCents").default(0).notNull(),
+  // === END W44 giftcards-referrals ===
+  // === W44 preorders-offers (Coder B, mig 0138): pre-order deposit policy.
+  // Integer 0-100, default 100 = full capture at confirm; <100 = deposit-only
+  // (deposit pct of the pre-order total captured up front).
+  preorderDepositPct: integer("preorderDepositPct").default(100).notNull(),
+  // === END W44 preorders-offers ===
+  // === W44 deposits-subs-digital (Coder C, mig 0140): appointment deposits.
+  // Cancel more than this many hours before startsAt → deposit refunded via
+  // the W38 provider-refund path; inside the window → deposit forfeited.
+  appointmentCancelWindowHours: integer("appointmentCancelWindowHours").default(24).notNull(),
+  // === END W44 tenants columns ===
+  // === W46 uc-ux (Coder E, mig 0156) ===
+  // UC-27: per-tenant minimum order value (integer cents) per fulfillment
+  // mode; 0 = no minimum. Enforced at chat checkout on BOTH channels
+  // (server/services/minOrder.ts).
+  minOrderCentsDelivery: integer("minOrderCentsDelivery").default(0).notNull(),
+  minOrderCentsPickup: integer("minOrderCentsPickup").default(0).notNull(),
+  // UC-24: tenant-configured gift-wrap fee (integer cents); 0 = wrap off.
+  giftWrapFeeCents: integer("giftWrapFeeCents").default(0).notNull(),
+  // === END W46 uc-ux ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -169,14 +220,64 @@ export const products = pgTable("products", {
   imageUrl: text("imageUrl"),
   status: productStatusEnum("status").default("active").notNull(),
   stockQuantity: integer("stockQuantity").default(0).notNull(),
+  // === W45 orders-p0 (ORD-9, mig 0143): per-unit shipping weight in kg.
+  // Chat checkout sums qty × weightKg for the delivery-fee quote; NULL means
+  // "unknown — quote assumes the 1kg floor". Additive, nullable. ===
+  weightKg: numeric("weightKg", { precision: 8, scale: 3 }),
+  // === END W45 orders-p0 ===
   lowStockThreshold: integer("lowStockThreshold").default(10),
   metadata: jsonb("metadata"),
+  // === W44 preorders-offers (Coder B, mig 0138/0139) ===
+  // preorderEnabled + preorderAvailableAt (future): checkout before
+  // availability marks order lines 'preorder'; the lazy sweeper flips them to
+  // 'ordered' at availableAt so W43 fulfillment takes over unchanged.
+  preorderEnabled: boolean("preorderEnabled").default(false).notNull(),
+  preorderAvailableAt: timestamp("preorderAvailableAt"),
+  // minPriceCents (nullable): haggling price floor — offers below it are
+  // refused; NULL means any positive amount is acceptable.
+  minPriceCents: integer("minPriceCents"),
+  // === END W44 preorders-offers ===
+  // === W44 deposits-subs-digital (Coder C) ===
+  // serviceBookingEnabled/serviceDurationMinutes (mig 0140): product is a
+  // bookable service listed by the chat "services" command.
+  serviceBookingEnabled: boolean("serviceBookingEnabled").default(false).notNull(),
+  serviceDurationMinutes: integer("serviceDurationMinutes").default(60).notNull(),
+  // digitalPinEnabled (mig 0142): paid order lines of this product are
+  // fulfilled by claim-first PIN allocation from digital_pins.
+  digitalPinEnabled: boolean("digitalPinEnabled").default(false).notNull(),
+  // === END W44 deposits-subs-digital ===
+  // === W46 uc-money (UC-16, mig 0152): open-amount / donation products ===
+  // openAmountEnabled: buyer enters the amount (pay-what-you-want /
+  // donation); the checkout link is minted at the buyer-entered amount.
+  // donationMinCents (nullable): floor guard — falls back to minPriceCents
+  // when set, else any positive amount.
+  openAmountEnabled: boolean("openAmountEnabled").default(false).notNull(),
+  donationMinCents: integer("donationMinCents"),
+  // === END W46 uc-money ===
+  // === W46 inventory-depth (ORD-15, mig 0157): scannable barcode/EAN/UPC.
+  // Nullable + additive; unique per tenant when set (NULLs never collide).
+  // Scan lookup: server/routers/inventoryDepth.ts scanBarcode. ===
+  barcode: varchar("barcode", { length: 64 }),
+  // === END W46 inventory-depth ===
+  // === W46 privacy-consent (TEN-15, mig 0161): age-restricted catalog flag.
+  // ageRestricted gates checkout (chat + agent paths share createChatOrder)
+  // behind a buyer age attestation; minAge is the required age (default 18
+  // when NULL and ageRestricted is true). Additive. ===
+  ageRestricted: boolean("ageRestricted").default(false).notNull(),
+  minAge: integer("minAge"),
+  // === END W46 privacy-consent ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
   index("products_tenant_idx").on(t.tenantId),
   index("products_status_idx").on(t.status),
   uniqueIndex("products_tenant_sku_idx").on(t.tenantId, t.sku),
+  // === W44 preorders-offers ===
+  index("products_preorder_idx").on(t.tenantId, t.preorderEnabled, t.preorderAvailableAt),
+  // === END W44 preorders-offers ===
+  // === W46 inventory-depth (ORD-15) ===
+  index("products_barcode_idx").on(t.tenantId, t.barcode),
+  // === END W46 inventory-depth ===
 ]);
 
 // ─── Customers ────────────────────────────────────────────────────────────────
@@ -243,10 +344,27 @@ export const orders = pgTable("orders", {
   // deliveryFee, receiptReview flag, receipt scan details.
   metadata: jsonb("metadata"),
   notes: text("notes"),
+  // === W46 uc-money (UC-15, mig 0152): buyer-granted tip in integer minor
+  // units; folded into totalAmount BEFORE payment so the escrow hold/release
+  // passes it through to the merchant. ===
+  tipCents: integer("tipCents").default(0).notNull(),
+  // === END W46 uc-money ===
   erpOrderId: varchar("erpOrderId", { length: 64 }),
   // COD/offline-trade (W17/F10): current cash-on-delivery flow state. NULL for
   // non-COD orders. See server/services/codFlow.ts for the state machine.
   codState: varchar("codState", { length: 32 }),
+  // === W46 uc-ux (Coder E, mig 0156) ===
+  // UC-24: gift order flag + message + recipient phone (shipments already
+  // carry recipient fields; these are ORDER-level). Gift receipts hide
+  // prices; giftWrapFeeCents records the wrap fee line charged (0 = none).
+  isGift: boolean("isGift").default(false).notNull(),
+  giftMessage: text("giftMessage"),
+  giftRecipientPhone: varchar("giftRecipientPhone", { length: 30 }),
+  giftWrapFeeCents: integer("giftWrapFeeCents").default(0).notNull(),
+  // UC-21: delivery slot booked at checkout (capacity claim-first in
+  // deliverySlots.bookDeliverySlot).
+  deliverySlotId: uuid("deliverySlotId"),
+  // === END W46 uc-ux ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -254,6 +372,9 @@ export const orders = pgTable("orders", {
   index("orders_status_idx").on(t.status),
   index("orders_customer_idx").on(t.customerId),
   index("orders_cod_state_idx").on(t.tenantId, t.codState),
+  // === W46 uc-ux (Coder E, mig 0156): UC-21 slot bookings board ===
+  index("orders_delivery_slot_idx").on(t.deliverySlotId),
+  // === END W46 uc-ux ===
   uniqueIndex("orders_number_idx").on(t.tenantId, t.orderNumber),
 ]);
 
@@ -664,6 +785,11 @@ export const inventoryReservations = pgTable("inventory_reservations", {
   status: varchar("status", { length: 16 }).default("reserved").notNull(),
   expiresAt: timestamp("expiresAt").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  // === W46 inventory-depth (ORD-15, mig 0157): nullable variant pointer.
+  // When set, the reservation claimed product_variants.stockQuantity
+  // claim-first (services/inventory.ts reserveStock variant block). ===
+  variantId: varchar("variantId", { length: 36 }),
+  // === END W46 inventory-depth ===
 }, (t) => [
   index("inventory_reservations_tenant_idx").on(t.tenantId),
   index("inventory_reservations_order_idx").on(t.orderId),
@@ -732,7 +858,9 @@ export const broadcastAbTests = pgTable("broadcast_ab_tests", {
 ]);
 
 // ─── Broadcast Campaigns ──────────────────────────────────────────────────────
-export const broadcastStatusEnum = pgEnum("broadcast_status", ["draft", "scheduled", "sending", "completed", "cancelled", "failed"]);
+// W40 MSG-3: "paused" added (migration 0126, additive enum value) for the
+// broadcast circuit breaker (auto-pause on excessive failure rate).
+export const broadcastStatusEnum = pgEnum("broadcast_status", ["draft", "scheduled", "sending", "completed", "cancelled", "failed", "paused"]);
 export const recipientStatusEnum = pgEnum("recipient_status", ["pending", "sent", "delivered", "read", "failed", "opted_out"]);
 
 export const broadcastCampaigns = pgTable("broadcast_campaigns", {
@@ -755,6 +883,9 @@ export const broadcastCampaigns = pgTable("broadcast_campaigns", {
   deliveredCount: integer("deliveredCount").default(0).notNull(),
   readCount: integer("readCount").default(0).notNull(),
   failedCount: integer("failedCount").default(0).notNull(),
+  // W40 MSG-3 (migration 0126, additive): circuit-breaker pause metadata.
+  pausedReason: varchar("pausedReason", { length: 500 }),
+  pausedAt: timestamp("pausedAt"),
   createdBy: varchar("createdBy", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -896,6 +1027,9 @@ export const kycDocumentTypeEnum = pgEnum("kyc_document_type", [
 ]);
 export const kycStatusEnum = pgEnum("kyc_status", [
   "not_started", "pending", "under_review", "approved", "rejected", "expired", "resubmit_required",
+  // === W46 kyc === TEN-7: merchant appeal of a rejection (4-eyes re-review).
+  "appealed",
+  // === END W46 kyc ===
 ]);
 export const kycTypeEnum = pgEnum("kyc_type", ["kyc", "kyb"]);
 export const livenessStatusEnum = pgEnum("liveness_status", [
@@ -914,6 +1048,14 @@ export const kycApplications = pgTable("kyc_applications", {
   businessRegistrationNumber: varchar("businessRegistrationNumber", { length: 100 }),
   businessCountry: varchar("businessCountry", { length: 100 }),
   businessType: varchar("businessType", { length: 100 }),
+  // === W40 TEN-8: UBO/PEP capture (additive, nullable) — screened through ===
+  // the SAME fail-closed sanctions path as the business name.
+  uboName: varchar("uboName", { length: 255 }),
+  uboDob: varchar("uboDob", { length: 10 }), // ISO YYYY-MM-DD
+  pepDeclared: boolean("pepDeclared").default(false),
+  // W40 TEN-8: journaled by the periodic re-screen sweep.
+  lastScreenedAt: timestamp("lastScreenedAt"),
+  // === END W40 ===
   riskScore: varchar("riskScore", { length: 10 }),
   reviewedBy: varchar("reviewedBy", { length: 255 }),
   reviewNotes: text("reviewNotes"),
@@ -922,6 +1064,20 @@ export const kycApplications = pgTable("kyc_applications", {
   reviewedAt: timestamp("reviewedAt"),
   approvedAt: timestamp("approvedAt"),
   expiresAt: timestamp("expiresAt"),
+  // === W46 kyc === TEN-7 appeal path (additive, nullable; mig 0160).
+  appealedAt: timestamp("appealedAt"),
+  appealReason: text("appealReason"),
+  // Admin who adjudicated the APPEAL — must differ from reviewedBy (4-eyes).
+  appealReviewedBy: varchar("appealReviewedBy", { length: 255 }),
+  // === END W46 kyc ===
+  // === W46 privacy-consent (TEN-22, mig 0161): KYB review-queue SLA.
+  // slaDueAt is stamped at submit (slaHours from services/kybSla.ts); the
+  // kyb-sla-sweep cron escalates overdue reviews (escalatedAt) and records
+  // the breach (slaBreachedAt) + ops alert. Additive, nullable. ===
+  slaDueAt: timestamp("slaDueAt"),
+  escalatedAt: timestamp("escalatedAt"),
+  slaBreachedAt: timestamp("slaBreachedAt"),
+  // === END W46 privacy-consent ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -949,6 +1105,13 @@ export const kycDocuments = pgTable("kyc_documents", {
   authenticityScore: varchar("authenticityScore", { length: 10 }),
   verificationNotes: text("verificationNotes"),
   processedAt: timestamp("processedAt"),
+  // === W40 TEN-5: GDPR erasure tombstones (additive, nullable) ===
+  // erasedAt: the S3 object was confirmed deleted (erasure complete).
+  // erasureScheduledAt: DB PII was scrubbed but the S3 delete failed — the
+  // scheduled kyc-erasure-sweep retries until erasedAt is set.
+  erasedAt: timestamp("erasedAt"),
+  erasureScheduledAt: timestamp("erasureScheduledAt"),
+  // === END W40 ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
   index("kyc_docs_app_idx").on(t.applicationId),
@@ -1108,10 +1271,67 @@ export const orderItems = pgTable("order_items", {
   quantity: integer("quantity").notNull().default(1),
   unitPrice: numeric("unitPrice", { precision: 12, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  // === W43 fulfillment (Coder A, mig 0131): 'ordered' | 'backordered'.
+  // Backordered lines carry an open row in backorder_requests and are
+  // auto-filled oldest-first on restock.
+  status: varchar("status", { length: 16 }).default("ordered").notNull(),
 }, (t) => [
   index("order_items_order_idx").on(t.orderId),
   index("order_items_product_idx").on(t.productId),
 ]);
+
+// === W43 fulfillment (Coder A, mig 0130): partial fulfillment =============
+// order_fulfillments: one fulfillment event per merchant action; status
+// 'pending' | 'partial' | 'complete' | 'cancelled'. order_fulfillment_lines:
+// the per-line quantities; unique (fulfillmentId, orderLineId) is the
+// idempotency key making fulfillment replays safe.
+export const orderFulfillments = pgTable("order_fulfillments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  orderId: varchar("orderId", { length: 36 }).notNull().references(() => orders.id, { onDelete: "cascade" }),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  status: varchar("status", { length: 16 }).default("pending").notNull(),
+  trackingCarrier: varchar("trackingCarrier", { length: 64 }),
+  trackingNumber: varchar("trackingNumber", { length: 128 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("order_fulfillments_tenant_idx").on(t.tenantId, t.orderId),
+]);
+export const orderFulfillmentLines = pgTable("order_fulfillment_lines", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  fulfillmentId: varchar("fulfillmentId", { length: 36 }).notNull().references(() => orderFulfillments.id, { onDelete: "cascade" }),
+  orderLineId: varchar("orderLineId", { length: 36 }).notNull().references(() => orderItems.id, { onDelete: "cascade" }),
+  qty: integer("qty").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("ofl_line_idx").on(t.orderLineId),
+  uniqueIndex("ofl_idem_idx").on(t.fulfillmentId, t.orderLineId),
+]);
+export type OrderFulfillment = typeof orderFulfillments.$inferSelect;
+export type OrderFulfillmentLine = typeof orderFulfillmentLines.$inferSelect;
+
+// === W43 fulfillment (Coder A, mig 0131): backorders =======================
+// Open demand created when a line is 'backordered' at confirm (tenant flag
+// tenants.allowBackorders). Auto-filled oldest-first on restock in the same
+// transaction; the partial unique index (one open request per line) makes
+// backorder creation idempotent on checkout retry.
+export const backorderRequests = pgTable("backorder_requests", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  orderLineId: varchar("orderLineId", { length: 36 }).notNull().references(() => orderItems.id, { onDelete: "cascade" }),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  qty: integer("qty").notNull(),
+  filledQty: integer("filledQty").default(0).notNull(),
+  status: varchar("status", { length: 24 }).default("open").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+  filledAt: timestamp("filledAt"),
+}, (t) => [
+  index("backorder_requests_tenant_product_idx").on(t.tenantId, t.productId, t.status),
+  index("backorder_requests_line_idx").on(t.orderLineId),
+]);
+export type BackorderRequest = typeof backorderRequests.$inferSelect;
+// === END W43 fulfillment ===
 
 // ── Type exports ──────────────────────────────────────────────────────────────
 export type CartSession = typeof cartSessions.$inferSelect;
@@ -1317,6 +1537,8 @@ export const walletTxTypeEnum = pgEnum("wallet_tx_type", [
   "loan_repayment",    // micro-loan repayment debited from merchant wallet
   // === W32 earlypay-fx (additive; never reorder the above) ===
   "wholesale_trade",   // wholesale early-pay debit (buyer) / credit (supplier) legs
+  // === W45 money-ledger (additive; never reorder the above) ===
+  "fx_refund",         // compensating re-credit when an FX payout delivery aborts (PAY-16)
 ]);
 
 // ─── Escrow Config (platform-level) ──────────────────────────────────────────
@@ -2697,6 +2919,40 @@ export const whatsappNotificationLog = pgTable("whatsapp_notification_log", {
 ]);
 export type WhatsappNotificationLog = typeof whatsappNotificationLog.$inferSelect;
 
+// === W37 telegram ===
+/**
+ * Telegram outbound delivery ledger + retry/DLQ (migration 0117).
+ * whatsapp_notification_log is phone/wamid-keyed with no channel column, so
+ * Telegram gets its own outbox (honest choice documented in SPEC_W37 Coder
+ * A §2): one row per outbound message, replayed verbatim from `payload`.
+ * status: pending | sent | failed | dead | simulated.
+ */
+export const telegramOutbox = pgTable("telegram_outbox", {
+  id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Telegram chat_id (session key for the telegram channel). */
+  chatId: varchar("chat_id", { length: 64 }).notNull(),
+  /** Message kind: text | keyboard | list | media | location_request | contact_request | template_render. */
+  kind: varchar("kind", { length: 32 }).notNull(),
+  /** Bot API method + body snapshot so a failed send can be retried verbatim. */
+  payload: jsonb("payload"),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  attempts: integer("attempts").default(0).notNull(),
+  nextRetryAt: timestamp("next_retry_at"),
+  lastError: text("last_error"),
+  /** Bot API message_id of the successful send (Telegram has no delivery receipts). */
+  telegramMessageId: integer("telegram_message_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("telegram_outbox_tenant_idx").on(t.tenantId),
+  index("telegram_outbox_chat_idx").on(t.chatId),
+  index("telegram_outbox_retry_idx").on(t.nextRetryAt),
+  index("telegram_outbox_status_idx").on(t.status),
+]);
+export type TelegramOutbox = typeof telegramOutbox.$inferSelect;
+// === W37 telegram END ===
+
 // ── WhatsApp Customer Replies ─────────────────────────────────────────────────
 export const whatsappCustomerReplies = pgTable("whatsapp_customer_replies", {
   id:           uuid("id").primaryKey().defaultRandom(),
@@ -3005,6 +3261,16 @@ export const consents = pgTable("consents", {
   source:     varchar("source", { length: 60 }),
   grantedAt:  timestamp("granted_at"),
   withdrawnAt: timestamp("withdrawn_at"),
+  // === W46 privacy-consent (TEN-16, mig 0161): proof-of-consent versioning.
+  // Every grant records the policy/template version the buyer agreed to and
+  // (for WhatsApp grants) the inbound wamid as evidence; re-grants after a
+  // withdrawal are counted + rate-limited (server/services/consent.ts). ===
+  policyVersion: varchar("policy_version", { length: 40 }),
+  proofTemplate: varchar("proof_template", { length: 80 }),
+  proofWamid:    varchar("proof_wamid", { length: 80 }),
+  regrantCount:  integer("regrant_count").notNull().default(0),
+  lastRegrantAt: timestamp("last_regrant_at"),
+  // === END W46 privacy-consent ===
   createdAt:  timestamp("created_at").notNull().defaultNow(),
   updatedAt:  timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -3316,11 +3582,25 @@ export const purchaseOrders = pgTable("purchase_orders", {
    */
   buyerPhone:       varchar("buyer_phone", { length: 30 }),
   notes:            text("notes"),
+  // === W46 orders-p2 (ORD-19, mig 0159): promised delivery date ============
+  /** Set once at approval (invoiced/approved transition) — the base instant
+   *  the lead-time promise is measured from. */
+  approvedAt:       timestamp("approved_at"),
+  /** promisedDate = approvedAt + supplier leadTimeDays (snapshot at
+   *  approval). The breach sweep alerts on unfulfilled POs past this date. */
+  promisedDate:     timestamp("promised_date"),
+  /** Claim-first breach-sweep marker: non-null means the breach alert for
+   *  this PO was already dispatched (exactly-once per promise breach). */
+  breachAlertedAt:  timestamp("breach_alerted_at"),
+  // === END W46 orders-p2 ===
   createdAt:        timestamp("created_at").notNull().defaultNow(),
   updatedAt:        timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
   index("purchase_orders_buyer_status_idx").on(t.buyerTenantId, t.status),
   index("purchase_orders_supplier_status_idx").on(t.supplierTenantId, t.status),
+  // === W46 orders-p2 (ORD-19) === breach sweep scan index.
+  index("purchase_orders_promised_idx").on(t.promisedDate),
+  // === END W46 orders-p2 ===
 ]);
 export type PurchaseOrder = typeof purchaseOrders.$inferSelect;
 export type NewPurchaseOrder = typeof purchaseOrders.$inferInsert;
@@ -3333,11 +3613,38 @@ export const poItems = pgTable("po_items", {
   qty:            integer("qty").notNull(),
   unitPriceCents: bigint("unit_price_cents", { mode: "number" }).notNull(),
   lineTotalCents: bigint("line_total_cents", { mode: "number" }).notNull(),
+  // === W45 orders-p0 (ORD-17, mig 0143): cumulative units received against
+  // this line via goods_receipts. Incremented atomically (received_qty + n
+  // <= qty guard) inside recordGoodsReceipt. ===
+  receivedQty:    integer("received_qty").notNull().default(0),
+  // === END W45 orders-p0 ===
 }, (t) => [
   index("po_items_po_idx").on(t.poId),
 ]);
 export type PoItem = typeof poItems.$inferSelect;
 export type NewPoItem = typeof poItems.$inferInsert;
+
+// === W45 orders-p0 (ORD-17/ORD-18, mig 0143) ===
+// goods_receipts: one row per PO-line receipt event (GRN line). The 3-way
+// match (billed ≤ received) is enforced claim-first in
+// server/services/goodsReceipts.ts before any vendor-bill payment releases
+// money against a PO-linked bill.
+export const goodsReceipts = pgTable("goods_receipts", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  poId:        uuid("po_id").notNull().references(() => purchaseOrders.id),
+  poItemId:    uuid("po_item_id").notNull().references(() => poItems.id),
+  receivedQty: integer("received_qty").notNull(),
+  receivedBy:  varchar("received_by", { length: 64 }),
+  note:        text("note"),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("goods_receipts_po_idx").on(t.poId),
+  index("goods_receipts_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type GoodsReceipt = typeof goodsReceipts.$inferSelect;
+export type NewGoodsReceipt = typeof goodsReceipts.$inferInsert;
+// === END W45 orders-p0 ===
 
 // ─── w9: media assets (brand studio generated logos / kits) ─────────────────
 export const mediaAssets = pgTable("media_assets", {
@@ -4151,6 +4458,10 @@ export const wholesaleOrders = pgTable("wholesale_orders", {
   paymentMode:    varchar("payment_mode", { length: 16 }).notNull().default("pay_now"), // 'pay_now'|'trade_credit'
   creditLedgerId: varchar("credit_ledger_id", { length: 64 }),     // set on trade-credit draw
   creditScore:    integer("credit_score"),                         // platform score used at credit checkout
+  // W38 ORD-5: true when the listing's stock could NOT be verified at
+  // placement (no catalog product link). Never silent — fulfillment/reporting
+  // must treat these orders as stock-unverified.
+  fulfillmentUntracked: boolean("fulfillment_untracked").notNull().default(false),
   orderId:        varchar("order_id", { length: 64 }),             // linked row in orders (existing rails)
   notes:          text("notes"),
   // === W32 earlypay-fx (Coder C): supplier-configured early-payment terms ===
@@ -4655,6 +4966,12 @@ export const tenantInviteTokens = pgTable("tenant_invite_tokens", {
   issuedBy: varchar("issued_by", { length: 36 }),
   expiresAt: timestamp("expires_at").notNull(),
   consumedAt: timestamp("consumed_at"),
+  // === W46 privacy-consent (TEN-19 residual, mig 0161): redemption binding.
+  // boundPhone pins the invite to the tenant owner's registered phone;
+  // validate() requires a phone-identity proof (minted by phoneAuth
+  // verifyOtp) whose phone matches before a portal session is issued. ===
+  boundPhone: varchar("bound_phone", { length: 30 }),
+  // === END W46 privacy-consent ===
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   index("tenant_invite_tokens_tenant_idx").on(t.tenantId, t.createdAt),
@@ -4691,6 +5008,11 @@ export const vendorBills = pgTable("vendor_bills", {
   approvalId:     varchar("approval_id", { length: 64 }),
   odooSyncState:  varchar("odoo_sync_state", { length: 16 }),
   metadata:       jsonb("metadata"), // W32 pay-over-time: { financing: "pay_over_time", planId, ... }
+  // === W45 orders-p0 (ORD-17, mig 0144): link to the purchase order this
+  // bill settles. When set, payment release is gated claim-first on the
+  // 3-way match (billed ≤ received — see services/goodsReceipts.ts). ===
+  poId:           uuid("po_id"),
+  // === END W45 orders-p0 ===
   createdBy:      varchar("created_by", { length: 64 }),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
   updatedAt:      timestamp("updated_at").notNull().defaultNow(),
@@ -4913,6 +5235,47 @@ export const installmentPlans = pgTable("installment_plans", {
 ]);
 export type InstallmentPlan = typeof installmentPlans.$inferSelect;
 export type NewInstallmentPlan = typeof installmentPlans.$inferInsert;
+
+// pot_charges (W38/PAY-4/5/6): durable record of every pay-over-time mandate
+// charge (installment captures `potcap:` and early-settle `potsettle:`),
+// mirroring mandate_charges for the trade-credit path. PoT charges never
+// wrote anywhere durable, so a 'pending' provider charge could never be
+// reconciled and an early-settle was stuck behind its exactly-once claim
+// forever. The sweeper (payOverTime.reconcilePendingPotCharges) re-checks
+// pending rows via the provider's READ-ONLY fetchStatus() and settles
+// exactly once on success (merchant_loan_repayments reference unique index
+// backstop) / releases the dedupe claim on definitive failure.
+// `reference` is the exactly-once charge reference shared with the
+// processed_webhook_events claim. status:
+//   'pending'           — provider accepted/unknown; money NOT settled yet
+//   'success'           — charge confirmed AND settled against the loan
+//   'failed'            — definitive provider failure (claim released)
+//   'settlement_failed' — charge succeeded but local settlement refused;
+//                         the sweep retries settlement (verify-first)
+export const potCharges = pgTable("pot_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  planId: uuid("plan_id").notNull().references(() => installmentPlans.id),
+  loanId: uuid("loan_id"),
+  mandateId: uuid("mandate_id"),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(), // 'installment' | 'settle'
+  seq: integer("seq"), // installment seq; null for early-settle
+  reference: varchar("reference", { length: 160 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  providerStatus: varchar("provider_status", { length: 40 }),
+  rawResponse: jsonb("raw_response"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("pot_charges_reference_uniq").on(t.reference),
+  index("pot_charges_plan_idx").on(t.planId),
+  index("pot_charges_status_idx").on(t.status),
+]);
+export type PotCharge = typeof potCharges.$inferSelect;
+export type NewPotCharge = typeof potCharges.$inferInsert;
 // === END W32 pay-over-time ===
 
 // === W32 recurring-tiers (Coder B) ===
@@ -5138,3 +5501,1323 @@ export const telemetryComponentStatus = pgTable("telemetry_component_status", {
 export type TelemetryComponentStatusEntry = typeof telemetryComponentStatus.$inferSelect;
 export type NewTelemetryComponentStatusEntry = typeof telemetryComponentStatus.$inferInsert;
 // === END W35 infra-receivers ===
+
+// === W37 telegram (Coder B): telegram_identities (migration 0118) ===
+// Binds a Telegram chat_id to a canonical customer identity per tenant.
+// phone_e164 is nullable and is ONLY ever set from an explicit Telegram
+// contact-share where contact.user_id == from.id (see telegramInbound.ts) —
+// never inferred from usernames or text.
+export const telegramIdentities = pgTable("telegram_identities", {
+  id:        serial("id").primaryKey(),
+  tenantId:  varchar("tenant_id", { length: 36 }).notNull(),
+  chatId:    varchar("chat_id", { length: 40 }).notNull(),
+  phoneE164: varchar("phone_e164", { length: 30 }),
+  username:  text("username"),
+  linkedVia: text("linked_via"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("telegram_identities_tenant_chat_uniq").on(t.tenantId, t.chatId),
+  index("telegram_identities_tenant_phone_idx").on(t.tenantId, t.phoneE164),
+]);
+export type TelegramIdentity = typeof telegramIdentities.$inferSelect;
+export type NewTelegramIdentity = typeof telegramIdentities.$inferInsert;
+// === END W37 telegram ===
+
+// === W38 money-integrity (Coder A) ===
+// PAY-2: every provider refund attempt is recorded with a deterministic
+// idempotency key (sha256 tenant|order|refund|amount) so sweeps retry with
+// verify-first instead of blindly re-issuing refunds after a PSP timeout.
+export const refundAttempts = pgTable("refund_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  refundId: varchar("refund_id", { length: 36 }),
+  orderId: varchar("order_id", { length: 36 }),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  /** Provider-side refund reference once the provider accepts the refund. */
+  providerRef: varchar("provider_ref", { length: 256 }),
+  idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  // processed | pending | failed | ambiguous | verified_existing
+  status: varchar("status", { length: 24 }).notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("refund_attempts_tenant_idx").on(t.tenantId),
+  index("refund_attempts_order_idx").on(t.orderId),
+  index("refund_attempts_refund_idx").on(t.refundId),
+  index("refund_attempts_idem_idx").on(t.idempotencyKey),
+]);
+export type RefundAttempt = typeof refundAttempts.$inferSelect;
+export type NewRefundAttempt = typeof refundAttempts.$inferInsert;
+
+// === W45 money-intents (Coder B2) ===
+// PAY-13: PSP under/overpayment quarantine — money collected at an amount or
+// currency that disagrees with the payment record is quarantined here (ops
+// alert + auto-refund via executeProviderRefund in
+// server/services/payments/paymentMismatchQuarantine.ts). paymentConfirm.ts
+// stays PINNED — the seam is its callers.
+export const paymentMismatchQuarantine = pgTable("payment_mismatch_quarantine", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  paymentIntentId: varchar("payment_intent_id", { length: 36 }),
+  orderId: varchar("order_id", { length: 36 }),
+  reference: varchar("reference", { length: 256 }).notNull(),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  expectedAmountMinor: bigint("expected_amount_minor", { mode: "number" }).notNull(),
+  actualAmountMinor: bigint("actual_amount_minor", { mode: "number" }),
+  expectedCurrency: varchar("expected_currency", { length: 3 }).notNull(),
+  actualCurrency: varchar("actual_currency", { length: 3 }),
+  reason: text("reason").notNull(),
+  // quarantined | auto_refund_initiated | auto_refund_paid | auto_refund_failed | resolved
+  status: varchar("status", { length: 24 }).notNull().default("quarantined"),
+  refundReference: varchar("refund_reference", { length: 256 }),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("payment_mismatch_quarantine_reference_unique").on(t.reference),
+  index("payment_mismatch_quarantine_tenant_idx").on(t.tenantId),
+  index("payment_mismatch_quarantine_status_idx").on(t.status),
+]);
+export type PaymentMismatchQuarantine = typeof paymentMismatchQuarantine.$inferSelect;
+export type NewPaymentMismatchQuarantine = typeof paymentMismatchQuarantine.$inferInsert;
+// === END W45 money-intents (Coder B2) ===
+
+// PAY-3: when a refund executes AFTER the escrow already settled/paid out to
+// the merchant, the platform must not silently double-spend — a clawback
+// debit record is created against the merchant in the SAME transaction as
+// the refund decision so recovery is explicit and auditable.
+export const merchantClawbacks = pgTable("merchant_clawbacks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** One clawback per refund — the unique index is the idempotency backstop. */
+  refundId: varchar("refund_id", { length: 36 }),
+  escrowId: varchar("escrow_id", { length: 36 }),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  reason: text("reason"),
+  // pending | recovered | written_off
+  status: varchar("status", { length: 24 }).notNull().default("pending"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("merchant_clawbacks_tenant_idx").on(t.tenantId),
+  index("merchant_clawbacks_order_idx").on(t.orderId),
+  uniqueIndex("merchant_clawbacks_refund_uniq").on(t.refundId),
+]);
+export type MerchantClawback = typeof merchantClawbacks.$inferSelect;
+export type NewMerchantClawback = typeof merchantClawbacks.$inferInsert;
+// === END W38 money-integrity ===
+
+// === W39 PAY-8: PSP chargeback/dispute records (migration 0122) ===
+// Persisted from the PSP webhook handlers; before W39 these events were
+// silently dropped. Debit-on-lost semantics are documented in
+// drizzle/0122_payment_disputes.sql — a 'lost'/'accepted' status records the
+// debit the PSP already applied to the platform/merchant balance; internal
+// recovery goes through merchant_clawbacks (W38), never a double-entry here.
+export const paymentDisputes = pgTable("payment_disputes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }),
+  provider: varchar("provider", { length: 32 }).notNull(),
+  providerRef: varchar("provider_ref", { length: 256 }).notNull(),
+  /** chargeback | dispute */
+  kind: varchar("kind", { length: 24 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** open | won | lost | accepted */
+  status: varchar("status", { length: 24 }).notNull().default("open"),
+  // === W46 privacy-consent (TEN-17, mig 0161): cross-tenant dispute routing.
+  // When the disputed payment belongs to an inter-tenant (wholesale/PO)
+  // order, respondentTenantId names the counterparty tenant the dispute is
+  // routed to (buyer raise → supplier responds); both tenant admins are
+  // alerted. NULL = single-tenant retail dispute (unchanged semantics). ===
+  respondentTenantId: varchar("respondent_tenant_id", { length: 36 }),
+  // === END W46 privacy-consent ===
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("payment_disputes_tenant_idx").on(t.tenantId),
+  index("payment_disputes_order_idx").on(t.orderId),
+  index("payment_disputes_ref_idx").on(t.providerRef),
+  uniqueIndex("payment_disputes_uniq").on(t.provider, t.providerRef, t.kind),
+]);
+export type PaymentDispute = typeof paymentDisputes.$inferSelect;
+export type NewPaymentDispute = typeof paymentDisputes.$inferInsert;
+
+// === W41 buyer-credit (Coder A, UC-1/UC-6; migration 0127) ===
+// buyer_installment_plans: order-linked buyer installment plans (layaway).
+// Down payment is charged at order confirm via a normal payment link keyed by
+// downPaymentRef (the PINNED paymentConfirm path settles it; the adjacent
+// webhook hook activates the plan). The remaining schedule is charged
+// off-session against a saved customer_payment_tokens row by
+// services/buyerInstallments.ts. Status: pending_down | active | paid |
+// defaulted | cancelled. Fulfillment is gated on plan status (orderCrud
+// updateStatus → processing/shipped refuses while a non-terminal plan exists).
+export const buyerInstallmentPlans = pgTable("buyer_installment_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyer_phone", { length: 32 }).notNull(),
+  totalCents: bigint("total_cents", { mode: "number" }).notNull(),
+  downPaymentCents: bigint("down_payment_cents", { mode: "number" }).notNull(),
+  /** paymentTransactions.providerRef of the down-payment link (exactly-once). */
+  downPaymentRef: varchar("down_payment_ref", { length: 160 }).notNull(),
+  downPaymentPaidAt: timestamp("down_payment_paid_at"),
+  /** Total number of parts INCLUDING the down payment (down = part 1). */
+  installments: integer("installments").notNull(),
+  /** ScheduleEntry[] for parts 2..N (seq, dueAt ISO, amountCents, status, paidAt). */
+  schedule: jsonb("schedule").notNull(),
+  /** customer_payment_tokens.id used for off-session schedule charges. */
+  tokenId: uuid("token_id"),
+  /** Buyer explicitly consented to save the card after the down payment. */
+  saveCardConsent: boolean("save_card_consent").notNull().default(false),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending_down"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("buyer_installment_plans_down_ref_uniq").on(t.downPaymentRef),
+  index("buyer_installment_plans_tenant_status_idx").on(t.tenantId, t.status),
+  index("buyer_installment_plans_order_idx").on(t.orderId),
+]);
+export type BuyerInstallmentPlan = typeof buyerInstallmentPlans.$inferSelect;
+export type NewBuyerInstallmentPlan = typeof buyerInstallmentPlans.$inferInsert;
+
+// Durable ledger of every off-session buyer charge (installment `bipcap:` +
+// one-tap reorder `bipreorder:`), W38 pot_charges pattern: 'pending' and
+// 'settlement_failed' rows are converged by the verify-first reconcile sweep
+// via the provider's READ-ONLY fetchStatus — NEVER a blind re-charge.
+export const buyerPlanCharges = pgTable("buyer_plan_charges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Null for one-tap reorder charges (kind='reorder'). */
+  planId: uuid("plan_id").references(() => buyerInstallmentPlans.id),
+  orderId: varchar("order_id", { length: 36 }),
+  tokenId: uuid("token_id"),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  kind: varchar("kind", { length: 16 }).notNull(), // 'installment' | 'reorder'
+  seq: integer("seq"),
+  reference: varchar("reference", { length: 160 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  providerStatus: varchar("provider_status", { length: 40 }),
+  rawResponse: jsonb("raw_response"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("buyer_plan_charges_reference_uniq").on(t.reference),
+  index("buyer_plan_charges_plan_idx").on(t.planId),
+  index("buyer_plan_charges_status_idx").on(t.status),
+]);
+export type BuyerPlanCharge = typeof buyerPlanCharges.$inferSelect;
+export type NewBuyerPlanCharge = typeof buyerPlanCharges.$inferInsert;
+
+// Tokenized customer payment methods (UC-6): reusable PSP authorization
+// tokens saved ONLY after an explicit buyer consent prompt (consent_text
+// records the exact prompt agreed to). token_enc is AES-256-GCM encrypted
+// with the v1: envelope (services/crypto/secrets.ts). NEVER a PAN — only the
+// PSP authorization handle + a display label ("Visa •••• 4081").
+export const customerPaymentTokens = pgTable("customer_payment_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  buyerPhone: varchar("buyer_phone", { length: 32 }).notNull(),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  /** v1:-envelope encrypted reusable authorization handle. */
+  tokenEnc: text("token_enc").notNull(),
+  /** Safe display label, e.g. "Visa •••• 4081" — never a PAN. */
+  displayLabel: varchar("display_label", { length: 64 }),
+  /** Exact consent prompt the buyer agreed to (audit). */
+  consentText: text("consent_text").notNull(),
+  consentAt: timestamp("consent_at").defaultNow().notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  revokedAt: timestamp("revoked_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  index("customer_payment_tokens_buyer_idx").on(t.tenantId, t.buyerPhone, t.status),
+]);
+export type CustomerPaymentToken = typeof customerPaymentTokens.$inferSelect;
+export type NewCustomerPaymentToken = typeof customerPaymentTokens.$inferInsert;
+// === END W41 buyer-credit ===
+
+// === W41 customer wallet + split payments (Coder B, UC-2/UC-3, mig 0128) ===
+// customer_wallets: per-tenant per-customer store credit. balance_cents is
+// integer kobo, NEVER negative — every debit is a claim-first guarded UPDATE
+// (balance_cents >= amount) in customerWallet.ts, so a concurrent race can
+// never push it below zero. currency is NGN-only this wave (honest doctrine:
+// no multi-currency ledger).
+export const customerWallets = pgTable("customer_wallets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Customer identity = E.164 WhatsApp/Telegram-linked phone. */
+  customerPhone: varchar("customer_phone", { length: 32 }).notNull(),
+  balanceCents: bigint("balance_cents", { mode: "number" }).notNull().default(0),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** Optional per-tenant expiry of the credit (null = never expires). */
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("customer_wallets_tenant_phone_uniq").on(t.tenantId, t.customerPhone),
+  index("customer_wallets_tenant_idx").on(t.tenantId),
+]);
+export type CustomerWallet = typeof customerWallets.$inferSelect;
+export type NewCustomerWallet = typeof customerWallets.$inferInsert;
+
+// customer_wallet_entries: APPEND-ONLY ledger (no UPDATE/DELETE — enforced by
+// convention + the service never exposing mutation). Double-entry style
+// reference: every row carries reason + refId back to the order / refund /
+// split session that moved the money. (refId, direction) is unique so
+// exactly-once credit/debit survives retries.
+export const customerWalletEntries = pgTable("customer_wallet_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  walletId: uuid("wallet_id").notNull().references(() => customerWallets.id),
+  customerPhone: varchar("customer_phone", { length: 32 }).notNull(),
+  /** credit | debit */
+  direction: varchar("direction", { length: 8 }).notNull(),
+  amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+  /** Wallet balance immediately after this entry (running balance). */
+  balanceAfterCents: bigint("balance_after_cents", { mode: "number" }).notNull(),
+  /** refund_to_wallet | merchant_goodwill | overpayment | checkout_spend | split_contribution | split_refund */
+  reason: varchar("reason", { length: 32 }).notNull(),
+  /** Deterministic idempotency reference (e.g. refund_wallet:<refundId>). */
+  refId: varchar("ref_id", { length: 160 }).notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("customer_wallet_entries_ref_uniq").on(t.refId, t.direction),
+  index("customer_wallet_entries_wallet_idx").on(t.walletId),
+  index("customer_wallet_entries_tenant_phone_idx").on(t.tenantId, t.customerPhone),
+]);
+export type CustomerWalletEntry = typeof customerWalletEntries.$inferSelect;
+export type NewCustomerWalletEntry = typeof customerWalletEntries.$inferInsert;
+
+// split_payment_sessions (UC-3): ONE order co-funded by N buyers. Each
+// participant has a computed share and pays via PSP payment link or wallet.
+// The order confirms ONLY when the claim-first tally reaches the target;
+// on the 48h timeout every contribution is auto-refunded (wallet credit
+// default, PSP reversal optional). participants jsonb shape:
+//   [{ phone, shareCents, paidCents, method, reference, status }]
+export const splitPaymentSessions = pgTable("split_payment_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  targetCents: bigint("target_cents", { mode: "number" }).notNull(),
+  fundedCents: bigint("funded_cents", { mode: "number" }).notNull().default(0),
+  participantCount: integer("participant_count").notNull(),
+  participants: jsonb("participants").notNull(),
+  /** open | funded | confirmed | refunding | refunded | expired_unfunded */
+  status: varchar("status", { length: 20 }).notNull().default("open"),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("split_payment_sessions_order_idx").on(t.orderId),
+  index("split_payment_sessions_status_idx").on(t.status, t.expiresAt),
+  index("split_payment_sessions_tenant_idx").on(t.tenantId),
+]);
+export type SplitPaymentSession = typeof splitPaymentSessions.$inferSelect;
+export type NewSplitPaymentSession = typeof splitPaymentSessions.$inferInsert;
+// === W41 rma-fx (Coder C): rma_requests (migration 0129) ===
+// ORD-6 / UC-4: buyer-initiated returns with a real lifecycle:
+//   requested → approved | rejected
+//   approved  → received → restocked → refunded | closed
+// Stock leg reuses the W38 unified restock helpers (orderCancel/inventory);
+// money leg goes through the W38 refund path (refundEscrowAtomic — caps +
+// idempotency) OR a customer-wallet credit (refundMethod "wallet", counts
+// toward the cumulative refunded total). Escrow release is paused while an
+// RMA is open (see settleEscrowAtomic guard in routers/escrow.ts).
+export const rmaRequests = pgTable("rma_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** Buyer identity: WA phone (E.164) or telegram chat id. */
+  buyerRef: varchar("buyer_ref", { length: 64 }).notNull(),
+  /** [{ productId, quantity }] — full-order return when empty array. */
+  items: jsonb("items").notNull(),
+  reason: text("reason").notNull(),
+  evidenceMediaId: varchar("evidence_media_id", { length: 128 }),
+  /** requested|approved|rejected|received|restocked|refunded|closed */
+  status: varchar("status", { length: 16 }).notNull().default("requested"),
+  /** Channel the buyer initiated on: whatsapp|telegram|admin */
+  requestedVia: varchar("requested_via", { length: 16 }).notNull().default("whatsapp"),
+  /** psp|wallet — chosen at refund time (wallet = store credit). */
+  refundMethod: varchar("refund_method", { length: 16 }),
+  refundedCents: bigint("refunded_cents", { mode: "number" }),
+  merchantNote: text("merchant_note"),
+  decidedAt: timestamp("decided_at"),
+  receivedAt: timestamp("received_at"),
+  restockedAt: timestamp("restocked_at"),
+  refundedAt: timestamp("refunded_at"),
+  closedAt: timestamp("closed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("rma_requests_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("rma_requests_tenant_status_idx").on(t.tenantId, t.status),
+  index("rma_requests_buyer_idx").on(t.tenantId, t.buyerRef),
+]);
+export type RmaRequest = typeof rmaRequests.$inferSelect;
+export type NewRmaRequest = typeof rmaRequests.$inferInsert;
+// === END W41 rma-fx ===
+// === W43 exchanges (Coder B): exchange_requests (migration 0132) ===
+// Swap one order line for another product. State machine:
+//   requested → approved | rejected | cancelled
+//   approved  → in_transit → received → completed
+// Money leg: positive priceDeltaCents → payment link (existing payment
+// intent path, idempotency-keyed); negative → customerWallet.creditWallet
+// (W41 contract, idempotent ref `exchange_refund:<id>`). Stock leg on
+// 'received': fromLine qty restocked (or written off when `damaged`) and
+// toLine stock reserved claim-first — both audited in stock_adjustments
+// (migration 0133) in the SAME transaction.
+export const exchangeRequests = pgTable("exchange_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** Optional link to the RMA that sent the goods back. */
+  rmaRequestId: uuid("rma_request_id"),
+  fromOrderLineId: varchar("from_order_line_id", { length: 36 }).notNull(),
+  toProductId: varchar("to_product_id", { length: 36 }).notNull(),
+  toVariantId: varchar("to_variant_id", { length: 36 }),
+  qty: integer("qty").notNull(),
+  /** Signed integer cents: positive = buyer pays more, negative = refund. */
+  priceDeltaCents: bigint("price_delta_cents", { mode: "number" }).notNull().default(0),
+  /** requested|approved|rejected|in_transit|received|completed|cancelled */
+  status: varchar("status", { length: 16 }).notNull().default("requested"),
+  /** Buyer identity (WA phone / telegram chat id) or merchant actor id. */
+  requestedBy: varchar("requested_by", { length: 64 }).notNull(),
+  requestedVia: varchar("requested_via", { length: 16 }).notNull().default("admin"),
+  /** Returned goods damaged → write off instead of restock on 'received'. */
+  damaged: boolean("damaged").notNull().default(false),
+  /** Payment intent created for a positive price delta. */
+  paymentIntentId: varchar("payment_intent_id", { length: 36 }),
+  /** Wallet ledger refId used for a negative price delta credit. */
+  walletEntryRef: varchar("wallet_entry_ref", { length: 128 }),
+  merchantNote: text("merchant_note"),
+  decidedAt: timestamp("decided_at"),
+  inTransitAt: timestamp("in_transit_at"),
+  receivedAt: timestamp("received_at"),
+  completedAt: timestamp("completed_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("exchange_requests_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("exchange_requests_tenant_status_idx").on(t.tenantId, t.status),
+  index("exchange_requests_from_line_idx").on(t.tenantId, t.fromOrderLineId),
+]);
+export type ExchangeRequest = typeof exchangeRequests.$inferSelect;
+export type NewExchangeRequest = typeof exchangeRequests.$inferInsert;
+
+// === W43 exchanges (Coder B): stock_adjustments (migration 0133) ===
+// Append-only audit trail for EVERY stock mutation (restock, fulfill,
+// cancel-release, exchange, backorder fill, manual count/correction). Rows
+// are written in the SAME transaction as the stock mutation via
+// server/services/stockAdjustments.ts recordStockAdjustment. Tenant-scoped
+// read path: inventory.adjustmentHistory (server/routers/inventory.ts).
+export const STOCK_ADJUSTMENT_REASONS = [
+  "restock", "damage", "theft", "correction", "count",
+  "backorder_fill", "exchange_in", "exchange_out", "other",
+] as const;
+export type StockAdjustmentReason = (typeof STOCK_ADJUSTMENT_REASONS)[number];
+
+export const stockAdjustments = pgTable("stock_adjustments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  variantId: varchar("variant_id", { length: 36 }),
+  /** Signed units: positive = stock in, negative = stock out. */
+  deltaQty: integer("delta_qty").notNull(),
+  reason: varchar("reason", { length: 20 }).notNull(),
+  /** What kind of document caused this (order_cancel, rma, exchange, ...). */
+  refType: varchar("ref_type", { length: 32 }),
+  refId: varchar("ref_id", { length: 64 }),
+  actorId: varchar("actor_id", { length: 64 }),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("stock_adjustments_tenant_product_idx").on(t.tenantId, t.productId),
+  index("stock_adjustments_tenant_created_idx").on(t.tenantId, t.createdAt),
+  index("stock_adjustments_ref_idx").on(t.tenantId, t.refType, t.refId),
+]);
+export type StockAdjustment = typeof stockAdjustments.$inferSelect;
+export type NewStockAdjustment = typeof stockAdjustments.$inferInsert;
+// === END W43 exchanges ===
+
+// === W43 dispatch (Coder C, mig 0134): proof-of-delivery evidence ===
+// Photo/signature/otp captured at handover — posted by the courier via
+// POST /api/delivery/proof OR sent by the customer in chat while the order
+// is awaiting POD (shipment out_for_delivery/in_transit + tenants.requirePod).
+// Media bytes reuse the existing WA media storage path (storagePut under
+// whatsapp-media/<tenantId>/…). tenants.requirePod gates → delivered.
+export const deliveryProofs = pgTable("delivery_proofs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** Optional W43-Coder-A fulfillment linkage (plain column, no FK — additive). */
+  fulfillmentId: varchar("fulfillment_id", { length: 36 }),
+  /** Latest logistics_shipments row the proof was captured against. */
+  shipmentId: varchar("shipment_id", { length: 36 }),
+  /** photo|signature|otp */
+  type: varchar("type", { length: 16 }).notNull().default("photo"),
+  /** Served URL (same /api/storage/<key> shape every storagePut caller gets). */
+  mediaUrl: text("media_url"),
+  /** Object-store key (tenant-scoped path). */
+  mediaKey: text("media_key"),
+  mimeType: varchar("mime_type", { length: 64 }),
+  capturedByDriverId: varchar("captured_by_driver_id", { length: 64 }),
+  /** endpoint|whatsapp|telegram */
+  capturedVia: varchar("captured_via", { length: 16 }).notNull().default("endpoint"),
+  /** External idempotency key (courier retries, webhook replays). */
+  idempotencyKey: varchar("idempotency_key", { length: 128 }),
+  capturedAt: timestamp("captured_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("delivery_proofs_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("delivery_proofs_order_idx").on(t.orderId),
+  uniqueIndex("delivery_proofs_idem_uidx").on(t.tenantId, t.idempotencyKey),
+]);
+export type DeliveryProof = typeof deliveryProofs.$inferSelect;
+export type NewDeliveryProof = typeof deliveryProofs.$inferInsert;
+
+// === W43 dispatch (Coder C, mig 0135): post-dispatch address change ===
+// Buyer asks in chat ("change my address …") on WhatsApp OR Telegram while
+// the order is out_for_delivery/in_transit; the merchant decides via the
+// channelParity approval card (WA interactive buttons / TG inline keyboard)
+// or the typed ADDR APPROVE/REJECT command. feeCents (integer kobo) is
+// charged claim-first from the customer wallet on approve.
+export const addressChangeRequests = pgTable("address_change_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  /** customer|merchant */
+  requestedBy: varchar("requested_by", { length: 16 }).notNull().default("customer"),
+  /** WA phone / telegram chat id / staff id of the requester. */
+  requesterRef: varchar("requester_ref", { length: 64 }),
+  oldAddress: jsonb("old_address"),
+  newAddress: jsonb("new_address").notNull(),
+  /** pending|approved|rejected|applied|expired */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  feeCents: integer("fee_cents").notNull().default(0),
+  /** null|charged|failed — fee leg is claim-first + idempotent (refId addrchg:<id>). */
+  feeStatus: varchar("fee_status", { length: 16 }),
+  decidedBy: varchar("decided_by", { length: 64 }),
+  decisionNote: text("decision_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  decidedAt: timestamp("decided_at"),
+  expiresAt: timestamp("expires_at"),
+}, (t) => [
+  index("address_change_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("address_change_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type AddressChangeRequest = typeof addressChangeRequests.$inferSelect;
+export type NewAddressChangeRequest = typeof addressChangeRequests.$inferInsert;
+// === END W43 dispatch ===
+
+// === W44 giftcards-referrals (Coder A, mig 0136/0137) ===
+// Gift cards: stored-value cards purchased via the existing payment-intent
+// path (metadata.kind='gift_card_purchase') or merchant-issued via tRPC.
+// Redemption is claim-first (FOR UPDATE + guarded balance_cents >= amount)
+// and idempotent on gift_card_transactions.idempotency_key. Integer cents.
+export const giftCards = pgTable("gift_cards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  code: varchar("code", { length: 64 }).notNull(),
+  initialBalanceCents: integer("initial_balance_cents").notNull(),
+  balanceCents: integer("balance_cents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  purchaserCustomerId: varchar("purchaser_customer_id", { length: 64 }),
+  /** active|redeemed_partially|depleted|expired|disabled */
+  status: varchar("status", { length: 24 }).notNull().default("active"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("gift_cards_tenant_code_uidx").on(t.tenantId, t.code),
+  index("gift_cards_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type GiftCard = typeof giftCards.$inferSelect;
+export type NewGiftCard = typeof giftCards.$inferInsert;
+
+export const giftCardTransactions = pgTable("gift_card_transactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  giftCardId: uuid("gift_card_id").notNull(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** purchase|redeem|refund|adjust */
+  type: varchar("type", { length: 16 }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  orderId: varchar("order_id", { length: 64 }),
+  idempotencyKey: varchar("idempotency_key", { length: 160 }).notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("gift_card_tx_idempotency_uidx").on(t.idempotencyKey),
+  index("gift_card_tx_card_idx").on(t.giftCardId, t.createdAt),
+]);
+export type GiftCardTransaction = typeof giftCardTransactions.$inferSelect;
+export type NewGiftCardTransaction = typeof giftCardTransactions.$inferInsert;
+
+// Referrals: one code per customer; one attribution per referee (partial
+// unique); reward = referrer wallet credit on referee order PAID, sized by
+// tenants.referralRewardCents (default 0 = off). Void on referee refund.
+export const referralCodes = pgTable("referral_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  customerId: varchar("customer_id", { length: 64 }).notNull(),
+  code: varchar("code", { length: 64 }).notNull(),
+  /** active|disabled */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("referral_codes_tenant_code_uidx").on(t.tenantId, t.code),
+  index("referral_codes_tenant_customer_idx").on(t.tenantId, t.customerId),
+]);
+export type ReferralCode = typeof referralCodes.$inferSelect;
+export type NewReferralCode = typeof referralCodes.$inferInsert;
+
+export const referralEvents = pgTable("referral_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  codeId: uuid("code_id").notNull(),
+  refereeCustomerId: varchar("referee_customer_id", { length: 64 }).notNull(),
+  orderId: varchar("order_id", { length: 64 }),
+  /** attributed|rewarded|voided */
+  status: varchar("status", { length: 16 }).notNull().default("attributed"),
+  rewardCents: integer("reward_cents").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("referral_events_tenant_status_idx").on(t.tenantId, t.status),
+  index("referral_events_order_idx").on(t.orderId),
+]);
+export type ReferralEvent = typeof referralEvents.$inferSelect;
+export type NewReferralEvent = typeof referralEvents.$inferInsert;
+// === END W44 giftcards-referrals ===
+// === W44 preorders-offers (Coder B, mig 0139): haggling / custom offers ===
+// custom_offers: buyer haggles in chat (BOTH channels), merchant decides via
+// the offer:accept|reject|counter:<id> approval card; an accepted offer
+// produces a priced checkout link with a price-override snapshot on the
+// order + audit trail. One OPEN offer (pending/countered) per
+// (tenant, customer, product) — partial unique index is the DB backstop.
+export const customOffers = pgTable("custom_offers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** WA phone (digits) or telegram:<chatId> session key of the buyer. */
+  customerId: varchar("customer_id", { length: 64 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  variantId: varchar("variant_id", { length: 36 }),
+  qty: integer("qty").notNull().default(1),
+  offeredPriceCents: integer("offered_price_cents").notNull(),
+  counterPriceCents: integer("counter_price_cents"),
+  /** pending|countered|accepted|rejected|expired|converted */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  expiresAt: timestamp("expires_at").notNull(),
+  orderId: varchar("order_id", { length: 36 }),
+  decidedBy: varchar("decided_by", { length: 64 }),
+  decisionNote: text("decision_note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  decidedAt: timestamp("decided_at"),
+}, (t) => [
+  index("custom_offers_tenant_status_idx").on(t.tenantId, t.status),
+  index("custom_offers_tenant_customer_idx").on(t.tenantId, t.customerId),
+]);
+export type CustomOffer = typeof customOffers.$inferSelect;
+export type NewCustomOffer = typeof customOffers.$inferInsert;
+// === END W44 preorders-offers ===
+// === W44 deposits-subs-digital (Coder C) =====================================
+
+// ── mig 0140: appointment deposits ───────────────────────────────────────────
+// Chat-booked service appointments (BOTH channels). Deposit captured via the
+// existing payment-intent path (ref appt-deposit:<id>); remainder collected
+// at completion (wallet first, PSP link fallback — ref appt-remainder:<id>).
+// Cancel inside tenants.appointmentCancelWindowHours forfeits the deposit.
+export const serviceAppointments = pgTable("service_appointments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  customerId: varchar("customer_id", { length: 36 }).notNull(),
+  serviceProductId: varchar("service_product_id", { length: 36 }).notNull(),
+  startsAt: timestamp("starts_at").notNull(),
+  endsAt: timestamp("ends_at").notNull(),
+  depositCents: integer("deposit_cents").notNull().default(0),
+  /** pending|paid|refunded|forfeited */
+  depositStatus: varchar("deposit_status", { length: 16 }).notNull().default("pending"),
+  depositRef: varchar("deposit_ref", { length: 128 }),
+  remainderCents: integer("remainder_cents").notNull().default(0),
+  /** null|pending|paid|failed */
+  remainderStatus: varchar("remainder_status", { length: 16 }),
+  remainderRef: varchar("remainder_ref", { length: 128 }),
+  /** booked|confirmed|completed|cancelled|no_show */
+  status: varchar("status", { length: 16 }).notNull().default("booked"),
+  orderId: varchar("order_id", { length: 36 }),
+  channel: varchar("channel", { length: 16 }).notNull().default("whatsapp"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("service_appt_tenant_product_time_idx").on(t.tenantId, t.serviceProductId, t.startsAt),
+  index("service_appt_tenant_customer_idx").on(t.tenantId, t.customerId),
+  index("service_appt_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type ServiceAppointment = typeof serviceAppointments.$inferSelect;
+export type NewServiceAppointment = typeof serviceAppointments.$inferInsert;
+
+// ── mig 0141: subscription auto-billing ──────────────────────────────────────
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  /** day|week|month */
+  interval: varchar("interval", { length: 8 }).notNull(),
+  priceCents: integer("price_cents").notNull(),
+  /** active|archived */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("subscription_plans_tenant_idx").on(t.tenantId, t.status),
+]);
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type NewSubscriptionPlan = typeof subscriptionPlans.$inferInsert;
+
+export const customerSubscriptions = pgTable("customer_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  planId: uuid("plan_id").notNull(),
+  customerId: varchar("customer_id", { length: 36 }).notNull(),
+  /** active|paused|cancelled|past_due */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  nextBillingAt: timestamp("next_billing_at").notNull(),
+  /** W41 customer_payment_tokens row (nullable — COD subs not supported). */
+  paymentTokenId: uuid("payment_token_id"),
+  retryCount: integer("retry_count").notNull().default(0),
+  /** Idempotency marker: period key of the last successful charge. */
+  lastBilledPeriod: varchar("last_billed_period", { length: 32 }),
+  lastChargeRef: varchar("last_charge_ref", { length: 128 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("customer_subs_tenant_status_due_idx").on(t.tenantId, t.status, t.nextBillingAt),
+  index("customer_subs_tenant_customer_idx").on(t.tenantId, t.customerId),
+  // NOTE: the one-live-subscription-per-(tenant,plan,customer) backstop is a
+  // PARTIAL unique index (WHERE status <> 'cancelled') in migration 0141 —
+  // drizzle table opts cannot express the predicate; SQL is authoritative.
+]);
+export type CustomerSubscription = typeof customerSubscriptions.$inferSelect;
+export type NewCustomerSubscription = typeof customerSubscriptions.$inferInsert;
+
+// ── mig 0142: PIN digital goods ──────────────────────────────────────────────
+export const digitalPinBatches = pgTable("digital_pin_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  uploadedBy: varchar("uploaded_by", { length: 64 }).notNull(),
+  pinCount: integer("pin_count").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("digital_pin_batches_tenant_product_idx").on(t.tenantId, t.productId),
+]);
+export type DigitalPinBatch = typeof digitalPinBatches.$inferSelect;
+export type NewDigitalPinBatch = typeof digitalPinBatches.$inferInsert;
+
+export const digitalPins = pgTable("digital_pins", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  batchId: uuid("batch_id").notNull(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  /** W42 keyring v2:<kid> envelope — decrypted server-side ONLY at delivery. */
+  pinEncrypted: text("pin_encrypted").notNull(),
+  /** available|sold|revealed|voided */
+  status: varchar("status", { length: 16 }).notNull().default("available"),
+  orderLineId: varchar("order_line_id", { length: 36 }),
+  orderId: varchar("order_id", { length: 36 }),
+  soldAt: timestamp("sold_at"),
+  revealedAt: timestamp("revealed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("digital_pins_batch_idx").on(t.batchId),
+  index("digital_pins_tenant_status_idx").on(t.tenantId, t.status),
+  index("digital_pins_available_idx").on(t.tenantId, t.productId),
+]);
+export type DigitalPin = typeof digitalPins.$inferSelect;
+export type NewDigitalPin = typeof digitalPins.$inferInsert;
+// === END W44 deposits-subs-digital ===
+
+// === W45 messaging-services (Coder A2, mig 0148): per-tenant WA suppression list ===
+/**
+ * wa_suppression_list — durable per-tenant set of recipient phones that must
+ * NOT be sent WhatsApp messages (delivery receipts with permanent
+ * recipient-level error codes, e.g. 131026 "message undeliverable"). Redis
+ * is the fast consult path (server/services/waSuppressionList.ts); this PG
+ * table is the durable backing so suppressions survive a Redis flush.
+ * Consulted by broadcast audience building, cart recovery, and the WA send
+ * retry sweep.
+ */
+export const waSuppressionList = pgTable("wa_suppression_list", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Recipient phone, digits-only (normalizeWaPhone). */
+  phone: varchar("phone", { length: 30 }).notNull(),
+  /** First Meta error code that triggered the suppression (e.g. "131026"). */
+  reasonCode: varchar("reason_code", { length: 16 }),
+  /** Origin of the suppression: delivery_receipt | send_error | manual. */
+  source: varchar("source", { length: 32 }).notNull().default("delivery_receipt"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("wa_suppression_tenant_idx").on(t.tenantId),
+  uniqueIndex("wa_suppression_tenant_phone_uq").on(t.tenantId, t.phone),
+]);
+export type WaSuppressionEntry = typeof waSuppressionList.$inferSelect;
+// === END W45 messaging-services ===
+// === W45 money-ledger ===
+// payment_outbox (PAY-16/PAY-18, migration 0151): transactional outbox for
+// post-commit external money legs. Local PG mutations (FX payout debit, PoT
+// facility/repayment/fee bookkeeping) commit atomically with an outbox row;
+// the processPaymentOutbox worker delivers the external leg (Mojaloop
+// /transfers initiation, TigerBeetle /transfer) asynchronously with retry.
+// Exactly-once by the unique deterministic `reference`; claim-first
+// pending→delivering flip so concurrent workers never double-deliver; a
+// stale 'delivering' row (crash mid-delivery) is reaped back to 'pending'.
+export const paymentOutbox = pgTable("payment_outbox", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** 'mojaloop_transfer' | 'ledger_transfer' */
+  kind: varchar("kind", { length: 32 }).notNull(),
+  /** Deterministic exactly-once key, e.g. fxmoja:<quoteId> / potfund:<loanId>. */
+  reference: varchar("reference", { length: 160 }).notNull(),
+  payload: jsonb("payload").notNull(),
+  /** pending|delivering|delivered|failed|dead */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  processedAt: timestamp("processed_at"),
+}, (t) => [
+  uniqueIndex("payment_outbox_reference_uniq").on(t.reference),
+  index("payment_outbox_status_created_idx").on(t.status, t.createdAt),
+  index("payment_outbox_tenant_idx").on(t.tenantId),
+]);
+export type PaymentOutboxEvent = typeof paymentOutbox.$inferSelect;
+export type NewPaymentOutboxEvent = typeof paymentOutbox.$inferInsert;
+// === END W45 money-ledger ===
+
+// === W46 uc-money (Coder C, mig 0152): UC-11 auctions =================// Chat-run auctions (BOTH channels — WA text + TG inbound feed the same nlp
+// engine). placeBid is claim-first (SELECT … FOR UPDATE) with a GUARDED
+// high-bid UPDATE; the close sweep (claim-first active→closed flip) invoices
+// the winner via the EXISTING paymentIntents + initiateWithFallback chain
+// (idempotency key auction-checkout:<auctionId>). See server/services/auctions.ts.
+export const auctions = pgTable("auctions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  title: varchar("title", { length: 255 }),
+  startPriceCents: integer("start_price_cents").notNull(),
+  minIncrementCents: integer("min_increment_cents").notNull().default(100),
+  /** Reserve floor — winner is only invoiced when high bid >= reserve. */
+  reserveCents: integer("reserve_cents"),
+  /** Anti-snipe: a bid inside the last N seconds extends endsAt by N seconds. */
+  antiSnipeSeconds: integer("anti_snipe_seconds").notNull().default(0),
+  /** active|closed|cancelled */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  currentBidCents: integer("current_bid_cents"),
+  currentBidderId: varchar("current_bidder_id", { length: 64 }),
+  bidCount: integer("bid_count").notNull().default(0),
+  winnerOrderId: varchar("winner_order_id", { length: 36 }),
+  endsAt: timestamp("ends_at").notNull(),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+}, (t) => [
+  index("auctions_tenant_status_ends_idx").on(t.tenantId, t.status, t.endsAt),
+  index("auctions_tenant_product_idx").on(t.tenantId, t.productId),
+]);
+export type Auction = typeof auctions.$inferSelect;
+export type NewAuction = typeof auctions.$inferInsert;
+
+export const auctionBids = pgTable("auction_bids", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  auctionId: uuid("auction_id").notNull(),
+  /** WA phone (digits) or telegram:<chatId> session key of the bidder. */
+  bidderId: varchar("bidder_id", { length: 64 }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  /** active|outbid|won|lost */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("auction_bids_auction_amount_idx").on(t.auctionId, t.amountCents),
+  index("auction_bids_tenant_bidder_idx").on(t.tenantId, t.bidderId),
+]);
+export type AuctionBid = typeof auctionBids.$inferSelect;
+export type NewAuctionBid = typeof auctionBids.$inferInsert;
+// === END W46 uc-money (auctions) ===
+
+// === W46 uc-money (Coder C, mig 0153): UC-26 order amendments =========// Append-only audit trail for pre-confirmation amendments. See
+// server/services/orderAmendments.ts for the claim-first state machine.
+export const orderAmendments = pgTable("order_amendments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  prevTotalCents: integer("prev_total_cents").notNull(),
+  newTotalCents: integer("new_total_cents").notNull(),
+  deltaCents: integer("delta_cents").notNull(),
+  /** New items snapshot (productId, qty, unitPriceCents). */
+  items: jsonb("items").notNull(),
+  reason: text("reason"),
+  /** applied|delta_link_sent|refund_initiated|refund_failed */
+  status: varchar("status", { length: 24 }).notNull().default("applied"),
+  paymentIntentId: varchar("payment_intent_id", { length: 36 }),
+  actor: varchar("actor", { length: 128 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("order_amendments_tenant_order_idx").on(t.tenantId, t.orderId),
+  index("order_amendments_tenant_created_idx").on(t.tenantId, t.createdAt),
+]);
+export type OrderAmendment = typeof orderAmendments.$inferSelect;
+export type NewOrderAmendment = typeof orderAmendments.$inferInsert;
+// === END W46 uc-money (order amendments) ===
+// === W46 uc-docs ===
+// UC-12/UC-19/UC-20 (migration 0154): customer statements of account,
+// proforma invoices, and agent/reseller commission attribution. All
+// additive; integer cents everywhere; snake_case columns matching the W45
+// convention.
+
+// UC-12: per-customer statement of account (generated from orders+payments).
+export const customerStatements = pgTable("customer_statements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  customerPhone: varchar("customer_phone", { length: 30 }).notNull(),
+  customerName: varchar("customer_name", { length: 255 }),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  orderCount: integer("order_count").notNull().default(0),
+  paymentCount: integer("payment_count").notNull().default(0),
+  totalInvoicedCents: integer("total_invoiced_cents").notNull().default(0),
+  totalPaidCents: integer("total_paid_cents").notNull().default(0),
+  outstandingCents: integer("outstanding_cents").notNull().default(0),
+  /** generated|sent|viewed */
+  status: varchar("status", { length: 16 }).notNull().default("generated"),
+  pdfPath: varchar("pdf_path", { length: 255 }),
+  waMessageId: varchar("wa_message_id", { length: 128 }),
+  /** Channel the document was delivered on: whatsapp|telegram. */
+  channel: varchar("channel", { length: 16 }),
+  metadata: jsonb("metadata"),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("customer_statements_tenant_idx").on(t.tenantId),
+  index("customer_statements_phone_idx").on(t.tenantId, t.customerPhone),
+]);
+export type CustomerStatement = typeof customerStatements.$inferSelect;
+
+// UC-19: proforma invoice / formal quotation document, convertible to order.
+export const proformaInvoices = pgTable("proforma_invoices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  proformaNo: integer("proforma_no").notNull(),
+  customerName: varchar("customer_name", { length: 255 }),
+  customerPhone: varchar("customer_phone", { length: 30 }),
+  customerEmail: varchar("customer_email", { length: 320 }),
+  items: jsonb("items").notNull(),
+  totalCents: integer("total_cents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** draft|sent|accepted|converted|expired|cancelled */
+  status: varchar("status", { length: 16 }).notNull().default("draft"),
+  validUntil: timestamp("valid_until"),
+  rfqId: varchar("rfq_id", { length: 36 }),
+  orderId: varchar("order_id", { length: 36 }),
+  pdfPath: varchar("pdf_path", { length: 255 }),
+  waMessageId: varchar("wa_message_id", { length: 128 }),
+  channel: varchar("channel", { length: 16 }),
+  notes: text("notes"),
+  metadata: jsonb("metadata"),
+  sentAt: timestamp("sent_at"),
+  convertedAt: timestamp("converted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("proforma_invoices_tenant_no_uniq").on(t.tenantId, t.proformaNo),
+  index("proforma_invoices_tenant_idx").on(t.tenantId),
+  index("proforma_invoices_status_idx").on(t.tenantId, t.status),
+]);
+export type ProformaInvoice = typeof proformaInvoices.$inferSelect;
+
+// UC-20: agents/resellers of a merchant tenant.
+export const agents = pgTable("agents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  /** Human attribution code (e.g. AGT-ABIOYE) quoted by buyers at checkout. */
+  code: varchar("code", { length: 32 }).notNull(),
+  commissionBps: integer("commission_bps").notNull().default(0),
+  /** active|suspended */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("agents_tenant_code_uniq").on(t.tenantId, t.code),
+  index("agents_tenant_idx").on(t.tenantId),
+]);
+export type Agent = typeof agents.$inferSelect;
+
+// UC-20: one commission row per (agent, order) — the unique index is the
+// exactly-once claim so re-attribution / double sweeps never double-accrue.
+export const agentCommissions = pgTable("agent_commissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  agentId: varchar("agent_id", { length: 36 }).notNull(),
+  orderId: varchar("order_id", { length: 36 }).notNull(),
+  orderTotalCents: integer("order_total_cents").notNull(),
+  commissionCents: integer("commission_cents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** pending|approved|paid|cancelled */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  statementId: varchar("statement_id", { length: 36 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("agent_commissions_agent_order_uniq").on(t.agentId, t.orderId),
+  index("agent_commissions_tenant_idx").on(t.tenantId),
+  index("agent_commissions_statement_idx").on(t.statementId),
+]);
+export type AgentCommission = typeof agentCommissions.$inferSelect;
+
+// UC-20: periodic commission statement per agent; pays out through the
+// customer-wallet payout rail (creditWallet reason 'agent_commission').
+export const agentCommissionStatements = pgTable("agent_commission_statements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  agentId: varchar("agent_id", { length: 36 }).notNull(),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  commissionCount: integer("commission_count").notNull().default(0),
+  totalCents: integer("total_cents").notNull().default(0),
+  /** generated|sent|paid|cancelled */
+  status: varchar("status", { length: 16 }).notNull().default("generated"),
+  pdfPath: varchar("pdf_path", { length: 255 }),
+  waMessageId: varchar("wa_message_id", { length: 128 }),
+  channel: varchar("channel", { length: 16 }),
+  payoutRef: varchar("payout_ref", { length: 160 }),
+  metadata: jsonb("metadata"),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  sentAt: timestamp("sent_at"),
+  paidAt: timestamp("paid_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("agent_comm_stmt_tenant_idx").on(t.tenantId),
+  index("agent_comm_stmt_agent_idx").on(t.agentId),
+]);
+export type AgentCommissionStatement = typeof agentCommissionStatements.$inferSelect;
+// === END W46 uc-docs ===
+
+// === W46 uc-ux (Coder E) ==============================================// UC-17 (mig 0155): venue_tables — a physical table/seat in a venue. Each row
+// carries a capability `qrToken` printed on the table QR; scanning deep-links
+// the buyer into chat with a prefilled `TABLE:<token>` message that seeds the
+// cart session metadata (server/services/venueTables.ts). The kitchen board
+// view is derived from orders whose metadata carries the venue table.
+export const venueTables = pgTable("venue_tables", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  label: varchar("label", { length: 80 }).notNull(),
+  qrToken: varchar("qr_token", { length: 128 }).notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("venue_tables_tenant_token_uq").on(t.tenantId, t.qrToken),
+  index("venue_tables_tenant_idx").on(t.tenantId),
+]);
+export type VenueTable = typeof venueTables.$inferSelect;
+
+// UC-21 (mig 0155): delivery_slots — per-tenant delivery window with hard
+// capacity. Bookings are claimed with a guarded UPDATE
+// (booked_count < capacity) so concurrent checkouts never oversell a slot;
+// orders.deliverySlotId (0156) records the booking.
+export const deliverySlots = pgTable("delivery_slots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  slotDate: date("slot_date", { mode: "string" }).notNull(), // YYYY-MM-DD
+  startTime: varchar("start_time", { length: 8 }).notNull(),
+  endTime: varchar("end_time", { length: 8 }).notNull(),
+  capacity: integer("capacity").notNull(),
+  bookedCount: integer("booked_count").notNull().default(0),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("delivery_slots_tenant_date_idx").on(t.tenantId, t.slotDate),
+]);
+export type DeliverySlot = typeof deliverySlots.$inferSelect;
+
+// UC-23 (mig 0155): wishlists — "save this" / "my list" buyer wishlist rows.
+// The price-drop sweep (wishlists.sweepWishlistPriceDrops) compares the
+// CURRENT product price to lastPriceCents and notifies once per drop
+// (notifiedAt).
+export const wishlists = pgTable("wishlists", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  productId: varchar("product_id", { length: 36 }).notNull(),
+  lastPriceCents: integer("last_price_cents"),
+  notifiedAt: timestamp("notified_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("wishlists_tenant_phone_product_uq").on(t.tenantId, t.phone, t.productId),
+  index("wishlists_tenant_idx").on(t.tenantId),
+]);
+export type WishlistEntry = typeof wishlists.$inferSelect;
+// === END W46 uc-ux ===
+
+// === W46 inventory-depth (mig 0157–0158) ===
+// ORD-15/16/20/21: variant-level stock, multi-warehouse allocation,
+// delivery claims, and FEFO batch/expiry inventory. ALL tables additive;
+// every stock mutation through these tables writes a W43 stock_adjustments
+// audit row in the same transaction (server/services/inventoryDepth.ts).
+
+// ── ORD-15: variant-level stock rows ─────────────────────────────────────────
+// A variant (size/colour/… ) carries its own stockQuantity guarded claim-first
+// at reserve time (services/inventory.ts reserveStock variant block). The
+// parent products.stockQuantity stays the global oversell guard.
+export const productVariants = pgTable("product_variants", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  sku: varchar("sku", { length: 100 }).notNull(),
+  name: varchar("name", { length: 255 }),
+  /** e.g. {"size":"M","colour":"red"} */
+  attributes: jsonb("attributes"),
+  barcode: varchar("barcode", { length: 64 }),
+  stockQuantity: integer("stockQuantity").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("product_variants_tenant_sku_uniq").on(t.tenantId, t.sku),
+  index("product_variants_product_idx").on(t.productId),
+  index("product_variants_barcode_idx").on(t.tenantId, t.barcode),
+]);
+export type ProductVariant = typeof productVariants.$inferSelect;
+export type NewProductVariant = typeof productVariants.$inferInsert;
+
+// ── ORD-16: warehouses + per-warehouse stock ─────────────────────────────────
+// Mig 0158 backfills one default warehouse per tenant that has stock and
+// mirrors products.stockQuantity into warehouse_stock so the allocation
+// strategy (default-first, then largest-qty) has real rows to claim from.
+export const warehouses = pgTable("warehouses", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  isDefault: boolean("isDefault").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("warehouses_tenant_idx").on(t.tenantId),
+]);
+export type Warehouse = typeof warehouses.$inferSelect;
+export type NewWarehouse = typeof warehouses.$inferInsert;
+
+// variantId uses '' (empty string) for product-level rows so the unique index
+// treats (tenant, warehouse, product) product-level rows as one row.
+export const warehouseStock = pgTable("warehouse_stock", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  warehouseId: varchar("warehouseId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  variantId: varchar("variantId", { length: 36 }).default("").notNull(),
+  qty: integer("qty").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("warehouse_stock_uniq").on(t.tenantId, t.warehouseId, t.productId, t.variantId),
+  index("warehouse_stock_product_idx").on(t.tenantId, t.productId),
+]);
+export type WarehouseStock = typeof warehouseStock.$inferSelect;
+export type NewWarehouseStock = typeof warehouseStock.$inferInsert;
+
+// ── ORD-20: damaged/lost-in-transit claims ───────────────────────────────────
+export const DELIVERY_CLAIM_TYPES = ["damaged", "lost", "late", "partial", "other"] as const;
+export type DeliveryClaimType = (typeof DELIVERY_CLAIM_TYPES)[number];
+/** Resolution state machine (services/inventoryDepth.ts CLAIM_TRANSITIONS):
+ *  open → under_review → approved|rejected → resolved. Terminal: resolved. */
+export const DELIVERY_CLAIM_STATUSES = ["open", "under_review", "approved", "rejected", "resolved"] as const;
+export type DeliveryClaimStatus = (typeof DELIVERY_CLAIM_STATUSES)[number];
+
+export const deliveryClaims = pgTable("delivery_claims", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  shipmentId: varchar("shipmentId", { length: 36 }).notNull(),
+  orderId: varchar("orderId", { length: 36 }),
+  type: varchar("type", { length: 16 }).notNull(),
+  /** Photo evidence URLs (damaged-in-transit proof). */
+  photos: jsonb("photos").default([]).notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 16 }).default("open").notNull(),
+  /** 'refund' | 'replacement' | 'redelivery' | 'none' — set at resolve time. */
+  resolution: varchar("resolution", { length: 20 }),
+  reportedBy: varchar("reportedBy", { length: 64 }),
+  resolvedBy: varchar("resolvedBy", { length: 64 }),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, (t) => [
+  index("delivery_claims_tenant_idx").on(t.tenantId, t.status),
+  index("delivery_claims_shipment_idx").on(t.shipmentId),
+]);
+export type DeliveryClaim = typeof deliveryClaims.$inferSelect;
+export type NewDeliveryClaim = typeof deliveryClaims.$inferInsert;
+
+// ── ORD-21: perishable batch inventory with FEFO reserve ─────────────────────
+// qty subdivides products.stockQuantity: receiving a batch credits the product
+// (audited), FEFO reserve decrements earliest-expiry batches claim-first
+// (audited). expiryDate NULL = non-perishable batch (picked last by FEFO).
+export const inventoryBatches = pgTable("inventory_batches", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  productId: varchar("productId", { length: 36 }).notNull(),
+  batchCode: varchar("batchCode", { length: 64 }),
+  qty: integer("qty").default(0).notNull(),
+  expiryDate: timestamp("expiryDate"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("inventory_batches_product_expiry_idx").on(t.tenantId, t.productId, t.expiryDate),
+]);
+export type InventoryBatch = typeof inventoryBatches.$inferSelect;
+export type NewInventoryBatch = typeof inventoryBatches.$inferInsert;
+// === END W46 inventory-depth ===
+// === W46 orders-p2 (ORD-22, mig 0159): product recalls ======================
+// product_recalls: a merchant-initiated recall campaign for one product over
+// an order date range. recall_recipients is the durable per-buyer send log —
+// exactly-once per (recall, order) via the unique index; buyers who have
+// WITHDRAWN messaging consent are never sent and are logged as
+// status='skipped_opt_out' (the opt-out logging requirement — the skip is
+// provable, not silent). See server/services/recalls.ts.
+export const productRecalls = pgTable("product_recalls", {
+  id:          uuid("id").primaryKey().defaultRandom(),
+  tenantId:    varchar("tenant_id", { length: 36 }).notNull(),
+  productId:   varchar("product_id", { length: 36 }).notNull(),
+  /** Human-readable recall reason/notice sent to affected buyers. */
+  reason:      text("reason").notNull(),
+  /** Inclusive order created-at range bounds (null = unbounded). */
+  fromDate:    timestamp("from_date"),
+  toDate:      timestamp("to_date"),
+  /** draft | sending | completed */
+  status:      varchar("status", { length: 20 }).notNull().default("draft"),
+  createdBy:   varchar("created_by", { length: 64 }),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+  updatedAt:   timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("product_recalls_tenant_idx").on(t.tenantId, t.createdAt),
+  index("product_recalls_product_idx").on(t.tenantId, t.productId),
+]);
+export type ProductRecall = typeof productRecalls.$inferSelect;
+export type NewProductRecall = typeof productRecalls.$inferInsert;
+
+export const RECALL_RECIPIENT_STATUSES = ["pending", "sent", "failed", "skipped_opt_out"] as const;
+export const recallRecipients = pgTable("recall_recipients", {
+  id:        uuid("id").primaryKey().defaultRandom(),
+  recallId:  uuid("recall_id").notNull().references(() => productRecalls.id),
+  tenantId:  varchar("tenant_id", { length: 36 }).notNull(),
+  orderId:   varchar("order_id", { length: 36 }).notNull(),
+  /** Buyer contact ref (E.164 phone digits or telegram:<chat_id>). */
+  phone:     varchar("phone", { length: 64 }).notNull(),
+  /** pending | sent | failed | skipped_opt_out */
+  status:    varchar("status", { length: 20 }).notNull().default("pending"),
+  channel:   varchar("channel", { length: 16 }),
+  error:     text("error"),
+  sentAt:    timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("recall_recipients_recall_order_uniq").on(t.recallId, t.orderId),
+  index("recall_recipients_recall_idx").on(t.recallId, t.status),
+  index("recall_recipients_tenant_idx").on(t.tenantId),
+]);
+export type RecallRecipient = typeof recallRecipients.$inferSelect;
+export type NewRecallRecipient = typeof recallRecipients.$inferInsert;
+// === END W46 orders-p2 ===
+// === W46 privacy-consent (Coder B, mig 0161) =================================
+// age_attestations (TEN-15): durable buyer age attestations for age-restricted
+// checkout. One row per (tenant, phone); created when the buyer explicitly
+// confirms the required age in chat/agent checkout; consulted by
+// services/ageGate.ts before any order containing an ageRestricted product is
+// created. `channel` records the surface (whatsapp|telegram|agent) for parity
+// auditing; `source` records how the attestation arrived (chat_reply, api).
+export const ageAttestations = pgTable("age_attestations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Buyer identity (WA phone digits or telegram session key). */
+  phone: varchar("phone", { length: 60 }).notNull(),
+  /** Age the buyer attested to meeting (the max minAge of the gated cart). */
+  attestedAge: integer("attested_age").notNull(),
+  channel: varchar("channel", { length: 16 }).notNull().default("whatsapp"),
+  source: varchar("source", { length: 32 }).notNull().default("chat_reply"),
+  /** Order whose checkout consumed/created the attestation (nullable). */
+  orderId: varchar("order_id", { length: 36 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("age_attestations_tenant_phone_uq").on(t.tenantId, t.phone),
+  index("age_attestations_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type AgeAttestation = typeof ageAttestations.$inferSelect;
+export type NewAgeAttestation = typeof ageAttestations.$inferInsert;
+
+// auth_known_devices (TEN-20): remembered login devices per user. A login
+// from an UNKNOWN device hash requires an independent email-OTP second factor
+// (NOT a mirror of the WhatsApp OTP) and notifies the account owner; a
+// verified challenge remembers the device here. Admin recovery resets this
+// table per user behind step-up + audit (routers/phoneAuth.ts W46 block).
+export const authKnownDevices = pgTable("auth_known_devices", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  /** Stable client-supplied device fingerprint hash (never raw identifiers). */
+  deviceHash: varchar("device_hash", { length: 128 }).notNull(),
+  label: varchar("label", { length: 120 }),
+  firstSeenAt: timestamp("first_seen_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("auth_known_devices_user_device_uq").on(t.userId, t.deviceHash),
+  index("auth_known_devices_user_idx").on(t.userId),
+]);
+export type AuthKnownDevice = typeof authKnownDevices.$inferSelect;
+export type NewAuthKnownDevice = typeof authKnownDevices.$inferInsert;
+
+// supplier_tax_profile_versions (TEN-18): versioned, effective-dated supplier
+// tax identity. The supplier_tax_profiles row remains the "latest" pointer;
+// every upsert ALSO appends an immutable version row here (monotonic
+// `version` per supplier identity key) and writes an audit event. Annual
+// statements resolve the profile AS OF the statement period
+// (resolveTaxProfileAsOf in services/supplierTaxStatements.ts) so historical
+// statements keep the withholding rate that was in force at the time.
+export const supplierTaxProfileVersions = pgTable("supplier_tax_profile_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** Identity key mirror: COALESCE(supplier_tenant_id, vendor_ref). */
+  supplierKey: varchar("supplier_key", { length: 128 }).notNull(),
+  supplierTenantId: varchar("supplier_tenant_id", { length: 36 }),
+  vendorRef: varchar("vendor_ref", { length: 128 }),
+  vendorName: varchar("vendor_name", { length: 160 }).notNull(),
+  taxId: varchar("tax_id", { length: 64 }),
+  taxIdType: varchar("tax_id_type", { length: 16 }),
+  countryCode: char("country_code", { length: 2 }),
+  withholdingBps: integer("withholding_bps").notNull().default(0),
+  /** Monotonic version per (tenantId, supplierKey), starting at 1. */
+  version: integer("version").notNull().default(1),
+  effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
+  actor: varchar("actor", { length: 120 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("supplier_tax_profile_versions_uq").on(t.tenantId, t.supplierKey, t.version),
+  index("supplier_tax_profile_versions_key_idx").on(t.tenantId, t.supplierKey, t.effectiveFrom),
+]);
+export type SupplierTaxProfileVersion = typeof supplierTaxProfileVersions.$inferSelect;
+export type NewSupplierTaxProfileVersion = typeof supplierTaxProfileVersions.$inferInsert;
+// === END W46 privacy-consent ===

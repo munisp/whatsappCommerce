@@ -2,7 +2,7 @@
  * Order CRUD — full lifecycle: create, update status, cancel, refund
  */
 import { z } from "zod";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
@@ -12,9 +12,9 @@ import { startOrderFulfillmentWorkflow } from "../temporal";
 import {
   checkAvailability,
   reserveStock,
-  releaseReservations,
   InsufficientStockError,
 } from "../services/inventory";
+import { cancelOrder } from "../services/orderCancel";
 import { syncLocalChange } from "../services/integrations/outbox";
 import { validatePromo, applyPromo } from "../services/promos";
 import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
@@ -28,7 +28,11 @@ import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmount
 const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
   pending:    ["confirmed", "cancelled"],
   confirmed:  ["processing", "cancelled"],
-  processing: ["shipped", "cancelled"],
+  // === W43 fulfillment (Coder A): partially_fulfilled is entered from
+  // confirmed/processing (partial fulfill) and exits to shipped/cancelled.
+  processing: ["shipped", "cancelled", "partially_fulfilled"],
+  partially_fulfilled: ["shipped", "cancelled"],
+  // === END W43 fulfillment ===
   shipped:    ["delivered"],
   delivered:  ["refunded"],
   cancelled:  [],
@@ -38,6 +42,70 @@ const ORDER_TRANSITIONS: Record<string, readonly string[]> = {
 export function isLegalOrderTransition(from: string, to: string): boolean {
   return (ORDER_TRANSITIONS[from] ?? []).includes(to);
 }
+
+// === W45 orders-p0 (ORD-27): shared escrow-refund leg for order cancel ===
+// Extracted verbatim from the W30 `cancel` mutation (verify-v1 #8/#9) so the
+// buyer-initiated chat cancel runs the IDENTICAL refund path: atomic escrow
+// refund + best-effort provider refund with honest status vocabulary; any
+// failure flags the escrow for the SLA refund sweep (never auto-releases).
+export async function refundEscrowForCancelledOrder(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  order: { id: string; tenantId: string; currency?: string | null },
+  reason?: string,
+): Promise<{ escrowRefunded: boolean; refundSweepRequired: boolean }> {
+  const { escrowTransactions } = await import("../../drizzle/schema");
+  const { inArray } = await import("drizzle-orm");
+  const [activeEscrow] = await db.select().from(escrowTransactions)
+    .where(and(
+      eq(escrowTransactions.orderId, order.id),
+      inArray(escrowTransactions.state, ["payment_received", "escrow_held", "delivery_confirmed", "dispute_raised"]),
+    ))
+    .limit(1);
+  let escrowRefunded = false;
+  if (activeEscrow) {
+    const { refundEscrowAtomic } = await import("./escrow");
+    const refund = await refundEscrowAtomic(db, activeEscrow.id, {
+      reason: `Order ${order.id} cancelled${reason ? `: ${reason}` : ""}`,
+    }).catch((e: unknown) => ({ success: false as const, error: (e as Error)?.message ?? String(e) }));
+    if (refund.success) {
+      escrowRefunded = true;
+      const { executeProviderRefund, honestOrderRefundStatus } = await import("../services/payments/refunds");
+      const providerOutcome = await executeProviderRefund(db, {
+        tenantId: order.tenantId,
+        orderId: order.id,
+        amountCents: Math.round(refund.refundedAmount * 100),
+        currency: order.currency ?? "NGN",
+        reason: `Order ${order.id} cancelled${reason ? `: ${reason}` : ""}`,
+      });
+      const honestStatus = honestOrderRefundStatus(providerOutcome);
+      await db.update(orders).set({ paymentStatus: honestStatus, updatedAt: new Date() })
+        .where(eq(orders.id, order.id));
+      if (providerOutcome.status === "failed") {
+        const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
+        await db.update(escrowTransactions).set({
+          metadata: {
+            ...meta,
+            refundSweepRequired: true,
+            providerRefundOnly: true,
+            providerRefundFailed: true,
+            providerRefundError: providerOutcome.error ?? "unknown",
+          },
+          updatedAt: new Date(),
+        }).where(eq(escrowTransactions.id, activeEscrow.id));
+        console.error(`[orderCrud] cancel of order ${order.id}: provider refund FAILED (${providerOutcome.error}) — escrow flagged for provider-refund sweep`);
+      }
+    } else {
+      const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
+      await db.update(escrowTransactions).set({
+        metadata: { ...meta, refundSweepRequired: true, refundSweepReason: `cancel-refund failed: ${"error" in refund ? refund.error : "unknown"}` },
+        updatedAt: new Date(),
+      }).where(eq(escrowTransactions.id, activeEscrow.id));
+      console.error(`[orderCrud] cancel of paid order ${order.id}: escrow refund failed (${"error" in refund ? refund.error : "?"}) — flagged for refund sweep`);
+    }
+  }
+  return { escrowRefunded, refundSweepRequired: !!activeEscrow && !escrowRefunded };
+}
+// === END W45 orders-p0 ===
 
 export const orderCrudRouter = router({
   /** Create a new order (admin/operator) */
@@ -103,7 +171,13 @@ export const orderCrudRouter = router({
         input.tenantId,
         input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
       );
-      if (!availability.ok) {
+      // === W43 fulfillment (Coder A): backorder-enabled tenants may check
+      // out with insufficient stock — short lines become 'backordered'
+      // instead of blocking (reserveStockWithBackorders inside the txn).
+      const { isBackordersEnabled, reserveStockWithBackorders } = await import("../services/backorders");
+      const allowBackorders = await isBackordersEnabled(db, input.tenantId);
+      // === END W43 fulfillment ===
+      if (!availability.ok && !allowBackorders) {
         const s = availability.shortages[0];
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
@@ -139,6 +213,11 @@ export const orderCrudRouter = router({
               RETURNING id
             `);
             if ((result as unknown[]).length === 0) {
+              // === W43 fulfillment (Coder A): backorder-enabled tenants skip
+              // the snapshot claim for short lines (they are backordered
+              // below) instead of rolling the whole order back.
+              if (allowBackorders) continue;
+              // === END W43 fulfillment ===
               throw new TRPCError({
                 code: "PRECONDITION_FAILED",
                 message: `Insufficient stock for product: ${item.productName}`,
@@ -165,9 +244,15 @@ export const orderCrudRouter = router({
           });
 
           // Insert normalised order items
+          // === W43 fulfillment (Coder A): line ids captured so the backorder
+          // reserve path can mark short lines 'backordered'.
+          const orderLineRefs: { productId: string; qty: number; orderLineId: string }[] = [];
+          // === END W43 fulfillment ===
           for (const item of input.items) {
+            const orderLineId = crypto.randomUUID();
+            orderLineRefs.push({ productId: item.productId, qty: item.quantity, orderLineId });
             await tx.insert(orderItems).values({
-              id: crypto.randomUUID(),
+              id: orderLineId,
               orderId,
               productId: item.productId,
               productName: item.productName,
@@ -178,12 +263,39 @@ export const orderCrudRouter = router({
           }
 
           // Atomic stock reservation on the products ledger (authoritative).
-          await reserveStock(
+          // === W43 fulfillment (Coder A): backorder-enabled tenants reserve
+          // what exists and backorder the remainder (claim-first FOR UPDATE);
+          // everyone else keeps the all-or-nothing guard.
+          if (allowBackorders) {
+            await reserveStockWithBackorders(tx, input.tenantId, orderId, orderLineRefs);
+          } else {
+            await reserveStock(
+              tx,
+              input.tenantId,
+              orderId,
+              input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
+            );
+          }
+          // === END W43 fulfillment ===
+          // === W44 preorders-offers (Coder B): pre-order checkout seam.
+          // Products with preorderEnabled + FUTURE preorderAvailableAt have
+          // their lines stamped 'preorder' and the order metadata gains the
+          // preorder terms snapshot (availableAt, depositPct, integer-cents
+          // totals). Same transaction — the marking commits or rolls back
+          // with the order.
+          const { markPreorderLinesTx } = await import("../services/preorders");
+          await markPreorderLinesTx(
             tx,
             input.tenantId,
             orderId,
-            input.items.map((i) => ({ productId: i.productId, qty: i.quantity })),
+            orderLineRefs.map((r) => ({
+              ...r,
+              unitPriceCents: toMinorUnitsExact(
+                input.items.find((i) => i.productId === r.productId)?.unitPrice ?? 0,
+              ),
+            })),
           );
+          // === END W44 preorders-offers ===
         });
       } catch (err) {
         if (err instanceof InsufficientStockError) {
@@ -289,27 +401,41 @@ export const orderCrudRouter = router({
           message: `Illegal status transition: ${order.status} → ${input.status}`,
         });
       }
-      // Guarded update: re-check the current status in the WHERE clause so a
-      // concurrent mutation between our read and this write can't smuggle an
-      // illegal transition through.
-      const transitioned = await db.update(orders).set({
-        status: input.status,
-        notes: input.notes,
-        updatedAt: new Date(),
-      }).where(and(eq(orders.id, input.orderId), eq(orders.status, order.status)))
-        .returning({ id: orders.id });
-      if (transitioned.length === 0) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "Order status changed concurrently — retry the transition",
-        });
+      // W41 (UC-1): fulfillment gating on installment-plan status — an order
+      // with a non-terminal buyer installment plan (COD-like exposure) may
+      // not enter fulfillment until the plan is fully paid.
+      if (input.status === "processing" || input.status === "shipped") {
+        try {
+          const { assertOrderFulfillmentAllowed } = await import("../services/buyerInstallments");
+          await assertOrderFulfillmentAllowed(db, order.id);
+        } catch (e: any) {
+          if (e?.code === "PRECONDITION_FAILED") {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+          }
+          throw e;
+        }
       }
-
-      // Cancelling releases any still-reserved stock back to the pool
-      // (claim-first, idempotent — safe even if the sweeper races us).
+      // ORD-4: cancelling goes through the SAME unified cancelOrder path as
+      // orderCrud.cancel — snapshot restock + reservation release (reserved
+      // AND committed) + guarded status flip, exactly once.
       if (input.status === "cancelled") {
-        await releaseReservations(db, input.orderId)
-          .catch((e: unknown) => console.error("[orderCrud] reservation release error:", (e as Error)?.message));
+        await cancelOrder(db, order, { notes: input.notes });
+      } else {
+        // Guarded update: re-check the current status in the WHERE clause so a
+        // concurrent mutation between our read and this write can't smuggle an
+        // illegal transition through.
+        const transitioned = await db.update(orders).set({
+          status: input.status,
+          notes: input.notes,
+          updatedAt: new Date(),
+        }).where(and(eq(orders.id, input.orderId), eq(orders.status, order.status)))
+          .returning({ id: orders.id });
+        if (transitioned.length === 0) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Order status changed concurrently — retry the transition",
+          });
+        }
       }
 
       // Fire WhatsApp notification asynchronously (non-blocking — never fails the update)
@@ -347,111 +473,101 @@ export const orderCrudRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: `Cannot cancel order in status: ${order.status}` });
       }
 
-      // Cancel + restock + status flip in ONE transaction: a mid-flight
-      // failure can no longer leave stock released for an order that is still
-      // active (or vice versa). The status guard in the UPDATE makes a
-      // concurrent cancel/fulfil a CONFLICT instead of a double restock.
-      await db.transaction(async (tx) => {
-        // Release reserved inventory
-        const items = await tx.select().from(orderItems).where(eq(orderItems.orderId, input.orderId));
-        for (const item of items) {
-          await tx.execute(sql`
-            UPDATE inventory_snapshots
-            SET "reservedQty" = GREATEST(0, CAST("reservedQty" AS NUMERIC) - ${item.quantity}),
-                "availableQty" = CAST("availableQty" AS NUMERIC) + ${item.quantity}
-            WHERE "productId" = ${item.productId}
-          `);
-        }
-
-        const transitioned = await tx.update(orders).set({
-          status: "cancelled",
-          notes: input.reason ? `Cancelled: ${input.reason}` : "Cancelled",
-          updatedAt: new Date(),
-        }).where(and(eq(orders.id, input.orderId), eq(orders.status, order.status)))
-          .returning({ id: orders.id });
-        if (transitioned.length === 0) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "Order status changed concurrently — cancel aborted, no stock was released",
-          });
-        }
-      });
-
-      // Release pre-payment stock reservations (0031) — claim-first and
-      // idempotent, so a concurrent expiry-sweeper run can't double-restock.
-      await releaseReservations(db, input.orderId)
-        .catch((e: unknown) => console.error("[orderCrud] reservation release error:", (e as Error)?.message));
+      // ORD-4: unified cancel path (shared with updateStatus → cancelled):
+      // snapshot restock (tenantId-predicated) + guarded status flip in one
+      // tx, then claim-first release of reserved AND committed (ORD-1
+      // paid-cancel restock) reservations — exactly once.
+      await cancelOrder(db, order, { reason: input.reason });
 
       // ── W30 (verify-v1 #8): cancelling a PAID order must never orphan its
-      // escrow. Before W30 the escrow stayed escrow_held and the SLA scan
-      // later auto-RELEASED it to the merchant — the buyer lost funds on a
-      // cancelled order. Now: find any active escrow for this order and run
-      // the real atomic refund; if the refund itself fails, flag the escrow
-      // for the SLA refund sweep so it can never be released to the merchant.
-      const { escrowTransactions } = await import("../../drizzle/schema");
-      const { inArray } = await import("drizzle-orm");
-      const [activeEscrow] = await db.select().from(escrowTransactions)
-        .where(and(
-          eq(escrowTransactions.orderId, input.orderId),
-          inArray(escrowTransactions.state, ["payment_received", "escrow_held", "delivery_confirmed", "dispute_raised"]),
-        ))
-        .limit(1);
-      let escrowRefunded = false;
-      if (activeEscrow) {
-        const { refundEscrowAtomic } = await import("./escrow");
-        const refund = await refundEscrowAtomic(db, activeEscrow.id, {
-          reason: `Order ${input.orderId} cancelled${input.reason ? `: ${input.reason}` : ""}`,
-        }).catch((e: unknown) => ({ success: false as const, error: (e as Error)?.message ?? String(e) }));
-        if (refund.success) {
-          escrowRefunded = true;
-          // ── W30 hotfix (verify-v1 #9): the internal wallet-ledger refund
-          // alone does NOT return PSP-custodied money to the buyer. Execute
-          // the real provider refund (best-effort) and record the honest
-          // status vocabulary — "refunded" only when the provider confirms,
-          // "refund_initiated" when queued, "refund_recorded" when the money
-          // has only moved on the platform's internal ledger.
-          const { executeProviderRefund, honestOrderRefundStatus } = await import("../services/payments/refunds");
-          const providerOutcome = await executeProviderRefund(db, {
-            tenantId: order.tenantId,
-            orderId: input.orderId,
-            amountCents: Math.round(refund.refundedAmount * 100),
-            currency: order.currency ?? "NGN",
-            reason: `Order ${input.orderId} cancelled${input.reason ? `: ${input.reason}` : ""}`,
-          });
-          const honestStatus = honestOrderRefundStatus(providerOutcome);
-          await db.update(orders).set({ paymentStatus: honestStatus, updatedAt: new Date() })
-            .where(eq(orders.id, input.orderId));
-          if (providerOutcome.status === "failed") {
-            // Provider attempted and FAILED — flag the escrow for the SLA
-            // refund sweep (which retries the provider leg and never
-            // releases) + alert via logs. Never claim the buyer was repaid.
-            const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
-            await db.update(escrowTransactions).set({
-              metadata: {
-                ...meta,
-                refundSweepRequired: true,
-                providerRefundOnly: true,
-                providerRefundFailed: true,
-                providerRefundError: providerOutcome.error ?? "unknown",
-              },
-              updatedAt: new Date(),
-            }).where(eq(escrowTransactions.id, activeEscrow.id));
-            console.error(`[orderCrud] cancel of order ${input.orderId}: provider refund FAILED (${providerOutcome.error}) — escrow flagged for provider-refund sweep`);
+      // escrow. W45 (ORD-27): the refund leg is the shared exported helper
+      // refundEscrowForCancelledOrder — identical behavior, also used by
+      // buyerCancel (buyer chat self-service).
+      const { escrowRefunded, refundSweepRequired } = await refundEscrowForCancelledOrder(
+        db, order, input.reason,
+      );
+
+      return { ok: true, escrowRefunded, refundSweepRequired };
+    }),
+
+    // === W45 orders-p0 (ORD-27): buyer-initiated chat cancellation ===
+    /**
+     * Buyer self-service cancel (WhatsApp/Telegram "cancel my order" intent).
+     * Ownership is proven by the caller's phone matching the order's customer
+     * (chat orders store the raw phone in orders.customerId; back-office
+     * orders resolve through customers.whatsappPhone). Guarded PRE-SHIP: only
+     * pending/confirmed/processing/partially_fulfilled orders can be buyer-
+     * cancelled; shipped/delivered orders must go through dispute/RMA.
+     * Reuses the unified cancelOrder (stock + status, exactly once) and the
+     * shared escrow refund leg above.
+     */
+    buyerCancel: protectedProcedure
+      .input(z.object({
+        tenantId: z.string(),
+        phone: z.string().min(7).max(30),
+        /** Explicit order id, or the caller's most recent cancellable order. */
+        orderId: z.string().optional(),
+        reason: z.string().optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        // Caller must belong to the tenant (or be an admin) — the phone
+        // ownership check below is the actual buyer gate.
+        assertTenantAccess(ctx.user, input.tenantId);
+        const phone = input.phone.replace(/^\+/, "").trim();
+
+        const matchesPhone = async (o: { id: string; customerId: string | null }) => {
+          const cid = (o.customerId ?? "").replace(/^\+/, "");
+          if (cid === phone) return true;
+          const [cust] = await db.select().from(customers).where(eq(customers.id, o.customerId ?? "")).limit(1);
+          return (cust?.whatsappPhone ?? "").replace(/^\+/, "") === phone;
+        };
+
+        let order: typeof orders.$inferSelect | undefined;
+        if (input.orderId) {
+          [order] = await db.select().from(orders).where(eq(orders.id, input.orderId)).limit(1);
+          if (!order || order.tenantId !== input.tenantId) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+          }
+          if (!(await matchesPhone(order))) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "This order does not belong to this phone number" });
           }
         } else {
-          // Mark for the refund sweep (runSlaScan retries flagged escrows and
-          // NEVER releases them) + alert — the escrow must not stay releasable.
-          const meta = (activeEscrow.metadata ?? {}) as Record<string, unknown>;
-          await db.update(escrowTransactions).set({
-            metadata: { ...meta, refundSweepRequired: true, refundSweepReason: `cancel-refund failed: ${"error" in refund ? refund.error : "unknown"}` },
-            updatedAt: new Date(),
-          }).where(eq(escrowTransactions.id, activeEscrow.id));
-          console.error(`[orderCrud] cancel of paid order ${input.orderId}: escrow refund failed (${"error" in refund ? refund.error : "?"}) — flagged for refund sweep`);
+          const candidates = await db.select().from(orders)
+            .where(and(
+              eq(orders.tenantId, input.tenantId),
+              inArray(orders.status, ["pending", "confirmed", "processing", "partially_fulfilled"] as any),
+            ))
+            .orderBy(desc(orders.createdAt))
+            .limit(25);
+          order = undefined;
+          for (const c of candidates) {
+            if (await matchesPhone(c)) { order = c; break; }
+          }
+          if (!order) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "No cancellable order found for this phone number" });
+          }
         }
-      }
 
-      return { ok: true, escrowRefunded, refundSweepRequired: !!activeEscrow && !escrowRefunded };
-    }),
+        // Pre-ship guard: once shipped, the goods are in transit — disputes
+        // and RMA own that path, not a chat cancel.
+        if (!isLegalOrderTransition(order.status, "cancelled")) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Order cannot be cancelled in status "${order.status}" (already shipped or terminal). Reply "dispute" for help instead.`,
+          });
+        }
+
+        await cancelOrder(db, order, { reason: input.reason ?? "Buyer cancelled via chat" });
+        const { escrowRefunded, refundSweepRequired } = await refundEscrowForCancelledOrder(
+          db, order, input.reason ?? "Buyer cancelled via chat",
+        );
+        sendOrderNotificationWithLog(order.id, "order_cancelled", order.tenantId, null)
+          .catch((e: unknown) => console.error("[orderCrud] buyerCancel notif error:", (e as Error)?.message));
+        return { ok: true, orderId: order.id, escrowRefunded, refundSweepRequired };
+      }),
+    // === END W45 orders-p0 ===
 
   /** Initiate a refund */
   refund: protectedProcedure
@@ -489,7 +605,7 @@ export const orderCrudRouter = router({
         const sumRows = await tx.execute(sql`
           SELECT COALESCE(SUM(amount::numeric), 0)::text AS total
           FROM refunds
-          WHERE "orderId" = ${input.orderId} AND status IN ('pending', 'approved')
+          WHERE "orderId" = ${input.orderId} AND status IN ('pending', 'approved', 'processed')
         `);
         const alreadyCents = Math.round(parseFloat(String((sumRows as unknown as { total: string }[])[0]?.total ?? "0")) * 100);
         if (alreadyCents + requestCents > orderTotalCents) {
@@ -523,6 +639,17 @@ export const orderCrudRouter = router({
           }).where(eq(orders.id, input.orderId));
         }
       });
+
+      // === W44 giftcards-referrals (Coder A): void the referral attribution
+      // tied to the refunded order (claim-first, audited). Best-effort —
+      // never blocks the refund. ===
+      try {
+        const { voidReferralOnRefund } = await import("../services/referrals");
+        await voidReferralOnRefund(db, { tenantId: order.tenantId, orderId: input.orderId, actor: String(ctx.user?.id ?? "merchant") });
+      } catch (e: any) {
+        console.warn("[orderCrud] referral void-on-refund failed:", e?.message);
+      }
+      // === END W44 giftcards-referrals ===
 
       return { refundId, ok: true };
     }),
@@ -588,8 +715,68 @@ export const orderCrudRouter = router({
         return { ok: true, status: "rejected" };
       }
 
+      // ── W38 claim-first (PAY-2): exactly ONE approval may execute the
+      // provider refund. A replayed/concurrent approval loses the claim and
+      // is refused, so the provider refund can never be issued twice for the
+      // same refund row. Failed attempts keep the row "pending" (below), so
+      // legitimate retries still pass the claim.
+      const claimed = await db.update(refunds).set({ updatedAt: new Date() })
+        .where(and(eq(refunds.id, input.refundId), eq(refunds.status, "pending")))
+        .returning({ id: refunds.id });
+      if (claimed.length === 0) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Refund is not pending (current: ${refund.status}) — approval already executed; refusing to re-issue the provider refund`,
+        });
+      }
+
       // Approval → execute the provider refund against the ORIGINAL payment.
       const [order] = await db.select().from(orders).where(eq(orders.id, refund.orderId)).limit(1);
+
+      // ── W38 PAY-1 + PAY-3 (claim-first): BEFORE any money moves, lock the
+      // order row AND the escrow state in ONE transaction.
+      //  PAY-1: re-check the cumulative cap (incl. 'processed') at approval
+      //  time — a refund created against a stale base can never push the
+      //  order past its total on the approval path either.
+      //  PAY-3: load the escrow FOR UPDATE; if it already settled/paid out,
+      //  the refund below double-spends platform funds unless a merchant
+      //  clawback is recorded — flag it here, record it after execution.
+      const clawbackHolder: { due: { escrowId: string; state: string } | null } = { due: null };
+      if (order) {
+        const orderTotalCents = Math.round(parseFloat(String(order.totalAmount)) * 100);
+        const thisCents = Math.round(parseFloat(String(refund.amount)) * 100);
+        await db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT id FROM orders WHERE id = ${refund.orderId} FOR UPDATE`);
+          const sumRows = await tx.execute(sql`
+            SELECT COALESCE(SUM(amount::numeric), 0)::text AS total
+            FROM refunds
+            WHERE "orderId" = ${refund.orderId} AND status IN ('pending', 'approved', 'processed')
+          `);
+          const cumulativeCents = Math.round(parseFloat(String((sumRows as unknown as { total: string }[])[0]?.total ?? "0")) * 100);
+          if (cumulativeCents > orderTotalCents) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Approving this refund would exceed the order total: cumulative refunds ${(cumulativeCents / 100).toFixed(2)} > ${(orderTotalCents / 100).toFixed(2)} — refund stays pending, no money moved`,
+            });
+          }
+          const { escrowTransactions } = await import("../../drizzle/schema");
+          const escRows = await tx.execute(sql`
+            SELECT id, state FROM escrow_transactions
+            WHERE order_id = ${refund.orderId}
+            ORDER BY created_at DESC
+            FOR UPDATE
+          `);
+          const settledEscrow = (escRows as unknown as { id: string; state: string }[])
+            .find((e) => e.state === "settled" || e.state === "release_instructed");
+          if (settledEscrow) {
+            clawbackHolder.due = { escrowId: settledEscrow.id, state: settledEscrow.state };
+            console.error(
+              `[orderCrud] PAY-3 refund-after-payout: refund ${input.refundId} (${(thisCents / 100).toFixed(2)}) on order ${refund.orderId} whose escrow ${settledEscrow.id} is ${settledEscrow.state} — merchant clawback will be recorded`,
+            );
+          }
+        });
+      }
+
       const { executeProviderRefund } = await import("../services/payments/refunds");
       const outcome = order
         ? await executeProviderRefund(db, {
@@ -598,6 +785,7 @@ export const orderCrudRouter = router({
             amountCents: Math.round(parseFloat(String(refund.amount)) * 100),
             currency: refund.currency ?? order.currency ?? "NGN",
             reason: refund.reason ?? undefined,
+            refundId: refund.id,
           })
         : { executed: false as const, status: "no_provider_refund" as const, error: "order not found" };
 
@@ -630,6 +818,40 @@ export const orderCrudRouter = router({
         });
       }
 
+      // ── W38 PAY-3: the refund executed against an already settled/paid-out
+      // escrow — the merchant kept the payout AND the buyer is being
+      // refunded, so record an explicit merchant clawback debit. Idempotent
+      // per refund via merchant_clawbacks_refund_uniq (a retry of the same
+      // refund never double-records). The platform never silently
+      // double-spends: recovery is recorded and auditable.
+      let clawbackId: string | null = null;
+      if (clawbackHolder.due && (outcome.executed || outcome.status === "no_provider_refund")) {
+        try {
+          const { merchantClawbacks } = await import("../../drizzle/schema");
+          clawbackId = crypto.randomUUID();
+          await db.insert(merchantClawbacks).values({
+            id: clawbackId,
+            tenantId: refund.tenantId,
+            orderId: refund.orderId,
+            refundId: refund.id,
+            escrowId: clawbackHolder.due.escrowId,
+            amountCents: Math.round(parseFloat(String(refund.amount)) * 100),
+            currency: refund.currency ?? order?.currency ?? "NGN",
+            reason: `Refund ${refund.id} executed after escrow ${clawbackHolder.due.escrowId} was ${clawbackHolder.due.state} — recover from merchant`,
+            status: "pending",
+            metadata: { escrowState: clawbackHolder.due.state, providerRefund: outcome.status },
+          });
+        } catch (err: any) {
+          // Unique-violation = clawback already recorded for this refund
+          // (concurrent/replayed approval) — idempotent, not an error.
+          if (String(err?.message ?? "").includes("merchant_clawbacks_refund_uniq")) {
+            clawbackId = null;
+          } else {
+            throw err;
+          }
+        }
+      }
+
       // "processed" is reachable ONLY via a provider-executed refund; queued
       // provider refunds ("pending") and non-provider refunds keep honest
       // "approved" state with the execution outcome recorded for recon.
@@ -653,11 +875,13 @@ export const orderCrudRouter = router({
             vocabulary: outcome.executed
               ? (outcome.status === "processed" ? "refund_paid" : "refund_initiated")
               : "refund_recorded",
+            // W38 PAY-3: refund-after-payout — clawback recovery reference.
+            ...(clawbackId ? { clawbackId, clawbackStatus: "pending" } : {}),
           },
         },
       }).where(eq(refunds.id, input.refundId));
 
-      return { ok: true, status: finalStatus, providerRefund: outcome };
+      return { ok: true, status: finalStatus, providerRefund: outcome, ...(clawbackId ? { clawbackId, clawback: "pending" as const } : {}) };
     }),
 
   /**
@@ -705,6 +929,72 @@ export const orderCrudRouter = router({
       }
       return { ok: true, status: "processed" };
     }),
+
+  // === W46 orders-p2 (Coder G) ===
+  /** ORD-23: merge two pre-ship, unpaid orders from the same customer to the
+   *  same address into one shipment (claim-first; secondary cancelled with
+   *  metadata.mergedInto, items re-parented, total recomputed). Splitting is
+   *  the W43 partial-fulfillment path (orderFulfill.fulfillOrderLines). */
+  merge: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      primaryOrderId: z.string(),
+      secondaryOrderId: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { mergeOrders } = await import("../services/orderMerge");
+      return mergeOrders(db, {
+        tenantId: input.tenantId,
+        primaryOrderId: input.primaryOrderId,
+        secondaryOrderId: input.secondaryOrderId,
+        actorId: String(ctx.user.id),
+      });
+    }),
+
+  /** ORD-22: register a product recall (targeted broadcast is dispatched by
+   *  recallDispatch). */
+  recallCreate: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      productId: z.string(),
+      reason: z.string().min(1).max(2000),
+      fromDate: z.coerce.date().optional(),
+      toDate: z.coerce.date().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { createRecall } = await import("../services/recalls");
+      return createRecall(db, { ...input, createdBy: String(ctx.user.id) });
+    }),
+
+  /** ORD-22: dispatch the recall notice to affected buyers (opt-outs logged
+   *  as skipped_opt_out recipient rows; exactly-once per order). */
+  recallDispatch: protectedProcedure
+    .input(z.object({ tenantId: z.string(), recallId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { dispatchRecall } = await import("../services/recalls");
+      return dispatchRecall(db, input);
+    }),
+
+  /** ORD-22: recall detail + per-status recipient counts (incl. opt-outs). */
+  recallStats: protectedProcedure
+    .input(z.object({ tenantId: z.string(), recallId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { getRecallStats } = await import("../services/recalls");
+      return getRecallStats(db, input);
+    }),
+  // === END W46 orders-p2 ===
 });
 import { publishOrderEvent } from "../kafka";
 import { daprPublish } from "../dapr";

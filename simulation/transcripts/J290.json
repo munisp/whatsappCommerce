@@ -1,0 +1,8 @@
+{
+  "id": "J290",
+  "title": "customer payment token consent + list + revoke (UC-6)",
+  "feature": "customerPaymentTokens: consent fail-closed, v2:<kid> encryption, masked list, revoke → charge refused",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

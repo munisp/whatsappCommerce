@@ -46,7 +46,7 @@ import {
   rejectPurchaseOrder,
   submitPurchaseOrder,
 } from "./services/procurement/poFlow";
-import { makeFakeDb, seedPo, seedSupplierProfile } from "./services/procurement/fakeDb";
+import { makeFakeDb, seedKycApplication, seedPo, seedSupplierProfile } from "./services/procurement/fakeDb";
 import { getSession, __clearMemorySessions } from "./services/chatSession";
 
 const TENANTS = [
@@ -56,7 +56,14 @@ const TENANTS = [
 const PROFILE = seedSupplierProfile({ tenantId: "supplier-1" });
 
 function makeDb(extra: Parameters<typeof makeFakeDb>[0] = {}) {
-  return makeFakeDb({ tenants: TENANTS.map((t) => ({ ...t })), supplierProfiles: [PROFILE], ...extra });
+  return makeFakeDb({
+    tenants: TENANTS.map((t) => ({ ...t })),
+    supplierProfiles: [PROFILE],
+    // W46 TEN-17 buyer-side KYB gate: both counterparties hold approved KYB
+    // so the PO-flow assertions below are not blocked by the KYB gate.
+    kycApplications: [seedKycApplication({ tenantId: "buyer-1" }), seedKycApplication({ tenantId: "supplier-1" })],
+    ...extra,
+  });
 }
 
 const LINES = [{ name: "Rice 50kg", qty: 2, unitPriceCents: 25_000, productRef: "p1" }];

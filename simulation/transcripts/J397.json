@@ -1,0 +1,42 @@
+{
+  "id": "J397",
+  "title": "auction lifecycle: bid, close sweep, winner invoice",
+  "feature": "UC-11 auctions",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348019018231",
+      "wamid": "wamid.sim.000995",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708127386,
+      "kind": "text",
+      "body": "🔨 You've been outbid on \"W46 Auction Ankara\" — the high bid is now ₦5,100.00. Bid again before it ends!"
+    },
+    {
+      "dir": "out",
+      "phone": "2348014160517",
+      "wamid": "wamid.sim.000996",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708127395,
+      "kind": "text",
+      "body": "🎉 You WON the auction for \"W46 Auction Ankara\" at ₦5,100.00! Complete payment to claim it:\n💳 Pay: https://checkout.paystack.com/sim/AUC-1789708127377-8D48EAD6"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019018231",
+      "wamid": "wamid.sim.000997",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708127406,
+      "kind": "text",
+      "body": "🔨 The auction for \"W46 Auction Ankara\" has ended — the winning bid was ₦5,100.00. Thanks for bidding!"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "id": "J356",
+  "title": "customer_changed_number migrates identity/consent/cart",
+  "feature": "MSG-12 number-port migration",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348016595851",
+      "profileName": "Port J356",
+      "inboundId": "wamid.sim.in.j356.00001",
+      "at": 1789708076426,
+      "kind": "system",
+      "text": "{\"from\":\"2348016595851\",\"id\":\"wamid.sim.in.j356.00001\",\"timestamp\":\"1789708076\",\"type\":\"system\",\"system\":{\"body\":\"User changed from old to new number\",\"type\":\"customer_changed_number\",\"new_wa_id\":\"234"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.j356.00001",
+      "at": 1789708076431
+    },
+    {
+      "dir": "out",
+      "phone": "2348018164090",
+      "wamid": "wamid.sim.000922",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708076443,
+      "kind": "text",
+      "body": "Your WhatsApp number changed — we've moved your account, consent and cart to your new number. ✅"
+    }
+  ]
+}

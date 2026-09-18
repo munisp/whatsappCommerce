@@ -42,7 +42,13 @@ export async function nlpAddToCart(world: World, phone: string, text: string, it
     extractedAddress: null,
     confidence: 0.95,
   });
+  // W46 merge-close: settle() alone can return during the 300ms quiescence
+  // window BEFORE the async pipeline finishes (reply is sent only after the
+  // session CAS write) — under vitest load the next message then races the
+  // session create and loses. Wait for the reply deterministically.
+  const before = world.outbound.ofType("text", phone).length;
   await world.text(phone, text);
+  await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 15000, "add-to-cart reply");
 }
 
 /** Script a confirm_order intent and send it (promo codes ride along in text). */
@@ -57,7 +63,9 @@ export async function nlpConfirm(world: World, phone: string, text = "confirm my
     extractedAddress: null,
     confidence: 0.95,
   });
+  const before = world.outbound.ofType("text", phone).length;
   await world.text(phone, text);
+  await world.waitFor(() => world.outbound.ofType("text", phone).length > before, 15000, "confirm-order reply");
 }
 
 /**
@@ -81,9 +89,13 @@ export async function createChatOrderViaNlp(
   await sleep(5); // order numbers are Date.now()-based — avoid same-ms collisions
 
   const fulfillment = opts.fulfillment ?? "pickup";
+  const beforeFulfill = world.outbound.ofType("text", phone).length;
   await world.text(phone, fulfillment === "pickup" ? "1" : "2");
+  await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeFulfill, 15000, "fulfillment reply");
   if (fulfillment === "delivery" && opts.address) {
+    const beforeAddr = world.outbound.ofType("text", phone).length;
     await world.text(phone, opts.address);
+    await world.waitFor(() => world.outbound.ofType("text", phone).length > beforeAddr, 15000, "address reply");
   }
 
   const order = await latestOrderForPhone(world, phone);
@@ -228,6 +240,30 @@ export async function expectTrpcError(p: Promise<any>, code: string, label: stri
 }
 
 export { ADMIN_PHONE, TENANT_ID };
+
+/**
+ * W40 (TEN-11): seed an APPROVED KYB application for a tenant — the state
+ * kyc.review leaves behind after a successful adjudication. Marketplace
+ * seller registration is gated on this.
+ */
+export async function seedApprovedKyb(world: World, tenantId: string, businessName = "Sim Business Ltd"): Promise<string> {
+  const schema = await import("../../drizzle/schema");
+  const id = crypto.randomUUID();
+  const now = new Date();
+  await world.db.insert(schema.kycApplications).values({
+    id,
+    tenantId,
+    type: "kyb",
+    status: "approved",
+    businessName,
+    submittedAt: now,
+    reviewedAt: now,
+    approvedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
 
 // ── Wave 8: B2B procurement + trade credit ──────────────────────────────────
 

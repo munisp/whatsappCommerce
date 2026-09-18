@@ -1,0 +1,61 @@
+{
+  "id": "J352",
+  "title": "multi-entry webhook fan-out all processed",
+  "feature": "MSG-4 iterate ALL entry[]/changes[] + DLQ processed flip",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348012595448",
+      "profileName": "Fanout A",
+      "inboundId": "wamid.sim.in.j352.0000a",
+      "at": 1789708071029,
+      "kind": "text",
+      "text": "hello j352 first entry"
+    },
+    {
+      "dir": "in",
+      "phone": "2348019265022",
+      "profileName": "Fanout B",
+      "inboundId": "wamid.sim.in.j352.0000b",
+      "at": 1789708071029,
+      "kind": "text",
+      "text": "hello j352 second entry"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.j352.0000a",
+      "at": 1789708071033
+    },
+    {
+      "dir": "out",
+      "phone": "2348012595448",
+      "wamid": "wamid.sim.000917",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708071063,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.j352.0000b",
+      "at": 1789708071073
+    },
+    {
+      "dir": "out",
+      "phone": "2348019265022",
+      "wamid": "wamid.sim.000918",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708071097,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    }
+  ]
+}

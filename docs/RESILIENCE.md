@@ -61,6 +61,42 @@ quorum/fencing prompts map onto our stack as follows:
 - Backups: replicate the TB data file per the official replication protocol —
   do NOT file-copy a running replica.
 
+## Backups (W39, PLT-1/PLT-2/PLT-8)
+
+### Postgres
+- `k8s/postgres.yaml` data volume is now PVC `postgres-data` (10Gi). Minimal-
+  change choice: standalone PVC + existing Deployment (Recreate) instead of a
+  StatefulSet conversion — single-replica dev overlay, Recreate already
+  guarantees at-most-one writer, and a StatefulSet would rename the pod
+  identity for zero durability gain here. `tmp`/`run` remain emptyDir by
+  design (ephemeral sockets/pids only).
+- `k8s/backups.yaml` CronJob #42 `cron-postgres-backup` (`0 3 * * *`):
+  `pg_dump --format=custom | gzip` into PVC `postgres-backups` (20Gi) with
+  7-day in-job retention (`find -mtime +7 -delete`).
+- Object storage: if `S3_BUCKET` (plus `S3_ENDPOINT`/`S3_ACCESS_KEY`/
+  `S3_SECRET_KEY`, the env.example.txt S3 block) is present in
+  `platform-secrets`, the job also uploads to `s3://$S3_BUCKET/pg/`. Configure
+  a 7-day bucket lifecycle rule for off-cluster retention — the job does not
+  prune remote objects.
+- HONEST DEGRADE: without S3 configured, the in-cluster PVC copy is the ONLY
+  backup — node/AZ loss can still lose it. The job logs this explicitly.
+
+### TigerBeetle
+- `k8s/tigerbeetle.yaml` data volume is now PVC `tigerbeetle-data` (5Gi).
+- TB 0.16.x has no snapshot API. Two honest paths:
+  1. **Offline copy (safe, preferred):** `scripts/backup/tigerbeetle-backup.sh`
+     scales the replica to 0, copies the data file off the PVC, scales back.
+     Brief ledger unavailability; use in a maintenance window.
+  2. **CronJob #43 `cron-tigerbeetle-backup` (`0 4 * * 0`):** crash-consistent
+     copy of the LIVE data file to the backup PVC, 7-day retention. Dev safety
+     net only — a torn tail is possible, so restores should prefer an offline
+     copy. Mounts the same RWO volume as TB: both must schedule on the same
+     node (fine in the single-node dev overlay; a multi-node cluster must add
+     node affinity or use RWX storage).
+- Production ledger durability requires a 3-replica TB cluster (VSR
+  replication) per the multi-node notes above; backups complement, never
+  replace, replication.
+
 ## Test inventory (this branch)
 
 | Suite | Command | Covers |
@@ -74,3 +110,69 @@ quorum/fencing prompts map onto our stack as follows:
 | `services/gateway/internal/ratelimit/ratelimit_test.go` | `go test ./...` | item 6 (fail-open dev) |
 | `rust/ledger-bridge` tests | `cargo test -p ledger-bridge` | item 5 + uuid5 dedup |
 | `rust/recon-worker` tests | `cargo test -p recon-worker` | item 7 (void classification) |
+
+## W42 — Temporal versioning, real-PG money paths, PG pool leaks (PLT-10 / PLT-15 / PLT-17)
+
+### PLT-10: Temporal workflow versioning + auto-approve stubs removed
+
+- **Versioning story.** `@temporalio/workflow` is not a declared dependency
+  (only `@temporalio/client` is), so `patch()` is unavailable at typecheck
+  time. `services/temporal-workflows/workflows.ts` now carries **deterministic
+  version constants** (`WORKFLOW_VERSIONS`) plus a `patched()`-compatible
+  `versionGate(workflow, changeId, minVersion)` marker at every
+  behavior-change point (`no-auto-approve-kyc`, `no-auto-confirm-payment`).
+  The rule: never delete a code path below its recorded version — the same
+  discipline Temporal's `patch()` enforces; change ids carry over if the SDK
+  is adopted. The worker pins a deterministic **build id**
+  (`WORKER_BUILD_ID`, overridable via `TEMPORAL_WORKER_BUILD_ID`) passed to
+  `Worker.create({ buildId })` for Temporal worker versioning.
+- **Auto-approve stubs REMOVED.** The old stub activities returned fixed
+  values (`waitForKycApproval → "approved"`, `confirmPayment → true`,
+  `reserveInventory → true`) — enabling the worker in prod would have
+  auto-approved KYC and auto-confirmed payments. Activities now throw
+  `activity_not_wired` unless REAL handlers are registered via
+  `registerActivityHandlers()` (worker.ts wires its API-backed handlers at
+  boot). Money/KYC paths never fabricate success.
+- Pinned by journeys **J317** (version markers present, gates deterministic)
+  and **J321** (unwired activities honestly fail; no fixed "approved").
+
+### PLT-15: money paths tested against real PG (integration profile)
+
+- The default sim world is PGlite; behaviors that only exist in real PG
+  (`pg_advisory_xact_lock` in `server/routers/loyalty.ts`, `FOR UPDATE SKIP
+  LOCKED` in `inventory.ts`, deferrable/unique partial indexes from
+  migrations 0088/0099) are invisible there. **PGlite limitation, honestly
+  stated:** PGlite is single-connection, emulates some wire behavior, and its
+  lock/constraint semantics are not a proof of production behavior.
+- **Real-PG profile (opt-in):** `docker-compose.yml` already ships a
+  `postgres:16-alpine` service. `npm run test:pg-integration`
+  (`scripts/pg-integration-money-paths.ts`, gated on `PG_INTEGRATION=1`)
+  creates a scratch database on that server, applies ALL migrations, and runs
+  the W38 refund/clawback money-integrity suite (J247–J253) via the
+  simulation runner booted in external-PG mode (`SIM_DATABASE_URL`, see
+  `simulation/world.ts` "W42 pg-integration"). The scratch DB is dropped on
+  exit.
+- **Honest skip:** without `PG_INTEGRATION=1`, or with PG unreachable
+  (non-strict), the script prints the exact enable steps and exits 0 — it
+  never silently fabricates a pass. `PG_INTEGRATION_STRICT=1` turns
+  unreachable-PG into a hard failure for CI.
+- Pinned by journey **J318** (gate is honest-skip when disabled, enabled with
+  URL when `PG_INTEGRATION=1`).
+
+### PLT-17: PG pool exhaustion — leak-free client swap + bounded queue
+
+- **Client-swap leak FIXED.** `withRetry()` previously nulled `_db`/`_client`
+  on transient errors and dropped the old postgres.js pool un-ended — its
+  sockets leaked under error bursts. Now `resetDbConnection()` ends the old
+  client (bounded 5s wait) BEFORE swapping; `getDbPoolResetCount()` exposes
+  the swap count for regression pinning (journey **J319**).
+- **Bounded queue.** postgres.js queues pending queries internally with no
+  depth limit. `withRetry()` now sheds load: when in-flight/queued ops reach
+  `PG_POOL_QUEUE_MAX` (default 4× `PG_POOL_MAX`, floor 25) the call rejects
+  immediately with `db_pool_queue_saturated` (code
+  `DB_POOL_QUEUE_SATURATED`, status 503) instead of hanging behind a pile-up
+  (journey **J320**). Session-level `statement_timeout` (30s),
+  `lock_timeout` (10s) and `idle_in_transaction_session_timeout` (60s) —
+  overridable via `PG_STATEMENT_TIMEOUT_MS` / `PG_LOCK_TIMEOUT_MS` /
+  `PG_IDLE_TX_TIMEOUT_MS` — bound how long a stuck query can hold a pooled
+  connection in the first place.

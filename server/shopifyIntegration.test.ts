@@ -439,7 +439,7 @@ describe("OAuth callback", () => {
     const conn = tenantSettings(T1).shopifyIntegration.connection;
     expect(conn.shop).toBe(SHOP);
     expect(conn.accessTokenEncrypted).not.toContain("shpat_test_token_123");
-    expect(conn.accessTokenEncrypted.startsWith("v1:")).toBe(true);
+    expect(conn.accessTokenEncrypted).toMatch(/^v2:[^:]+:/); // W42: v2:<kid> envelope
     // nonce consumed (one-time)
     expect(tenantSettings(T1).shopifyIntegration.pendingOAuth).toBeNull();
     expect(await shopifyConnector.isConfigured(T1)).toBe(true);

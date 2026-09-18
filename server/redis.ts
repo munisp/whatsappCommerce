@@ -8,6 +8,7 @@
  *   import { getRedis, redisSet, redisGet, redisDel, redisIncrEx } from "./redis";
  */
 import type Redis from "ioredis";
+import { buildTlsOptions } from "./_core/tlsConfig";
 type RedisType = InstanceType<typeof Redis>;
 
 let _redis: RedisType | null = null;
@@ -31,7 +32,9 @@ export async function getRedis(): Promise<RedisType | null> {
       connectTimeout: 5000,
       lazyConnect: true,
       enableOfflineQueue: false,
-      tls: url.startsWith("rediss://") ? { rejectUnauthorized: false } : undefined,
+      // W42 (PLT-14): verify certs by default; REDIS_TLS_CA provides a
+      // private-CA bundle (docs/TLS.md).
+      tls: url.startsWith("rediss://") ? buildTlsOptions("Redis", "REDIS") : undefined,
     });
     await client.connect();
     client.on("error", (err: Error) => console.warn("[Redis] connection error:", err.message));

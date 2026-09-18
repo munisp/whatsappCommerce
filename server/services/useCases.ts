@@ -27,6 +27,7 @@ import {
   orderItems,
   orders,
   paymentTransactions,
+  products,
   serviceCatalog,
   tenants,
   type Order,
@@ -73,7 +74,9 @@ import {
   matchLocalizedIntent,
   parseLanguageChoice,
   resolveLocale,
+  resolveLocaleDetailed, // W46 platform-p2 (MSG-23)
   setStickyLocale,
+  sharesTokenWithCatalog, // W46 MSG-23 commerce-text guard
   t27,
   tr,
   type Locale,
@@ -514,6 +517,16 @@ async function applyOutcome(
   return false;
 }
 
+/** W46 MSG-23 commerce-text guard: product names for the picker gate. */
+async function listTenantProductNames(db: Db, tenantId: string): Promise<string[]> {
+  const rows = await db
+    .select({ name: products.name })
+    .from(products)
+    .where(eq(products.tenantId, tenantId))
+    .limit(200);
+  return rows.map((r) => r.name).filter((n): n is string => !!n);
+}
+
 /** Dynamic menu context for one caller (open-order count annotation). */
 async function menuCtxForCaller(deps: DispatchDeps): Promise<MenuDynamicCtx> {
   const openOrders = await countOpenOrders(deps.db, deps.tenantId, deps.phone).catch(() => null);
@@ -623,8 +636,13 @@ export async function handleConversationalInbound(opts: {
 }): Promise<InboundOutcome> {
   const { db, tenantId, phone, text } = opts;
   const tenantSettings = (opts.tenant?.settings ?? null) as Record<string, unknown> | null;
-  const locale = await resolveLocale({ tenantId, phone, text, tenantSettings })
-    .catch(() => "en" as Locale);
+  // === W46 platform-p2 (MSG-23) === confidence-aware resolution: weak or
+  // unsupported detections surface lowConfidence instead of silently
+  // sticking English.
+  const localeResolution = await resolveLocaleDetailed({ tenantId, phone, text, tenantSettings })
+    .catch(() => ({ locale: "en" as Locale, source: "default" as const, lowConfidence: false, score: 0 }));
+  const locale = localeResolution.locale;
+  // === END W46 platform-p2 (MSG-23) ===
   const deps: DispatchDeps = {
     db,
     tenantId,
@@ -639,6 +657,53 @@ export async function handleConversationalInbound(opts: {
   // ── 1. NDPR consent gate (first-ever inbound from this phone) ────────────
   const existingConsent = await getConsent(db, tenantId, phone);
   let session = await getSession(tenantId, phone);
+
+  // === W40 MSG-1: STOP honored mid-conversation ===
+  // Always-on opt-out interceptor: runs BEFORE menu/NLP reply generation for
+  // every inbound with an existing consent decision. STOP revokes consent
+  // (audit-logged), gets one suppressed-reply confirmation, and the bot
+  // stays silent on all subsequent inbound until an explicit YES re-opt-in.
+  // First-contact NO (no withdrawnAt) keeps the J1 "can still chat" contract.
+  if (existingConsent) {
+    const { isOptOutKeyword, wasRevoked, WA_STOP_CONFIRMATION, auditConsentWithdrawal } =
+      await import("./optOut");
+    if (isOptOutKeyword(text)) {
+      if (!wasRevoked(existingConsent)) {
+        const { recordChannelRevocation } = await import("./consent");
+        await recordChannelRevocation(db, {
+          tenantId,
+          sessionKey: phone,
+          channel: "whatsapp",
+        });
+        await auditConsentWithdrawal({ tenantId, sessionKey: phone, channel: "whatsapp" });
+      }
+      await clearSession(tenantId, phone);
+      return { handled: true, reply: WA_STOP_CONFIRMATION };
+    }
+    if (wasRevoked(existingConsent)) {
+      // Revoked identity: silent on everything except an explicit re-opt-in.
+      if (parseConsentReply(text) === true) {
+        // === W46 privacy-consent (TEN-16): re-grant rate limit — a flood of
+        // re-grants right after withdrawal keeps the withdrawal standing. ===
+        try {
+          await recordConsent(db, { tenantId, phone, granted: true });
+        } catch (e: any) {
+          const { ConsentRegrantRateLimited } = await import("./consent");
+          if (e instanceof ConsentRegrantRateLimited) {
+            return { handled: true, reply: e.message };
+          }
+          throw e;
+        }
+        // === END W46 privacy-consent ===
+        const menu = await renderMenuForCaller(deps);
+        await saveSession({ ...newSession(tenantId, phone), awaitingMenuSelection: true });
+        return { handled: true, reply: `${tr(locale, "consentGranted")}\n\n${menu}` };
+      }
+      return { handled: true }; // bot silent — no reply generated
+    }
+  }
+  // === END W40 MSG-1 ===
+
   if (!existingConsent) {
     const decision = parseConsentReply(text);
     if (decision === null) {
@@ -685,6 +750,34 @@ export async function handleConversationalInbound(opts: {
       reply: `${t27(locale, "invalidSelection")}\n\n${buildLanguageMenu(locale)}`,
     };
   }
+
+  // === W46 platform-p2 (MSG-23) === low-confidence locale → language
+  // picker (instead of silent sticky English). Offered at most once per
+  // session; a customer who ignores it proceeds with the resolved locale.
+  // Numbers/menu keywords never trigger it (detectLocaleDetailed treats
+  // non-language-bearing text as confident).
+  // Active-flow guard: never hijack an in-progress use-case/booking flow —
+  // mid-flow text ("next week maybe") is flow input, not language signal.
+  // Zero-signal text (score 0 — "dedupe check", "2 jollof", any ordinary
+  // commerce/chat message in ANY phrasing) must NEVER be hijacked by the
+  // picker: it opens only on a WEAK-but-real signal of a supported locale.
+  if (localeResolution.lowConfidence && (localeResolution.score ?? 0) > 0 && session?.mode !== "usecase" && !session?.awaitingLanguageChoice && !session?.languagePickerOffered) {
+    // Commerce-text guard: an order attempt that names a catalog product
+    // ("2 jollof") must NOT be hijacked by the picker — fall through to the
+    // menu/NLP pipeline instead.
+    const catalogNames = await listTenantProductNames(deps.db, deps.tenantId).catch(() => [] as string[]);
+    if (sharesTokenWithCatalog(text, catalogNames)) {
+      // fall through — not language-bearing, it's commerce text
+    } else {
+    await saveSession({
+      ...(session ?? newSession(tenantId, phone)),
+      awaitingLanguageChoice: true,
+      languagePickerOffered: true,
+    });
+    return { handled: true, reply: buildLanguageMenu(locale) };
+    }
+  }
+  // === END W46 platform-p2 (MSG-23) ===
 
   // ── 2. Menu keyword always re-opens the menu (and pushes the PDF menu
   //        when the tenant has settings.menuDocUrl configured) ──────────────
