@@ -115,11 +115,14 @@ describe("resolveLocale", () => {
     expect(await resolveLocale({ tenantId: "t1", phone: "p-dont", text: "can you check?" })).toBe("en");
   });
 
-  it("first-message Hausa 'don' still detects ha and persists for the 30-day window", async () => {
+  it("first-message Hausa 'don' weak signal resolves ha but is NOT sticky (W46 MSG-23: picker, not silent sticky)", async () => {
+    // Weak single-stopword signal: locale resolves to the weakly-detected
+    // ha, but per MSG-23 it is flagged low-confidence and never persisted —
+    // the language picker offers the explicit choice instead.
     expect(await resolveLocale({ tenantId: "t1", phone: "p-don", text: "I don finish" })).toBe("ha");
-    expect(await getStickyLocale("t1", "p-don")).toBe("ha");
-    // Sticky wins over later English text.
-    expect(await resolveLocale({ tenantId: "t1", phone: "p-don", text: "thank you" })).toBe("ha");
+    expect(await getStickyLocale("t1", "p-don")).toBeNull();
+    // Later English text resolves en (no sticky ha to override it).
+    expect(await resolveLocale({ tenantId: "t1", phone: "p-don", text: "thank you" })).toBe("en");
   });
 });
 

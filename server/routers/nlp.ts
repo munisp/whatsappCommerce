@@ -7,7 +7,7 @@
  *   checkout_address → checkout_confirm → payment → order_confirmed → support
  */
 import { z } from "zod";
-import { eq, and, sql, desc, inArray, or } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, inArray, or } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, internalProcedure, router, assertTenantAccess } from "../_core/trpc";
 // === W34 otel-core === traceparent propagation (internal ml call).
@@ -50,7 +50,7 @@ import {
   syncContactToTwenty,
   pushOrderActivityToTwenty,
 } from "../services/integrationSync";
-import { normalizeExtractedItems, addExtractedItemsToCart } from "../services/nlpCart";
+import { normalizeExtractedItems, addExtractedItemsToCart, matchCatalogItem } from "../services/nlpCart";
 import { quoteDeliveryFee } from "../services/deliveryQuote";
 import { trackingUrlFor } from "../services/trackingToken";
 import {
@@ -104,6 +104,21 @@ export function extractPromoCode(text: string): string | null {
   return m ? m[1] : null;
 }
 
+// === W46 orders-p2 (ORD-25) ===
+/**
+ * Extract a buyer free-text note from a checkout message:
+ * "note: leave at the gate", "add note — call when you arrive",
+ * "delivery note: knock twice", "instructions: no onions". Returns null when
+ * the message carries no explicit note marker (we NEVER guess — a plain
+ * address line is not a note). Capped at 500 chars.
+ */
+export function extractBuyerNote(text: string): string | null {
+  const m = /\b(?:note|add (?:a )?note|delivery note|instruction[s]?)\s*[:–—-]\s*([\s\S]+)$/i.exec(text ?? "");
+  const note = m?.[1]?.trim();
+  return note ? note.slice(0, 500) : null;
+}
+// === END W46 orders-p2 ===
+
 /** Buyer-facing reason a promo code was not applied. */
 function promoRejectText(reason: string): string {
   switch (reason) {
@@ -149,6 +164,8 @@ function buildOrderSummary(opts: {
   /** W17/F10: cash-on-delivery orders show a pay-on-receipt line instead. */
   paymentMethod?: "online" | "cod";
   trackingUrl: string;
+  /** W46 uc-money (UC-15): optional tip prompt line (tenant opt-in). */
+  tipPrompt?: string | null;
   /** W41 UC-5: dual-display price formatter (NGN + tenant display currency). */
   fmt?: PriceFmt;
 }): string {
@@ -168,6 +185,8 @@ function buildOrderSummary(opts: {
     lines.push(`🏷️ Promo ${opts.promo.code}: −${fmt(opts.promo.discount, opts.currency)}`);
   }
   lines.push(`*Total: ${fmt(opts.total, opts.currency)}*`);
+  // W46 uc-money (UC-15): tip prompt rides the shared summary (BOTH channels).
+  if (opts.tipPrompt) lines.push(opts.tipPrompt);
   if (opts.promoError) lines.push(`⚠️ Promo not applied — ${opts.promoError}.`);
   if (opts.fulfillment === "pickup") lines.push("", "🏪 We'll message you when it's ready for pickup.");
   if (opts.paymentMethod === "cod") {
@@ -215,6 +234,19 @@ export interface ChatOrderResult {
   loyalty?: { points: number; discountCents: number; balanceAfter: number } | null;
   /** W41: buyer installment plan created for this order (payment link = down payment). */
   installment?: { planId: string; downPaymentCents: number; installments: number; totalCents: number } | null;
+  // === W46 uc-ux (Coder E) ===
+  /** UC-27: set when checkout was BLOCKED by the tenant minimum order value. */
+  minOrderBlock?: import("../services/minOrder").MinOrderCheck;
+  /** UC-24: gift wrap fee line charged on this order (integer cents). */
+  giftWrapFeeCents?: number;
+  /** UC-21: delivery slot booking outcome for this order. */
+  slotBooking?: { booked: boolean; reason?: string };
+  /** UC-17: venue table the order was placed from (QR deep link). */
+  venueTable?: { tableId: string; label: string } | null;
+  // === END W46 uc-ux ===
+  /** === W46 privacy-consent (TEN-15): age gate blocked the order — the
+   * buyer must attest to `requiredAge` before checkout proceeds. === */
+  ageGate?: { requiredAge: number; restrictedProductIds: string[] } | null;
 }
 
 /** Buyer-facing reply when (part of) the cart can't be fulfilled: names the
@@ -275,6 +307,19 @@ export async function createChatOrder(
     installments?: number | null;
     /** W41: buyer explicitly consented to save the card after paying. */
     saveCardConsent?: boolean;
+    // === W46 uc-ux (Coder E) ===
+    /** UC-24: gift options captured at checkout (wrap/message/recipient). */
+    gift?: import("../services/giftOrders").GiftOptions;
+    /** UC-21: pre-armed delivery slot id (buyer picked SLOT <n> earlier). */
+    deliverySlotId?: string | null;
+    // === END W46 uc-ux ===
+    /** W46 orders-p2 (ORD-25): buyer free-text note captured at chat
+     *  checkout ("note: leave at the gate") — persisted to orders.notes so
+     *  the merchant sees it on the order. Capped at 500 chars. */
+    buyerNote?: string | null;
+    /** === W46 privacy-consent (TEN-15): buyer attested their age in this
+     * checkout turn (affirmative reply verified by the caller). === */
+    ageAttested?: boolean;
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -296,7 +341,68 @@ export async function createChatOrder(
     };
   }
 
+  // === W46 privacy-consent (TEN-15): age-restricted checkout gate ========
+  // Runs BEFORE any order/payment link exists, on the single order-creation
+  // seam shared by the WhatsApp, Telegram and LLM/agent checkout paths.
+  // A durable attestation (age_attestations) covers returning buyers; an
+  // in-turn affirmation (opts.ageAttested) is persisted as evidence.
+  try {
+    const { assertAgeGate } = await import("../services/ageGate");
+    const gate = await assertAgeGate(db, {
+      tenantId: opts.tenantId,
+      phone: opts.waPhoneNumber,
+      productIds: items.map((i) => i.productId),
+      attested: opts.ageAttested === true,
+      source: "chat_reply",
+    });
+    if (!gate.ok) {
+      return {
+        created: false,
+        ageGate: { requiredAge: gate.requiredAge!, restrictedProductIds: gate.restrictedProductIds ?? [] },
+        currency: items[0].currency,
+      };
+    }
+  } catch (e: unknown) {
+    // Fail CLOSED on a gate lookup error only when the cart actually
+    // contains restricted products is impossible to know here — so we
+    // re-check cheaply; unrestricted carts proceed unaffected.
+    console.error("[nlp] age gate check failed:", (e as Error)?.message);
+    try {
+      const { requiredAgeForProducts } = await import("../services/ageGate");
+      const requirement = await requiredAgeForProducts(db, opts.tenantId, items.map((i) => i.productId));
+      if (requirement) {
+        return {
+          created: false,
+          ageGate: { requiredAge: requirement.requiredAge, restrictedProductIds: requirement.restrictedProductIds },
+          currency: items[0].currency,
+        };
+      }
+    } catch (e2: unknown) {
+      console.error("[nlp] age gate re-check failed (allowing unrestricted cart only):", (e2 as Error)?.message);
+    }
+  }
+  // === END W46 privacy-consent ===
+
   const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
+  // === W46 uc-ux (Coder E): UC-27 minimum order guard =====================
+  // Runs BEFORE any order/payment link exists — a below-minimum cart blocks
+  // checkout with an additive prompt (both channels render the same text).
+  {
+    try {
+      const { checkMinOrder } = await import("../services/minOrder");
+      const minCheck = await checkMinOrder(db, {
+        tenantId: opts.tenantId,
+        fulfillment: opts.fulfillment,
+        subtotalMajor: subtotal,
+      });
+      if (!minCheck.ok) {
+        return { created: false, minOrderBlock: minCheck, currency: items[0].currency };
+      }
+    } catch (e: unknown) {
+      console.error("[nlp] min-order guard failed (non-blocking):", (e as Error)?.message);
+    }
+  }
+  // === END W46 uc-ux ===
   // ── W27: aggregated courier quote — cheapest of the tenant's enabled
   // courier adapters (distance-priced local dispatch when coordinates are
   // known), falling back to the honest zone rate. Non-blocking. ────────────
@@ -399,8 +505,23 @@ export async function createChatOrder(
       console.error("[nlp] loyalty preview failed (non-blocking):", (e as Error)?.message);
     }
   }
+  // === W46 uc-ux (Coder E): UC-24 gift-wrap fee line ======================
+  // The tenant's configured wrap fee (integer cents) is an explicit fee line
+  // folded into the charged total; 0/absent = no wrap charge.
+  let giftWrapFeeCents = 0;
+  if (opts.gift && (opts.gift.isGift || opts.gift.wrap)) {
+    try {
+      const { getGiftWrapFeeCents } = await import("../services/giftOrders");
+      giftWrapFeeCents = opts.gift.wrap ? await getGiftWrapFeeCents(db, opts.tenantId) : 0;
+    } catch (e: unknown) {
+      console.error("[nlp] gift wrap fee lookup failed (non-blocking):", (e as Error)?.message);
+      giftWrapFeeCents = 0;
+    }
+  }
+  // === END W46 uc-ux ===
   const totalMinor = Math.max(0,
     toMinorUnitsExact(subtotal + deliveryFee)
+    + giftWrapFeeCents
     - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0)
     - (loyaltyPreview?.discountCents ?? 0));
   const total = Number(minorUnitsToString(totalMinor));
@@ -447,7 +568,16 @@ export async function createChatOrder(
         currency,
         paymentStatus: "unpaid",
         codState: opts.paymentMethod === "cod" ? "cod_pending" : null,
+        // === W46 uc-ux (Coder E): UC-24 gift order columns ===
+        isGift: opts.gift?.isGift === true || opts.gift?.wrap === true,
+        giftMessage: opts.gift?.message ?? null,
+        giftRecipientPhone: opts.gift?.recipientPhone ?? null,
+        giftWrapFeeCents,
+        // === END W46 uc-ux ===
         shippingAddress: opts.address ? { raw: opts.address } : null,
+        // === W46 orders-p2 (ORD-25): buyer free-text note → orders.notes ===
+        notes: opts.buyerNote?.trim() ? opts.buyerNote.trim().slice(0, 500) : null,
+        // === END W46 orders-p2 ===
         items: items.map(i => ({ productId: i.productId, name: i.productName, qty: i.quantity, price: i.unitPrice })),
         metadata: {
           fulfillment: opts.fulfillment,
@@ -457,6 +587,11 @@ export async function createChatOrder(
           source: "whatsapp_chat",
           paymentMethod: opts.paymentMethod === "cod" ? "cod" : "online",
           ...(promoMeta ? { promo: promoMeta } : {}),
+          // === W46 uc-ux (Coder E): UC-24 gift metadata (wrap fee line) ===
+          ...(opts.gift && (opts.gift.isGift || opts.gift.wrap) ? {
+            gift: { wrap: opts.gift.wrap === true, wrapFeeCents: giftWrapFeeCents, message: opts.gift.message ?? null, recipientPhone: opts.gift.recipientPhone ?? null },
+          } : {}),
+          // === END W46 uc-ux ===
           // W27: aggregated courier quote snapshot + loyalty redemption.
           ...(aggQuote ? {
             deliveryQuote: {
@@ -492,6 +627,32 @@ export async function createChatOrder(
     }
     throw err;
   }
+
+  // === W46 uc-ux (Coder E): UC-17 venue-table stamp + UC-21 slot claim ====
+  // Adjacent post-commit seams — a failure here NEVER rolls back the order.
+  let venueTable: { tableId: string; label: string } | null = null;
+  try {
+    const { attachVenueTableToOrder } = await import("../services/venueTables");
+    venueTable = await attachVenueTableToOrder(db, { orderId, cartSessionId: opts.cartSessionId });
+  } catch (e: unknown) {
+    console.error("[nlp] venue-table attach failed (non-blocking):", (e as Error)?.message);
+  }
+  let slotBooking: ChatOrderResult["slotBooking"];
+  if (opts.deliverySlotId && opts.fulfillment === "delivery") {
+    try {
+      const slotsSvc = await import("../services/deliverySlots");
+      const booked = await slotsSvc.bookDeliverySlot(db, { tenantId: opts.tenantId, orderId, slotId: opts.deliverySlotId });
+      slotBooking = booked;
+      if (booked.booked) {
+        // Courier booking seam (quote window recorded on order metadata).
+        await slotsSvc.bookCourierForSlot(db, { tenantId: opts.tenantId, orderId, slotId: opts.deliverySlotId, dropoffAddress: opts.address ?? null });
+      }
+    } catch (e: unknown) {
+      console.error("[nlp] delivery-slot booking failed (non-blocking):", (e as Error)?.message);
+      slotBooking = { booked: false, reason: "error" };
+    }
+  }
+  // === END W46 uc-ux ===
 
   // ── Claim the promo usage only AFTER the order transaction committed ──
   // (a rolled-back order must never consume a use). Claim-first + atomic —
@@ -587,6 +748,9 @@ export async function createChatOrder(
       promoError,
       deliveryQuote: deliveryQuoteMeta,
       loyalty: loyaltyApplied,
+      giftWrapFeeCents,
+      slotBooking,
+      venueTable,
     };
   }
 
@@ -705,6 +869,9 @@ export async function createChatOrder(
     deliveryQuote: deliveryQuoteMeta,
     loyalty: loyaltyApplied,
     installment,
+    giftWrapFeeCents,
+    slotBooking,
+    venueTable,
   };
 }
 import { hermesConfigs } from "../../drizzle/schema";
@@ -937,12 +1104,39 @@ export const nlpRouter = router({
             stepCtx.paymentMethod = "cod";
           }
 
+          // === W46 orders-p2 (ORD-25): buyer free-text note capture =======
+          // "note: leave at the gate" / "add note — call when you arrive"
+          // at any checkout step sticks to the session and is written to
+          // orders.notes when the order is created (both channels — Telegram
+          // runs the SAME processMessage path).
+          {
+            const captured = extractBuyerNote(text);
+            if (captured) stepCtx.buyerNote = captured;
+          }
+          // === END W46 orders-p2 ===
+
           // W27: loyalty redemption intent at any checkout step ("redeem my
           // points", "2 delivery use points") sticks to the session like the
           // promo/COD capture above and is applied when the order is created.
           if (/\b(redeem|use)\b[^.]*\bpoints?\b|\bpoints?\s+(discount|don jazzy)?$/i.test(lower) && !/\b(balance|how many|check)\b/.test(lower)) {
             stepCtx.loyaltyRedeem = true;
           }
+
+          // === W46 uc-ux (Coder E): UC-24 gift intent capture =============
+          // "this is a gift", "gift wrap it", "send to 234… as a gift" sticks
+          // gift options to the session; createChatOrder charges the wrap fee
+          // line and stamps the order's gift columns. One-shot: consumed when
+          // the order is created (deleted from stepCtx below).
+          if (/\bgift\b/i.test(text)) {
+            const recipient = text.match(/(?:send|ship|deliver)\s+(?:it\s+)?to\s*(\+?[\d][\d\s-]{7,16}\d)/i);
+            stepCtx.gift = {
+              isGift: true,
+              wrap: /\bwrap(ped|ping)?\b/i.test(text),
+              recipientPhone: recipient ? recipient[1].replace(/[\s-]/g, "") : null,
+              message: null,
+            };
+          }
+          // === END W46 uc-ux ===
 
           // W41 (UC-1): installment intent at any checkout step — "pay in 3",
           // "installments", "pay small small" sticks to the session and is
@@ -973,6 +1167,12 @@ export const nlpRouter = router({
               loyaltyRedeem: stepCtx.loyaltyRedeem === true,
               installments: typeof stepCtx.installments === "number" ? (stepCtx.installments as number) : null,
               saveCardConsent: stepCtx.saveCardConsent === true,
+              // === W46 uc-ux (Coder E): UC-24 gift + UC-21 slot opts ===
+              gift: (stepCtx.gift as import("../services/giftOrders").GiftOptions | undefined) ?? undefined,
+              deliverySlotId: typeof stepCtx.deliverySlotId === "string" ? stepCtx.deliverySlotId : null,
+              // === END W46 uc-ux ===
+              // W46 orders-p2 (ORD-25): attach the captured buyer note.
+              buyerNote: typeof stepCtx.buyerNote === "string" ? stepCtx.buyerNote : null,
               deliveryCoords: (() => {
                 const dc = stepCtx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
                 return typeof dc?.latitude === "number" && typeof dc?.longitude === "number"
@@ -980,6 +1180,12 @@ export const nlpRouter = router({
                   : null;
               })(),
             });
+            // === W46 uc-ux (Coder E): UC-27 min-order block ===============
+            if (order.minOrderBlock) {
+              const { minOrderBlockReply } = await import("../services/minOrder");
+              return minOrderBlockReply(order.minOrderBlock, order.currency ?? "NGN", fulfillment);
+            }
+            // === END W46 uc-ux ===
             if (order.fraudBlocked) {
               return `⚠️ Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
             }
@@ -993,6 +1199,12 @@ export const nlpRouter = router({
             stepCtx.fulfillment = fulfillment;
             stepCtx.lastOrderId = order.orderId;
             stepCtx.lastOrderNumber = order.orderNumber;
+            // === W46 uc-ux (Coder E): consume one-shot gift/slot opts ======
+            const w46Gift = (stepCtx.gift as import("../services/giftOrders").GiftOptions | undefined) ?? undefined;
+            const w46SlotFailed = order.slotBooking && order.slotBooking.booked === false;
+            delete stepCtx.gift;
+            delete stepCtx.deliverySlotId;
+            // === END W46 uc-ux ===
             if (order.loyalty) delete stepCtx.loyaltyRedeem; // W27: one-shot redeem flag consumed
             nextState = "payment";
             stepIntent = "confirm_order";
@@ -1013,6 +1225,15 @@ export const nlpRouter = router({
               paymentUrl: order.paymentUrl ?? null,
               paymentMethod: order.paymentMethod ?? "online",
               trackingUrl: trackingUrlFor(order.orderId!),
+              // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
+              tipPrompt: order.paymentMethod === "cod" ? null
+                : await (async () => {
+                    try {
+                      const { tipCheckoutPrompt } = await import("../services/tipping");
+                      return await tipCheckoutPrompt(db, input.tenantId, order.currency ?? "NGN");
+                    } catch { return null; }
+                  })(),
+              // === END W46 uc-money ===
             });
             // W41 (UC-1): installment plan — the link charges the down
             // payment only; explain the schedule honestly.
@@ -1043,7 +1264,24 @@ export const nlpRouter = router({
             if (stepCtx.loyaltyRedeem === true) {
               return summary + `\n🎁 No loyalty points available to redeem yet — points vest when orders are delivered.`;
             }
-            return summary;
+            // === W46 uc-ux (Coder E): gift/slot/venue summary annotations ==
+            {
+              let annotated = summary;
+              if (w46Gift && (w46Gift.isGift || w46Gift.wrap)) {
+                const { giftSummaryLine } = await import("../services/giftOrders");
+                annotated += giftSummaryLine(w46Gift, order.giftWrapFeeCents ?? 0, order.currency ?? "NGN");
+              }
+              if (order.slotBooking?.booked) {
+                annotated += "\n📅 Your chosen delivery slot is booked for this order.";
+              } else if (w46SlotFailed) {
+                annotated += "\n⚠️ That delivery slot just filled up — reply SLOTS to pick another; this order will be scheduled as soon as possible.";
+              }
+              if (order.venueTable) {
+                annotated += `\n🍽️ Order sent to the kitchen for *${order.venueTable.label}*.`;
+              }
+              return annotated;
+            }
+            // === END W46 uc-ux ===
           };
 
           if (stepCtx.awaitingFulfillment === true) {
@@ -1317,6 +1555,98 @@ export const nlpRouter = router({
           };
         }
       }
+
+      // === W46 uc-ux (Coder E): 3h. UC-17/21/23 deterministic commands =====
+      // No LLM. Parity: telegram buyers hit the SAME nlp.processMessage via
+      // the W37 telegram seam, so these replies work on both channels.
+      //   TABLE:<token>  — UC-17 venue-table QR deep link → cart metadata
+      //   SLOTS / SLOT n — UC-21 delivery slot picker + arming
+      //   SAVE <product> / MY LIST / REMOVE n — UC-23 wishlist
+      {
+        const ucCmd = input.message.trim();
+        const ucLower = ucCmd.toLowerCase();
+        const ucCtx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+
+        // UC-17: venue-table QR deep link (prefilled TABLE:<token> text).
+        const tableMatch = ucCmd.match(/^TABLE:([A-Za-z0-9_-]{8,128})$/i);
+        if (tableMatch) {
+          const { seedCartFromTableQr } = await import("../services/venueTables");
+          const seeded = await seedCartFromTableQr(db, {
+            tenantId: input.tenantId,
+            qrToken: tableMatch[1],
+            waPhoneNumber: input.waPhoneNumber,
+          });
+          if (seeded && !session.cartSessionId) {
+            session.cartSessionId = seeded.cartSessionId;
+            cartSession = (await db.select().from(cartSessions).where(eq(cartSessions.id, seeded.cartSessionId)).limit(1))[0] ?? cartSession;
+          }
+          const reply = seeded
+            ? `🍽️ You're ordering from *${seeded.tableLabel}*. Browse the menu and tell me what you'd like — I'll send it to your table!`
+            : "Sorry, that table QR code isn't active — please ask the staff for help.";
+          return { reply, intent: "venue_table_scan", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // UC-21: delivery slot picker (SLOTS lists, SLOT n arms for checkout).
+        if (ucLower === "slots" || ucLower === "delivery slots") {
+          const slotsSvc = await import("../services/deliverySlots");
+          const slots = await slotsSvc.listAvailableSlots(db, input.tenantId);
+          ucCtx.lastSlotIds = slots.map((s) => s.id);
+          await db.update(nlpSessions).set({ context: ucCtx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply: slotsSvc.formatSlotPicker(slots), intent: "delivery_slots", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+        const slotMatch = ucLower.match(/^slot\s+(\d+)$/);
+        if (slotMatch) {
+          const ids = Array.isArray(ucCtx.lastSlotIds) ? ucCtx.lastSlotIds as string[] : [];
+          const picked = ids[Number(slotMatch[1]) - 1];
+          let reply: string;
+          if (picked) {
+            ucCtx.deliverySlotId = picked;
+            reply = "✅ Slot reserved for your next delivery order — complete checkout and I'll book it.";
+          } else {
+            reply = "That slot number doesn't match the list — reply SLOTS to see the available delivery slots first.";
+          }
+          await db.update(nlpSessions).set({ context: ucCtx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "delivery_slot_pick", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // UC-23: wishlist commands.
+        const saveMatch = ucCmd.match(/^save(?:\s+this)?(?:\s+(.+))?$/i);
+        const myListMatch = /^(my list|wishlist|my wishlist|saved items)$/.test(ucLower);
+        const wishRemoveMatch = ucLower.match(/^remove\s+(\d+)$/);
+        if (saveMatch || myListMatch || wishRemoveMatch) {
+          const wishSvc = await import("../services/wishlists");
+          let reply: string;
+          if (myListMatch) {
+            const list = await wishSvc.listWishlist(db, { tenantId: input.tenantId, phone: input.waPhoneNumber });
+            reply = wishSvc.formatWishlist(list, (m, c) => fmtMoney(m, c));
+          } else if (wishRemoveMatch) {
+            const res = await wishSvc.removeWishlistEntry(db, { tenantId: input.tenantId, phone: input.waPhoneNumber, position: Number(wishRemoveMatch[1]) });
+            reply = res.removed ? "✅ Removed from your wishlist." : "That number doesn't match your list — reply MY LIST to see it.";
+          } else {
+            const mention = saveMatch?.[1]?.trim() ?? "";
+            if (!mention) {
+              reply = "Tell me what to save — e.g. SAVE <product name> — and I'll keep it on your wishlist and alert you when the price drops. ❤️";
+            } else {
+              const prods = await db.select({ id: products.id, name: products.name, price: products.price, currency: products.currency, stockQuantity: products.stockQuantity })
+                .from(products)
+                .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")));
+              const match = matchCatalogItem(prods, mention);
+              if (match.status === "matched") {
+                const res = await wishSvc.saveToWishlist(db, { tenantId: input.tenantId, phone: input.waPhoneNumber, productId: match.product.id });
+                reply = res.already
+                  ? `${match.product.name} is already on your wishlist — I'll alert you when the price drops. ❤️`
+                  : `❤️ Saved *${match.product.name}* to your wishlist. Reply MY LIST anytime; I'll message you if the price drops.`;
+              } else if (match.status === "ambiguous") {
+                reply = `Which one? ${match.candidates.map((c) => c.name).join(", ")} — reply SAVE <full name>.`;
+              } else {
+                reply = `I couldn't find "${mention}" in the catalog — try the exact product name.`;
+              }
+            }
+          }
+          return { reply, intent: "wishlist", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+      }
+      // === END W46 uc-ux ===
 
       // 3e. Geospatial merchant discovery — deterministic, no LLM needed.
       // Free-text "…near me" searches (and category-menu replies after a pin
@@ -2088,6 +2418,221 @@ export const nlpRouter = router({
         }
       }
       // === END W44 deposits-subs-digital ===
+      // === W46 uc-money (Coder C): UC-11 auctions (BID / AUCTION / CLOSE
+      // AUCTION), UC-15 tips (TIP <amount>), UC-16 donations (DONATE <amount>
+      // TO <product>), UC-26 pre-confirmation amendments (AMEND <orderRef>
+      // SET <product> x<qty>). BOTH channels — telegram inbound feeds this
+      // same engine; customerRef is the E.164 phone (WA) or
+      // "telegram:<chatId>" session key. ===
+      {
+        const trimmedMsg = input.message.trim();
+        const parseAmountCents = (raw: string, kobo: boolean) => {
+          const n = Number(raw.replace(/,/g, ""));
+          if (!Number.isFinite(n) || n <= 0) return null;
+          return kobo ? Math.round(n) : Math.round(n * 100);
+        };
+        const resolveStaffRef = async (): Promise<string> => {
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          return staffRef;
+        };
+
+        // ── Merchant: AUCTION START <product> AT <amount> FOR <hours>H ──
+        const auctionStart = /^auction\s+(?:start\s+)?(.+?)\s+(?:at|for)\s*(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:kobo)?\s+(?:for|ends?\s+in)\s+(\d{1,3})\s*h(?:ours?)?\s*$/i.exec(trimmedMsg);
+        if (auctionStart) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, await resolveStaffRef()).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can start auctions.";
+          } else {
+            try {
+              const { createAuction } = await import("../services/auctions");
+              const startPriceCents = parseAmountCents(auctionStart[2], /kobo/i.test(auctionStart[0]));
+              if (!startPriceCents) throw new Error("Give a start price, e.g. AUCTION START Ankara fabric AT 5000 FOR 24H");
+              const a = await createAuction(db, {
+                tenantId: input.tenantId,
+                productName: auctionStart[1],
+                startPriceCents,
+                durationHours: Number(auctionStart[3]),
+                createdBy: input.waPhoneNumber,
+              });
+              reply = `🔨 Auction live for ${a.title} (ref ${a.id.slice(0, 8)}) — starts at ₦${(startPriceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}, ends ${a.endsAt.toISOString().slice(0, 16).replace("T", " ")} UTC. Customers bid with: BID <amount> ${a.title}.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not start that auction.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "auction_create", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Merchant: CLOSE AUCTION <ref> (manual close sweep) ──
+        const auctionClose = /^close\s+auction\s+([0-9a-fA-F-]{8,36})\s*$/i.exec(trimmedMsg);
+        if (auctionClose) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, await resolveStaffRef()).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = "Sorry, only store staff can close auctions.";
+          } else {
+            try {
+              const { sweepDueAuctions } = await import("../services/auctions");
+              // Force-close: mark the ref-matched active auction due, then run
+              // the claim-first sweep (which owns the guarded flip + invoice).
+              await db.execute(sql`
+                UPDATE auctions SET ends_at = now()
+                WHERE tenant_id = ${input.tenantId} AND status = 'active'
+                  AND id::text LIKE ${auctionClose[1] + "%"}
+              `);
+              const r = await sweepDueAuctions(db, input.tenantId, {});
+              reply = r.closed > 0
+                ? `🔨 Closed ${r.closed} auction(s) — ${r.invoiced} winner(s) invoiced${r.reserveMissed ? `, ${r.reserveMissed} ended below reserve` : ""}.`
+                : "No active auction matched that ref (already closed?).";
+            } catch (e: any) {
+              reply = e?.message ?? "Could not close that auction.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "auction_close", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: BID <amount> <product-or-ref> ──
+        const bidCmd = /^bid\s+(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(kobo)?\s+(?:for|on)\s+(.+)$/i.exec(trimmedMsg);
+        if (bidCmd) {
+          const amountCents = parseAmountCents(bidCmd[1], !!bidCmd[2]);
+          let reply: string;
+          if (!amountCents) {
+            reply = "Bid like this: BID 5500 Ankara fabric";
+          } else {
+            try {
+              const { placeBid } = await import("../services/auctions");
+              const target = bidCmd[3].trim();
+              const isRef = /^[0-9a-fA-F-]{8,36}$/.test(target);
+              const r = await placeBid(db, {
+                tenantId: input.tenantId,
+                bidderRef: input.waPhoneNumber,
+                amountCents,
+                ...(isRef ? { auctionRef: target } : { productName: target }),
+              });
+              reply = `🔨 You're the high bidder at ₦${(amountCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} on "${r.auction.title}" (ref ${r.auction.id.slice(0, 8)})` +
+                `${r.extended ? " — the end time was extended (anti-snipe)." : "."} We'll message you if you're outbid.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not place that bid just now.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "auction_bid", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: DONATE <amount> TO <product> ──
+        const donateCmd = /^(?:donate|give)\s+(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(kobo)?\s+(?:to|for|towards?)\s+(.+)$/i.exec(trimmedMsg);
+        if (donateCmd) {
+          const amountCents = parseAmountCents(donateCmd[1], !!donateCmd[2]);
+          let reply: string;
+          if (!amountCents) {
+            reply = "Donate like this: DONATE 5000 to School fees fund";
+          } else {
+            try {
+              const { createDonationCheckout } = await import("../services/donations");
+              const r = await createDonationCheckout(db, {
+                tenantId: input.tenantId,
+                customerRef: input.waPhoneNumber,
+                productName: donateCmd[3].trim(),
+                amountCents,
+              });
+              reply = r.paymentUrl
+                ? `🙏 Thank you! Your ₦${(amountCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} for ${r.productName} is ready:\n💳 Pay: ${r.paymentUrl}`
+                : `🙏 Thank you! Your pledge for ${r.productName} (ref ${r.orderNumber}) is recorded — the store will send your payment link shortly.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not set up that donation just now.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "donation_request", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer: TIP <amount> (applies to latest pending unpaid order) ──
+        const tipCmd = /^(?:tip|add\s+tip)\s+(?:₦|n(?:gn)?)?\s*([\d,]+(?:\.\d{1,2})?)\s*(kobo)?\s*$/i.exec(trimmedMsg);
+        if (tipCmd) {
+          const tipCents = parseAmountCents(tipCmd[1], !!tipCmd[2]);
+          let reply: string;
+          if (tipCents == null) {
+            reply = "Tip like this: TIP 500";
+          } else {
+            try {
+              const { setOrderTip } = await import("../services/tipping");
+              const r = await setOrderTip(db, { tenantId: input.tenantId, customerRef: input.waPhoneNumber, tipCents });
+              reply = tipCents === 0
+                ? `Tip removed from order ${r.orderNumber}. Total is now ₦${(r.totalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}.`
+                : `💝 Tip of ₦${(tipCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} added to order ${r.orderNumber}. New total: ₦${(r.totalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}.`;
+            } catch (e: any) {
+              reply = e?.message ?? "Could not add that tip just now.";
+            }
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "tip_set", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+
+        // ── Buyer/staff: AMEND <orderRef> SET <product> x<qty> [, …] ──
+        const amendCmd = /^amend\s+(?:order\s+)?([A-Za-z0-9-]{4,40})\s+set\s+(.+)$/i.exec(trimmedMsg);
+        if (amendCmd) {
+          let reply: string;
+          try {
+            const { amendOrder } = await import("../services/orderAmendments");
+            // Parse "product name x2, other product x1" segments.
+            const segs = amendCmd[2].split(",").map((s) => s.trim()).filter(Boolean);
+            const lines: { productId: string; qty: number }[] = [];
+            for (const seg of segs) {
+              const m = /^(.*?)\s*(?:x\s*(\d+)|(\d+)\s*x)$/i.exec(seg);
+              if (!m) throw new Error(`I couldn't parse "${seg}" — use "<product> x<qty>".`);
+              const name = m[1].trim();
+              const qty = Number(m[2] ?? m[3]);
+              const prows = (await db.execute(
+                sql`SELECT id FROM "products" WHERE "tenantId" = ${input.tenantId} AND "status" = 'active' AND "name" ILIKE ${"%" + name.slice(0, 80) + "%"} ORDER BY "name" LIMIT 1`,
+              )) as unknown as any[];
+              const plist: any[] = Array.isArray(prows) ? prows : (prows as any)?.rows ?? [];
+              if (!plist[0]) throw new Error(`I couldn't find "${name}" in this store.`);
+              lines.push({ productId: String((plist[0] as any).id), qty });
+            }
+            // Resolve order ref: full id or orderNumber suffix.
+            const orows = (await db.execute(
+              sql`SELECT id, "customerId" FROM orders WHERE "tenantId" = ${input.tenantId} AND (id = ${amendCmd[1]} OR "orderNumber" ILIKE ${"%" + amendCmd[1]}) ORDER BY "createdAt" DESC LIMIT 2`,
+            )) as unknown as any[];
+            const olist: any[] = Array.isArray(orows) ? orows : (orows as any)?.rows ?? [];
+            if (olist.length !== 1) throw new Error("I couldn't find exactly one order with that ref.");
+            if (olist[0].customerId !== input.waPhoneNumber) {
+              const { isTenantStaffPhone } = await import("../services/catalogAI");
+              const isStaff = await isTenantStaffPhone(db, input.tenantId, await resolveStaffRef()).catch(() => false);
+              if (!isStaff) throw new Error("You can only amend your own orders.");
+            }
+            const r = await amendOrder(db, {
+              tenantId: input.tenantId,
+              orderId: String(olist[0].id),
+              lines,
+              actorId: input.waPhoneNumber,
+              customerRef: String(olist[0].customerId),
+              reason: "chat amend command",
+            });
+            const a = r.amendment;
+            const deltaTxt = a.deltaCents === 0 ? "no change to the total"
+              : a.deltaCents > 0 ? `₦${(a.deltaCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} more${r.deltaPaymentUrl ? ` — pay the difference: ${r.deltaPaymentUrl}` : ""}`
+              : `₦${(-a.deltaCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })} less${r.refundStatus ? ` — refund ${r.refundStatus.replace(/_/g, " ")}` : ""}`;
+            reply = `📝 Order amended (new total ₦${(a.newTotalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}, ${deltaTxt}).`;
+          } catch (e: any) {
+            reply = e?.message ?? "Could not amend that order just now.";
+          }
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent: "order_amend", state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        }
+      }
+      // === END W46 uc-money ===
       // === W27 Coder F: 3f. Wholesale marketplace + group buying commands ===
       // Deterministic, no LLM needed (discoveryMenu.ts exemplar). Parses
       // "wholesale [q]" / "buy <#> <qty>" / "deals" / "join <ref> <qty>" /
@@ -2245,6 +2790,35 @@ export const nlpRouter = router({
         // guessed; they get a clarification line appended to the reply.
         const itemsToAdd = normalizeExtractedItems(llmResult);
         if (itemsToAdd.length > 0) {
+          // W46 merge-close: the catalog context window above is limited to
+          // 30 rows (unordered) — on tenants with larger catalogs an
+          // extracted item can legitimately fall outside the window and be
+          // misreported as "not on the menu". Rescue by name with a targeted
+          // lookup before declaring not_found.
+          const windowNames = new Set(tenantProducts.map((p) => p.name.toLowerCase()));
+          const rescueNames = Array.from(new Set(
+            itemsToAdd.map((i) => (i.product ?? "").trim()).filter((n) => n.length > 0),
+          )).filter((n) => {
+            const q = n.toLowerCase();
+            return !windowNames.has(q) &&
+              !tenantProducts.some((p) => p.name.toLowerCase().includes(q) || q.includes(p.name.toLowerCase()));
+          });
+          for (const name of rescueNames) {
+            const hits = await db.select({
+              id: products.id, name: products.name, price: products.price,
+              currency: products.currency, stockQuantity: products.stockQuantity,
+              description: products.description, imageUrl: products.imageUrl,
+            }).from(products)
+              .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active"), ilike(products.name, `%${name}%`)))
+              .limit(5)
+              .catch(() => [] as any[]);
+            for (const h of hits) {
+              if (!windowNames.has(h.name.toLowerCase())) {
+                tenantProducts.push(h);
+                windowNames.add(h.name.toLowerCase());
+              }
+            }
+          }
           const result = await addExtractedItemsToCart(db, {
             tenantId: input.tenantId,
             waPhoneNumber: input.waPhoneNumber,
@@ -2358,6 +2932,25 @@ export const nlpRouter = router({
         // Promo code capture ("use code SAVE10") — sticks to the session.
         const mentionedPromo = extractPromoCode(input.message);
         if (mentionedPromo) ctx.promoCode = mentionedPromo;
+        // === W46 uc-ux (Coder E): UC-24 gift intent capture (LLM path) ====
+        if (/\bgift\b/i.test(input.message) && !ctx.gift) {
+          const recipient = input.message.match(/(?:send|ship|deliver)\s+(?:it\s+)?to\s*(\+?[\d][\d\s-]{7,16}\d)/i);
+          ctx.gift = {
+            isGift: true,
+            wrap: /\bwrap(ped|ping)?\b/i.test(input.message),
+            recipientPhone: recipient ? recipient[1].replace(/[\s-]/g, "") : null,
+            message: null,
+          };
+        }
+        // === END W46 uc-ux ===
+        // === W46 privacy-consent (TEN-15): age attestation capture — an
+        // affirmative reply ("yes 18+", "I am 21") at any confirm turn is a
+        // one-shot attestation for THIS checkout (persisted by the gate). ===
+        const { AGE_AFFIRM_RE } = await import("../services/ageGate");
+        const ageAffirm = AGE_AFFIRM_RE.exec(input.message ?? "");
+        const ageAttested = ctx.awaitingAgeAttestation === true && !!ageAffirm;
+        if (ageAttested) delete ctx.awaitingAgeAttestation;
+        // === END W46 privacy-consent ===
         const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
         if (items.length > 0) {
           const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
@@ -2389,14 +2982,36 @@ export const nlpRouter = router({
               promoCode: typeof ctx.promoCode === "string" ? ctx.promoCode : null,
               paymentMethod: ctx.paymentMethod === "cod" ? "cod" : "online",
               loyaltyRedeem: ctx.loyaltyRedeem === true,
+              // W46 orders-p2 (ORD-25): attach any captured buyer note.
+              buyerNote: typeof ctx.buyerNote === "string" ? ctx.buyerNote : null,
               deliveryCoords: (() => {
                 const dc = ctx.deliveryCoords as { latitude?: number; longitude?: number } | undefined;
                 return typeof dc?.latitude === "number" && typeof dc?.longitude === "number"
                   ? { latitude: dc.latitude, longitude: dc.longitude }
                   : null;
               })(),
+              // === W46 uc-ux (Coder E): UC-24 gift + UC-21 slot opts ===
+              gift: (ctx.gift as import("../services/giftOrders").GiftOptions | undefined) ?? undefined,
+              deliverySlotId: typeof ctx.deliverySlotId === "string" ? ctx.deliverySlotId : null,
+              // === END W46 uc-ux ===
+              // === W46 privacy-consent (TEN-15): one-shot age attestation ===
+              ageAttested,
             });
-            if (order.fraudBlocked) {
+            // === W46 privacy-consent (TEN-15): gate blocked — prompt attestation ===
+            if (order.ageGate) {
+              ctx.awaitingAgeAttestation = true;
+              const { buildAgeAttestationPrompt } = await import("../services/ageGate");
+              const gated = new Set(order.ageGate.restrictedProductIds);
+              const names = items.filter((i) => gated.has(i.productId)).map((i) => i.productName);
+              llmResult.reply = buildAgeAttestationPrompt(order.ageGate.requiredAge, names);
+              llmResult.nextState = "checkout_confirm";
+            // === END W46 privacy-consent ===
+            // === W46 uc-ux (Coder E): UC-27 min-order block ===============
+            } else if (order.minOrderBlock) {
+              const { minOrderBlockReply } = await import("../services/minOrder");
+              llmResult.reply = minOrderBlockReply(order.minOrderBlock, order.currency ?? "NGN", fulfillment);
+            // === END W46 uc-ux ===
+            } else if (order.fraudBlocked) {
               llmResult.reply = `\u26a0\ufe0f Your order could not be processed at this time. Please contact support for assistance. (Risk: ${order.riskLevel})`;
             } else if (order.shortages?.length) {
               // Out-of-stock guard tripped — no order, no payment link.
@@ -2423,6 +3038,15 @@ export const nlpRouter = router({
                 paymentUrl: order.paymentUrl ?? null,
                 paymentMethod: order.paymentMethod ?? "online",
                 trackingUrl: trackingUrlFor(order.orderId!),
+                // === W46 uc-money (UC-15): tip prompt (tenant opt-in) ===
+                tipPrompt: order.paymentMethod === "cod" ? null
+                  : await (async () => {
+                      try {
+                        const { tipCheckoutPrompt } = await import("../services/tipping");
+                        return await tipCheckoutPrompt(db, input.tenantId, order.currency ?? "NGN");
+                      } catch { return null; }
+                    })(),
+                // === END W46 uc-money ===
               });
               if (order.loyalty && order.loyalty.points > 0) {
                 llmResult.reply += `\n🎁 Redeemed ${order.loyalty.points} pts (−${fmtMoney(order.loyalty.discountCents / 100, order.currency ?? "NGN")}). Points balance: ${order.loyalty.balanceAfter}.`;

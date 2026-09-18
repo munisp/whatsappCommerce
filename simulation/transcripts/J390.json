@@ -1,0 +1,8 @@
+{
+  "id": "J390",
+  "title": "removeMember kills sessions/cache; sole-owner erasure blocked",
+  "feature": "TEN-10 session/cache kill + TEN-12 sole-owner erasure guard",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -192,9 +192,57 @@ export async function recordPspDispute(db: Db, opts: RecordDisputeOpts): Promise
       "payment_dispute_alert",
       orderId,
     );
+    // === W46 privacy-consent (TEN-17): cross-tenant routing ==============
+    // If the disputed order is an inter-tenant (wholesale/PO) order, route
+    // the dispute to the counterparty: the SELLER tenant is the explicit
+    // respondent and the buyer tenant's admin is alerted too.
+    await routeCrossTenantDispute(db, disputeId);
+    // === END W46 privacy-consent ===
   }
   return { ok: true, action, disputeId, tenantId, orderId };
 }
+
+// === W46 privacy-consent (TEN-17): cross-tenant dispute routing ===========
+/**
+ * Minimal, honest cross-tenant routing: when a dispute's order is an
+ * inter-tenant wholesale order (wholesale_orders.buyer_tenant_id set and
+ * different from the payee tenant), stamp respondentTenantId with the seller
+ * (payee) tenant — the party that must respond — and notify the BUYER
+ * tenant's admin that the dispute was routed. Single-tenant retail disputes
+ * keep respondentTenantId NULL and are untouched. Never throws.
+ */
+export async function routeCrossTenantDispute(db: Db, disputeId: string): Promise<{ routed: boolean; buyerTenantId?: string }> {
+  try {
+    const [dispute] = await db.select().from(paymentDisputes)
+      .where(eq(paymentDisputes.id, disputeId)).limit(1);
+    if (!dispute?.orderId) return { routed: false };
+    const { wholesaleOrders } = await import("../../../drizzle/schema");
+    const [wso] = await db.select({
+      buyerTenantId: wholesaleOrders.buyerTenantId,
+      tenantId: wholesaleOrders.tenantId,
+    }).from(wholesaleOrders)
+      .where(eq(wholesaleOrders.orderId, dispute.orderId)).limit(1)
+      .catch(() => []);
+    const buyerTenantId = wso?.buyerTenantId ?? null;
+    if (!buyerTenantId || buyerTenantId === dispute.tenantId) return { routed: false };
+    await db.update(paymentDisputes)
+      .set({ respondentTenantId: dispute.tenantId, updatedAt: new Date() })
+      .where(eq(paymentDisputes.id, disputeId));
+    await sendAdminOpsAlert(
+      db,
+      buyerTenantId,
+      `🚨 A payment ${dispute.kind} on your wholesale order ${dispute.orderId} was routed to the supplier for response (dispute ${disputeId}).`,
+      "payment_dispute_routed",
+      dispute.orderId,
+    );
+    console.info(`[psp-dispute] TEN-17 cross-tenant routing: dispute=${disputeId} buyer=${buyerTenantId} respondent=${dispute.tenantId}`);
+    return { routed: true, buyerTenantId };
+  } catch (e: any) {
+    console.error(`[psp-dispute] TEN-17 routing failed for ${disputeId}:`, e?.message);
+    return { routed: false };
+  }
+}
+// === END W46 privacy-consent ===
 
 export interface RefundReconcileOpts {
   provider: "paystack" | "flutterwave" | string;

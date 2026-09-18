@@ -505,6 +505,62 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j385-message-processor-kafka-consumer"),
     import("./journeys/j386-notification-service-pipeline"),
     // === W45 go-rust-services END (merger owns registry count) ===
+    // === W46 uc-money (Coder C): UC-11/15/16/26 — J397-J401 (merger owns registry count) ===
+    import("./journeys/j397-auction-lifecycle"),
+    import("./journeys/j398-auction-guards"),
+    import("./journeys/j399-tipping"),
+    import("./journeys/j400-donation-open-amount"),
+    import("./journeys/j401-order-amendment"),
+    // === END W46 uc-money ===
+    // === W46 uc-docs (Coder D): J402-J406 ===
+    import("./journeys/j402-customer-statement"),
+    import("./journeys/j403-statement-chat-delivery"),
+    import("./journeys/j404-proforma-convert"),
+    import("./journeys/j405-agent-commission-payout"),
+    import("./journeys/j406-tier-pricing"),
+    // === W46 uc-docs END (merger owns registry count) ===
+    // === W46 uc-ux (Coder E): J407-J411 ===
+    import("./journeys/j407-venue-table-qr-ordering"),
+    import("./journeys/j408-delivery-slot-capacity"),
+    import("./journeys/j409-wishlist-price-drop"),
+    import("./journeys/j410-gift-order-flow"),
+    import("./journeys/j411-min-order-guard"),
+    // === W46 uc-ux END (merger owns registry count) ===
+    // === W46 inventory-depth (Coder F) — J412–J416 (merger owns registry count) ===
+    import("./journeys/j412-barcode-scan"),
+    import("./journeys/j413-variant-reservation"),
+    import("./journeys/j414-warehouse-allocation"),
+    import("./journeys/j415-delivery-claims"),
+    import("./journeys/j416-fefo-expiry-sweep"),
+    // === W46 inventory-depth END ===
+    // === W46 orders-p2 (Coder G) === J417–J421.
+    import("./journeys/j417-po-promised-date-breach"),
+    import("./journeys/j418-product-recall-broadcast"),
+    import("./journeys/j419-order-merge"),
+    import("./journeys/j420-buyer-note-checkout"),
+    import("./journeys/j421-po-breach-cron"),
+    // === END W46 orders-p2 ===
+    // === W46 kyc (Coder A): J387-J391 ===
+    import("./journeys/j387-kyc-expiry-lifecycle"),
+    import("./journeys/j388-kyc-appeal-four-eyes"),
+    import("./journeys/j389-scoped-staff-capabilities"),
+    import("./journeys/j390-member-removal-erasure-guard"),
+    import("./journeys/j391-dsar-wallet-owner-gate"),
+    // === W46 kyc END ===
+    // === W46 privacy-consent (Coder B): J392-J396 (merger owns registry count) ===
+    import("./journeys/j392-age-restricted-checkout"),
+    import("./journeys/j393-consent-proof-regrant"),
+    import("./journeys/j394-po-kyb-gates-dispute-routing"),
+    import("./journeys/j395-device-factor-invite-binding"),
+    import("./journeys/j396-kyb-sla-tax-versioning"),
+    // === W46 privacy-consent END ===
+    // === W46 platform-p2 (Coder H): J422-J426 ===
+    import("./journeys/j422-internal-hmac-auth"),
+    import("./journeys/j423-kafka-reconnect"),
+    import("./journeys/j424-dbclock-premigration-dump"),
+    import("./journeys/j425-kafka-topics-idempotence"),
+    import("./journeys/j426-redact-language-picker"),
+    // === W46 platform-p2 END ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

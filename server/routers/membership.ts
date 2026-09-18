@@ -15,7 +15,8 @@ import { getDb } from "../db";
 import * as membership from "../services/membership";
 import { writeAuditLog } from "./audit";
 
-const roleEnum = z.enum(["owner", "operator", "analyst"]);
+// === W46 kyc === TEN-9: scoped finance/catalog roles are grantable.
+const roleEnum = z.enum(["owner", "operator", "analyst", "finance", "catalog"]);
 const tenantInput = z.object({ tenantId: z.string().min(1) });
 
 export const membershipRouter = router({
