@@ -34,7 +34,9 @@ export type WalletCreditReason =
   | "split_refund"
   | "topup"
   // === W44 giftcards-referrals (additive): referrer reward on referee PAID order ===
-  | "referral_reward";
+  | "referral_reward"
+  // === W46 uc-docs (additive): UC-20 agent commission payout ===
+  | "agent_commission";
 
 export type WalletDebitReason =
   | "checkout_spend"

@@ -38,6 +38,9 @@ export interface ChatSession {
   awaitingConsent?: boolean;
   /** W27: true while we wait for a language-picker reply. */
   awaitingLanguageChoice?: boolean;
+  /** W46 (MSG-23): the low-confidence picker is offered at most once per
+   *  session — a customer who ignores it keeps the resolved locale. */
+  languagePickerOffered?: boolean;
   /**
    * Optimistic-concurrency version. Every save bumps it; saveSessionCas
    * refuses to overwrite a session whose stored version differs from the

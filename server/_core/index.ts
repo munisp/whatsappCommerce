@@ -1641,6 +1641,49 @@ async function startServer() {
     }
   });
 
+  // === W46 uc-docs (Coder D): generated statement/proforma/commission PDFs ===
+  // Serves files written by server/services/ucDocsPdf.ts (UC_DOCS_DIR).
+  // Traversal-guarded; access requires an authenticated session whose tenant
+  // matches the first path segment (platform admins bypass) OR a capability
+  // token bound to the exact key (?cap=…). Telegram delivery uploads the PDF
+  // buffer directly (Bot API multipart), so it does not depend on this route.
+  app.get("/api/uc-docs/*", async (req, res) => {
+    const rel = (req.params as Record<string, string>)[0];
+    if (!rel || rel.includes("..") || rel.startsWith("/")) { res.status(400).send("Bad path"); return; }
+    try {
+      let authorized = false;
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (user) {
+        const tenantSegment = rel.split("/")[0];
+        if ((user as any).role === "admin" || (user as any).tenantId === tenantSegment ||
+            (Array.isArray((user as any).memberships) && (user as any).memberships.includes(tenantSegment))) {
+          authorized = true;
+        }
+      }
+      if (!authorized) {
+        const cap = typeof req.query.cap === "string" ? req.query.cap : "";
+        if (cap) {
+          const { verifyCapabilityToken } = await import("../services/capabilityTokens");
+          if (verifyCapabilityToken(cap, "storage_cap", `uc-docs/${rel}`)) authorized = true;
+        }
+      }
+      if (!authorized) { res.status(401).json({ error: "Authentication required" }); return; }
+      const { join, normalize } = await import("path");
+      const { createReadStream, existsSync } = await import("fs");
+      const { ucDocsDir } = await import("../services/ucDocsPdf");
+      const abs = normalize(join(ucDocsDir(), rel));
+      if (!abs.startsWith(normalize(ucDocsDir())) || !existsSync(abs)) { res.status(404).send("Not found"); return; }
+      res.set("Content-Type", "application/pdf");
+      res.set("Content-Disposition", `attachment; filename="${rel.split("/").pop()}"`);
+      res.set("X-Content-Type-Options", "nosniff");
+      res.set("Cache-Control", "private, no-store");
+      createReadStream(abs).pipe(res);
+    } catch {
+      res.status(404).send("Not found");
+    }
+  });
+  // === END W46 uc-docs ===
+
   // ── Scheduled: abandoned cart recovery (Heartbeat cron, every ~10 min) ────
   // Carts idle >30min with items, no newer order, and NDPR consent get ONE
   // localized recovery message per cart per 24h.
@@ -1695,6 +1738,27 @@ async function startServer() {
     }
   });
   // === END W44 preorders-offers ===
+
+  // === W46 uc-ux (Coder E): UC-23 wishlist price-drop sweep ================
+  // Compares live product prices to wishlist baselines and notifies buyers
+  // once per drop on BOTH channels (price_drop_alert parity category).
+  // Claim-first baseline flip makes replays/concurrent sweeps idempotent.
+  // After deploy: manus-heartbeat create --name wishlist-price-drop-sweep --cron "0 0 */6 * * *" --path /api/scheduled/wishlist-price-drop-sweep
+  app.post("/api/scheduled/wishlist-price-drop-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { sweepWishlistPriceDrops } = await import("../services/wishlists");
+      const run = await sweepWishlistPriceDrops(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[wishlist-price-drop-sweep] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "wishlist-price-drop-sweep failed" });
+    }
+  });
+  // === END W46 uc-ux ===
 
   // === W27 bookkeeping ===
   // ── Scheduled: opt-in merchant sales digests (daily/weekly) ─────────────
@@ -1817,6 +1881,49 @@ async function startServer() {
       return res.status(500).json({ error: e?.message ?? "kyb-rescreen failed" });
     }
   });
+
+  // === W46 kyc (Coder A, TEN-6) ===
+  // ── Scheduled: KYC/KYB expiry sweep (hourly) ───────────────────────────
+  // Flips approved applications past expiresAt (stamped at approval per
+  // risk tier) to 'expired' with a guarded UPDATE, audits each expiry, and
+  // notifies the tenant admin over WhatsApp that re-verification is due.
+  // After deploy: manus-heartbeat create --name kyc-expiry-sweep --cron "0 0 * * * *" --path /api/scheduled/kyc-expiry-sweep
+  app.post("/api/scheduled/kyc-expiry-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runKycExpirySweep } = await import("../services/kycExpiry");
+      const run = await runKycExpirySweep(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[kyc-expiry-sweep] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "kyc-expiry-sweep failed" });
+    }
+  });
+  // === END W46 kyc ===
+  // === W46 privacy-consent (TEN-22) ===
+  // ── Scheduled: KYB review-queue SLA sweep (hourly) ─────────────────────
+  // Escalates pending KYB reviews past their 48h SLA (claim-first
+  // escalatedAt flip), records slaBreachedAt, and alerts the tenant admin.
+  // W42 contract: token must be scoped EXACTLY to this path (scope+jti).
+  // After deploy: manus-heartbeat create --name kyb-sla-sweep --cron "0 0 * * * *" --path /api/scheduled/kyb-sla-sweep
+  app.post("/api/scheduled/kyb-sla-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runKybSlaSweep } = await import("../services/kybSla");
+      const run = await runKybSlaSweep(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[kyb-sla-sweep] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "kyb-sla-sweep failed" });
+    }
+  });
+  // === END W46 privacy-consent ===
 
   // ── Scheduled: inventory sync (Heartbeat cron, fires every 5 min) ──────────
   app.post("/api/scheduled/inventory-sync", async (req, res) => {
@@ -3051,6 +3158,30 @@ async function startServer() {
   });
   // === END W45 money-intents (PAY-24) ===
 
+  // === W46 orders-p2 (Coder G, ORD-19) ===
+  // ── POST /api/scheduled/po-breach-sweep ─────────────────────────────────
+  // Alerts buyer + supplier admin on POs past promisedDate (approvedAt +
+  // supplier leadTimeDays) that remain unfulfilled. Claim-first via
+  // breach_alerted_at — exactly-once per breached promise. W42 cronAuth
+  // (scope+jti via sdk.authenticateRequest); route is on the
+  // services/scheduler/scheduler.mjs allowlist (J178 contract).
+  // After deploy: manus-heartbeat create --name po-breach-sweep --cron "0 0 */6 * * *" --path /api/scheduled/po-breach-sweep
+  app.post("/api/scheduled/po-breach-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "DB unavailable" });
+      const { runPoBreachSweep } = await import("../services/procurement/poBreach");
+      const result = await runPoBreachSweep(db);
+      return res.json({ ok: result.errors.length === 0, ...result });
+    } catch (err: any) {
+      console.error("[po-breach-sweep]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W46 orders-p2 ===
+
   // ── PSP float income heartbeat ────────────────────────────────────────────
   app.post("/api/scheduled/float-income", async (req, res) => {
     try {
@@ -3296,6 +3427,28 @@ async function startServer() {
         (req.headers["x-internal-api-key"] as string) ??
         (req.headers["x-api-key"] as string) ??
         "";
+      // === W46 platform-p2 (PLT-15) === HMAC-signed internal requests
+      // (kid-versioned, ts+body bound) — ADDITIVE alongside the legacy
+      // bearer; presenting HMAC headers switches to strict verification,
+      // and INTERNAL_AUTH_REQUIRE_HMAC=true fails closed on bearer in prod.
+      const { verifyInternalRequest, hasInternalHmacHeaders, hmacRequired } = await import("./internalAuth");
+      let hmacAuthed = false;
+      if (hasInternalHmacHeaders(req.headers as Record<string, unknown>)) {
+        const verdict = verifyInternalRequest({
+          method: req.method,
+          path: req.path,
+          rawBody: JSON.stringify(req.body ?? {}),
+          headers: req.headers as Record<string, string | string[] | undefined>,
+        });
+        if (!verdict.ok) {
+          return res.status(401).json({ error: "invalid-internal-hmac", detail: verdict.error });
+        }
+        hmacAuthed = true;
+      } else if (hmacRequired() && isProductionLike()) {
+        return res.status(401).json({ error: "internal-hmac-required" });
+      }
+      // === END W46 platform-p2 (PLT-15) ===
+      if (!hmacAuthed) // W46 platform-p2: legacy bearer path skipped after HMAC auth
       if (!configuredSecret) {
         if (isProductionLike()) {
           console.error("[internal-events] INTERNAL_API_KEY is not configured — refusing request (fail closed)");
@@ -4548,6 +4701,30 @@ async function startServer() {
   });
 
   // ── Odoo ERP inventory sync heartbeat ─────────────────────────────────────
+  // === W46 inventory-depth (ORD-21) ===
+  // ── Inventory batch expiry sweep ──────────────────────────────────────────
+  // Alerts tenant admins (WA + Telegram via channelParity "inventory_alert")
+  // about batches EXPIRED or expiring within 7 days. Alert-only; no stock
+  // write-off. Auth: W42 cronAuth (scope+jti) via sdk.authenticateRequest.
+  // After deploy: manus-heartbeat create --name inventory-expiry-sweep --cron "0 8 * * *" --path /api/scheduled/inventory-expiry-sweep
+  app.post("/api/scheduled/inventory-expiry-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { sweepExpiringBatches } = await import("../services/inventoryDepth");
+      const result = await sweepExpiringBatches(db);
+      if (result.expired + result.expiring > 0) {
+        console.log(`[inventory-expiry-sweep] tenants=${result.tenants} expired=${result.expired} expiring=${result.expiring} alerted=${result.alerted}`);
+      }
+      return res.json({ ok: true, ...result });
+    } catch (err: any) {
+      console.error("[inventory-expiry-sweep]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W46 inventory-depth ===
   // ── Integration outbox dispatcher heartbeat ───────────────────────────────
   // Delivers pending integration_events (Medusa/Twenty/Odoo) with retry —
   // dead after 5 attempts. Follows the wa-webhook-retry job pattern.
@@ -5179,7 +5356,11 @@ function drawBbox(img,id){
   app.get("/health/ready", async (_req, res) => {
     try {
       const report = await checkReadiness();
-      return res.status(readinessHttpStatus(report, isProd)).json({ ...report, ts: Date.now() });
+      // === W46 platform-p2 (PLT-18) === Kafka reconnect/backoff state is
+      // surfaced on readiness (components.kafka probe + connection state).
+      const { getKafkaConnectionState } = await import("../kafka");
+      return res.status(readinessHttpStatus(report, isProd)).json({ ...report, kafka: getKafkaConnectionState(), ts: Date.now() });
+      // === END W46 platform-p2 (PLT-18) ===
     } catch (err: any) {
       console.error("[health/ready]", err);
       return res.status(isProd ? 503 : 200).json({ ok: false, error: String(err?.message) });

@@ -356,6 +356,67 @@ async function consentGate(
   return true;
 }
 
+// === W46 platform-p2 (MSG-23) === low-confidence locale → language picker.
+// Mirrors the WhatsApp gate in useCases.handleConversationalInbound: sticky
+// locale wins; a pending picker consumes the reply (choice → sticky +
+// confirmation, anything else → re-show picker); weak/unsupported detection
+// opens the picker ONCE per session. Never throws (post-ack path).
+async function telegramLanguagePickerGate(
+  db: Db,
+  cfg: TelegramTenantConfig,
+  ev: { chatId: string },
+  text: string,
+): Promise<boolean> {
+  try {
+    const sessionKey = sessionKeyFor(CHANNEL_TELEGRAM, ev.chatId);
+    const i18n = await import("./i18n");
+    const { getSession, saveSession, clearSession, newSession } = await import("./chatSession");
+    const session = await getSession(cfg.tenantId, sessionKey).catch(() => null);
+    if (session?.awaitingLanguageChoice) {
+      const choice = i18n.parseLanguageChoice(text);
+      if (choice) {
+        await i18n.setStickyLocale(cfg.tenantId, sessionKey, choice).catch(() => {});
+        await clearSession(cfg.tenantId, sessionKey).catch(() => {});
+        await sendTelegramTextReply(
+          cfg.tenantId,
+          ev.chatId,
+          i18n.t27(choice, "languageSetConfirm", { language: i18n.LOCALE_NAMES[choice] }),
+        );
+      } else {
+        await sendTelegramTextReply(cfg.tenantId, ev.chatId, i18n.buildLanguageMenu("en"));
+      }
+      return true;
+    }
+    const sticky = await i18n.getStickyLocale(cfg.tenantId, sessionKey).catch(() => null);
+    if (sticky) return false;
+    const det = i18n.detectLocaleDetailed(text);
+    // Zero-signal text (score 0) is ordinary commerce/chat text — never
+    // hijack it with the picker; only weak-but-real supported-locale signal.
+    if (!det.lowConfidence || det.score <= 0 || session?.languagePickerOffered || session?.mode === "usecase") return false;
+    // Commerce-text guard: an order attempt that names a catalog product
+    // ("2 jollof") must NOT be hijacked by the picker.
+    const { products } = await import("../../drizzle/schema");
+    const names = await db
+      .select({ name: products.name })
+      .from(products)
+      .where(eq(products.tenantId, cfg.tenantId))
+      .limit(200)
+      .catch(() => [] as Array<{ name: string | null }>);
+    if (i18n.sharesTokenWithCatalog(text, names.map((n) => n.name).filter((n): n is string => !!n))) return false;
+    await saveSession({
+      ...(session ?? newSession(cfg.tenantId, sessionKey)),
+      awaitingLanguageChoice: true,
+      languagePickerOffered: true,
+    }).catch(() => {});
+    await sendTelegramTextReply(cfg.tenantId, ev.chatId, i18n.buildLanguageMenu(det.locale));
+    return true;
+  } catch (e: any) {
+    console.warn("[telegram-inbound] language-picker gate failed (fail-open):", e?.message);
+    return false;
+  }
+}
+// === END W46 platform-p2 (MSG-23) ===
+
 /**
  * Process one normalized update AFTER the 200 ack. Never throws — every
  * branch fail-softs with a log (Telegram has already been acked).
@@ -521,6 +582,11 @@ export async function processTelegramUpdate(
           return; // bot silent — no NLP dispatch, no reply
         }
         if (await consentGate(db, cfg, ev, ev.text)) return;
+        // === W46 platform-p2 (MSG-23) === channel parity with WhatsApp:
+        // low-confidence locale detection → language picker (never silent
+        // sticky English).
+        if (await telegramLanguagePickerGate(db, cfg, ev, ev.text)) return;
+        // === END W46 platform-p2 (MSG-23) ===
         await dispatchToNlp(db, cfg, ev, ev.text);
         return;
       }

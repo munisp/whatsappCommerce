@@ -69,8 +69,12 @@ beforeEach(() => {
     tenants: TENANTS.map((t) => ({ ...t })),
     supplierProfiles: [seedSupplierProfile({ tenantId: "supplier-1" })],
     kycApplications: [
-      // supplier-1 is KYB-verified; supplier-2 and buyers are NOT
+      // supplier-1 is KYB-verified; supplier-2 is NOT.
+      // Buyers hold approved KYB (W46 TEN-17 buyer-side PO gate) so the
+      // legacy createPo/fulfill/markPaid flows below are not blocked.
       seedKycApplication({ tenantId: "supplier-1" }),
+      seedKycApplication({ tenantId: "buyer-1" }),
+      seedKycApplication({ tenantId: "buyer-2" }),
     ],
     purchaseOrders: [
       seedPo({ id: "po-b1", poNumber: "PO-20250101-AAAA", buyerTenantId: "buyer-1", supplierTenantId: "supplier-1" }),

@@ -590,6 +590,20 @@ export async function bootWorld(): Promise<World> {
           await world.db.delete(schema.waSuppressionList);
         } catch { /* W45 table not migrated yet */ }
         // === END W45 messaging-services ===
+        // === W46 uc-docs === wipe statement/proforma/agent tables so
+        // J402–J406 never leak rows (statements, commission bindings) into
+        // each other across reruns.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { sql: sqlW46 } = await import("drizzle-orm");
+          await world.db.delete(schema.agentCommissions);
+          await world.db.delete(schema.agentCommissionStatements);
+          await world.db.delete(schema.agents);
+          await world.db.delete(schema.proformaInvoices);
+          await world.db.delete(schema.customerStatements);
+          await world.db.execute(sqlW46`DELETE FROM payment_intents WHERE idempotency_key LIKE 'w46:%'`);
+        } catch { /* W46 tables not migrated yet */ }
+        // === END W46 uc-docs ===
         // Restore seed stock so journeys never starve each other.
         try {
           const { products } = await import("../drizzle/schema");

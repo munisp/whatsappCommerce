@@ -32,7 +32,11 @@ export type StepUpPurpose =
   | "payout_change"
   | "withdrawal"
   | "owner_grant"
-  | "payment_override";
+  | "payment_override"
+  // === W46 privacy-consent (TEN-20): admin account recovery (device reset)
+  // rides the same step-up challenge machinery (additive). ===
+  | "account_recovery";
+  // === END W46 privacy-consent ===
 
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 3;

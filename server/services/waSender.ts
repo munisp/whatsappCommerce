@@ -27,6 +27,7 @@ import { getDb } from "../db";
 import { tenants, whatsappNotificationLog } from "../../drizzle/schema";
 import { decryptSecret } from "./crypto/secrets";
 import { isBanCircuitOpen, recordWaSendErrorSignal } from "./banCircuitBreaker";
+import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
 
 // === W45 messaging-services (MSG-25) ===
 /**
@@ -818,7 +819,7 @@ export async function markMessageRead(tenantId: string, wamid: string): Promise<
     });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      console.warn(`[waSender] read receipt failed ${res.status}: ${errBody.slice(0, 200)}`);
+      console.warn(`[waSender] read receipt failed ${res.status}: ${redactString(errBody.slice(0, 200))}`); // W46 platform-p2 (PLT-25)
       return false;
     }
     return true;

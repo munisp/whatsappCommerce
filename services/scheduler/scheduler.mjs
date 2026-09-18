@@ -76,6 +76,9 @@ export const SCHEDULE = [
   { path: "/api/scheduled/wa-media-download", intervalMin: 5 },
   { path: "/api/scheduled/wa-webhook-retry", intervalMin: 2 },
   { path: "/api/scheduled/inventory-reservation-sweep", intervalMin: 1 },
+  // === W46 inventory-depth (ORD-21): daily batch expiry alert sweep ===
+  { path: "/api/scheduled/inventory-expiry-sweep", intervalMin: 1440 },
+  // === END W46 inventory-depth ===
   { path: "/api/scheduled/integration-outbox-dispatch", intervalMin: 1 },
   { path: "/api/scheduled/odoo-inventory-sync", intervalMin: 10 },
   { path: "/api/scheduled/medusa-catalog-sync", intervalMin: 30 },
@@ -110,6 +113,10 @@ export const SCHEDULE = [
   // auto-billing tick (see server/services/subscriptions.ts).
   { path: "/api/scheduled/subscription-billing", intervalMin: 60 },
   // === END W44 deposits-subs-digital ===
+  // === W46 privacy-consent (TEN-22) === hourly KYB review-queue SLA sweep
+  // (escalation + breach alerts; see server/services/kybSla.ts).
+  { path: "/api/scheduled/kyb-sla-sweep", intervalMin: 60 },
+  // === END W46 privacy-consent ===
   // === W33 forecast === weekly cash-flow forecast snapshot sweep.
   { path: "/api/scheduled/cashflow-forecast", intervalMin: 10080 },
   // === END W33 forecast ===
@@ -119,6 +126,9 @@ export const SCHEDULE = [
   // === W40 Coder B (TEN-8) === daily KYB periodic sanctions re-screen.
   { path: "/api/scheduled/kyb-rescreen", intervalMin: 1440 },
   // === END W40 Coder B (TEN-8) ===
+  // === W46 kyc (Coder A, TEN-6) === hourly KYC/KYB expiry sweep + re-verification notify.
+  { path: "/api/scheduled/kyc-expiry-sweep", intervalMin: 60 },
+  // === END W46 kyc ===
   // === W44 preorders-offers (Coder B) === pre-order availability flip (5 min) + offer expiry (30 min).
   { path: "/api/scheduled/preorders-due", intervalMin: 5 },
   { path: "/api/scheduled/offers-expire", intervalMin: 30 },
@@ -127,6 +137,12 @@ export const SCHEDULE = [
   // deadline sweep: escalate past deadline, buyer-favour auto-resolve after grace.
   { path: "/api/scheduled/dispute-deadline-sweep", intervalMin: 15 },
   // === END W45 money-scheduled ===
+  // === W46 uc-ux (Coder E) === UC-23 wishlist price-drop sweep (6h).
+  { path: "/api/scheduled/wishlist-price-drop-sweep", intervalMin: 360 },
+  // === END W46 uc-ux ===
+  // === W46 orders-p2 (Coder G) === ORD-19 PO promise-breach alerts (6h).
+  { path: "/api/scheduled/po-breach-sweep", intervalMin: 360 },
+  // === END W46 orders-p2 ===
 ];
 
 function b64url(buf) {

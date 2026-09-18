@@ -43,6 +43,11 @@ export const RESERVATION_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 export interface ReserveItem {
   productId: string;
   qty: number;
+  // === W46 inventory-depth (ORD-15): when set, the reservation also claims
+  // product_variants.stockQuantity claim-first and the reservation row
+  // carries variantId. ===
+  variantId?: string | null;
+  // === END W46 inventory-depth ===
 }
 
 export interface StockShortage {
@@ -161,8 +166,23 @@ export async function reserveStock(
     // produce a phantom alert, and errors are logged — never thrown.
     scheduleLowStockCheck(tenantId, item.productId);
 
+    // === W46 inventory-depth (ORD-15/16/21) ===
+    // Depth allocations run INSIDE the same tx, after the product-level
+    // atomic claim above: any shortage here throws InsufficientStockError
+    // and rolls the whole reservation back. All three are no-ops for
+    // products without variant/warehouse/batch tracking rows.
+    const reservationId = randomUUID();
+    if (item.variantId) {
+      const { reserveVariantStock } = await import("./inventoryDepth");
+      await reserveVariantStock(tx, tenantId, item.productId, item.variantId, item.qty, now);
+    }
+    const { allocateWarehouses, fefoAllocate } = await import("./inventoryDepth");
+    await allocateWarehouses(tx, tenantId, item.productId, item.variantId ?? "", item.qty, reservationId, now);
+    await fefoAllocate(tx, tenantId, item.productId, item.qty, reservationId, now);
+    // === END W46 inventory-depth ===
+
     await tx.insert(inventoryReservations).values({
-      id: randomUUID(),
+      id: reservationId,
       tenantId,
       orderId,
       productId: item.productId,
@@ -170,6 +190,9 @@ export async function reserveStock(
       status: "reserved",
       expiresAt,
       createdAt: now,
+      // === W46 inventory-depth (ORD-15) ===
+      variantId: item.variantId ?? null,
+      // === END W46 inventory-depth ===
     });
   }
 }
@@ -238,6 +261,7 @@ export async function releaseReservations(
         tenantId: inventoryReservations.tenantId,
         productId: inventoryReservations.productId,
         qty: inventoryReservations.qty,
+        variantId: inventoryReservations.variantId, // === W46 inventory-depth ===
       });
     if (claimed.length === 0) break;
     const row = claimed[0];
@@ -260,6 +284,15 @@ export async function releaseReservations(
       note: `Reservation released for order ${orderId} — stock credited back`,
     });
     // === END W43 exchanges ===
+    // === W46 inventory-depth (ORD-15/16/21): restore the depth allocations
+    // (variant / warehouse / FEFO batch) claimed at reserve time. ===
+    {
+      const depth = await import("./inventoryDepth");
+      if (row.variantId) await depth.restoreVariantStock(db, row.tenantId, row.variantId, row.qty, row.id, now);
+      await depth.restoreWarehouseAllocations(db, row.tenantId, row.id, now);
+      await depth.restoreBatchAllocations(db, row.tenantId, row.id);
+    }
+    // === END W46 inventory-depth ===
     released++;
   }
   return released;
@@ -305,6 +338,7 @@ export async function releaseCommittedReservations(
         tenantId: inventoryReservations.tenantId,
         productId: inventoryReservations.productId,
         qty: inventoryReservations.qty,
+        variantId: inventoryReservations.variantId, // === W46 inventory-depth ===
       });
     if (claimed.length === 0) break;
     const row = claimed[0];
@@ -327,6 +361,14 @@ export async function releaseCommittedReservations(
       note: `Committed reservation released for order ${orderId} (paid cancel) — stock credited back`,
     });
     // === END W43 exchanges ===
+    // === W46 inventory-depth (ORD-15/16/21): restore depth allocations. ===
+    {
+      const depth = await import("./inventoryDepth");
+      if (row.variantId) await depth.restoreVariantStock(db, row.tenantId, row.variantId, row.qty, row.id, now);
+      await depth.restoreWarehouseAllocations(db, row.tenantId, row.id, now);
+      await depth.restoreBatchAllocations(db, row.tenantId, row.id);
+    }
+    // === END W46 inventory-depth ===
     scheduleLowStockCheck(row.tenantId, row.productId);
     released++;
   }

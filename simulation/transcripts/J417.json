@@ -1,0 +1,42 @@
+{
+  "id": "J417",
+  "title": "PO promisedDate on approval + breach sweep alerts once",
+  "feature": "ORD-19 promisedDate + poBreach sweep",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348019267467",
+      "wamid": "wamid.sim.001007",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708146145,
+      "kind": "text",
+      "body": "✅ PO-W46-J417-MU6I0JWE approved! Complete payment (₦1,000.00):\nhttps://checkout.paystack.com/sim/PAY-1789708136132-B233EFED"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019267467",
+      "wamid": "wamid.sim.001008",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708146155,
+      "kind": "text",
+      "body": "⚠️ PO-W46-J417-MU6I0JWE is past its promised delivery date (Wed Sep 16 2026 — 3d overdue). The supplier has been notified; reply here if you'd like an update or to cancel."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099911111",
+      "wamid": "wamid.sim.001009",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708146158,
+      "kind": "text",
+      "body": "⚠️ Promise breached: PO-W46-J417-MU6I0JWE was promised by Wed Sep 16 2026 and is still unfulfilled. Fulfil it or message the buyer today to protect your supplier rating."
+    }
+  ]
+}

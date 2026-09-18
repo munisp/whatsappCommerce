@@ -116,6 +116,10 @@ export const BACKUP_WARNING = `
 
  BEFORE proceeding you MUST have a verified backup:
    1. Trigger a fresh snapshot / pg_dump (see docs/RUNBOOK_ROLLBACK.md).
+      NOTE (W46 PLT-22): the runner now ALSO takes an automatic pre-migration
+      logical dump (pg_dump custom format → PRE_MIGRATION_DUMP_DIR, uploaded
+      to object storage when PRE_MIGRATION_DUMP_S3_BUCKET is set). Set
+      PRE_MIGRATION_DUMP=required to fail closed when the dump cannot run.
    2. Confirm the backup COMPLETED and a restore rehearsal has been done
       against a copy (an untested backup is not a backup).
    3. Note the pre-migration row counts for critical tables.
@@ -214,6 +218,101 @@ export function createPostgresMigrateDb(databaseUrl: string): MigrateDb {
   };
 }
 
+// === W46 platform-p2 (PLT-22) === pre-migration logical dump.
+//
+// Before any migration is applied, take a LOGICAL dump (pg_dump custom
+// format) so a bad migration has a same-day restore point independent of
+// the scheduled W39 backups. The dump lands in PRE_MIGRATION_DUMP_DIR
+// (default ./backups/pre-migration) and, when PRE_MIGRATION_DUMP_S3_BUCKET
+// is set, is additionally uploaded to object storage (MinIO/S3) under
+// `pre-migration/<timestamp>.dump`.
+//
+// Modes (env PRE_MIGRATION_DUMP):
+//   off      — skip the dump entirely (NOT recommended for prod)
+//   auto     — dump best-effort; a missing pg_dump binary or failed dump
+//              logs a LOUD warning but does not block (default)
+//   required — dump failure ABORTS the run (fail-closed; prod posture)
+export class PreMigrationDumpError extends Error {
+  constructor(detail: string) {
+    super(`pre-migration dump failed (PRE_MIGRATION_DUMP=required): ${detail}`);
+    this.name = "PreMigrationDumpError";
+  }
+}
+
+export interface PreMigrationDumpResult {
+  status: "off" | "skipped-no-url" | "local" | "uploaded" | "failed";
+  path?: string;
+  objectKey?: string;
+  error?: string;
+}
+
+export async function runPreMigrationDump(opts: {
+  databaseUrl?: string;
+  env?: Record<string, string | undefined>;
+  log?: (msg: string) => void;
+}): Promise<PreMigrationDumpResult> {
+  const log = opts.log ?? ((m: string) => console.log(m));
+  const env = opts.env ?? process.env;
+  const mode = (env.PRE_MIGRATION_DUMP ?? "auto").trim().toLowerCase();
+  if (mode === "off") {
+    log("[migrate-prod] PRE_MIGRATION_DUMP=off — skipping pre-migration dump (NOT recommended for production)");
+    return { status: "off" };
+  }
+  const url = opts.databaseUrl ?? env.DATABASE_URL ?? env.POSTGRES_URL;
+  if (!url) {
+    const r: PreMigrationDumpResult = { status: "skipped-no-url", error: "no DATABASE_URL available for pg_dump" };
+    if (mode === "required") throw new PreMigrationDumpError(r.error!);
+    log(`[migrate-prod] WARNING: ${r.error}`);
+    return r;
+  }
+  const dir = path.resolve(env.PRE_MIGRATION_DUMP_DIR ?? path.join("backups", "pre-migration"));
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dir, `pre-migration-${stamp}.dump`);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const { spawnSync } = await import("node:child_process");
+    const res = spawnSync("pg_dump", ["--dbname", url, "--format=custom", "--file", file], {
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 30 * 60_000,
+    });
+    if (res.error) throw res.error;
+    if (res.status !== 0) throw new Error(`pg_dump exited ${res.status}: ${String(res.stderr ?? "").slice(0, 400)}`);
+    log(`[migrate-prod] pre-migration logical dump written: ${file}`);
+  } catch (err: any) {
+    const msg = `pg_dump failed: ${err?.message ?? err}`;
+    if (mode === "required") throw new PreMigrationDumpError(msg);
+    log(`[migrate-prod] WARNING: ${msg} — proceeding without a pre-migration dump (PRE_MIGRATION_DUMP=auto)`);
+    return { status: "failed", error: msg };
+  }
+  // Optional object-storage upload (MinIO/S3-compatible).
+  const bucket = (env.PRE_MIGRATION_DUMP_S3_BUCKET ?? "").trim();
+  if (!bucket) return { status: "local", path: file };
+  try {
+    const { Client } = await import("minio");
+    const endpointRaw = (env.S3_ENDPOINT ?? "").trim();
+    const endpointUrl = endpointRaw.startsWith("http") ? new URL(endpointRaw) : null;
+    const client = new Client(endpointUrl
+      ? {
+          endPoint: endpointUrl.hostname,
+          port: Number(endpointUrl.port || (endpointUrl.protocol === "https:" ? 443 : 80)),
+          useSSL: endpointUrl.protocol === "https:",
+          accessKey: env.S3_ACCESS_KEY ?? "",
+          secretKey: env.S3_SECRET_KEY ?? "",
+        }
+      : { endPoint: endpointRaw, useSSL: false, accessKey: env.S3_ACCESS_KEY ?? "", secretKey: env.S3_SECRET_KEY ?? "" });
+    const objectKey = `pre-migration/${path.basename(file)}`;
+    await client.fPutObject(bucket, objectKey, file, { "Content-Type": "application/octet-stream" });
+    log(`[migrate-prod] pre-migration dump uploaded: s3://${bucket}/${objectKey}`);
+    return { status: "uploaded", path: file, objectKey };
+  } catch (err: any) {
+    const msg = `dump upload to ${bucket} failed: ${err?.message ?? err} (local copy retained at ${file})`;
+    if (mode === "required") throw new PreMigrationDumpError(msg);
+    log(`[migrate-prod] WARNING: ${msg}`);
+    return { status: "local", path: file, error: msg };
+  }
+}
+// === END W46 platform-p2 (PLT-22) ===
+
 export interface RunMigrationsOptions {
   db: MigrateDb;
   folder?: string;
@@ -221,6 +320,8 @@ export interface RunMigrationsOptions {
   /** Raw env map — tests inject { CONFIRM_BACKUP: "yes" } instead of touching process.env. */
   env?: Record<string, string | undefined>;
   log?: (msg: string) => void;
+  /** W46 PLT-22: connection string handed to pg_dump for the pre-migration dump. */
+  databaseUrl?: string;
 }
 
 export interface RunMigrationsResult {
@@ -277,6 +378,12 @@ export async function runMigrations(opts: RunMigrationsOptions): Promise<RunMigr
       return { status: "dry-run", pending, applied };
     }
 
+    // === W46 platform-p2 (PLT-22) === pre-migration logical dump BEFORE any
+    // statement is applied (auto|required|off via PRE_MIGRATION_DUMP).
+    const dump = await runPreMigrationDump({ databaseUrl: opts.databaseUrl, env, log });
+    log(`[migrate-prod] pre-migration dump status: ${dump.status}${dump.objectKey ? ` (${dump.objectKey})` : ""}`);
+    // === END W46 platform-p2 (PLT-22) ===
+
     // ── Apply, one transaction per migration, stop on first error ─────────
     for (const m of pending) {
       log(`[migrate-prod] applying ${m.tag} ...`);
@@ -310,7 +417,7 @@ if (invokedAsScript) {
     console.error("[migrate-prod] FATAL: DATABASE_URL (or POSTGRES_URL) is not set");
     process.exit(1);
   }
-  runMigrations({ db: createPostgresMigrateDb(url), dryRun })
+  runMigrations({ db: createPostgresMigrateDb(url), dryRun, databaseUrl: url })
     .then((result) => {
       if (result.status === "backup-refused") process.exit(2);
     })

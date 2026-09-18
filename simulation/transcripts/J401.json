@@ -1,0 +1,20 @@
+{
+  "id": "J401",
+  "title": "order amendment: recompute, delta link, refund, audit",
+  "feature": "UC-26 order amendment",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348015953250",
+      "wamid": "wamid.sim.001002",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708129197,
+      "kind": "text",
+      "body": "📝 Order W45-J401B was updated — there's an extra ₦5,000.00 to pay.\n💳 Pay: https://checkout.paystack.com/sim/AMD-1789708129189-5AF2800D"
+    }
+  ]
+}
