@@ -487,9 +487,15 @@ export async function claimDuePayments(db: DbHandle, now: Date, limit = 50): Pro
   const due = await db.select({ id: scheduledPayments.id, attempts: scheduledPayments.attempts, status: scheduledPayments.status, updatedAt: scheduledPayments.updatedAt })
     .from(scheduledPayments)
     .where(and(
-      lte(scheduledPayments.executeAt, now),
+      // === W46 platform-p2 (PLT-21) === due-ness on the DATABASE clock:
+      // the candidate pre-filter uses the DB clock ONLY (CURRENT_TIMESTAMP)
+      // — the sim PGlite/postgres.js stack rejects mixed JS-clock/SQL-clock
+      // OR clauses, and the guarded UPDATE below repeats `execute_at <=
+      // now()` (DB clock) as the AUTHORITATIVE condition anyway.
+      sql`${scheduledPayments.executeAt} <= CURRENT_TIMESTAMP`,
       sql`${scheduledPayments.status} IN ('pending','failed')`,
       sql`${scheduledPayments.attempts} < ${SCHED_MAX_ATTEMPTS}`,
+      // === END W46 platform-p2 (PLT-21 select) ===
     ))
     .orderBy(scheduledPayments.executeAt)
     .limit(limit * 2);
@@ -507,6 +513,11 @@ export async function claimDuePayments(db: DbHandle, now: Date, limit = 50): Pro
       .where(and(
         eq(scheduledPayments.id, cand.id),
         sql`${scheduledPayments.status} IN ('pending','failed')`,
+        // === W46 platform-p2 (PLT-21) === authoritative due check on the DB
+        // clock INSIDE the guarded UPDATE — app-server skew can never claim
+        // a row the database does not consider due.
+        sql`${scheduledPayments.executeAt} <= now()`,
+        // === END W46 platform-p2 (PLT-21 update) ===
       ))
       .returning();
     if (won.length === 1) claimed.push(won[0]);

@@ -929,6 +929,72 @@ export const orderCrudRouter = router({
       }
       return { ok: true, status: "processed" };
     }),
+
+  // === W46 orders-p2 (Coder G) ===
+  /** ORD-23: merge two pre-ship, unpaid orders from the same customer to the
+   *  same address into one shipment (claim-first; secondary cancelled with
+   *  metadata.mergedInto, items re-parented, total recomputed). Splitting is
+   *  the W43 partial-fulfillment path (orderFulfill.fulfillOrderLines). */
+  merge: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      primaryOrderId: z.string(),
+      secondaryOrderId: z.string(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { mergeOrders } = await import("../services/orderMerge");
+      return mergeOrders(db, {
+        tenantId: input.tenantId,
+        primaryOrderId: input.primaryOrderId,
+        secondaryOrderId: input.secondaryOrderId,
+        actorId: String(ctx.user.id),
+      });
+    }),
+
+  /** ORD-22: register a product recall (targeted broadcast is dispatched by
+   *  recallDispatch). */
+  recallCreate: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      productId: z.string(),
+      reason: z.string().min(1).max(2000),
+      fromDate: z.coerce.date().optional(),
+      toDate: z.coerce.date().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { createRecall } = await import("../services/recalls");
+      return createRecall(db, { ...input, createdBy: String(ctx.user.id) });
+    }),
+
+  /** ORD-22: dispatch the recall notice to affected buyers (opt-outs logged
+   *  as skipped_opt_out recipient rows; exactly-once per order). */
+  recallDispatch: protectedProcedure
+    .input(z.object({ tenantId: z.string(), recallId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { dispatchRecall } = await import("../services/recalls");
+      return dispatchRecall(db, input);
+    }),
+
+  /** ORD-22: recall detail + per-status recipient counts (incl. opt-outs). */
+  recallStats: protectedProcedure
+    .input(z.object({ tenantId: z.string(), recallId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { getRecallStats } = await import("../services/recalls");
+      return getRecallStats(db, input);
+    }),
+  // === END W46 orders-p2 ===
 });
 import { publishOrderEvent } from "../kafka";
 import { daprPublish } from "../dapr";

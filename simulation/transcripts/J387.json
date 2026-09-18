@@ -1,0 +1,8 @@
+{
+  "id": "J387",
+  "title": "KYC expiry: tiered expiresAt + cron sweep + re-verification",
+  "feature": "TEN-6 kycExpiresAt at approval + runKycExpirySweep + reopen",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -31,6 +31,7 @@ import type { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
 import { getRedis } from "../redis";
 import { isProd } from "../_core/env";
+import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
@@ -217,7 +218,7 @@ export async function tripBanCircuit(
   }
   if (alreadyOpen) return;
   if (db) await alertBanCircuitTripped(db, tenantId, phoneNumberId, detail);
-  else console.error(`[banCircuit] circuit tripped (no DB for alert) tenant=${tenantId} sender=${phoneNumberId}: ${detail.slice(0, 200)}`);
+  else console.error(`[banCircuit] circuit tripped (no DB for alert) tenant=${tenantId} sender=${redactString(phoneNumberId)}: ${redactString(detail.slice(0, 200))}`); // W46 platform-p2 (PLT-25)
 }
 
 /**

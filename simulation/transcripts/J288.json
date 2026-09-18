@@ -8,35 +8,35 @@
     {
       "dir": "out",
       "phone": "2348000000288",
-      "wamid": "wamid.sim.000743",
+      "wamid": "wamid.sim.000739",
       "statuses": [
         "sent"
       ],
-      "at": 1789673023161,
+      "at": 1789707987201,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1789673023139\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:a7817e57-c041-4a2d-9809-2587c77acc65:2\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1789673023136.lvM4nJwPRYk9QRRckp0WZgG3"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1789707987175\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:f91792c6-a8d7-43e8-a7dc-a63dc72b4d42:2\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1789707987172.ugc_JvPFF1IaYiDgNvAH6ogS"
     },
     {
       "dir": "out",
       "phone": "2348000000288",
-      "wamid": "wamid.sim.000744",
+      "wamid": "wamid.sim.000740",
       "statuses": [
         "sent"
       ],
-      "at": 1789673023178,
+      "at": 1789707987219,
       "kind": "text",
       "body": "✅ Installment 1 of 2 received (₦200.00)."
     },
     {
       "dir": "out",
       "phone": "2348000000288",
-      "wamid": "wamid.sim.000745",
+      "wamid": "wamid.sim.000741",
       "statuses": [
         "sent"
       ],
-      "at": 1789673023204,
+      "at": 1789707987241,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1789673023139\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:a7817e57-c041-4a2d-9809-2587c77acc65:3\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1789673023136.lvM4nJwPRYk9QRRckp0WZgG3"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: J288-1789707987175\n\n\n*Total paid: ₦600.00*\nPayment ref: bipcap:f91792c6-a8d7-43e8-a7dc-a63dc72b4d42:3\n\n🔎 Track your order: http://localhost:4173/track/j288-order-1789707987172.ugc_JvPFF1IaYiDgNvAH6ogS"
     }
   ]
 }

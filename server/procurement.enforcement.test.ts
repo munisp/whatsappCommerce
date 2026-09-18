@@ -43,7 +43,7 @@ import { approvePurchaseOrder, submitPurchaseOrder, cancelDraftPo } from "./serv
 import { suspensionMessage } from "./services/procurement/creditEnforcement";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
-import { makeFakeDb, seedPo, seedSupplierProfile } from "./services/procurement/fakeDb";
+import { makeFakeDb, seedKycApplication, seedPo, seedSupplierProfile } from "./services/procurement/fakeDb";
 
 const TENANTS = [
   { id: "buyer-1", name: "Buyer One", settings: { adminPhone: "+2348000000009" } },
@@ -53,7 +53,15 @@ const PROFILE = seedSupplierProfile({ tenantId: "supplier-1" });
 const LINES = [{ name: "Rice 50kg", qty: 2, unitPriceCents: 25_000, productRef: "p1" }];
 
 function makeDb(extra: Parameters<typeof makeFakeDb>[0] = {}) {
-  return makeFakeDb({ tenants: TENANTS.map((t) => ({ ...t })), supplierProfiles: [PROFILE], ...extra });
+  return makeFakeDb({
+    tenants: TENANTS.map((t) => ({ ...t })),
+    supplierProfiles: [PROFILE],
+    // W46 TEN-17 buyer-side KYB gate: both counterparties hold approved KYB
+    // so the credit-enforcement assertions below exercise the SUSPENSION
+    // gate, not the KYB gate.
+    kycApplications: [seedKycApplication({ tenantId: "buyer-1" }), seedKycApplication({ tenantId: "supplier-1" })],
+    ...extra,
+  });
 }
 
 function makeCtx(tenantId: string): TrpcContext {

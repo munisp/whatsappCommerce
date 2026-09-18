@@ -1,0 +1,42 @@
+{
+  "id": "J394",
+  "title": "buyer KYB gate + suspension propagation + cross-tenant dispute routing",
+  "feature": "TEN-17 inter-tenant PO gates",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099911111",
+      "wamid": "wamid.sim.001015",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708152707,
+      "kind": "interactive",
+      "body": "📦 PO-20260918-MH4L from Sim Store — ₦2,000.00 — pay now",
+      "footer": "Approve to accept this purchase order.",
+      "buttons": [
+        {
+          "id": "po_approve:c8cbabd9-6d14-4e3f-a4fc-6f69128a0307",
+          "title": "Approve"
+        },
+        {
+          "id": "po_reject:c8cbabd9-6d14-4e3f-a4fc-6f69128a0307",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348011291460",
+      "wamid": "wamid.sim.001016",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789708152725,
+      "kind": "text",
+      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-mu6i0wp2 was routed to the supplier for response (dispute 009be486-a46f-402e-9faa-d64079a7cde7)."
+    }
+  ]
+}

@@ -246,7 +246,12 @@ export async function assertMoneyAccess(
     membership = null;
   }
   if (membership) {
-    if (membership.role === "owner" || membership.role === "operator") return;
+    // === W46 kyc === TEN-9: the scoped "finance" role is admitted to money
+    // movement (it exists precisely for finance-only staff); "catalog" and
+    // "analyst" roles are NOT. Operators retain finance access as documented
+    // legacy compatibility (see server/services/capabilities.ts).
+    if (membership.role === "owner" || membership.role === "operator" || membership.role === "finance") return;
+    // === END W46 kyc ===
     throw new TRPCError({
       code: "FORBIDDEN",
       message: `Money-moving actions require tenant role: owner or operator (you are ${membership.role})`,
@@ -271,7 +276,7 @@ export const analystProcedure = tenantRoleProcedure(["owner", "operator", "analy
  * withdrawals, refunds, and escrow release paths must NEVER be reachable by
  * an analyst membership. Read-only procedures keep using analystProcedure.
  */
-export const moneyProcedure = tenantRoleProcedure(["owner", "operator"], "moneyProcedure");
+export const moneyProcedure = tenantRoleProcedure(["owner", "operator", "finance"], "moneyProcedure"); // W46 kyc (TEN-9): scoped finance role admitted
 
 export const adminProcedure = publicProcedure.use( // W34: telemetry-wrapped base
   t.middleware(async opts => {

@@ -58,7 +58,27 @@ export async function getConsent(
 /**
  * Persist a consent decision. Inserts a fresh row when none exists, otherwise
  * updates the existing one (re-consent / opt-out flip).
+ *
+ * === W46 privacy-consent (TEN-16): proof-of-consent versioning ===========
+ * Every GRANT stamps the policy/template version the buyer agreed to plus
+ * the inbound evidence id (WhatsApp wamid) when known, so a DSAR/regulator
+ * can be shown exactly what was agreed and when. A RE-GRANT after a prior
+ * withdrawal is counted (regrantCount/lastRegrantAt) and rate-limited: more
+ * than MAX_REGRANTS_PER_DAY re-grants within 24h is refused (the withdrawal
+ * stands) and logged — silent re-grant abuse is no longer possible.
  */
+export const CONSENT_POLICY_VERSION = "ndpr-consent-v1";
+export const CONSENT_PROOF_TEMPLATE = "consent_optin_prompt";
+export const MAX_REGRANTS_PER_DAY = 3;
+const REGRANT_WINDOW_MS = 24 * 3600_000;
+
+export class ConsentRegrantRateLimited extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConsentRegrantRateLimited";
+  }
+}
+
 export async function recordConsent(
   db: Db,
   opts: {
@@ -67,11 +87,52 @@ export async function recordConsent(
     granted: boolean;
     channel?: string;
     customerId?: string | null;
+    /** W46 TEN-16: proof-of-consent evidence (all optional, additive). */
+    policyVersion?: string | null;
+    proofTemplate?: string | null;
+    /** WhatsApp message id of the buyer's affirmative reply. */
+    proofWamid?: string | null;
   },
 ): Promise<void> {
   const channel = opts.channel ?? CONSENT_CHANNEL_WHATSAPP;
   const existing = await getConsent(db, opts.tenantId, opts.phone, channel);
   const now = new Date();
+  // W46 TEN-16: re-grant abuse guard — a grant on a previously WITHDRAWN row.
+  if (opts.granted && existing?.withdrawnAt) {
+    const windowStart = new Date(now.getTime() - REGRANT_WINDOW_MS);
+    const recentRegrant =
+      existing.lastRegrantAt && new Date(existing.lastRegrantAt as any) > windowStart;
+    const count = Number(existing.regrantCount ?? 0);
+    if (recentRegrant && count >= MAX_REGRANTS_PER_DAY) {
+      console.warn(
+        `[consent] TEN-16 re-grant rate-limited: tenant=${opts.tenantId} phone=${opts.phone.slice(-4).padStart(opts.phone.length, "*")} ` +
+        `regrantCount=${count} within 24h — withdrawal stands`,
+      );
+      throw new ConsentRegrantRateLimited(
+        "Consent was withdrawn recently; too many re-grants within 24 hours. Please try again later.",
+      );
+    }
+    const nextCount = recentRegrant ? count + 1 : 1;
+    console.info(
+      `[consent] TEN-16 re-grant after withdrawal: tenant=${opts.tenantId} phone=***${opts.phone.slice(-4)} regrantCount=${nextCount}`,
+    );
+    await db
+      .update(consents)
+      .set({
+        granted: true,
+        grantedAt: now,
+        withdrawnAt: null,
+        source: "whatsapp_reply",
+        updatedAt: now,
+        policyVersion: opts.policyVersion ?? CONSENT_POLICY_VERSION,
+        proofTemplate: opts.proofTemplate ?? CONSENT_PROOF_TEMPLATE,
+        proofWamid: opts.proofWamid ?? null,
+        regrantCount: nextCount,
+        lastRegrantAt: now,
+      })
+      .where(eq(consents.id, existing.id));
+    return;
+  }
   if (existing) {
     await db
       .update(consents)
@@ -80,7 +141,15 @@ export async function recordConsent(
         updatedAt: now,
         // W17 F8: a grant stamps grantedAt + clears any prior withdrawal;
         // a denial is left to recordWithdrawal (which sets withdrawnAt).
-        ...(opts.granted ? { grantedAt: now, withdrawnAt: null, source: "whatsapp_reply" } : {}),
+        // W46 TEN-16: grants also stamp the proof-of-consent version/evidence.
+        ...(opts.granted ? {
+          grantedAt: now,
+          withdrawnAt: null,
+          source: "whatsapp_reply",
+          policyVersion: opts.policyVersion ?? CONSENT_POLICY_VERSION,
+          proofTemplate: opts.proofTemplate ?? CONSENT_PROOF_TEMPLATE,
+          proofWamid: opts.proofWamid ?? null,
+        } : {}),
       })
       .where(eq(consents.id, existing.id));
     return;
@@ -92,7 +161,12 @@ export async function recordConsent(
     channel,
     granted: opts.granted,
     source: "whatsapp_reply",
-    ...(opts.granted ? { grantedAt: now } : {}),
+    ...(opts.granted ? {
+      grantedAt: now,
+      policyVersion: opts.policyVersion ?? CONSENT_POLICY_VERSION,
+      proofTemplate: opts.proofTemplate ?? CONSENT_PROOF_TEMPLATE,
+      proofWamid: opts.proofWamid ?? null,
+    } : {}),
   });
 }
 
