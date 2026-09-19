@@ -7,526 +7,537 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.text.00161",
-      "at": 1789707510441,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.text.00167",
+      "at": 1789790443890,
       "kind": "text",
       "text": "hello"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000253",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000260",
       "statuses": [
         "sent"
       ],
-      "at": 1789707510449,
+      "at": 1789790443909,
       "kind": "text",
       "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.text.00162",
-      "at": 1789707510987,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.text.00168",
+      "at": 1789790444444,
       "kind": "text",
       "text": "I own Kelechi Shoes in Aba, leather shoes + bags, delivery within Aba, cash"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000254",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000261",
       "statuses": [
         "sent"
       ],
-      "at": 1789707511024,
+      "at": 1789790444485,
       "kind": "text",
       "body": "Here's the setup I propose for Kelechi Shoes. Review each card — approve, edit or reject. Nothing is applied until you approve it."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000255",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000262",
       "statuses": [
         "sent"
       ],
-      "at": 1789707511024,
+      "at": 1789790444485,
       "kind": "interactive",
       "body": "WhatsApp menu for Kelechi Shoes: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Kelechi Shoes! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-1-3l4w6h",
+          "id": "onb_approve:p-1-b2dzle",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-1-3l4w6h",
+          "id": "onb_edit:p-1-b2dzle",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-1-3l4w6h",
+          "id": "onb_reject:p-1-b2dzle",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000256",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000263",
       "statuses": [
         "sent"
       ],
-      "at": 1789707511024,
+      "at": 1789790444486,
       "kind": "interactive",
       "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-2-qy6r1w",
+          "id": "onb_approve:p-2-mtt9o4",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-2-qy6r1w",
+          "id": "onb_edit:p-2-mtt9o4",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-2-qy6r1w",
+          "id": "onb_reject:p-2-mtt9o4",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000257",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000264",
       "statuses": [
         "sent"
       ],
-      "at": 1789707511024,
+      "at": 1789790444486,
       "kind": "interactive",
       "body": "Brand kit for Kelechi Shoes\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM3NTUzOTMiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPktTPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#755393\",\n  \"secondaryColor\": \"#9DAC80\",\n  \"tagline\": \"Quality you can count on\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-3-feha9a",
+          "id": "onb_approve:p-3-4356h1",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-3-feha9a",
+          "id": "onb_edit:p-3-4356h1",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-3-feha9a",
+          "id": "onb_reject:p-3-4356h1",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000258",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000265",
       "statuses": [
         "sent"
       ],
-      "at": 1789707511025,
+      "at": 1789790444486,
       "kind": "interactive",
       "body": "Suggested integrations: twenty\n\n{\n  \"providers\": [\n    {\n      \"provider\": \"twenty\",\n      \"reason\": \"CRM to track customer conversations and follow-ups\"\n    }\n  ],\n  \"summary\": \"Suggested integrations: twenty\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-4-fz6gom",
+          "id": "onb_approve:p-4-6x05hk",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-4-fz6gom",
+          "id": "onb_edit:p-4-6x05hk",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-4-fz6gom",
+          "id": "onb_reject:p-4-6x05hk",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.btn.00163",
-      "at": 1789707511537,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.btn.00169",
+      "at": 1789790444994,
       "kind": "button_reply",
       "text": "Edit",
-      "payloadId": "onb_edit:p-3-feha9a"
+      "payloadId": "onb_edit:p-3-4356h1"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000259",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000266",
       "statuses": [
         "sent"
       ],
-      "at": 1789707511541,
+      "at": 1789790445001,
       "kind": "text",
       "body": "Sure — reply with your changes in one message and I'll rework the proposal."
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.text.00164",
-      "at": 1789707512081,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.text.00170",
+      "at": 1789790445539,
       "kind": "text",
       "text": "use purple colors and a warmer greeting"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000260",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000267",
       "statuses": [
         "sent"
       ],
-      "at": 1789707512090,
+      "at": 1789790445552,
       "kind": "text",
       "body": "Discarded the branding proposal. Tell me what you'd prefer and I'll draft another."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000261",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000268",
       "statuses": [
         "sent"
       ],
-      "at": 1789707512107,
+      "at": 1789790445584,
       "kind": "text",
       "body": "I've reworked the proposal(s) with your changes — take another look and approve when ready."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000262",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000269",
       "statuses": [
         "sent"
       ],
-      "at": 1789707512108,
+      "at": 1789790445584,
       "kind": "interactive",
       "body": "Brand kit for Kelechi Shoes (revised)\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM3NTUzOTMiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPktTPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#8763C4\",\n  \"secondaryColor\": \"#B5CB90\",\n  \"tagline\": \"Quality you can count on\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-5-3tf82w",
+          "id": "onb_approve:p-5-1iudzw",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-5-3tf82w",
+          "id": "onb_edit:p-5-1iudzw",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-5-3tf82w",
+          "id": "onb_reject:p-5-1iudzw",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000263",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000270",
       "statuses": [
         "sent"
       ],
-      "at": 1789707512108,
+      "at": 1789790445584,
       "kind": "interactive",
       "body": "WhatsApp menu for Kelechi Shoes (revised greeting)\n\n{\n  \"greeting\": \"A very warm welcome to Kelechi Shoes! We're so glad you're here — how can we help today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-6-3tbbsz",
+          "id": "onb_approve:p-6-xf16h3",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-6-3tbbsz",
+          "id": "onb_edit:p-6-xf16h3",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-6-3tbbsz",
+          "id": "onb_reject:p-6-xf16h3",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.btn.00165",
-      "at": 1789707512630,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.btn.00171",
+      "at": 1789790446091,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-1-3l4w6h"
+      "payloadId": "onb_approve:p-1-b2dzle"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000264",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000271",
       "statuses": [
         "sent"
       ],
-      "at": 1789707512638,
+      "at": 1789790446105,
       "kind": "text",
       "body": "Approved the waMenu proposal."
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.btn.00166",
-      "at": 1789707513175,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.btn.00172",
+      "at": 1789790446637,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-2-qy6r1w"
+      "payloadId": "onb_approve:p-2-mtt9o4"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000265",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000272",
       "statuses": [
         "sent"
       ],
-      "at": 1789707513185,
+      "at": 1789790446651,
       "kind": "text",
       "body": "Approved the useCases proposal."
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.btn.00167",
-      "at": 1789707513718,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.btn.00173",
+      "at": 1789790447194,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-4-fz6gom"
+      "payloadId": "onb_approve:p-4-6x05hk"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000266",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000273",
       "statuses": [
         "sent"
       ],
-      "at": 1789707513727,
+      "at": 1789790447207,
       "kind": "text",
       "body": "Approved the integrations proposal."
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.btn.00168",
-      "at": 1789707514263,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.btn.00174",
+      "at": 1789790447740,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-5-3tf82w"
+      "payloadId": "onb_approve:p-5-1iudzw"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000267",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000274",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514273,
+      "at": 1789790447754,
       "kind": "text",
       "body": "Approved the branding proposal."
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.btn.00169",
-      "at": 1789707514809,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.btn.00175",
+      "at": 1789790448290,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-6-3tbbsz"
+      "payloadId": "onb_approve:p-6-xf16h3"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000268",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000275",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514882,
+      "at": 1789790448412,
       "kind": "text",
       "body": "Approved the waMenu proposal."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000269",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000276",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514882,
+      "at": 1789790448412,
       "kind": "text",
       "body": "Applied: WhatsApp menu for Kelechi Shoes: greeting + top use cases"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000270",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000277",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514882,
+      "at": 1789790448413,
       "kind": "text",
       "body": "Applied: WhatsApp menu for Kelechi Shoes (revised greeting)"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000271",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000278",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514883,
+      "at": 1789790448413,
       "kind": "text",
       "body": "Applied: Suggested use cases: shop, track, handoff"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000272",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000279",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514883,
+      "at": 1789790448413,
       "kind": "text",
       "body": "Applied: Brand kit for Kelechi Shoes (revised)"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000273",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000280",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514883,
+      "at": 1789790448413,
       "kind": "text",
       "body": "Applied: Suggested integrations: twenty"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000274",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000281",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514883,
+      "at": 1789790448413,
       "kind": "text",
       "body": "Could not update the WhatsApp profile: about, description, photo."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000275",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000282",
       "statuses": [
         "sent"
       ],
-      "at": 1789707514883,
+      "at": 1789790448414,
       "kind": "text",
       "body": "I couldn't reach your WhatsApp phone number with the token on file. Please re-paste your WhatsApp access token and phone number ID from Meta Business Settings → WhatsApp → API Setup."
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.text.00170",
-      "at": 1789707515357,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.text.00176",
+      "at": 1789790448844,
       "kind": "text",
       "text": "phone number id is 109000987654321 token is EAAj40tokenabc123456"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000276",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000283",
       "statuses": [
         "sent"
       ],
-      "at": 1789707515378,
+      "at": 1789790448873,
       "kind": "text",
       "body": "Got it — credentials updated. Re-running the checks…"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000277",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000284",
       "statuses": [
         "sent"
       ],
-      "at": 1789707515378,
+      "at": 1789790448873,
       "kind": "text",
       "body": "🎉 All validation checks passed! One last step: approve go-live to switch your WhatsApp assistant on for customers (or reply \"go live\")."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000278",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000285",
       "statuses": [
         "sent"
       ],
-      "at": 1789707515378,
+      "at": 1789790448874,
       "kind": "interactive",
-      "body": "All 1 validation check(s) passed — go live\n\n{\n  \"checks\": [\n    {\n      \"check\": \"whatsapp\",\n      \"ok\": true\n    }\n  ],\n  \"validatedAt\": \"2026-09-18T04:58:35.376Z\"\n}",
+      "body": "All 1 validation check(s) passed — go live\n\n{\n  \"checks\": [\n    {\n      \"check\": \"whatsapp\",\n      \"ok\": true\n    }\n  ],\n  \"validatedAt\": \"2026-09-19T04:00:48.871Z\"\n}",
       "buttons": [
         {
-          "id": "onb_approve:p-7-uyu2yi",
+          "id": "onb_approve:p-7-9crt76",
           "title": "Approve"
         },
         {
-          "id": "onb_edit:p-7-uyu2yi",
+          "id": "onb_edit:p-7-9crt76",
           "title": "Edit"
         },
         {
-          "id": "onb_reject:p-7-uyu2yi",
+          "id": "onb_reject:p-7-9crt76",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348012291421",
-      "profileName": "Sim User 1421",
-      "inboundId": "wamid.sim.in.btn.00171",
-      "at": 1789707515904,
+      "phone": "2348019435535",
+      "profileName": "Sim User 5535",
+      "inboundId": "wamid.sim.in.btn.00177",
+      "at": 1789790449395,
       "kind": "button_reply",
       "text": "Approve",
-      "payloadId": "onb_approve:p-7-uyu2yi"
+      "payloadId": "onb_approve:p-7-9crt76"
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000279",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000286",
       "statuses": [
         "sent"
       ],
-      "at": 1789707515929,
+      "at": 1789790449462,
       "kind": "text",
       "body": "Approved the goLive proposal."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000280",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000287",
       "statuses": [
         "sent"
       ],
-      "at": 1789707515930,
+      "at": 1789790449462,
+      "kind": "text",
+      "body": "🔐 Your secure portal login link (valid 24 hours, opens only after a code sent to this phone): http://localhost:4173/portal/login#token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicG9ydGFsX2ludml0ZSIsImp0aSI6IjM1ZjJmN2QwLTNlMDEtNDYxNS1hZDU2LTI2NTQwMjIxYWU0MiIsInRlbmFudElkIjoiM2JlOWE3MGItODc4Mi00ZjE3LWIzNTYtYzFhZGRjYWZlNzQ2IiwidGVuYW50TmFtZSI6IktlbGVjaGkgU2hvZXMiLCJpc3N1ZWRCeSI6ImJvb3RzdHJhcDoyIiwiYm91bmRQaG9uZSI6IisyMzQ4MDE5NDM1NTM1IiwiaWF0IjoxNzg5NzkwNDQ5LCJleHAiOjE3ODk4NzY4NDl9.iIpHSukMaa5BShq6gXBhdbArUWWVB_GugNd7SyRNr1c"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000288",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789790449462,
       "kind": "text",
       "body": "🎉 You're LIVE! Your customers can now message your business on WhatsApp."
     },
     {
       "dir": "out",
-      "phone": "2348012291421",
-      "wamid": "wamid.sim.000281",
+      "phone": "2348019435535",
+      "wamid": "wamid.sim.000289",
       "statuses": [
         "sent"
       ],
-      "at": 1789707515932,
+      "at": 1789790449464,
       "kind": "text",
-      "body": "🎉 Congratulations — your store is live!\n\nNext steps:\n1. Connect your own WhatsApp number via embedded signup: http://localhost:4173/settings/whatsapp\n2. Manage everything from your admin portal: http://localhost:4173\n\nWelcome aboard! 🚀"
+      "body": "🎉 Congratulations — your store is live!\n\nNext steps:\n1. Connect your own WhatsApp number via embedded signup: http://localhost:4173/settings/whatsapp\n2. We've sent you a secure login link for your admin portal — it works only with a verification code sent to THIS phone, so keep this number active.\n\nWelcome aboard! 🚀"
     }
   ]
 }

@@ -1,5 +1,10 @@
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
+// === W47 merchant === ONB-M-11: resolve the tenant from the session
+// (previously hardcoded "demo-tenant-id" — FORBIDDEN for every real
+// merchant, and a probe-able literal).
+import { useAuth } from "@/_core/hooks/useAuth";
+// === END W47 merchant ===
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -344,6 +349,8 @@ function DocumentUploadRow({
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
 export default function TenantOnboarding() {
   const [, navigate] = useLocation();
+  const { user } = useAuth(); // === W47 merchant === ONB-M-11
+  const tenantId = user?.tenantId ?? ""; // === W47 merchant === ONB-M-11
   const [currentStep, setCurrentStep] = useState<Step>("business_profile");
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -697,7 +704,7 @@ export default function TenantOnboarding() {
                   {form.kycApplicationId ? (
                     <LivenessCamera
                       applicationId={form.kycApplicationId}
-                      tenantId="demo-tenant-id"
+                      tenantId={tenantId}
                       onComplete={(sessionId, status) => {
                         updateForm({ livenessSessionId: sessionId, livenessStatus: status });
                         if (status === "passed") toast.success("Liveness check passed!");
@@ -708,7 +715,10 @@ export default function TenantOnboarding() {
                       <p className="text-sm text-muted-foreground">Create a KYC application first to start liveness check.</p>
                       <Button
                         variant="outline"
-                        onClick={() => createApplication.mutate({ tenantId: "demo-tenant-id", type: "kyb" })}
+                        onClick={() => {
+                          if (!tenantId) { toast.error("No business is linked to your account yet — complete store setup first."); return; }
+                          createApplication.mutate({ tenantId, type: "kyb" });
+                        }}
                         disabled={createApplication.isPending}
                       >
                         {createApplication.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
@@ -797,7 +807,10 @@ export default function TenantOnboarding() {
                     variant="outline"
                     size="sm"
                     className="gap-2 text-xs"
-                    onClick={() => sendProgressEmail.mutate({ tenantId: "demo-tenant-id" })}
+                    onClick={() => {
+                      if (!tenantId) { toast.error("No business is linked to your account yet."); return; }
+                      sendProgressEmail.mutate({ tenantId });
+                    }}
                     disabled={sendProgressEmail.isPending}
                   >
                     {sendProgressEmail.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}

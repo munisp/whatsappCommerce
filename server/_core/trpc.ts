@@ -239,9 +239,11 @@ export async function assertMoneyAccess(
 ): Promise<void> {
   if (user.role === "admin") return;
   let membership: TenantMembership | null = null;
+  let lookupFailed = false;
   try {
     membership = await getMembership(user.id, tenantId);
   } catch (err) {
+    lookupFailed = true;
     console.error("[assertMoneyAccess] membership lookup failed:", (err as Error)?.message);
     membership = null;
   }
@@ -257,6 +259,26 @@ export async function assertMoneyAccess(
       message: `Money-moving actions require tenant role: owner or operator (you are ${membership.role})`,
     });
   }
+  // === W47 stakeholders === ONB-S-6/S-7: fail CLOSED for money.
+  // A DB wobble that hides membership rows must NOT reopen the legacy
+  // shortcuts, and once a tenant has ANY staff rows the legacy
+  // users.tenantId shortcut no longer confers money access.
+  const { hasAnyMembership } = await import("../services/membership");
+  const anyRows = await hasAnyMembership(tenantId);
+  if (anyRows === null && lookupFailed) {
+    console.error(`[assertMoneyAccess] FAIL-CLOSED: membership lookup failed for user ${user.id} on tenant ${tenantId}`);
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Membership lookup failed — money access denied (fail closed). Retry shortly.",
+    });
+  }
+  if (anyRows === true) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Money-moving actions require an owner/operator/finance tenant membership (legacy shortcuts are disabled once a tenant has staff roles)",
+    });
+  }
+  // === END W47 stakeholders ===
   if (user.tenantId && user.tenantId === tenantId) return;
   if (Array.isArray(user.memberships) && user.memberships.includes(tenantId)) return;
   throw new TRPCError({

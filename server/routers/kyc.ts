@@ -106,6 +106,19 @@ export const kycRouter = router({
         return existing;
       }
 
+      // === W47 merchant === ONB-M-13: consistent appeal policy — appeal
+      // XOR new application. A REJECTED application must go through the
+      // (once-only, 4-eyes) appeal path; starting a fresh application to
+      // route around the appeal rule is no longer possible. Expired
+      // applications re-open freely (re-verification flow).
+      if (existing && existing.status === "rejected") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Your application was rejected. Use kyc.appeal to request a re-review of the existing application instead of starting over.",
+        });
+      }
+      // === END W47 merchant ===
+
       const id = randomUUID();
       await db.insert(kycApplications).values({
         id,
@@ -405,15 +418,24 @@ export const kycRouter = router({
 
       // === W46 kyc === TEN-7 (4-eyes): an APPEALED application must be
       // adjudicated by a DIFFERENT reviewer than the one who rejected it.
+      // === W47 merchant === ONB-M-13: compare STABLE user ids (stored on
+      // the review) — display-name string equality was defeated by two
+      // admins sharing a name. Legacy rows without reviewedByUserId fall
+      // back to the name comparison.
       if (beforeApp?.status === "appealed") {
+        const originalId = (beforeApp as any).reviewedByUserId as number | null | undefined;
         const original = beforeApp.reviewedBy;
-        if (original && original === reviewer) {
+        const sameReviewer = originalId != null
+          ? originalId === ctx.user.id
+          : Boolean(original && original === reviewer);
+        if (sameReviewer) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "Appealed applications must be reviewed by a different admin than the original reviewer (4-eyes rule).",
           });
         }
       }
+      // === END W46/W47 ===
       // === W46 kyc === TEN-6: stamp expiresAt at approval per risk tier.
       const approvedNow = input.decision === "approved" ? new Date() : undefined;
       const expiresAt = approvedNow
@@ -423,6 +445,9 @@ export const kycRouter = router({
       await db.update(kycApplications).set({
         status: input.decision,
         reviewedBy: reviewer,
+        // === W47 merchant === ONB-M-13: stable reviewer identity (mig 0163).
+        reviewedByUserId: ctx.user.id,
+        // === END W47 merchant ===
         reviewNotes,
         rejectionReason: input.rejectionReason,
         // W40 TEN-8: journal the screening timestamp when approval screening ran.
@@ -447,6 +472,23 @@ export const kycRouter = router({
         before: beforeApp ? { status: beforeApp.status, reviewedBy: beforeApp.reviewedBy ?? null } : null,
         after: { status: input.decision, reviewedBy: reviewer },
       });
+      // === W47 merchant === ONB-M-8: rejecting a LIVE tenant's KYB no
+      // longer leaves them trading silently — stamp the re-verification
+      // grace window (settings.onboarding.kybRestrictedAt), audit it and
+      // notify the merchant over WhatsApp. After KYB_GRACE_DAYS without a
+      // new approval, order intake stops (payouts of earned funds are NOT
+      // blocked). Approval of a re-verification clears the window below.
+      if (beforeApp?.tenantId) {
+        const { applyKybRestriction, clearKybRestriction } = await import("../services/onboardingLifecycle");
+        if (input.decision === "rejected") {
+          await applyKybRestriction(db, beforeApp.tenantId, "rejected").catch((e: any) =>
+            console.error("[kyc.review] kyb restriction stamp failed:", e?.message));
+        } else if (input.decision === "approved") {
+          await clearKybRestriction(db, beforeApp.tenantId).catch((e: any) =>
+            console.error("[kyc.review] kyb restriction clear failed:", e?.message));
+        }
+      }
+      // === END W47 merchant ===
       return { ok: true };
     }),
 

@@ -24,7 +24,13 @@ export const journey: Journey = {
 
     assert(!(await findCustomer()), "no customer before first contact");
 
-    // First inbound with a Meta profile name → customer created with it.
+    // W47 (ONB-B-3): the hoisted first-contact consent gate intercepts the
+    // very first message BEFORE provisioning — answer YES, then the next
+    // inbound provisions the row.
+    await world.text(phone, "hello", { profileName: "Ade Simons" });
+    assert(!(await findCustomer()), "consent gate intercepts first contact before provisioning");
+    await world.text(phone, "YES", { profileName: "Ade Simons" });
+    // First post-consent inbound with a Meta profile name → customer created with it.
     await world.text(phone, "hello", { profileName: "Ade Simons" });
     const created = await findCustomer();
     assert(created, "customer row provisioned on first contact");
@@ -37,6 +43,8 @@ export const journey: Journey = {
 
     // A contact WITHOUT a profile name still gets a row.
     const phone2 = world.newPhone("b");
+    await world.text(phone2, "hi");
+    await world.text(phone2, "YES");
     await world.text(phone2, "hi");
     const [c2] = await world.db.select().from(schema.customers)
       .where(and(eq(schema.customers.tenantId, TENANT_ID), eq(schema.customers.whatsappPhone, phone2)))

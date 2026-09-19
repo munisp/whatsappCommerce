@@ -70,5 +70,9 @@ export const journey: Journey = {
     // Restore env for later journeys.
     if (savedToken === undefined) delete process.env.WHATSAPP_TOKEN; else process.env.WHATSAPP_TOKEN = savedToken;
     if (savedPhone === undefined) delete process.env.WHATSAPP_PHONE_NUMBER_ID; else process.env.WHATSAPP_PHONE_NUMBER_ID = savedPhone;
+    // W47 MERGER: INTERNAL_API_KEY was unset before this journey — restore
+    // that too, or every later journey's headerless internal tRPC calls fail
+    // closed with invalid-internal-api-key.
+    delete process.env.INTERNAL_API_KEY;
   },
 };

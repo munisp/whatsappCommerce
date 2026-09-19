@@ -9,7 +9,13 @@ import { CheckCircle, XCircle, MessageSquare } from "lucide-react";
 /**
  * Portal Magic Link Login Page
  * ==============================
- * Route: /portal/login?token=<jwt>
+ * Route: /portal/login#token=<jwt>   (preferred, W47 ONB-TOK-2)
+ *        /portal/login?token=<jwt>   (legacy links still accepted)
+ *
+ * W47 crosscutting (ONB-TOK-2): new invite links carry the token in the URL
+ * FRAGMENT so it never lands in access logs, browser history server-side, or
+ * Referer headers. The fragment is read here, then immediately scrubbed from
+ * the address bar via history.replaceState.
  *
  * Validates the invite token and stores a portal session token in
  * localStorage, then redirects to /portal.
@@ -41,13 +47,21 @@ export default function PortalMagicLogin() {
   });
 
   useEffect(() => {
+    // === W47 stakeholders === ONB-S-15: the token rides the URL FRAGMENT
+    // (#token=) so it never lands in access logs / browser history /
+    // Referer headers. The legacy ?token= query param is still honored for
+    // links minted before W47.
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const params = new URLSearchParams(window.location.search);
-    const token = params.get("token");
+    const token = hashParams.get("token") ?? params.get("token");
+    // === END W47 stakeholders ===
     if (!token) {
       setStatus("error");
       setErrorMsg("No invite token found in the URL.");
       return;
     }
+    // Scrub the credential from the address bar/history immediately.
+    window.history.replaceState(null, "", window.location.pathname);
     validateMutation.mutate({ token });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

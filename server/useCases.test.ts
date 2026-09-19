@@ -77,7 +77,7 @@ const ORDER_2 = {
   id: "order-2", tenantId: T, customerId: "cust-1", orderNumber: "ORD-002",
   status: "delivered", totalAmount: "4500.00", currency: "NGN", createdAt: new Date("2026-07-20"),
 };
-const CUSTOMER = { id: "cust-1", tenantId: T, whatsappPhone: P, name: "Amara" };
+const CUSTOMER = { id: "cust-1", tenantId: T, whatsappPhone: P, name: "Amara", updatedAt: new Date() }; // W47 (ONB-B-2): fresh activity so the recycled-number guard discloses
 
 function call(db: any, text: string, tenant: any = { id: T, name: "Ada Stores", settings: null }) {
   return handleConversationalInbound({ db, tenant, tenantId: T, phone: P, text, customerName: "Amara" });
@@ -200,6 +200,8 @@ describe("track use case (mocked orders)", () => {
   it("lists recent orders with status and /track/:token links", async () => {
     const { db } = makeDb([
       CONSENTED,          // consent
+      [CUSTOMER],         // W47 (ONB-B-2) identity gate: customers by phone
+      [ORDER_1, ORDER_2], // identity gate: order-history probe
       [CUSTOMER],         // customers by phone
       [ORDER_1, ORDER_2], // recent orders
     ]);
@@ -342,6 +344,8 @@ describe("handoff use case", () => {
 describe("emoji-reaction → order status reply", () => {
   it("replies with latest order/shipment status + tracking link", async () => {
     const { db } = makeDb([
+      [CUSTOMER],                       // W47 (ONB-B-2) identity gate: customers by phone
+      [ORDER_1],                        // identity gate: order-history probe
       [CUSTOMER],                       // customers by phone
       [ORDER_1],                        // latest order
       [{ status: "in_transit" }],       // latest shipment

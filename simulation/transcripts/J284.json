@@ -7,8 +7,8 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348012739177",
-      "at": 1789707985281,
+      "phone": "2348017478091",
+      "at": 1789790991939,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -16,8 +16,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348013110586",
-      "at": 1789707985283,
+      "phone": "2348013507100",
+      "at": 1789790991949,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -25,8 +25,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348017326037",
-      "at": 1789707985284,
+      "phone": "2348017394162",
+      "at": 1789790991951,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -34,8 +34,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348013874392",
-      "at": 1789707985286,
+      "phone": "2348011935947",
+      "at": 1789790991953,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -43,8 +43,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348014025468",
-      "at": 1789707985288,
+      "phone": "2348018009396",
+      "at": 1789790991954,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -52,8 +52,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348012077894",
-      "at": 1789707985289,
+      "phone": "2348019497353",
+      "at": 1789790991956,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -61,8 +61,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348011456798",
-      "at": 1789707985290,
+      "phone": "2348018052836",
+      "at": 1789790991958,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -70,8 +70,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348012636353",
-      "at": 1789707985292,
+      "phone": "2348017466999",
+      "at": 1789790991960,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -79,8 +79,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348019814018",
-      "at": 1789707985293,
+      "phone": "2348017318958",
+      "at": 1789790991962,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -88,8 +88,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348013251932",
-      "at": 1789707985294,
+      "phone": "2348013144317",
+      "at": 1789790991986,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -97,8 +97,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348017511788",
-      "at": 1789707985296,
+      "phone": "2348013622499",
+      "at": 1789790991988,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -106,37 +106,19 @@
     },
     {
       "dir": "out",
-      "phone": "2348015802091",
-      "at": 1789707985297,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348014571291",
-      "at": 1789707985298,
-      "failed": true,
-      "failStatus": 500,
-      "kind": "text",
-      "body": "Hello {{1}}, breaker test"
-    },
-    {
-      "dir": "out",
-      "phone": "2348017004043",
-      "at": 1789707985299,
+      "phone": "2348017435167",
+      "at": 1789790991990,
       "failed": true,
       "failStatus": 500,
       "kind": "template",
       "templateName": "j284_broadcast",
       "templateLanguage": "en_US",
-      "body": "Sim User 4043"
+      "body": "Sim User 5167"
     },
     {
       "dir": "out",
-      "phone": "2348018757359",
-      "at": 1789707985301,
+      "phone": "2348013081032",
+      "at": 1789790992003,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -144,8 +126,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348017281427",
-      "at": 1789707985302,
+      "phone": "2348017982283",
+      "at": 1789790992005,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -153,8 +135,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348012875255",
-      "at": 1789707985303,
+      "phone": "2348014486098",
+      "at": 1789790992007,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -162,8 +144,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348014593552",
-      "at": 1789707985304,
+      "phone": "2348019260986",
+      "at": 1789790992009,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -171,8 +153,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348012398172",
-      "at": 1789707985306,
+      "phone": "2348013279505",
+      "at": 1789790992010,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -180,8 +162,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348015246335",
-      "at": 1789707985307,
+      "phone": "2348016717610",
+      "at": 1789790992012,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -189,8 +171,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348011294245",
-      "at": 1789707985308,
+      "phone": "2348016428205",
+      "at": 1789790992017,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -198,8 +180,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348014177925",
-      "at": 1789707985310,
+      "phone": "2348011404992",
+      "at": 1789790992019,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -207,8 +189,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348012013498",
-      "at": 1789707985311,
+      "phone": "2348012212991",
+      "at": 1789790992021,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -216,8 +198,8 @@
     },
     {
       "dir": "out",
-      "phone": "2348019613724",
-      "at": 1789707985312,
+      "phone": "2348011594527",
+      "at": 1789790992023,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -225,8 +207,26 @@
     },
     {
       "dir": "out",
-      "phone": "2348019100748",
-      "at": 1789707985313,
+      "phone": "2348014654797",
+      "at": 1789790992024,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013421404",
+      "at": 1789790992026,
+      "failed": true,
+      "failStatus": 500,
+      "kind": "text",
+      "body": "Hello {{1}}, breaker test"
+    },
+    {
+      "dir": "out",
+      "phone": "2348017441656",
+      "at": 1789790992029,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
@@ -235,11 +235,11 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "at": 1789707985575,
+      "at": 1789790992113,
       "failed": true,
       "failStatus": 500,
       "kind": "text",
-      "body": "🚨 Broadcast campaign \"J284 Breaker Campaign\" was AUTO-PAUSED by the circuit breaker: 25/25 sends failed (100%). 0 sent, 300 not attempted. Check the dashboard, fix the cause (template/quality), then resume the campaign."
+      "body": "🚨 Broadcast campaign \"J284 Breaker Campaign\" was AUTO-PAUSED by the circuit breaker: 25/25 sends failed (100%). 0 sent, 302 not attempted. Check the dashboard, fix the cause (template/quality), then resume the campaign."
     }
   ]
 }

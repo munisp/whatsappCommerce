@@ -293,6 +293,12 @@ export const customers = pgTable("customers", {
   totalSpent: decimal("totalSpent", { precision: 14, scale: 2 }).default("0.00").notNull(),
   lastOrderAt: timestamp("lastOrderAt"),
   tags: jsonb("tags"),
+  // === W47 buyer (ONB-B-2, mig 0165): recycled-number / SIM-swap proof
+  // marker. Set when the current holder of the phone completes the
+  // chat identity challenge (name confirmation / portal device-auth link);
+  // NULL means order-history-disclosing intents must verify first. ===
+  chatIdentityVerifiedAt: timestamp("chatIdentityVerifiedAt"),
+  // === END W47 buyer ===
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, (t) => [
@@ -1058,6 +1064,10 @@ export const kycApplications = pgTable("kyc_applications", {
   // === END W40 ===
   riskScore: varchar("riskScore", { length: 10 }),
   reviewedBy: varchar("reviewedBy", { length: 255 }),
+  // === W47 merchant === ONB-M-13 (mig 0163): stable reviewer identity for
+  // the appeal 4-eyes rule — display names collide ("Admin"), ids don't.
+  reviewedByUserId: integer("reviewedByUserId"),
+  // === END W47 merchant ===
   reviewNotes: text("reviewNotes"),
   rejectionReason: text("rejectionReason"),
   submittedAt: timestamp("submittedAt"),
@@ -1148,7 +1158,8 @@ export const cartSessions = pgTable("cart_sessions", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
   customerId: varchar("customerId", { length: 36 }),
-  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }),
+  // === W47 buyer (ONB-B-6, mig 0165): widened for telegram:<chat_id> keys ===
+  waPhoneNumber: varchar("waPhoneNumber", { length: 64 }),
   sessionData: jsonb("sessionData").notNull().default({}),
   currentStep: varchar("currentStep", { length: 50 }).default("greeting"),
   language: varchar("language", { length: 20 }).default("english"),
@@ -1229,7 +1240,11 @@ export const invoices = pgTable("invoices", {
 export const nlpSessions = pgTable("nlp_sessions", {
   id: varchar("id", { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
   tenantId: varchar("tenantId", { length: 36 }).notNull(),
-  waPhoneNumber: varchar("waPhoneNumber", { length: 20 }).notNull(),
+  // === W47 buyer (ONB-B-6/ONB-B-10, mig 0165-0166): widened to 64 so
+  // telegram:<chat_id> session keys fit, plus a UNIQUE constraint on
+  // (tenantId, waPhoneNumber) — the get-or-create race now has a single
+  // winner (ON CONFLICT upsert in routers/nlp.ts). ===
+  waPhoneNumber: varchar("waPhoneNumber", { length: 64 }).notNull(),
   customerName: varchar("customerName", { length: 255 }),
   language: varchar("language", { length: 20 }).notNull().default("english"),
   state: varchar("state", { length: 50 }).notNull().default("greeting"),
@@ -1241,6 +1256,10 @@ export const nlpSessions = pgTable("nlp_sessions", {
 }, (t) => [
   index("nlp_sessions_tenant_idx").on(t.tenantId),
   index("nlp_sessions_phone_idx").on(t.waPhoneNumber),
+  uniqueIndex("nlp_sessions_tenant_phone_uq").on(t.tenantId, t.waPhoneNumber),
+  // === END W47 buyer ===
+  // W47 crosscutting (ONB-ID-2, mig 0169) relied on the same uniqueness —
+  // single physical index retained (B's 0166 name), D's CAS writers upsert/re-select.
 ]);
 // ── WhatsApp Media Files ──────────────────────────────────────────────────────
 export const whatsappMediaFiles = pgTable("whatsapp_media_files", {
@@ -2866,6 +2885,9 @@ export const phoneOtpSessions = pgTable("phone_otp_sessions", {
 }, (t) => [
   index("phone_otp_phone_idx").on(t.phone),
   index("phone_otp_expires_idx").on(t.expiresAt),
+  // === W47 crosscutting (ONB-ID-4, mig 0169): one live OTP session per
+  // (phone, purpose) — sendOtp upserts instead of check-then-delete-insert. ===
+  uniqueIndex("phone_otp_sessions_phone_purpose_uniq").on(t.phone, t.purpose),
 ]);
 export type PhoneOtpSession = typeof phoneOtpSessions.$inferSelect;
 
@@ -3275,6 +3297,10 @@ export const consents = pgTable("consents", {
   updatedAt:  timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
   index("consents_tenant_phone_channel_idx").on(t.tenantId, t.phone, t.channel),
+  // === W47 crosscutting (ONB-TOCTOU-1, mig 0169): one consent row per
+  // (tenant, phone, channel) — concurrent first-contact grants conflict;
+  // recordConsent upserts + guards the re-grant counter atomically. ===
+  uniqueIndex("consents_tenant_phone_channel_uniq").on(t.tenantId, t.phone, t.channel),
   index("consents_tenant_channel_granted_idx").on(t.tenantId, t.channel, t.granted),
 ]);
 export type Consent = typeof consents.$inferSelect;
@@ -3688,6 +3714,12 @@ export const onboardingSessions = pgTable("onboarding_sessions", {
   updatedAt:   timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
   index("onboarding_sessions_tenant_idx").on(t.tenantId),
+  // === W47 crosscutting (ONB-ID-2, mig 0169): at most ONE active copilot
+  // session per (channel, phone) — startSession serializes per phone
+  // (advisory lock + supersede in one tx) so concurrent first contact has a
+  // single winner; terminal states are excluded so history is preserved. ===
+  uniqueIndex("onboarding_sessions_active_phone_uniq").on(t.channel, t.phone)
+    .where(sql`"state" NOT IN ('live','failed','abandoned') AND "phone" IS NOT NULL`),
   index("onboarding_sessions_channel_phone_idx").on(t.channel, t.phone),
   index("onboarding_sessions_state_idx").on(t.state),
 ]);
@@ -4307,6 +4339,9 @@ export const deliveries = pgTable("deliveries", {
   dropoffAddress: jsonb("dropoff_address"),
   recipientPhone: varchar("recipient_phone", { length: 30 }),
   statusHistory:  jsonb("status_history").notNull().default([]),
+  // === W47 stakeholders (ONB-S-10, mig 0167): assigned registered rider. ===
+  riderId:        uuid("rider_id"),
+  // === END W47 stakeholders ===
   bookedAt:       timestamp("booked_at"),
   deliveredAt:    timestamp("delivered_at"),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
@@ -4972,6 +5007,10 @@ export const tenantInviteTokens = pgTable("tenant_invite_tokens", {
   // verifyOtp) whose phone matches before a portal session is issued. ===
   boundPhone: varchar("bound_phone", { length: 30 }),
   // === END W46 privacy-consent ===
+  // === W47 stakeholders (ONB-S-5, mig 0167): admin-initiated revocation.
+  // validate() refuses a revoked invite; revocation is audited. ===
+  revokedAt: timestamp("revoked_at"),
+  // === END W47 stakeholders ===
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   index("tenant_invite_tokens_tenant_idx").on(t.tenantId, t.createdAt),
@@ -5013,6 +5052,10 @@ export const vendorBills = pgTable("vendor_bills", {
   // 3-way match (billed ≤ received — see services/goodsReceipts.ts). ===
   poId:           uuid("po_id"),
   // === END W45 orders-p0 ===
+  // === W47 stakeholders (ONB-S-8, mig 0168): link to the vetted vendors
+  // registry row (deduped, structured payout account, KYB-tier gated). ===
+  vendorId:       uuid("vendor_id"),
+  // === END W47 stakeholders ===
   createdBy:      varchar("created_by", { length: 64 }),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
   updatedAt:      timestamp("updated_at").notNull().defaultNow(),
@@ -6761,6 +6804,12 @@ export const ageAttestations = pgTable("age_attestations", {
   source: varchar("source", { length: 32 }).notNull().default("chat_reply"),
   /** Order whose checkout consumed/created the attestation (nullable). */
   orderId: varchar("order_id", { length: 36 }),
+  // === W47 crosscutting (ONB-TOCTOU-2, mig 0170): proof-of-attestation
+  // versioning — mirrors consents TEN-16 (policy version + inbound wamid
+  // evidence) so an attestation is auditable, not just a bare flag. ===
+  policyVersion: varchar("policy_version", { length: 40 }),
+  proofWamid: varchar("proof_wamid", { length: 80 }),
+  // === END W47 crosscutting ===
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   uniqueIndex("age_attestations_tenant_phone_uq").on(t.tenantId, t.phone),
@@ -6821,3 +6870,131 @@ export const supplierTaxProfileVersions = pgTable("supplier_tax_profile_versions
 export type SupplierTaxProfileVersion = typeof supplierTaxProfileVersions.$inferSelect;
 export type NewSupplierTaxProfileVersion = typeof supplierTaxProfileVersions.$inferInsert;
 // === END W46 privacy-consent ===
+
+// === W47 merchant ===
+// ONB-M-12 (mig 0163): self-service staff invites during onboarding —
+// pending membership keyed by phone, claimed on first OTP login.
+export const merchantStaffInvites = pgTable("merchant_staff_invites", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** E.164 phone the invite is bound to — the invite can only be claimed by an OTP login from this number. */
+  phone: varchar("phone", { length: 30 }).notNull(),
+  role: varchar("role", { length: 32 }).notNull().default("operator"),
+  invitedBy: integer("invited_by").notNull(),
+  status: varchar("status", { length: 16 }).notNull().default("pending"), // pending|claimed|revoked
+  token: varchar("token", { length: 64 }).notNull(),
+  claimedByUserId: integer("claimed_by_user_id"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  claimedAt: timestamp("claimed_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("merchant_staff_invites_tenant_phone_uq").on(t.tenantId, t.phone),
+  uniqueIndex("merchant_staff_invites_token_uq").on(t.token),
+  index("merchant_staff_invites_tenant_idx").on(t.tenantId),
+]);
+export type MerchantStaffInvite = typeof merchantStaffInvites.$inferSelect;
+export type NewMerchantStaffInvite = typeof merchantStaffInvites.$inferInsert;
+
+// ONB-M-18 (mig 0164): idempotency ledger for the abandoned-onboarding
+// re-engagement/churn sweep — one row per (tenant, kind), insert-first claim.
+export const onboardingReengagementLog = pgTable("onboarding_reengagement_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  kind: varchar("kind", { length: 24 }).notNull(), // nudge7d | churn45d
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("onboarding_reengagement_tenant_kind_uq").on(t.tenantId, t.kind),
+]);
+export type OnboardingReengagementLog = typeof onboardingReengagementLog.$inferSelect;
+// === END W47 merchant ===
+// === W47 stakeholders ===
+/**
+ * ONB-S-2 — staff invite/acceptance rail (mig 0167). Replaces the silent
+ * server-side staff add with an invite→accept flow: an owner/operator
+ * invites a PHONE (bound, like tenantInvite TEN-19); the invitee redeems
+ * with a phone_identity proof and the membership row is created ON
+ * ACCEPTANCE — never a phantom row for a nonexistent user.
+ */
+export const staffInvites = pgTable("staff_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  /** E.164-normalised invitee phone — the invite is bound to this number. */
+  phone: varchar("phone", { length: 30 }).notNull(),
+  role: varchar("role", { length: 16 }).notNull().default("operator"),
+  /** Bearer token (uuid) embedded in the accept link. */
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  invitedBy: varchar("invited_by", { length: 36 }),
+  /** pending | accepted | revoked | expired */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  expiresAt: timestamp("expires_at").notNull(),
+  acceptedAt: timestamp("accepted_at"),
+  acceptedUserId: varchar("accepted_user_id", { length: 36 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("staff_invites_tenant_idx").on(t.tenantId, t.createdAt),
+  index("staff_invites_phone_idx").on(t.tenantId, t.phone),
+]);
+export type StaffInvite = typeof staffInvites.$inferSelect;
+export type NewStaffInvite = typeof staffInvites.$inferInsert;
+
+/**
+ * ONB-S-10 — rider registry (mig 0167). Merchants register their own
+ * riders (phone-bound, merchant-approved); deliveries to "local-dispatch"
+ * riders are assigned to an ACTIVE rider row so there is a per-rider
+ * trail instead of an untracked "whoever shows up".
+ */
+export const riders = pgTable("riders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  /** pending | active | suspended */
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  /** Optional ID/document reference captured at registration. */
+  idReference: varchar("id_reference", { length: 64 }),
+  createdBy: varchar("created_by", { length: 64 }),
+  approvedBy: varchar("approved_by", { length: 64 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("riders_tenant_phone_uq").on(t.tenantId, t.phone),
+  index("riders_tenant_idx").on(t.tenantId, t.status),
+]);
+export type Rider = typeof riders.$inferSelect;
+export type NewRider = typeof riders.$inferInsert;
+
+/**
+ * ONB-S-8 — first-class vendor registry (mig 0168). Vendor bills used to
+ * pay real wallet money to unvetted free-text payees; vendors now have a
+ * dedup key (normalised name), structured + format-validated payout
+ * account fields, and a KYB tier gate before the FIRST wallet payout to
+ * a previously-unpaid vendor.
+ */
+export const vendors = pgTable("vendors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  /** Dedup key: lowercased name with non-alphanumerics stripped. */
+  nameKey: varchar("name_key", { length: 160 }).notNull(),
+  phone: varchar("phone", { length: 30 }),
+  email: varchar("email", { length: 320 }),
+  /** Structured payout account (NGN: 10-digit NUBAN + bank code). */
+  bankCode: varchar("bank_code", { length: 16 }),
+  accountNumber: varchar("account_number", { length: 20 }),
+  accountName: varchar("account_name", { length: 160 }),
+  /** none | basic | verified — raised after KYB-tier vetting. */
+  kybTier: varchar("kyb_tier", { length: 16 }).notNull().default("none"),
+  /** Set after the first successful wallet payout to this vendor. */
+  firstPaidAt: timestamp("first_paid_at"),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  createdBy: varchar("created_by", { length: 64 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("vendors_tenant_namekey_uq").on(t.tenantId, t.nameKey),
+  index("vendors_tenant_idx").on(t.tenantId, t.createdAt),
+]);
+export type Vendor = typeof vendors.$inferSelect;
+export type NewVendor = typeof vendors.$inferInsert;
+// === END W47 stakeholders ===

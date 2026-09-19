@@ -1,0 +1,8 @@
+{
+  "id": "J430",
+  "title": "lifecycle gate on paid order intake (ONB-M-5 + ONB-M-8)",
+  "feature": "W47 merchant: draft/pre-KYB tenants get no paid orders; KYB-lapsed live tenant stops intake with honest buyer message",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

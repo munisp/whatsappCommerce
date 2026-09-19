@@ -94,6 +94,37 @@ export async function listMembers(tenantId: string): Promise<TenantMembership[]>
 }
 
 /**
+ * === W47 stakeholders === ONB-S-6/S-7: does ANY membership row exist for
+ * this tenant? Returns null when the lookup itself fails (db unavailable) —
+ * callers MUST treat null as "unknown → fail closed", never as "no rows".
+ */
+export async function hasAnyMembership(tenantId: string): Promise<boolean | null> {
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const rows = await db
+      .select({ id: tenantMemberships.id, userId: tenantMemberships.userId, role: tenantMemberships.role })
+      .from(tenantMemberships)
+      .where(eq(tenantMemberships.tenantId, tenantId))
+      .limit(1);
+    // W47 MERGER: only a well-formed membership row (userId + a valid role —
+    // both NOT NULL in the real schema) counts as "this tenant has staff
+    // roles". Chain-anything test doubles resolve EVERY select to non-empty
+    // stub rows from unrelated tables; such leak-through must NOT disable
+    // the legacy users.tenantId shortcuts (legacy-mock regression).
+    return rows.some(
+      (r: any) =>
+        r && typeof r.userId === "string" && r.userId.length > 0 &&
+        (membershipRoleEnum as readonly string[]).includes(r.role),
+    );
+  } catch (err) {
+    console.error("[membership.hasAnyMembership] lookup failed:", (err as Error)?.message);
+    return null;
+  }
+}
+// === END W47 stakeholders ===
+
+/**
  * Add a member to a tenant (direct staff-add by an owner/admin — this is the
  * staff-invite path until W12-A's magic-link invite guard lands).
  * The FIRST member of a tenant is always forced to 'owner'.
@@ -172,6 +203,14 @@ export async function removeMember(
       await db.update(users)
         .set({ tenantId: null, updatedAt: new Date() })
         .where(and(eq(users.id, numericId), eq(users.tenantId, tenantId)));
+    } else {
+      // === W47 stakeholders === ONB-S-7: non-numeric membership userIds
+      // (openId-keyed accounts) previously kept the users.tenantId legacy
+      // shortcut forever. Clear it via the openId match too. ===
+      await db.update(users)
+        .set({ tenantId: null, updatedAt: new Date() })
+        .where(and(eq(users.openId, toUserKey(userId)), eq(users.tenantId, tenantId)));
+      // === END W47 stakeholders ===
     }
   } catch (err) {
     console.error("[membership.removeMember] clearing users.tenantId failed:", (err as Error)?.message);

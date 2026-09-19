@@ -143,6 +143,9 @@ export const SCHEDULE = [
   // === W46 orders-p2 (Coder G) === ORD-19 PO promise-breach alerts (6h).
   { path: "/api/scheduled/po-breach-sweep", intervalMin: 360 },
   // === END W46 orders-p2 ===
+  // === W47 merger === ONB-M-18 abandoned-onboarding nudge/churn sweep (daily).
+  { path: "/api/scheduled/onboarding-abandoned-sweep", intervalMin: 1440 },
+  // === END W47 merger ===
 ];
 
 function b64url(buf) {

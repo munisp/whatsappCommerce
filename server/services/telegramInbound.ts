@@ -281,15 +281,83 @@ export function normalizeUpdate(update: any): NormalizedTelegramEvent | null {
 
 // ── Processing (post-ack) ────────────────────────────────────────────────────
 
+// === W47 crosscutting (ONB-I18N-1): TG consent copy goes through the i18n
+// locale packs (en/fr/ha/yo/ig/sw/am) — informed consent requires a language
+// the buyer understands. The base WA pack text mentions WhatsApp; the TG
+// variants are appended below per locale. ===
 const TG_CONSENT_PROMPT =
   "Before we continue: we'd like to send you order updates and offers here on Telegram. " +
   "Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. " +
   "You can change this anytime — send /stop to opt out.";
 
 const TG_OPT_IN_REPLY = "Thank you! You've opted in to order updates on Telegram.";
+// === W47 buyer (ONB-B-4): first-contact NO mirrors the WA J1 contract ===
+const TG_DENIED_REPLY =
+  "Understood — you've opted out of proactive order updates. " +
+  "You can still message us anytime, and reply YES later to opt back in.";
 const TG_STOP_REPLY =
   "You've been opted out of proactive messages on Telegram. " +
   "You can still message us anytime, and send /start to opt back in.";
+
+// === W47 merchant === per-(tenant, chat) cooldown for the store-not-open reply.
+const telegramIntakeBlockedCooldown = new Map<string, number>();
+// === END W47 merchant ===
+
+/**
+ * W47 buyer (ONB-B-9): recordChannelOptIn throws ConsentRegrantRateLimited
+ * when a withdrawn identity re-grants >3×/24h — send the explanation instead
+ * of throwing into silence.
+ */
+async function safeChannelOptIn(db: Db, cfg: TelegramTenantConfig, sessionKey: string, chatId: string, replyText: string = TG_OPT_IN_REPLY): Promise<void> {
+  try {
+    await recordChannelOptIn(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
+    await sendTelegramTextReply(cfg.tenantId, chatId, replyText);
+  } catch (e: any) {
+    const { ConsentRegrantRateLimited } = await import("./consent");
+    if (e instanceof ConsentRegrantRateLimited) {
+      await sendTelegramTextReply(cfg.tenantId, chatId, e.message);
+      return;
+    }
+    throw e;
+  }
+}
+
+/**
+ * W47 buyer (ONB-B-6): propagate a Telegram revocation to the LINKED
+ * WhatsApp phone identity (verified self-share only) — one buyer, one
+ * consent state across channels.
+ */
+async function propagateRevocationToLinkedChannels(db: Db, cfg: TelegramTenantConfig, sessionKey: string): Promise<void> {
+  try {
+    const { resolveIdentity, channelFromSessionKey } = await import("./channelIdentity");
+    const parsed = channelFromSessionKey(sessionKey);
+    const identity = await resolveIdentity(db, cfg.tenantId, parsed.channel, parsed.id);
+    if (identity.phoneE164) {
+      await recordChannelRevocation(db, { tenantId: cfg.tenantId, sessionKey: identity.phoneE164, channel: "whatsapp" });
+    }
+  } catch (e: any) {
+    console.warn("[telegram-inbound] linked-channel revocation propagation failed:", e?.message);
+  }
+}
+
+/** Locale-aware TG consent copy (channel-specific overrides where translated). */
+async function tgConsentText(
+  tenantId: string,
+  sessionKey: string,
+  text: string,
+  key: "prompt" | "granted" | "denied",
+): Promise<string> {
+  try {
+    const { resolveLocale, tr } = await import("./i18n");
+    const locale = await resolveLocale({ tenantId, phone: sessionKey, text });
+    // Channel-generic packs say "WhatsApp"; swap the channel word for TG.
+    const wa = { prompt: "consentPrompt", granted: "consentGranted", denied: "consentDenied" } as const;
+    const localized = tr(locale, wa[key]);
+    return localized.replace(/WhatsApp/g, "Telegram");
+  } catch {
+    return key === "prompt" ? TG_CONSENT_PROMPT : key === "granted" ? TG_OPT_IN_REPLY : TG_STOP_REPLY;
+  }
+}
 
 /**
  * Feed a text-equivalent message through the SAME NLP engine the WA webhook
@@ -302,6 +370,36 @@ async function dispatchToNlp(
   ev: { chatId: string; name: string },
   message: string,
 ): Promise<void> {
+  // === W47 merchant (ONB-M-5 / ONB-M-8): channel parity with the WA
+  // webhook — the SAME lifecycle gate blocks paid order intake for
+  // draft/trial/pre-KYB tenants and KYB-lapsed live tenants, with the same
+  // honest buyer-facing message (24h cooldown per chat). ===
+  try {
+    const { checkOrderIntakeAllowed } = await import("./onboardingLifecycle");
+    const [tenantRow] = await db
+      .select({ id: tenants.id, status: tenants.status, settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, cfg.tenantId))
+      .limit(1)
+      .catch(() => [] as any[]);
+    if (tenantRow) {
+      const intake = await checkOrderIntakeAllowed(db, tenantRow);
+      if (!intake.allowed) {
+        console.warn(`[telegram-inbound] intake blocked (tenant=${cfg.tenantId}, reason=${intake.reason}) for chat ${ev.chatId}`);
+        const cooldownKey = `${cfg.tenantId}:${ev.chatId}`;
+        const last = telegramIntakeBlockedCooldown.get(cooldownKey) ?? 0;
+        if (Date.now() - last > 24 * 3600 * 1000 && intake.buyerMessage) {
+          telegramIntakeBlockedCooldown.set(cooldownKey, Date.now());
+          await sendTelegramTextReply(cfg.tenantId, ev.chatId, intake.buyerMessage)
+            .catch((e: any) => console.warn("[telegram-inbound] store-not-open reply failed:", e?.message));
+        }
+        return;
+      }
+    }
+  } catch (e: any) {
+    console.error("[telegram-inbound] intake gate error — processing anyway:", e?.message);
+  }
+  // === END W47 merchant ===
   const sessionKey = sessionKeyFor(CHANNEL_TELEGRAM, ev.chatId);
   const { appRouter } = await import("../routers");
   const caller = appRouter.createCaller({ user: null } as any);
@@ -343,16 +441,23 @@ async function consentGate(
   if (existing) return false; // decided already — conversation proceeds
   const decision = parseConsentReply(text);
   if (decision === true) {
-    await recordChannelOptIn(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
-    await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_OPT_IN_REPLY);
+    // W47 (B ONB-B-9 rate-limit guard + D ONB-I18N-1 localized reply).
+    await safeChannelOptIn(db, cfg, sessionKey, ev.chatId,
+      await tgConsentText(cfg.tenantId, sessionKey, text, "granted"));
     return true;
   }
   if (decision === false) {
-    await recordChannelRevocation(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
-    await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_STOP_REPLY);
+    // === W47 buyer (ONB-B-4): first-contact NO is NOT a revocation — record
+    // a granted=false row WITHOUT withdrawnAt (mirror the WA J1 contract:
+    // limited service, can still chat). STOP semantics stay with
+    // recordChannelRevocation. ===
+    const { recordChannelDenial } = await import("./consent");
+    await recordChannelDenial(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
+    await sendTelegramTextReply(cfg.tenantId, ev.chatId, await tgConsentText(cfg.tenantId, sessionKey, text, "denied"));
     return true;
   }
-  await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_CONSENT_PROMPT);
+  // W47 (ONB-I18N-1): localized prompt.
+  await sendTelegramTextReply(cfg.tenantId, ev.chatId, await tgConsentText(cfg.tenantId, sessionKey, text, "prompt"));
   return true;
 }
 
@@ -434,10 +539,10 @@ export async function processTelegramUpdate(
     switch (ev.kind) {
       case "command": {
         if (ev.command === "start") {
-          await recordChannelOptIn(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
-          await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_OPT_IN_REPLY);
+          await safeChannelOptIn(db, cfg, sessionKey, ev.chatId);
         } else {
           await recordChannelRevocation(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
+          await propagateRevocationToLinkedChannels(db, cfg, sessionKey); // W47 ONB-B-6
           await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_STOP_REPLY);
         }
         return;
@@ -564,6 +669,7 @@ export async function processTelegramUpdate(
         if (isOptOutKeyword(ev.text)) {
           const existing = await getChannelConsent(db, cfg.tenantId, sessionKey, CONSENT_CHANNEL_TELEGRAM);
           await recordChannelRevocation(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
+          await propagateRevocationToLinkedChannels(db, cfg, sessionKey); // W47 ONB-B-6
           if (!wasRevoked(existing)) {
             await auditConsentWithdrawal({ tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
           }
@@ -576,11 +682,22 @@ export async function processTelegramUpdate(
         const tgConsent = await getChannelConsent(db, cfg.tenantId, sessionKey, CONSENT_CHANNEL_TELEGRAM);
         if (wasRevoked(tgConsent)) {
           if (parseConsentReply(ev.text) === true) {
-            await recordChannelOptIn(db, { tenantId: cfg.tenantId, sessionKey, channel: CONSENT_CHANNEL_TELEGRAM });
-            await sendTelegramTextReply(cfg.tenantId, ev.chatId, TG_OPT_IN_REPLY);
+            await safeChannelOptIn(db, cfg, sessionKey, ev.chatId); // W47 ONB-B-9
           }
           return; // bot silent — no NLP dispatch, no reply
         }
+        // === W47 buyer (ONB-B-8): chat self-service erasure (WA parity) ===
+        {
+          const { handleChatErasureCommand } = await import("./useCases");
+          const outcome = await handleChatErasureCommand({
+            db, tenantId: cfg.tenantId, phone: sessionKey, text: ev.text,
+          });
+          if (outcome?.handled) {
+            if (outcome.reply) await sendTelegramTextReply(cfg.tenantId, ev.chatId, outcome.reply);
+            return;
+          }
+        }
+        // === END W47 buyer ===
         if (await consentGate(db, cfg, ev, ev.text)) return;
         // === W46 platform-p2 (MSG-23) === channel parity with WhatsApp:
         // low-confidence locale detection → language picker (never silent

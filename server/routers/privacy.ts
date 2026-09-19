@@ -224,6 +224,31 @@ export const privacyRouter = router({
         }).where(inArray(customers.id, profileIds));
       }
 
+      // === W47 buyer (ONB-B-8): extend erasure to ALL phone-keyed buyer
+      // tables — consents (a grant must not survive erasure), NLP session
+      // history, carts, channel/customer messages, offline queue, webhook
+      // payloads, mirrored media, age attestations — across BOTH channels
+      // (linked Telegram identities included). Orders/escrows stay retained
+      // (documented AML carve-out) with direct identifiers tombstoned above.
+      let buyerChatErasure: unknown = null;
+      if (user.phone) {
+        const { erasePhoneKeyedBuyerData } = await import("../services/buyerErasure");
+        const perTenant: unknown[] = [];
+        // Erase per tenant where a customer profile exists (phone-keyed rows
+        // are tenant-scoped).
+        const profileTenants = await db
+          .select({ tenantId: customers.tenantId })
+          .from(customers)
+          .where(inArray(customers.id, profileIds.length ? profileIds : ["__none__"]))
+          .catch(() => [] as any[]);
+        const tenantIds = Array.from(new Set((profileTenants as any[]).map((r) => r.tenantId).filter(Boolean)));
+        for (const tid of tenantIds) {
+          perTenant.push(await erasePhoneKeyedBuyerData(db, tid, user.phone));
+        }
+        buyerChatErasure = perTenant;
+      }
+      // === END W47 buyer ===
+
       // W40 TEN-5: erase KYC artifacts for the caller's tenant — DB-resident
       // document PII (OCR text, extracted data, liveness analysis, applicant
       // PII) is scrubbed immediately; S3 scans are deleted now where possible
@@ -249,7 +274,7 @@ export const privacyRouter = router({
           (kycErasure
             ? `; KYC: ${kycErasure.documentsScrubbed} document(s) scrubbed, ${kycErasure.s3Deleted} S3 scan(s) deleted, ${kycErasure.s3Scheduled} scheduled for retry`
             : ""),
-        after: { erasureRequestId: req.id, kycErasure },
+        after: { erasureRequestId: req.id, kycErasure, buyerChatErasure },
       });
 
       return {
@@ -259,6 +284,8 @@ export const privacyRouter = router({
         // W40 TEN-5: honest report — s3Scheduled > 0 means some document
         // scans await deletion by the scheduled sweep (see kycPrivacy.ts).
         kycErasure,
+        // W47 buyer (ONB-B-8): per-tenant phone-keyed erasure counts.
+        buyerChatErasure,
       };
     }),
 

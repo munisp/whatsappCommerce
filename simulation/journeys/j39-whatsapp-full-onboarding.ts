@@ -157,6 +157,11 @@ export const journey: Journey = {
       );
 
       // ── 8. Approve go-live → live + congrats with portal URL ──────────────
+      // === W47 merchant === ONB-M-2: go-live is now KYB-gated (J428) —
+      // approve KYB before the merchant approves the go-live card.
+      const { approveKyb } = await import("./helpers");
+      await approveKyb(world, s4.tenantId!);
+      // === END W47 merchant ===
       await world.onboardingButtonReply(phone, `onb_approve:${goLive!.id}`, "Approve");
       const s5 = await onboardingSessionById(s4.id);
       assert(s5?.state === "live", `session live after go-live approval (got ${s5?.state})`);

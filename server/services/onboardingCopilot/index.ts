@@ -20,7 +20,7 @@ import {
   listSessionRows,
   loadSession,
   saveSession,
-  supersedeActiveSessionsForPhone,
+  startSessionCas,
   type CopilotChannel,
   type CopilotReply,
   type OnboardingSession,
@@ -63,6 +63,12 @@ export {
 export { repairQuestionFor, runRepairRound } from "./repair";
 export { executeCopilotTool, COPILOT_TOOL_NAMES } from "./tools";
 export { runAgentTurn } from "./agent";
+// === W47 crosscutting (ONB-SM-1 / ONB-M-4): chat-copilot tenants get a real
+// owner identity + governed first-login invite. Coder A's merchant go-live
+// path may call this same seam. ===
+export { bootstrapTenantOwner } from "./bootstrapTenantOwner";
+export type { BootstrapTenantOwnerResult } from "./bootstrapTenantOwner";
+// === END W47 crosscutting ===
 
 // ─── Edited-payload validation (never persist invalid) ──────────────────────
 
@@ -110,8 +116,17 @@ export async function startSession(args: {
   // C3 contract ("restart" = startSession again for the same phone): supersede
   // any prior ACTIVE whatsapp session for this phone so
   // findActiveSessionByPhone only ever returns the fresh one.
+  // === W47 crosscutting (ONB-ID-2): supersede + create are a single CAS
+  // transaction (advisory lock + partial unique index backstop) — concurrent
+  // first contact yields exactly one active session per phone. ===
+  let session: OnboardingSession;
   if (args.channel === "whatsapp" && args.phone) {
-    const superseded = await supersedeActiveSessionsForPhone(args.phone);
+    const { session: created, superseded } = await startSessionCas({
+      channel: args.channel,
+      tenantId: args.tenantId ?? null,
+      phone: args.phone,
+    });
+    session = created;
     for (const id of superseded) {
       await writeAuditLog({
         actorId: `copilot:${id}`,
@@ -122,12 +137,13 @@ export async function startSession(args: {
         summary: `session superseded by a new session for phone ${args.phone}`,
       });
     }
+  } else {
+    session = await createSessionRow({
+      channel: args.channel,
+      tenantId: args.tenantId ?? null,
+      phone: args.phone ?? null,
+    });
   }
-  const session = await createSessionRow({
-    channel: args.channel,
-    tenantId: args.tenantId ?? null,
-    phone: args.phone ?? null,
-  });
   if (isCopilotLanguage(args.language)) {
     session.intake.language = args.language;
   }

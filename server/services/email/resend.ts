@@ -73,6 +73,36 @@ export async function sendOtpEmail(
   });
 }
 
+/**
+ * === W47 crosscutting (ONB-TOK-3) ===
+ * Notification-only companion to sendOtpEmail: tells the account owner an OTP
+ * was requested on WhatsApp WITHOUT including the code. The login OTP must
+ * stay single-channel (WhatsApp) — emailing the same code made email
+ * compromise alone sufficient for login.
+ */
+export async function notifyOtpRequestedEmail(
+  to: string,
+  purpose: "login" | "verify" = "login",
+): Promise<boolean> {
+  const action = purpose === "verify" ? "verify your phone number" : "sign in";
+  return sendEmail({
+    to,
+    subject: "A sign-in code was sent to your WhatsApp",
+    text:
+      `A one-time code was just sent to your phone on WhatsApp to ${action}. ` +
+      `The code is ONLY on WhatsApp — we never email codes. If this wasn't you, ` +
+      `secure your account immediately and contact support.`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2>Sign-in code sent via WhatsApp</h2>
+        <p>A one-time code was just sent to your phone on WhatsApp to ${action}.</p>
+        <p><strong>The code is only on WhatsApp — we never email codes.</strong></p>
+        <p style="color: #888; font-size: 12px;">If this wasn't you, secure your account immediately and contact support.</p>
+      </div>
+    `,
+  });
+}
+
 /** Sent once, the first time a new user completes registration/first login. */
 export async function sendWelcomeEmail(to: string, name: string | null): Promise<boolean> {
   const greeting = name ? `Hi ${name},` : "Hi,";

@@ -9,11 +9,12 @@ vi.mock("../../db", () => ({ getDb: vi.fn() }));
 
 import { getDb } from "../../db";
 import { tenantInviteRouter } from "../tenantInvite";
+import { tenantInviteTokens } from "../../../drizzle/schema";
 
 const T1 = "11111111-1111-4111-8111-111111111111";
 const T2 = "22222222-2222-4222-8222-222222222222";
 
-const tenantRow = { id: T1, name: "Tenant One", whatsappPhoneNumberId: "pn-1" };
+const tenantRow = { id: T1, name: "Tenant One", whatsappPhoneNumberId: "pn-1", settings: { adminPhone: "+2348000000001" } };
 
 function makeDb(rows: any[] = [tenantRow]) {
   const p = Promise.resolve(rows);
@@ -98,14 +99,20 @@ describe("tenantInvite.resend mints a live, single-use ≤24h token (hotfix2)", 
           where: vi.fn(() => ({ limit: vi.fn(() => tenantP), then: (r: any, j: any) => tenantP.then(r, j) })),
         })),
       })),
-      insert: vi.fn(() => ({
-        values: vi.fn(async (v: any) => { tokens.push({ ...v, consumedAt: null }); }),
+      // W47 (ONB-SM-2): resend also writes an audit_logs row — only the
+      // tenant_invite_tokens insert feeds the single-use registry.
+      insert: vi.fn((table: any) => ({
+        values: vi.fn(async (v: any) => {
+          if (table === tenantInviteTokens) tokens.push({ ...v, consumedAt: null });
+        }),
       })),
       update: vi.fn(() => ({
         set: (vals: any) => ({
           where: () => ({
             returning: async () => {
-              const t = tokens.find((x) => !x.consumedAt);
+              // W47: resend writes an audit row through the same mocked db —
+              // only registry rows (with a jti + expiresAt) are consumable.
+              const t = tokens.find((x) => x.jti && x.expiresAt && !x.consumedAt);
               if (!t) return [];
               t.consumedAt = vals.consumedAt ?? new Date();
               return [{ jti: t.jti }];
@@ -133,12 +140,17 @@ describe("tenantInvite.resend mints a live, single-use ≤24h token (hotfix2)", 
     expect(reg.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(24 * 3600 * 1000);
     expect(payload.exp - payload.iat).toBeLessThanOrEqual(24 * 3600);
 
-    // validate() accepts it (the old dead-token bug) …
+    // validate() accepts it (the old dead-token bug) — W47: the invite is
+    // phone-bound, so a phone_identity proof for the bound admin phone
+    // rides along …
+    const jwt = (await import("jsonwebtoken")).default;
+    const { ENV } = await import("../../_core/env");
+    const proof = jwt.sign({ type: "phone_identity", phone: "+2348000000001" }, ENV.jwtSecret, { expiresIn: "15m" });
     const portal = tenantInviteRouter.createCaller({ user: null } as any);
-    const first = await portal.validate({ token });
+    const first = await portal.validate({ token, identityProof: proof });
     expect(first.valid, `first validate must succeed (got ${(first as any).error})`).toBe(true);
     // … and exactly once (single-use consume).
-    const second = await portal.validate({ token });
+    const second = await portal.validate({ token, identityProof: proof });
     expect(second.valid).toBe(false);
   });
 });

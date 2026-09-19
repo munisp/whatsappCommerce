@@ -95,7 +95,28 @@ export const procurementRouter = router({
       if (resultingStatus === "active") {
         await requireApprovedKyb(input.tenantId, db);
       }
-      return upsertSupplierProfile(db, input);
+      const result = await upsertSupplierProfile(db, input);
+      // === W47 stakeholders === ONB-S-9: the supplier is NOTIFIED when
+      // their profile goes active (best-effort, both channels via the
+      // tenant admin phone on file).
+      if (resultingStatus === "active" && existing?.status !== "active") {
+        try {
+          const { tenants } = await import("../../drizzle/schema");
+          const { eq: eqOp } = await import("drizzle-orm");
+          const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eqOp(tenants.id, input.tenantId)).limit(1);
+          const adminPhone = (t?.settings as any)?.adminPhone;
+          if (typeof adminPhone === "string" && adminPhone) {
+            const { sendCustomerText } = await import("../services/channelParity");
+            await sendCustomerText(input.tenantId, adminPhone, "staff_membership",
+              "Your supplier profile is now ACTIVE on WhatsApp Commerce — buyers can now send you purchase orders.",
+              { notifType: "supplier_profile_active" });
+          }
+        } catch (e: any) {
+          console.warn("[procurement] supplier activation notify failed:", e?.message);
+        }
+      }
+      // === END W47 stakeholders ===
+      return result;
     }),
 
   // ── Directory + wholesale catalog (read-only, any tenant) ────────────────
@@ -174,6 +195,16 @@ export const procurementRouter = router({
             ),
           });
         }
+        // === W47 buyer (ONB-B-7): distinct, actionable KYB-block error ===
+        if (result.reason === "buyer_kyb_required") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Business verification (KYB) is required before placing supplier orders. " +
+              "Complete it under Settings → Verification in the merchant portal, then resubmit — your draft is unchanged.",
+          });
+        }
+        // === END W47 buyer ===
         const msg = result.reason === "below_moq"
           ? `Subtotal below supplier MOQ of ${result.moqCents} cents`
           : result.reason === "empty"

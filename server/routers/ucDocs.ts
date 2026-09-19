@@ -11,7 +11,7 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { analystProcedure, moneyProcedure, router } from "../_core/trpc";
+import { analystProcedure, moneyProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { agentCommissions, agentCommissionStatements, agents, customerStatements, proformaInvoices, tenants } from "../../drizzle/schema";
 
@@ -170,13 +170,52 @@ export const ucDocsRouter = router({
       commissionBps: z.number().int().min(0).max(10000),
       status: z.enum(["active", "suspended"]).optional(),
       metadata: z.record(z.string(), z.unknown()).nullish(),
+      // === W47 stakeholders === ONB-S-11: payout-phone reroute step-up.
+      stepUpChallengeId: z.string().uuid().optional(),
+      stepUpOtp: z.string().length(6).optional(),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
       await assertActive(db, input.tenantId);
       try {
+        // === W47 stakeholders === ONB-S-11: agent mint/update + payout are
+        // OWNER-only (operators/finance managed them in W46 — that allowed
+        // in-role self-dealing). Platform admins bypass.
+        if (ctx.user.role !== "admin" && (ctx as any).membership?.role !== "owner") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Agent management requires the tenant owner role" });
+        }
+        // Payout-reroute guard: changing the phone of an agent that already
+        // has paid commissions requires a payout_change step-up OTP.
+        const { findAgentByCode, phonesMatch } = await import("../services/agents");
+        const existing = await findAgentByCode(db, input.tenantId, input.code);
+        let phoneChangeAuthorized = false;
+        if (existing && !phonesMatch(existing.phone, input.phone)) {
+          const [paid] = await db.select({ id: agentCommissions.id }).from(agentCommissions)
+            .where(and(eq(agentCommissions.agentId, existing.id), eq(agentCommissions.status, "paid"))).limit(1);
+          if (paid) {
+            const { requireStepUp } = await import("../services/stepUp");
+            await requireStepUp(db, {
+              required: true,
+              tenantId: input.tenantId,
+              userId: ctx.user.id,
+              purpose: "payout_change",
+              stepUpChallengeId: input.stepUpChallengeId,
+              stepUpOtp: input.stepUpOtp,
+            });
+            phoneChangeAuthorized = true;
+            const { writeAuditLog } = await import("./audit");
+            await writeAuditLog({
+              actorId: String(ctx.user.id), actorRole: ctx.user.role,
+              action: "agent.payoutPhoneChanged", entityType: "agent", entityId: existing.id,
+              tenantId: input.tenantId,
+              summary: `Agent ${existing.code} payout phone changed after paid commissions (step-up verified)`,
+              before: { phone: existing.phone }, after: { phone: input.phone },
+            });
+          }
+        }
+        // === END W47 stakeholders ===
         const { upsertAgent } = await import("../services/agents");
-        return await upsertAgent(db, input);
+        return await upsertAgent(db, { ...input, phoneChangeAuthorized });
       } catch (e) { rethrow(e); }
     }),
 
@@ -241,14 +280,58 @@ export const ucDocsRouter = router({
 
   payCommissionStatement: moneyProcedure
     .input(z.object({ tenantId: z.string(), statementId: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
       await assertActive(db, input.tenantId);
       try {
+        // === W47 stakeholders === ONB-S-11: commission payout is OWNER-only.
+        if (ctx.user.role !== "admin" && (ctx as any).membership?.role !== "owner") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Agent commission payout requires the tenant owner role" });
+        }
+        // === END W47 stakeholders ===
         const { payCommissionStatement } = await import("../services/agents");
         return await payCommissionStatement(db, input);
       } catch (e) { rethrow(e); }
     }),
+
+  // === W47 stakeholders === ONB-S-12: agent-facing acknowledgment surface.
+  /**
+   * An agent queries their OWN commission statements with a phone_identity
+   * proof (phoneAuth OTP) for their registered phone — agents no longer
+   * need merchant staff to confirm what they're owed.
+   */
+  agentMyStatements: publicProcedure
+    .input(z.object({ tenantId: z.string(), identityProof: z.string().min(10) }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const jwt = (await import("jsonwebtoken")).default;
+      const { ENV } = await import("../_core/env");
+      let proof: any;
+      try {
+        proof = jwt.verify(input.identityProof, ENV.jwtSecret);
+      } catch {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Identity proof is invalid or expired — re-verify your phone." });
+      }
+      if (proof?.type !== "phone_identity" || typeof proof.phone !== "string") {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Identity proof is not a phone-identity assertion." });
+      }
+      const digits = (p: string) => p.replace(/\D/g, "");
+      const agentRows = await db.select().from(agents).where(eq(agents.tenantId, input.tenantId));
+      const mine = agentRows.filter((a) => digits(a.phone) === digits(proof.phone));
+      if (!mine.length) return { agent: null, statements: [] };
+      const mineIds = mine.map((a) => a.id);
+      const rows = await db.select().from(agentCommissionStatements)
+        .where(and(eq(agentCommissionStatements.tenantId, input.tenantId)))
+        .orderBy(desc(agentCommissionStatements.createdAt)).limit(100);
+      return {
+        agent: { name: mine[0].name, code: mine[0].code, status: mine[0].status },
+        statements: rows.filter((r) => mineIds.includes(r.agentId)).map((r) => ({
+          id: r.id, status: r.status, currency: r.currency, totalCents: r.totalCents,
+          commissionCount: r.commissionCount, periodStart: r.periodStart, periodEnd: r.periodEnd, paidAt: r.paidAt,
+        })),
+      };
+    }),
+  // === END W47 stakeholders ===
 
   listCommissionStatements: analystProcedure
     .input(z.object({ tenantId: z.string(), agentId: z.string().optional(), limit: z.number().int().min(1).max(200).default(50) }))

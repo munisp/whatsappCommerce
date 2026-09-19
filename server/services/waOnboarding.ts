@@ -32,6 +32,14 @@ import {
 } from "./waSender";
 import { isTranscriptionConfigured, transcribeAudio } from "./transcribe";
 import { redactString } from "./logRedact"; // W46 platform-p2 (PLT-25)
+// === W47 crosscutting ===
+// ONB-I18N-1: intake-channel system messages come from the copilot locale
+// packs (en/fr/ha/yo/ig/pcm) — never hardcoded English. language.ts is a
+// PURE module (no DB/LLM imports), safe to import statically even in tests.
+// ONB-ABU-1: per-phone intake throttles (unauthenticated flood caps).
+import { sessionLanguage, t as copilotT, detectMessageLanguage } from "./onboardingCopilot/language";
+import { bumpIntakeCounter, INTAKE_LIMITS } from "./intakeThrottle";
+// === END W47 crosscutting ===
 
 // ── w9 C1 copilot contract (structural) ─────────────────────────────────────
 // These interfaces mirror the API exported by
@@ -55,6 +63,9 @@ export interface OnboardingSession {
   state: OnboardingSessionState | string;
   phone?: string | null;
   tenantId?: string | null;
+  // === W47 crosscutting (ONB-I18N-1): thread language for localized
+  // system messages (the real session carries intake.language). ===
+  intake?: { language?: string } | Record<string, unknown>;
 }
 
 export interface CopilotReplyAction {
@@ -317,6 +328,7 @@ export type InboundOutcomeKind =
   | "voice_unavailable"
   | "unsupported"
   | "malformed_action"
+  | "throttled" // === W47 crosscutting (ONB-ABU-1) ===
   | "error";
 
 export interface InboundOutcome {
@@ -327,20 +339,25 @@ export interface InboundOutcome {
 /** "restart" / "start over" abandons the current session at any point. */
 export const RESTART_PATTERN = /^\s*(restart|start over)\s*$/i;
 
-const FAILSAFE_MESSAGE =
-  "Something went wrong on my end — sorry about that. Type *restart* to try again. 🙏";
-
-const EDIT_PROMPT_MESSAGE =
-  "Sure — reply with your changes in one message and I'll rework the proposal.";
-
-const MALFORMED_ACTION_MESSAGE =
-  "Sorry, that button didn't work (it may have expired). Tell me what you'd like to do, or type *restart* to begin again.";
-
-const VOICE_UNAVAILABLE_MESSAGE =
-  "I couldn't process that voice note — could you type it out instead? ✍️";
-
-const UNSUPPORTED_MESSAGE =
-  "I can only read text and voice notes for now — tell me about your business in words. 🙂";
+// === W47 crosscutting (ONB-I18N-1) ===
+// The five English constants below were replaced by locale-pack lookups.
+// Resolve the thread language from the active session; for first contact
+// (no session) fall back to heuristic detection of the inbound text.
+function intakeLang(session: OnboardingSession | null | undefined, text?: string | null): string {
+  if (session) {
+    try {
+      return sessionLanguage({ intake: (session.intake ?? {}) as any });
+    } catch {
+      return "en";
+    }
+  }
+  if (text && text.trim()) {
+    const det = detectMessageLanguage(text);
+    if (det?.language && det.confidence === "high") return det.language;
+  }
+  return "en";
+}
+// === END W47 crosscutting ===
 
 /**
  * Proposals awaiting a free-text edit, keyed by normalized sender phone.
@@ -354,22 +371,19 @@ function appUrl(): string {
   return (process.env.APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
 }
 
-/** Terminal-state follow-up message, or null for non-terminal states. */
-export function terminalStateMessage(state: string | null | undefined): string | null {
+/**
+ * Terminal-state follow-up message, or null for non-terminal states.
+ * === W47 crosscutting (ONB-I18N-1 + ONB-SM-1) === localized via the copilot
+ * packs; the "live" copy no longer sends the merchant to a bare portal they
+ * cannot log into — it references the phone-bound secure login link that
+ * bootstrapTenantOwner() auto-minted and the copilot delivers. ===
+ */
+export function terminalStateMessage(state: string | null | undefined, lang?: string): string | null {
   if (state === "live") {
-    return (
-      `🎉 Congratulations — your store is live!\n\n` +
-      `Next steps:\n` +
-      `1. Connect your own WhatsApp number via embedded signup: ${appUrl()}/settings/whatsapp\n` +
-      `2. Manage everything from your admin portal: ${appUrl()}\n\n` +
-      `Welcome aboard! 🚀`
-    );
+    return copilotT(lang ?? "en", "terminalLive", { appUrl: appUrl() });
   }
   if (state === "failed") {
-    return (
-      `I'm sorry — the setup hit a problem and couldn't complete. The details above explain what went wrong.\n\n` +
-      `Type *restart* and we'll try again together. 🙏`
-    );
+    return copilotT(lang ?? "en", "terminalFailed");
   }
   return null;
 }
@@ -390,15 +404,31 @@ async function deliverCopilotReplies(toPhone: string, replies: CopilotReply[] | 
 }
 
 /** After a decision/message, surface the terminal-state follow-up if any. */
-async function deliverTerminalFollowUp(toPhone: string, state: string | null | undefined): Promise<void> {
-  const msg = terminalStateMessage(state);
+async function deliverTerminalFollowUp(
+  toPhone: string,
+  state: string | null | undefined,
+  lang?: string,
+): Promise<void> {
+  const msg = terminalStateMessage(state, lang);
   if (msg) await sendOnboardingText(toPhone, msg);
 }
 
 /** Start a fresh onboarding session and send the greeting. */
-async function startFreshSession(toPhone: string, copilot: OnboardingCopilotApi): Promise<void> {
+/** Start a fresh onboarding session and send the greeting. Returns false when throttled. */
+async function startFreshSession(toPhone: string, copilot: OnboardingCopilotApi): Promise<boolean> {
+  // === W47 crosscutting (ONB-ABU-1): cap NEW sessions per phone per day —
+  // otherwise an unauthenticated flood mints sessions (and LLM turns, and
+  // eventually tenants) without bound. ===
+  if (!(await bumpIntakeCounter("session", toPhone))) {
+    console.warn(`[waOnboarding] new-session throttle tripped for *${toPhone.slice(-4)} (${INTAKE_LIMITS.sessionsPerDay}/day)`);
+    const existing = await copilot.findActiveSessionByPhone(toPhone).catch(() => null);
+    await sendOnboardingText(toPhone, copilotT(intakeLang(existing), "throttled"));
+    return false;
+  }
+  // === END W47 crosscutting ===
   const { greeting } = await copilot.startSession({ channel: "whatsapp", phone: toPhone });
   if (greeting?.trim()) await sendOnboardingText(toPhone, greeting);
+  return true;
 }
 
 async function processInbound(message: any, senderPhone: string): Promise<InboundOutcome> {
@@ -409,24 +439,35 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
     return { handled: false, outcome: "error" };
   }
 
+  // === W47 crosscutting (ONB-ABU-1): per-phone message cap BEFORE any
+  // copilot/LLM work — the intake number is unauthenticated, so every turn
+  // is pure cost for an attacker. ===
+  if (!(await bumpIntakeCounter("msg", phone))) {
+    console.warn(`[waOnboarding] message throttle tripped for *${phone.slice(-4)} (${INTAKE_LIMITS.msgsPerHour}/h)`);
+    const s = await copilot.findActiveSessionByPhone(phone).catch(() => null);
+    await sendOnboardingText(phone, copilotT(intakeLang(s), "throttled"));
+    return { handled: true, outcome: "throttled" };
+  }
+  // === END W47 crosscutting ===
+
   // ── Interactive button/list replies (proposal decisions) ──────────────────
   if (message?.type === "interactive") {
     const reply = message.interactive?.button_reply ?? message.interactive?.list_reply ?? null;
     const parsed = parseOnboardingActionId(reply?.id ?? reply?.title);
+    const session = await copilot.findActiveSessionByPhone(phone);
     if (!parsed) {
       console.warn(`[waOnboarding] unrecognized interactive reply id: ${reply?.id ?? "(none)"}`);
-      await sendOnboardingText(phone, MALFORMED_ACTION_MESSAGE);
+      await sendOnboardingText(phone, copilotT(intakeLang(session), "malformedAction"));
       return { handled: true, outcome: "malformed_action" };
     }
-    const session = await copilot.findActiveSessionByPhone(phone);
     if (!session) {
       // Stale button from an abandoned/expired session — begin fresh.
-      await startFreshSession(phone, copilot);
-      return { handled: true, outcome: "greeting" };
+      const started = await startFreshSession(phone, copilot);
+      return { handled: true, outcome: started ? "greeting" : "throttled" };
     }
     if (parsed.kind === "edit") {
       pendingEditProposals.set(phone, parsed.proposalId);
-      await sendOnboardingText(phone, EDIT_PROMPT_MESSAGE);
+      await sendOnboardingText(phone, copilotT(intakeLang(session), "editPrompt"));
       return { handled: true, outcome: "edit_prompt" };
     }
     const decision = await copilot.decideProposal({
@@ -436,7 +477,7 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
     });
     await deliverCopilotReplies(phone, decision.replies);
     const after = await copilot.getSession(session.id).catch(() => null);
-    await deliverTerminalFollowUp(phone, after?.state);
+    await deliverTerminalFollowUp(phone, after?.state, intakeLang(after ?? session));
     return { handled: true, outcome: "approve" };
   }
 
@@ -447,7 +488,8 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
   } else if (message?.type === "audio" && message.audio?.id) {
     const transcript = await transcribeOnboardingVoiceNote(message.audio.id, message.audio?.mime_type);
     if (!transcript) {
-      await sendOnboardingText(phone, VOICE_UNAVAILABLE_MESSAGE);
+      const s = await copilot.findActiveSessionByPhone(phone).catch(() => null);
+      await sendOnboardingText(phone, copilotT(intakeLang(s), "voiceUnavailable"));
       return { handled: true, outcome: "voice_unavailable" };
     }
     text = transcript;
@@ -455,7 +497,8 @@ async function processInbound(message: any, senderPhone: string): Promise<Inboun
     const outcome = await processText(phone, text, copilot);
     return { handled: outcome.handled, outcome: outcome.outcome === "message" ? "voice_note" : outcome.outcome };
   } else {
-    await sendOnboardingText(phone, UNSUPPORTED_MESSAGE);
+    const s = await copilot.findActiveSessionByPhone(phone).catch(() => null);
+    await sendOnboardingText(phone, copilotT(intakeLang(s), "unsupported"));
     return { handled: true, outcome: "unsupported" };
   }
   return processText(phone, text ?? "", copilot);
@@ -470,9 +513,9 @@ async function processText(
   if (RESTART_PATTERN.test(text)) {
     // The C1 contract exposes no explicit abandon(); starting a fresh session
     // for the same phone supersedes (abandons) the prior active session.
-    await startFreshSession(phone, copilot);
+    const started = await startFreshSession(phone, copilot);
     pendingEditProposals.delete(phone);
-    return { handled: true, outcome: "restart" };
+    return { handled: true, outcome: started ? "restart" : "throttled" };
   }
 
   const session = await copilot.findActiveSessionByPhone(phone);
@@ -497,7 +540,7 @@ async function processText(
     if (reject) await deliverCopilotReplies(phone, reject.replies);
     const { replies, state } = await copilot.postMessage({ sessionId: session.id, text });
     await deliverCopilotReplies(phone, replies);
-    await deliverTerminalFollowUp(phone, state);
+    await deliverTerminalFollowUp(phone, state, intakeLang(session));
     return { handled: true, outcome: "edit_applied" };
   }
   // Stale pending edit with no live session — drop it and start over.
@@ -505,14 +548,14 @@ async function processText(
 
   // ── Unknown sender → new session + greeting ──────────────────────────────
   if (!session) {
-    await startFreshSession(phone, copilot);
-    return { handled: true, outcome: "greeting" };
+    const started = await startFreshSession(phone, copilot);
+    return { handled: true, outcome: started ? "greeting" : "throttled" };
   }
 
   // ── Resume mid-session ────────────────────────────────────────────────────
   const { replies, state } = await copilot.postMessage({ sessionId: session.id, text });
   await deliverCopilotReplies(phone, replies);
-  await deliverTerminalFollowUp(phone, state);
+  await deliverTerminalFollowUp(phone, state, intakeLang(session));
   return { handled: true, outcome: "message" };
 }
 
@@ -525,9 +568,12 @@ export async function handleInbound(message: any, senderPhone: string): Promise<
     return await processInbound(message, senderPhone);
   } catch (e: any) {
     console.error("[waOnboarding] inbound processing failed:", e?.message ?? e);
-    await sendOnboardingText(normalizeWaPhone(senderPhone ?? "") || senderPhone, FAILSAFE_MESSAGE).catch(
-      () => undefined,
-    );
+    // W47: failsafe text is localized from the inbound text heuristic.
+    const text = typeof message?.text?.body === "string" ? message.text.body : null;
+    await sendOnboardingText(
+      normalizeWaPhone(senderPhone ?? "") || senderPhone,
+      copilotT(intakeLang(null, text), "failsafe"),
+    ).catch(() => undefined);
     return { handled: true, outcome: "error" };
   }
 }

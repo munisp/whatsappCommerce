@@ -27,6 +27,10 @@
  */
 
 const SENSITIVE_KEY_RE = /^(phone|phones|toPhone|fromPhone|waPhone|waId|from|to|msisdn|email|body|text|message|caption|content)$/i;
+// === W47 crosscutting (ONB-TOK-2): credentials (invite tokens, OTPs, JWTs,
+// secrets) are FULLY masked — an invite JWT in a log line is a bearer
+// credential leak; partial masking is not enough for secrets. ===
+const CREDENTIAL_KEY_RE = /^(token|accessToken|refreshToken|inviteToken|otp|otpHash|code|jwt|secret|authorization|password|apiKey|apiSecret)$/i;
 const PHONE_RE = /\+?\d[\d\s().-]{5,}\d/g;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const MAX_DEPTH = 4;
@@ -57,6 +61,9 @@ export function redactString(input: string): string {
 export function redact<T = unknown>(value: T, keyHint?: string, depth = 0, seen?: WeakSet<object>): T {
   try {
     if (value == null) return value;
+    if (keyHint && CREDENTIAL_KEY_RE.test(keyHint)) {
+      return "[redacted]" as unknown as T; // W47 ONB-TOK-2: full mask for credentials
+    }
     if (keyHint && SENSITIVE_KEY_RE.test(keyHint)) {
       return (typeof value === "string" ? redactString(value) : "[redacted]") as unknown as T;
     }

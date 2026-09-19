@@ -1093,6 +1093,62 @@
       "when": 1788000720000,
       "tag": "0162_w46_merge_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1788100000000,
+      "tag": "0163_w47_merchant_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1788100060000,
+      "tag": "0164_w47_merchant_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1788000960000,
+      "tag": "0165_w47_buyer_identity_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1788001020000,
+      "tag": "0166_w47_nlp_sessions_uniq",
+      "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1788001000000,
+      "tag": "0167_w47_stakeholders",
+      "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1788001060000,
+      "tag": "0168_w47_vendor_vetting",
+      "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1788001200000,
+      "tag": "0169_w47_crosscutting_cas",
+      "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1788001260000,
+      "tag": "0170_w47_age_attestation_proof",
+      "breakpoints": true
     }
   ]
 }

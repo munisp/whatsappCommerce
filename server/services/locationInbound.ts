@@ -110,16 +110,31 @@ export async function saveDefaultAddress(
     await db.update(nlpSessions).set({ context: ctx, lastActivityAt: new Date() })
       .where(eq(nlpSessions.id, latest.id));
   } else {
-    await db.insert(nlpSessions).values({
-      tenantId,
-      waPhoneNumber,
-      customerName: customerName ?? null,
-      state: "greeting",
-      context: { deliveryAddress: addressText, deliveryCoords: coords },
-      messageHistory: [],
-      lastActivityAt: new Date(),
-      createdAt: new Date(),
-    });
+    // === W47 crosscutting (ONB-ID-2): mig 0169 unique (tenantId,
+    // waPhoneNumber) — a concurrent insert conflicts; re-select + update. ===
+    try {
+      await db.insert(nlpSessions).values({
+        tenantId,
+        waPhoneNumber,
+        customerName: customerName ?? null,
+        state: "greeting",
+        context: { deliveryAddress: addressText, deliveryCoords: coords },
+        messageHistory: [],
+        lastActivityAt: new Date(),
+        createdAt: new Date(),
+      });
+    } catch (e: any) {
+      if (!/nlp_sessions_tenant_phone_uniq|duplicate key/i.test(`${e?.message ?? ""} ${e?.cause?.message ?? ""}`)) throw e;
+      const [winner] = await db.select().from(nlpSessions)
+        .where(eq(nlpSessions.waPhoneNumber, waPhoneNumber))
+        .orderBy(desc(nlpSessions.lastActivityAt)).limit(1).catch(() => []);
+      if (winner) {
+        const ctx = { ...((winner.context as Record<string, unknown>) ?? {}), deliveryAddress: addressText, deliveryCoords: coords };
+        await db.update(nlpSessions).set({ context: ctx, lastActivityAt: new Date() })
+          .where(eq(nlpSessions.id, winner.id));
+      }
+    }
+    // === END W47 crosscutting ===
   }
 }
 
@@ -155,16 +170,35 @@ export async function saveDiscoveryLocation(
     await db.update(nlpSessions).set({ context: ctx, lastActivityAt: new Date() })
       .where(eq(nlpSessions.id, latest.id));
   } else {
-    await db.insert(nlpSessions).values({
-      tenantId,
-      waPhoneNumber,
-      customerName: customerName ?? null,
-      state: "greeting",
-      context: { deliveryAddress: addressText, deliveryCoords: coords, lastDiscovery },
-      messageHistory: [],
-      lastActivityAt: new Date(),
-      createdAt: new Date(),
-    });
+    // === W47 crosscutting (ONB-ID-2): conflict-retry (see above). ===
+    try {
+      await db.insert(nlpSessions).values({
+        tenantId,
+        waPhoneNumber,
+        customerName: customerName ?? null,
+        state: "greeting",
+        context: { deliveryAddress: addressText, deliveryCoords: coords, lastDiscovery },
+        messageHistory: [],
+        lastActivityAt: new Date(),
+        createdAt: new Date(),
+      });
+    } catch (e: any) {
+      if (!/nlp_sessions_tenant_phone_uniq|duplicate key/i.test(`${e?.message ?? ""} ${e?.cause?.message ?? ""}`)) throw e;
+      const [winner] = await db.select().from(nlpSessions)
+        .where(eq(nlpSessions.waPhoneNumber, waPhoneNumber))
+        .orderBy(desc(nlpSessions.lastActivityAt)).limit(1).catch(() => []);
+      if (winner) {
+        const ctx = {
+          ...((winner.context as Record<string, unknown>) ?? {}),
+          deliveryAddress: addressText,
+          deliveryCoords: coords,
+          lastDiscovery,
+        };
+        await db.update(nlpSessions).set({ context: ctx, lastActivityAt: new Date() })
+          .where(eq(nlpSessions.id, winner.id));
+      }
+    }
+    // === END W47 crosscutting ===
   }
 }
 

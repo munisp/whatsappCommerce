@@ -60,6 +60,18 @@ export const vendorBillsRouter = router({
         base64: z.string().min(1),
         mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
       }).optional(),
+      // === W47 stakeholders === ONB-S-8: structured, format-validated
+      // payee fields. Supplying any payee field registers/dedups a vendors
+      // registry row and links the bill (vendorId); the FIRST wallet payout
+      // to that vendor then requires approved tenant KYB.
+      payee: z.object({
+        phone: z.string().max(30).optional(),
+        email: z.string().max(320).optional(),
+        bankCode: z.string().max(16).optional(),
+        accountNumber: z.string().max(20).optional(),
+        accountName: z.string().max(160).optional(),
+      }).optional(),
+      // === END W47 stakeholders ===
       // === W33 tax-statements: OPTIONAL supplier tax capture ===
       vendorRef: z.string().max(128).optional(),
       taxProfile: z.object({
@@ -74,8 +86,36 @@ export const vendorBillsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       try {
-        const { tenantId, vendorRef, taxProfile, ...rest } = input;
+        const { tenantId, vendorRef, taxProfile, payee, ...rest } = input;
         const created = await createVendorBill(db, { ...rest, tenantId, actor: String(ctx.user.id) });
+        // === W47 stakeholders === ONB-S-8: register/dedup the vendor +
+        // link the bill when STRUCTURED payee fields are supplied (name-
+        // only legacy bills keep the pre-W47 path). Payee formats are
+        // validated (NUBAN/bank code) — invalid payee details reject the
+        // bill honestly.
+        let vendorInfo: { vendorId: string; deduped: boolean } | null = null;
+        if (payee) {
+          const { upsertVendor } = await import("../services/vendors");
+          const { vendor, deduped } = await upsertVendor(db, {
+            tenantId,
+            name: created.bill.vendorName ?? input.vendorName ?? "unknown",
+            payee,
+            actor: String(ctx.user.id),
+          });
+          vendorInfo = { vendorId: vendor.id, deduped };
+          const contact = {
+            ...((created.bill.vendorContact as any) ?? {}),
+            ...(payee?.phone ? { phone: payee.phone } : {}),
+            ...(payee?.email ? { email: payee.email } : {}),
+            ...(payee?.accountNumber ? { bankAccount: payee.accountNumber, bankCode: payee.bankCode, accountName: payee.accountName } : {}),
+          };
+          await db.update(vendorBills)
+            .set({ vendorId: vendor.id, vendorContact: contact, updatedAt: new Date() })
+            .where(and(eq(vendorBills.id, created.bill.id), eq(vendorBills.tenantId, tenantId)));
+          (created.bill as any).vendorId = vendor.id;
+          (created.bill as any).vendorContact = contact;
+        }
+        // === END W47 stakeholders ===
         // === W33 tax-statements: OPTIONAL capture — when the caller passes
         // vendorRef/taxProfile the supplier profile is upserted (never
         // required) and the bill is stamped with the stable vendor ref so
@@ -104,9 +144,56 @@ export const vendorBillsRouter = router({
           }
         }
         // === END W33 tax-statements ===
-        return created;
+        return { ...created, vendor: vendorInfo };
       } catch (e) { rethrow(e); }
     }),
+
+  // === W47 stakeholders === ONB-S-8: vendor registry endpoints ─────────
+  /** Register (or dedup-resolve) a vetted vendor with structured payee. */
+  registerVendor: moneyProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      name: z.string().min(1).max(160),
+      phone: z.string().max(30).optional(),
+      email: z.string().max(320).optional(),
+      bankCode: z.string().max(16).optional(),
+      accountNumber: z.string().max(20).optional(),
+      accountName: z.string().max(160).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      try {
+        const { upsertVendor } = await import("../services/vendors");
+        const { vendor, deduped } = await upsertVendor(db, {
+          tenantId: input.tenantId,
+          name: input.name,
+          payee: { phone: input.phone, email: input.email, bankCode: input.bankCode, accountNumber: input.accountNumber, accountName: input.accountName },
+          actor: String(ctx.user.id),
+        });
+        const { writeAuditLog } = await import("./audit");
+        await writeAuditLog({
+          actorId: String(ctx.user.id), actorRole: ctx.user.role,
+          action: deduped ? "vendor.updated" : "vendor.registered",
+          entityType: "vendor", entityId: vendor.id, tenantId: input.tenantId,
+          summary: `Vendor "${vendor.name}" ${deduped ? "deduped/updated" : "registered"} on tenant ${input.tenantId}`,
+          before: null, after: { vendorId: vendor.id, nameKey: vendor.nameKey, kybTier: vendor.kybTier },
+        });
+        return { vendor, deduped };
+      } catch (e) { rethrow(e); }
+    }),
+
+  /** List registered vendors (read-only). */
+  listVendors: analystProcedure
+    .input(z.object({ tenantId: z.string(), limit: z.number().int().min(1).max(500).default(100) }))
+    .query(async ({ input }) => {
+      const db = await requireDb();
+      const { vendors } = await import("../../drizzle/schema");
+      return db.select().from(vendors)
+        .where(eq(vendors.tenantId, input.tenantId))
+        .orderBy(desc(vendors.createdAt))
+        .limit(input.limit);
+    }),
+  // === END W47 stakeholders ===
 
   /** List bills with status / due-window / vendor filters. Analyst read-only. */
   list: analystProcedure
@@ -166,6 +253,17 @@ export const vendorBillsRouter = router({
       if (bill.paidCents > 0 || bill.status === "paid" || bill.status === "cancelled") {
         throw new TRPCError({ code: "CONFLICT", message: `Cannot update a bill in status "${bill.status}" with payments recorded` });
       }
+      // === W47 stakeholders === ONB-S-8: payee details LOCK once the bill
+      // is approved (or pending approval) — the editable window closes
+      // pre-payment so an approver's reviewed payee cannot be swapped.
+      const touchesPayee = input.vendorName !== undefined || input.vendorContact !== undefined;
+      if (touchesPayee && (bill.status === "approved" || bill.status === "pending_approval")) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: `Payee details are locked once a bill is ${bill.status} — cancel and re-create the bill to change the payee`,
+        });
+      }
+      // === END W47 stakeholders ===
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (input.vendorName !== undefined) patch.vendorName = input.vendorName;
       if (input.vendorContact !== undefined) patch.vendorContact = input.vendorContact;

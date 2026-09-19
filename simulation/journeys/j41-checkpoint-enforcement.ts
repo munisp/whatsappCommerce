@@ -104,6 +104,12 @@ export const journey: Journey = {
     assert(session?.state === "validating", `validation passed (got ${session?.state})`);
     const goLive = session!.proposals.find((p) => p.kind === "goLive" && p.status === "pending");
     assert(goLive, "goLive proposal emitted");
+    // === W47 merchant === ONB-M-2: copilot go-live now enforces the SAME
+    // KYB gate as web activate — approve KYB first (the gate itself is
+    // regression-tested by J428).
+    const { approveKyb } = await import("./helpers");
+    await approveKyb(world, session!.tenantId!);
+    // === END W47 merchant ===
     const decision = await copilot.decideProposal({ sessionId, proposalId: goLive!.id, approve: true });
     assert(decision.ok, "go-live approval accepted");
     session = await copilot.getSession(sessionId);

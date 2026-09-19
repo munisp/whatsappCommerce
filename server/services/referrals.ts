@@ -20,9 +20,10 @@
  *     but moves NO money. Referee-discount rewards are explicitly OUT OF
  *     SCOPE (documented in SPEC_W44 Coder A) — referrer-credit only.
  *   - Void: when the referee order is refunded (orderCrud refund seam), the
- *     event flips to 'voided' claim-first with an audit row. Clawing back an
- *     already-credited wallet reward is out of scope (documented); the
- *     voided event + audit row are the honest record.
+ *     event flips to 'voided' claim-first with an audit row, and (W47
+ *     ONB-S-13) an already-credited wallet reward is CLAWED BACK via
+ *     debitWallet with idempotent refId referral-clawback:<eventId>; an
+ *     insufficient-balance shortfall is recorded on the audit row.
  */
 import crypto from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -108,6 +109,46 @@ export async function attributeReferral(
   if (codeRow.status !== "active") return { ok: false, error: "referral_code_disabled" };
   if (codeRow.customerId === referee) return { ok: false, error: "self_referral_rejected" };
 
+  // === W47 crosscutting (ONB-ABU-2): CROSS-CHANNEL self-dealing — WA and
+  // Telegram identities of the same human are deliberately separate customer
+  // rows (channelIdentity), so customerId inequality is not proof of
+  // distinct humans. Resolve BOTH identities to a normalized phone (via
+  // telegramIdentities for telegram:<chat_id> keys) and reject when the
+  // underlying phone matches. Fail-open on lookup errors (telemetry-style):
+  // the attribution rail must not block legitimate referrals on a heuristic
+  // outage. ===
+  try {
+    const { customers, telegramIdentities } = await import("../../drizzle/schema");
+    const resolvePhone = async (customerId: string): Promise<string | null> => {
+      const [c] = await d.select({ whatsappPhone: customers.whatsappPhone })
+        .from(customers)
+        .where(and(eq(customers.tenantId, tenantId), eq(customers.id, customerId)))
+        .limit(1);
+      let raw = c?.whatsappPhone ?? "";
+      if (raw.startsWith("telegram:")) {
+        const chatId = raw.slice("telegram:".length);
+        const [tg] = await d.select({ phoneE164: telegramIdentities.phoneE164 })
+          .from(telegramIdentities)
+          .where(and(eq(telegramIdentities.tenantId, tenantId), eq(telegramIdentities.chatId, chatId)))
+          .limit(1);
+        raw = tg?.phoneE164 ?? "";
+      }
+      const digits = raw.replace(/\D/g, "");
+      return digits.length >= 7 ? digits : null;
+    };
+    const [referrerPhone, refereePhone] = await Promise.all([
+      resolvePhone(codeRow.customerId),
+      resolvePhone(referee),
+    ]);
+    if (referrerPhone && refereePhone && referrerPhone === refereePhone) {
+      console.warn(`[referrals] ONB-ABU-2 cross-channel self-referral rejected (tenant=${tenantId})`);
+      return { ok: false, error: "self_referral_rejected" };
+    }
+  } catch (e: any) {
+    console.warn("[referrals] cross-channel self-deal check failed (fail-open):", e?.message);
+  }
+  // === END W47 crosscutting ===
+
   // First-order semantics: a referee who already HAS a (paid, later maybe
   // refunded) order cannot be newly attributed — 'refunded' included so a
   // voided-then-refunded referee is not a fresh first-order referee.
@@ -178,6 +219,29 @@ export async function rewardReferralForPaidOrder(
     return { rewarded: false, reason: "reward_disabled", eventId: event.id };
   }
 
+  // === W47 crosscutting (ONB-ABU-2): per-referrer reward velocity cap —
+  // claim-first is atomic but without a daily cap a farm of referee numbers
+  // drains the reward budget. REFERRAL_MAX_REWARDS_PER_DAY (default 10):
+  // over-cap events stay 'attributed' (honest: a later settle/sweep may
+  // reward them after the window) and are logged. ===
+  const maxPerDay = Number.parseInt(process.env.REFERRAL_MAX_REWARDS_PER_DAY ?? "", 10) || 10;
+  try {
+    const since = new Date(Date.now() - 86_400_000);
+    const rows = (await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM referral_events
+      WHERE code_id = ${event.codeId} AND status = 'rewarded' AND created_at >= ${since.toISOString()}`)) as unknown as any[];
+    const n = Number((Array.isArray(rows) ? rows : (rows as any).rows ?? [])[0]?.n ?? 0);
+    if (n >= maxPerDay) {
+      console.warn(`[referrals] ONB-ABU-2 velocity cap: code ${event.codeId} has ${n} rewards in 24h (cap ${maxPerDay}) — event ${event.id} left attributed`);
+      return { rewarded: false, reason: "velocity_capped", eventId: event.id };
+    }
+  } catch (e: any) {
+    // Fail-open (telemetry): never block a legitimate reward on a counter
+    // lookup outage; the claim-first transition below is the money guard.
+    console.warn("[referrals] velocity-cap check failed (fail-open):", e?.message);
+  }
+  // === END W47 crosscutting ===
+
   // Claim-first transition: only ONE concurrent caller rewards.
   const claimed = (await db.execute(sql`
     UPDATE referral_events SET status = 'rewarded', order_id = ${args.orderId}, reward_cents = ${rewardCents}
@@ -245,20 +309,59 @@ export async function runReferralRewardWebhookHook(
 
 /**
  * Void on refund (orderCrud refund seam): any non-voided event tied to the
- * refunded order flips to 'voided' claim-first + audit row. Wallet clawback
- * of an already-credited reward is out of scope (documented).
+ * refunded order flips to 'voided' claim-first + audit row. W47 ONB-S-13:
+ * a reward that was already CREDITED is clawed back from the referrer's
+ * wallet (idempotent debit refId referral-clawback:<eventId>). When the
+ * referrer's balance no longer covers the reward, the clawback debit fails
+ * honestly and the shortfall is recorded on the audit row (never silently
+ * dropped).
  */
 export async function voidReferralOnRefund(
   db: Db,
   args: { tenantId: string; orderId: string; actor?: string },
 ): Promise<{ voided: number }> {
+  // Snapshot the pre-update rows so we know which events were 'rewarded'
+  // (and for how much) — the RETURNING status is the PRE-update value on
+  // Postgres, but we read explicitly for driver independence.
+  const pre = await db.select().from(referralEvents)
+    .where(and(eq(referralEvents.tenantId, args.tenantId), eq(referralEvents.orderId, args.orderId)));
   const rows = (await db.execute(sql`
     UPDATE referral_events SET status = 'voided'
     WHERE tenant_id = ${args.tenantId} AND order_id = ${args.orderId} AND status <> 'voided'
     RETURNING id, status`)) as unknown as any[];
   const list = Array.isArray(rows) ? rows : (rows as any).rows ?? [];
-  // NOTE: RETURNING reflects the pre-update status only in some drivers; count is authoritative.
   for (const r of list) {
+    // === W47 stakeholders === ONB-S-13: wallet clawback of the granted reward.
+    const before = pre.find((p) => p.id === r.id);
+    let clawback: Record<string, unknown> | null = null;
+    if (before && before.status === "rewarded" && Number(before.rewardCents) > 0) {
+      try {
+        const [codeRow] = await db.select().from(referralCodes).where(eq(referralCodes.id, before.codeId)).limit(1);
+        if (codeRow) {
+          const { debitWallet } = await import("./customerWallet");
+          const debit = await debitWallet(args.tenantId, codeRow.customerId, Number(before.rewardCents),
+            "referral_clawback", `referral-clawback:${before.id}`, db as any,
+            { orderId: args.orderId, refereeCustomerId: before.refereeCustomerId, referralEventId: before.id });
+          clawback = debit.ok
+            ? { clawedBack: true, duplicate: debit.duplicate === true, balanceCents: debit.balanceCents }
+            : { clawedBack: false, error: debit.error ?? "clawback_failed" };
+          if (debit.ok && !debit.duplicate) {
+            try {
+              const { sendCustomerText } = await import("./channelParity");
+              await sendCustomerText(args.tenantId, codeRow.customerId, REFERRAL_CATEGORY,
+                `A referral reward was reversed because the referred order was refunded. Wallet balance updated.`,
+                { notifType: "referral_clawback", orderId: args.orderId });
+            } catch (e: any) {
+              console.warn("[referrals] clawback notify failed:", e?.message);
+            }
+          }
+        }
+      } catch (e: any) {
+        clawback = { clawedBack: false, error: e?.message ?? "clawback_error" };
+        console.warn("[referrals] clawback failed:", e?.message);
+      }
+    }
+    // === END W47 stakeholders ===
     try {
       const { writeAuditLog } = await import("../routers/audit");
       await writeAuditLog({
@@ -267,7 +370,9 @@ export async function voidReferralOnRefund(
         action: "referral.voided",
         entityType: "referral_event",
         entityId: r.id,
-        summary: `order=${args.orderId} referee order refunded`,
+        summary: `order=${args.orderId} referee order refunded${clawback ? ` clawback=${JSON.stringify(clawback)}` : ""}`,
+        before: { status: before?.status ?? null, rewardCents: before?.rewardCents ?? 0 },
+        after: { status: "voided", clawback },
       } as any);
     } catch (e: any) {
       console.warn("[referrals] audit write failed:", e?.message);

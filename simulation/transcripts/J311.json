@@ -8,11 +8,11 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000782",
+      "wamid": "wamid.sim.000792",
       "statuses": [
         "sent"
       ],
-      "at": 1789708002337,
+      "at": 1789791011315,
       "kind": "text",
       "body": "⚠️ WA webhook DLQ insert FAILED — event preserved via file fallback. phone_number_id=pn_sim_001 message=wamid.j311.alert error=simulated insert failure. Replay with replayWaWebhookFallback() once the DB is healthy."
     }

@@ -31,6 +31,7 @@ import { broadcastAbRouter } from "./routers/broadcastAb";
 import { journeysRouter } from "./routers/journeys";
 import { consentsRouter } from "./routers/consents";
 import { onboardingRouter } from "./routers/onboarding";
+import { onboardingStaffRouter } from "./routers/onboardingStaff"; // === W47 merchant ===
 import { kycRouter } from "./routers/kyc";
 import { heartbeatRouter } from "./routers/heartbeat";
 import { nlpRouter } from "./routers/nlp";
@@ -113,6 +114,7 @@ import { manufacturerProgramsRouter } from "./routers/manufacturerPrograms";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
+import { ridersRouter } from "./routers/riders"; // === W47 stakeholders ===
 // === W31 approvals (Coder C) ===
 import { approvalsRouter } from "./routers/approvals";
 // === END W31 approvals ===
@@ -178,6 +180,9 @@ export const appRouter = router({
       }),
   }),
   membership: membershipRouter,
+  // === W47 stakeholders ===
+  riders: ridersRouter,
+  // === END W47 stakeholders ===
   // === W31 approvals (Coder C) ===
   approvals: approvalsRouter,
   // === END W31 approvals ===
@@ -209,6 +214,7 @@ export const appRouter = router({
   journeys: journeysRouter,
   consents: consentsRouter,
   onboarding: onboardingRouter,
+  onboardingStaff: onboardingStaffRouter, // === W47 merchant === ONB-M-12
   kyc: kycRouter,
   heartbeat: heartbeatRouter,
   nlp: nlpRouter,

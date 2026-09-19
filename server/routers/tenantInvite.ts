@@ -9,12 +9,26 @@
  *  1. Admin calls tenantInvite.create({ tenantId })
  *  2. Server generates a signed JWT token (24h expiry) and stores in DB
  *  3. Token is sent to tenant's WhatsApp number as a portal link
- *  4. Merchant clicks link → GET /portal/login?token=<jwt>
+ *  4. Merchant clicks link → GET /portal/login#token=<jwt>
+ *     (W47 ONB-TOK-2: fragment-carried so the token never hits access logs
+ *     or Referer headers; legacy ?token= links still accepted by the page)
  *  5. Server validates token, creates a session, redirects to /portal/dashboard
+ *
+ * W47 (ONB-S-3 / ONB-S-4 / ONB-S-5 / ONB-TOK-1):
+ *  - create AND resend share one minting helper that ALWAYS resolves and
+ *    persists the boundPhone — a resent link can never silently degrade to
+ *    an unbound bearer token.
+ *  - Minting REFUSES when the tenant has no settings.adminPhone on file
+ *    (no new unbound invites; pre-W46 legacy rows keep legacy redemption).
+ *  - resend writes the same audit row as create (jti + boundPhone).
+ *  - invites are revocable (revokedAt) and listable; validate() refuses
+ *    revoked tokens.
+ *  - the portal URL carries the token in the URL FRAGMENT (never the query
+ *    string) so it stays out of access logs / browser history / Referer.
  */
 
 import { z } from "zod";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, desc } from "drizzle-orm";
 import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
@@ -33,6 +47,77 @@ async function requireDb() {
   if (!db) throw new Error("Database not available");
   return db;
 }
+
+// === W47 stakeholders ===
+/** Resolve the phone the invite is bound to (tenant admin phone). */
+function resolveBoundPhone(tenant: { settings?: unknown }): string | null {
+  const settings = (tenant.settings ?? {}) as Record<string, unknown>;
+  return typeof settings.adminPhone === "string" && settings.adminPhone
+    ? settings.adminPhone
+    : null;
+}
+
+/**
+ * ONB-S-3/TOK-1: ONE minting helper for create + resend so the phone
+ * binding can never diverge. Refuses (PRECONDITION_FAILED) when the tenant
+ * has no admin phone on file — no new unbound bearer invites (ONB-S-4).
+ */
+async function mintBoundInvite(args: {
+  db: any;
+  tenant: { id: string; name: string; whatsappPhoneNumberId?: string | null; settings?: unknown };
+  issuedBy: string | number;
+  expiryHours: number;
+  actorRole: string;
+  action: "tenantInvite.create" | "tenantInvite.resend";
+}) {
+  const boundPhone = resolveBoundPhone(args.tenant);
+  if (!boundPhone) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "This tenant has no verified admin phone on file (settings.adminPhone) — a phone-bound invite cannot be minted. Register the admin phone first.",
+    });
+  }
+  const jti = randomUUID();
+  const token = jwt.sign(
+    {
+      type: "portal_invite",
+      jti,
+      tenantId: args.tenant.id,
+      tenantName: args.tenant.name,
+      issuedBy: args.issuedBy,
+      // W46 TEN-19 + W47: the binding rides the signed payload on EVERY mint.
+      boundPhone,
+    },
+    ENV.jwtSecret,
+    { expiresIn: `${args.expiryHours}h` }
+  );
+  const expiresAt = new Date(Date.now() + args.expiryHours * 60 * 60 * 1000);
+  await args.db.insert(tenantInviteTokens).values({
+    jti,
+    tenantId: args.tenant.id,
+    issuedBy: String(args.issuedBy),
+    expiresAt,
+    boundPhone,
+  });
+  // W40 (TEN-4) + W47 ONB-TOK-1: resend is audited exactly like create,
+  // with the jti and the bound phone attributable.
+  const { writeAuditLog } = await import("./audit");
+  await writeAuditLog({
+    actorId: String(args.issuedBy),
+    actorRole: args.actorRole,
+    action: args.action,
+    entityType: "tenant_invite",
+    entityId: jti,
+    tenantId: args.tenant.id,
+    summary: `Portal invite ${args.action === "tenantInvite.resend" ? "resent" : "minted"} for tenant ${args.tenant.name} (${args.tenant.id}), bound to admin phone, expires ${expiresAt.toISOString()}`,
+    before: null,
+    after: { jti, tenantId: args.tenant.id, boundPhone, expiresAt: expiresAt.toISOString() },
+  });
+  // ONB-S-15: token in the URL FRAGMENT — never the query string.
+  const portalUrl = `${ENV.appUrl}/portal/login#token=${token}`;
+  return { jti, token, portalUrl, expiresAt, boundPhone };
+}
+// === END W47 stakeholders ===
 
 export const tenantInviteRouter = router({
   /**
@@ -62,65 +147,19 @@ export const tenantInviteRouter = router({
         throw new Error("Tenant not found");
       }
 
-      // === W46 privacy-consent (TEN-19 residual): bind redemption to the
-      // tenant's verified identity. The invite is pinned to the tenant
-      // admin's registered phone (settings.adminPhone); validate() then
-      // requires a phone-identity proof (phoneAuth OTP) for THAT number, so
-      // a leaked link alone can no longer mint a portal session. ===
-      const settings = (tenant.settings ?? {}) as Record<string, unknown>;
-      const boundPhone = typeof settings.adminPhone === "string" && settings.adminPhone
-        ? settings.adminPhone
-        : null;
-      // === END W46 privacy-consent ===
-
-      // Generate signed JWT magic link token with a registered jti — the
-      // registry row is what makes the link single-use at validate time.
-      const jti = randomUUID();
-      const token = jwt.sign(
-        {
-          type: "portal_invite",
-          jti,
-          tenantId: input.tenantId,
-          tenantName: tenant.name,
-          issuedBy: ctx.user.id,
-          // W46 TEN-19: carry the binding in the signed payload too.
-          ...(boundPhone ? { boundPhone } : {}),
-        },
-        ENV.jwtSecret,
-        { expiresIn: `${input.expiryHours}h` }
-      );
-
-      const expiresAt = new Date(Date.now() + input.expiryHours * 60 * 60 * 1000);
-      await db.insert(tenantInviteTokens).values({
-        jti,
-        tenantId: input.tenantId,
-        issuedBy: String(ctx.user.id),
-        expiresAt,
-        boundPhone,
-      });
-      // W40 (TEN-4): minting a portal magic link is an admin action on a
-      // tenant — it must be attributable in the audit trail.
-      const { writeAuditLog } = await import("./audit");
-      await writeAuditLog({
-        actorId: String(ctx.user.id),
-        actorRole: ctx.user.role,
+      const minted = await mintBoundInvite({
+        db, tenant, issuedBy: ctx.user.id,
+        expiryHours: input.expiryHours, actorRole: ctx.user.role,
         action: "tenantInvite.create",
-        entityType: "tenant_invite",
-        entityId: jti,
-        tenantId: input.tenantId,
-        summary: `Portal invite minted for tenant ${tenant.name} (${input.tenantId}), expires ${expiresAt.toISOString()}`,
-        before: null,
-        after: { jti, tenantId: input.tenantId, expiresAt: expiresAt.toISOString() },
       });
-      const portalUrl = `${ENV.appUrl}/portal/login?token=${token}`;
 
       return {
-        token,
-        portalUrl,
+        token: minted.token,
+        portalUrl: minted.portalUrl,
         tenantId: input.tenantId,
         tenantName: tenant.name,
-        expiresAt: expiresAt.toISOString(),
-        whatsappMessage: `Hello ${tenant.name}! Your WhatsApp Commerce merchant portal is ready. Click the link below to access your dashboard:\n\n${portalUrl}\n\nThis link expires in ${input.expiryHours} hours.`,
+        expiresAt: minted.expiresAt.toISOString(),
+        whatsappMessage: `Hello ${tenant.name}! Your WhatsApp Commerce merchant portal is ready. Click the link below to access your dashboard:\n\n${minted.portalUrl}\n\nThis link expires in ${input.expiryHours} hours.`,
         whatsappPhoneNumberId: tenant.whatsappPhoneNumberId,
       };
     }),
@@ -159,10 +198,15 @@ export const tenantInviteRouter = router({
         // BEFORE the single-use consume so a failed proof never burns the
         // link). Legacy unbound rows keep the pre-W46 behavior. ===
         const [inviteRow] = await db
-          .select({ boundPhone: tenantInviteTokens.boundPhone })
+          .select({ boundPhone: tenantInviteTokens.boundPhone, revokedAt: tenantInviteTokens.revokedAt })
           .from(tenantInviteTokens)
           .where(eq(tenantInviteTokens.jti, payload.jti))
           .limit(1);
+        // === W47 stakeholders === ONB-S-5: revoked invites never redeem.
+        if (inviteRow?.revokedAt) {
+          throw new Error("This invite link has been revoked. Request a fresh invite.");
+        }
+        // === END W47 stakeholders ===
         const boundPhone = inviteRow?.boundPhone ?? payload.boundPhone ?? null;
         if (boundPhone) {
           if (!input.identityProof) {
@@ -191,6 +235,7 @@ export const tenantInviteRouter = router({
             eq(tenantInviteTokens.jti, payload.jti),
             eq(tenantInviteTokens.tenantId, payload.tenantId),
             isNull(tenantInviteTokens.consumedAt),
+            isNull(tenantInviteTokens.revokedAt), // W47: revoked rows can't win the race either
           ))
           .returning({ jti: tenantInviteTokens.jti });
         if (consumed.length === 0) {
@@ -232,7 +277,9 @@ export const tenantInviteRouter = router({
     }),
 
   /**
-   * Resend invite via WhatsApp (admin only)
+   * Resend invite via WhatsApp (admin only). W47 ONB-S-3/TOK-1: the resent
+   * token is minted by the SAME helper as create — the phone binding is
+   * always preserved and the resend is audit-logged.
    */
   resend: protectedProcedure
     .input(z.object({ tenantId: z.string().uuid() }))
@@ -242,49 +289,102 @@ export const tenantInviteRouter = router({
       if (ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can resend tenant invites" });
       }
-      // Re-use create to generate a fresh token
       const db = await requireDb();
 
       const [tenant] = await db
-        .select({ id: tenants.id, name: tenants.name, whatsappPhoneNumberId: tenants.whatsappPhoneNumberId })
+        .select({ id: tenants.id, name: tenants.name, whatsappPhoneNumberId: tenants.whatsappPhoneNumberId, settings: tenants.settings })
         .from(tenants)
         .where(eq(tenants.id, input.tenantId));
 
       if (!tenant) throw new Error("Tenant not found");
 
-      // W30 hotfix2: resend previously minted an UNREGISTERED 72h token that
-      // validate() always rejected ("Invite token is not registered") — a
-      // dead link. Resent invites now get a registered jti with the SAME
-      // single-use ≤24h semantics as create().
-      const jti = randomUUID();
-      const token = jwt.sign(
-        {
-          type: "portal_invite",
-          jti,
-          tenantId: input.tenantId,
-          tenantName: tenant.name,
-          issuedBy: ctx.user.id,
-        },
-        ENV.jwtSecret,
-        { expiresIn: `${INVITE_EXPIRY_HOURS}h` }
-      );
-
-      const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
-      await db.insert(tenantInviteTokens).values({
-        jti,
-        tenantId: input.tenantId,
-        issuedBy: String(ctx.user.id),
-        expiresAt,
+      const minted = await mintBoundInvite({
+        db, tenant, issuedBy: ctx.user.id,
+        expiryHours: INVITE_EXPIRY_HOURS, actorRole: ctx.user.role,
+        action: "tenantInvite.resend",
       });
-
-      const portalUrl = `${ENV.appUrl}/portal/login?token=${token}`;
 
       return {
         sent: true,
-        portalUrl,
-        expiresAt: expiresAt.toISOString(),
+        portalUrl: minted.portalUrl,
+        expiresAt: minted.expiresAt.toISOString(),
         whatsappPhoneNumberId: tenant.whatsappPhoneNumberId,
         message: `Invite resent to ${tenant.name} (${tenant.whatsappPhoneNumberId})`,
       };
     }),
+
+  // === W47 stakeholders === ONB-S-5: revocation + visibility ────────────
+  /**
+   * Revoke an outstanding (un-consumed) invite. Admin only. Idempotent:
+   * revoking an already-revoked invite returns duplicate:true.
+   */
+  revoke: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid(), jti: z.string().min(8) }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can revoke tenant invites" });
+      }
+      const db = await requireDb();
+      const flipped = await db
+        .update(tenantInviteTokens)
+        .set({ revokedAt: new Date() })
+        .where(and(
+          eq(tenantInviteTokens.jti, input.jti),
+          eq(tenantInviteTokens.tenantId, input.tenantId),
+          isNull(tenantInviteTokens.revokedAt),
+          isNull(tenantInviteTokens.consumedAt),
+        ))
+        .returning({ jti: tenantInviteTokens.jti });
+      const { writeAuditLog } = await import("./audit");
+      if (!flipped.length) {
+        const [row] = await db
+          .select({ jti: tenantInviteTokens.jti, revokedAt: tenantInviteTokens.revokedAt, consumedAt: tenantInviteTokens.consumedAt })
+          .from(tenantInviteTokens)
+          .where(and(eq(tenantInviteTokens.jti, input.jti), eq(tenantInviteTokens.tenantId, input.tenantId)))
+          .limit(1);
+        if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Invite not found" });
+        if (row.revokedAt) return { revoked: true, duplicate: true };
+        throw new TRPCError({ code: "CONFLICT", message: "Invite has already been consumed — nothing to revoke" });
+      }
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenantInvite.revoke",
+        entityType: "tenant_invite",
+        entityId: input.jti,
+        tenantId: input.tenantId,
+        summary: `Portal invite ${input.jti} revoked for tenant ${input.tenantId} by ${ctx.user.id}`,
+        before: { jti: input.jti, revokedAt: null },
+        after: { jti: input.jti, revokedAt: new Date().toISOString() },
+      });
+      return { revoked: true };
+    }),
+
+  /** List a tenant's invite tokens (admin only; no token material). */
+  list: protectedProcedure
+    .input(z.object({ tenantId: z.string().uuid() }))
+    .query(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only admins can list tenant invites" });
+      }
+      const db = await requireDb();
+      return db
+        .select({
+          jti: tenantInviteTokens.jti,
+          tenantId: tenantInviteTokens.tenantId,
+          issuedBy: tenantInviteTokens.issuedBy,
+          expiresAt: tenantInviteTokens.expiresAt,
+          consumedAt: tenantInviteTokens.consumedAt,
+          revokedAt: tenantInviteTokens.revokedAt,
+          boundPhone: tenantInviteTokens.boundPhone,
+          createdAt: tenantInviteTokens.createdAt,
+        })
+        .from(tenantInviteTokens)
+        .where(eq(tenantInviteTokens.tenantId, input.tenantId))
+        .orderBy(desc(tenantInviteTokens.createdAt))
+        .limit(100);
+    }),
+  // === END W47 stakeholders ===
 });

@@ -45,7 +45,9 @@ export type WalletDebitReason =
   // === W43 dispatch (additive): post-dispatch address-change fee ===
   | "address_change_fee"
   // === W44 deposits-subs-digital (additive): appointment remainder ===
-  | "appointment_remainder";
+  | "appointment_remainder"
+  // === W47 stakeholders (additive): ONB-S-13 referral reward clawback on refund ===
+  | "referral_clawback";
 
 export interface WalletOpResult {
   ok: boolean;

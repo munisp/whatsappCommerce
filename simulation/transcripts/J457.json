@@ -1,0 +1,409 @@
+{
+  "id": "J457",
+  "title": "copilot go-live bootstraps tenant owner + phone-bound invite",
+  "feature": "ONB-SM-1 / ONB-M-4 owner bootstrap",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Bola",
+      "inboundId": "wamid.sim.in.text.00567",
+      "at": 1789791202336,
+      "kind": "text",
+      "text": "hello"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001039",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791202352,
+      "kind": "text",
+      "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Sim User 2267",
+      "inboundId": "wamid.sim.in.text.00568",
+      "at": 1789791202865,
+      "kind": "text",
+      "text": "I run Bola's Beads in Ibadan, coral beads + bracelets, delivery within Ibadan, bank transfer"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001040",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791202979,
+      "kind": "text",
+      "body": "Here's the setup I propose for Bola's Beads. Review each card — approve, edit or reject. Nothing is applied until you approve it."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001041",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791202979,
+      "kind": "interactive",
+      "body": "WhatsApp menu for Bola's Beads: greeting + top use cases\n\n{\n  \"greeting\": \"Welcome to Bola's Beads! How can we help you today?\",\n  \"useCases\": [\n    {\n      \"id\": \"shop\",\n      \"label\": \"Shop products\",\n      \"enabled\": true,\n      \"order\": 1\n    },\n    {\n      \"id\": \"track\",\n      \"label\": \"Track my order\",\n      \"enabled\": true,\n      \"order\": 2\n    },\n    {\n      \"id\": \"support\",\n      \"label\": \"Get support\",\n      \"enabled\": false,\n      \"order\": 3\n    },\n    {\n      \"id\": \"booking\",\n      \"label\": \"Book an appointment\",\n      \"enabled\": false,\n      \"order\": 4\n    },\n    {\n      \"id\": \"handoff\",\n      \"label\": \"Talk to a human\",\n      \"enabled\": true,\n      \"order\": 5\n    },\n    {\n      \"id\": \"procurement\",\n      \"label\": \"Restock / Buy supplies\",\n      \"enabled\": false,\n      \"order\": 6\n    }\n  ],\n  \"customItems\": [],\n  \"fallback\": \"nlp\"\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-1-49ouwp",
+          "title": "Approve"
+        },
+        {
+          "id": "onb_edit:p-1-49ouwp",
+          "title": "Edit"
+        },
+        {
+          "id": "onb_reject:p-1-49ouwp",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001042",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791202980,
+      "kind": "interactive",
+      "body": "Suggested use cases: shop, track, handoff\n\n{\n  \"ranked\": [\n    \"shop\",\n    \"track\",\n    \"handoff\",\n    \"support\",\n    \"booking\",\n    \"procurement\"\n  ]\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-2-mk8sjh",
+          "title": "Approve"
+        },
+        {
+          "id": "onb_edit:p-2-mk8sjh",
+          "title": "Edit"
+        },
+        {
+          "id": "onb_reject:p-2-mk8sjh",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001043",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791202980,
+      "kind": "interactive",
+      "body": "Brand kit for Bola's Beads\n\n{\n  \"logoSvgDataUri\": \"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIiByb2xlPSJpbWciIGFyaWEtbGFiZWw9ImxvZ28iPjxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iOTYiIGZpbGw9IiM0NzZCNzYiLz48dGV4dCB4PSIyNTYiIHk9IjI2MiIgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMjAwIiBmb250LXdlaWdodD0iNjAwIiBsZXR0ZXItc3BhY2luZz0iOCIgZmlsbD0iI0Y1RjJFQyIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZG9taW5hbnQtYmFzZWxpbmU9ImNlbnRyYWwiPkJCPC90ZXh0Pjwvc3ZnPg==\",\n  \"logoUrl\": null,\n  \"primaryColor\": \"#476B76\",\n  \"secondaryColor\": \"#C19096\",\n  \"tagline\": \"Serving you, one chat at a time\"\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-3-5p1lfq",
+          "title": "Approve"
+        },
+        {
+          "id": "onb_edit:p-3-5p1lfq",
+          "title": "Edit"
+        },
+        {
+          "id": "onb_reject:p-3-5p1lfq",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001044",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791202980,
+      "kind": "interactive",
+      "body": "Suggested integrations: twenty\n\n{\n  \"providers\": [\n    {\n      \"provider\": \"twenty\",\n      \"reason\": \"CRM to track customer conversations and follow-ups\"\n    }\n  ],\n  \"summary\": \"Suggested integrations: twenty\"\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-4-nl1mb5",
+          "title": "Approve"
+        },
+        {
+          "id": "onb_edit:p-4-nl1mb5",
+          "title": "Edit"
+        },
+        {
+          "id": "onb_reject:p-4-nl1mb5",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Sim User 2267",
+      "inboundId": "wamid.sim.in.btn.00569",
+      "at": 1789791203444,
+      "kind": "button_reply",
+      "text": "Approve",
+      "payloadId": "onb_approve:p-1-49ouwp"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001045",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791203526,
+      "kind": "text",
+      "body": "Approved the waMenu proposal."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Sim User 2267",
+      "inboundId": "wamid.sim.in.btn.00570",
+      "at": 1789791203972,
+      "kind": "button_reply",
+      "text": "Approve",
+      "payloadId": "onb_approve:p-2-mk8sjh"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001046",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791203986,
+      "kind": "text",
+      "body": "Approved the useCases proposal."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Sim User 2267",
+      "inboundId": "wamid.sim.in.btn.00571",
+      "at": 1789791204519,
+      "kind": "button_reply",
+      "text": "Approve",
+      "payloadId": "onb_approve:p-3-5p1lfq"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001047",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791204532,
+      "kind": "text",
+      "body": "Approved the branding proposal."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Sim User 2267",
+      "inboundId": "wamid.sim.in.btn.00572",
+      "at": 1789791205065,
+      "kind": "button_reply",
+      "text": "Approve",
+      "payloadId": "onb_approve:p-4-nl1mb5"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001048",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205157,
+      "kind": "text",
+      "body": "Approved the integrations proposal."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001049",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205157,
+      "kind": "text",
+      "body": "Applied: WhatsApp menu for Bola's Beads: greeting + top use cases"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001050",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205158,
+      "kind": "text",
+      "body": "Applied: Suggested use cases: shop, track, handoff"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001051",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205158,
+      "kind": "text",
+      "body": "Applied: Brand kit for Bola's Beads"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001052",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205158,
+      "kind": "text",
+      "body": "Applied: Suggested integrations: twenty"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001053",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205159,
+      "kind": "text",
+      "body": "Could not update the WhatsApp profile: photo."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001054",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205159,
+      "kind": "text",
+      "body": "I couldn't reach your WhatsApp phone number with the token on file. Please re-paste your WhatsApp access token and phone number ID from Meta Business Settings → WhatsApp → API Setup."
+    },
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Sim User 2267",
+      "inboundId": "wamid.sim.in.text.00573",
+      "at": 1789791205613,
+      "kind": "text",
+      "text": "phone number id is 109000123457457 token is EAAj457prospecttoken0123456789"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001055",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205643,
+      "kind": "text",
+      "body": "Got it — credentials updated. Re-running the checks…"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001056",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205643,
+      "kind": "text",
+      "body": "🎉 All validation checks passed! One last step: approve go-live to switch your WhatsApp assistant on for customers (or reply \"go live\")."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001057",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791205644,
+      "kind": "interactive",
+      "body": "All 1 validation check(s) passed — go live\n\n{\n  \"checks\": [\n    {\n      \"check\": \"whatsapp\",\n      \"ok\": true\n    }\n  ],\n  \"validatedAt\": \"2026-09-19T04:13:25.641Z\"\n}",
+      "buttons": [
+        {
+          "id": "onb_approve:p-5-aj9qi4",
+          "title": "Approve"
+        },
+        {
+          "id": "onb_edit:p-5-aj9qi4",
+          "title": "Edit"
+        },
+        {
+          "id": "onb_reject:p-5-aj9qi4",
+          "title": "Reject"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348016572267",
+      "profileName": "Sim User 2267",
+      "inboundId": "wamid.sim.in.btn.00574",
+      "at": 1789791206174,
+      "kind": "button_reply",
+      "text": "Approve",
+      "payloadId": "onb_approve:p-5-aj9qi4"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001058",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791206895,
+      "kind": "text",
+      "body": "Approved the goLive proposal."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001059",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791206895,
+      "kind": "text",
+      "body": "🔐 Your secure portal login link (valid 24 hours, opens only after a code sent to this phone): http://localhost:4173/portal/login#token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0eXBlIjoicG9ydGFsX2ludml0ZSIsImp0aSI6IjUzYzE2ZDVlLTVjOGEtNDdkYS04NjEyLWRmODkzZGY2MzZlOCIsInRlbmFudElkIjoiYjBhYjQwMDQtMzYwNy00ZGRjLTkzMzItNjE3N2E1MjNlYmYzIiwidGVuYW50TmFtZSI6IkJvbGEncyBCZWFkcyIsImlzc3VlZEJ5IjoiYm9vdHN0cmFwOjczIiwiYm91bmRQaG9uZSI6IisyMzQ4MDE2NTcyMjY3IiwiaWF0IjoxNzg5NzkxMjA2LCJleHAiOjE3ODk4Nzc2MDZ9.R7M9oyrOEYHgTjwim4W2FxEbW8EKhSicPb7iDSZcZ5Y"
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001060",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791206895,
+      "kind": "text",
+      "body": "🎉 You're LIVE! Your customers can now message your business on WhatsApp."
+    },
+    {
+      "dir": "out",
+      "phone": "2348016572267",
+      "wamid": "wamid.sim.001061",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791206897,
+      "kind": "text",
+      "body": "🎉 Congratulations — your store is live!\n\nNext steps:\n1. Connect your own WhatsApp number via embedded signup: http://localhost:4173/settings/whatsapp\n2. We've sent you a secure login link for your admin portal — it works only with a verification code sent to THIS phone, so keep this number active.\n\nWelcome aboard! 🚀"
+    }
+  ]
+}

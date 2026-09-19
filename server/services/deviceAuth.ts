@@ -20,15 +20,93 @@
  *      a governed path back.
  *
  * Devices are keyed by a CLIENT-SUPPLIED fingerprint hash (never raw
- * identifiers). Logins without a deviceHash keep the legacy behavior
- * (documented gap: old clients).
+ * identifiers).
+ *
+ * === W47 crosscutting (ONB-ID-1) — mandatory second-factor policy ======
+ * Pre-W47 gaps: (a) accounts with NO email got zero second factor (the common
+ * WhatsApp-first SMB case — SIM-swap = full takeover), and (b) clients that
+ * omit deviceHash silently kept legacy behavior even for email accounts.
+ *
+ * Policy is env-driven (see env.example.txt):
+ *   DEVICE_FACTOR_POLICY=required (DEFAULT, fail-closed)
+ *     - login without deviceHash for a KNOWN account → rejected (client must
+ *       send a fingerprint);
+ *     - unknown device + email on file → held behind the email OTP (W46);
+ *     - unknown device + NO email → held behind a COOLING-OFF challenge
+ *       (purpose "device_cooloff"): the login completes only after
+ *       DEVICE_COOLOFF_MINUTES (default 1440 = 24h) have elapsed, the owner
+ *       is notified on the existing channel, and the hold is audit-logged.
+ *       Platform-admin step-up (adminResetDevices) remains the governed
+ *       recovery for a user who lost both factors.
+ *   DEVICE_FACTOR_POLICY=legacy
+ *     - exact pre-W47 behavior (email+deviceHash opt-in only). Intended as a
+ *       short-lived rollout escape hatch, not a steady state.
+ * === END W47 crosscutting ===
  */
 import { and, eq } from "drizzle-orm";
 import { createHash, randomUUID } from "crypto";
 import { authKnownDevices, phoneOtpSessions, users } from "../../drizzle/schema";
 
 export const DEVICE_OTP_PURPOSE = "device_email";
+// === W47 crosscutting (ONB-ID-1): cooling-off second factor for accounts
+// with no email on file (phone-only WhatsApp-first accounts). ===
+export const DEVICE_COOLOFF_PURPOSE = "device_cooloff";
 const DEVICE_CHALLENGE_TTL_MS = 10 * 60 * 1000;
+
+export type DeviceFactorPolicy = "required" | "legacy";
+
+/**
+ * Second-factor policy (env DEVICE_FACTOR_POLICY). DEFAULT IS "required"
+ * (fail-closed): the legacy bypass must be opted INTO explicitly.
+ */
+export function deviceFactorPolicy(env: NodeJS.ProcessEnv = process.env): DeviceFactorPolicy {
+  return (env.DEVICE_FACTOR_POLICY ?? "").trim().toLowerCase() === "legacy" ? "legacy" : "required";
+}
+
+/** Cooling-off window for no-email accounts (minutes; default 24h). */
+export function deviceCooloffMinutes(env: NodeJS.ProcessEnv = process.env): number {
+  const v = parseInt(env.DEVICE_COOLOFF_MINUTES ?? "", 10);
+  return Number.isFinite(v) && v >= 0 ? v : 24 * 60;
+}
+
+/**
+ * Issue a COOLING-OFF challenge for a phone-only account logging in from an
+ * unknown device: the held login matures after DEVICE_COOLOFF_MINUTES, giving
+ * the real owner a window to react to the anomaly notification. Returns the
+ * challenge sessionId and the earliest completion time.
+ */
+export async function issueCooloffChallenge(
+  db: any,
+  opts: { userId: number; phone: string },
+): Promise<{ sessionId: string; maturesAt: Date }> {
+  const sessionId = randomUUID();
+  const now = new Date();
+  const maturesAt = new Date(now.getTime() + deviceCooloffMinutes() * 60_000);
+  // ONB-ID-4: atomic upsert on the (phone,purpose) unique backstop.
+  await db.insert(phoneOtpSessions).values({
+    id: sessionId,
+    phone: opts.phone,
+    // No code to guess — the challenge is time-gated. A random unguessable
+    // hash keeps the not-null otp_hash column satisfied without semantics.
+    otpHash: `cooloff:${randomUUID()}`,
+    attempts: 0,
+    expiresAt: maturesAt, // reused as the MATURITY timestamp for this purpose
+    createdAt: now,
+    purpose: DEVICE_COOLOFF_PURPOSE,
+    userId: opts.userId,
+  }).onConflictDoUpdate({
+    target: [phoneOtpSessions.phone, phoneOtpSessions.purpose],
+    set: {
+      id: sessionId,
+      otpHash: `cooloff:${randomUUID()}`,
+      attempts: 0,
+      expiresAt: maturesAt,
+      createdAt: now,
+      userId: opts.userId,
+    },
+  });
+  return { sessionId, maturesAt };
+}
 
 /** Stable hash of a client device fingerprint (SHA-256, hex). */
 export function hashDeviceFingerprint(raw: string): string {
@@ -89,19 +167,30 @@ export async function issueDeviceChallenge(
   const { generateOtp, hashOtp } = await import("../routers/phoneAuth");
   const { sendOtpEmail } = await import("./email/resend");
   const otp = generateOtp();
+  const otpHash = hashOtp(otp);
   const sessionId = randomUUID();
   const now = new Date();
-  await db.delete(phoneOtpSessions)
-    .where(and(eq(phoneOtpSessions.phone, opts.phone), eq(phoneOtpSessions.purpose, DEVICE_OTP_PURPOSE)));
+  // W47 crosscutting (ONB-ID-4): atomic upsert on the (phone,purpose) unique
+  // backstop instead of delete+insert.
   await db.insert(phoneOtpSessions).values({
     id: sessionId,
     phone: opts.phone,
-    otpHash: hashOtp(otp),
+    otpHash,
     attempts: 0,
     expiresAt: new Date(now.getTime() + DEVICE_CHALLENGE_TTL_MS),
     createdAt: now,
     purpose: DEVICE_OTP_PURPOSE,
     userId: opts.userId,
+  }).onConflictDoUpdate({
+    target: [phoneOtpSessions.phone, phoneOtpSessions.purpose],
+    set: {
+      id: sessionId,
+      otpHash,
+      attempts: 0,
+      expiresAt: new Date(now.getTime() + DEVICE_CHALLENGE_TTL_MS),
+      createdAt: now,
+      userId: opts.userId,
+    },
   });
   await sendOtpEmail(opts.email, otp, "login");
   return sessionId;
@@ -138,8 +227,10 @@ export async function notifyOwnerNewDevice(
 
 export interface VerifyDeviceChallengeResult {
   ok: boolean;
-  reason?: "not_found" | "expired" | "too_many_attempts" | "invalid";
+  reason?: "not_found" | "expired" | "too_many_attempts" | "invalid" | "cooling_off"; // W47 ONB-ID-1
   attemptsRemaining?: number;
+  /** Cooling-off challenges: earliest completion time. */
+  maturesAt?: Date;
 }
 
 /**
@@ -154,8 +245,24 @@ export async function verifyDeviceChallenge(
   const { verifyOtpHash } = await import("../routers/phoneAuth");
   const [session] = await db.select().from(phoneOtpSessions)
     .where(eq(phoneOtpSessions.id, opts.sessionId)).limit(1);
-  if (!session || session.purpose !== DEVICE_OTP_PURPOSE) return { ok: false, reason: "not_found" };
+  if (!session || (session.purpose !== DEVICE_OTP_PURPOSE && session.purpose !== DEVICE_COOLOFF_PURPOSE)) {
+    return { ok: false, reason: "not_found" };
+  }
   const now = new Date();
+  // === W47 crosscutting (ONB-ID-1): cooling-off challenge (no-email
+  // accounts) — the held login MATURES at expiresAt; before that it refuses.
+  // There is no OTP to verify: the otp input is ignored for this purpose. ===
+  if (session.purpose === DEVICE_COOLOFF_PURPOSE) {
+    if (session.expiresAt > now) {
+      return { ok: false, reason: "cooling_off", maturesAt: session.expiresAt };
+    }
+    await db.delete(phoneOtpSessions).where(eq(phoneOtpSessions.id, session.id));
+    if (session.userId != null) {
+      await rememberDevice(db, { userId: session.userId, deviceHash: opts.deviceHash, label: opts.label });
+    }
+    return { ok: true };
+  }
+  // === END W47 crosscutting ===
   if (session.expiresAt < now) {
     await db.delete(phoneOtpSessions).where(eq(phoneOtpSessions.id, session.id));
     return { ok: false, reason: "expired" };

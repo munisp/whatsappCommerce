@@ -57,13 +57,22 @@ export const journey: Journey = {
       // W30 merge: tenantInvite.create requires a uuid tenant id — mint a
       // fresh tenant (the seed TENANT_ID "sim-tenant" is not a uuid).
       const inviteTenantId = (await admin.onboarding.start({ name: "J176 Invite Tenant" })).tenantId;
+      // === W47 stakeholders === ONB-S-4: invites are phone-bound — seed an
+      // admin phone and redeem with a phone-identity proof.
+      const schema176 = await import("../../drizzle/schema");
+      const { eq: eq176 } = await import("drizzle-orm");
+      const jwt176 = (await import("jsonwebtoken")).default;
+      const { ENV: ENV176 } = await import("../../server/_core/env");
+      await world.db.update(schema176.tenants).set({ settings: { adminPhone: "+2348050000176" } }).where(eq176(schema176.tenants.id, inviteTenantId));
       const invite = await admin.tenantInvite.create({ tenantId: inviteTenantId });
+      const proof176 = jwt176.sign({ type: "phone_identity", phone: "+2348050000176" }, ENV176.jwtSecret, { expiresIn: "15m" });
+      // === END W47 stakeholders ===
       const ttlHours = (new Date(invite.expiresAt).getTime() - Date.now()) / 3_600_000;
       assert(ttlHours <= 24 && ttlHours > 23, `invite TTL ≤ 24h (got ${ttlHours.toFixed(2)}h)`);
-      const first = await pub.tenantInvite.validate({ token: invite.token });
+      const first = await pub.tenantInvite.validate({ token: invite.token, identityProof: proof176 });
       assert(first.valid === true, "first validation succeeds");
       assert(first.sessionToken, "session minted on first use");
-      const second = await pub.tenantInvite.validate({ token: invite.token });
+      const second = await pub.tenantInvite.validate({ token: invite.token, identityProof: proof176 });
       assert(second.valid === false, "second validation rejected — link is single-use");
     }
 
