@@ -393,7 +393,10 @@ describe("multi-tenant isolation: escrow", () => {
 
   // Positive controls: the same procedures work for the owning tenant/admin.
   it("control: Tenant B merchant can confirm delivery on their own escrow", async () => {
-    const updated = await callerB.escrow.confirmDelivery({ escrowId: escrowB.id });
+    // W47 (ONB-S-6/S-7): TENANT_B has staff rows, so the capability map is
+    // authoritative — the control caller is the OWNER member (id 102), not a
+    // bare users.tenantId shortcut.
+    const updated = await callerOwnerB.escrow.confirmDelivery({ escrowId: escrowB.id });
     expect(updated.state).toBe("delivery_confirmed");
   });
 

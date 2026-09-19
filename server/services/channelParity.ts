@@ -130,6 +130,9 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   { id: "customer_statement",  description: "UC-12 per-customer statement of account document", telegram: "full", notes: "PDF chat document: telegram sendDocument via channelSender media (buffer upload); WA document push via the existing waSender media path (link) — same as the annual_statement category." },
   { id: "proforma_invoice",    description: "UC-19 proforma invoice / quotation document", telegram: "full", notes: "PDF chat document on both channels via ucDocsPdf.sendChatDocument (notifyCustomer media route → telegram sendDocument; waSender document fallback). Convert-to-order confirm rides plain-text/keyboard notices." },
   { id: "agent_commission",    description: "UC-20 agent commission statement document + payout notice", telegram: "full", notes: "PDF chat document to the agent's phone on both channels via ucDocsPdf.sendChatDocument; payout rides the customer-wallet rail (creditWallet 'agent_commission') with a plain-text paid notice." },
+  // === W47 stakeholders === ONB-S-16: secondary-role status notices ===
+  { id: "staff_membership",    description: "Staff invite/add/remove + rider approval notices to secondary stakeholders", telegram: "full", notes: "Plain-text notices via sendCustomerText on BOTH channels; phone-bound invite acceptance and rider updates use phone_identity proofs." },
+  // === END W47 stakeholders ===
   // === END W46 uc-docs ===
   // === W46 uc-ux (Coder E): UC-17/21/23/24 (additive; J246 subset semantics) ===
   { id: "venue_order",        description: "Venue-table QR order notices (kitchen board confirmation to buyer)", telegram: "full", notes: "TABLE:<token> deep-link grammar is identical on both channels via the shared nlp engine; notices via sendCustomerText." },

@@ -92,6 +92,15 @@ export const journey: Journey = {
         defaultCurrency: "NGN",
         defaultLanguage: "en",
         settings: {
+          // W47 MERGER: ONB-M-5 intake gate — the journey drives the consent/
+          // menu surface directly, so the seeded tenant starts live.
+          onboarding: {
+            status: "live",
+            reasons: [],
+            completedSteps: ["whatsapp", "useCases", "integrations", "branding", "payout"],
+            validationPassed: true,
+            validatedAt: new Date().toISOString(),
+              }, 
           plan: { tier: "growth", limits: { messagesPerMonth: 1000, ordersPerMonth: 1000 } },
           adminPhone: "2348099922222",
         },

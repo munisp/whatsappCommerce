@@ -1,0 +1,61 @@
+{
+  "id": "J441",
+  "title": "ONB-B-5/B-13 consent proofWamid + policy registry + withdrawn-aware hasConsent",
+  "feature": "W47 buyer consent evidence",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348018526833",
+      "profileName": "Sim User 6833",
+      "inboundId": "wamid.j441-1789791192158-hello",
+      "at": 1789791192186,
+      "kind": "text",
+      "text": "hello"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.j441-1789791192158-hello",
+      "at": 1789791192195
+    },
+    {
+      "dir": "out",
+      "phone": "2348018526833",
+      "wamid": "wamid.sim.001036",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791192205,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348018526833",
+      "profileName": "Sim User 6833",
+      "inboundId": "wamid.j441-1789791192158",
+      "at": 1789791192704,
+      "kind": "text",
+      "text": "YES"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.j441-1789791192158",
+      "at": 1789791192723
+    },
+    {
+      "dir": "out",
+      "phone": "2348018526833",
+      "wamid": "wamid.sim.001037",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791192740,
+      "kind": "text",
+      "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
+    }
+  ]
+}

@@ -26,7 +26,7 @@ import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 
 import jwt from "jsonwebtoken";
 import { TRPCError } from "@trpc/server";
 import { ENV, isProd } from "../_core/env";
-import { sendOtpEmail } from "../services/email/resend";
+import { notifyOtpRequestedEmail } from "../services/email/resend"; // W47 ONB-TOK-3: notification-only, never the code
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -258,38 +258,49 @@ export const phoneAuthRouter = router({
         });
       }
 
-      // Delete any old sessions for this phone
-      await db
-        .delete(phoneOtpSessions)
-        .where(and(eq(phoneOtpSessions.phone, phone), eq(phoneOtpSessions.purpose, input.purpose)));
-
-      // Generate and store OTP
+      // Generate and store OTP.
+      // === W47 crosscutting (ONB-ID-4): unique (phone,purpose) backstop (mig
+      // 0169) + atomic UPSERT — concurrent sendOtp calls can no longer yield
+      // multiple live sessions (each with its own 3 attempts). The winner's
+      // row is replaced, not duplicated. ===
       const otp = generateOtp();
+      const otpHash = hashOtp(otp);
       const sessionId = randomUUID();
 
       await db.insert(phoneOtpSessions).values({
         id: sessionId,
         phone,
-        otpHash: hashOtp(otp),
+        otpHash,
         attempts: 0,
         expiresAt: new Date(expiresAt),
         createdAt: new Date(now),
         purpose: input.purpose,
+      }).onConflictDoUpdate({
+        target: [phoneOtpSessions.phone, phoneOtpSessions.purpose],
+        set: {
+          id: sessionId,
+          otpHash,
+          attempts: 0,
+          expiresAt: new Date(expiresAt),
+          createdAt: new Date(now),
+        },
       });
+      // === END W47 crosscutting ===
 
       // Send OTP via WhatsApp
       await sendWhatsAppOtp(phone, otp);
 
-      // Best-effort second channel: if this phone belongs to a known user
-      // with an email on file, also email the code. Never blocks or fails
-      // the request — same phone is already required to use the code, so
-      // this adds no new attack surface.
+      // === W47 crosscutting (ONB-TOK-3): the login/verify OTP is NO LONGER
+      // mirrored to email — the same code in a second channel meant email
+      // compromise alone sufficed for login, contradicting the deviceAuth
+      // independent-channel model. The user gets a NOTIFICATION (no code). ===
       const [existingUser] = await db.select({ email: users.email }).from(users).where(eq(users.phone, phone)).limit(1);
       if (existingUser?.email) {
-        sendOtpEmail(existingUser.email, otp, input.purpose).catch(err =>
-          console.warn("[phoneAuth] OTP email failed", err)
+        notifyOtpRequestedEmail(existingUser.email, input.purpose).catch(err =>
+          console.warn("[phoneAuth] OTP notification email failed", err)
         );
       }
+      // === END W47 crosscutting ===
 
       return { sessionId, expiresAt };
     }),
@@ -366,8 +377,51 @@ export const phoneAuthRouter = router({
       // OTP is valid — clean up session
       await db.delete(phoneOtpSessions).where(eq(phoneOtpSessions.id, input.sessionId));
 
+      // === W47 merchant === ONB-M-12: auto-claim pending phone-bound staff
+      // invites on first OTP login/verify (invite = pending membership keyed
+      // by phone). Best-effort; never blocks login.
+      try {
+        let claimUserId = session.userId ?? null;
+        if (!claimUserId && session.purpose === "login") {
+          const [acct] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.phone, session.phone))
+            .limit(1);
+          claimUserId = acct?.id ?? null;
+        }
+        if (claimUserId) {
+          const { claimStaffInvitesForPhone } = await import("./onboardingStaff");
+          const { claimed } = await claimStaffInvitesForPhone(claimUserId, session.phone);
+          if (claimed.length) {
+            console.info(`[phoneAuth] claimed ${claimed.length} staff invite(s) for user ${claimUserId}`);
+          }
+        }
+      } catch (e: any) {
+        console.warn("[phoneAuth] staff-invite claim failed (non-blocking):", e?.message);
+      }
+      // === END W47 merchant ===
+
       // If this session is linked to a user (verify purpose), mark phone as verified
       if (session.userId) {
+        // === W47 stakeholders === ONB-S-14: conflict-safe verify. Never
+        // blind-overwrite a phone another user already owns — the canonical
+        // owner is the LOWEST users.id; a collision is refused honestly so
+        // support can merge instead of two rows claiming one number.
+        const conflicts = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.phone, session.phone))
+          .orderBy(users.id)
+          .limit(2);
+        const other = conflicts.find((r) => r.id !== session.userId);
+        if (other) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "This phone number is already verified on another account. Contact support to merge accounts.",
+          });
+        }
+        // === END W47 stakeholders ===
         await db
           .update(users)
           .set({ phoneVerified: true, phone: session.phone })
@@ -380,35 +434,100 @@ export const phoneAuthRouter = router({
       // when the device is unknown (SIM-swap defense — the WhatsApp OTP
       // alone proves only number possession). The login is HELD (no
       // verified result) until verifyDeviceFactor succeeds.
-      if (session.purpose === "login" && input.deviceHash) {
+      //
+      // === W47 crosscutting (ONB-ID-1): mandatory policy ================
+      // DEVICE_FACTOR_POLICY=required (default, fail-closed):
+      //   - known account + NO deviceHash → PRECONDITION_FAILED (old clients
+      //     must upgrade; the silent bypass is closed);
+      //   - unknown device + email → W46 email challenge;
+      //   - unknown device + NO email → cooling-off hold (time-gated, owner
+      //     notified, audit-logged) instead of zero second factor.
+      // DEVICE_FACTOR_POLICY=legacy restores the pre-W47 opt-in behavior.
+      if (session.purpose === "login") {
         const [acct] = await db
           .select({ id: users.id, email: users.email })
           .from(users)
           .where(eq(users.phone, session.phone))
+          // W47 ONB-S-14: deterministic canonical resolution (lowest id) —
+          // never "whichever row sorts first".
+          .orderBy(users.id)
           .limit(1);
-        if (acct?.email) {
-          const { isKnownDevice, issueDeviceChallenge, notifyOwnerNewDevice, rememberDevice } =
-            await import("../services/deviceAuth");
-          const known = await isKnownDevice(db, acct.id, input.deviceHash);
-          if (!known) {
-            const deviceSessionId = await issueDeviceChallenge(db, {
-              userId: acct.id,
-              phone: session.phone,
-              email: acct.email,
+        if (acct) {
+          const {
+            deviceFactorPolicy, isKnownDevice, issueDeviceChallenge, issueCooloffChallenge,
+            notifyOwnerNewDevice, rememberDevice,
+          } = await import("../services/deviceAuth");
+          const policy = deviceFactorPolicy();
+          if (policy === "required" && !input.deviceHash) {
+            const { writeAuditLog } = await import("./audit");
+            await writeAuditLog({
+              actorId: String(acct.id),
+              actorRole: "user",
+              action: "phoneAuth.login_no_devicehash_refused",
+              entityType: "users",
+              entityId: String(acct.id),
+              summary: "login refused: deviceHash required by DEVICE_FACTOR_POLICY=required",
+            }).catch(() => {});
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "This login requires a device fingerprint (deviceHash). Please update your client and try again.",
             });
-            await notifyOwnerNewDevice(db, { userId: acct.id, deviceHash: input.deviceHash });
-            console.info(`[phoneAuth] TEN-20 new-device login held for email factor: user=${acct.id}`);
-            return {
-              verified: false,
-              deviceFactorRequired: true,
-              deviceSessionId,
-              phone: session.phone,
-              purpose: session.purpose,
-              userId: acct.id,
-            };
           }
-          // Known device: refresh lastSeen (best-effort).
-          await rememberDevice(db, { userId: acct.id, deviceHash: input.deviceHash, label: input.deviceLabel });
+          if (input.deviceHash && (policy === "required" || acct.email)) {
+            const known = await isKnownDevice(db, acct.id, input.deviceHash);
+            if (!known) {
+              const { writeAuditLog } = await import("./audit");
+              if (acct.email) {
+                const deviceSessionId = await issueDeviceChallenge(db, {
+                  userId: acct.id,
+                  phone: session.phone,
+                  email: acct.email,
+                });
+                await notifyOwnerNewDevice(db, { userId: acct.id, deviceHash: input.deviceHash });
+                await writeAuditLog({
+                  actorId: String(acct.id), actorRole: "user",
+                  action: "phoneAuth.login_held_email_factor",
+                  entityType: "users", entityId: String(acct.id),
+                  summary: "new-device login held behind the email second factor",
+                }).catch(() => {});
+                console.info(`[phoneAuth] TEN-20 new-device login held for email factor: user=${acct.id}`);
+                return {
+                  verified: false,
+                  deviceFactorRequired: true,
+                  deviceFactor: "email",
+                  deviceSessionId,
+                  phone: session.phone,
+                  purpose: session.purpose,
+                  userId: acct.id,
+                };
+              }
+              // ONB-ID-1: NO-email account — cooling-off hold (the login
+              // matures after DEVICE_COOLOFF_MINUTES via verifyDeviceFactor).
+              const cool = await issueCooloffChallenge(db, { userId: acct.id, phone: session.phone });
+              await notifyOwnerNewDevice(db, { userId: acct.id, deviceHash: input.deviceHash });
+              await writeAuditLog({
+                actorId: String(acct.id), actorRole: "user",
+                action: "phoneAuth.login_held_cooloff",
+                entityType: "users", entityId: String(acct.id),
+                summary: `new-device login on a no-email account held behind a cooling-off window until ${cool.maturesAt.toISOString()}`,
+                after: { maturesAt: cool.maturesAt.toISOString() },
+              }).catch(() => {});
+              console.info(`[phoneAuth] ONB-ID-1 new-device login held for cooling-off: user=${acct.id}`);
+              return {
+                verified: false,
+                deviceFactorRequired: true,
+                deviceFactor: "cooloff",
+                deviceSessionId: cool.sessionId,
+                cooloffMaturesAt: cool.maturesAt.toISOString(),
+                phone: session.phone,
+                purpose: session.purpose,
+                userId: acct.id,
+              };
+            }
+            // Known device: refresh lastSeen (best-effort).
+            await rememberDevice(db, { userId: acct.id, deviceHash: input.deviceHash, label: input.deviceLabel });
+          }
         }
       }
       // === END W46 privacy-consent ===
@@ -456,7 +575,11 @@ export const phoneAuthRouter = router({
       });
       if (!result.ok) {
         const code = result.reason === "not_found" ? "NOT_FOUND" : "UNAUTHORIZED";
-        throw new TRPCError({ code, message: `Device verification failed (${result.reason}).` });
+        // W47 (ONB-ID-1): cooling-off holds are honest about WHEN they mature.
+        const message = result.reason === "cooling_off"
+          ? `This new device is in a security cooling-off window until ${result.maturesAt?.toISOString() ?? "later"}. Try again after that time, or ask an admin to verify you.`
+          : `Device verification failed (${result.reason}).`;
+        throw new TRPCError({ code, message });
       }
       return { verified: true };
     }),
@@ -529,32 +652,44 @@ export const phoneAuthRouter = router({
       const now = Date.now();
       const expiresAt = now + 10 * 60 * 1000;
 
-      // Delete any old verify sessions for this user
-      await db
-        .delete(phoneOtpSessions)
-        .where(and(eq(phoneOtpSessions.phone, phone), eq(phoneOtpSessions.purpose, "verify")));
-
+      // === W47 crosscutting (ONB-ID-4): atomic upsert on (phone,purpose). ===
       const otp = generateOtp();
+      const otpHash = hashOtp(otp);
       const sessionId = randomUUID();
 
       await db.insert(phoneOtpSessions).values({
         id: sessionId,
         phone,
-        otpHash: hashOtp(otp),
+        otpHash,
         attempts: 0,
         expiresAt: new Date(expiresAt),
         createdAt: new Date(now),
         purpose: "verify",
         userId: ctx.user.id,
+      }).onConflictDoUpdate({
+        target: [phoneOtpSessions.phone, phoneOtpSessions.purpose],
+        set: {
+          id: sessionId,
+          otpHash,
+          attempts: 0,
+          expiresAt: new Date(expiresAt),
+          createdAt: new Date(now),
+          userId: ctx.user.id,
+        },
       });
+      // === END W47 crosscutting ===
 
       await sendWhatsAppOtp(phone, otp);
 
+      // === W47 crosscutting (ONB-TOK-3): email gets a NOTIFICATION, never
+      // the code — email compromise alone must not suffice to pass a phone
+      // challenge (see sendOtp). ===
       if (ctx.user.email) {
-        sendOtpEmail(ctx.user.email, otp, "verify").catch(err =>
-          console.warn("[phoneAuth] OTP email failed", err)
+        notifyOtpRequestedEmail(ctx.user.email, "verify").catch(err =>
+          console.warn("[phoneAuth] OTP notification email failed", err)
         );
       }
+      // === END W47 crosscutting ===
 
       return { sessionId, expiresAt };
     }),

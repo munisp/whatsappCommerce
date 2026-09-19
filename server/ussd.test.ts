@@ -111,11 +111,10 @@ describe("handleUssdRequest", () => {
   it("track selection returns an END reply with tracking links", async () => {
     selectQueue = [[TENANT], [], []];
     await handleUssdRequest({ ...BASE, text: "" }); // open menu session
-    selectQueue = [
-      [TENANT],
-      [{ id: "cust-1", tenantId: TENANT.id, whatsappPhone: PHONE }],
-      [{ id: "order-9", orderNumber: "ORD-009", status: "shipped", totalAmount: "2000.00", currency: "NGN" }],
-    ];
+    const cust = { id: "cust-1", tenantId: TENANT.id, whatsappPhone: PHONE, updatedAt: new Date() };
+    const ord = { id: "order-9", orderNumber: "ORD-009", status: "shipped", totalAmount: "2000.00", currency: "NGN" };
+    // W47 (ONB-B-2): identity gate consumes the first customer+orders pair.
+    selectQueue = [[TENANT], [cust], [ord], [cust], [ord]];
     const reply = await handleUssdRequest({ ...BASE, text: "2" });
     expect(reply).toMatch(/^END /);
     expect(reply).toContain("ORD-009");

@@ -36,6 +36,8 @@ import {
   type OnboardingCopilotApi,
   type CopilotReply,
 } from "./services/waOnboarding";
+// W47 (ONB-ABU-1): throttle counter reset hook for test isolation.
+import { __resetIntakeCountersForTest } from "./services/intakeThrottle";
 
 const ONB_PNID = "pn-onboarding-1";
 const ONB_TOKEN = "onb-token-xyz";
@@ -73,6 +75,8 @@ const buttonMsg = (id: string) => ({ type: "interactive", interactive: { button_
 
 beforeEach(() => {
   pendingEditProposals.clear();
+  // W47 (ONB-ABU-1): reset the intake throttle's in-memory fallback counters.
+  __resetIntakeCountersForTest();
 });
 
 afterEach(() => {

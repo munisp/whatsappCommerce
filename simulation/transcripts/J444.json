@@ -1,0 +1,35 @@
+{
+  "id": "J444",
+  "title": "ONB-B-8 chat erasure coverage + clean re-onboarding",
+  "feature": "W47 buyer erasure",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348017571082",
+      "profileName": "Sim User 1082",
+      "inboundId": "wamid.sim.in.text.00566",
+      "at": 1789791195299,
+      "kind": "text",
+      "text": "hello again"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00566",
+      "at": 1789791195307
+    },
+    {
+      "dir": "out",
+      "phone": "2348017571082",
+      "wamid": "wamid.sim.001038",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791195318,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    }
+  ]
+}

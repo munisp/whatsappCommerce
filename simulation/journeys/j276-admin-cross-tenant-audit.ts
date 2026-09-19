@@ -50,6 +50,12 @@ export const journey: Journey = {
       `kyc.review audit has before/after status (got ${JSON.stringify(t2.before)} → ${JSON.stringify(t2.after)})`);
 
     // ── 3. Cross-tenant staff grant ──────────────────────────────────────
+    // === W47 stakeholders === ONB-S-2: direct adds require a REAL user row.
+    await world.db.insert(schema.users).values({
+      id: 9276, openId: "j276-staff", name: "J276 Staff", loginMethod: "keycloak",
+      role: "user", lastSignedIn: new Date(),
+    }).onConflictDoNothing();
+    // === END W47 stakeholders ===
     await admin.membership.add({ tenantId: SUPPLIER_TENANT_ID, userId: 9276, role: "analyst" });
     const t3 = await auditRow(world, "membership.add", SUPPLIER_TENANT_ID);
     assert(t3, "membership.add audit row written");

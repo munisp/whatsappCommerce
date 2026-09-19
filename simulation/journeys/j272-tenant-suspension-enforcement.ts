@@ -45,6 +45,17 @@ export const journey: Journey = {
       status: "active",
       whatsappPhoneNumberId: SUSP_PHONE_NUMBER_ID,
       whatsappBusinessAccountId: "waba_sim_w40_susp",
+      settings: {
+        // W47 MERGER: ONB-M-5 intake gate — seeded "active" tenants need the
+        // live onboarding marker to receive paid-order intake.
+        onboarding: {
+        status: "live",
+        reasons: [],
+        completedSteps: ["whatsapp", "useCases", "integrations", "branding", "payout"],
+        validationPassed: true,
+        validatedAt: new Date().toISOString(),
+        }, 
+      },
     });
 
     const caller = await tenantCaller(SUSP_TENANT, { userId: 2721 });
@@ -54,6 +65,10 @@ export const journey: Journey = {
     assert(Array.isArray(listed), "active tenant API call succeeds");
 
     const phoneActive = world.newPhone("j272a");
+    await world.inboundFor(SUSP_PHONE_NUMBER_ID, payloads.inbound.text(SUSP_PHONE_NUMBER_ID, phoneActive, "hello"));
+    // W47 (ONB-B-3): hoisted first-contact consent gate intercepts the first
+    // message before provisioning — answer YES, then provisioning happens.
+    await world.inboundFor(SUSP_PHONE_NUMBER_ID, payloads.inbound.text(SUSP_PHONE_NUMBER_ID, phoneActive, "YES"));
     await world.inboundFor(SUSP_PHONE_NUMBER_ID, payloads.inbound.text(SUSP_PHONE_NUMBER_ID, phoneActive, "hello"));
     assert((await customerCount(world, SUSP_TENANT, phoneActive)) === 1,
       "active tenant inbound provisions the contact");
@@ -88,6 +103,9 @@ export const journey: Journey = {
     assert(Array.isArray(listedAfter), "reactivated tenant API call succeeds");
 
     const phoneBack = world.newPhone("j272c");
+    await world.inboundFor(SUSP_PHONE_NUMBER_ID, payloads.inbound.text(SUSP_PHONE_NUMBER_ID, phoneBack, "hello"));
+    // W47 (ONB-B-3): first-contact consent gate — YES then a real message.
+    await world.inboundFor(SUSP_PHONE_NUMBER_ID, payloads.inbound.text(SUSP_PHONE_NUMBER_ID, phoneBack, "YES"));
     await world.inboundFor(SUSP_PHONE_NUMBER_ID, payloads.inbound.text(SUSP_PHONE_NUMBER_ID, phoneBack, "hello"));
     assert((await customerCount(world, SUSP_TENANT, phoneBack)) === 1,
       "reactivated tenant inbound is processed again");

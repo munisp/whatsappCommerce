@@ -123,6 +123,10 @@ export const journey: Journey = {
       // ── 6. Approve go-live → live message in pcm ─────────────────────────
       const goLive = s5!.proposals.find((p) => p.kind === "goLive" && p.status === "pending");
       assert(goLive, "goLive proposal pending");
+      // === W47 merchant === ONB-M-2: go-live is KYB-gated now (J428).
+      const { approveKyb } = await import("./helpers");
+      await approveKyb(world, s5!.tenantId!);
+      // === END W47 merchant ===
       await world.onboardingButtonReply(phoneYo, `onb_approve:${goLive!.id}`, "Approve");
       const s6 = await onboardingSessionById(s5!.id);
       assert(s6?.state === "live", `session live (got ${s6?.state})`);

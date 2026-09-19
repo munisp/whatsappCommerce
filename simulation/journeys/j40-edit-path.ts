@@ -107,6 +107,10 @@ export const journey: Journey = {
     assert(s4?.state === "validating", `validation passed after credential fix (got ${s4?.state})`);
     const goLive = s4.proposals.find((p) => p.kind === "goLive" && p.status === "pending");
     assert(goLive, "goLive proposal emitted");
+    // === W47 merchant === ONB-M-2: go-live is KYB-gated now (J428).
+    const { approveKyb } = await import("./helpers");
+    await approveKyb(world, s4.tenantId!);
+    // === END W47 merchant ===
     await world.onboardingButtonReply(phone, `onb_approve:${goLive!.id}`, "Approve");
     const s5 = await onboardingSessionById(s4.id);
     assert(s5?.state === "live", `edited setup goes live (got ${s5?.state})`);

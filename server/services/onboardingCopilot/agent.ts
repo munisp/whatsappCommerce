@@ -648,13 +648,17 @@ async function handleConfiguring(session: OnboardingSession, text: string): Prom
  * passed (enforced again inside the goLive tool — checkpoint).
  */
 export async function advanceToLive(session: OnboardingSession): Promise<CopilotReply[]> {
-  await executeCopilotTool("goLive", {}, session); // throws when validation hasn't passed
+  const out = await executeCopilotTool("goLive", {}, session); // throws when validation hasn't passed
   const pending = session.proposals.find((p) => p.kind === "goLive" && p.status === "pending");
   if (pending) pending.status = "approved";
   await transition(session, "live");
   const liveReply = t(sessionLanguage(session), "live");
   appendTranscript(session, "agent", liveReply);
-  return [{ type: "text", text: liveReply }];
+  // W47 crosscutting (ONB-SM-1): goLive emits the owner's phone-bound portal
+  // invite reply — deliver it alongside the live confirmation.
+  const extra = (out.replies ?? []).filter((r) => r.type === "text" && r.text);
+  for (const r of extra) appendTranscript(session, "agent", r.text!);
+  return [...extra, { type: "text", text: liveReply }];
 }
 
 /**

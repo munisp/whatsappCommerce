@@ -79,7 +79,7 @@ const T = "tenant-1";
 const P = "+2348012345678";
 const TENANT = { id: T, name: "Ada Stores", settings: null as any };
 const CONSENTED = [{ id: "c1", tenantId: T, phone: P, channel: "whatsapp", granted: true }];
-const CUSTOMER = { id: "cust-1", tenantId: T, whatsappPhone: P, name: "Amara" };
+const CUSTOMER = { id: "cust-1", tenantId: T, whatsappPhone: P, name: "Amara", updatedAt: new Date() }; // W47 (ONB-B-2): fresh activity so the recycled-number guard discloses
 const ORDER_PENDING = {
   id: "order-1", tenantId: T, customerId: "cust-1", orderNumber: "ORD-001",
   status: "pending", paymentStatus: "unpaid", totalAmount: "15000.00", currency: "NGN",
@@ -165,6 +165,8 @@ describe("interactive reply → menu selection mapping", () => {
   it("button_reply id menu_2 dispatches the track use case (same as typing 2)", async () => {
     const { db } = makeDb([
       CONSENTED,      // consent gate
+      [CUSTOMER],     // W47 (ONB-B-2) identity gate: customers by phone
+      [ORDER_PENDING],// identity gate: order-history probe
       [CUSTOMER],     // customers by phone
       [ORDER_PENDING],// recent orders
     ]);
@@ -178,7 +180,7 @@ describe("interactive reply → menu selection mapping", () => {
   });
 
   it("list_reply resolves by title when the id is not a menu_<n> id", async () => {
-    const { db } = makeDb([CONSENTED, [CUSTOMER], [ORDER_PENDING]]);
+    const { db } = makeDb([CONSENTED, [CUSTOMER], [ORDER_PENDING], [CUSTOMER], [ORDER_PENDING]]); // W47: identity gate consumes the first customer+orders pair
     await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
     const out = await handleInteractiveInbound({
       db, tenant: TENANT, tenantId: T, phone: P, replyId: "row_abc", replyTitle: "Track my order",

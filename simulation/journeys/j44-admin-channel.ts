@@ -87,6 +87,10 @@ export const journey: Journey = {
       );
 
       // ── Approve go-live → tenant live ────────────────────────────────────
+      // === W47 merchant === ONB-M-2: go-live is KYB-gated now (J428).
+      const { approveKyb } = await import("./helpers");
+      await approveKyb(world, session!.tenantId!);
+      // === END W47 merchant ===
       const goLiveDecision = await copilot.decideProposal({ sessionId, proposalId: goLive!.id, approve: true });
       assert(goLiveDecision.ok, "go-live approval accepted");
       assert(

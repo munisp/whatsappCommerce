@@ -1,0 +1,49 @@
+{
+  "id": "J459",
+  "title": "intake number per-phone abuse caps",
+  "feature": "ONB-ABU-1 intake metering + quota + tenant throttle",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348012496513",
+      "profileName": "Flood",
+      "inboundId": "wamid.sim.in.text.00575",
+      "at": 1789791207936,
+      "kind": "text",
+      "text": "hello"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012496513",
+      "wamid": "wamid.sim.001062",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791207951,
+      "kind": "text",
+      "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012496513",
+      "profileName": "Sim User 6513",
+      "inboundId": "wamid.sim.in.text.00576",
+      "at": 1789791208485,
+      "kind": "text",
+      "text": "restart"
+    },
+    {
+      "dir": "out",
+      "phone": "2348012496513",
+      "wamid": "wamid.sim.001063",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791208502,
+      "kind": "text",
+      "body": "You're messaging faster than I can keep up — please wait a little and try again. 🙏"
+    }
+  ]
+}

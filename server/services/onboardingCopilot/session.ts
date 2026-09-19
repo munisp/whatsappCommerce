@@ -16,9 +16,17 @@
  * - abandoned:   explicitly abandoned by the operator
  */
 import { randomUUID } from "crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "../../db";
 import { onboardingSessions } from "../../../drizzle/schema";
+
+// === W47 crosscutting (ONB-ID-2) ===
+/** True for a unique-violation on the active-(channel,phone) backstop. */
+function isActiveSessionConflict(e: unknown): boolean {
+  // drizzle wraps driver errors: the PG detail lives on e.cause.
+  const m = `${(e as any)?.message ?? ""} ${(e as any)?.cause?.message ?? ""} ${String(e)}`;
+  return /onboarding_sessions_active_phone_uniq|duplicate key/i.test(m);
+}
 
 export const COPILOT_STATES = [
   "intake",
@@ -134,12 +142,15 @@ export function rowToSession(row: Row): OnboardingSession {
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 
-export async function createSessionRow(args: {
-  channel: CopilotChannel;
-  tenantId?: string | null;
-  phone?: string | null;
-}): Promise<OnboardingSession> {
-  const db = await getDb();
+export async function createSessionRow(
+  args: {
+    channel: CopilotChannel;
+    tenantId?: string | null;
+    phone?: string | null;
+  },
+  dbOverride?: any,
+): Promise<OnboardingSession> {
+  const db = dbOverride ?? (await getDb());
   if (!db) throw new Error("Database unavailable");
   const [row] = await db
     .insert(onboardingSessions)
@@ -208,21 +219,66 @@ export async function findActiveSessionRowByPhone(phone: string): Promise<Onboar
  * Supersede every non-terminal whatsapp session for a phone (C3 "restart" =
  * startSession again for the same phone). Returns the abandoned session ids.
  */
-export async function supersedeActiveSessionsForPhone(phone: string): Promise<string[]> {
-  const db = await getDb();
+export async function supersedeActiveSessionsForPhone(phone: string, dbOverride?: any): Promise<string[]> {
+  const db = dbOverride ?? (await getDb());
   if (!db) throw new Error("Database unavailable");
   const rows = await db
     .select()
     .from(onboardingSessions)
     .where(and(eq(onboardingSessions.channel, "whatsapp"), eq(onboardingSessions.phone, phone)));
-  const doomed = rows.filter((r) => !TERMINAL_STATES.includes(r.state as CopilotState));
+  const doomed = rows.filter((r: any) => !TERMINAL_STATES.includes(r.state as CopilotState));
   for (const r of doomed) {
     await db
       .update(onboardingSessions)
       .set({ state: "abandoned", updatedAt: new Date() })
       .where(eq(onboardingSessions.id, r.id));
   }
-  return doomed.map((r) => r.id);
+  return doomed.map((r: any) => r.id);
+}
+
+/**
+ * === W47 crosscutting (ONB-ID-2) ===
+ * CAS session start: supersede + insert run in ONE transaction behind a
+ * per-phone advisory lock, so two concurrent first-contact messages for the
+ * same phone produce exactly ONE active session (the loser of a unique-index
+ * race is retried after the winner commits — no forked sessions, no
+ * duplicate tenants downstream in ensureTenant). Returns the new session and
+ * the superseded ids.
+ */
+export async function startSessionCas(args: {
+  channel: CopilotChannel;
+  tenantId?: string | null;
+  phone: string;
+}): Promise<{ session: OnboardingSession; superseded: string[] }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const lockKey = `${args.channel}|${args.phone}`;
+  // Test doubles / drivers without transactions fall back to sequential
+  // supersede+insert (the mig 0169 partial unique index still backstops real
+  // races on a real driver).
+  if (typeof db.transaction !== "function") {
+    const superseded = await supersedeActiveSessionsForPhone(args.phone);
+    const session = await createSessionRow(args);
+    return { session, superseded };
+  }
+  const attempt = async (): Promise<{ session: OnboardingSession; superseded: string[] }> =>
+    db.transaction(async (tx: any) => {
+      // Serializes concurrent starts for the same phone for the tx duration.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+      const superseded = await supersedeActiveSessionsForPhone(args.phone, tx);
+      const session = await createSessionRow(args, tx);
+      return { session, superseded };
+    });
+  try {
+    return await attempt();
+  } catch (e: any) {
+    // Backstop: if the advisory-lock path raced a legacy/non-transactional
+    // insert, the partial unique index (mig 0169) rejected us — supersede
+    // the winner's leftover and retry exactly once.
+    if (!isActiveSessionConflict(e)) throw e;
+    await supersedeActiveSessionsForPhone(args.phone);
+    return attempt();
+  }
 }
 
 export async function listSessionRows(filter?: {

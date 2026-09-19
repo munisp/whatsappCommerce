@@ -136,6 +136,14 @@ vi.mock("./services/brandStudio", () => ({
   generateBrandKit: vi.fn(),
   pushWhatsappProfile: vi.fn(),
 }));
+// === W47 merchant === ONB-M-2: copilot goLive now enforces requireApprovedKyb;
+// the in-memory db mock has no kyc_applications rows, so the gate is mocked
+// (real gate coverage: sim journey J428).
+vi.mock("./services/kycGate", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./services/kycGate")>();
+  return { ...orig, requireApprovedKyb: vi.fn().mockResolvedValue(undefined) };
+});
+// === END W47 merchant ===
 
 import { invokeLLM } from "./_core/llm";
 import { generateBrandKit, pushWhatsappProfile } from "./services/brandStudio";

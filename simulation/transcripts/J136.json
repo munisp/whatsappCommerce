@@ -7,79 +7,79 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015998722",
-      "profileName": "Sim User 8722",
-      "inboundId": "wamid.sim.in.text.00343",
-      "at": 1789707801734,
+      "phone": "2348018313108",
+      "profileName": "Sim User 3108",
+      "inboundId": "wamid.sim.in.text.00349",
+      "at": 1789790780037,
       "kind": "text",
       "text": "language"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00343",
-      "at": 1789707801740
+      "wamid": "wamid.sim.in.text.00349",
+      "at": 1789790780093
     },
     {
       "dir": "out",
-      "phone": "2348015998722",
-      "wamid": "wamid.sim.000570",
+      "phone": "2348018313108",
+      "wamid": "wamid.sim.000579",
       "statuses": [
         "sent"
       ],
-      "at": 1789707801770,
+      "at": 1789790780117,
       "kind": "text",
       "body": "🌐 Choose your language / Zaɓi harshenka:\n1. English\n2. Français\n3. Hausa\n4. Yorùbá\n5. Igbo\n6. Kiswahili\n7. አማርኛ (Amharic)"
     },
     {
       "dir": "in",
-      "phone": "2348015998722",
-      "profileName": "Sim User 8722",
-      "inboundId": "wamid.sim.in.text.00344",
-      "at": 1789707802279,
+      "phone": "2348018313108",
+      "profileName": "Sim User 3108",
+      "inboundId": "wamid.sim.in.text.00350",
+      "at": 1789790780594,
       "kind": "text",
       "text": "3"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00344",
-      "at": 1789707802283
+      "wamid": "wamid.sim.in.text.00350",
+      "at": 1789790780602
     },
     {
       "dir": "out",
-      "phone": "2348015998722",
-      "wamid": "wamid.sim.000571",
+      "phone": "2348018313108",
+      "wamid": "wamid.sim.000580",
       "statuses": [
         "sent"
       ],
-      "at": 1789707802302,
+      "at": 1789790780628,
       "kind": "text",
       "body": "An saita harshe zuwa Hausa. Kana iya canza shi a kowane lokaci ta rubuta LANGUAGE.\n\nSannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?\n\n1. Sayayya / aika oda\n2. Bibiyar odana\n3. Yi magana da wakili\n\nReply with a number to choose an option."
     },
     {
       "dir": "in",
-      "phone": "2348015998722",
-      "profileName": "Sim User 8722",
-      "inboundId": "wamid.sim.in.text.00345",
-      "at": 1789707802824,
+      "phone": "2348018313108",
+      "profileName": "Sim User 3108",
+      "inboundId": "wamid.sim.in.text.00351",
+      "at": 1789790781145,
       "kind": "text",
       "text": "menu"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00345",
-      "at": 1789707802829
+      "wamid": "wamid.sim.in.text.00351",
+      "at": 1789790781154
     },
     {
       "dir": "out",
-      "phone": "2348015998722",
-      "wamid": "wamid.sim.000572",
+      "phone": "2348018313108",
+      "wamid": "wamid.sim.000581",
       "statuses": [
         "sent"
       ],
-      "at": 1789707802845,
+      "at": 1789790781185,
       "kind": "interactive",
       "body": "Sannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?",
       "footer": "Tap an option, or reply with its number.",
@@ -100,27 +100,27 @@
     },
     {
       "dir": "in",
-      "phone": "2348015998722",
-      "profileName": "Sim User 8722",
-      "inboundId": "wamid.sim.in.text.00346",
-      "at": 1789707803368,
+      "phone": "2348018313108",
+      "profileName": "Sim User 3108",
+      "inboundId": "wamid.sim.in.text.00352",
+      "at": 1789790781690,
       "kind": "text",
       "text": "sayayya"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00346",
-      "at": 1789707803373
+      "wamid": "wamid.sim.in.text.00352",
+      "at": 1789790781699
     },
     {
       "dir": "out",
-      "phone": "2348015998722",
-      "wamid": "wamid.sim.000573",
+      "phone": "2348018313108",
+      "wamid": "wamid.sim.000582",
       "statuses": [
         "sent"
       ],
-      "at": 1789707803396,
+      "at": 1789790781729,
       "kind": "text",
       "body": "Ga kayayyakinmu — me kake so?"
     }

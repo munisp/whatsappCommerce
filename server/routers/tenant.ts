@@ -8,24 +8,17 @@ import { tenants } from "../../drizzle/schema";
 import { DEFAULT_TENANT_ID, getTenantByIdForTheme } from "../_core/tenantDomain";
 import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 import { writeAuditLog } from "./audit";
+// === W47 merchant === ONB-M-6: shared ownership pre-check (also used by
+// onboarding.updateStep). Local copy removed.
+import { findWhatsAppNumberConflict } from "../services/whatsappNumbers";
+// === END W47 merchant ===
 
 /**
  * W40 tenancy (TEN-3): one WhatsApp phone number id maps to exactly one
  * tenant. The DB-level partial unique index (migration 0123) is the
- * backstop; this pre-check gives the honest CONFLICT error instead of a
- * raw 23505. Returns the conflicting tenant id, or null.
+ * backstop; the shared pre-check (services/whatsappNumbers) gives the
+ * honest CONFLICT error instead of a raw 23505.
  */
-async function findWhatsAppNumberConflict(phoneNumberId: string, excludeTenantId: string): Promise<string | null> {
-  const d = await db.getDb();
-  if (!d) return null;
-  const [row] = await d
-    .select({ id: tenants.id })
-    .from(tenants)
-    .where(and(eq(tenants.whatsappPhoneNumberId, phoneNumberId), ne(tenants.id, excludeTenantId)))
-    .limit(1)
-    .catch(() => []);
-  return row?.id ?? null;
-}
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
