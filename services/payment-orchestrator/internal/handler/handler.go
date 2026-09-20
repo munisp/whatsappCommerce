@@ -35,12 +35,12 @@ const StatusLedgerDrift = "ledger_drift"
 
 type Handler struct {
 	cfg    *config.Config
-	db     *store.DB
+	db     Store
 	logger *zap.Logger
 	client *http.Client
 }
 
-func New(cfg *config.Config, db *store.DB, logger *zap.Logger) *Handler {
+func New(cfg *config.Config, db Store, logger *zap.Logger) *Handler {
 	return &Handler{
 		cfg:    cfg,
 		db:     db,
