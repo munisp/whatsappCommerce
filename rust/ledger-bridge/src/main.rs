@@ -33,7 +33,8 @@
 //!     reservations instead of locking funds forever.
 //!
 //! Endpoints:
-//!   GET  /health                    — health check
+//!   GET  /health                    — liveness (process alive; always 200)
+//!   GET  /health/ready              — readiness (TigerBeetle + Postgres reachable; 503 if not)
 //!   GET  /balance/:account_id       — get account balance (integer minor units)
 //!   GET  /ledger/balances           — list all balances (dev in-memory only)
 //!   POST /transfer                  — canonical 2-phase pending transfer
@@ -881,6 +882,36 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
     }))
 }
 
+/// Deep readiness probe. /health above is deliberately shallow (process
+/// alive, always 200) so K8s liveness doesn't restart-loop this pod over a
+/// transient TigerBeetle or Postgres blip — the same reasoning server's own
+/// /health vs /health/ready split already uses (see k8s-flux/server-
+/// deployment.yaml). This endpoint does the actual dependency check and
+/// returns 503 when either is unreachable, so a K8s readinessProbe (or
+/// server's own checkTigerBeetle(), which calls this path) can actually gate
+/// traffic on real health instead of just "the HTTP server answers".
+/// Gates on BOTH dependencies, not just TigerBeetle: Postgres is this
+/// service's durable idempotency-key store (find_by_idempotency_key falls
+/// back to it once the in-memory index is gone, e.g. after a restart) — with
+/// it down, a retried transfer during that window loses its exactly-once
+/// guarantee, which is exactly the class of bug this session's e2e suite
+/// proved this service must not have.
+async fn ready_handler(State(state): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
+    let tb_healthy = state.tb.health().await;
+    let pg_healthy = state.pg.as_ref()
+        .map(|p| p.status().available > 0)
+        .unwrap_or(false);
+    let ready = tb_healthy && pg_healthy;
+    let code = if ready { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    (code, Json(serde_json::json!({
+        "status": if ready { "ready" } else { "not_ready" },
+        "service": "ledger-bridge",
+        "ts": Utc::now().to_rfc3339(),
+        "tigerbeetle": { "healthy": tb_healthy, "address": state.tb.address },
+        "postgres": { "healthy": pg_healthy },
+    })))
+}
+
 async fn get_balance_handler(
     State(state): State<AppState>,
     Path(account_id): Path<String>,
@@ -1521,6 +1552,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/health", get(health_handler))
+        .route("/health/ready", get(ready_handler))
         .route("/balance/:account_id", get(get_balance_handler))
         .route("/transfer", post(transfer_handler))
         .route("/ledger/reserve", post(reserve_handler))
@@ -1632,5 +1664,31 @@ mod tests {
         assert_eq!(a, b, "same key → same id (dedup)");
         assert_ne!(a, c, "different key → different id");
         assert_eq!(a.get_version(), Some(uuid::Version::Sha1), "must be v5 (SHA-1 name-based)");
+    }
+
+    /// /health must stay shallow (always 200) even when every dependency is
+    /// down — it backs K8s liveness, and flipping it non-200 here would
+    /// restart-loop an otherwise-healthy process during a TigerBeetle/
+    /// Postgres outage instead of just draining traffic via readiness.
+    #[tokio::test]
+    async fn health_is_always_200_even_with_dependencies_down() {
+        let state = dev_state(); // tb unreachable, pg: None
+        let body = health_handler(State(state)).await;
+        assert_eq!(body["tigerbeetle"]["healthy"].as_bool(), Some(false));
+        assert_eq!(body["postgres"]["healthy"].as_bool(), Some(false));
+        // (no status code to assert — Json<_> alone is always 200)
+    }
+
+    /// /health/ready is the opposite: it must fail closed. This is the
+    /// endpoint K8s readinessProbe (and server's own checkTigerBeetle())
+    /// actually gates traffic on, so a down dependency must produce 503, not
+    /// the flat 200 /health always returns.
+    #[tokio::test]
+    async fn ready_returns_503_when_tigerbeetle_unreachable() {
+        let state = dev_state(); // tb points at 127.0.0.1:1 — unreachable
+        let (status, body) = ready_handler(State(state)).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["status"].as_str(), Some("not_ready"));
+        assert_eq!(body["tigerbeetle"]["healthy"].as_bool(), Some(false));
     }
 }

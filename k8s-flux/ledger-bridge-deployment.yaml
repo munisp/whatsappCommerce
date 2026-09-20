@@ -42,12 +42,18 @@ spec:
         - containerPort: 8095
           name: port-8095
           protocol: TCP
-        # QA-013: sibling of QA-012 — this deployment had no probes at
-        # all either. Uses the service's existing /health endpoint (already
-        # exercised by tests/e2e/smoke.test.ts against the real service).
+        # QA-013 (sibling of QA-012) + follow-up: this deployment had no
+        # probes at all. Unlike the other 13 services, ledger-bridge now has
+        # a real readiness/liveness split (rust/ledger-bridge/src/main.rs):
+        # /health is shallow (process alive, always 200) — used for liveness
+        # so a transient TigerBeetle/Postgres blip doesn't restart-loop an
+        # otherwise-healthy process. /health/ready does the real dependency
+        # check and returns 503 when either is unreachable — that's the one
+        # a readinessProbe needs, or K8s would keep routing money-moving
+        # traffic to a pod that can't actually reach TigerBeetle.
         readinessProbe:
           httpGet:
-            path: /health
+            path: /health/ready
             port: 8095
           initialDelaySeconds: 5
           periodSeconds: 5

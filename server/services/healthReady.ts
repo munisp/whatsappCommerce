@@ -93,7 +93,12 @@ async function checkKeycloak(): Promise<ComponentCheck> {
 async function checkTigerBeetle(): Promise<ComponentCheck> {
   const t0 = Date.now();
   try {
-    const res = await fetch(`${ENV.ledgerBridgeUrl}/health`, { headers: injectTraceHeaders({}), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).catch(() => null); // W34 otel-core: traceparent
+    // /health/ready (not /health) — ledger-bridge's plain /health is a
+    // shallow liveness check that always returns 200 even when TigerBeetle
+    // or Postgres is unreachable (it only proves the HTTP server answers).
+    // /health/ready does the real dependency check and 503s when either is
+    // down, which is what this deep readiness probe actually needs.
+    const res = await fetch(`${ENV.ledgerBridgeUrl}/health/ready`, { headers: injectTraceHeaders({}), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).catch(() => null); // W34 otel-core: traceparent
     return res?.ok
       ? { ok: true, latencyMs: Date.now() - t0 }
       : { ok: false, latencyMs: Date.now() - t0, error: `ledger-bridge returned ${res?.status ?? "unreachable"}` };

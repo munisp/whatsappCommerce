@@ -10,6 +10,7 @@
  *   api-gateway      GET /ready                 services/gateway/cmd/main.go:159
  *   commerce-engine  GET /health                services/commerce-engine/cmd/main.go:33
  *   ledger-bridge    GET /health                rust/ledger-bridge/src/main.rs (route table ~L747)
+ *   ledger-bridge    GET /health/ready          rust/ledger-bridge/src/main.rs (ready_handler)
  *   recon-worker     GET /health                rust/recon-worker/src/main.rs:307
  *   ml-inference     GET /health                services/ml-stack/inference/server.py:320
  */
@@ -62,6 +63,19 @@ describe("smoke: service health endpoints", () => {
     // only flips true after the pool is first used — assert shape, not value.
     expect(body).toHaveProperty("tigerbeetle.healthy");
     expect(body).toHaveProperty("postgres.healthy");
+  });
+
+  it("ledger-bridge /health/ready → 200 once both dependencies are up (real readiness gate)", async () => {
+    // Unlike plain /health (always 200 — see above), this is the deep check
+    // K8s readinessProbe and server's checkTigerBeetle() actually gate
+    // traffic on: it 503s if either TigerBeetle or Postgres is unreachable.
+    // In this stack both are real containers, so this asserts the happy
+    // path actually reports ready, not just that the process answers.
+    const { status, body } = await getJson(CFG.ledgerUrl, "/health/ready");
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ status: "ready" });
+    expect(body.tigerbeetle.healthy).toBe(true);
+    expect(body.postgres.healthy).toBe(true);
   });
 
   it("recon-worker /health → 200", async () => {
