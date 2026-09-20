@@ -23,6 +23,15 @@ const TENANT = uniqueId("e2e-tenant");
 let userToken: string;
 let adminToken: string;
 
+/** Seed an orders row — payment.initiate looks up the order and derives its
+ * amount from the row (server/routers/payment.ts), 404ing otherwise. */
+async function seedOrder(tenantId: string, orderId: string, total: string) {
+  const sql = getSql();
+  await sql`
+    INSERT INTO orders (id, "tenantId", "customerId", "orderNumber", status, "totalAmount", currency, "paymentStatus", "createdAt", "updatedAt")
+    VALUES (${orderId}, ${tenantId}, ${uniqueId("cust")}, ${`ORD-${orderId.slice(-8).toUpperCase()}`}, 'confirmed', ${total}, 'NGN', 'unpaid', NOW(), NOW())`;
+}
+
 beforeAll(async () => {
   await seedUser({ openId: "e2e-user", name: "E2E User", role: "user", tenantId: TENANT });
   await seedUser({ openId: "e2e-admin", name: "E2E Admin", role: "admin", tenantId: TENANT });
@@ -300,6 +309,8 @@ describe("tRPC contract — conversations", () => {
 
 describe("tRPC contract — payments & wallet (honest config errors)", () => {
   it("payment.initiate (mojaloop — no external keys needed) → initiated shape", async () => {
+    const orderId = uniqueId("order");
+    await seedOrder(TENANT, orderId, "2500.00");
     const r = await trpcMutation<{
       paymentIntentId: string;
       reference: string;
@@ -309,7 +320,7 @@ describe("tRPC contract — payments & wallet (honest config errors)", () => {
       "payment.initiate",
       {
         tenantId: TENANT,
-        orderId: uniqueId("order"),
+        orderId,
         amount: 2500,
         currency: "NGN",
         provider: "mojaloop",
@@ -326,11 +337,13 @@ describe("tRPC contract — payments & wallet (honest config errors)", () => {
   });
 
   it("payment.initiate (paystack, key unset) → honest CONFIG error, not a crash", async () => {
+    const orderId = uniqueId("order");
+    await seedOrder(TENANT, orderId, "1000.00");
     const r = await trpcMutation(
       "payment.initiate",
       {
         tenantId: TENANT,
-        orderId: uniqueId("order"),
+        orderId,
         amount: 1000,
         currency: "NGN",
         provider: "paystack",
@@ -340,10 +353,15 @@ describe("tRPC contract — payments & wallet (honest config errors)", () => {
     );
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      // The server wraps provider setup failures as "Payment initiation
-      // failed: PAYSTACK_SECRET_KEY not configured" — a structured tRPC error
-      // with an honest message, NOT an HTTP 500 HTML crash page.
-      expect(r.error.message).toContain("PAYSTACK_SECRET_KEY not configured");
+      // W45 (PAY-25) rewrote single-provider config errors into the
+      // multi-provider fallback chain (server/services/payments/
+      // initiateWithFallback.ts ProviderChainExhaustedError): with zero
+      // providers configured for this tenant (no PAYSTACK_SECRET_KEY, no
+      // per-tenant provider rows), the chain is empty and the message is the
+      // generic "No payment provider is configured for this tenant" — still
+      // a structured tRPC error (INTERNAL_SERVER_ERROR → 500), NOT an HTML
+      // crash page, which is the actual thing this test protects.
+      expect(r.error.message).toContain("No payment provider is configured for this tenant");
       expect(r.error.httpStatus).toBe(500);
     }
   });
@@ -390,13 +408,14 @@ describe("tRPC contract — escrow config", () => {
   });
 
   it("escrow.getStats → custodyMode + totals shape", async () => {
+    // adminProcedure (server/routers/escrow.ts) — userToken correctly gets FORBIDDEN.
     const r = await trpcQuery<{
       custodyMode: string;
       totalHeld: number;
       totalSettled: number;
       totalFees: number;
       openDisputes: number;
-    }>("escrow.getStats", undefined, userToken);
+    }>("escrow.getStats", undefined, adminToken);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(["pssp", "psp"]).toContain(r.data.custodyMode);
@@ -406,7 +425,11 @@ describe("tRPC contract — escrow config", () => {
   });
 
   it("wallet.getBalance → null before any wallet activity", async () => {
-    const r = await trpcQuery("wallet.getBalance", { tenantId: uniqueId("no-wallet") }, userToken);
+    // getBalance asserts ctx.user's own tenant matches input.tenantId
+    // (escrow.ts assertTenantAccess); a random unrelated tenantId with
+    // userToken hits that guard, not the "no wallet" code path this test
+    // wants — adminToken bypasses the tenant check and still exercises it.
+    const r = await trpcQuery("wallet.getBalance", { tenantId: uniqueId("no-wallet") }, adminToken);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data).toBeNull();
   });

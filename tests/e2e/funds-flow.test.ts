@@ -69,6 +69,19 @@ async function seedOrder(tenantId: string, orderId: string, total: string, custo
     VALUES (${orderId}, ${tenantId}, ${customerId}, ${`ORD-${orderId.slice(-8).toUpperCase()}`}, 'confirmed', ${total}, 'NGN', 'unpaid', NOW(), NOW())`;
 }
 
+/**
+ * Seed an approved KYB application — escrow.createHold and
+ * wallet.requestWithdrawal both hard-gate on requireApprovedKyb
+ * (server/services/kycGate.ts) since W30; a tenant with no kyc_applications
+ * row is rejected FORBIDDEN before any money-path logic runs.
+ */
+async function seedApprovedKyb(tenantId: string) {
+  const sql = getSql();
+  await sql`
+    INSERT INTO kyc_applications (id, "tenantId", type, status, "businessName", "submittedAt", "reviewedAt", "approvedAt", "createdAt", "updatedAt")
+    VALUES (${randomUUID()}, ${tenantId}, 'kyb', 'approved', ${`E2E Co ${tenantId.slice(-8)}`}, NOW(), NOW(), NOW(), NOW(), NOW())`;
+}
+
 /** Seed a completed payment_intents row so escrow.createHold finds a verified payment. */
 async function seedCompletedPaymentIntent(tenantId: string, orderId: string, amount: string, providerRef?: string) {
   const sql = getSql();
@@ -130,6 +143,7 @@ describe("(a) concurrent escrow.buyerConfirm — exactly-once wallet credit", ()
   let escrowId: string;
 
   it("setup: completed payment → createHold → confirmDelivery (PSP custody)", async () => {
+    await seedApprovedKyb(TENANT);
     await seedOrder(TENANT, ORDER, AMOUNT, uniqueId("cust"));
     await seedCompletedPaymentIntent(TENANT, ORDER, AMOUNT);
 
@@ -211,11 +225,15 @@ describe("(b) wallet.requestWithdrawal — atomic conditional debit, never negat
   const TENANT = uniqueId("e2e-wd-tenant");
 
   beforeAll(async () => {
-    // Seed a solvent PSP wallet directly (the credit path is covered by (a)).
+    // requestWithdrawal hard-gates on requireApprovedKyb, same as createHold.
+    await seedApprovedKyb(TENANT);
+    // Seed a solvent PSP wallet directly (the credit path is covered by (a)),
+    // with payout bank details on file — requestWithdrawal refuses to pay
+    // out to an account with no bank details set (escrow.ts:1964-1969).
     const sql = getSql();
     await sql`
-      INSERT INTO merchant_wallets (id, tenant_id, currency, available_balance, escrow_balance, total_earned, total_withdrawn, custody_mode, is_active, created_at, updated_at)
-      VALUES (${randomUUID()}, ${TENANT}, 'NGN', '1000.00', '0', '1000.00', '0', 'psp', true, NOW(), NOW())`;
+      INSERT INTO merchant_wallets (id, tenant_id, currency, available_balance, escrow_balance, total_earned, total_withdrawn, custody_mode, is_active, bank_account_name, bank_account_number, bank_code, created_at, updated_at)
+      VALUES (${randomUUID()}, ${TENANT}, 'NGN', '1000.00', '0', '1000.00', '0', 'psp', true, 'E2E Test Merchant', '0123456789', '044', NOW(), NOW())`;
   });
 
   it("withdrawal over balance → INSUFFICIENT_FUNDS, balance untouched", async () => {
@@ -281,6 +299,9 @@ describe("(c) concurrent payment.initiate — idempotency key ⇒ one payment_in
   it("5× same (tenant, order) → exactly one row; losers get CONFLICT or an idempotent replay", async () => {
     const TENANT = uniqueId("e2e-pay-tenant");
     const ORDER = uniqueId("e2e-pay-order");
+    // payment.initiate looks up the order and derives orderAmount from its
+    // own totalAmount (server/routers/payment.ts) — the order must exist.
+    await seedOrder(TENANT, ORDER, "2500.00", uniqueId("cust"));
     const input = {
       tenantId: TENANT,
       orderId: ORDER,

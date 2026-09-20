@@ -14,7 +14,7 @@
  *   ml-inference     GET /health                services/ml-stack/inference/server.py:320
  */
 import { describe, it, expect } from "vitest";
-import { CFG, getJson } from "./helpers/stack";
+import { CFG, getJson, serviceConfigured } from "./helpers/stack";
 
 describe("smoke: service health endpoints", () => {
   it("platform /api/health/postgres → 200 { online: true }", async () => {
@@ -70,7 +70,13 @@ describe("smoke: service health endpoints", () => {
     expect(body).toHaveProperty("status");
   });
 
-  it("ml-inference /health → 200 with model status map", async () => {
+  it("ml-inference /health → 200 with model status map", async (ctx) => {
+    // ml-inference is only started under the `ml` compose profile
+    // (run-e2e.sh --no-ml skips it) — CFG.mlUrl still defaults to
+    // localhost:8099 either way, so without this gate the raw fetch below
+    // fails with a socket error instead of a clean skip. Same pattern as
+    // service-to-service.test.ts's ML gating.
+    if (!serviceConfigured("ML_URL") && !serviceConfigured("ML_STACK_URL")) ctx.skip();
     const { status, body } = await getJson(CFG.mlUrl, "/health");
     expect(status).toBe(200);
     expect(body).toMatchObject({ status: "ok", service: "ml-inference" });
