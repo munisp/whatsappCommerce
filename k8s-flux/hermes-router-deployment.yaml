@@ -44,6 +44,22 @@ spec:
         - containerPort: 8096
           name: port-8096
           protocol: TCP
+        # QA-013: sibling of QA-012 — this deployment had no probes at
+        # all either. Uses the service's existing /health endpoint (already
+        # exercised by tests/e2e/smoke.test.ts against the real service).
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8096
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8096
+          initialDelaySeconds: 10
+          periodSeconds: 10
         resources:
           limits:
             cpu: 500m
