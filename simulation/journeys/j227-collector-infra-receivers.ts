@@ -8,12 +8,21 @@
  *     (otlp receivers, tail_sampling policies, spanmetrics connector).
  *  2. Temporal scrape honestly skipped: documented comment present, no
  *     temporal target invented.
- *  3. k8s/otel-stack.yaml collector ConfigMap is byte-in-sync with the
- *     deploy file (same receiver set).
- *  4. Dapr tracing (services/dapr/config.yaml) points at otel-collector:4317.
- *  5. APISIX otel wiring: opentelemetry in plugins + plugin_attr in BOTH
+ *  3. Dapr tracing (services/dapr/config.yaml) points at otel-collector:4317.
+ *  4. APISIX otel wiring: opentelemetry in plugins + plugin_attr in BOTH
  *     services/middleware/apisix_conf/config.yaml and k8s/apisix.yaml.
- *  6. Keycloak: KC_METRICS_ENABLED=true in k8s/keycloak.yaml.
+ *  5. Keycloak: KC_METRICS_ENABLED=true in k8s/keycloak.yaml.
+ *
+ * NOTE (2026-09-20): a former section 3 checked k8s/otel-stack.yaml's
+ * collector ConfigMap for byte-parity with deploy/otel/collector-config.yaml.
+ * Cluster-wide observability (including that manifest) moved to
+ * github.com/AfroNG/monitoring_dashboard on 2026-09-14 (see
+ * k8s/kustomization.yaml) — it was never whatsapp-commerce-specific. That
+ * migration deleted k8s/otel-stack.yaml but missed this journey, leaving CI
+ * red for a file this repo no longer owns. Removed the section rather than
+ * recreating the manifest here — parity checks for the relocated collector
+ * config belong in that repo now. k8s/apisix.yaml and k8s/keycloak.yaml
+ * below are app-specific manifests that stayed in this repo, unaffected.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -51,25 +60,14 @@ export const journey: Journey = {
     assert(raw.includes("filelog/openappsec"), "collector: openappsec filelog snippet missing");
     assert(raw.includes("contrib"), "collector: filelog distro-support note missing");
 
-    // 3. k8s collector ConfigMap in sync (same receiver + job set).
-    const docs = yamlLoadAll(fs.readFileSync(path.join(ROOT, "k8s", "otel-stack.yaml"), "utf8")) as any[];
-    const cm = docs.find((d) => d?.kind === "ConfigMap" && d?.metadata?.name === "otel-collector-config");
-    assert(cm, "k8s: otel-collector-config ConfigMap missing");
-    const inner = yamlLoad(cm.data["config.yaml"]) as any;
-    const innerJobs = (inner.receivers?.prometheus?.config?.scrape_configs ?? []).map((j: any) => j.job_name);
-    for (const j of ["keycloak", "apisix", "permify", "opensearch"]) {
-      assert(innerJobs.includes(j), `k8s collector: scrape job ${j} missing`);
-    }
-    assert(inner.service?.pipelines?.["metrics/infra-scrape"], "k8s collector: metrics/infra-scrape pipeline missing");
-
-    // 4. Dapr tracing → collector gRPC :4317.
+    // 3. Dapr tracing → collector gRPC :4317.
     const daprRaw = fs.readFileSync(path.join(ROOT, "services", "dapr", "config.yaml"), "utf8");
     assert(daprRaw.includes("=== W35 infra-receivers"), "dapr: W35 banner missing");
     const dapr = yamlLoad(daprRaw) as any;
     assert(dapr.spec?.tracing?.otel?.endpointAddress === "otel-collector:4317", "dapr: otel tracing endpoint must be otel-collector:4317");
     assert(dapr.spec?.tracing?.zipkin, "dapr: existing zipkin block must be preserved (additive)");
 
-    // 5. APISIX otel plugin in compose conf + k8s configmap.
+    // 4. APISIX otel plugin in compose conf + k8s configmap.
     const composeConf = yamlLoad(fs.readFileSync(path.join(ROOT, "services/middleware/apisix_conf/config.yaml"), "utf8")) as any;
     assert((composeConf.plugins ?? []).includes("opentelemetry"), "apisix compose conf: opentelemetry plugin missing");
     assert(composeConf.plugin_attr?.opentelemetry?.collector?.address === "otel-collector:4318", "apisix compose conf: otel collector address wrong");
@@ -83,7 +81,7 @@ export const journey: Journey = {
     const routePlugins = JSON.stringify(k8sRoutes.routes ?? []);
     assert(routePlugins.includes("opentelemetry"), "apisix k8s routes: opentelemetry not attached to platform-api route");
 
-    // 6. Keycloak metrics enabled.
+    // 5. Keycloak metrics enabled.
     const kcDocs = yamlLoadAll(fs.readFileSync(path.join(ROOT, "k8s", "keycloak.yaml"), "utf8")) as any[];
     const kcDep = kcDocs.find((d) => d?.kind === "Deployment" && d?.metadata?.name === "keycloak");
     const env = kcDep?.spec?.template?.spec?.containers?.[0]?.env ?? [];

@@ -11,10 +11,21 @@
  *    non-empty selectors).
  * 4. Grafana provisioning files + all dashboard JSON are valid and reference
  *    the provisioned Prometheus datasource.
+ *
+ * NOTE (2026-09-20): a 5th section used to assert on a k8s/otel-stack.yaml
+ * manifest. Cluster-wide observability (collector, Jaeger, Prometheus,
+ * Grafana, Alertmanager, ...) moved to github.com/AfroNG/monitoring_dashboard
+ * on 2026-09-14 (see k8s/kustomization.yaml) — it was never
+ * whatsapp-commerce-specific, it monitored the whole cluster. That commit
+ * deleted k8s/otel-stack.yaml but missed this journey, leaving CI red for a
+ * file this repo no longer owns. Removed the k8s section rather than
+ * recreating the manifest here; config validation for the relocated stack
+ * belongs in that repo now. Sections 1-4 above still cover the parts of the
+ * otel stack (docker-compose + deploy/otel/) that remain in this repo.
  */
 import fs from "node:fs";
 import path from "node:path";
-import { load as yamlLoad, loadAll as yamlLoadAll } from "js-yaml";
+import { load as yamlLoad } from "js-yaml";
 import { assert, type World } from "../world";
 import type { Journey } from "../runner";
 
@@ -57,7 +68,7 @@ function checkPromQL(expr: string, label: string): void {
 
 export const journey: Journey = {
   id: "J218",
-  name: "otel-stack compose/k8s/dashboard/alert config validation",
+  name: "otel-stack compose/dashboard/alert config validation",
   feature: "W34 otel-stack: collector, Jaeger, Prometheus, Grafana, Alertmanager",
   async run(_world: World) {
     // 1. Compose services + healthchecks.
@@ -126,15 +137,5 @@ export const journey: Journey = {
         for (const t of panel.targets ?? []) if (t.expr) checkPromQL(t.expr, `${d}/${panel.title}`);
       }
     }
-
-    // 5. k8s manifest parses + kustomization includes it.
-    const k8sDocs = fs.readFileSync(path.join(ROOT, "k8s", "otel-stack.yaml"), "utf8");
-    const docs = yamlLoadAll(k8sDocs) as any[];
-    const kinds = docs.map((d) => d?.kind);
-    assert(kinds.includes("Deployment") && kinds.includes("Service") && kinds.includes("ConfigMap"), "k8s otel-stack: need Deployment+Service+ConfigMap");
-    const depNames = docs.filter((d) => d?.kind === "Deployment").map((d) => d.metadata.name);
-    for (const s of ["otel-collector", "jaeger", "prometheus", "grafana", "alertmanager"]) assert(depNames.includes(s), `k8s deployment ${s} missing`);
-    const kust = fs.readFileSync(path.join(ROOT, "k8s", "kustomization.yaml"), "utf8");
-    assert(kust.includes("otel-stack.yaml"), "kustomization must include otel-stack.yaml");
   },
 };
