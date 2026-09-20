@@ -59,14 +59,14 @@ trap cleanup EXIT INT TERM
 
 # ── 1. build ──────────────────────────────────────────────────────────────────
 log "building images"
-if ! "${COMPOSE[@]}" "${PROFILES[@]}" build; then
+if ! "${COMPOSE[@]}" ${PROFILES[@]+"${PROFILES[@]}"} build; then
   err "compose build failed"
   exit 1
 fi
 
 # ── 2. up ─────────────────────────────────────────────────────────────────────
 log "starting stack (project=${PROJECT})"
-if ! "${COMPOSE[@]}" "${PROFILES[@]}" up -d; then
+if ! "${COMPOSE[@]}" ${PROFILES[@]+"${PROFILES[@]}"} up -d; then
   err "compose up failed"
   exit 1
 fi
@@ -114,17 +114,18 @@ log "PLATFORM_URL=${PLATFORM_URL}  DATABASE_URL=${DATABASE_URL}"
 cd "${ROOT}"
 log "running vitest e2e suite"
 if command -v pnpm >/dev/null 2>&1; then
-  pnpm exec vitest run --config tests/e2e/vitest.config.ts "${VITEST_ARGS[@]}"
+  pnpm exec vitest run --config tests/e2e/vitest.config.ts ${VITEST_ARGS[@]+"${VITEST_ARGS[@]}"}
   EXIT_CODE=$?
 else
-  npx vitest run --config tests/e2e/vitest.config.ts "${VITEST_ARGS[@]}"
+  npx vitest run --config tests/e2e/vitest.config.ts ${VITEST_ARGS[@]+"${VITEST_ARGS[@]}"}
   EXIT_CODE=$?
 fi
 
 # ── 6. teardown + exit propagation ────────────────────────────────────────────
 if [[ "${EXIT_CODE}" -ne 0 ]]; then
-  err "e2e suite FAILED (exit ${EXIT_CODE}); recent platform logs:"
+  err "e2e suite FAILED (exit ${EXIT_CODE}); recent platform + recon-worker logs:"
   "${COMPOSE[@]}" logs --tail=80 platform >&2 2>/dev/null
+  "${COMPOSE[@]}" logs --tail=80 recon-worker >&2 2>/dev/null
 fi
 cleanup
 TEARDOWN_DONE=1
