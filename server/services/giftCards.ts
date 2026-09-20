@@ -466,6 +466,7 @@ export async function adjustGiftCard(
   actor: string,
   note: string,
   db?: Db,
+  idempotencyKey?: string,
 ): Promise<{ card: GiftCard; balanceCents: number }> {
   const d = await resolveDb(db);
   await assertActive(tenantId, d);
@@ -473,11 +474,28 @@ export async function adjustGiftCard(
     throw new TRPCError({ code: "BAD_REQUEST", message: "deltaCents must be a non-zero integer" });
   }
   const normalized = code.trim().toUpperCase();
+  // Every other money path in this file (purchase/redeem/issue) derives a
+  // deterministic idempotency_key from the underlying transaction so a retry
+  // replays instead of double-applying (gift_card_tx_idempotency_uidx is a
+  // real unique index — see file header). A manual adjustment has no natural
+  // source transaction to key off, so idempotency here is opt-in: honor a
+  // caller-supplied key (a retried request should resend the SAME key), and
+  // fall back to a random one — never colliding, i.e. no protection — only
+  // when the caller doesn't ask for it, preserving today's default behavior.
+  const key = idempotencyKey ?? `adjust:${crypto.randomUUID()}`;
   const result = await d.transaction(async (tx) => {
     const rows = (await tx.execute(sql`
       SELECT * FROM gift_cards WHERE tenant_id = ${tenantId} AND code = ${normalized} FOR UPDATE`)) as unknown as any[];
     const card = (Array.isArray(rows) ? rows : (rows as any).rows ?? [])[0];
     if (!card) throw new TRPCError({ code: "NOT_FOUND", message: "gift card not found" });
+    if (idempotencyKey) {
+      const existing = (await tx.execute(sql`
+        SELECT amount_cents FROM gift_card_transactions WHERE idempotency_key = ${key} LIMIT 1`)) as unknown as any[];
+      const existingRows = Array.isArray(existing) ? existing : (existing as any).rows ?? [];
+      if (existingRows.length > 0) {
+        return { cardId: card.id as string, balanceCents: Number(card.balance_cents), replay: true as const };
+      }
+    }
     const guard = deltaCents > 0 ? sql`true` : sql`balance_cents >= ${-deltaCents}`;
     const up = (await tx.execute(sql`
       UPDATE gift_cards SET balance_cents = balance_cents + ${deltaCents}
@@ -494,10 +512,12 @@ export async function adjustGiftCard(
     }
     await tx.execute(sql`
       INSERT INTO gift_card_transactions (gift_card_id, tenant_id, type, amount_cents, idempotency_key, note)
-      VALUES (${card.id}, ${tenantId}, 'adjust', ${deltaCents}, ${`adjust:${crypto.randomUUID()}`}, ${`${note} (by ${actor})`})`);
-    return { cardId: card.id as string, balanceCents };
+      VALUES (${card.id}, ${tenantId}, 'adjust', ${deltaCents}, ${key}, ${`${note} (by ${actor})`})`);
+    return { cardId: card.id as string, balanceCents, replay: false as const };
   });
-  await writeGiftCardAudit(tenantId, actor, "gift_card.adjusted", result.cardId, `code=${normalized} deltaCents=${deltaCents} note=${note}`);
+  if (!result.replay) {
+    await writeGiftCardAudit(tenantId, actor, "gift_card.adjusted", result.cardId, `code=${normalized} deltaCents=${deltaCents} note=${note}`);
+  }
   const card = (await getGiftCardByCode(tenantId, normalized, d))!;
   return { card, balanceCents: result.balanceCents };
 }
