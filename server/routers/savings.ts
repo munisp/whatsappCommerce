@@ -13,7 +13,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
-import { adminProcedure, assertTenantAccess, protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { adminProcedure, assertTenantAccess, assertMoneyAccess, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders } from "../../drizzle/schema";
 import * as stokvel from "../services/stokvel";
@@ -107,7 +107,8 @@ export const stokvelRouter = router({
   retryPendingPayouts: protectedProcedure
     .input(z.object({ ...tenantInput }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.tenantId);
+      // Retries real payouts leaving the platform — finance-gated.
+      await assertMoneyAccess(ctx.user, input.tenantId);
       const r = await stokvel.retryPendingPayouts(await dbOrThrow(), { tenantId: input.tenantId });
       return { settled: r.settled.length, stillPending: r.stillPending.length };
     }),

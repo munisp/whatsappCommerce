@@ -2,17 +2,30 @@
  * Trade credit tRPC router — supplier-side facility administration and
  * buyer-side self-service views.
  *
- * TENANT ISOLATION: every procedure is gated by assertTenantAccess —
- * supplier ops require ctx.user.tenantId === supplierTenantId, buyer ops
- * require ctx.user.tenantId === buyerTenantId. Account-level mutations are
+ * TENANT ISOLATION: every procedure is gated by assertTenantAccess (or
+ * assertMoneyAccess, which includes the same tenant check) — supplier ops
+ * require ctx.user.tenantId === supplierTenantId, buyer ops require
+ * ctx.user.tenantId === buyerTenantId. Account-level mutations are
  * additionally claim-first scoped to the owning supplier inside the service
  * layer (update/setStatus include supplier_tenant_id in the WHERE), so a
  * cross-tenant account id can never be mutated even if the input tenantId
  * check were bypassed.
+ *
+ * ROLE SCOPING (2026-09-20 fix): the supplier-side procedures that extend or
+ * modify real credit exposure — createAccount, updateAccount,
+ * setAccountStatus, approveAccount, recordRepayment — use assertMoneyAccess
+ * (owner|operator|finance only), not plain assertTenantAccess. Tenant
+ * isolation alone would let ANY staff membership (including the read-only
+ * "analyst" or catalog-only "catalog" roles) approve/modify a credit
+ * facility, which is exactly the failure mode server/services/capabilities.ts
+ * was written to close elsewhere — this router had been missed. Buyer-side
+ * self-service procedures (requestAccount, requestMandate, confirmMandate,
+ * revokeMandate, initiateRepayment) stay on assertTenantAccess: they act on
+ * the caller's own tenant's exposure, not a counterparty's.
  */
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { adminProcedure, protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, router, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   approveCreditAccountTx,
@@ -109,7 +122,10 @@ export const tradeCreditRouter = router({
       termsDays: z.number().int().min(1).max(365).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.supplierTenantId);
+      // W46 gap: creating a real credit limit is money-moving exposure, not
+      // plain tenant-scoped admin — an analyst/catalog staffer must not be
+      // able to open a facility (see server/services/capabilities.ts header).
+      await assertMoneyAccess(ctx.user, input.supplierTenantId);
       const db = await requireDb();
       try {
         return await createCreditAccountTx(db, input);
@@ -130,7 +146,8 @@ export const tradeCreditRouter = router({
       termsDays: z.number().int().min(1).max(365).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.supplierTenantId);
+      // W46 gap: changing a live credit limit/terms is money-moving exposure.
+      await assertMoneyAccess(ctx.user, input.supplierTenantId);
       const db = await requireDb();
       const row = await updateCreditAccountTx(db, input);
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Credit account not found" });
@@ -145,7 +162,8 @@ export const tradeCreditRouter = router({
       status: z.enum(["active", "frozen", "closed"]),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.supplierTenantId);
+      // W46 gap: freezing/unfreezing a facility gates money movement.
+      await assertMoneyAccess(ctx.user, input.supplierTenantId);
       const db = await requireDb();
       const row = await setCreditAccountStatusTx(db, input);
       if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Credit account not found" });
@@ -173,7 +191,8 @@ export const tradeCreditRouter = router({
       bureauConsent: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.supplierTenantId);
+      // W46 gap: activating a facility extends real credit exposure.
+      await assertMoneyAccess(ctx.user, input.supplierTenantId);
       const db = await requireDb();
       // Hard KYB gate: BOTH sides of the facility must hold an approved KYB
       // application before credit is extended. The account row supplies the
@@ -372,7 +391,8 @@ export const tradeCreditRouter = router({
       ref: z.string().min(1).max(128),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.supplierTenantId);
+      // W46 gap: recording a repayment moves the outstanding balance.
+      await assertMoneyAccess(ctx.user, input.supplierTenantId);
       const db = await requireDb();
       await requireSupplierAccount(db, input.accountId, input.supplierTenantId);
       const res = await applyRepaymentTx(db, {

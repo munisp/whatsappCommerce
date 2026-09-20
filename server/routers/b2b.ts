@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { router, protectedProcedure, publicProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, publicProcedure, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { wholesalePriceTiers, b2bRfq, b2bPurchaseOrders } from "../../drizzle/schema";
 import { randomUUID } from "crypto";
@@ -160,13 +160,16 @@ export const b2bRouter = router({
     }),
 
   approvePurchaseOrder: protectedProcedure
-    .input(z.object({ id: z.string(), approvedBy: z.string() }))
+    .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       const db = (await getDb())!;
       const [po] = await db.select().from(b2bPurchaseOrders).where(eq(b2bPurchaseOrders.id, input.id)).limit(1);
       if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "Purchase order not found" });
-      assertTenantAccess(ctx.user, po.tenantId);
-      await db.update(b2bPurchaseOrders).set({ status: "approved", approvedBy: input.approvedBy, approvedAt: new Date(), updatedAt: new Date() })
+      // Approving a PO is a money commitment — finance-gated, not any tenant staffer.
+      await assertMoneyAccess(ctx.user, po.tenantId);
+      // Derived from the authenticated session, not client input — approvedBy
+      // is an audit-trail field and must reflect who actually clicked approve.
+      await db.update(b2bPurchaseOrders).set({ status: "approved", approvedBy: String(ctx.user.id), approvedAt: new Date(), updatedAt: new Date() })
         .where(eq(b2bPurchaseOrders.id, input.id));
       return { ok: true };
     }),

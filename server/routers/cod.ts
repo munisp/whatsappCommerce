@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { orders } from "../../drizzle/schema";
 import {
@@ -133,7 +133,8 @@ export const codRouter = router({
     .mutation(async ({ input, ctx }) => {
       const db = await requireDb();
       const order = await loadOrder(db, input.orderId);
-      assertTenantAccess(ctx.user, order.tenantId);
+      // Confirms cash collection (accounting-relevant) — finance-gated.
+      await assertMoneyAccess(ctx.user, order.tenantId);
       try {
         return await settleCod(db as any, {
           tenantId: order.tenantId,

@@ -44,6 +44,17 @@ vi.mock("./db", async (importOriginal) => {
   return { ...mod, getDb: vi.fn(async () => fakeDb()) };
 });
 
+// assertMoneyAccess (used by approveAccount as of the 2026-09-20 role-scoping
+// fix) looks up a tenant_memberships row via getMembership. fakeDb() above is
+// a single-table kyc_applications stand-in and would otherwise misanswer
+// that query with a KYC row. Mock getMembership to report "no membership
+// row" so assertMoneyAccess falls through to the legacy users.tenantId
+// shortcut — which is exactly what makeCtx()'s single-user fixture models.
+vi.mock("./services/membership", async (importOriginal) => {
+  const mod = await importOriginal<any>();
+  return { ...mod, getMembership: vi.fn(async () => null) };
+});
+
 import { appRouter } from "./routers";
 
 function makeCtx(tenantId: string): TrpcContext {

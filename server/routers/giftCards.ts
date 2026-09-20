@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { giftCardTransactions, referralEvents, tenants } from "../../drizzle/schema";
 import { adjustGiftCard, disableGiftCard, issueGiftCard, listGiftCards } from "../services/giftCards";
@@ -79,12 +79,17 @@ export const giftCardsRouter = router({
       code: z.string().min(4).max(64),
       deltaCents: z.number().int().refine((v) => v !== 0, "deltaCents must be non-zero"),
       note: z.string().min(1).max(500),
+      // Optional — resend the same key on a retry to replay instead of
+      // double-applying the delta (see server/services/giftCards.ts).
+      idempotencyKey: z.string().min(1).max(128).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.tenantId);
+      // Direct balance_cents +/- mutation (server/services/giftCards.ts) —
+      // real monetary value, must be finance-gated, not any tenant staffer.
+      await assertMoneyAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
-      return adjustGiftCard(input.tenantId, input.code, input.deltaCents, String(ctx.user?.id ?? "merchant"), input.note, db);
+      return adjustGiftCard(input.tenantId, input.code, input.deltaCents, String(ctx.user?.id ?? "merchant"), input.note, db, input.idempotencyKey);
     }),
 });
 

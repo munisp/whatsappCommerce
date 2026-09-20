@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { router, protectedProcedure, adminProcedure, operatorProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure, operatorProcedure, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import * as connectorMarketplace from "../services/marketplace";
 import { getDb } from "../db";
 import { kycApplications, marketplaceSellers, marketplaceCommissions } from "../../drizzle/schema";
@@ -247,7 +247,8 @@ export const marketplaceRouter = router({
       // Commissions are keyed by sellerId — assert via the seller's tenant.
       const [seller] = await db.select().from(marketplaceSellers).where(eq(marketplaceSellers.id, commission.sellerId)).limit(1);
       if (!seller) throw new TRPCError({ code: "NOT_FOUND", message: "Seller not found" });
-      assertTenantAccess(ctx.user, seller.tenantId);
+      // Flips a commission to "paid" — real payout accounting, finance-gated.
+      await assertMoneyAccess(ctx.user, seller.tenantId);
       // W30 (V3#12): guarded settle — only a pending commission can be paid,
       // exactly once (double-settle / settle-disputed no longer flips).
       const settled = await db.update(marketplaceCommissions)

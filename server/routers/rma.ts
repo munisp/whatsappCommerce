@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, assertTenantAccess } from "../_core/trpc";
+import { protectedProcedure, router, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import { rmaRequests, tenants } from "../../drizzle/schema";
 import { decideReturn, receiveAndRestock, refundReturn, requestReturn } from "../services/rma";
@@ -86,7 +86,8 @@ export const rmaRouter = router({
       amountCents: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      assertTenantAccess(ctx.user, input.tenantId);
+      // Refunds real money (psp or wallet) — finance-gated, not any tenant staffer.
+      await assertMoneyAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
       return refundReturn(db, input);

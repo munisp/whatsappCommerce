@@ -125,7 +125,9 @@ describe("W12.1/A2-02 authz coverage ratchet", () => {
       ["b2b.ts", "deletePriceTier", "assertTenantAccess"],
       ["b2b.ts", "quoteRfq", "assertTenantAccess"],
       ["b2b.ts", "updateRfqStatus", "assertTenantAccess"],
-      ["b2b.ts", "approvePurchaseOrder", "assertTenantAccess"],
+      // 2026-09-20: upgraded to assertMoneyAccess (finance-role gate) — PO
+      // approval is a money commitment, plain tenant membership isn't enough.
+      ["b2b.ts", "approvePurchaseOrder", "assertMoneyAccess"],
       ["b2b.ts", "updatePoStatus", "assertTenantAccess"],
       ["broadcast.ts", "get", "assertTenantAccess"],
       ["compliance.ts", "submitTaxFiling", "assertTenantAccess"],
@@ -133,7 +135,9 @@ describe("W12.1/A2-02 authz coverage ratchet", () => {
       ["compliance.ts", "submitProcurementBid", "assertTenantAccess"],
       ["logistics.ts", "getShipment", "assertTenantAccess"],
       ["marketplace.ts", "getSeller", "assertTenantAccess"],
-      ["marketplace.ts", "settleCommission", "assertTenantAccess"],
+      // 2026-09-20: upgraded to assertMoneyAccess (finance-role gate) —
+      // settling flips a commission to paid, plain tenant membership isn't enough.
+      ["marketplace.ts", "settleCommission", "assertMoneyAccess"],
       ["medusa.ts", "importProductsToMenu", "assertTenantAccess"],
       ["productImages.ts", "updateBbox", "assertTenantAccess"],
       ["productImages.ts", "rateImage", "assertTenantAccess"],

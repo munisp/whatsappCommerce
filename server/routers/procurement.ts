@@ -9,7 +9,7 @@
  */
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess, assertMoneyAccess } from "../_core/trpc";
 import { getDb } from "../db";
 import {
   approvePurchaseOrder,
@@ -213,7 +213,9 @@ export const procurementRouter = router({
       const db = await requireDb();
       const po = await getPoById(db, input.poId);
       if (!po) throw new TRPCError({ code: "NOT_FOUND", message: "Purchase order not found" });
-      assertTenantAccess(ctx.user, po.supplierTenantId); // supplier-side only
+      // Approval commits the supplier to fulfill and draws down the buyer's
+      // credit line — finance-gated, not any tenant staffer (supplier-side only).
+      await assertMoneyAccess(ctx.user, po.supplierTenantId);
       const result = await approvePurchaseOrder(db, { poId: input.poId, termsDays: input.termsDays });
       if (!result.ok) {
         if (result.reason === "wrong_status") {
