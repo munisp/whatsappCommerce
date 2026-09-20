@@ -184,6 +184,27 @@ spec:
         - containerPort: 3000
           name: port-3000
           protocol: TCP
+        # QA-012: this deployment had no probes at all — confirmed via live
+        # chaos/rolling-restart testing that Kubernetes was routing traffic to
+        # pods before the app had finished booting or connecting to its
+        # dependencies. Both endpoints are unauthenticated and purpose-built
+        # for this (server/_core/index.ts:5347,5356). Liveness stays shallow
+        # (process alive) so a transient downstream outage — e.g. Keycloak —
+        # triggers graceful 503s via readiness, not a restart-loop of an
+        # otherwise-healthy process.
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 10
         resources:
           limits:
             cpu: 500m
