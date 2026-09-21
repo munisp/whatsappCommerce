@@ -42,6 +42,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | QA-014 | **P0** | `/api/finetune/stream` + `/export-yolo` unauthenticated (subprocess trigger; cross-tenant data dump; stored XSS in preview) | Fixed, tested, **live** |
 | QA-024 | **P1** | export route crashed the whole server (archiver 8 API break; uncaught exception is fatal) | Fixed, 6 unit tests, e2e-proven, **live** |
 | QA-028 | **P1** | webhook DLQ raw payloads, all-tenant revenue/COGS, COGS queue, any order by number, cross-tenant image wipe/flag — open to any logged-in user | Fixed, 17 tests (SQL-level tenant assertions); **committed, NOT yet deployed live** |
+| QA-029 | **P1** | `recon-worker` panics on real data (Postgres enum decoded as `String`) and its orphan-repair pass errors every run (invalid enum labels) — never worked; **and I had wrongly closed this as "contention" earlier** | Fixed + verified locally against the crashing data; regression test; **committed, deliberately NOT deployed** (first-ever execution of a money-repair path needs human review) |
 | QA-015 | P1 | evidence-portal `listTokens`/`revokeToken` cross-tenant IDOR (raw bearer tokens) | Fixed, tested, **live** |
 | QA-016 | P1/2 | SSRF guard missing on Keycloak (incl. unauthenticated `exchangeCode`), Twenty, Label Studio ×2 | Fixed, tested, **live** |
 | QA-017 | P1 | 3 ML-ops mutations spawn python for any logged-in user (+ blocking `execSync`) | Fixed → admin-only, tested, **live** |
@@ -85,7 +86,8 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 2. **PKCE with an in-memory verifier:** would have hard-failed every login whose callback hit another replica once a challenge is sent. Rebuilt with a signed, replica-safe cookie transaction and a test that uses a second app instance.
 3. **`/api/finetune/export-yolo` admin-only:** would have broken the merchant Inventory Hub. Now login-required and tenant-scoped (admin gets the platform set).
 4. **A simulation journey (J53)** broke on the SSRF hardening; fixed in the harness, not by weakening the guard.
-5. A zsh scripting slip made my first node-loss injection a no-op (caught from its own output, node restored, redone). A first read of a slow public URL as a "server TLS problem" was wrong — measured from the cluster host it is 0.08 s; it was this laptop's network.
+5. **I closed the recon-worker failure as "test contention" in the first pass — wrong.** It was a real panic; the e2e log showed it and reproducing against the real schema found a second bug behind it (QA-029). I retracted the diagnosis in `defects.md` rather than leave it standing.
+6. A zsh scripting slip made my first node-loss injection a no-op (caught from its own output, node restored, redone). A first read of a slow public URL as a "server TLS problem" was wrong — measured from the cluster host it is 0.08 s; it was this laptop's network.
 
 ## 10. Remaining risks (ranked)
 1. **The QA-028 fixes are committed but not on the live cluster** (the live `server` is `qa-local2`, built before them) — until deployed, the cross-tenant reads above are still exploitable there.

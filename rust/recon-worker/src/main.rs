@@ -195,10 +195,16 @@ async fn run_recon(state: &AppState) -> ReconResult {
         match pool.get().await {
             Ok(client) => {
                 // Fetch completed payment intents from last 24h
+                // NB: payment_intents.status is the Postgres enum
+                // payment_intent_status. tokio-postgres cannot decode a custom
+                // enum into a Rust String, and Row::get PANICS on a decode
+                // error — so the pass crashed whenever a completed/failed
+                // intent existed in the last 24h (it only "worked" on an empty
+                // table). Cast to text in SQL and parse with try_get below.
                 let rows = client.query(
                     r#"SELECT id::text, "tenantId", "orderId",
                               CAST(amount AS float8) as amount,
-                              status, "ledgerPendingId"
+                              status::text AS status, "ledgerPendingId"
                        FROM payment_intents
                        WHERE status IN ('completed', 'failed')
                          AND "createdAt" > NOW() - INTERVAL '24 hours'
@@ -210,11 +216,27 @@ async fn run_recon(state: &AppState) -> ReconResult {
                     Ok(rows) => {
                         total_checked = rows.len() as u64;
                         for row in &rows {
-                            let id: String = row.get(0);
-                            let tenant_id: String = row.get(1);
-                            let amount: f64 = row.get(3);
-                            let status: String = row.get(4);
-                            let ledger_id: Option<String> = row.get(5);
+                            // A row we cannot decode must surface as an alert
+                            // (we could not verify it), never crash the run.
+                            let parsed: Result<(String, String, f64, String, Option<String>), _> = (|| {
+                                Ok::<_, tokio_postgres::Error>((
+                                    row.try_get(0)?, row.try_get(1)?, row.try_get(3)?,
+                                    row.try_get(4)?, row.try_get(5)?,
+                                ))
+                            })();
+                            let (id, tenant_id, amount, status, ledger_id) = match parsed {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    error!(run_id = %run_id, error = %e, "unparseable payment_intents row");
+                                    alerts.push(ReconAlert {
+                                        severity: "high".into(),
+                                        message: format!("Could not decode a payment_intents row during reconciliation: {}", e),
+                                        tenant_id: None,
+                                        amount_diff: None,
+                                    });
+                                    continue;
+                                }
+                            };
                             // Integer minor units, explicit round-half-up.
                             let expected_minor = (amount * 100.0).round() as i64;
 
@@ -294,13 +316,21 @@ async fn run_recon(state: &AppState) -> ReconResult {
                 // stuck in a non-active state (or never initiated) whose
                 // ledger reservation is older than the orphan threshold.
                 if ledger_reachable {
+                    // The status list must be labels of the payment_intent_status
+                    // enum (initiated, pending, completed, failed, cancelled,
+                    // refunded). This query used to list 'voided' and
+                    // 'ledger_drift', which are not labels — Postgres rejected
+                    // the whole statement ("invalid input value for enum"), so
+                    // this repair pass could never run. Kept to the valid,
+                    // non-active states the original list meant; guarded by
+                    // server/reconWorkerSchema.test.ts.
                     let orphan_rows = client.query(
                         r#"SELECT id::text, "tenantId",
                                   CAST(amount AS float8) as amount,
-                                  status, "ledgerPendingId"
+                                  status::text AS status, "ledgerPendingId"
                            FROM payment_intents
                            WHERE "ledgerPendingId" IS NOT NULL
-                             AND status IN ('pending', 'failed', 'voided', 'ledger_drift')
+                             AND status IN ('pending', 'failed', 'cancelled')
                              AND "createdAt" < NOW() - make_interval(secs => $1)
                            LIMIT 500"#,
                         &[&(state.config.orphan_threshold_secs as f64)],
@@ -309,11 +339,19 @@ async fn run_recon(state: &AppState) -> ReconResult {
                     match orphan_rows {
                         Ok(rows) => {
                             for row in &rows {
-                                let id: String = row.get(0);
-                                let tenant_id: String = row.get(1);
-                                let amount: f64 = row.get(2);
-                                let status: String = row.get(3);
-                                let ledger_id: Option<String> = row.get(4);
+                                let parsed: Result<(String, String, f64, String, Option<String>), _> = (|| {
+                                    Ok::<_, tokio_postgres::Error>((
+                                        row.try_get(0)?, row.try_get(1)?, row.try_get(2)?,
+                                        row.try_get(3)?, row.try_get(4)?,
+                                    ))
+                                })();
+                                let (id, tenant_id, amount, status, ledger_id) = match parsed {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        error!(run_id = %run_id, error = %e, "unparseable orphan-candidate row");
+                                        continue;
+                                    }
+                                };
                                 let Some(lid) = ledger_id else { continue };
                                 repairs_attempted += 1;
                                 match void_orphan(state, &lid).await {
