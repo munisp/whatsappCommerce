@@ -67,6 +67,10 @@ spec:
             secretKeyRef:
               key: INTERNAL_API_KEY
               name: whatsapp-server-internal-api-key
+        # QA-039: fail closed. Without this an unset/EMPTY INTERNAL_API_KEY means "serve every ledger route to anyone
+        # who can reach the pod"; with it that state refuses to start (a crash-loop is loud, an open ledger is not).
+        - name: REQUIRE_INTERNAL_API_KEY
+          value: "true"
         image: registry.digitalocean.com/talentgraph-auth/whatsapp-ledger-bridge:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-ledger-bridge"}
         imagePullPolicy: IfNotPresent
         name: ledger-bridge

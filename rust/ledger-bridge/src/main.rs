@@ -87,6 +87,37 @@ struct Config {
     /// and gateway's InternalTokenAuth, so this can be rolled out without an instant outage: deploy this
     /// code with the secret unset, deploy callers that send it, THEN set the secret to start enforcing.
     internal_api_key: String,
+    /// QA-039: REQUIRE_INTERNAL_API_KEY=true makes an unset/empty INTERNAL_API_KEY a startup failure instead of an
+    /// open service (see `key_posture`). Set in the k8s manifest; left off for dev and the e2e stack.
+    require_internal_api_key: bool,
+}
+
+/// A secret that is only whitespace is no secret: treat it as unset, so `is_empty()` means the same thing everywhere
+/// it is asked (an empty Secret value must not be able to look "configured" to one check and "unset" to another).
+fn normalize_key(raw: String) -> String {
+    if raw.trim().is_empty() { String::new() } else { raw }
+}
+
+/// What the startup check decided about the auth gate.
+#[derive(Debug, PartialEq)]
+enum KeyPosture {
+    Enforced,
+    /// Unauthenticated, with a loud warning — only reachable when REQUIRE_INTERNAL_API_KEY is not set (dev, the e2e
+    /// stack, or the first stage of a rollout).
+    OpenWithWarning,
+}
+
+/// QA-039: fail CLOSED. A missing or empty INTERNAL_API_KEY used to mean "serve every ledger route to anyone who can
+/// reach the pod"; a Deployment whose Secret was emptied (or whose env entry was dropped in a refactor) would have gone
+/// quietly open. With REQUIRE_INTERNAL_API_KEY=true (set in the k8s manifest) that state now refuses to start.
+fn key_posture(internal_api_key: &str, require: bool) -> Result<KeyPosture, String> {
+    if !internal_api_key.is_empty() {
+        Ok(KeyPosture::Enforced)
+    } else if require {
+        Err("REQUIRE_INTERNAL_API_KEY=true but INTERNAL_API_KEY is unset or empty — refusing to start with the ledger routes unauthenticated".into())
+    } else {
+        Ok(KeyPosture::OpenWithWarning)
+    }
 }
 
 impl Config {
@@ -122,7 +153,8 @@ impl Config {
                         None
                     }
                 }),
-            internal_api_key: env::var("INTERNAL_API_KEY").unwrap_or_default(),
+            internal_api_key: normalize_key(env::var("INTERNAL_API_KEY").unwrap_or_default()),
+            require_internal_api_key: env::var("REQUIRE_INTERNAL_API_KEY").map(|v| v == "true").unwrap_or(false),
         }
     }
 }
@@ -1741,8 +1773,13 @@ async fn main() -> Result<()> {
     if cfg.platform_escrow_account.is_none() && !cfg.allow_inmemory {
         warn!("PLATFORM_ESCROW_ACCOUNT_ID is not set — /ledger/reserve without an explicit credit_account_id will fail");
     }
-    if cfg.internal_api_key.is_empty() {
-        warn!("INTERNAL_API_KEY is not set — every route except /health(/ready) is UNAUTHENTICATED (rollout stage: deploy before callers send the header, then set this)");
+    match key_posture(&cfg.internal_api_key, cfg.require_internal_api_key) {
+        Ok(KeyPosture::Enforced) => info!("internal API key gate: ENFORCED on every route except /health and /health/ready"),
+        Ok(KeyPosture::OpenWithWarning) => warn!("INTERNAL_API_KEY is not set — every route except /health(/ready) is UNAUTHENTICATED (dev / rollout stage; set REQUIRE_INTERNAL_API_KEY=true in any real deployment)"),
+        Err(e) => {
+            error!("{}", e);
+            std::process::exit(1);
+        }
     }
 
     let state = AppState::new(&cfg).await;
@@ -2073,5 +2110,31 @@ mod tests {
         let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(json["error"], "invalid_internal_api_key");
+    }
+
+    // ── QA-039: fail closed ────────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn a_whitespace_only_secret_is_treated_as_unset() {
+        assert_eq!(normalize_key("   \n".into()), "");
+        assert_eq!(normalize_key("".into()), "");
+        assert_eq!(normalize_key("real-secret".into()), "real-secret");
+    }
+
+    #[test]
+    fn key_posture_enforces_when_a_key_is_set_whatever_the_require_flag_says() {
+        assert_eq!(key_posture("k", false), Ok(KeyPosture::Enforced));
+        assert_eq!(key_posture("k", true), Ok(KeyPosture::Enforced));
+    }
+
+    #[test]
+    fn key_posture_refuses_to_start_open_when_required() {
+        let e = key_posture("", true).unwrap_err();
+        assert!(e.contains("INTERNAL_API_KEY") && e.contains("refusing to start"), "{e}");
+    }
+
+    #[test]
+    fn key_posture_only_allows_open_when_not_required() {
+        assert_eq!(key_posture("", false), Ok(KeyPosture::OpenWithWarning));
     }
 }

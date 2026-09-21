@@ -468,7 +468,7 @@ func (h *Handler) reserveLedger(ctx context.Context, intent store.PaymentIntentR
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	h.setLedgerHeaders(req)
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("ledger reserve request failed: %w", err)
@@ -487,6 +487,17 @@ func (h *Handler) reserveLedger(ctx context.Context, intent store.PaymentIntentR
 		return "", fmt.Errorf("ledger reserve returned %d without pending_id", resp.StatusCode)
 	}
 	return pendingID, nil
+}
+
+// setLedgerHeaders decorates a request to the ledger bridge. QA-038: the bridge requires the shared internal key on
+// every route except /health, so a caller that omits it is refused (401) the moment the bridge enforces. Sent only
+// when configured, exactly like the platform calls below and like server/recon-worker do, so an unconfigured
+// (development) deployment behaves as before. The key is never logged and only ever goes to LedgerBridgeURL.
+func (h *Handler) setLedgerHeaders(req *http.Request) {
+	req.Header.Set("Content-Type", "application/json")
+	if h.cfg.InternalAPIKey != "" {
+		req.Header.Set("X-Internal-Api-Key", h.cfg.InternalAPIKey)
+	}
 }
 
 // ledgerSettle posts to a settle endpoint (commit/void/reverse) and returns an
@@ -509,7 +520,7 @@ func (h *Handler) ledgerSettle(ctx context.Context, path, pendingID string) erro
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	h.setLedgerHeaders(req)
 	resp, err := h.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("ledger %s request failed: %w", path, err)

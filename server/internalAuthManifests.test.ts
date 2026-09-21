@@ -46,6 +46,23 @@ describe.each(PARTIES)("%s / %s — %s", (dep, cont) => {
   });
 });
 
+// QA-039: the two Rust callees fail CLOSED. Their code treats an unset/empty INTERNAL_API_KEY as "serve everything
+// unauthenticated" unless REQUIRE_INTERNAL_API_KEY=true, in which case it refuses to start. The manifest is where that
+// switch lives, so removing it (a "tidy-up", a copy-paste from the compose file) must fail a test, not production.
+describe.each([["ledger-bridge"], ["recon-worker"]])("%s fails closed", (name) => {
+  const env = (container(deployment(name), name).env as Obj[]).find((e) => e.name === "REQUIRE_INTERNAL_API_KEY");
+
+  it("sets REQUIRE_INTERNAL_API_KEY=true as a literal (never from an optional Secret that could be absent)", () => {
+    expect(env, `${name} does not set REQUIRE_INTERNAL_API_KEY`).toBeDefined();
+    expect(env!.value).toBe("true");
+    expect(env!.valueFrom).toBeUndefined();
+  });
+
+  it("the switch is meaningful: the key itself is required from a non-optional Secret", () => {
+    expect(keyEnv(container(deployment(name), name))!.valueFrom.secretKeyRef.optional).not.toBe(true);
+  });
+});
+
 describe("least privilege", () => {
   it("the tb-adapter sidecar does not get the secret (loopback-only; only the bridge talks to it)", () => {
     expect(keyEnv(container(deployment("ledger-bridge"), "tb-adapter"))).toBeUndefined();

@@ -48,6 +48,10 @@ spec:
             secretKeyRef:
               key: INTERNAL_API_KEY
               name: whatsapp-server-internal-api-key
+        # QA-039: fail closed — an unset/empty INTERNAL_API_KEY refuses to start instead of leaving /recon/trigger (which
+        # runs the ledger repair pass) unauthenticated.
+        - name: REQUIRE_INTERNAL_API_KEY
+          value: "true"
         - name: RUST_LOG
           value: info
         - name: OTEL_ENABLED

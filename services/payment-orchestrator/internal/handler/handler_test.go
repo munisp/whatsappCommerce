@@ -387,3 +387,65 @@ func TestVoidPayment_RejectsCompletedStatus(t *testing.T) {
 		t.Fatalf("a completed payment's status changed to %q via void", s.intents[id].Status)
 	}
 }
+
+// ─── QA-038: every call to the ledger bridge carries the internal key (when configured) ─────────────────────────
+//
+// The bridge refuses a caller without X-Internal-Api-Key once it enforces. payment-orchestrator is not configured to
+// reach the bridge today (LEDGER_BRIDGE_URL unset), which is exactly why this is pinned: the day someone wires it up,
+// the first ledger call must not be a 401.
+
+func captureLedger(t *testing.T) (*httptest.Server, *[]http.Header) {
+	t.Helper()
+	var seen []http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Clone())
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"pending_id": "pending-1"})
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &seen
+}
+
+func TestLedgerCalls_SendTheInternalKeyWhenConfigured(t *testing.T) {
+	srv, seen := captureLedger(t)
+	h := newTestHandler(newFakeStore(), &config.Config{LedgerBridgeURL: srv.URL, InternalAPIKey: "s3cret"})
+	intent := store.PaymentIntentRow{ID: uuid.New(), TenantID: uuid.New(), Amount: 100, Currency: "NGN"}
+
+	if _, err := h.reserveLedger(context.Background(), intent); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	for _, path := range []string{"/ledger/commit", "/ledger/void", "/ledger/reverse"} {
+		if err := h.ledgerSettle(context.Background(), path, "pending-1"); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+	if len(*seen) != 4 {
+		t.Fatalf("expected 4 ledger calls (reserve+commit+void+reverse), saw %d", len(*seen))
+	}
+	for i, hd := range *seen {
+		if got := hd.Get("X-Internal-Api-Key"); got != "s3cret" {
+			t.Errorf("ledger call %d: X-Internal-Api-Key = %q, want %q", i, got, "s3cret")
+		}
+		if hd.Get("Content-Type") != "application/json" {
+			t.Errorf("ledger call %d lost its Content-Type", i)
+		}
+	}
+}
+
+func TestLedgerCalls_SendNoKeyHeaderWhenNoneConfigured(t *testing.T) {
+	srv, seen := captureLedger(t)
+	h := newTestHandler(newFakeStore(), &config.Config{LedgerBridgeURL: srv.URL}) // development: no key
+	intent := store.PaymentIntentRow{ID: uuid.New(), TenantID: uuid.New(), Amount: 100, Currency: "NGN"}
+
+	if _, err := h.reserveLedger(context.Background(), intent); err != nil {
+		t.Fatalf("reserve: %v", err)
+	}
+	if err := h.ledgerSettle(context.Background(), "/ledger/commit", "pending-1"); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	for i, hd := range *seen {
+		if _, present := hd["X-Internal-Api-Key"]; present {
+			t.Errorf("ledger call %d sent an X-Internal-Api-Key header although none is configured", i)
+		}
+	}
+}

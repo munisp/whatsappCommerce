@@ -27,7 +27,15 @@ struct Config {
     database_url: String,
     recon_interval_secs: u64,
     platform_api_url: String,
+    /// Sent to the PLATFORM (`server`) only: PLATFORM_API_KEY, falling back to INTERNAL_API_KEY.
     platform_api_key: String,
+    /// QA-039: the shared internal secret (INTERNAL_API_KEY and nothing else). It is (a) what this service's OWN
+    /// /recon/* routes require, and (b) what it presents to the ledger-bridge. It used to share a variable with
+    /// `platform_api_key`, so setting PLATFORM_API_KEY to anything else would silently have changed the inbound
+    /// secret AND broken every bridge call. Empty = unauthenticated (rollout stage / dev), see `key_posture`.
+    internal_api_key: String,
+    /// QA-039: REQUIRE_INTERNAL_API_KEY=true makes an unset/empty key a startup failure instead of an open service.
+    require_internal_api_key: bool,
     /// Pending transfers older than this (seconds) whose payment is not in an
     /// active state are actively voided by the worker.
     orphan_threshold_secs: u64,
@@ -46,12 +54,43 @@ impl Config {
             platform_api_url: env::var("PLATFORM_API_URL")
                 .or_else(|_| env::var("PLATFORM_URL"))
                 .unwrap_or_else(|_| "http://localhost:3000".into()),
-            platform_api_key: env::var("PLATFORM_API_KEY")
-                .or_else(|_| env::var("INTERNAL_API_KEY"))
-                .unwrap_or_default(),
+            platform_api_key: normalize_key(
+                env::var("PLATFORM_API_KEY").or_else(|_| env::var("INTERNAL_API_KEY")).unwrap_or_default(),
+            ),
+            internal_api_key: normalize_key(env::var("INTERNAL_API_KEY").unwrap_or_default()),
+            require_internal_api_key: env::var("REQUIRE_INTERNAL_API_KEY").map(|v| v == "true").unwrap_or(false),
             orphan_threshold_secs: env::var("RECON_ORPHAN_THRESHOLD_SECS")
                 .ok().and_then(|v| v.parse().ok()).unwrap_or(900),
         }
+    }
+}
+
+/// A secret that is only whitespace is no secret: treat it as unset, so `is_empty()` means the same thing
+/// everywhere it is asked (an empty Secret value must not be able to look "configured" to one check and "unset"
+/// to another).
+fn normalize_key(raw: String) -> String {
+    if raw.trim().is_empty() { String::new() } else { raw }
+}
+
+/// What the startup check decided about the inbound gate.
+#[derive(Debug, PartialEq)]
+enum KeyPosture {
+    Enforced,
+    /// Unauthenticated, with a loud warning — only reachable when REQUIRE_INTERNAL_API_KEY is not set (dev, the
+    /// e2e stack, or the first stage of a rollout).
+    OpenWithWarning,
+}
+
+/// QA-039: fail CLOSED. A missing or empty INTERNAL_API_KEY used to mean "serve everything unauthenticated"; a
+/// Deployment whose Secret was emptied (or whose env entry was dropped in a refactor) would have gone quietly
+/// open. With REQUIRE_INTERNAL_API_KEY=true (set in the k8s manifest) that state now refuses to start instead.
+fn key_posture(internal_api_key: &str, require: bool) -> Result<KeyPosture, String> {
+    if !internal_api_key.is_empty() {
+        Ok(KeyPosture::Enforced)
+    } else if require {
+        Err("REQUIRE_INTERNAL_API_KEY=true but INTERNAL_API_KEY is unset or empty — refusing to start with /recon/* unauthenticated".into())
+    } else {
+        Ok(KeyPosture::OpenWithWarning)
     }
 }
 
@@ -138,8 +177,19 @@ fn void_request(state: &AppState, pending_id: &str) -> reqwest::RequestBuilder {
     let mut req = state.http
         .post(format!("{}/ledger/void", state.config.ledger_bridge_url))
         .json(&serde_json::json!({ "pending_id": pending_id }));
-    // QA-038: the bridge now requires this once its own INTERNAL_API_KEY is set (see require_internal_key
-    // below) — reusing platform_api_key, the same secret this worker already sends the platform with.
+    // QA-038: the bridge requires this once its own INTERNAL_API_KEY is set (see require_internal_key below).
+    // QA-039: it is the INTERNAL key, not the platform key — they are different variables now.
+    if !state.config.internal_api_key.is_empty() {
+        req = req.header("X-Internal-Api-Key", &state.config.internal_api_key);
+    }
+    req
+}
+
+/// Builds (does not send) the recon report to the platform. This one carries the PLATFORM key, on purpose.
+fn platform_events_request(state: &AppState, events: &[serde_json::Value]) -> reqwest::RequestBuilder {
+    let mut req = state.http
+        .post(format!("{}/api/internal/events", state.config.platform_api_url))
+        .json(&serde_json::json!({ "events": events }));
     if !state.config.platform_api_key.is_empty() {
         req = req.header("X-Internal-Api-Key", &state.config.platform_api_key);
     }
@@ -456,13 +506,7 @@ async fn run_recon(state: &AppState) -> ReconResult {
             },
         }));
 
-        let mut req = state.http
-            .post(format!("{}/api/internal/events", state.config.platform_api_url))
-            .json(&serde_json::json!({ "events": events }));
-        if !state.config.platform_api_key.is_empty() {
-            req = req.header("X-Internal-Api-Key", &state.config.platform_api_key);
-        }
-        match req.send().await {
+        match platform_events_request(&state, &events).send().await {
             Ok(r) if r.status().is_success() => {
                 info!(run_id = %run_id, "recon results reported to platform");
             }
@@ -630,8 +674,13 @@ async fn main() -> Result<()> {
         }
     });
 
-    if state.config.platform_api_key.is_empty() {
-        warn!("INTERNAL_API_KEY is not set — /recon/trigger and /recon/last are UNAUTHENTICATED (rollout stage: deploy before callers send the header, then set this)");
+    match key_posture(&state.config.internal_api_key, state.config.require_internal_api_key) {
+        Ok(KeyPosture::Enforced) => info!("internal API key gate: ENFORCED on /recon/trigger and /recon/last"),
+        Ok(KeyPosture::OpenWithWarning) => warn!("INTERNAL_API_KEY is not set — /recon/trigger and /recon/last are UNAUTHENTICATED (dev / rollout stage; set REQUIRE_INTERNAL_API_KEY=true in any real deployment)"),
+        Err(e) => {
+            error!("{}", e);
+            std::process::exit(1);
+        }
     }
     let port = state.config.port;
     let app = build_router(state);
@@ -664,7 +713,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// NetworkPolicy (QA-026) restricts WHO can reach the pod, this restricts WHAT they may ask it to do.
 /// /health is exempt (kubelet's probe sends no header).
 async fn require_internal_key(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    if state.config.platform_api_key.is_empty() {
+    if state.config.internal_api_key.is_empty() {
         return next.run(req).await;
     }
     let presented = ["x-internal-api-key", "x-internal-token", "x-api-key"]
@@ -672,7 +721,7 @@ async fn require_internal_key(State(state): State<AppState>, req: Request, next:
         .find_map(|h| req.headers().get(*h))
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if !constant_time_eq(presented.as_bytes(), state.config.platform_api_key.as_bytes()) {
+    if !constant_time_eq(presented.as_bytes(), state.config.internal_api_key.as_bytes()) {
         // Method and path only — never the presented value (see ledger-bridge's require_internal_key).
         warn!(method = %req.method(), path = %req.uri().path(), "rejected request: missing or invalid internal API key");
         return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "invalid_internal_api_key" }))).into_response();
@@ -710,8 +759,10 @@ mod tests {
                 ledger_bridge_url: "http://127.0.0.1:1".into(), // unreachable on purpose — tests below never need it to answer
                 database_url: String::new(),
                 recon_interval_secs: 300,
-                platform_api_url: String::new(),
-                platform_api_key: key.to_string(),
+                platform_api_url: "http://127.0.0.1:2".into(),
+                platform_api_key: String::new(),
+                internal_api_key: key.to_string(),
+                require_internal_api_key: false,
                 orphan_threshold_secs: 900,
             }),
             http: Client::new(),
@@ -787,6 +838,61 @@ mod tests {
         assert_eq!(req.headers().get("x-internal-api-key").unwrap(), "s3cret");
         let body = std::str::from_utf8(req.body().unwrap().as_bytes().unwrap()).unwrap().to_string();
         assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["pending_id"], "pending-1");
+    }
+
+    // ── QA-039: separate secrets, fail closed ──────────────────────────────────────────────────────────
+
+    fn state_with_both(internal: &str, platform: &str) -> AppState {
+        let mut st = test_state(internal);
+        let mut cfg = (*st.config).clone();
+        cfg.platform_api_key = platform.to_string();
+        st.config = Arc::new(cfg);
+        st
+    }
+
+    #[test]
+    fn the_bridge_gets_the_internal_key_and_the_platform_gets_the_platform_key_when_they_differ() {
+        // Before QA-039 both came from one variable, so PLATFORM_API_KEY!=INTERNAL_API_KEY made every bridge call 401.
+        let st = state_with_both("internal-secret", "platform-secret");
+        let void = void_request(&st, "p1").build().unwrap();
+        assert_eq!(void.headers().get("x-internal-api-key").unwrap(), "internal-secret");
+        let report = platform_events_request(&st, &[serde_json::json!({"k": 1})]).build().unwrap();
+        assert_eq!(report.url().as_str(), "http://127.0.0.1:2/api/internal/events");
+        assert_eq!(report.headers().get("x-internal-api-key").unwrap(), "platform-secret");
+    }
+
+    #[tokio::test]
+    async fn the_inbound_gate_checks_the_internal_key_not_the_platform_key() {
+        use tower::ServiceExt;
+        let st = || state_with_both("internal-secret", "platform-secret");
+        let with_platform = app(st()).oneshot(req("GET", "/recon/last", Some("platform-secret"))).await.unwrap();
+        assert_eq!(with_platform.status(), StatusCode::UNAUTHORIZED, "the platform key must not open /recon/*");
+        let with_internal = app(st()).oneshot(req("GET", "/recon/last", Some("internal-secret"))).await.unwrap();
+        assert_ne!(with_internal.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn a_whitespace_only_secret_is_treated_as_unset() {
+        assert_eq!(normalize_key("   \n".into()), "");
+        assert_eq!(normalize_key("".into()), "");
+        assert_eq!(normalize_key("real-secret".into()), "real-secret");
+    }
+
+    #[test]
+    fn key_posture_enforces_when_a_key_is_set_whatever_the_require_flag_says() {
+        assert_eq!(key_posture("k", false), Ok(KeyPosture::Enforced));
+        assert_eq!(key_posture("k", true), Ok(KeyPosture::Enforced));
+    }
+
+    #[test]
+    fn key_posture_refuses_to_start_open_when_required() {
+        let e = key_posture("", true).unwrap_err();
+        assert!(e.contains("INTERNAL_API_KEY") && e.contains("refusing to start"), "{e}");
+    }
+
+    #[test]
+    fn key_posture_only_allows_open_when_not_required() {
+        assert_eq!(key_posture("", false), Ok(KeyPosture::OpenWithWarning));
     }
 
     #[test]
