@@ -24,7 +24,7 @@ redis = { version = "0.27" }
 # === W45 go-rust-services (MSG-18) ===
 # Real Kafka consumer + DLQ topic producer. cmake-build vendors librdkafka
 # at image build time (see Dockerfile — bookworm builder with cmake).
-rdkafka = { version = "0.37", features = ["cmake-build"] }
+rdkafka = { version = "0.39", features = ["cmake-build"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
