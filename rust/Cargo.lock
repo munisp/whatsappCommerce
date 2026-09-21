@@ -1845,6 +1845,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-postgres",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-opentelemetry",

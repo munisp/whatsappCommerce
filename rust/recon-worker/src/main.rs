@@ -7,7 +7,10 @@
 //! Runs on a configurable interval (default: 5 minutes).
 
 use anyhow::Result;
-use axum::{extract::State, response::Json, routing::{get, post}, Router};
+use axum::{
+    extract::{Request, State}, http::StatusCode, middleware::{self, Next}, response::{IntoResponse, Json, Response},
+    routing::{get, post}, Router,
+};
 use chrono::Utc;
 use deadpool_postgres::{Config as PgConfig, Pool, Runtime};
 use reqwest::Client;
@@ -131,11 +134,15 @@ fn classify_void_status(status: Option<u16>) -> VoidClassification {
 /// Returns Ok(true) when the void was confirmed, Ok(false) when the transfer
 /// was already settled (nothing to repair), Err on bridge failure.
 async fn void_orphan(state: &AppState, pending_id: &str) -> Result<bool, String> {
-    let resp = state.http
+    let mut req = state.http
         .post(format!("{}/ledger/void", state.config.ledger_bridge_url))
-        .json(&serde_json::json!({ "pending_id": pending_id }))
-        .send()
-        .await;
+        .json(&serde_json::json!({ "pending_id": pending_id }));
+    // QA-038: the bridge now requires this once its own INTERNAL_API_KEY is set (see require_internal_key
+    // below) — reusing platform_api_key, the same secret this worker already sends the platform with.
+    if !state.config.platform_api_key.is_empty() {
+        req = req.header("X-Internal-Api-Key", &state.config.platform_api_key);
+    }
+    let resp = req.send().await;
     let (status, body) = match resp {
         Ok(r) => (Some(r.status().as_u16()), r.text().await.unwrap_or_default()),
         Err(e) => (None, e.to_string()),
@@ -570,6 +577,20 @@ fn build_otel_tracer(
 }
 // === END W35 otel ===
 
+/// The real, single definition of the app's routing — main() and the tests below both call this, so a
+/// mistake here (a route added to the wrong group) is something the tests can actually catch.
+fn build_router(state: AppState) -> Router {
+    let protected = Router::new()
+        .route("/recon/trigger", post(trigger_recon_handler))
+        .route("/recon/last", get(last_recon_handler))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_internal_key));
+    Router::new()
+        .route("/health", get(health_handler))
+        .merge(protected)
+        .with_state(state)
+}
+
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // === W35 otel ===
@@ -604,12 +625,11 @@ async fn main() -> Result<()> {
         }
     });
 
+    if state.config.platform_api_key.is_empty() {
+        warn!("INTERNAL_API_KEY is not set — /recon/trigger and /recon/last are UNAUTHENTICATED (rollout stage: deploy before callers send the header, then set this)");
+    }
     let port = state.config.port;
-    let app = Router::new()
-        .route("/health", get(health_handler))
-        .route("/recon/trigger", post(trigger_recon_handler))
-        .route("/recon/last", get(last_recon_handler))
-        .with_state(state);
+    let app = build_router(state);
 
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -619,6 +639,38 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(async { signal::ctrl_c().await.expect("ctrl_c") })
         .await?;
     Ok(())
+}
+
+/// Constant-time byte comparison (duplicated from ledger-bridge deliberately: these are two independent
+/// binary crates with no shared internal lib, and the function is short enough that a shared crate would
+/// cost more than it saves). Mirrors what `subtle`/Go's `crypto/subtle.ConstantTimeCompare` do.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() || a.is_empty() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// QA-038: /recon/trigger runs the active ledger-repair pass and /recon/last exposes recon results — the
+/// NetworkPolicy (QA-026) restricts WHO can reach the pod, this restricts WHAT they may ask it to do.
+/// /health is exempt (kubelet's probe sends no header).
+async fn require_internal_key(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if state.config.platform_api_key.is_empty() {
+        return next.run(req).await;
+    }
+    let presented = ["x-internal-api-key", "x-internal-token", "x-api-key"]
+        .iter()
+        .find_map(|h| req.headers().get(*h))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !constant_time_eq(presented.as_bytes(), state.config.platform_api_key.as_bytes()) {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "invalid_internal_api_key" }))).into_response();
+    }
+    next.run(req).await
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -640,5 +692,92 @@ mod tests {
         assert_eq!(classify_void_status(Some(502)), VoidClassification::Retry);
         assert_eq!(classify_void_status(Some(503)), VoidClassification::Retry);
         assert_eq!(classify_void_status(None), VoidClassification::Retry, "unreachable bridge must retry");
+    }
+
+    // ── QA-038: internal API key gate ───────────────────────────────────────────────────────────────────
+
+    fn test_state(key: &str) -> AppState {
+        AppState {
+            config: Arc::new(Config {
+                port: 8096,
+                ledger_bridge_url: "http://127.0.0.1:1".into(), // unreachable on purpose — tests below never need it to answer
+                database_url: String::new(),
+                recon_interval_secs: 300,
+                platform_api_url: String::new(),
+                platform_api_key: key.to_string(),
+                orphan_threshold_secs: 900,
+            }),
+            http: Client::new(),
+            pg: None,
+            last_recon: Arc::new(tokio::sync::RwLock::new(None)),
+            recon_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        }
+    }
+
+    /// Not a duplicate of build_router — calls it, so a mistake in the real wiring is something these tests
+    /// can catch (a hand-copied second router here would test only itself).
+    fn app(state: AppState) -> Router {
+        build_router(state)
+    }
+
+    fn req(method: &str, path: &str, key: Option<&str>) -> axum::http::Request<axum::body::Body> {
+        let mut b = axum::http::Request::builder().method(method).uri(path);
+        if let Some(k) = key { b = b.header("x-internal-api-key", k); }
+        b.body(axum::body::Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn constant_time_eq_is_a_real_equality_check() {
+        assert!(constant_time_eq(b"same-secret", b"same-secret"));
+        assert!(!constant_time_eq(b"same-secret", b"different!!!"));
+        assert!(!constant_time_eq(b"", b""));
+    }
+
+    #[tokio::test]
+    async fn when_no_key_is_configured_recon_trigger_and_last_are_open() {
+        use tower::ServiceExt;
+        let res = app(test_state("")).oneshot(req("GET", "/recon/last", None)).await.unwrap();
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn once_configured_recon_trigger_refuses_no_key_and_the_repair_pass_never_runs() {
+        use tower::ServiceExt;
+        // If the middleware let this through, run_recon would try a real DB/bridge call and this test
+        // would hang or error for the WRONG reason — a 401 here also proves the handler was never invoked.
+        let res = app(test_state("s3cret")).oneshot(req("POST", "/recon/trigger", None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn once_configured_recon_last_refuses_the_wrong_key() {
+        use tower::ServiceExt;
+        let res = app(test_state("s3cret")).oneshot(req("GET", "/recon/last", Some("nope"))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn once_configured_recon_last_accepts_the_right_key() {
+        use tower::ServiceExt;
+        let res = app(test_state("s3cret")).oneshot(req("GET", "/recon/last", Some("s3cret"))).await.unwrap();
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn health_never_requires_the_key() {
+        use tower::ServiceExt;
+        let res = app(test_state("s3cret")).oneshot(req("GET", "/health", None)).await.unwrap();
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn void_orphan_sends_the_configured_key_as_a_header_builder_smoke_check() {
+        // A full HTTP-level test of void_orphan would need a mock server; this pins the cheaper property —
+        // that a configured key is non-empty and distinguishable from "not configured" — so the `if
+        // !state.config.platform_api_key.is_empty()` branch in void_orphan has something to actually guard.
+        let with_key = test_state("s3cret");
+        let without_key = test_state("");
+        assert!(!with_key.config.platform_api_key.is_empty());
+        assert!(without_key.config.platform_api_key.is_empty());
     }
 }

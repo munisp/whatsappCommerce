@@ -31,3 +31,9 @@ opentelemetry_sdk = "0.30"
 opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic", "trace"] }
 tracing-opentelemetry = "0.31"
 # === END W35 otel ===
+
+[dev-dependencies]
+# QA-038: ServiceExt::oneshot(), to test the real axum router (which routes got the internal-key middleware,
+# which didn't) instead of the middleware function in isolation. Already in Cargo.lock as tower-http's own
+# dependency; only main.rs's #[cfg(test)] module uses it, so it stays out of the release binary.
+tower = "0.5"

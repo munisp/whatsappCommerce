@@ -49,9 +49,10 @@
 
 use anyhow::Result;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Request, State},
     http::StatusCode,
-    response::Json,
+    middleware::{self, Next},
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
@@ -80,6 +81,12 @@ struct Config {
     /// Must be a valid account id (decimal u128 / 32-hex / UUID). Required for
     /// the TigerBeetle path; the dev in-memory ledger does not need it.
     platform_escrow_account: Option<u128>,
+    /// QA-038: shared secret every mutating/reading call (not /health, /health/ready) must present via
+    /// X-Internal-Api-Key (X-Internal-Token / X-Api-Key also accepted, matching the Go/TS services' header
+    /// names). Empty = unauthenticated, same fail-open-with-a-warning posture as server's internalProcedure
+    /// and gateway's InternalTokenAuth, so this can be rolled out without an instant outage: deploy this
+    /// code with the secret unset, deploy callers that send it, THEN set the secret to start enforcing.
+    internal_api_key: String,
 }
 
 impl Config {
@@ -115,8 +122,47 @@ impl Config {
                         None
                     }
                 }),
+            internal_api_key: env::var("INTERNAL_API_KEY").unwrap_or_default(),
         }
     }
+}
+
+/// Constant-time byte comparison (no early exit on the first differing byte, which would let an attacker
+/// time their way to the secret one byte at a time). No crate in the offline vendor cache does this, and it
+/// is short enough to not need one — mirrors what `subtle`/Go's `crypto/subtle.ConstantTimeCompare` do.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() || a.is_empty() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// QA-038: ledger-bridge accepted a transfer/commit/void/reverse from ANY caller that could reach it — the
+/// NetworkPolicy (QA-026) restricts WHO can reach the pod, this restricts WHAT they may be asked to do.
+/// Applied to every route except /health and /health/ready, which kubelet's own probes call with no header.
+async fn require_internal_key(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if state.internal_api_key.is_empty() {
+        // Warned once at startup (see main()); allowing through here is the "callers not updated yet" stage
+        // of the rollout, not a silent permanent hole.
+        return next.run(req).await;
+    }
+    let presented = ["x-internal-api-key", "x-internal-token", "x-api-key"]
+        .iter()
+        .find_map(|h| req.headers().get(*h))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if !constant_time_eq(presented.as_bytes(), state.internal_api_key.as_bytes()) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "invalid_internal_api_key" })),
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 // ─── Money helpers (integer minor units only) ─────────────────────────────────
@@ -517,6 +563,7 @@ struct AppState {
     allow_inmemory: bool,
     // Timeout applied to every pending transfer (seconds)
     pending_timeout_secs: u32,
+    internal_api_key: String,
     // Explicit platform escrow account for /ledger/reserve (TigerBeetle path)
     platform_escrow_account: Option<u128>,
 }
@@ -583,6 +630,7 @@ impl AppState {
             allow_inmemory: cfg.allow_inmemory,
             pending_timeout_secs: cfg.pending_timeout_secs,
             platform_escrow_account: cfg.platform_escrow_account,
+            internal_api_key: cfg.internal_api_key.clone(),
         };
         state.ensure_transfer_table().await;
         state
@@ -1644,6 +1692,28 @@ fn build_otel_tracer(
 }
 // === END W35 otel ===
 
+/// The real, single definition of the app's routing (which routes require the internal key, which don't) —
+/// main() and the tests below both call this, so a mistake here (a route added to the wrong group) is
+/// something the tests can actually catch, not just something a hand-duplicated test router would miss.
+fn build_router(state: AppState) -> Router {
+    let protected = Router::new()
+        .route("/balance/:account_id", get(get_balance_handler))
+        .route("/transfer", post(transfer_handler))
+        .route("/ledger/reserve", post(reserve_handler))
+        .route("/ledger/commit", post(commit_handler))
+        .route("/ledger/void", post(void_handler))
+        .route("/ledger/reverse", post(reverse_handler))
+        .route("/ledger/balances", get(balances_handler))
+        .route("/accounts/provision", post(provision_account_handler))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_internal_key));
+    Router::new()
+        .route("/health", get(health_handler))
+        .route("/health/ready", get(ready_handler))
+        .merge(protected)
+        .with_state(state)
+}
+
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // === W35 otel ===
@@ -1668,6 +1738,9 @@ async fn main() -> Result<()> {
     if cfg.platform_escrow_account.is_none() && !cfg.allow_inmemory {
         warn!("PLATFORM_ESCROW_ACCOUNT_ID is not set — /ledger/reserve without an explicit credit_account_id will fail");
     }
+    if cfg.internal_api_key.is_empty() {
+        warn!("INTERNAL_API_KEY is not set — every route except /health(/ready) is UNAUTHENTICATED (rollout stage: deploy before callers send the header, then set this)");
+    }
 
     let state = AppState::new(&cfg).await;
 
@@ -1679,18 +1752,7 @@ async fn main() -> Result<()> {
         "Ledger Bridge starting"
     );
 
-    let app = Router::new()
-        .route("/health", get(health_handler))
-        .route("/health/ready", get(ready_handler))
-        .route("/balance/:account_id", get(get_balance_handler))
-        .route("/transfer", post(transfer_handler))
-        .route("/ledger/reserve", post(reserve_handler))
-        .route("/ledger/commit", post(commit_handler))
-        .route("/ledger/void", post(void_handler))
-        .route("/ledger/reverse", post(reverse_handler))
-        .route("/ledger/balances", get(balances_handler))
-        .route("/accounts/provision", post(provision_account_handler))
-        .with_state(state);
+    let app = build_router(state);
 
     let addr = format!("0.0.0.0:{}", cfg.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
@@ -1721,7 +1783,21 @@ mod tests {
             allow_inmemory: true,
             pending_timeout_secs: 300,
             platform_escrow_account: None,
+            internal_api_key: String::new(),
         }
+    }
+
+    /// Same as dev_state() but with an internal API key configured (enforcing).
+    fn dev_state_with_key(key: &str) -> AppState {
+        AppState { internal_api_key: key.to_string(), ..dev_state() }
+    }
+
+    /// The real router, built the same way main() builds it, so this tests the ACTUAL wiring (which routes
+    /// got the middleware, which didn't) rather than the middleware function in isolation.
+    /// Not a duplicate of build_router — calls it, so a mistake in the real wiring is something these tests
+    /// can catch (a hand-copied second router here would test only itself).
+    fn app(state: AppState) -> Router {
+        build_router(state)
     }
 
     /// Regression: the dev in-memory fallback previously never saved the
@@ -1902,5 +1978,97 @@ mod tests {
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body["status"].as_str(), Some("not_ready"));
         assert_eq!(body["tigerbeetle"]["healthy"].as_bool(), Some(false));
+    }
+
+    // ── QA-038: internal API key gate ───────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn constant_time_eq_is_a_real_equality_check() {
+        assert!(constant_time_eq(b"same-secret", b"same-secret"));
+        assert!(!constant_time_eq(b"same-secret", b"different!!!"));
+        assert!(!constant_time_eq(b"short", b"a-longer-secret")); // different length
+        assert!(!constant_time_eq(b"", b"")); // empty never matches anything, including itself — no free pass
+        assert!(!constant_time_eq(b"secret", b""));
+    }
+
+    fn req(method: &str, path: &str, key: Option<&str>) -> axum::http::Request<axum::body::Body> {
+        let mut b = axum::http::Request::builder().method(method).uri(path);
+        if let Some(k) = key { b = b.header("x-internal-api-key", k); }
+        b.body(axum::body::Body::empty()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn when_no_key_is_configured_every_route_is_open_dash_this_is_the_deploy_before_callers_send_it_stage() {
+        use tower::ServiceExt;
+        let router = app(dev_state()); // internal_api_key: "" (dev_state default)
+        let res = router.oneshot(req("GET", "/balance/11111111-1111-1111-1111-111111111111", None)).await.unwrap();
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn once_configured_a_protected_route_refuses_a_request_with_no_key() {
+        use tower::ServiceExt;
+        let router = app(dev_state_with_key("s3cret"));
+        let res = router.oneshot(req("GET", "/balance/11111111-1111-1111-1111-111111111111", None)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn once_configured_a_protected_route_refuses_the_wrong_key() {
+        use tower::ServiceExt;
+        let router = app(dev_state_with_key("s3cret"));
+        let res = router.oneshot(req("GET", "/balance/11111111-1111-1111-1111-111111111111", Some("wrong"))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn once_configured_a_protected_route_accepts_the_right_key() {
+        use tower::ServiceExt;
+        let router = app(dev_state_with_key("s3cret"));
+        let res = router.oneshot(req("GET", "/balance/11111111-1111-1111-1111-111111111111", Some("s3cret"))).await.unwrap();
+        assert_ne!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn once_configured_transfer_and_void_are_also_protected_not_just_balance() {
+        use tower::ServiceExt;
+        for (method, path) in [("POST", "/transfer"), ("POST", "/ledger/void")] {
+            let router = app(dev_state_with_key("s3cret"));
+            let res = router.oneshot(req(method, path, None)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "{method} {path} must require the key");
+        }
+    }
+
+    #[tokio::test]
+    async fn health_and_health_ready_never_require_the_key_dash_kubelet_cannot_send_one() {
+        use tower::ServiceExt;
+        for path in ["/health", "/health/ready"] {
+            let router = app(dev_state_with_key("s3cret"));
+            let res = router.oneshot(req("GET", path, None)).await.unwrap();
+            assert_ne!(res.status(), StatusCode::UNAUTHORIZED, "{path} must stay open for kubelet probes");
+        }
+    }
+
+    #[tokio::test]
+    async fn the_other_two_accepted_header_names_also_work_dash_x_internal_token_and_x_api_key() {
+        use tower::ServiceExt;
+        for header in ["x-internal-token", "x-api-key"] {
+            let router = app(dev_state_with_key("s3cret"));
+            let r = axum::http::Request::builder()
+                .method("GET").uri("/balance/11111111-1111-1111-1111-111111111111")
+                .header(header, "s3cret").body(axum::body::Body::empty()).unwrap();
+            let res = router.oneshot(r).await.unwrap();
+            assert_ne!(res.status(), StatusCode::UNAUTHORIZED, "{header} should have been accepted");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_401_from_the_gate_is_json_shaped_like_every_other_error_here() {
+        use tower::ServiceExt;
+        let router = app(dev_state_with_key("s3cret"));
+        let res = router.oneshot(req("GET", "/balance/11111111-1111-1111-1111-111111111111", None)).await.unwrap();
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["error"], "invalid_internal_api_key");
     }
 }
