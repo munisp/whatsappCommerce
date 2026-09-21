@@ -110,7 +110,12 @@ export const journey: Journey = {
     // (GoServiceDown, RustServiceDown, TemporalWorkflowFailures,
     // TigerBeetleOpErrors) under the W35 banner in deploy/otel/alert-rules.yml.
     // Keep the W34 seven required above; total is now 11.
-    assert(names.length === 11, `expected 11 alert rules (7 W34 + 4 W35), got ${names.length}`);
+    // QA backups: +3 (PostgresBackupStale, PostgresBackupRunFailing, PostgresRestoreVerifyStale)
+    // for the whatsapp_commerce backup CronJobs — a backup that silently stops is the failure mode.
+    for (const want of ["PostgresBackupStale", "PostgresBackupRunFailing", "PostgresRestoreVerifyStale"]) {
+      assert(names.includes(want), `backup alert rule ${want} missing (have: ${names.join(",")})`);
+    }
+    assert(names.length === 14, `expected 14 alert rules (7 W34 + 4 W35 + 3 backups), got ${names.length}`);
     // === END W35 merge fix ===
 
     // 3b. Alertmanager routing: receivers + severity routing + inhibition.

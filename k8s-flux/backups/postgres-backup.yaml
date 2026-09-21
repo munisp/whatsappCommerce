@@ -1,0 +1,256 @@
+# Postgres backup + continuous restore verification for the `whatsapp_commerce` database.
+#
+# WHERE THE DATABASE REALLY IS: the app's DSN (secret whatsapp-postgres-dsn) points at
+# pg-meridian-rw.meridian.svc — a SHARED CloudNativePG cluster owned by another project,
+# with NO backup configured (no barmanObjectStore, no ScheduledBackup). Enabling CNPG's
+# native WAL archiving would mean editing that project's Cluster spec (a restart risk for
+# both databases), so this backs up OUR database only, read-only, from our own namespace.
+# It needs nothing from the meridian namespace except network access to Postgres.
+#
+# WHAT THIS PROTECTS AGAINST: logical loss — a bad migration, an accidental DELETE/DROP,
+# corruption, an operator error — with an RPO of up to 24 h. It does NOT protect against
+# loss of the host: the dumps live on a local-path PVC on the same machine as the database.
+# An off-host copy needs a destination outside this host (see docs/RESILIENCE.md). It is
+# also not point-in-time recovery; that requires WAL archiving on the shared cluster.
+#
+# The client image is the same CNPG image the server runs (pg_dump 18.4 must be >= the
+# server's major version; the old k8s/backups.yaml used postgres:16, which cannot dump a
+# PG 18 server). The restore drill runs a private, throwaway Postgres inside its own pod —
+# it never writes to the shared cluster.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backups
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/name: postgres-backup
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # The database is ~24 MB (267 tables); a custom-format dump is a few MB. 14 dumps + sidecars
+      # fit in well under 1 GiB; 2 GiB leaves headroom for growth on a disk that is nearly full.
+      storage: 2Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/name: postgres-backup
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  schedule: "15 3 * * *"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: postgres-backup
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: pg-dump
+              image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: whatsapp-postgres-dsn
+                      key: DATABASE_URL
+                - name: KEEP
+                  value: "14"
+                - name: HOME
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  umask 077
+                  DIR=/backups/pg
+                  mkdir -p "$DIR"
+                  TS=$(date -u +%Y%m%dT%H%M%SZ)
+                  TMP="$DIR/.inprogress-$TS.dump"
+                  FINAL="$DIR/whatsapp_commerce-$TS.dump"
+                  # Never leave a half-written dump or sidecar behind, on success or failure.
+                  trap 'rm -f "$TMP" "$TMP.counts" "$TMP.toc"' EXIT
+                  T0=$(date +%s)
+                  echo "[pg-backup] $(pg_dump --version) -> $FINAL"
+
+                  # Reference numbers taken BEFORE the dump; the restore drill uses them as a floor.
+                  LIVE_TABLES=$(psql "$DATABASE_URL" -X -Atq -c "select count(*) from information_schema.tables where table_schema in ('public','drizzle') and table_type='BASE TABLE'")
+                  MIGRATIONS=$(psql "$DATABASE_URL" -X -Atq -c "select count(*) from drizzle.__drizzle_migrations")
+                  psql "$DATABASE_URL" -X -Atq -c "select tablename, (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', schemaname, tablename), false, true, '')))[1]::text from pg_tables where schemaname='public' order by 1" > "$TMP.counts"
+
+                  # One MVCC snapshot, read-only. --no-owner/--no-privileges: restorable without our role.
+                  pg_dump --dbname="$DATABASE_URL" --format=custom --compress=6 --no-owner --no-privileges --file="$TMP"
+
+                  # Structural validation: a truncated or empty archive must fail THIS job, not be discovered at restore time.
+                  pg_restore --list "$TMP" > "$TMP.toc"
+                  TOC_TABLES=$(grep -cE '^[0-9]+; [0-9]+ [0-9]+ TABLE [a-z_]+ ' "$TMP.toc" || true)
+                  TOC_FKS=$(grep -c ' FK CONSTRAINT ' "$TMP.toc" || true)
+                  if [ "$TOC_TABLES" -lt "$LIVE_TABLES" ]; then
+                    echo "[pg-backup] FAIL: archive lists $TOC_TABLES tables but the database had $LIVE_TABLES before the dump"
+                    exit 1
+                  fi
+
+                  BYTES=$(wc -c < "$TMP")
+                  SHA=$(sha256sum "$TMP" | cut -d' ' -f1)
+                  DUR=$(( $(date +%s) - T0 ))
+                  # Sidecars first, the dump is renamed into place LAST, so a listed dump is always a complete set.
+                  mv "$TMP.counts" "$FINAL.counts"
+                  echo "$SHA  $(basename "$FINAL")" > "$FINAL.sha256"
+                  printf '{"created_at":"%s","file":"%s","bytes":%s,"sha256":"%s","pg_dump":"%s","toc_tables":%s,"toc_fks":%s,"migrations":%s,"duration_s":%s}\n' \
+                    "$TS" "$(basename "$FINAL")" "$BYTES" "$SHA" "$(pg_dump --version | cut -d' ' -f3)" "$TOC_TABLES" "$TOC_FKS" "$MIGRATIONS" "$DUR" > "$FINAL.meta"
+                  mv "$TMP" "$FINAL"
+
+                  # Retention: keep the newest $KEEP complete dumps. Crashed-run leftovers older than a day go too.
+                  ls -1t "$DIR"/whatsapp_commerce-*.dump 2>/dev/null | tail -n +$((KEEP + 1)) | while read -r f; do rm -f "$f" "$f.meta" "$f.sha256" "$f.counts"; done
+                  find "$DIR" -name '.inprogress-*' -mmin +1440 -delete 2>/dev/null || true
+
+                  echo "[pg-backup] OK $(basename "$FINAL") bytes=$BYTES tables=$TOC_TABLES fks=$TOC_FKS migrations=$MIGRATIONS took=${DUR}s kept=$(ls -1 "$DIR"/whatsapp_commerce-*.dump | wc -l)"
+                  echo "[pg-backup] NOTE: this copy is on the same host as the database — it does not survive host loss."
+              volumeMounts:
+                - {name: backups, mountPath: /backups}
+                - {name: tmp, mountPath: /tmp}
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 256Mi}
+          volumes:
+            - name: backups
+              persistentVolumeClaim: {claimName: postgres-backups}
+            - name: tmp
+              emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-restore-verify
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/name: postgres-restore-verify
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  # Weekly, an hour after the nightly backup. A backup that has never been restored is a hope, not a backup.
+  schedule: "30 4 * * 0"
+  timeZone: "Etc/UTC"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: postgres-restore-verify
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: restore-verify
+              image: ghcr.io/cloudnative-pg/postgresql:18.4-system-trixie
+              env:
+                - name: MAX_AGE_HOURS
+                  value: "36"
+                - name: HOME
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  DIR=/backups/pg
+                  fail() { echo "[restore-verify] FAIL: $*"; exit 1; }
+
+                  LATEST=$(ls -1t "$DIR"/whatsapp_commerce-*.dump 2>/dev/null | head -1 || true)
+                  [ -n "$LATEST" ] || fail "no backup found in $DIR"
+                  NAME=$(basename "$LATEST")
+                  AGE_H=$(( ( $(date +%s) - $(stat -c %Y "$LATEST") ) / 3600 ))
+                  echo "[restore-verify] newest dump: $NAME (age ${AGE_H}h, $(wc -c < "$LATEST") bytes)"
+                  [ "$AGE_H" -le "$MAX_AGE_HOURS" ] || fail "newest dump is ${AGE_H}h old (> ${MAX_AGE_HOURS}h) — the backup job is not running"
+                  [ -f "$LATEST.sha256" ] && [ -f "$LATEST.meta" ] && [ -f "$LATEST.counts" ] || fail "$NAME has no complete sidecar set"
+                  ( cd "$DIR" && sha256sum -c "$NAME.sha256" ) || fail "checksum mismatch (bit rot or a bad copy)"
+
+                  # A private throwaway server inside this pod — nothing here touches the shared cluster.
+                  PGBIN=$(ls -d /usr/lib/postgresql/*/bin | tail -1)
+                  export PATH="$PGBIN:$PATH"
+                  S=/scratch
+                  mkdir -p "$S/data"
+                  initdb -D "$S/data" -U postgres -A trust -E UTF8 --no-sync > /dev/null
+                  pg_ctl -D "$S/data" -l "$S/pg.log" -w -t 60 \
+                    -o "-c listen_addresses='' -c unix_socket_directories=$S -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_wal_size=1GB" start > /dev/null
+                  trap 'pg_ctl -D "$S/data" -m immediate stop > /dev/null 2>&1 || true' EXIT
+                  createdb -h "$S" -U postgres restored
+                  Q() { psql -h "$S" -U postgres -d restored -X -Atq "$@"; }
+
+                  T0=$(date +%s)
+                  pg_restore --host="$S" --username=postgres --dbname=restored --exit-on-error --no-owner --no-privileges "$LATEST" || fail "pg_restore failed (the dump is not restorable)"
+                  RESTORE_S=$(( $(date +%s) - T0 ))
+
+                  json() { sed -n "s/.*\"$1\":\"\{0,1\}\([^,\"}]*\).*/\1/p" "$LATEST.meta"; }
+                  WANT_TABLES=$(json toc_tables); WANT_FKS=$(json toc_fks); WANT_MIG=$(json migrations)
+
+                  GOT_TABLES=$(Q -c "select count(*) from information_schema.tables where table_schema in ('public','drizzle') and table_type='BASE TABLE'")
+                  GOT_FKS=$(Q -c "select count(*) from pg_constraint where contype='f'")
+                  GOT_MIG=$(Q -c "select count(*) from drizzle.__drizzle_migrations")
+                  [ "$GOT_TABLES" -eq "$WANT_TABLES" ] || fail "restored $GOT_TABLES tables, the archive lists $WANT_TABLES"
+                  [ "$GOT_FKS" -eq "$WANT_FKS" ]       || fail "restored $GOT_FKS foreign keys, the archive lists $WANT_FKS"
+                  [ "$GOT_MIG" -ge "$WANT_MIG" ]       || fail "restored $GOT_MIG applied migrations, expected at least $WANT_MIG"
+
+                  # Row-count floor: a table that had rows when the backup started must not come back empty.
+                  Q -c "select tablename, (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', schemaname, tablename), false, true, '')))[1]::text from pg_tables where schemaname='public' order by 1" > "$S/restored.counts"
+                  awk -F '|' 'NR==FNR { r[$1]=$2; next } $2 > 0 && (r[$1]+0) == 0 { print "  EMPTY AFTER RESTORE: " $1 " (had " $2 ")"; bad=1 } END { exit bad }' "$S/restored.counts" "$LATEST.counts" || fail "tables came back empty"
+                  ROWS_SRC=$(awk -F '|' '{s+=$2} END{print s+0}' "$LATEST.counts")
+                  ROWS_GOT=$(awk -F '|' '{s+=$2} END{print s+0}' "$S/restored.counts")
+
+                  echo "[restore-verify] OK $NAME restore=${RESTORE_S}s tables=$GOT_TABLES fks=$GOT_FKS migrations=$GOT_MIG rows_at_backup=$ROWS_SRC rows_restored=$ROWS_GOT"
+              volumeMounts:
+                # Read-only on purpose: the verifier can never damage the backups it is checking.
+                - {name: backups, mountPath: /backups, readOnly: true}
+                - {name: scratch, mountPath: /scratch}
+                - {name: tmp, mountPath: /tmp}
+              resources:
+                requests: {cpu: 100m, memory: 256Mi}
+                limits: {cpu: "1", memory: 768Mi}
+          volumes:
+            - name: backups
+              persistentVolumeClaim: {claimName: postgres-backups, readOnly: true}
+            - name: scratch
+              emptyDir: {sizeLimit: 1Gi}
+            - name: tmp
+              emptyDir: {sizeLimit: 64Mi}

@@ -31,3 +31,4 @@ resources:
   - fluvio-consumer-service.yaml
   - ml-stack-deployment.yaml
   - ml-stack-service.yaml
+  - backups/postgres-backup.yaml

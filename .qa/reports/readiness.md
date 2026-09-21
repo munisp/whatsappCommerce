@@ -11,7 +11,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 - Measured **capacity, resilience and deployment behavior** against the real cluster: rolling deploys, rollback and pod loss are genuinely zero-downtime (measured: 0 failures in 4,395 probes across four experiments); but a missing `ledger-bridge` causes a ~28 s **total** outage, a node loss strands services on a rate-limited registry, and the `server` runs 1 replica with limits below what load needs.
 - I also **corrected my own mistakes in the open** (see §9): two of my fixes would have regressed real behavior and were reworked before shipping.
 
-**Decision: NO-GO for production money-moving traffic tomorrow.** Score 61/100. There are no unresolved P0s, but several availability, security and recoverability gaps remain that are all bounded and fixable (§12). It is fine to continue as a dev/staging environment.
+**Decision: NO-GO for production money-moving traffic tomorrow.** Score 62/100. There are no unresolved P0s, but several availability, security and recoverability gaps remain that are all bounded and fixable (§12). It is fine to continue as a dev/staging environment.
 
 ## 2. Scope — what was and was not tested
 | Area | Status | Evidence |
@@ -31,7 +31,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | Deployment + rollback | Done on the live cluster | CX-03, CX-05 |
 | Chaos | Partial | pod loss, dependency outage, node-loss approximation. **Not done:** real node failure, network partition/latency, CPU/memory/disk pressure, DNS — shared cluster + no safe injection path (`.qa/chaos/experiments.md`) |
 | Observability | Done, read-only | QA-027 section; live cross-service trace propagation **not demonstrable** without traffic |
-| Disaster recovery | Rehearsed locally | backup→restore into a separate Postgres, verified; **no evidence a live backup runs** (QA-021); TigerBeetle restore untested |
+| Disaster recovery | Done on the live cluster (logical backups only) | nightly `pg_dump` + weekly automated restore-verify running on the cluster, drilled end-to-end incl. a corrupted-dump negative control (QA-021). **Still open:** copy is on the same host as the DB (no off-host), no PITR, TigerBeetle/Keycloak DB owned elsewhere and not backed up |
 | **UI, accessibility, browser compatibility** | **NOT DONE — tooling gap** | no browser automation available; exact manual tests in `.qa/manual-tests.md` |
 | Live load/stress test | **Deliberately not done** | you scoped perf to the local stack |
 | Long soak (>10 min) | Not done | 10-minute soak only |
@@ -51,7 +51,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | QA-020 | P2 | **SPA login has no PKCE and no working state/nonce binding → login CSRF** | **OPEN — documented, deliberately not changed** (needs browser testing) |
 | QA-026 | P2 | no NetworkPolicies live; `commerce-engine` trusts `X-Tenant-ID` with no auth of its own | **OPEN** |
 | QA-027 | P2 | `server`: 1 replica, no HPA/PDB/metrics-server, 512Mi limit < 613–800 MiB under load, 500m CPU | **OPEN** |
-| QA-021 | P2 | backup CronJob exists only in the stale `k8s/` set; no evidence a live backup runs | **OPEN** (owner of shared Postgres to confirm) |
+| QA-021 | P2 | no backup of any kind existed for the live DB (shared CNPG cluster has no `ScheduledBackup`) | **MITIGATED** — nightly dump + weekly restore-verify deployed and drilled; off-host copy / PITR / TigerBeetle still open |
 | CX-02 | P2 | missing `ledger-bridge` ⇒ ~28 s total app outage (design contradiction) | **OPEN — owner decision** |
 | CX-04 | P2 | node loss strands `ml-stack`/`recon-worker` on a rate-limited registry | **OPEN** |
 | QA-019 | info | Keycloak brute-force config not provably active (external IdP) | OPEN (external) |
@@ -119,9 +119,9 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 | Data integrity | 5 | 3 | invariants + migrations + restore rehearsal are solid, but the reconciliation safety net (recon-worker) had never worked on real data — found late |
 | Observability | 5 | 3 | good stack; noise, stale target, unproven propagation |
 | Deployment safety | 5 | 3 | proven zero-downtime + rollback; fragile local-image mechanism, Flux suspended |
-| Disaster recovery | 3 | 1 | restore mechanism proven locally; live backups unverified |
+| Disaster recovery | 3 | 2 | live nightly dump + weekly restore-verify, drilled; same-host only, no PITR, no off-host copy, TigerBeetle uncovered |
 | Documentation | 2 | 2 | `.qa/` evidence trail, manual tests, runbook-style chaos log |
-| **Total** | **100** | **61** | descriptive, not a substitute for judgment; no critical blocker overrides it upward |
+| **Total** | **100** | **62** | descriptive, not a substitute for judgment; no critical blocker overrides it upward |
 
 ## 12. Rollout decision
 ```
@@ -137,7 +137,8 @@ EVIDENCE: §3–§8 and .qa/{defects.md, chaos/experiments.md, perf/summary.md, 
           requirements-matrix.md, manual-tests.md}.
 
 BLOCKERS (each flips the answer if closed):
-  1. Verify a real backup exists AND has been restored for the live Postgres (QA-021); test TigerBeetle backup.
+  1. (partly closed) Live Postgres now has a nightly dump + weekly automated restore-verify (QA-021). Still required: an OFF-HOST copy
+     (the PVC is on the same host as the DB), PITR via WAL archiving on the shared CNPG cluster, and a TigerBeetle backup once the ledger is wired.
   2. Deploy TigerBeetle and wire ledger-bridge to it + Postgres; run the money e2e (funds-flow) against that stack.
   3. Availability: >=2 `server` replicas + PDB + anti-affinity; raise memory limit above the measured load
      footprint; add metrics-server + HPA; run >=2 ledger-bridge replicas (or make an unreachable bridge

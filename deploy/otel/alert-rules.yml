@@ -162,3 +162,52 @@ groups:
           summary: "TigerBeetle operation errors"
           description: "Error spans named tigerbeetle.* sustained for 5m. Ledger ops are failing — check ledger-bridge and tigerbeetle."
 # === END W35 infra-receivers ===
+
+# === QA backups (k8s-flux/backups/postgres-backup.yaml) ===
+# Metric source: kube-state-metrics CronJob series (kube_cronjob_status_last_*), which the
+# cluster's Prometheus already scrapes. These alerts exist because a backup that silently
+# stops running is the classic failure — and because the restore DRILL is what proves the
+# dumps are usable, its own failure is treated as seriously as a missed backup.
+  - name: whatsapp-backups
+    interval: 60s
+    rules:
+      # No successful nightly backup for >26h, or the CronJob/series vanished entirely.
+      - alert: PostgresBackupStale
+        expr: |
+          (time() - kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-backup"} > 26 * 3600)
+          or
+          absent(kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-backup"})
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "whatsapp_commerce Postgres backup is stale or missing"
+          description: "No successful postgres-backup run in over 26h (or the CronJob is gone). RPO is currently unbounded — check `kubectl get cronjob,job -n whatsapp-commerce` and the job logs."
+
+      # The most recent SCHEDULED run of the backup or the restore drill did not succeed.
+      # (last_schedule_time only exists once the controller has scheduled a run, so a brand-new CronJob stays quiet.)
+      - alert: PostgresBackupRunFailing
+        expr: |
+          (kube_cronjob_status_last_schedule_time{namespace="whatsapp-commerce",cronjob=~"postgres-backup|postgres-restore-verify"}
+            - on(namespace, cronjob)
+            kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob=~"postgres-backup|postgres-restore-verify"}) > 1800
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latest {{ $labels.cronjob }} run did not succeed"
+          description: "The most recent scheduled {{ $labels.cronjob }} run has not completed successfully. For postgres-restore-verify this means the latest dump could NOT be restored — the backups may be unusable."
+
+      # The restore drill is weekly; >8 days without a green one means nobody knows the dumps restore.
+      - alert: PostgresRestoreVerifyStale
+        expr: |
+          (time() - kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-restore-verify"} > 8 * 24 * 3600)
+          or
+          absent(kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-restore-verify"})
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful Postgres restore drill in 8+ days"
+          description: "postgres-restore-verify has not succeeded in over 8 days. Backups are being taken but nobody has proven they restore."
+# === END QA backups ===

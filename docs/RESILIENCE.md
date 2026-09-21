@@ -63,7 +63,62 @@ quorum/fencing prompts map onto our stack as follows:
 
 ## Backups (W39, PLT-1/PLT-2/PLT-8)
 
-### Postgres
+### Postgres — live cluster (`k8s-flux/backups/postgres-backup.yaml`)
+This is what protects the deployed database. The compose/`k8s/` material further
+down is the older single-node dev overlay and is **not** what runs on the cluster.
+
+- **Where the data lives.** The app's DSN (`whatsapp-postgres-dsn`) points at the
+  shared CloudNativePG cluster `pg-meridian` (ns `meridian`, PG 18, one instance,
+  5Gi local-path PVC), database `whatsapp_commerce` (~24 MB). It is *not* in
+  `pg-oracle` (that cluster's database is `ucard_oracle`). No CNPG cluster in the
+  environment has a `ScheduledBackup`/`Backup`, and WAL archiving is not
+  configured, so before this job existed **nothing** backed the data up.
+- **`postgres-backup`** (nightly 03:15 UTC): `pg_dump --format=custom` with the
+  same-major client image as the server (`ghcr.io/cloudnative-pg/postgresql:18.4…`
+  — the old `k8s/backups.yaml` job uses `postgres:16` and cannot dump a PG 18
+  server), read-only, from our namespace. Writes `.dump` + `.sha256` + `.counts`
+  + `.meta` to PVC `postgres-backups`, keeps the newest 14. A dump is renamed
+  into place only after `pg_restore --list` proves it has at least as many tables
+  as the live DB, so a partial file is never mistaken for a backup.
+- **`postgres-restore-verify`** (weekly, Sun 04:30 UTC): mounts the PVC
+  **read-only**, checks age (≤ 36 h) and checksum, restores the newest dump into
+  a throwaway Postgres inside the pod, and fails unless tables, foreign keys and
+  migrations match and no table that had rows came back empty. A backup that has
+  never been restored is not a backup — this is what proves it.
+- **Alerts** (`deploy/otel/alert-rules.yml`, group `whatsapp-backups`):
+  `PostgresBackupStale` (>26 h or series missing), `PostgresBackupRunFailing`
+  (latest scheduled run of either job unsuccessful for 30 m),
+  `PostgresRestoreVerifyStale` (>8 d). The shared Prometheus loads rules from the
+  monitoring stack's ConfigMap, so that repo must import this group for them to
+  fire.
+- **Measured on the live cluster (2026-09-21):** backup 709 KB, 268 tables, 46
+  FKs, 156 migrations, 1 s; restore-verify OK with rows 323 → 323; a deliberately
+  truncated dump planted as the newest file was rejected and the job failed. The
+  database is tiny, so this RTO says nothing about production volume — re-measure
+  as data grows.
+- **What this does NOT cover (be honest about the gap):**
+  - The PVC is a local-path volume on the **same host** as the database. It
+    protects against logical loss (bad migration, `DELETE`, dropped table,
+    corruption noticed within 14 days; RPO ≤ 24 h). It does **not** protect
+    against losing the host/disk. An off-host copy (object storage outside the
+    cluster host, or CNPG `barmanObjectStore`) is still required and needs a
+    destination the platform team must provide.
+  - No point-in-time recovery. That needs WAL archiving on the CNPG cluster,
+    which is another project's `Cluster` spec (and a restart), so it is a
+    decision for `pg-meridian`'s owner.
+  - Keycloak's own database (`keycloak-postgresql`) and TigerBeetle (ns
+    `tigerbeetle`) are shared services owned elsewhere; neither is backed up by
+    this job. The app holds no TigerBeetle data yet (the ledger-bridge is not
+    wired to it), so a TigerBeetle backup becomes this project's obligation once
+    it is; when wired, `ledger_transfers` is written to Postgres and therefore
+    *is* covered by the dump above.
+- **Restore procedure:** `kubectl -n whatsapp-commerce create job --from=cronjob/postgres-restore-verify drill-$(date +%s)`
+  proves the latest dump restores. To restore for real, run `pg_restore
+  --no-owner --clean --if-exists --dbname=<target>` from the same image against a
+  pod that mounts `postgres-backups`, after verifying the checksum; scale the app
+  to 0 first so nothing writes during the restore.
+
+### Postgres — older dev overlay
 - `k8s/postgres.yaml` data volume is now PVC `postgres-data` (10Gi). Minimal-
   change choice: standalone PVC + existing Deployment (Recreate) instead of a
   StatefulSet conversion — single-replica dev overlay, Recreate already
