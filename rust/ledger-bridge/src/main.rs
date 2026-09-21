@@ -882,20 +882,22 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
     }))
 }
 
-/// Deep readiness probe. /health above is deliberately shallow (process
-/// alive, always 200) so K8s liveness doesn't restart-loop this pod over a
-/// transient TigerBeetle or Postgres blip — the same reasoning server's own
-/// /health vs /health/ready split already uses (see k8s-flux/server-
-/// deployment.yaml). This endpoint does the actual dependency check and
-/// returns 503 when either is unreachable, so a K8s readinessProbe (or
-/// server's own checkTigerBeetle(), which calls this path) can actually gate
-/// traffic on real health instead of just "the HTTP server answers".
-/// Gates on BOTH dependencies, not just TigerBeetle: Postgres is this
-/// service's durable idempotency-key store (find_by_idempotency_key falls
-/// back to it once the in-memory index is gone, e.g. after a restart) — with
-/// it down, a retried transfer during that window loses its exactly-once
-/// guarantee, which is exactly the class of bug this session's e2e suite
-/// proved this service must not have.
+/// Deep readiness probe (opt-in). /health above is deliberately shallow
+/// (process alive, always 200) so K8s liveness can't restart-loop this pod
+/// over a transient TigerBeetle or Postgres blip. This endpoint does the real
+/// dependency check and returns 503 when either is unreachable.
+///
+/// It is NOT wired into the default k8s readinessProbe: the platform's design
+/// is graceful degradation (docs/RESILIENCE.md) — with TigerBeetle down this
+/// service should keep answering a fast, honest 503 ledger_unavailable rather
+/// than drop out of its Service (and the live dev cluster runs with neither
+/// TigerBeetle nor Postgres reachable, where a deep readinessProbe would never
+/// go Ready). Use it where routing around a replica that lost TigerBeetle
+/// actually helps: a healthy TigerBeetle and multiple bridge replicas — and
+/// for smoke tests / operators, which want the truthful answer.
+/// Gates on BOTH dependencies: Postgres is the durable idempotency-key store
+/// (find_by_idempotency_key falls back to it once the in-memory index is
+/// gone, e.g. after a restart).
 async fn ready_handler(State(state): State<AppState>) -> (StatusCode, Json<serde_json::Value>) {
     let tb_healthy = state.tb.health().await;
     let pg_healthy = state.pg.as_ref()

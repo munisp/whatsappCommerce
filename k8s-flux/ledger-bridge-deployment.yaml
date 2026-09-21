@@ -42,18 +42,24 @@ spec:
         - containerPort: 8095
           name: port-8095
           protocol: TCP
-        # QA-013 (sibling of QA-012) + follow-up: this deployment had no
-        # probes at all. Unlike the other 13 services, ledger-bridge now has
-        # a real readiness/liveness split (rust/ledger-bridge/src/main.rs):
-        # /health is shallow (process alive, always 200) — used for liveness
-        # so a transient TigerBeetle/Postgres blip doesn't restart-loop an
-        # otherwise-healthy process. /health/ready does the real dependency
-        # check and returns 503 when either is unreachable — that's the one
-        # a readinessProbe needs, or K8s would keep routing money-moving
-        # traffic to a pod that can't actually reach TigerBeetle.
+        # QA-013 (sibling of QA-012): this deployment had no probes at all.
+        # Both probes use the shallow /health (process alive, always 200).
+        #
+        # Deliberately NOT /health/ready for readiness, even though that
+        # deeper endpoint exists: the live cluster's ledger-bridge reports
+        # tigerbeetle.healthy=false and postgres.healthy=false (TigerBeetle
+        # isn't running there and no DATABASE_URL is set), and the platform's
+        # documented design (docs/RESILIENCE.md) is graceful degradation — the
+        # bridge answers a fast, honest 503 ledger_unavailable so payments fail
+        # clearly while everything else keeps serving. A deep readinessProbe
+        # would instead pull the only replica out of its Service, turning that
+        # honest 503 into connection errors, and would never go Ready here.
+        # Switch readiness to /health/ready only in an environment with a
+        # healthy TigerBeetle AND multiple bridge replicas, where routing
+        # around a replica that has lost TigerBeetle actually helps.
         readinessProbe:
           httpGet:
-            path: /health/ready
+            path: /health
             port: 8095
           initialDelaySeconds: 5
           periodSeconds: 5

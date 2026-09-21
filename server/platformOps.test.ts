@@ -436,6 +436,39 @@ describe("health/ready deep checks", () => {
     expect(readinessHttpStatus(report, false)).toBe(200);
   });
 
+  // ledger-bridge's /health always answers 200 and reports TigerBeetle/
+  // Postgres health in its body. The platform's documented design
+  // (docs/RESILIENCE.md, ledgerOutage.test.ts) is graceful degradation — a
+  // ledger outage fails payments honestly but must NOT drain every server
+  // pod — so this state is surfaced as `degraded`, never as a readiness
+  // failure. (The live dev cluster runs in exactly this state.)
+  function stubLedgerBody(body: unknown) {
+    (getDb as any).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) });
+    (getRedis as any).mockResolvedValue({ ping: vi.fn().mockResolvedValue("PONG") });
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) => {
+      if (String(url).includes("/protocol/openid-connect/certs")) {
+        return Promise.resolve({ ok: true, json: async () => ({ keys: [{ kty: "RSA" }] }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => body });
+    }));
+  }
+
+  it("ledger-bridge reachable but TigerBeetle + Postgres down → reported degraded, does NOT fail readiness", async () => {
+    stubLedgerBody({ status: "ok", tigerbeetle: { healthy: false }, postgres: { healthy: false } });
+    const report = await checkReadiness();
+    expect(report.components.tigerbeetle).toMatchObject({ ok: true, degraded: true });
+    expect(report.components.tigerbeetle.error).toContain("tigerbeetle + postgres");
+    expect(report.ok).toBe(true);
+    expect(readinessHttpStatus(report, true)).toBe(200);
+  });
+
+  it("ledger-bridge reachable and both dependencies healthy → ok, not degraded", async () => {
+    stubLedgerBody({ status: "ok", tigerbeetle: { healthy: true }, postgres: { healthy: true } });
+    const report = await checkReadiness();
+    expect(report.components.tigerbeetle.ok).toBe(true);
+    expect(report.components.tigerbeetle.degraded).toBeUndefined();
+  });
+
   it("db failure → ok=false", async () => {
     stubInfra();
     (getDb as any).mockResolvedValue(null);

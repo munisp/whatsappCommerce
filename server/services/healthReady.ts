@@ -6,7 +6,10 @@
  *   - db          → SELECT 1 through the shared Drizzle pool
  *   - redis       → PING through the shared ioredis client
  *   - keycloak    → JWKS fetch (≤2s timeout) — proves the IdP serves tokens
- *   - tigerbeetle → ledger-bridge /health probe (≤2s)
+ *   - tigerbeetle → ledger-bridge /health probe (≤2s); an unreachable bridge
+ *                   fails, but a reachable bridge reporting TigerBeetle/
+ *                   Postgres down is only flagged `degraded` (see
+ *                   checkTigerBeetle — graceful-degradation design)
  *
  * Each component reports { ok, latencyMs, error? }. In production ANY failure
  * flips the endpoint to 503 so the load balancer drains the instance; in
@@ -25,6 +28,9 @@ export interface ComponentCheck {
   ok: boolean;
   latencyMs: number;
   error?: string;
+  /** Reachable but a dependency behind it is down. Reported, never gating —
+   *  see checkTigerBeetle. `ok` stays true so the pod is not drained. */
+  degraded?: boolean;
 }
 
 export interface OdooB2bOutboxCheck extends ComponentCheck {
@@ -93,15 +99,37 @@ async function checkKeycloak(): Promise<ComponentCheck> {
 async function checkTigerBeetle(): Promise<ComponentCheck> {
   const t0 = Date.now();
   try {
-    // /health/ready (not /health) — ledger-bridge's plain /health is a
-    // shallow liveness check that always returns 200 even when TigerBeetle
-    // or Postgres is unreachable (it only proves the HTTP server answers).
-    // /health/ready does the real dependency check and 503s when either is
-    // down, which is what this deep readiness probe actually needs.
-    const res = await fetch(`${ENV.ledgerBridgeUrl}/health/ready`, { headers: injectTraceHeaders({}), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).catch(() => null); // W34 otel-core: traceparent
-    return res?.ok
-      ? { ok: true, latencyMs: Date.now() - t0 }
-      : { ok: false, latencyMs: Date.now() - t0, error: `ledger-bridge returned ${res?.status ?? "unreachable"}` };
+    // Shallow /health, and deliberately NON-GATING on what it reports about
+    // TigerBeetle/Postgres. ledger-bridge's /health always returns 200 and
+    // carries per-dependency booleans in its body; the documented resilience
+    // design (docs/RESILIENCE.md, pinned by ledgerOutage.test.ts) is that a
+    // ledger outage DEGRADES gracefully — payment initiation fails honestly,
+    // everything else keeps serving — so a down TigerBeetle must not drain
+    // every server pod out of rotation. (The live cluster runs exactly this
+    // way today: ledger-bridge reports both TigerBeetle and Postgres
+    // unhealthy while the app serves normally.) Previously this check only
+    // looked at the HTTP status and so could not even SEE that state; it now
+    // surfaces it as `degraded` without changing traffic routing. Only an
+    // unreachable ledger-bridge process fails the check, as before.
+    const res = await fetch(`${ENV.ledgerBridgeUrl}/health`, { headers: injectTraceHeaders({}), signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }).catch(() => null); // W34 otel-core: traceparent
+    if (!res?.ok) {
+      return { ok: false, latencyMs: Date.now() - t0, error: `ledger-bridge returned ${res?.status ?? "unreachable"}` };
+    }
+    let body: any = null;
+    try { body = await res.json(); } catch { /* body is optional detail */ }
+    const down = [
+      body?.tigerbeetle?.healthy === false && "tigerbeetle",
+      body?.postgres?.healthy === false && "postgres",
+    ].filter(Boolean) as string[];
+    if (down.length > 0) {
+      return {
+        ok: true,
+        degraded: true,
+        latencyMs: Date.now() - t0,
+        error: `degraded: ledger-bridge cannot reach ${down.join(" + ")}`,
+      };
+    }
+    return { ok: true, latencyMs: Date.now() - t0 };
   } catch (err: any) {
     return { ok: false, latencyMs: Date.now() - t0, error: String(err?.message ?? err) };
   }
