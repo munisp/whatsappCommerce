@@ -10,7 +10,6 @@
 import crypto from "crypto";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
-import { decodeOAuthState } from "@shared/const";
 import { sendWelcomeEmail } from "../services/email/resend";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
@@ -42,6 +41,28 @@ function getQueryParam(req: Request, key: string): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
+/**
+ * Where to send the browser after login: a same-origin PATH, or "/". Anything else — an absolute URL, a
+ * protocol-relative "//host", a "javascript:" URI — would turn the post-login redirect into an open redirect
+ * (`/api/auth/login?redirect=https://evil.example` is a link an attacker can hand a victim). Browsers treat "\" like
+ * "/" and silently drop tab/CR/LF inside a URL, so "/\evil.example" and "/<TAB>/evil.example" both resolve to
+ * "//evil.example" — both are refused too.
+ */
+export function safeReturnTo(raw: unknown): string {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 2048) return "/";
+  if (!raw.startsWith("/") || raw.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(raw)) return "/";
+  return raw;
+}
+
+/** The callback was not for a login THIS browser started (or it expired). Fail closed; never contact Keycloak. */
+function rejectLoginSession(res: Response) {
+  res.setHeader("Cache-Control", "no-store");
+  res.status(400).format({
+    json: () => res.json({ error: "login_session_invalid", message: "This sign-in was not started from this browser, or it expired.", login: "/api/auth/login" }),
+    html: () => res.send('<!doctype html><meta charset="utf-8"><title>Sign-in expired</title><p>Your sign-in session expired, or it was not started from this browser.</p><p><a href="/api/auth/login">Sign in again</a></p>'),
+  });
+}
+
 export function registerOAuthRoutes(app: Express) {
   // 1. Initiate Keycloak login
   app.get("/api/auth/login", (req: Request, res: Response) => {
@@ -58,7 +79,7 @@ export function registerOAuthRoutes(app: Express) {
       signOAuthTx({ state, nonce, codeVerifier, exp: Date.now() + OAUTH_TX_TTL_MS }),
       { ...getSessionCookieOptions(req), maxAge: OAUTH_TX_TTL_MS },
     );
-    const redirectTo = getQueryParam(req, "redirect") ?? "/";
+    const redirectTo = safeReturnTo(getQueryParam(req, "redirect"));
     const stateWithRedirect = `${state}:${encodeURIComponent(redirectTo)}`;
     const authUrl = buildKeycloakAuthUrl(stateWithRedirect, nonce, codeChallenge);
     res.redirect(302, authUrl);
@@ -69,39 +90,32 @@ export function registerOAuthRoutes(app: Express) {
     const code = getQueryParam(req, "code");
     const stateParam = getQueryParam(req, "state") ?? "";
     const [state, encodedRedirect] = stateParam.split(":");
-    let redirectTo = encodedRedirect ? decodeURIComponent(encodedRedirect) : "/";
-    // client/src/const.ts's startLogin() encodes state as base64 JSON
-    // (encodeOAuthState) with no ":" separator, so it falls through the
-    // legacy split above — decode it here for its returnTo path. Only ever
-    // accept a same-origin relative path (never "//host/..." or "scheme://"),
-    // so a crafted state can't turn this into an open redirect.
-    if (!encodedRedirect) {
-      const decoded = decodeOAuthState(stateParam);
-      if (decoded.returnTo && decoded.returnTo.startsWith("/") && !decoded.returnTo.startsWith("//")) {
-        redirectTo = decoded.returnTo;
-      }
-    }
     if (!code || !state) { res.status(400).json({ error: "code and state required" }); return; }
+
+    // QA-020 (login CSRF): this callback may only complete a login THIS browser started. The proof is the signed
+    // transaction cookie set by /api/auth/login, bound to `state`. Without it, anyone who completes a login at
+    // Keycloak could hand a victim a crafted /api/auth/callback?code=…&state=… link and get the victim's browser signed
+    // in AS THE ATTACKER. A missing, tampered, expired or wrong-state cookie is therefore a hard failure — earlier
+    // this fell through as "legacy behaviour", which is exactly the hole. (An attacker cannot mint a valid cookie:
+    // it is HMAC-signed, httpOnly, and set only on a response to the victim's own request.) Cleared on every path:
+    // single use.
+    const tx = verifyOAuthTx(readCookie(req, OAUTH_TX_COOKIE));
+    res.clearCookie(OAUTH_TX_COOKIE, { path: "/" });
+    if (!tx || tx.state !== state) { rejectLoginSession(res); return; }
+
+    // The redirect rides in the unsigned suffix of `state`. Login already sanitised it; it is sanitised again here
+    // because this is the value the browser is finally sent to. A malformed escape must not throw outside the try.
+    let redirectTo = "/";
+    if (encodedRedirect) {
+      try { redirectTo = safeReturnTo(decodeURIComponent(encodedRedirect)); } catch { /* malformed escape → "/" */ }
+    }
     try {
-      // Recover this browser's login transaction from its signed cookie.
-      // Absent/tampered/expired/for-a-different-state (e.g. the legacy
-      // client-built login URL that never went through /api/auth/login, so
-      // no challenge was sent) -> no verifier, no nonce check: identical to
-      // pre-PKCE behavior for that path.
-      const tx = verifyOAuthTx(readCookie(req, OAUTH_TX_COOKIE));
-      const pending = tx && tx.state === state ? tx : undefined;
-      res.clearCookie(OAUTH_TX_COOKIE, { path: "/" });
-      const tokens = await exchangeKeycloakCode(code, pending?.codeVerifier);
+      const tokens = await exchangeKeycloakCode(code, tx.codeVerifier);
       if (!tokens) { res.status(401).json({ error: "Token exchange failed" }); return; }
       const claims = decodeIdToken(tokens.idToken) as Record<string, string> | null;
       if (!claims?.sub) { res.status(400).json({ error: "Missing sub in ID token" }); return; }
-      // QA follow-up: the nonce was generated and sent to Keycloak at
-      // /api/auth/login but never actually checked against the returned ID
-      // token's own nonce claim — completing that OIDC replay defense here.
-      // Only enforced when this browser presented a valid transaction cookie
-      // for this state; the legacy client-built login path has no nonce to
-      // compare against.
-      if (pending && claims.nonce !== pending.nonce) {
+      // The OIDC nonce sent at /api/auth/login must come back in the ID token: it binds the token to this login.
+      if (claims.nonce !== tx.nonce) {
         res.status(401).json({ error: "Nonce mismatch" });
         return;
       }

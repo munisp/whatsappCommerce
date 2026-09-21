@@ -1,54 +1,27 @@
-import { OAUTH_STATE_COOKIE, encodeOAuthState } from "@shared/const";
 export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 
 /**
  * Start the Keycloak OIDC login flow.
  *
- * Redirects to Keycloak's authorization endpoint. NOTE: despite the
- * "PKCE" naming below, no code_challenge is sent to Keycloak and the
- * verifier never reaches the server, so this path has no PKCE; and the
- * state/nonce cookie is not currently validated server-side. The
- * server-initiated GET /api/auth/login flow does both (see server/_core/
- * oauth.ts) — see .qa/defects.md QA-020 before relying on either here.
+ * Navigates to the SERVER-driven `GET /api/auth/login`, which does the parts a browser cannot do safely: it mints the
+ * PKCE verifier/challenge (S256) and the OIDC nonce, keeps them in a signed httpOnly cookie, and builds the Keycloak URL.
+ * `/api/auth/callback` then refuses any callback that does not carry that cookie — that is what stops login CSRF (QA-020).
+ *
+ * This used to build the Keycloak URL in the browser: it generated a "PKCE verifier" it never sent, wrote a
+ * `__Host-` state cookie without `Secure` (browsers discard those), and the server never read it — so nothing bound a
+ * login to the browser that began it. Do not reintroduce a client-built authorization URL: the server now rejects it.
+ *
+ * All three front-ends (merchant SPA, platform-admin, tenant-portal) share this file and are served from one origin
+ * (dev servers proxy /api), so one relative URL is enough. The server sanitises `redirect` to a same-origin path.
  *
  * Call this from an event handler: `onClick={() => startLogin()}`
- * Do NOT call during render — it has side effects (cookie write + navigation).
+ * Do NOT call during render — it navigates.
  */
 export const startLogin = () => {
-  const keycloakUrl = import.meta.env.VITE_KEYCLOAK_URL ?? "http://localhost:8080";
-  const keycloakRealm = import.meta.env.VITE_KEYCLOAK_REALM ?? "wacommerce";
-  const clientId = import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? "wacommerce-app";
-  const redirectUri = `${window.location.origin}/api/auth/callback`;
-  // Land back on whichever app/page the user actually started from — the
-  // callback previously always defaulted to "/", which stranded logins
-  // initiated from ui/platform-admin or ui/tenant-portal on the legacy
-  // combined client instead of returning to the app they were in.
+  // Land back on whichever app/page the user actually started from (ui/platform-admin and ui/tenant-portal live under
+  // sub-paths of the same origin).
   const returnTo = `${window.location.pathname}${window.location.search}`;
-
-  // Generate PKCE code verifier and challenge
-  const nonce = crypto.randomUUID();
-  const codeVerifier = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
-
-  // Store code verifier in sessionStorage for callback
-  sessionStorage.setItem("pkce_code_verifier", codeVerifier);
-  sessionStorage.setItem("oauth_nonce", nonce);
-
-  // Write state cookie for CSRF protection
-  const state = encodeOAuthState({ redirectUri, nonce, returnTo });
-  document.cookie = `${OAUTH_STATE_COOKIE}=${nonce}; Path=/; Max-Age=600; SameSite=Lax`;
-
-  // Build Keycloak authorization URL
-  const authUrl = new URL(
-    `${keycloakUrl}/realms/${keycloakRealm}/protocol/openid-connect/auth`
-  );
-  authUrl.searchParams.set("client_id", clientId);
-  authUrl.searchParams.set("redirect_uri", redirectUri);
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("scope", "openid profile email");
-  authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set("nonce", nonce);
-
-  window.location.href = authUrl.toString();
+  window.location.assign(`/api/auth/login?redirect=${encodeURIComponent(returnTo)}`);
 };
 
 /**

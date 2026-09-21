@@ -4,20 +4,10 @@ export const AXIOS_TIMEOUT_MS = 30_000;
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
 
-// One-time nonce cookie that binds an OAuth login to the browser that started
-// it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no
-// Domain), so a sibling *.manus.space site cannot plant a matching value in a
-// victim's browser.
-export const OAUTH_STATE_COOKIE = "__Host-oauth_state";
-
-// `state` carries the callback redirect URI (used at token exchange), the
-// CSRF nonce, and the app-relative path to land on after a successful login
-// (returnTo — e.g. "/tenant-portal/dashboard"). Defined here so the client
-// encoder and server decoder never drift.
+// Legacy `state` shape (base64 JSON). No live login path produces it any more: /api/auth/login issues a random `state`
+// bound to a signed transaction cookie, and /api/auth/callback rejects anything else. Kept only for the decoder below,
+// which server/_core/sdk.ts still imports.
 export type OAuthState = { redirectUri: string; nonce?: string; returnTo?: string };
-
-export const encodeOAuthState = (state: OAuthState): string =>
-  btoa(JSON.stringify(state));
 
 export const decodeOAuthState = (state: string): OAuthState => {
   let decoded: string;
