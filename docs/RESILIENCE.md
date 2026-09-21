@@ -169,6 +169,46 @@ the bridge restarted.
 - Backups: replicate the TB data file per the official replication protocol —
   do NOT file-copy a running replica.
 
+### Implementation (QA-034): 3-replica cluster, own namespace
+
+`k8s-flux/tigerbeetle/tigerbeetle-ha.yaml` — applied separately from the app
+Kustomization, like `k8s-flux/postgres-oracle/`:
+`kubectl apply -f k8s-flux/tigerbeetle/tigerbeetle-ha.yaml`.
+
+- **Namespace: `whatsapp-tigerbeetle`, not `whatsapp-commerce`.** TigerBeetle
+  gets its own namespace, the same way Postgres does in this cluster
+  (`pg-oracle` lives in `postgres-oracle`, not in the app that uses it). It
+  was first stood up inside `whatsapp-commerce`; while there, one replica
+  (the elected primary) was deleted and recreated by something other than
+  this work — not a probe failure, not OOM, not Flux (the app Kustomization
+  is suspended and hadn't reconciled). It self-healed in ~16 s via a benign
+  data-file-lock crash-loop. Moving it to its own namespace removes it from
+  whatever was touching `whatsapp-commerce`; if the same thing recurs in
+  `whatsapp-tigerbeetle`, that would be a stronger signal of an external actor
+  and is worth escalating.
+- **Addressing.** TigerBeetle 0.16 accepts only literal IPs in `--addresses`
+  ("invalid IPv4 or IPv6 address" for a hostname), and a pod's IP changes on
+  every restart. Each replica gets its own `Service` with a **static
+  ClusterIP** (`10.96.240.10-12`, free in the cluster's service range); a
+  replica puts `0.0.0.0` in its own slot and its peers' static IPs in theirs.
+  Because addressing is by ClusterIP, not DNS, the bridge's `TB_ADDRESSES`
+  needs no change if this namespace is ever renamed again.
+- **Verified in Docker** with the same image before deploying: 1 of 3 down →
+  writes continue; 2 of 3 down → no quorum, the adapter answers 503 after its
+  4 s bound (never hangs, never fabricates success); replicas restarted →
+  recovered within seconds. **Verified live:** all 3 replicas schedule one per
+  node (`podAntiAffinity` + `topologyKey: kubernetes.io/hostname`) with a
+  `PodDisruptionBudget` (`maxUnavailable: 1`) so a drain can only take one.
+- **Not yet done:** the bridge and server Deployments (2 replicas each,
+  `maxUnavailable: 0`, spread over nodes, `PodDisruptionBudget`s — all in
+  `k8s-flux/server-deployment.yaml`, `k8s-flux/ledger-bridge-deployment.yaml`
+  and `k8s-flux/availability/pdb.yaml`) and the `recon-worker` database wiring
+  are written and pinned by `server/availabilityManifests.test.ts` /
+  `server/ledgerWiringManifests.test.ts`, but not yet applied to the live
+  cluster — that is the next step, after the ledger-bridge and recon-worker
+  images are rebuilt from this branch (services/tb-adapter had to gain
+  overdraft-policy support first; see QA-033/034 in `.qa/defects.md`).
+
 ## Backups (W39, PLT-1/PLT-2/PLT-8)
 
 ### Postgres — live cluster (`k8s-flux/backups/postgres-backup.yaml`)
@@ -223,22 +263,34 @@ down is the older single-node dev overlay and is **not** what runs on the cluste
   truncated dump planted as the newest file was rejected and the job failed. The
   database is tiny, so this RTO says nothing about production volume — re-measure
   as data grows.
-- **What this does NOT cover (be honest about the gap):**
-  - The PVC is a local-path volume on the **same host** as the database. It
-    protects against logical loss (bad migration, `DELETE`, dropped table,
-    corruption noticed within 14 days; RPO ≤ 24 h). It does **not** protect
-    against losing the host/disk. An off-host copy (object storage outside the
-    cluster host, or CNPG `barmanObjectStore`) is still required and needs a
-    destination the platform team must provide.
-  - No point-in-time recovery. That needs WAL archiving on the CNPG cluster,
-    which is another project's `Cluster` spec (and a restart), so it is a
-    decision for `pg-oracle`'s owner.
-  - Keycloak's own database (`keycloak-postgresql`) and TigerBeetle (ns
-    `tigerbeetle`) are shared services owned elsewhere; neither is backed up by
-    this job. The app holds no TigerBeetle data yet (the ledger-bridge is not
-    wired to it), so a TigerBeetle backup becomes this project's obligation once
-    it is; when wired, `ledger_transfers` is written to Postgres and therefore
-    *is* covered by the dump above.
+- **Off-host copy (QA-034): supported, not yet configured.** The PVC is a
+  local-path volume on the **same host** as the database, so on its own the
+  backup protects against logical loss (bad migration, `DELETE`, dropped
+  table, corruption noticed within 14 days; RPO ≤ 24 h) but not against losing
+  the host/disk. `postgres-backup.yaml` now also uploads (and verifies — size
+  check plus a content round-trip for dumps ≤512 MB) to any S3-compatible
+  bucket, via an *optional* Secret `postgres-backup-offhost` (`bucket`,
+  `access_key`, `secret_key`, `endpoint`, `region`, `prefix`). A **configured**
+  upload that fails, or round-trips to different bytes, fails the whole job
+  (and so `PostgresBackupRunFailing`) — this is deliberately not a
+  best-effort side channel. Tested against S3-compatible stubs on the live
+  cluster: a good copy, a same-size corrupted copy (caught), a rejected
+  upload (caught), and unconfigured (a logged `WARNING`, job still succeeds).
+  **What's missing is a destination** — no bucket has been provisioned yet;
+  until `postgres-backup-offhost` exists the job logs that warning every
+  night and this gap is real.
+  - `barmanObjectStore` WAL archiving on the CNPG cluster is a separate,
+    bigger step (native continuous backup + point-in-time recovery instead of
+    a nightly logical dump) and is another project's `Cluster` spec — that
+    decision belongs to `pg-oracle`'s owner, not to this job.
+  - Keycloak's own database (`keycloak-postgresql`) is a shared service owned
+    elsewhere and is not backed up by this job.
+  - TigerBeetle (`ns whatsapp-tigerbeetle`, see "Multi-node TigerBeetle
+    deployment notes") has no independent backup mechanism of its own (0.16.x
+    has no snapshot API — see the older-overlay TigerBeetle section below);
+    its durability comes from the 3-replica quorum. `ledger_transfers` (the
+    journal the bridge writes) lives in Postgres and *is* covered by the dump
+    above.
 - **Restore procedure:** `kubectl -n whatsapp-commerce create job --from=cronjob/postgres-restore-verify drill-$(date +%s)`
   proves the latest dump restores. To restore for real, run `pg_restore
   --no-owner --clean --if-exists --dbname=<target>` from the same image against a

@@ -70,6 +70,12 @@ describe("TigerBeetle: a 3-replica cluster (QA-034)", () => {
     expect(tbEnv("CLUSTER_ID")).not.toBe("145851240909969808468846706535455565498");
   });
 
+  it("is in ITS OWN namespace, like Postgres — not the app namespace", () => {
+    const ns = tbDocs.find((d) => d.kind === "Namespace")!;
+    expect(ns.metadata.name).toBe("whatsapp-tigerbeetle");
+    for (const d of tbDocs) if (d.kind !== "Namespace") expect(d.metadata.namespace, `${d.kind}/${d.metadata.name}`).toBe("whatsapp-tigerbeetle");
+  });
+
   it("runs locked down, but with seccomp Unconfined explicitly (io_uring)", () => {
     const sc = tbContainer.securityContext;
     expect(sc.seccompProfile).toEqual({ type: "Unconfined" });
@@ -118,9 +124,13 @@ describe("stateless single points of failure (QA-034)", () => {
     for (const [k, v] of Object.entries(pdb.spec.selector.matchLabels as Record<string, string>)) expect(podLabels[k], `${k}`).toBe(v);
   });
 
-  it("all of it is part of the app's Kustomization, so a Flux resume keeps it", () => {
+  it("the stateless pieces (PDBs) are part of the app's Kustomization, so a Flux resume keeps them", () => {
     const k = readFileSync(join(ROOT, "k8s-flux/kustomization.yaml"), "utf8");
-    expect(k).toMatch(/tigerbeetle\/tigerbeetle-ha\.yaml/);
     expect(k).toMatch(/availability\/pdb\.yaml/);
+  });
+
+  it("TigerBeetle is deliberately NOT in the app's Kustomization — it owns a different namespace, applied separately (like postgres-oracle)", () => {
+    const k = readFileSync(join(ROOT, "k8s-flux/kustomization.yaml"), "utf8");
+    expect(k).not.toMatch(/tigerbeetle\/tigerbeetle-ha\.yaml/);
   });
 });

@@ -32,5 +32,4 @@ resources:
   - ml-stack-deployment.yaml
   - ml-stack-service.yaml
   - backups/postgres-backup.yaml
-  - tigerbeetle/tigerbeetle-ha.yaml
   - availability/pdb.yaml

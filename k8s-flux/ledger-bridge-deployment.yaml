@@ -111,9 +111,11 @@ spec:
           value: 127.0.0.1 # loopback only: the bridge is the sole client
         - name: PORT
           value: "3000"
-        # The 3-replica TigerBeetle in THIS namespace (k8s-flux/tigerbeetle/tigerbeetle-ha.yaml): survives the
-        # loss of any one replica. Addresses are the replicas' STATIC ClusterIPs (TigerBeetle takes IPs only and
-        # a pod IP changes on restart). Not secret. tigerbeetle-ha.yaml's TB_IP_0..2 must match.
+        # The dedicated 3-replica TigerBeetle in ns whatsapp-tigerbeetle (k8s-flux/tigerbeetle/tigerbeetle-ha.yaml,
+        # applied separately — TigerBeetle gets its own namespace, like Postgres does). Survives the loss of any
+        # one replica. Addresses are the replicas' STATIC ClusterIPs (TigerBeetle takes IPs only and a pod IP
+        # changes on restart), so this needs no change if that namespace is ever renamed again. Not secret.
+        # tigerbeetle-ha.yaml's TB_IP_0..2 must match.
         - name: TB_CLUSTER_ID
           value: "160071330234540767289684610414810526351"
         - name: TB_ADDRESSES
