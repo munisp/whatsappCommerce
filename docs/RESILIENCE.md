@@ -40,9 +40,13 @@ quorum/fencing prompts map onto our stack as follows:
   non-2xx, or reachable with TigerBeetle/Postgres down — and payments fail
   honestly at the point of use (`payment.initiate` → `ledger_failed`, pinned by
   `ledgerOutage.test.ts` for both HTTP 503 and a dead network path). It stays
-  visible: the `degraded` flag is on `/health/ready`, and
-  `infra_component_up{component="tigerBeetle"}` (independent 60 s probe) drives
-  the `ComponentDown` alert after 5 minutes. Not gating is safe *because* the
+  visible: the `degraded` flag is on `/health/ready`, and it is alertable
+  independently of readiness — `ComponentDown` (`infra_component_up{component=
+  "tigerBeetle"}`, 5 m) when the bridge itself is unreachable, and
+  `TigerBeetleUnreachable` (blackbox probe) / `TigerBeetleOpErrors` (bridge
+  spans) when TigerBeetle is down behind a live bridge. (The gauge alone cannot
+  see that state: the bridge's `/health` answers 200 either way.) Not gating is
+  safe *because* the
   ledger fails closed; running the bridge with `LEDGER_ALLOW_INMEMORY=true`
   outside dev (it fabricates results) would invalidate that, and this decision
   would have to be revisited.
@@ -64,11 +68,98 @@ quorum/fencing prompts map onto our stack as follows:
   a Redis outage cannot double-reserve or double-post at the ledger, and recon
   keeps classifying/repairing against PG + the bridge only.
 
+## Ledger wiring (bridge → adapter → TigerBeetle)
+
+```
+server ──HTTP──▶ ledger-bridge (Rust :8095) ──HTTP, loopback──▶ tb-adapter (Node, sidecar) ──native protocol──▶ TigerBeetle
+                       │                                                                                     (shared, ns `tigerbeetle`)
+                       └──▶ Postgres (ledger_transfers journal + durable idempotency)
+```
+
+**History — read this before trusting older ledger claims.** `rust/ledger-bridge`
+talks HTTP to "a TigerBeetle HTTP sidecar". Native TigerBeetle has no HTTP API and
+no such sidecar existed anywhere in this repo: the only implementation of the
+bridge's `/api/v1` contract was the in-memory test double
+(`tests/e2e/fixtures/tb-sidecar.mjs`), and the e2e stack also ran the bridge with
+`LEDGER_ALLOW_INMEMORY=true`, which would have hidden a failing TigerBeetle call.
+So the bridge's TigerBeetle path had never run against a real ledger. `services/
+tb-adapter` is that sidecar. Building it against real TigerBeetle 0.16.66 found:
+
+1. **The bridge's transfer flags are not TigerBeetle's.** Bridge 4/8/16
+   (pending/post/void) vs TigerBeetle 2/4/8. Forwarded unchanged a *commit* is
+   executed as a *void* and nothing is ever posted. The adapter translates;
+   `server/tbAdapter.integration.test.ts` proves the collision by sending the raw
+   flags to a real cluster.
+2. **`amount: 0` does not mean "post everything"** in 0.16 — it posts nothing and
+   consumes the hold. The adapter sends `AMOUNT_MAX` for a full commit.
+3. **TigerBeetle remembers failed transfer ids** (`id_already_failed`). An account
+   must exist *before* the first attempt; "try, create the account, retry" burns
+   the id, and the bridge derives ids from the idempotency key. The adapter
+   ensures accounts first (cached; accounts are never deleted).
+4. **Provisioning and transfers disagreed about account ids and ledgers.**
+   `/accounts/provision` mints a random id in ledger 700 that the server ignores;
+   transfers use deterministic ids in ledger 1 that nothing created. The test double
+   auto-created unknown accounts, which is why nobody saw it. The adapter does the
+   same (`AUTO_CREATE_ACCOUNTS=true`, the transfer's own ledger, code 1000).
+   `/accounts/provision` is now vestigial — it leaves one orphan account per
+   (type, tenant, currency) per server restart. Fixing it properly means the server
+   provisioning the ids it actually uses.
+5. **Nothing stops an overdraft.** Accounts are created with no flags, so
+   TigerBeetle itself accepts a reserve of ₦10,000 from a never-funded account
+   (balance −1,000,000 kobo, observed). Inbound-payment "float" accounts
+   legitimately go negative, but merchant/wallet accounts probably should not
+   (`debits_must_not_exceed_credits`). Solvency is currently enforced, if at all,
+   above the ledger — **an owner decision, not changed here**.
+
+**Deployment (live).** `k8s-flux/ledger-bridge-deployment.yaml`: the adapter is a
+second container in the bridge pod, listening on `127.0.0.1:3000` only (an
+unauthenticated endpoint that can write the ledger must not be on the pod IP; there
+are no NetworkPolicies). Consequences that were learned the hard way:
+- The TigerBeetle client uses **io_uring**, which the runtime-default seccomp
+  profile blocks — the sidecar sets `seccompProfile: Unconfined` explicitly (all
+  other hardening stays: non-root, read-only rootfs, no capabilities).
+- Liveness is an **exec** probe: kubelet TCP/HTTP probes connect to the pod IP, which
+  a loopback-only listener refuses (it restart-looped on the first rollout). There is
+  no readiness probe on purpose — a sidecar failing readiness would pull the bridge
+  out of its Service; TigerBeetle health is already `tigerbeetle.healthy` on the
+  bridge's `/health`.
+- The adapter resolves `tigerbeetle-0.tigerbeetle-headless…` to an IP on every
+  reconnect (TigerBeetle clients need IPs; the pod IP changes on restart) and bounds
+  every call at 4 s, so a dead TigerBeetle answers 503 instead of hanging.
+- `LEDGER_ALLOW_INMEMORY=false` is set explicitly; the bridge takes `DATABASE_URL`
+  from the same secret as the app, so it follows the app if the database moves.
+
+**Verified.** 57 unit tests (CI) + 21 integration tests against a real TigerBeetle
+(env-gated); the real bridge container with the fallback off passed the repo's
+bridge-level e2e ledger tests; a live smoke on the cluster (reserve → commit →
+replay → reverse → void, all `"source":"tigerbeetle"`, journal rows present);
+TigerBeetle stop/start: every call fails with `ledger_unavailable` ("refusing to
+fabricate a ledger result"), and reserves work again with neither the adapter nor
+the bridge restarted.
+
+**Not done / limits.**
+- `ledger-bridge` stays **one replica**; it is still the payments SPOF. Scaling it
+  needs multi-replica replay to be tested first.
+- The shared TigerBeetle is a **single replica with no backup** and is owned
+  elsewhere. Payments now depend on it; that is a production blocker in its own right.
+- `recon-worker` has no `DATABASE_URL` and its QA-029 fix is undeployed, so nothing
+  reconciles the ledger against payment intents yet.
+- Only the bridge was exercised on the live cluster; the server's `payment.initiate`
+  → bridge path needs an authenticated tenant session and was not run live.
+- Images are locally shipped (`whatsapp-tb-adapter:qa-local1`, `imagePullPolicy:
+  Never`). CI now builds `tb-adapter` and — fixed here — builds `ledger-bridge` from
+  `rust/ledger-bridge` instead of the deprecated `services/ledger-bridge` shim, which
+  would otherwise have replaced the working bridge on the next release. The GitOps
+  repo still needs an ImagePolicy for `whatsapp-tb-adapter`.
+- To re-run the real-TigerBeetle tests: see the header of
+  `server/tbAdapter.integration.test.ts`.
+
 ## Multi-node TigerBeetle deployment notes
 
-- Run TB as a **3- or 5-replica cluster** (odd quorum); `ledger-bridge` takes
-  the replica address list via `TIGERBEETLE_ADDRESS` and the shared
-  `TIGERBEETLE_CLUSTER_ID`.
+- Run TB as a **3- or 5-replica cluster** (odd quorum); the `tb-adapter`
+  sidecar takes the replica address list via `TB_ADDRESSES` and the real
+  cluster id via `TB_CLUSTER_ID` (see "Ledger wiring"). The bridge itself only
+  knows the adapter's HTTP address (`TIGERBEETLE_ADDRESS`).
 - Never run two independent single-node TB instances behind one bridge — that
   is the split-brain the 503 fail-closed behavior guards against; a bridge
   that cannot reach quorum must stay down, not fall back.

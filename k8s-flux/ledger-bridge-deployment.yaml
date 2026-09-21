@@ -35,6 +35,26 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
+        # Durable idempotency + transfer journal (ledger_transfers, created by the bridge itself).
+        # Same secret the app uses, so the bridge follows the app if the database is ever moved.
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: whatsapp-postgres-dsn
+        # The bridge's TigerBeetle client is HTTP; the tb-adapter sidecar below turns it into the
+        # native protocol. Loopback, because it is in the same pod.
+        - name: TIGERBEETLE_ADDRESS
+          value: 127.0.0.1:3000
+        - name: TIGERBEETLE_CLUSTER_ID
+          value: "0" # ignored by the adapter, which uses the real cluster id below
+        # Never fabricate ledger results in a shared/real environment: an unreachable ledger must
+        # fail closed (503 ledger_unavailable), not fall back to a non-durable in-memory ledger.
+        - name: LEDGER_ALLOW_INMEMORY
+          value: "false"
+        # Without this the bridge logs nothing at all, which leaves a ledger incident undiagnosable.
+        - name: RUST_LOG
+          value: info
         image: registry.digitalocean.com/talentgraph-auth/whatsapp-ledger-bridge:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-ledger-bridge"}
         imagePullPolicy: IfNotPresent
         name: ledger-bridge
@@ -46,17 +66,15 @@ spec:
         # Both probes use the shallow /health (process alive, always 200).
         #
         # Deliberately NOT /health/ready for readiness, even though that
-        # deeper endpoint exists: the live cluster's ledger-bridge reports
-        # tigerbeetle.healthy=false and postgres.healthy=false (TigerBeetle
-        # isn't running there and no DATABASE_URL is set), and the platform's
-        # documented design (docs/RESILIENCE.md) is graceful degradation — the
-        # bridge answers a fast, honest 503 ledger_unavailable so payments fail
-        # clearly while everything else keeps serving. A deep readinessProbe
-        # would instead pull the only replica out of its Service, turning that
-        # honest 503 into connection errors, and would never go Ready here.
-        # Switch readiness to /health/ready only in an environment with a
-        # healthy TigerBeetle AND multiple bridge replicas, where routing
-        # around a replica that has lost TigerBeetle actually helps.
+        # deeper endpoint exists: the platform's documented design
+        # (docs/RESILIENCE.md) is graceful degradation — when TigerBeetle or
+        # Postgres is down the bridge answers a fast, honest 503
+        # ledger_unavailable so payments fail clearly while everything else
+        # keeps serving. A deep readinessProbe would instead pull the only
+        # replica out of its Service, turning that honest 503 into connection
+        # errors. Switch readiness to /health/ready only with multiple bridge
+        # replicas, where routing around a replica that has lost TigerBeetle
+        # actually helps (and only after multi-replica replay is tested).
         readinessProbe:
           httpGet:
             path: /health
@@ -80,6 +98,67 @@ spec:
             memory: 64Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
+      # TigerBeetle speaks a binary protocol, not HTTP, and the bridge's client is HTTP. Until this
+      # existed only an in-memory test double implemented that contract, so the bridge had never
+      # run against a real ledger. See services/tb-adapter and docs/RESILIENCE.md "Ledger wiring".
+      - name: tb-adapter
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-tb-adapter:qa-local1
+        imagePullPolicy: Never # locally shipped like the other qa-local images (see project notes)
+        env:
+        - name: HOST
+          value: 127.0.0.1 # loopback only: the bridge is the sole client
+        - name: PORT
+          value: "3000"
+        # The shared TigerBeetle (namespace tigerbeetle, 1 replica). Not secret: it is in the
+        # StatefulSet spec. Hostnames are resolved to an IP on every reconnect by the adapter.
+        - name: TB_CLUSTER_ID
+          value: "145851240909969808468846706535455565498"
+        - name: TB_ADDRESSES
+          value: tigerbeetle-0.tigerbeetle-headless.tigerbeetle.svc.cluster.local:3000
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 1000
+          runAsNonRoot: true
+          runAsUser: 1000
+          # The TigerBeetle client uses io_uring, which the runtime-default seccomp profile blocks
+          # (the container exits with "io_uring is not available"). Stated explicitly so that turning
+          # on cluster-wide RuntimeDefault later fails loudly here instead of crash-looping.
+          seccompProfile:
+            type: Unconfined
+        # Liveness only asks "is the process answering on its socket", never "is TigerBeetle up":
+        # the adapter's /api/v1/health reflects TigerBeetle, and restarting the adapter cannot fix a
+        # TigerBeetle outage (that state is already visible as tigerbeetle.healthy on the bridge's
+        # /health). No readinessProbe for the same reason: a sidecar failing readiness would take the
+        # bridge out of its Service.
+        # It is an exec probe, not tcpSocket/httpGet, because the adapter listens on 127.0.0.1 ONLY
+        # (binding 0.0.0.0 would expose an unauthenticated ledger-writing endpoint to every pod in
+        # the cluster, and there are no NetworkPolicies) and kubelet probes connect to the pod IP —
+        # a tcpSocket probe was refused and restart-looped the container.
+        livenessProbe:
+          exec:
+            command:
+            - node
+            - -e
+            - require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 300m
+            ephemeral-storage: 64Mi
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+        volumeMounts:
+        - mountPath: /tmp
+          name: adapter-tmp
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
@@ -87,3 +166,7 @@ spec:
       serviceAccount: default
       serviceAccountName: default
       terminationGracePeriodSeconds: 30
+      volumes:
+      - name: adapter-tmp
+        emptyDir:
+          sizeLimit: 32Mi

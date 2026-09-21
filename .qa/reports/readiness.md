@@ -55,7 +55,8 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | CX-02 → QA-030 | P2 | missing `ledger-bridge` ⇒ ~28 s total app outage (design contradiction) | **FIXED + verified live** — re-run 100 % (was 80.98 %); bridge stays 1 replica until the ledger is wired |
 | CX-04 | P2 | node loss strands `ml-stack`/`recon-worker` on a rate-limited registry | **OPEN** |
 | QA-019 | info | Keycloak brute-force config not provably active (external IdP) | OPEN (external) |
-| QA-022/023/025 | info/P3 | live ledger path reality; small hardening fixes; e2e re-runnability | Done / logged |
+| QA-022/023/025 | info/P3 | live ledger path reality; small hardening fixes; e2e re-runnability | Done / logged (QA-022 superseded: the ledger is now wired, see QA-031) |
+| QA-031 | **P1** | the bridge's TigerBeetle path had never run against a real ledger (no HTTP adapter existed; flags, amount-0, burned ids, account ids/ledgers all wrong; no overdraft protection); CI shipped the deprecated bridge shim | **FIXED + wired live** — real adapter sidecar, 21 tests vs real TigerBeetle, live smoke OK. Open: overdraft policy, TigerBeetle HA/backup, recon-worker, server→ledger path not run live |
 
 ## 4. Test results (final regression, this tree)
 | Suite | Result |
@@ -101,7 +102,7 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 
 ## 10. Remaining risks (ranked)
 1. **QA-029 (recon-worker) is fixed in source but NOT deployed** — deliberately: it makes a never-before-run ledger-repair path execute, which needs human review, and the Rust image can't be rebuilt while Docker Hub is unreachable from here. Until it ships, the live recon-worker has the panic. (QA-028 and the earlier fixes ARE live on `server:qa-local3`.)
-2. Live money movement isn't functional in this environment (TigerBeetle/Postgres not wired to the bridge); nothing in this pass verified the production ledger path end to end.
+2. ~~Live money movement isn't functional~~ **Now wired (QA-031):** the bridge reaches the real TigerBeetle (via the new adapter sidecar) and Postgres, verified with a live smoke at bridge level. Still not verified: the server's `payment.initiate` → bridge path on the live cluster (needs an authenticated tenant), and any money e2e on a real-TigerBeetle stack end to end.
 3. Availability: single `server` replica, no PDB/HPA, memory limit below load, ledger-bridge coupling (28 s outages), no anti-affinity guarantee.
 4. QA-020 login CSRF; QA-026 unauthenticated `commerce-engine` behind a non-existent NetworkPolicy.
 5. Recoverability unproven on the live database.
@@ -140,7 +141,7 @@ EVIDENCE: §3–§8 and .qa/{defects.md, chaos/experiments.md, perf/summary.md, 
 BLOCKERS (each flips the answer if closed):
   1. (partly closed) Live Postgres now has a nightly dump + weekly automated restore-verify (QA-021). Still required: an OFF-HOST copy
      (the PVC is on the same host as the DB), PITR via WAL archiving on the shared CNPG cluster, and a TigerBeetle backup once the ledger is wired.
-  2. Deploy TigerBeetle and wire ledger-bridge to it + Postgres; run the money e2e (funds-flow) against that stack.
+  2. (mostly closed — QA-031) TigerBeetle exists and the bridge is wired to it + Postgres through the new adapter. Still required: run the server-driven money e2e (funds-flow) on a real-TigerBeetle stack, decide the overdraft policy, give TigerBeetle a replica set + backups (owned elsewhere), wire and fix recon-worker.
   3. Availability: >=2 `server` replicas + PDB + anti-affinity; raise memory limit above the measured load
      footprint; add metrics-server + HPA. (The ledger-bridge coupling is closed: an unreachable bridge no longer fails
      readiness — QA-030, CX-02b. Run >=2 bridge replicas only after the ledger is wired and multi-replica replay is tested.)

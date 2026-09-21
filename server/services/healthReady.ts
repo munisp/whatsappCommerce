@@ -112,8 +112,12 @@ async function checkTigerBeetle(): Promise<ComponentCheck> {
   // degradation: payment initiation fails honestly (intent marked failed with
   // ledger_failed, error surfaced — an unreachable bridge is covered too) and
   // everything else keeps serving. The outage is still visible: it is reported
-  // here as `degraded`, and the separate infra_component_up{component=
-  // "tigerBeetle"} gauge (probed every 60s) drives the ComponentDown alert.
+  // here as `degraded`, and it is alertable independently of readiness:
+  // ComponentDown (infra_component_up{component="tigerBeetle"}, probed every
+  // 60s) when the bridge itself is unreachable, TigerBeetleUnreachable
+  // (blackbox probe) and TigerBeetleOpErrors (bridge spans) when TigerBeetle is
+  // down behind a live bridge — the gauge alone cannot see that, because the
+  // bridge's /health answers 200 either way.
   // (The live cluster has run in the "reachable but TigerBeetle/Postgres down"
   // state all along; the bridge's own /health always answers 200 and carries
   // per-dependency booleans in its body.)
