@@ -19,7 +19,7 @@ dashmap = "6"
 
 # W42 PLT-7: durable DLQ backend — Redis list (sync connection; the async
 # consumer loop can upgrade to tokio-comp when rdkafka lands).
-redis = { version = "0.27" }
+redis = { version = "1.7" }
 
 # === W45 go-rust-services (MSG-18) ===
 # Real Kafka consumer + DLQ topic producer. cmake-build vendors librdkafka
