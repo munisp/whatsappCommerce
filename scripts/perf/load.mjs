@@ -17,6 +17,11 @@
  *   --random-tenant      Send a random X-Tenant-Id per request (defeats the
  *                        per-tenant rate limiter for pure endpoint benchmarks)
  *   --method <m>         HTTP method (default GET)
+ *   --rate <rps>         OPEN-LOOP mode (QA-040): start `rps` requests per second whatever the server does, instead of
+ *                        keeping `--concurrency` requests in flight. Closed-loop (the default) slows down when the server
+ *                        does, so it can never show unbounded queueing; real users do not slow down, so overload is
+ *                        open-loop. In this mode --concurrency is the socket pool size and --max-inflight (default
+ *                        20000) bounds the client's own memory; requests refused by that bound are counted as `dropped`.
  *
  * Output: total requests, RPS, latency p50/p95/p99/max, per-status counts.
  */
@@ -24,7 +29,7 @@ import http from "node:http";
 import https from "node:https";
 
 function parseArgs(argv) {
-  const args = { url: null, concurrency: 10, duration: 10, requests: 0, headers: [], method: "GET", randomTenant: false };
+  const args = { url: null, concurrency: 10, duration: 10, requests: 0, headers: [], method: "GET", randomTenant: false, rate: 0, maxInflight: 20000 };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--url") args.url = argv[++i];
@@ -33,6 +38,8 @@ function parseArgs(argv) {
     else if (a === "--requests") args.requests = parseInt(argv[++i], 10);
     else if (a === "--method") args.method = argv[++i];
     else if (a === "--random-tenant") args.randomTenant = true;
+    else if (a === "--rate") args.rate = parseFloat(argv[++i]);            // OPEN-LOOP: issue N requests/second regardless of replies
+    else if (a === "--max-inflight") args.maxInflight = parseInt(argv[++i], 10);
     else if (a === "--header") args.headers.push(argv[++i]);
     else if (a === "--help") { console.log("see header comment"); process.exit(0); }
     else { console.error(`unknown arg: ${a}`); process.exit(2); }
@@ -63,6 +70,7 @@ async function main() {
   }
 
   const latencies = []; // ms
+  const latenciesByStatus = new Map(); // status -> ms[]  (QA-040: a fast 503 must not flatter the latency of the requests that WERE served)
   const statusCounts = new Map();
   let errors = 0;
   let issued = 0;
@@ -88,6 +96,8 @@ async function main() {
           res.on("end", () => {
             const ms = Number(process.hrtime.bigint() - t0) / 1e6;
             latencies.push(ms);
+            if (!latenciesByStatus.has(res.statusCode)) latenciesByStatus.set(res.statusCode, []);
+            latenciesByStatus.get(res.statusCode).push(ms);
             statusCounts.set(res.statusCode, (statusCounts.get(res.statusCode) ?? 0) + 1);
             resolve();
           });
@@ -112,7 +122,32 @@ async function main() {
   }
 
   const started = Date.now();
-  await Promise.all(Array.from({ length: args.concurrency }, () => worker()));
+  let dropped = 0;
+  if (args.rate > 0) {
+    // Open loop: a timer-driven arrival process. Batches per 10 ms tick keep the schedule accurate at thousands of rps.
+    const pending = new Set();
+    const perTick = args.rate / 100;
+    let owed = 0;
+    await new Promise((resolveAll) => {
+      const tick = setInterval(() => {
+        if (Date.now() >= deadline) {
+          clearInterval(tick);
+          Promise.all(pending).then(resolveAll);
+          return;
+        }
+        owed += perTick;
+        while (owed >= 1) {
+          owed -= 1;
+          if (pending.size >= args.maxInflight) { dropped++; continue; }
+          issued++;
+          const p = oneRequest().finally(() => pending.delete(p));
+          pending.add(p);
+        }
+      }, 10);
+    });
+  } else {
+    await Promise.all(Array.from({ length: args.concurrency }, () => worker()));
+  }
   const elapsedSec = (Date.now() - started) / 1000;
   agent.destroy();
 
@@ -126,6 +161,7 @@ async function main() {
     url: args.url,
     concurrency: args.concurrency,
     elapsedSec: +elapsedSec.toFixed(2),
+    ...(args.rate > 0 ? { openLoopRate: args.rate, issued, dropped } : {}),
     total,
     rps: +(total / elapsedSec).toFixed(1),
     errors,
@@ -135,6 +171,12 @@ async function main() {
     p95Ms: +percentile(latencies, 95).toFixed(2),
     p99Ms: +percentile(latencies, 99).toFixed(2),
     maxMs: +latencies[total - 1].toFixed(2),
+    // Latency of each status class on its own. The overall numbers above blend fast refusals (503) into the percentiles;
+    // the honest question under load shedding is "how long did the requests that were ACCEPTED take?".
+    byStatus: Object.fromEntries([...latenciesByStatus.entries()].sort((a, b) => a[0] - b[0]).map(([st, xs]) => {
+      xs.sort((a, b) => a - b);
+      return [st, { n: xs.length, p50Ms: +percentile(xs, 50).toFixed(2), p95Ms: +percentile(xs, 95).toFixed(2), p99Ms: +percentile(xs, 99).toFixed(2), maxMs: +xs[xs.length - 1].toFixed(2) }];
+    })),
   }, null, 2));
 }
 

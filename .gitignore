@@ -127,3 +127,4 @@ rust/*/target/
 # Runtime-generated annual-statement PDFs (regenerated on demand; never committed).
 data/tax-statements/
 # === END W33 tax-statements ===
+.qa/perf/loadshed/latest.jsonl
