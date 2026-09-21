@@ -42,7 +42,7 @@ import {
 import { minorUnitsToString, toMinorUnitsExact } from "../../../shared/escrowAmounts";
 import { getMerchantScore } from "../creditScore";
 import { getDb } from "../../db";
-import { ledgerBridgeRequest, LedgerBridgeError } from "../ledgerBridge";
+import { postDirectLedgerLeg } from "../ledgerBridge";
 import type { DbHandle, TxHandle } from "./accounts";
 
 // ── Constants (deterministic; tunable only via code, documented above) ──────
@@ -397,21 +397,15 @@ async function postLoanFundingTransfer(
   principalCents: number,
   ledgerRef: string,
 ): Promise<void> {
-  try {
-    await ledgerBridgeRequest("/transfer", "POST", {
-      debit_account_id: `credit-facility:${facility.id}`,
-      credit_account_id: `merchant-wallet:${walletId}`,
-      amount: principalCents,
-      ledger: 1,
-      code: 1,
-      idempotency_key: ledgerRef,
-    });
-  } catch (err: any) {
-    if (err instanceof LedgerBridgeError && err.status != null && [400, 409].includes(err.status)) {
-      return; // already posted under this idempotency key
-    }
-    throw err;
-  }
+  // Every non-2xx throws so the disbursement transaction rolls back. It used to treat 400/409 as
+  // "already posted under this key", but the bridge answers a replay with 200, and a 400 here meant
+  // the opaque `credit-facility:…` ids were rejected — the funding leg was never recorded at all.
+  await postDirectLedgerLeg({
+    debit_ref: `credit-facility:${facility.id}`,
+    credit_ref: `merchant-wallet:${walletId}`,
+    amount: principalCents,
+    idempotency_key: ledgerRef,
+  });
 }
 
 export async function acceptLoan(args: {

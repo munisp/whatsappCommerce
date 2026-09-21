@@ -86,7 +86,8 @@ import {
 } from "../../drizzle/schema";
 import { getMerchantScore } from "./creditScore";
 import { getDb } from "../db";
-import { ledgerBridgeRequest, LedgerBridgeError } from "./ledgerBridge";
+import { postDirectLedgerLeg, LedgerBridgeError } from "./ledgerBridge";
+import { LedgerAccountError } from "./ledgerAccounts";
 import { claimWebhookEvent } from "./webhookDedupe";
 import { captureException } from "./observability";
 import { enqueuePaymentOutbox, OutboxDefinitiveError } from "./paymentOutbox";
@@ -294,14 +295,22 @@ async function postLedgerTransfer(
   },
 ): Promise<void> {
   try {
-    await ledgerBridgeRequest("/transfer", "POST", { ...body, ledger: 1, code: 1 });
+    // body.*_account_id are domain refs ("credit-facility:<id>", "platform-fees:USD"); the bridge only
+    // accepts UUID/decimal ids. A replay of the same key is a 200 (replayed), so anything else that is
+    // not 2xx is a real failure: it used to be swallowed as "already posted", which dropped the leg.
+    await postDirectLedgerLeg({
+      debit_ref: body.debit_account_id,
+      credit_ref: body.credit_account_id,
+      amount: body.amount,
+      idempotency_key: body.idempotency_key,
+    });
   } catch (err: any) {
-    // 400/409 under the same idempotency key = already posted → no-op.
-    if (err instanceof LedgerBridgeError && err.status != null && [400, 409].includes(err.status)) return;
-    // Other definitive 4xx rejections must not burn retries — fail the row.
+    // A definitive 4xx (malformed leg, or the ledger refusing it) must not burn retries — fail the row
+    // so it is visible instead of vanishing. Unreachable/5xx throws and is retried.
     if (err instanceof LedgerBridgeError && err.status != null && err.status >= 400 && err.status < 500) {
       throw new OutboxDefinitiveError(err.message);
     }
+    if (err instanceof LedgerAccountError) throw new OutboxDefinitiveError(err.message);
     throw err;
   }
 }

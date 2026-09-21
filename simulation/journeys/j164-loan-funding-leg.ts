@@ -11,6 +11,7 @@
  */
 import { and, eq } from "drizzle-orm";
 import { assert, type World } from "../world";
+import { ledgerAccountId, LEDGER_ACCOUNT_KINDS } from "../../server/services/ledgerAccounts";
 import type { Journey } from "../runner";
 import { seedLoanMerchant, LOAN_RACE_FACILITY_ID, LOAN_RACE_FACILITY_COMMITMENT_CENTS } from "./loanRaceSeed";
 import { tenantCaller, expectTrpcError } from "./helpers";
@@ -67,10 +68,17 @@ export const journey: Journey = {
     );
     assert(transfers.length === 1, `exactly one TB funding transfer (got ${transfers.length})`);
     assert(Number(transfers[0].body?.amount) === 1_500_000, "TB transfer amount == principal (integer cents)");
+    // The bridge rejects opaque ids (HTTP 400) — the leg must carry LEDGER ids, not "credit-facility:…".
     assert(
-      transfers[0].body?.debit_account_id === `credit-facility:${LOAN_RACE_FACILITY_ID}`,
-      "TB debits the facility funding account",
+      transfers[0].body?.debit_account_id === ledgerAccountId("credit-facility", LOAN_RACE_FACILITY_ID),
+      "TB debits the facility funding account (as a ledger id)",
     );
+    assert(
+      String(transfers[0].body?.credit_account_id).startsWith(`a7${LEDGER_ACCOUNT_KINDS["merchant-wallet"].tag.toString(16).padStart(2, "0")}`),
+      "TB credits the merchant wallet account (kind-tagged ledger id)",
+    );
+    // A plain /transfer is a two-phase RESERVE that TigerBeetle voids after 15 minutes; a funding leg must POST.
+    assert(transfers[0].body?.single_phase === true, "the funding leg is single-phase (posted), not a reserve that would expire");
 
     // ── 2. Insufficient facility commitment → honest rejection ─────────
     await seedLoanMerchant(world, MERCHANT_B);

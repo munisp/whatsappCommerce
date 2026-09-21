@@ -270,6 +270,11 @@ struct TransferRequest {
     #[serde(default = "default_code")]
     code: u16,
     idempotency_key: Option<String>,
+    /// Post immediately instead of reserving. For legs that are not a hold on someone's money (loan
+    /// funding, fee and clearing legs): a pending transfer there would silently expire and void after
+    /// `pending_timeout_secs`. Default false keeps the reserve semantics existing callers rely on.
+    #[serde(default)]
+    single_phase: bool,
 }
 
 fn default_ledger() -> u32 { 1 }
@@ -357,15 +362,7 @@ impl TigerBeetleClient {
                 "credits_posted": 0,
             }]
         });
-        match self.http.post(format!("{}/accounts", self.base_url()))
-            .json(&payload)
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => Ok(()),
-            Ok(r) => Err(format!("TB create_account failed: {}", r.status())),
-            Err(e) => Err(format!("TB unreachable: {}", e)),
-        }
+        self.send(self.http.post(format!("{}/accounts", self.base_url())).json(&payload), "create_account").await
     }
 
     /// Reserve funds (create a pending transfer) with an explicit timeout so
@@ -395,15 +392,7 @@ impl TigerBeetleClient {
                 "timeout": timeout_secs,
             }]
         });
-        match self.http.post(format!("{}/transfers", self.base_url()))
-            .json(&payload)
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => Ok(()),
-            Ok(r) => Err(format!("TB pending transfer failed: {}", r.status())),
-            Err(e) => Err(format!("TB unreachable: {}", e)),
-        }
+        self.send(self.http.post(format!("{}/transfers", self.base_url())).json(&payload), "pending transfer").await
     }
 
     /// Post a pending transfer (commit).
@@ -424,15 +413,7 @@ impl TigerBeetleClient {
                 "amount": 0, // 0 = post full amount
             }]
         });
-        match self.http.post(format!("{}/transfers", self.base_url()))
-            .json(&payload)
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => Ok(()),
-            Ok(r) => Err(format!("TB post transfer failed: {}", r.status())),
-            Err(e) => Err(format!("TB unreachable: {}", e)),
-        }
+        self.send(self.http.post(format!("{}/transfers", self.base_url())).json(&payload), "post transfer").await
     }
 
     /// Void a pending transfer.
@@ -453,15 +434,7 @@ impl TigerBeetleClient {
                 "amount": 0,
             }]
         });
-        match self.http.post(format!("{}/transfers", self.base_url()))
-            .json(&payload)
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => Ok(()),
-            Ok(r) => Err(format!("TB void transfer failed: {}", r.status())),
-            Err(e) => Err(format!("TB unreachable: {}", e)),
-        }
+        self.send(self.http.post(format!("{}/transfers", self.base_url())).json(&payload), "void transfer").await
     }
 
     /// Single-phase posted transfer (used for compensating reversals).
@@ -489,13 +462,29 @@ impl TigerBeetleClient {
                 "timeout": 0,
             }]
         });
-        match self.http.post(format!("{}/transfers", self.base_url()))
-            .json(&payload)
-            .send()
-            .await
-        {
+        self.send(self.http.post(format!("{}/transfers", self.base_url())).json(&payload), "posted transfer").await
+    }
+
+    /// Send one prepared adapter request. A 4xx is the ledger REFUSING the operation (an exhausted
+    /// balance, an already-posted pending transfer, an unknown pending id...) and is returned as
+    /// `TB_REJECTED <status> <code>: ...`; everything else (5xx, no answer) is an outage. Callers must
+    /// not confuse the two: an outage is retried, a refusal is a business outcome.
+    async fn send(&self, rb: reqwest::RequestBuilder, what: &str) -> Result<(), String> {
+        match rb.send().await {
             Ok(r) if r.status().is_success() => Ok(()),
-            Ok(r) => Err(format!("TB posted transfer failed: {}", r.status())),
+            Ok(r) => {
+                let status = r.status();
+                if status.is_client_error() {
+                    let body = r.text().await.unwrap_or_default();
+                    let code = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|v| v["error"].as_str().map(str::to_string))
+                        .unwrap_or_else(|| "rejected".into());
+                    Err(format!("TB_REJECTED {} {}: {} refused", status.as_u16(), code, what))
+                } else {
+                    Err(format!("TB {} failed: {}", what, status))
+                }
+            }
             Err(e) => Err(format!("TB unreachable: {}", e)),
         }
     }
@@ -544,6 +533,27 @@ fn ledger_unavailable(detail: &str) -> (StatusCode, Json<serde_json::Value>) {
             "detail": detail,
         })),
     )
+}
+
+/// Parse the `TB_REJECTED <status> <code>: ...` string produced by TigerBeetleClient::send.
+fn tb_rejection(e: &str) -> Option<(u16, &str)> {
+    let rest = e.strip_prefix("TB_REJECTED ")?;
+    let mut it = rest.splitn(3, ' ');
+    let status: u16 = it.next()?.parse().ok()?;
+    let code = it.next()?.trim_end_matches(':');
+    Some((status, code))
+}
+
+/// A ledger error → HTTP answer. The ledger REFUSING an operation is a 4xx the caller has to treat as a
+/// business outcome; anything else (unreachable, 5xx) is `ledger_unavailable` and is worth retrying.
+fn ledger_error(e: &str) -> (StatusCode, Json<serde_json::Value>) {
+    match tb_rejection(e) {
+        Some((status, code)) => (
+            StatusCode::from_u16(status).unwrap_or(StatusCode::CONFLICT),
+            Json(serde_json::json!({ "error": "ledger_rejected", "code": code, "detail": e })),
+        ),
+        None => ledger_unavailable(e),
+    }
 }
 
 fn bad_request(code: &str, detail: String) -> (StatusCode, Json<serde_json::Value>) {
@@ -1042,7 +1052,7 @@ async fn do_reserve(
             Err(e) => {
                 if !state.allow_inmemory {
                     error!("TB reserve failed and in-memory fallback is disabled: {}", e);
-                    return ledger_unavailable(&e);
+                    return ledger_error(&e);
                 }
                 warn!("TB reserve failed; DEV MODE in-memory fallback: {}", e);
             }
@@ -1087,6 +1097,86 @@ async fn do_reserve(
     }
 }
 
+/// Single-phase implementation behind POST /transfer {"single_phase": true}: the transfer is POSTED
+/// atomically — no pending state to commit, expire or forget — and journalled as committed, so it can
+/// be reversed like any other committed transfer. Idempotent on the idempotency key.
+#[allow(clippy::too_many_arguments)]
+async fn do_post_direct(
+    state: &AppState,
+    debit_account: u128,
+    credit_account: u128,
+    amount_minor: u64,
+    ledger: u32,
+    code: u16,
+    reference: &str,
+    idempotency_key: Option<String>,
+    local_account_key: &str,
+) -> (StatusCode, Json<serde_json::Value>) {
+    if let Some(ref key) = idempotency_key {
+        if let Some(existing) = state.find_by_idempotency_key(key).await {
+            return (StatusCode::OK, Json(serde_json::json!({
+                "transfer_id": existing.id,
+                "pending_id": existing.id,
+                "status": existing.status.as_str(),
+                "amount_minor": existing.amount_minor,
+                "replayed": true,
+            })));
+        }
+    }
+    let id = idempotency_key.as_deref().map(deterministic_id).unwrap_or_else(Uuid::new_v4);
+    let record = |status: TransferStatus| TransferRecord {
+        id,
+        debit_account_id: debit_account,
+        credit_account_id: credit_account,
+        amount_minor,
+        ledger,
+        code,
+        status,
+        idempotency_key: idempotency_key.clone(),
+        reversal_of: None,
+        created_at: Utc::now().to_rfc3339(),
+        settled_at: None,
+    };
+
+    let mut source = "tigerbeetle";
+    if state.tb.health().await {
+        match state.tb.create_posted_transfer(id.as_u128(), debit_account, credit_account, amount_minor, ledger, code).await {
+            Ok(_) => {}
+            Err(e) => {
+                if !state.allow_inmemory {
+                    error!("TB posted transfer failed and in-memory fallback is disabled: {}", e);
+                    return ledger_error(&e);
+                }
+                warn!("TB posted transfer failed; DEV MODE in-memory fallback: {}", e);
+                source = "in_memory_dev";
+            }
+        }
+    } else if !state.allow_inmemory {
+        return ledger_unavailable("tigerbeetle health check failed");
+    } else {
+        source = "in_memory_dev";
+    }
+
+    if source == "in_memory_dev" {
+        if let Err(e) = state.reserve_local(local_account_key, amount_minor, "NGN", reference, id) {
+            return bad_request("post_failed", e);
+        }
+        if let Err(e) = state.commit_local(id) {
+            return bad_request("post_failed", e);
+        }
+    }
+    state.save_record(&record(TransferStatus::Committed)).await;
+    state.mark_record_status(&id, TransferStatus::Committed).await;
+    info!(transfer_id = %id, amount_minor = amount_minor, source = source, "single-phase transfer posted");
+    (StatusCode::CREATED, Json(serde_json::json!({
+        "transfer_id": id,
+        "pending_id": id,
+        "status": "committed",
+        "amount_minor": amount_minor,
+        "source": source,
+    })))
+}
+
 /// POST /transfer — canonical 2-phase pending transfer (reserve semantics).
 /// Amount is in INTEGER MINOR UNITS. Idempotent on idempotency_key.
 async fn transfer_handler(
@@ -1110,6 +1200,12 @@ async fn transfer_handler(
     }
     let idempotency_key = req.idempotency_key.filter(|k| !k.trim().is_empty());
     let reference = idempotency_key.clone().unwrap_or_default();
+    if req.single_phase {
+        return do_post_direct(
+            &state, debit, credit, amount_minor, req.ledger, req.code,
+            &reference, idempotency_key, &req.debit_account_id,
+        ).await;
+    }
     do_reserve(
         &state, debit, credit, amount_minor, req.ledger, req.code,
         "NGN", &reference, idempotency_key, &req.debit_account_id,
@@ -1162,7 +1258,8 @@ async fn commit_handler(
 
     // Try TigerBeetle
     if state.tb.health().await {
-        let post_id = Uuid::new_v4().as_u128();
+        // Deterministic, so a retried commit is recognised by TigerBeetle as the SAME transfer (`exists`).
+        let post_id = deterministic_id(&format!("commit:{}", pending_id)).as_u128();
         let pending_u128 = pending_id.as_u128();
         match state.tb.post_pending_transfer(pending_u128, post_id).await {
             Ok(_) => {
@@ -1175,9 +1272,16 @@ async fn commit_handler(
                 })));
             }
             Err(e) => {
+                // Already posted (e.g. committed earlier under another id): a retry, not a failure.
+                if matches!(tb_rejection(&e), Some((_, "pending_transfer_already_posted"))) {
+                    state.mark_record_status(&pending_id, TransferStatus::Committed).await;
+                    return (StatusCode::OK, Json(serde_json::json!({
+                        "status": "committed", "pending_id": pending_id, "source": "tigerbeetle", "replayed": true,
+                    })));
+                }
                 if !state.allow_inmemory {
                     error!("TB commit failed and in-memory fallback is disabled: {}", e);
-                    return ledger_unavailable(&e);
+                    return ledger_error(&e);
                 }
                 warn!("TB commit failed; DEV MODE in-memory fallback: {}", e);
             }
@@ -1191,7 +1295,15 @@ async fn commit_handler(
             state.mark_record_status(&pending_id, TransferStatus::Committed).await;
             (StatusCode::OK, Json(serde_json::json!({ "status": "committed", "pending_id": pending_id })))
         }
-        Err(e) => bad_request("commit_failed", e),
+        Err(e) => {
+            // Same idempotency as the TigerBeetle path: committing something already committed is a retry.
+            if matches!(state.pending.get(&pending_id).map(|t| t.status.clone()), Some(TransferStatus::Committed)) {
+                return (StatusCode::OK, Json(serde_json::json!({
+                    "status": "committed", "pending_id": pending_id, "replayed": true,
+                })));
+            }
+            bad_request("commit_failed", e)
+        }
     }
 }
 
@@ -1203,7 +1315,7 @@ async fn void_handler(
 
     // Try TigerBeetle
     if state.tb.health().await {
-        let void_id = Uuid::new_v4().as_u128();
+        let void_id = deterministic_id(&format!("void:{}", pending_id)).as_u128();
         let pending_u128 = pending_id.as_u128();
         match state.tb.void_pending_transfer(pending_u128, void_id).await {
             Ok(_) => {
@@ -1216,9 +1328,17 @@ async fn void_handler(
                 })));
             }
             Err(e) => {
+                // Already voided, or the hold expired and TigerBeetle released it itself: the funds are
+                // free either way, so a void retry is success.
+                if matches!(tb_rejection(&e), Some((_, "pending_transfer_already_voided" | "pending_transfer_expired"))) {
+                    state.mark_record_status(&pending_id, TransferStatus::Voided).await;
+                    return (StatusCode::OK, Json(serde_json::json!({
+                        "status": "voided", "pending_id": pending_id, "source": "tigerbeetle", "replayed": true,
+                    })));
+                }
                 if !state.allow_inmemory {
                     error!("TB void failed and in-memory fallback is disabled: {}", e);
-                    return ledger_unavailable(&e);
+                    return ledger_error(&e);
                 }
                 warn!("TB void failed; DEV MODE in-memory fallback: {}", e);
             }
@@ -1232,7 +1352,14 @@ async fn void_handler(
             state.mark_record_status(&pending_id, TransferStatus::Voided).await;
             (StatusCode::OK, Json(serde_json::json!({ "status": "voided", "pending_id": pending_id })))
         }
-        Err(e) => bad_request("void_failed", e),
+        Err(e) => {
+            if matches!(state.pending.get(&pending_id).map(|t| t.status.clone()), Some(TransferStatus::Voided)) {
+                return (StatusCode::OK, Json(serde_json::json!({
+                    "status": "voided", "pending_id": pending_id, "replayed": true,
+                })));
+            }
+            bad_request("void_failed", e)
+        }
     }
 }
 
@@ -1357,7 +1484,7 @@ async fn reverse_handler(
         }
         Err(e) => {
             error!("TB reversal failed: {}", e);
-            ledger_unavailable(&e)
+            ledger_error(&e)
         }
     }
 }
@@ -1399,7 +1526,7 @@ async fn provision_account_handler(
         if let Err(e) = state.tb.create_account(id_u128, ledger_id as u32, 1000).await {
             if !state.allow_inmemory {
                 error!("TB create_account failed and in-memory fallback is disabled: {}", e);
-                return ledger_unavailable(&e);
+                return ledger_error(&e);
             }
             warn!("TB create_account failed; DEV MODE continues with PG-only record: {}", e);
             source = "in_memory_dev";
@@ -1640,6 +1767,89 @@ mod tests {
         assert_eq!(rec.idempotency_key, key);
         assert!(matches!(rec.status, TransferStatus::Pending));
         let _ = credit;
+    }
+
+    /// POST /transfer with single_phase POSTS the transfer: nothing is left pending (a pending transfer
+    /// would silently expire and void), it is journalled as committed, and a replay does not debit twice.
+    #[tokio::test]
+    async fn single_phase_transfer_posts_immediately_and_replays_idempotently() {
+        let state = dev_state();
+        let debit = "44444444-4444-4444-4444-444444444444";
+        state.balances.insert(debit.to_string(), (0u64, 1_000_000u64));
+        let key = Some("loanfund:loan-1".to_string());
+
+        let (s1, b1) = do_post_direct(&state, 1, 2, 250_000, 1, 1, "loanfund:loan-1", key.clone(), debit).await;
+        assert_eq!(s1, StatusCode::CREATED, "{:?}", b1);
+        assert_eq!(b1["status"].as_str(), Some("committed"));
+        {
+            let bal = state.balances.get(debit).unwrap();
+            assert_eq!((bal.0, bal.1), (0, 750_000), "posted, not held: nothing reserved, the debit is final");
+        }
+        let id = Uuid::parse_str(b1["transfer_id"].as_str().unwrap()).unwrap();
+        let rec = state.find_record(&id).await.expect("journalled");
+        assert!(matches!(rec.status, TransferStatus::Committed));
+        assert_eq!(rec.idempotency_key, key);
+
+        let (s2, b2) = do_post_direct(&state, 1, 2, 250_000, 1, 1, "loanfund:loan-1", key.clone(), debit).await;
+        assert_eq!(s2, StatusCode::OK);
+        assert_eq!(b2["replayed"].as_bool(), Some(true));
+        assert_eq!(b2["transfer_id"], b1["transfer_id"]);
+        assert_eq!(state.balances.get(debit).unwrap().1, 750_000, "a replay must not debit twice");
+    }
+
+    /// The ledger REFUSING something (4xx from the adapter) is a business outcome, not an outage.
+    #[test]
+    fn ledger_error_tells_a_refusal_from_an_outage() {
+        let (s, b) = ledger_error("TB_REJECTED 409 exceeds_credits: pending transfer refused");
+        assert_eq!(s, StatusCode::CONFLICT);
+        assert_eq!(b["error"].as_str(), Some("ledger_rejected"));
+        assert_eq!(b["code"].as_str(), Some("exceeds_credits"));
+        let (s, _) = ledger_error("TB_REJECTED 404 pending_transfer_not_found: commit refused");
+        assert_eq!(s, StatusCode::NOT_FOUND);
+        for outage in ["TB unreachable: connection refused", "TB pending transfer failed: 502 Bad Gateway"] {
+            let (s, b) = ledger_error(outage);
+            assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE, "{}", outage);
+            assert_eq!(b["error"].as_str(), Some("ledger_unavailable"));
+        }
+        assert_eq!(tb_rejection("TB_REJECTED 409 id_already_failed: x"), Some((409, "id_already_failed")));
+        assert_eq!(tb_rejection("nonsense"), None);
+    }
+
+    /// A retried commit or void must not turn into a failure (the dev path mirrors the TigerBeetle path,
+    /// where the deterministic commit:/void: ids make the retry an `exists`).
+    #[tokio::test]
+    async fn commit_and_void_retries_are_idempotent() {
+        let state = dev_state();
+        let debit = "55555555-5555-5555-5555-555555555555";
+        state.balances.insert(debit.to_string(), (0u64, 1_000_000u64));
+
+        let (_, r) = do_reserve(&state, 1, 2, 10_000, 1, 1, "NGN", "c1", Some("c1".into()), debit).await;
+        let pid = Uuid::parse_str(r["pending_id"].as_str().unwrap()).unwrap();
+        let (s1, _) = commit_handler(State(state.clone()), Json(CommitRequest { pending_id: pid })).await;
+        let (s2, b2) = commit_handler(State(state.clone()), Json(CommitRequest { pending_id: pid })).await;
+        assert_eq!(s1, StatusCode::OK);
+        assert_eq!(s2, StatusCode::OK, "a second commit is a retry, not an error: {:?}", b2);
+        assert_eq!(b2["replayed"].as_bool(), Some(true));
+
+        let (_, r) = do_reserve(&state, 1, 2, 10_000, 1, 1, "NGN", "v1", Some("v1".into()), debit).await;
+        let pid = Uuid::parse_str(r["pending_id"].as_str().unwrap()).unwrap();
+        let (s1, _) = void_handler(State(state.clone()), Json(VoidRequest { pending_id: pid })).await;
+        let (s2, _) = void_handler(State(state.clone()), Json(VoidRequest { pending_id: pid })).await;
+        assert_eq!((s1, s2), (StatusCode::OK, StatusCode::OK));
+
+        // ...but a commit AFTER a void is a real conflict and must stay an error.
+        let (s3, _) = commit_handler(State(state.clone()), Json(CommitRequest { pending_id: pid })).await;
+        assert_eq!(s3, StatusCode::BAD_REQUEST);
+    }
+
+    /// Retried commit/void must reuse the SAME TigerBeetle transfer id, or the retry is a new transfer.
+    #[test]
+    fn commit_and_void_ids_are_deterministic_and_distinct() {
+        let p = Uuid::parse_str("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
+        let commit = deterministic_id(&format!("commit:{}", p));
+        assert_eq!(commit, deterministic_id(&format!("commit:{}", p)));
+        assert_ne!(commit, deterministic_id(&format!("void:{}", p)));
+        assert_ne!(commit, p);
     }
 
     /// A different idempotency key MUST create a distinct reservation.

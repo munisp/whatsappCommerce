@@ -1,12 +1,13 @@
 /**
  * server/services/ledgerBridge.ts — shared ledger-bridge client helpers.
  *
- * Thin fetch wrapper around the hardened ledger-bridge service
- * (services/ledger-bridge, default http://ledger-bridge:8095). Used by the
- * escrow settlement compensation path — payment.ts keeps its own local copy
- * to avoid changing its battle-tested behavior.
+ * Thin fetch wrapper around the ledger-bridge service (rust/ledger-bridge,
+ * default http://ledger-bridge:8095). Used by the escrow settlement
+ * compensation path and the direct ledger legs — payment.ts keeps its own
+ * local copy to avoid changing its battle-tested behavior.
  */
 import { ENV } from "../_core/env";
+import { ledgerAccountIdFromRef } from "./ledgerAccounts";
 // === W34 otel-core === traceparent propagation to the TigerBeetle ledger-bridge.
 import { injectTraceHeaders } from "../_core/telemetry";
 
@@ -37,6 +38,36 @@ export async function ledgerBridgeRequest(path: string, method = "GET", body?: u
     throw new LedgerBridgeError(`Ledger bridge ${method} ${path} → ${res.status}: ${text}`, res.status);
   }
   return res.json();
+}
+
+/**
+ * Post a direct, single-phase ledger leg: the transfer is POSTED atomically, with nothing left pending.
+ *
+ * Do NOT use a plain POST /transfer for this. That is a two-phase RESERVE: the funds sit in a pending
+ * transfer that TigerBeetle auto-voids after `pending_timeout_secs`, so a "leg" posted that way silently
+ * disappears (loan funding, pay-over-time and fee legs did exactly that).
+ *
+ * `debit_ref` / `credit_ref` are domain references ("credit-facility:<id>", "platform-fees:USD"), turned
+ * into ledger ids here; an unknown kind throws. Any non-2xx THROWS. In particular a 400 is a malformed
+ * leg and a 409 is the ledger refusing it (e.g. an overdraft): neither is "already posted". A replay of
+ * the same idempotency key is a 200 with `replayed: true`, so there is nothing to swallow.
+ */
+export async function postDirectLedgerLeg(leg: {
+  debit_ref: string;
+  credit_ref: string;
+  amount: number;
+  idempotency_key: string;
+  code?: number;
+}): Promise<any> {
+  return ledgerBridgeRequest("/transfer", "POST", {
+    debit_account_id: ledgerAccountIdFromRef(leg.debit_ref),
+    credit_account_id: ledgerAccountIdFromRef(leg.credit_ref),
+    amount: leg.amount,
+    ledger: 1,
+    code: leg.code ?? 1,
+    idempotency_key: leg.idempotency_key,
+    single_phase: true,
+  });
 }
 
 /**

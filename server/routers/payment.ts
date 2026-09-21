@@ -15,7 +15,7 @@ import * as db from "../db";
 import { getDb } from "../db";
 import { ENV } from "../_core/env";
 import { TRPCError } from "@trpc/server";
-import { createHash, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 import { orders, paymentIntents, purchaseOrders } from "../../drizzle/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { publishPaymentEvent as publishPaymentDaprEvent, daprPublish } from "../dapr";
@@ -28,6 +28,7 @@ import { toIntentProviderEnum } from "../services/payments/providers/providerEnu
 import { fetchProviderPaymentStatus } from "../services/payments/verifyProviderStatus";
 // === W45 money-intents ===
 import { toMinorUnits as toMinorUnitsForCurrency } from "../services/payments/currencyExponent";
+import { ledgerAccountId } from "../services/ledgerAccounts";
 
 // ── TigerBeetle ledger helper ─────────────────────────────────────────────────
 
@@ -52,10 +53,7 @@ async function ledgerRequest(path: string, method = "GET", body?: unknown) {
 // UUID account ids from platform identifiers so the same customer/tenant always
 // maps to the same ledger account (sha256 → UUID v4-shaped string; no dep).
 
-function ledgerAccountId(kind: "customer" | "escrow" | "merchant", identifier: string): string {
-  const hex = createHash("sha256").update(`wacommerce:ledger:${kind}:${identifier}`).digest("hex");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
+// ledgerAccountId(kind, id) lives in ../services/ledgerAccounts (shared with the other ledger legs).
 
 /**
  * Major units → integer minor units, round half up.
@@ -66,32 +64,9 @@ function toMinorUnits(amountMajor: number, currency = "NGN"): number {
   return toMinorUnitsForCurrency(amountMajor, currency);
 }
 
-// Accounts are provisioned via POST /accounts/provision
-// ({tenant_id?, account_type, currency?} → {tb_account_id, ...}) before their
-// first transfer. Track provisioned accounts in-process to avoid re-provisioning
-// on every payment; the bridge's ON CONFLICT upsert makes replays safe anyway.
-const provisionedLedgerAccounts = new Set<string>();
-
-async function ensureLedgerAccountProvisioned(opts: {
-  tenantId?: string;
-  accountType: "merchant" | "escrow" | "platform_fee" | "float" | "suspense";
-  currency?: string;
-}) {
-  const cacheKey = `${opts.accountType}:${opts.tenantId ?? ""}:${opts.currency ?? "NGN"}`;
-  if (provisionedLedgerAccounts.has(cacheKey)) return;
-  try {
-    await ledgerRequest("/accounts/provision", "POST", {
-      tenant_id: opts.tenantId,
-      account_type: opts.accountType,
-      currency: opts.currency ?? "NGN",
-    });
-    provisionedLedgerAccounts.add(cacheKey);
-  } catch (err: any) {
-    // Best effort: the subsequent /transfer is the authoritative gate and will
-    // surface any real ledger outage with a precise error.
-    console.warn(`[payment] ledger account provisioning failed for ${cacheKey}:`, err?.message);
-  }
-}
+// No per-payment account provisioning: the tb-adapter creates an account on first use, in the
+// transfer's ledger, with the policy its kind implies (see services/ledgerAccounts.ts). The old
+// /accounts/provision call minted a RANDOM account that no transfer ever used.
 
 // ── Redis idempotency helper ──────────────────────────────────────────────────
 
@@ -477,14 +452,12 @@ export const paymentRouter = router({
         // zero ledger entries): the intent is marked failed with a ledger_failed
         // reason and the error is surfaced to the caller.
         try {
-          // The hardened ledger bridge rejects opaque string account ids —
-          // derive deterministic UUID account ids and provision the accounts
-          // (POST /accounts/provision) before their first transfer.
+          // The ledger bridge rejects opaque string account ids — use the
+          // deterministic UUID ids from services/ledgerAccounts (the adapter
+          // creates each account on first use).
           const customerLedgerId = input.customerId ?? input.customerPhone;
           const debitAccountId = ledgerAccountId("customer", customerLedgerId);
           const creditAccountId = ledgerAccountId("escrow", input.tenantId);
-          await ensureLedgerAccountProvisioned({ tenantId: customerLedgerId, accountType: "float", currency: currency });
-          await ensureLedgerAccountProvisioned({ tenantId: input.tenantId, accountType: "escrow", currency: currency });
           const reserveRes = (await ledgerRequest("/transfer", "POST", {
             debit_account_id: debitAccountId,
             credit_account_id: creditAccountId,
@@ -786,15 +759,28 @@ export const paymentRouter = router({
             });
           }
         } else {
-          // Legacy intent without a reservation — settle via direct transfer.
+          // Legacy intent without a reservation — settle via direct legs.
+          //
+          // The ledger never saw this payment arrive, so book the INFLOW first (customer → escrow).
+          // Settling escrow → merchant on its own would debit an escrow that was never credited, which
+          // the ledger — escrow accounts cannot be overdrawn — rightly refuses. Both legs are
+          // single-phase (a plain /transfer is a reserve that expires and voids) and idempotent.
           try {
-            await ensureLedgerAccountProvisioned({ tenantId: intent.tenantId, accountType: "escrow", currency: intent.currency ?? "NGN" });
-            await ensureLedgerAccountProvisioned({ tenantId: intent.tenantId, accountType: "merchant", currency: intent.currency ?? "NGN" });
+            const minor = toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN");
+            await ledgerRequest("/transfer", "POST", {
+              debit_account_id: ledgerAccountId("customer", intent.customerId),
+              credit_account_id: ledgerAccountId("escrow", intent.tenantId),
+              amount: minor,
+              ledger: 1, code: 1,
+              single_phase: true,
+              idempotency_key: `settle-in:${intent.id}`,
+            });
             await ledgerRequest("/transfer", "POST", {
               debit_account_id: ledgerAccountId("escrow", intent.tenantId),
               credit_account_id: ledgerAccountId("merchant", intent.tenantId),
-              amount: toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN"),
+              amount: minor,
               ledger: 1, code: 2,
+              single_phase: true,
               idempotency_key: `settle:${intent.id}`,
             });
           } catch (settleErr: any) {
@@ -822,13 +808,12 @@ export const paymentRouter = router({
           const intentMeta = (intent.metadata as Record<string, unknown> | null) ?? {};
           const customerPhone = (intentMeta.customerPhone as string | undefined) ?? intent.customerId;
           try {
-            await ensureLedgerAccountProvisioned({ tenantId: intent.tenantId, accountType: "escrow", currency: intent.currency ?? "NGN" });
-            await ensureLedgerAccountProvisioned({ tenantId: customerPhone, accountType: "float", currency: intent.currency ?? "NGN" });
             await ledgerRequest("/transfer", "POST", {
               debit_account_id: ledgerAccountId("escrow", intent.tenantId),
               credit_account_id: ledgerAccountId("customer", customerPhone),
               amount: toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN"),
               ledger: 1, code: 3,
+              single_phase: true,
               idempotency_key: `reversal:${intent.id}`,
             });
           } catch { /* best effort reversal */ }

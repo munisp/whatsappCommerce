@@ -7,6 +7,11 @@ export const U128_MAX: bigint;
 export const AMOUNT_MAX: bigint;
 export const TB: Readonly<{ PENDING: number; POST_PENDING: number; VOID_PENDING: number }>;
 export const BRIDGE: Readonly<{ POSTED: number; PENDING: number; POST_PENDING: number; VOID_PENDING: number }>;
+export const ACCOUNT_MAGIC: number;
+export const ACCOUNT_KINDS: Readonly<Record<number, { name: string; mustNotOverdraw: boolean }>>;
+export const TB_ACCOUNT: Readonly<{ DEBITS_MUST_NOT_EXCEED_CREDITS: number }>;
+export const DEFAULT_ACCOUNT_CODE: number;
+export function accountPolicyForId(id: bigint): { kind: string; flags: number; code: number };
 export function parseId(raw: unknown, label?: string): bigint;
 export function parseAmount(raw: unknown, label?: string): bigint;
 export interface TbTransfer {

@@ -6,6 +6,8 @@
 #   scripts/run-e2e.sh                  # full stack incl. ml-inference profile
 #   scripts/run-e2e.sh --no-ml          # skip the ml-inference profile
 #   scripts/run-e2e.sh --no-teardown    # keep the stack running after tests
+#   scripts/run-e2e.sh --real-tb        # real TigerBeetle + tb-adapter, in-memory ledger fallback OFF
+#                                       # (see tests/e2e/docker-compose.realtb.yml)
 #   scripts/run-e2e.sh -- <vitest args> # extra args forwarded to vitest
 #
 # Env overrides: COMPOSE_PROJECT (default wc-e2e), HEALTH_TIMEOUT (secs, 300).
@@ -17,18 +19,24 @@ PROJECT="${COMPOSE_PROJECT:-wc-e2e}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-300}"
 WITH_ML=1
 TEARDOWN=1
+REAL_TB=0
 VITEST_ARGS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-ml) WITH_ML=0; shift ;;
     --no-teardown) TEARDOWN=0; shift ;;
+    --real-tb) REAL_TB=1; shift ;;
     --) shift; VITEST_ARGS+=("$@"); break ;;
     *) VITEST_ARGS+=("$1"); shift ;;
   esac
 done
 
-COMPOSE=(docker compose -p "${PROJECT}" -f "${COMPOSE_FILE}")
+COMPOSE_FILES=(-f "${COMPOSE_FILE}")
+if [[ "${REAL_TB}" -eq 1 ]]; then
+  COMPOSE_FILES+=(-f "${ROOT}/tests/e2e/docker-compose.realtb.yml")
+fi
+COMPOSE=(docker compose -p "${PROJECT}" "${COMPOSE_FILES[@]}")
 PROFILES=()
 if [[ "${WITH_ML}" -eq 1 ]]; then
   PROFILES=(--profile ml)
@@ -105,6 +113,9 @@ export DATABASE_URL="postgres://wc_user:wc_secret@$(resolve_port postgres 5432)/
 export JWT_SECRET="e2e-jwt-secret"
 export INTERNAL_API_KEY="e2e-internal-key"
 export PAYSTACK_WEBHOOK_SECRET="e2e-paystack-webhook-secret"
+if [[ "${REAL_TB}" -eq 1 ]]; then
+  export TB_ADAPTER_URL="http://$(resolve_port tb-adapter 3000)"
+fi
 if [[ "${WITH_ML}" -eq 1 ]]; then
   export ML_URL="http://$(resolve_port ml-inference 8099)"
 fi

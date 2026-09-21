@@ -23,6 +23,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { ledgerAccountId, type LedgerAccountKind } from "./services/ledgerAccounts";
+import { parseId } from "../services/tb-adapter/translate.mjs";
 
 const ADDRESSES = process.env.TB_TEST_ADDRESSES;
 const CLUSTER_ID = process.env.TB_TEST_CLUSTER_ID ?? "0";
@@ -247,6 +249,94 @@ suite("tb-adapter against a real TigerBeetle", { timeout: 40000 }, () => {
     expect((await call(a.url, "GET", "/nope")).status).toBe(404);
     const big = await fetch(a.url + "/transfers", { method: "POST", body: "x".repeat(70 * 1024) }).then((r) => r.status).catch(() => 413);
     expect([413, 400]).toContain(big);
+  });
+
+  describe("overdraft protection by account kind (QA-033)", () => {
+    const acct = (kind: LedgerAccountKind) => parseId(ledgerAccountId(kind, "t-" + rnd().toString(36)));
+    const direct = (d: bigint, c: bigint, amount: number, code = 1) =>
+      post({ transfers: [{ id: rnd().toString(), debit_account_id: d.toString(), credit_account_id: c.toString(), amount, ledger: 1, code, flags: 0, timeout: 0 }] });
+    const flagsOf = async (id: bigint) => (await raw.lookupAccounts([id]))[0];
+
+    it("creates escrow and merchant accounts with debits_must_not_exceed_credits, customer accounts without, and stamps the kind into the code", async () => {
+      const customer = acct("customer"), escrow = acct("escrow"), merchant = acct("merchant");
+      expect((await reserve(rnd(), customer, escrow, 10)).status).toBe(200);
+      expect((await direct(customer, merchant, 1)).status).toBe(200); // a credit to the merchant account makes it exist
+      const c = await flagsOf(customer), e = await flagsOf(escrow), m = await flagsOf(merchant);
+      expect(c.flags & tbNode.AccountFlags.debits_must_not_exceed_credits).toBe(0);
+      expect(e.flags & tbNode.AccountFlags.debits_must_not_exceed_credits).not.toBe(0);
+      expect(m.flags & tbNode.AccountFlags.debits_must_not_exceed_credits).not.toBe(0);
+      expect([c.code, e.code, m.code]).toEqual([1001, 1002, 1003]);
+    });
+
+    it("an unfunded CUSTOMER can still pay (its money arrives from outside); the ledger accepts it", async () => {
+      const customer = acct("customer"), escrow = acct("escrow");
+      const p = rnd();
+      expect((await reserve(p, customer, escrow, 5000)).status).toBe(200);
+      expect((await commit(rnd(), p)).status).toBe(200);
+      expect(await balance(customer)).toMatchObject({ debits_posted: 5000, credits_posted: 0 }); // negative by design
+      expect(await balance(escrow)).toMatchObject({ credits_posted: 5000 });
+    });
+
+    it("ESCROW cannot be debited before it was credited: the ledger itself refuses (exceeds_credits, 409)", async () => {
+      const escrow = acct("escrow"), merchant = acct("merchant");
+      const r = await reserve(rnd(), escrow, merchant, 100);
+      expect(r.status).toBe(409);
+      expect(r.json.error).toBe("exceeds_credits");
+      expect(await balance(escrow)).toMatchObject({ debits_pending: 0, debits_posted: 0 });
+    });
+
+    it("escrow can settle exactly what it received — and not one kobo more", async () => {
+      const customer = acct("customer"), escrow = acct("escrow"), merchant = acct("merchant");
+      const p = rnd();
+      await reserve(p, customer, escrow, 1000);
+      await commit(rnd(), p);                                            // escrow now holds 1000 (posted)
+      expect((await direct(escrow, merchant, 600, 2)).status).toBe(200);
+      expect((await direct(escrow, merchant, 400, 2)).status).toBe(200);  // exactly the remainder
+      const over = await direct(escrow, merchant, 1, 2);
+      expect(over).toMatchObject({ status: 409, json: { error: "exceeds_credits" } });
+      expect(await balance(escrow)).toMatchObject({ credits_posted: 1000, debits_posted: 1000 });
+      expect(await balance(merchant)).toMatchObject({ credits_posted: 1000 });
+    });
+
+    it("pending holds count against the balance: two reserves that together exceed it cannot both succeed", async () => {
+      const customer = acct("customer"), escrow = acct("escrow"), merchant = acct("merchant");
+      const p = rnd();
+      await reserve(p, customer, escrow, 1000);
+      await commit(rnd(), p);
+      const first = rnd();
+      expect((await reserve(first, escrow, merchant, 700)).status).toBe(200);
+      expect((await reserve(rnd(), escrow, merchant, 400)).status).toBe(409);   // 700 held + 400 > 1000
+      expect((await voidIt(rnd(), first)).status).toBe(200);
+      expect((await reserve(rnd(), escrow, merchant, 400)).status).toBe(200);   // the released hold frees the funds
+    });
+
+    it("MERCHANT accounts cannot be overdrawn either", async () => {
+      const escrow = acct("escrow"), merchant = acct("merchant"), customer = acct("customer");
+      await reserve(rnd(), customer, escrow, 50);                          // makes escrow + customer exist
+      const r = await direct(merchant, customer, 10);
+      expect(r).toMatchObject({ status: 409, json: { error: "exceeds_credits" } });
+    });
+
+    it("ids the server did not derive stay unconstrained (no behaviour change for anything untagged)", async () => {
+      const d = rnd(), c = rnd();
+      expect((await direct(d, c, 12345)).status).toBe(200);
+      expect((await flagsOf(d)).flags).toBe(0);
+    });
+
+    it("commit retries: the SAME commit id is an idempotent 200, a DIFFERENT id for an already-posted pending is refused, and a commit after a void is refused", async () => {
+      const customer = acct("customer"), escrow = acct("escrow");
+      const p = rnd(), commitId = rnd();
+      await reserve(p, customer, escrow, 10);
+      expect((await commit(commitId, p)).status).toBe(200);
+      const again = await commit(commitId, p);                              // what the bridge's deterministic commit id makes a retry
+      expect(again.status).toBe(200);
+      expect(again.json.results[0].status).toBe("exists");
+      expect(await commit(rnd(), p)).toMatchObject({ status: 409, json: { error: "pending_transfer_already_posted" } });
+      const q = rnd();
+      await reserve(q, customer, escrow, 10);
+      await voidIt(rnd(), q);
+      expect(await commit(rnd(), q)).toMatchObject({ status: 409, json: { error: "pending_transfer_already_voided" } });
+    });
   });
 
   it("when TigerBeetle cannot be reached it answers 503 promptly instead of hanging (bounded by OP_TIMEOUT_MS)", async () => {

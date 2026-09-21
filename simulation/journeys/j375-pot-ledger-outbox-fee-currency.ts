@@ -13,6 +13,7 @@
  */
 import { eq } from "drizzle-orm";
 import { assert, type World } from "../world";
+import { ledgerAccountId, LEDGER_ACCOUNT_KINDS } from "../../server/services/ledgerAccounts";
 import type { Journey } from "../runner";
 import { tenantCaller } from "./helpers";
 import { seedLoanMerchant } from "./loanRaceSeed";
@@ -71,8 +72,11 @@ export const journey: Journey = {
     assert(tick1.delivered >= 1, `worker delivered the funding leg (${JSON.stringify(tick1)})`);
     const fundLeg = ledger.transfers.find((t) => t.body?.idempotency_key === fundRef);
     assert(fundLeg, "TB funding transfer delivered post-commit");
-    assert(String(fundLeg!.body.debit_account_id).startsWith("credit-facility:"), "funding debits the facility");
-    assert(String(fundLeg!.body.credit_account_id).startsWith("vendor-bill:"), "funding credits the vendor bill");
+    // Legs reach the bridge as kind-tagged ledger ids (a7 + tag), never as the opaque domain refs it rejects.
+    const tagOf = (k: keyof typeof LEDGER_ACCOUNT_KINDS) => `a7${LEDGER_ACCOUNT_KINDS[k].tag.toString(16).padStart(2, "0")}`;
+    assert(String(fundLeg!.body.debit_account_id).startsWith(tagOf("credit-facility")), "funding debits the facility");
+    assert(String(fundLeg!.body.credit_account_id).startsWith(tagOf("vendor-bill")), "funding credits the vendor bill");
+    assert(fundLeg!.body.single_phase === true, "the funding leg is posted, not a reserve that would expire");
     assert(fundLeg!.body.amount === 120_000, "funding amount is the bill remainder");
 
     // ── 2. Capture installment 1 → potrepay/potfee outbox legs ───────────
@@ -100,7 +104,8 @@ export const journey: Journey = {
     // ── 3. Worker delivers exactly once ──────────────────────────────────
     const tick2 = await outbox.processPaymentOutbox(world.db);
     const feeLeg = ledger.transfers.find((t) => t.body?.idempotency_key === `potfee:${planId}:1`);
-    assert(feeLeg && feeLeg.body.credit_account_id === "platform-fees:USD", "fee leg posted to platform-fees:USD");
+    assert(feeLeg && feeLeg.body.credit_account_id === ledgerAccountId("platform-fees", "USD"), "fee leg posted to the platform-fees:USD ledger account");
+    assert(feeLeg!.body.single_phase === true, "the fee leg is posted");
     const repayLeg = ledger.transfers.find((t) => t.body?.idempotency_key === `potrepay:${planId}:1`);
     assert(repayLeg, "repay leg posted to the facility");
     const tick3 = await outbox.processPaymentOutbox(world.db);

@@ -28,6 +28,41 @@ export const TB = Object.freeze({ PENDING: 2, POST_PENDING: 4, VOID_PENDING: 8 }
 // The bridge's own vocabulary (rust/ledger-bridge/src/main.rs TigerBeetleClient).
 export const BRIDGE = Object.freeze({ POSTED: 0, PENDING: 4, POST_PENDING: 8, VOID_PENDING: 16 });
 
+/**
+ * Account kinds. The server stamps a kind into the first two bytes of every account id it derives
+ * (server/services/ledgerAccounts.ts): byte 0 = ACCOUNT_MAGIC, byte 1 = the tag below. When the
+ * adapter creates an account on first use it applies that kind's policy, so the LEDGER refuses an
+ * overdraft on accounts that must never go negative instead of trusting each caller to check.
+ * This table must equal the server's; server/ledgerAccounts.test.ts fails if it does not.
+ */
+export const ACCOUNT_MAGIC = 0xa7;
+export const ACCOUNT_KINDS = Object.freeze({
+  1: { name: "customer", mustNotOverdraw: false }, // funds arrive from outside: debited before ever credited
+  2: { name: "escrow", mustNotOverdraw: true },
+  3: { name: "merchant", mustNotOverdraw: true },
+  4: { name: "merchant-wallet", mustNotOverdraw: true },
+  5: { name: "credit-facility", mustNotOverdraw: false },
+  6: { name: "vendor-bill", mustNotOverdraw: false },
+  7: { name: "mandate-clearing", mustNotOverdraw: false },
+  8: { name: "platform-fees", mustNotOverdraw: false },
+});
+// TigerBeetle 0.16 AccountFlags. Asserted against the real client at startup (server.mjs).
+export const TB_ACCOUNT = Object.freeze({ DEBITS_MUST_NOT_EXCEED_CREDITS: 2 });
+export const DEFAULT_ACCOUNT_CODE = 1000;
+
+/** Policy for an account created on first use, from the kind stamped into its id (untagged ids: plain). */
+export function accountPolicyForId(id) {
+  const magic = Number((id >> 120n) & 0xffn);
+  const tag = Number((id >> 112n) & 0xffn);
+  const kind = magic === ACCOUNT_MAGIC ? ACCOUNT_KINDS[tag] : undefined;
+  if (!kind) return { kind: "untagged", flags: 0, code: DEFAULT_ACCOUNT_CODE };
+  return {
+    kind: kind.name,
+    flags: kind.mustNotOverdraw ? TB_ACCOUNT.DEBITS_MUST_NOT_EXCEED_CREDITS : 0,
+    code: DEFAULT_ACCOUNT_CODE + tag, // a chart-of-accounts code that says what the account is
+  };
+}
+
 /** Same precedence as the bridge's parse_account_id: decimal u128, then 32-hex / UUID. */
 export function parseId(raw, label = "id") {
   const s = String(raw ?? "").trim();

@@ -1,0 +1,65 @@
+# Overlay: run the money e2e against a REAL TigerBeetle.
+#
+#   scripts/run-e2e.sh --real-tb
+#
+# The base stack (docker-compose.test.yml) fronts the ledger-bridge with an in-memory TigerBeetle
+# DOUBLE (tests/e2e/fixtures/tb-sidecar.mjs) and runs the bridge with LEDGER_ALLOW_INMEMORY=true.
+# That combination cannot detect a wrong ledger contract: the double auto-creates accounts, ignores
+# ledgers and flags, and a failing TigerBeetle call would silently fall back to memory. This overlay
+# swaps in what production has:
+#
+#   ledger-bridge → tb-adapter (services/tb-adapter, the real HTTP↔TigerBeetle adapter)
+#                 → tigerbeetle 0.16.66 (single replica, --development sizing)
+#
+# and turns the in-memory fallback OFF, so every ledger call in every test either really happens in
+# TigerBeetle or fails the test. (The tb-sidecar double still starts because the base file depends on
+# it; nothing talks to it.)
+#
+# TigerBeetle's io_uring is blocked by Docker's default seccomp profile, hence seccomp=unconfined.
+services:
+  tb-format:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.66
+    security_opt: ["seccomp=unconfined"]
+    command: ["format", "--cluster=0", "--replica=0", "--replica-count=1", "--development", "/data/0_0.tigerbeetle"]
+    volumes:
+      - tbdata:/data
+
+  tigerbeetle:
+    image: ghcr.io/tigerbeetle/tigerbeetle:0.16.66
+    security_opt: ["seccomp=unconfined"]
+    command: ["start", "--addresses=0.0.0.0:3000", "--development", "/data/0_0.tigerbeetle"]
+    volumes:
+      - tbdata:/data
+    depends_on:
+      tb-format:
+        condition: service_completed_successfully
+
+  tb-adapter:
+    build:
+      context: ../../services/tb-adapter
+    security_opt: ["seccomp=unconfined"]
+    environment:
+      HOST: 0.0.0.0 # compose only; in the cluster it is a loopback sidecar
+      PORT: "3000"
+      TB_CLUSTER_ID: "0"
+      TB_ADDRESSES: tigerbeetle:3000
+    ports:
+      - "3000" # tests read TigerBeetle balances straight through the adapter (TB_ADAPTER_URL)
+    depends_on:
+      - tigerbeetle
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ledger-bridge:
+    environment:
+      TIGERBEETLE_ADDRESS: tb-adapter:3000
+      LEDGER_ALLOW_INMEMORY: "false"
+    depends_on:
+      tb-adapter:
+        condition: service_healthy
+
+volumes:
+  tbdata: {}

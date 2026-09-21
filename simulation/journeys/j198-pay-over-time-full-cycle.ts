@@ -15,6 +15,7 @@
  */
 import { and, eq } from "drizzle-orm";
 import { assert, type World } from "../world";
+import { ledgerAccountId } from "../../server/services/ledgerAccounts";
 import type { Journey } from "../runner";
 import { tenantCaller } from "./helpers";
 import { seedLoanMerchant, LOAN_RACE_FACILITY_ID } from "./loanRaceSeed";
@@ -114,8 +115,9 @@ export const journey: Journey = {
       (c: any) => c.url.includes("/transfer") && c.body?.idempotency_key === `potfund:${pay.loanId}`);
     assert(fundTransfers.length === 1, `exactly one TB funding transfer (got ${fundTransfers.length})`);
     assert(Number(fundTransfers[0].body?.amount) === 300_000, "TB funding amount == principal");
-    assert(fundTransfers[0].body?.debit_account_id === `credit-facility:${LOAN_RACE_FACILITY_ID}`,
-      "TB debits the facility account");
+    assert(fundTransfers[0].body?.debit_account_id === ledgerAccountId("credit-facility", LOAN_RACE_FACILITY_ID),
+      "TB debits the facility account (as a ledger id)");
+    assert(fundTransfers[0].body?.single_phase === true, "the funding leg is posted, not a reserve that would expire");
 
     // Plan + loan state.
     const [plan] = await world.db.select().from(schema.installmentPlans)
@@ -165,7 +167,8 @@ export const journey: Journey = {
         (c: any) => c.body?.idempotency_key === `potfee:${pay.planId}:${seq}`);
       assert(repayLegs.length === 1 && Number(repayLegs[0].body?.amount) === 100_000, "principal leg to facility");
       assert(feeLegs.length === 1 && Number(feeLegs[0].body?.amount) === 2_500
-        && feeLegs[0].body?.credit_account_id === "platform-fees:NGN", "fee leg to platform fees");
+        && feeLegs[0].body?.credit_account_id === ledgerAccountId("platform-fees", "NGN")
+        && feeLegs[0].body?.single_phase === true, "fee leg posted to the platform-fees:NGN ledger account");
     }
 
     // ── Terminal state: plan + loan repaid, facility fully restored ────

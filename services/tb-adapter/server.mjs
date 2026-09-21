@@ -19,8 +19,9 @@
  *   HOST / PORT          default 127.0.0.1:3000 — it is a sidecar, so it listens on loopback only
  *   OP_TIMEOUT_MS        default 4000 (must stay below the bridge's 5 s HTTP timeout)
  *   AUTO_CREATE_ACCOUNTS default true: before a transfer is submitted, any account it names that
- *                        TigerBeetle has never seen is created (plain flags, the transfer's
- *                        ledger, code 1000). This is the behaviour the e2e suite has always been
+ *                        TigerBeetle has never seen is created in the transfer's ledger, with the
+ *                        flags and code its kind implies (translate.mjs ACCOUNT_KINDS: escrow and
+ *                        merchant accounts cannot be overdrawn). This is the behaviour the e2e suite has always been
  *                        validated against, and it is required today because the server derives
  *                        transfer account ids that nothing provisions (see docs/RESILIENCE.md
  *                        "Ledger wiring"). Set false to be strict: a missing account is then a
@@ -29,14 +30,17 @@
 import http from "node:http";
 import dns from "node:dns/promises";
 import net from "node:net";
-import { createClient, TransferFlags, CreateTransferError, CreateAccountError } from "tigerbeetle-node";
+import { createClient, TransferFlags, AccountFlags, CreateTransferError, CreateAccountError } from "tigerbeetle-node";
 import {
-  HttpError, TB, parseId, toTbTransfer, toTbAccount, classifyResult, balanceNumber,
+  HttpError, TB, TB_ACCOUNT, parseId, toTbTransfer, toTbAccount, classifyResult, balanceNumber, accountPolicyForId,
 } from "./translate.mjs";
 
 // Fail fast if a client upgrade ever changes the flag values translate.mjs depends on.
 if (TransferFlags.pending !== TB.PENDING || TransferFlags.post_pending_transfer !== TB.POST_PENDING || TransferFlags.void_pending_transfer !== TB.VOID_PENDING) {
   throw new Error("tigerbeetle-node TransferFlags no longer match translate.mjs — refusing to start");
+}
+if (AccountFlags.debits_must_not_exceed_credits !== TB_ACCOUNT.DEBITS_MUST_NOT_EXCEED_CREDITS) {
+  throw new Error("tigerbeetle-node AccountFlags no longer match translate.mjs — refusing to start");
 }
 
 const cfg = {
@@ -46,7 +50,6 @@ const cfg = {
   addresses: (process.env.TB_ADDRESSES ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   opTimeoutMs: Number(process.env.OP_TIMEOUT_MS ?? 4000),
   autoCreate: (process.env.AUTO_CREATE_ACCOUNTS ?? "true") !== "false",
-  autoCreateCode: 1000,
 };
 
 const log = (level, msg, extra = {}) => console.log(JSON.stringify({ ts: new Date().toISOString(), level, service: "tb-http-adapter", msg, ...extra }));
@@ -156,13 +159,17 @@ async function ensureAccounts(ids, ledger) {
   for (const id of need) {
     if (seen.has(id)) continue;
     if (!cfg.autoCreate) throw new HttpError(404, "account_not_found", `account ${id} does not exist (AUTO_CREATE_ACCOUNTS=false)`);
+    // The kind stamped into the id (services/ledgerAccounts.ts on the server) decides the account's
+    // flags: escrow/merchant accounts get debits_must_not_exceed_credits, so the ledger itself refuses
+    // an overdraft. Untagged ids (anything else) are created plain.
+    const policy = accountPolicyForId(id);
     await createAccount({
       id, debits_pending: 0n, debits_posted: 0n, credits_pending: 0n, credits_posted: 0n,
       user_data_128: 0n, user_data_64: 0n, user_data_32: 0, reserved: 0,
-      ledger, code: cfg.autoCreateCode, flags: 0, timestamp: 0n,
+      ledger, code: policy.code, flags: policy.flags, timestamp: 0n,
     });
     knownAccounts.add(id);
-    log("info", "auto-created ledger account", { account_id: id.toString(), ledger });
+    log("info", "auto-created ledger account", { account_id: id.toString(), ledger, kind: policy.kind, overdraft_protected: policy.flags !== 0 });
   }
 }
 
