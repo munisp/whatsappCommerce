@@ -112,6 +112,13 @@ spec:
           requests:
             cpu: 50m
             memory: 64Mi
+        # QA-042: on pod deletion, keep serving for a few seconds BEFORE the SIGTERM (kube-proxy needs a second or two to
+        # stop sending the terminating pod NEW connections), then SIGTERM — which the bridge now honours (drain + exit).
+        # Before this fix the bridge ignored SIGTERM entirely and lived on, headless, for the whole grace period.
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sleep", "5"]
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
       # TigerBeetle speaks a binary protocol, not HTTP, and the bridge's client is HTTP. Until this
@@ -183,6 +190,14 @@ spec:
           requests:
             cpu: 20m
             memory: 64Mi
+        # QA-042: OUTLIVE the bridge's drain. kubelet signals both containers together; the adapter has always honoured
+        # SIGTERM and used to exit in ~3 s, leaving the bridge (which then ignored SIGTERM) answering 503 ledger_unavailable
+        # for the rest of the grace period. Now the bridge stops after ~5 s and the adapter after ~10 s, so every request
+        # the bridge is still draining has a working adapter. 10 s + shutdown fits comfortably in terminationGracePeriodSeconds.
+        lifecycle:
+          preStop:
+            exec:
+              command: ["sleep", "10"]
         volumeMounts:
         - mountPath: /tmp
           name: adapter-tmp

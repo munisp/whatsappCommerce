@@ -640,6 +640,33 @@ fn build_router(state: AppState) -> Router {
 }
 
 
+/// Resolves when the process is asked to stop: SIGTERM (what Kubernetes sends on EVERY pod deletion — a rollout, a
+/// drain, a scale-down, an eviction) or SIGINT (Ctrl-C).
+///
+/// QA-042: this used to wait for SIGINT only. As PID 1 in a container, a signal with no handler installed is IGNORED
+/// (the kernel does not apply default actions to PID 1), so on every pod deletion the process simply kept running until
+/// SIGKILL at the end of the grace period. For ledger-bridge that was a 30-second outage per pod termination: its
+/// `tb-adapter` sidecar (Node) DOES handle SIGTERM and exits within ~3 s, leaving a live bridge answering
+/// `503 ledger_unavailable` to every client whose keep-alive connection was pinned to it — measured: 150 failed reserves
+/// in exactly 30.0 s at 5/s, from deleting ONE of two healthy replicas.
+async fn shutdown_signal() {
+    let ctrl_c = async { signal::ctrl_c().await.expect("install SIGINT handler") };
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    info!("shutdown signal received — draining and exiting");
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // === W35 otel ===
@@ -690,7 +717,7 @@ async fn main() -> Result<()> {
     info!(addr = %addr, "Recon Worker listening");
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(async { signal::ctrl_c().await.expect("ctrl_c") })
+        .with_graceful_shutdown(shutdown_signal())
         .await?;
     Ok(())
 }
@@ -899,5 +926,32 @@ mod tests {
     fn with_no_key_configured_the_void_request_sends_no_key_header() {
         let req = void_request(&test_state(""), "pending-1").build().unwrap();
         assert!(req.headers().get("x-internal-api-key").is_none());
+    }
+
+    // ── QA-042: SIGTERM must stop the process ───────────────────────────────────────────────────────────
+
+    /// Sends a REAL SIGTERM to this test process. If `shutdown_signal` did not install a SIGTERM handler, the signal
+    /// would terminate the whole test binary (a failed run), which is exactly the production bug: nothing here
+    /// registers a handler except the function under test.
+    #[tokio::test]
+    async fn sigterm_resolves_shutdown_signal() {
+        let task = tokio::spawn(shutdown_signal());
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await; // let it install its handlers
+        assert!(!task.is_finished(), "shutdown_signal must not resolve on its own");
+        let status = std::process::Command::new("kill").args(["-TERM", &std::process::id().to_string()]).status().unwrap();
+        assert!(status.success());
+        tokio::time::timeout(std::time::Duration::from_secs(3), task)
+            .await
+            .expect("shutdown_signal did not resolve after SIGTERM")
+            .unwrap();
+    }
+
+    #[test]
+    fn the_server_is_wired_to_shutdown_signal_not_to_ctrl_c_alone() {
+        // Only the PRODUCTION half of the file: this test module contains these very strings, so searching the whole
+        // file would make the positive assertion vacuously true and the negative one impossible.
+        let prod = include_str!("main.rs").split("#[cfg(test)]").next().unwrap();
+        assert!(prod.contains(".with_graceful_shutdown(shutdown_signal())"), "axum::serve must use shutdown_signal()");
+        assert!(!prod.contains("signal::ctrl_c().await.expect(\"ctrl_c\")"), "SIGINT-only shutdown is the QA-042 bug");
     }
 }

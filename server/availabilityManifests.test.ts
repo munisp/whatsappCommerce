@@ -108,3 +108,33 @@ describe("server autoscaling (QA-041)", () => {
     expect(readFileSync(join(ROOT, "k8s-flux/kustomization.yaml"), "utf8")).toMatch(/server-hpa\.yaml/);
   });
 });
+
+// QA-042: terminating a ledger-bridge pod must not fail payments. Measured before the fix: deleting ONE of two healthy
+// replicas gave 150 failed reserves in exactly 30 s (the grace period) — the bridge ignored SIGTERM (fixed in Rust, pinned in
+// rust/ledger-bridge's tests) while its Node sidecar exited at once. The manifest half of the fix is the ordering.
+describe("ledger-bridge termination ordering (QA-042)", () => {
+  const main = bridge.spec.template.spec.containers.find((c: Obj) => c.name === "ledger-bridge");
+  const sleepOf = (c: Obj) => {
+    const cmd = c.lifecycle?.preStop?.exec?.command as string[] | undefined;
+    expect(cmd?.[0], `${c.name} needs a preStop sleep`).toBe("sleep");
+    return Number(cmd![1]);
+  };
+
+  it("both containers have a preStop sleep", () => {
+    expect(sleepOf(main)).toBeGreaterThan(0);
+    expect(sleepOf(adapter)).toBeGreaterThan(0);
+  });
+
+  it("the ADAPTER outlives the bridge: it must still be there while the bridge drains", () => {
+    expect(sleepOf(adapter)).toBeGreaterThan(sleepOf(main));
+  });
+
+  it("the bridge keeps serving long enough for the Service to stop sending it new connections (>= 3 s)", () => {
+    expect(sleepOf(main)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("everything fits inside terminationGracePeriodSeconds with room for the shutdown itself (else SIGKILL cuts the drain)", () => {
+    const grace = bridge.spec.template.spec.terminationGracePeriodSeconds as number;
+    expect(sleepOf(adapter) + 8).toBeLessThanOrEqual(grace);
+  });
+});
