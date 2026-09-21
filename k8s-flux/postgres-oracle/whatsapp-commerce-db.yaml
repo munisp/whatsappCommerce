@@ -1,0 +1,64 @@
+# The whatsapp_commerce database and its login role on the shared, centralised CloudNativePG
+# cluster `pg-oracle` (namespace postgres-oracle). Declarative, so the operator creates them
+# over its local socket: pg-oracle has enableSuperuserAccess=false, so there is no superuser
+# to psql in as, and the Cluster spec itself is left untouched (no restart, no rolling update).
+#
+# NOT listed in k8s-flux/kustomization.yaml on purpose: these objects live in another
+# namespace that the platform team owns. Apply them from there (or with kubectl) once:
+#   1. create the password Secret (never committed; must be kubernetes.io/basic-auth and in
+#      the SAME namespace as the cluster):
+#        kubectl -n postgres-oracle create secret generic whatsapp-commerce-db-credentials \
+#          --type=kubernetes.io/basic-auth --from-literal=username=whatsapp \
+#          --from-literal=password="$(openssl rand -base64 36 | tr -d '/+=\n' | cut -c1-40)"
+#   2. kubectl apply -f k8s-flux/postgres-oracle/whatsapp-commerce-db.yaml
+#   3. put the same password into the app's DSN secret (whatsapp-commerce / whatsapp-postgres-dsn,
+#      key DATABASE_URL): postgres://whatsapp:<password>@pg-oracle-rw.postgres-oracle.svc.cluster.local:5432/whatsapp_commerce?sslmode=disable
+#
+# Deleting these objects does NOT drop the role or the database: both reclaim policies are
+# `retain` (also the CNPG default, stated so nobody has to know that).
+#
+# HISTORY — read before re-applying on a fresh cluster. On 2026-09-21 these were applied
+# to a pg-oracle that ALREADY had a `whatsapp_commerce` database and a `whatsapp` role
+# (an older copy of this app's schema). The operator adopted both: it reset the role's
+# password to the Secret's and set the connection limit. The old database was dumped,
+# renamed `whatsapp_commerce_legacy_20260921` (renaming needs CREATEDB, which was granted
+# to the role through this file for that one step and then revoked), and the operator then
+# created the fresh database below, into which the live data was restored. Before applying
+# this anywhere new, check `select datname from pg_database` and `select rolname from
+# pg_roles` first: with ensure=present an existing object is adopted, not refused.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: whatsapp
+  namespace: postgres-oracle
+spec:
+  cluster:
+    name: pg-oracle
+  name: whatsapp
+  ensure: present
+  login: true
+  # pg-oracle is shared (max_connections=100 in total). The whole platform used 3 connections
+  # when this was measured; this cap stops a runaway pool from starving the other tenants.
+  connectionLimit: 50
+  passwordSecret:
+    name: whatsapp-commerce-db-credentials
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: whatsapp-commerce
+  namespace: postgres-oracle
+spec:
+  cluster:
+    name: pg-oracle
+  name: whatsapp_commerce
+  owner: whatsapp
+  ensure: present
+  # Mirrors the source database exactly (UTF8, C/C), so restored indexes order identically.
+  encoding: UTF8
+  template: template0
+  localeCollate: C
+  localeCType: C
+  databaseReclaimPolicy: retain

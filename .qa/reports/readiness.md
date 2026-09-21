@@ -56,6 +56,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | CX-04 | P2 | node loss strands `ml-stack`/`recon-worker` on a rate-limited registry | **OPEN** |
 | QA-019 | info | Keycloak brute-force config not provably active (external IdP) | OPEN (external) |
 | QA-022/023/025 | info/P3 | live ledger path reality; small hardening fixes; e2e re-runnability | Done / logged (QA-022 superseded: the ledger is now wired, see QA-031) |
+| QA-032 | P3 | database consolidated onto `pg-oracle` (requested); adopting a pre-existing role/DB there reset its password (disclosed); a vacuous verifier caught and fixed | **DONE + verified** — old copy frozen for rollback; open: `pg-oracle` is 1 instance/no backups/NodePort, leftovers to delete later |
 | QA-031 | **P1** | the bridge's TigerBeetle path had never run against a real ledger (no HTTP adapter existed; flags, amount-0, burned ids, account ids/ledgers all wrong; no overdraft protection); CI shipped the deprecated bridge shim | **FIXED + wired live** — real adapter sidecar, 21 tests vs real TigerBeetle, live smoke OK. Open: overdraft policy, TigerBeetle HA/backup, recon-worker, server→ledger path not run live |
 
 ## 4. Test results (final regression, this tree)

@@ -1,11 +1,13 @@
 # Postgres backup + continuous restore verification for the `whatsapp_commerce` database.
 #
 # WHERE THE DATABASE REALLY IS: the app's DSN (secret whatsapp-postgres-dsn) points at
-# pg-meridian-rw.meridian.svc — a SHARED CloudNativePG cluster owned by another project,
-# with NO backup configured (no barmanObjectStore, no ScheduledBackup). Enabling CNPG's
-# native WAL archiving would mean editing that project's Cluster spec (a restart risk for
-# both databases), so this backs up OUR database only, read-only, from our own namespace.
-# It needs nothing from the meridian namespace except network access to Postgres.
+# pg-oracle-rw.postgres-oracle.svc — the centralised, SHARED CloudNativePG cluster (one
+# instance, ~45 databases) owned by another project, with NO backup configured (no
+# barmanObjectStore, no ScheduledBackup). It lived in pg-meridian until 2026-09-21; the DSN
+# is all these jobs read, so they followed the move unchanged. Enabling CNPG's native WAL
+# archiving would mean editing that project's Cluster spec (a restart risk for every
+# database on it), so this backs up OUR database only, read-only, from our own namespace.
+# It needs nothing from the postgres-oracle namespace except network access to Postgres.
 #
 # WHAT THIS PROTECTS AGAINST: logical loss — a bad migration, an accidental DELETE/DROP,
 # corruption, an operator error — with an RPO of up to 24 h. It does NOT protect against

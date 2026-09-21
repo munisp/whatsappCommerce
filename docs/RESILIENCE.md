@@ -175,12 +175,31 @@ the bridge restarted.
 This is what protects the deployed database. The compose/`k8s/` material further
 down is the older single-node dev overlay and is **not** what runs on the cluster.
 
-- **Where the data lives.** The app's DSN (`whatsapp-postgres-dsn`) points at the
-  shared CloudNativePG cluster `pg-meridian` (ns `meridian`, PG 18, one instance,
-  5Gi local-path PVC), database `whatsapp_commerce` (~24 MB). It is *not* in
-  `pg-oracle` (that cluster's database is `ucard_oracle`). No CNPG cluster in the
-  environment has a `ScheduledBackup`/`Backup`, and WAL archiving is not
-  configured, so before this job existed **nothing** backed the data up.
+- **Where the data lives.** Since 2026-09-21 the app's DSN (`whatsapp-postgres-dsn`)
+  points at the centralised shared CloudNativePG cluster `pg-oracle` (ns
+  `postgres-oracle`, PG 18.6, **one instance, 5Gi local-path PVC, ~45 databases**,
+  `enableSuperuserAccess=false`), database `whatsapp_commerce` (~24 MB), login role
+  `whatsapp` (connection limit 50) — both declared in
+  `k8s-flux/postgres-oracle/whatsapp-commerce-db.yaml` (applied by the platform team;
+  the operator creates them, no superuser needed). No CNPG cluster in the environment
+  has a `ScheduledBackup`/`Backup`, and WAL archiving is not configured, so before
+  this job existed **nothing** backed the data up. **Centralising improved
+  manageability, not durability:** it is still one instance on one local-path disk,
+  now shared by ~45 databases, so its blast radius is larger than `pg-meridian`'s was.
+- **The move (2026-09-21).** From `pg-meridian` (ns `meridian`). A different, older
+  `whatsapp_commerce` already existed on `pg-oracle` (133 tables, 234 rows); it was
+  dumped to `/backups/legacy-oracle/` (checksummed) and renamed
+  `whatsapp_commerce_legacy_20260921` — nothing was deleted. The live data was
+  restored behind a write freeze (all six DB clients, including the ledger bridge, scaled
+  to 0 for ~95 s) with a single-transaction `pg_restore` and verification of tables,
+  keys, indexes, enums, migrations, every table's row count and every sequence position,
+  plus a negative control proving the verifier fails on one stray row. **Rollback:** the
+  old copy on `pg-meridian` is frozen at the cutover and untouched; the previous DSN is
+  kept as `DATABASE_URL_PREV_MERIDIAN` in the same secret. To roll back, copy it into
+  `DATABASE_URL` and restart the six clients (server, commerce-engine,
+  payment-orchestrator, conversation-orchestrator, webhook-ingestor, ledger-bridge);
+  writes since the cutover are not in the old copy. Delete both once the retention
+  window has passed.
 - **`postgres-backup`** (nightly 03:15 UTC): `pg_dump --format=custom` with the
   same-major client image as the server (`ghcr.io/cloudnative-pg/postgresql:18.4…`
   — the old `k8s/backups.yaml` job uses `postgres:16` and cannot dump a PG 18
@@ -213,7 +232,7 @@ down is the older single-node dev overlay and is **not** what runs on the cluste
     destination the platform team must provide.
   - No point-in-time recovery. That needs WAL archiving on the CNPG cluster,
     which is another project's `Cluster` spec (and a restart), so it is a
-    decision for `pg-meridian`'s owner.
+    decision for `pg-oracle`'s owner.
   - Keycloak's own database (`keycloak-postgresql`) and TigerBeetle (ns
     `tigerbeetle`) are shared services owned elsewhere; neither is backed up by
     this job. The app holds no TigerBeetle data yet (the ledger-bridge is not
