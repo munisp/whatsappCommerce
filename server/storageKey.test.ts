@@ -27,6 +27,10 @@ describe("normalizeStorageKey", () => {
     expect(() => normalizeStorageKey(bad)).toThrow(/invalid storage key/);
   });
 
+  it("leaves a lone backslash in an ordinary filename alone (not traversal on an object store)", () => {
+    expect(normalizeStorageKey("whatsapp-media/t1/id-C:\\fakepath\\photo.png")).toBe("whatsapp-media/t1/id-C:\\fakepath\\photo.png");
+  });
+
   it("does not reject names that merely contain dots", () => {
     expect(normalizeStorageKey("evidence/d1/uuid-my..file.name.png")).toBe("evidence/d1/uuid-my..file.name.png");
   });

@@ -18,7 +18,11 @@ let _client: MinioClient | null = null;
  */
 export function normalizeStorageKey(relKey: string): string {
   const key = relKey.replace(/^\/+/, "");
-  if (key.length === 0 || key.includes("\0") || key.includes("\\") || key.split("/").some((seg) => seg === ".." || seg === ".")) {
+  // Split on BOTH separators so `a\..\b` is caught, but a lone backslash in
+  // an ordinary filename (e.g. a Windows-style "C:\\x\\photo.png") is left
+  // alone — it isn't traversal on an object store and rejecting it would only
+  // turn an odd-but-harmless upload into an error.
+  if (key.length === 0 || key.includes("\0") || key.split(/[\\/]/).some((seg) => seg === ".." || seg === ".")) {
     throw new Error(`invalid storage key: ${JSON.stringify(relKey.slice(0, 80))}`);
   }
   return key;
