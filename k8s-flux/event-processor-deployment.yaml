@@ -41,8 +41,10 @@ spec:
           value: http://payment-orchestrator.whatsapp-commerce.svc.cluster.local:8084
         - name: OTEL_ENABLED
           value: "true"
+        # QA-042: gRPC port 4317, NOT the HTTP port 4318. This service builds its OTLP exporter with `.with_tonic()` (gRPC); pointed
+        # at 4318 every span export failed with `transport error`, so it never appeared in Jaeger and span-derived alerts had nothing to read.
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: http://otel-collector.otel.svc.cluster.local:4318
+          value: http://otel-collector.otel.svc.cluster.local:4317
         # QA-038: sent to commerce-engine (and ONLY commerce-engine — see EventRouter::internal_key_for), which
         # requires it once set. Same Secret and key as the services it is sent to and from. Note that as of this
         # change the router is dead code (main() drops it; the "consumer" is a heartbeat log loop), so this is

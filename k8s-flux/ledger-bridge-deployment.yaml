@@ -35,8 +35,10 @@ spec:
       - env:
         - name: OTEL_ENABLED
           value: "true"
+        # QA-042: gRPC port 4317, NOT the HTTP port 4318. This service builds its OTLP exporter with `.with_tonic()` (gRPC); pointed
+        # at 4318 every span export failed with `transport error`, so it never appeared in Jaeger and span-derived alerts had nothing to read.
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: http://otel-collector.otel.svc.cluster.local:4318
+          value: http://otel-collector.otel.svc.cluster.local:4317
         # Durable idempotency + transfer journal (ledger_transfers, created by the bridge itself).
         # Same secret the app uses, so the bridge follows the app if the database is ever moved.
         - name: DATABASE_URL

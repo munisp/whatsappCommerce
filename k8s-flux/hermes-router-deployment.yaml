@@ -35,8 +35,10 @@ spec:
           value: mojaloop-kafka-cluster-kafka-bootstrap.kafka.svc:9092
         - name: OTEL_ENABLED
           value: "true"
+        # QA-042: gRPC port 4317, NOT the HTTP port 4318. This service builds its OTLP exporter with `.with_tonic()` (gRPC); pointed
+        # at 4318 every span export failed with `transport error`, so it never appeared in Jaeger and span-derived alerts had nothing to read.
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: http://otel-collector.otel.svc.cluster.local:4318
+          value: http://otel-collector.otel.svc.cluster.local:4317
         image: registry.digitalocean.com/talentgraph-auth/whatsapp-hermes-router:20260916-1122 # {"$imagepolicy": "flux-system:whatsapp-hermes-router"}
         imagePullPolicy: IfNotPresent
         name: hermes-router
