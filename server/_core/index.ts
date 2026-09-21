@@ -4833,9 +4833,35 @@ async function startServer() {
       createContext,
     })
   );
+  // Shared escaping helpers for the YOLO preview.html generator below —
+  // deliberately local (this file has no existing exported escapeHtml).
+  function escapeHtml(s: string): string {
+    return s.replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c] as string));
+  }
+  function escapeJsString(s: string): string {
+    return s.replace(/[\\'"\n\r]/g, (c) => ({
+      "\\": "\\\\", "'": "\\'", '"': '\\"', "\n": "\\n", "\r": "\\r",
+    }[c] as string));
+  }
+
   // ── Fine-tune SSE stream ──────────────────────────────────────────────────
   // GET /api/finetune/stream — spawns finetune.py --dry-run and streams stdout/stderr as SSE
-  app.get("/api/finetune/stream", (req, res) => {
+  //
+  // QA follow-up (P0): this route had NO authentication at all — unlike every
+  // other route in this file, including its own sibling
+  // /api/scheduled/nightly-finetune below. Any unauthenticated caller could
+  // trigger an arbitrary `spawn("python3", finetune.py)` subprocess and read
+  // its stdout/stderr over SSE. Gated to platform admins, matching the
+  // adminProcedure bar mlOps.ts already uses for this exact "platform
+  // ML-ops surface, not tenant data" domain (triggerRealDataRetrain etc.).
+  app.get("/api/finetune/stream", async (req, res) => {
+    const user = await sdk.authenticateRequest(req).catch(() => null);
+    if (!user || (user as any).role !== "admin") {
+      res.status(403).json({ error: "admin-only" });
+      return;
+    }
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -4978,8 +5004,23 @@ async function startServer() {
 
   // ── YOLO Label Export ZIP ─────────────────────────────────────────────────
   // GET /api/finetune/export-yolo — generates per-class YOLO .txt label files and returns a zip
+  //
+  // QA follow-up (P0): this route had NO authentication at all and queries
+  // productImageCollections (tenantId NOT NULL, drizzle/schema.ts) with no
+  // tenantId filter — an unauthenticated caller could download every
+  // tenant's uploaded product images (URLs, class labels, quality scores)
+  // in one ZIP. The cross-tenant SCOPE itself is intentional here (this
+  // dataset feeds one shared platform-wide YOLO classifier, the same
+  // "platform ML-ops surface, not tenant data" pattern mlOps.ts already
+  // exempts elsewhere) — the bug was the missing auth, not the missing
+  // tenant filter, so this stays platform-wide, gated to admins only.
   app.get("/api/finetune/export-yolo", async (req, res) => {
     try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user || (user as any).role !== "admin") {
+        res.status(403).json({ error: "admin-only" });
+        return;
+      }
       const db = await getDb();
       if (!db) { res.status(503).json({ error: "DB unavailable" }); return; }
       const { productImageCollections: picTable } = await import("../../drizzle/schema");
@@ -5012,16 +5053,28 @@ async function startServer() {
       }));
       archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
       // Add HTML preview page with per-image bbox overlays
+      //
+      // QA follow-up: className and imageUrl are unescaped client-controlled
+      // strings here (server/routers/productImages.ts's className is a bare
+      // z.string().min(1), no restricted charset) — a merchant could plant
+      // e.g. `</span><script>...` in a class name and get it executed in
+      // whoever opens this preview.html. id is server-generated
+      // (crypto.randomUUID() default, drizzle/schema.ts) so it's inherently
+      // safe, but it's escaped too since it's cheap and this function is the
+      // single place everything gets interpolated into HTML/JS.
       const previewRows = images.map((img: { id: string; imageUrl: string; className: string; bbox: { x: number; y: number; w: number; h: number } | null; qualityScore: number | null }) => {
         const classId = (classMap as Record<string, number>)[img.className] ?? 0;
         const bboxData = img.bbox ? JSON.stringify(img.bbox) : "null";
+        const safeId = escapeHtml(img.id);
+        const safeClass = escapeHtml(img.className);
+        const safeUrl = escapeHtml(img.imageUrl);
         return `<div class="card">
   <div class="img-wrap">
-    <img src="${img.imageUrl}" crossorigin="anonymous" onload="drawBbox(this,'${img.id}')" onerror="this.style.opacity='0.3'"/>
-    <canvas id="c-${img.id}" class="overlay"></canvas>
+    <img src="${safeUrl}" crossorigin="anonymous" onload="drawBbox(this,'${escapeJsString(img.id)}')" onerror="this.style.opacity='0.3'"/>
+    <canvas id="c-${safeId}" class="overlay"></canvas>
   </div>
-  <div class="meta"><span class="cls">${img.className}</span> <span class="cid">#${classId}</span>${img.qualityScore ? ` ⭐${img.qualityScore}` : ""}</div>
-  <script>window.__bbox=window.__bbox||{};window.__bbox['${img.id}']=${bboxData};</script>
+  <div class="meta"><span class="cls">${safeClass}</span> <span class="cid">#${classId}</span>${img.qualityScore ? ` ⭐${img.qualityScore}` : ""}</div>
+  <script>window.__bbox=window.__bbox||{};window.__bbox[${JSON.stringify(img.id)}]=${bboxData};</script>
 </div>`;
       }).join("\n");
       const previewHtml = `<!DOCTYPE html>

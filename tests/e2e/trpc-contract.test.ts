@@ -17,6 +17,7 @@ import {
   getSql,
   closeSql,
   uniqueId,
+  getJson,
 } from "./helpers/stack";
 
 const TENANT = uniqueId("e2e-tenant");
@@ -432,5 +433,40 @@ describe("tRPC contract — escrow config", () => {
     const r = await trpcQuery("wallet.getBalance", { tenantId: uniqueId("no-wallet") }, adminToken);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.data).toBeNull();
+  });
+});
+
+describe("raw REST admin routes — QA follow-up: finetune endpoints were unauthenticated", () => {
+  // These are Express routes (server/_core/index.ts), not tRPC — QA found
+  // /api/finetune/stream and /api/finetune/export-yolo had NO auth check at
+  // all (unauthenticated subprocess trigger + unauthenticated cross-tenant
+  // data dump). Both are now admin-only; this proves the gate actually
+  // rejects, not just that the code compiles.
+  it("GET /api/finetune/stream → 403 with no credentials", async () => {
+    const { status, body } = await getJson(CFG.platformUrl, "/api/finetune/stream");
+    expect(status).toBe(403);
+    expect(body).toMatchObject({ error: "admin-only" });
+  });
+
+  it("GET /api/finetune/stream → 403 for a non-admin authenticated user", async () => {
+    const { status, body } = await getJson(CFG.platformUrl, "/api/finetune/stream", {
+      Authorization: `Bearer ${userToken}`,
+    });
+    expect(status).toBe(403);
+    expect(body).toMatchObject({ error: "admin-only" });
+  });
+
+  it("GET /api/finetune/export-yolo → 403 with no credentials", async () => {
+    const { status, body } = await getJson(CFG.platformUrl, "/api/finetune/export-yolo");
+    expect(status).toBe(403);
+    expect(body).toMatchObject({ error: "admin-only" });
+  });
+
+  it("GET /api/finetune/export-yolo → 403 for a non-admin authenticated user", async () => {
+    const { status, body } = await getJson(CFG.platformUrl, "/api/finetune/export-yolo", {
+      Authorization: `Bearer ${userToken}`,
+    });
+    expect(status).toBe(403);
+    expect(body).toMatchObject({ error: "admin-only" });
   });
 });
