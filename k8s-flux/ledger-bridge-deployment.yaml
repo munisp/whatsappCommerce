@@ -111,15 +111,23 @@ spec:
           value: 127.0.0.1 # loopback only: the bridge is the sole client
         - name: PORT
           value: "3000"
-        # The dedicated 3-replica TigerBeetle in ns whatsapp-tigerbeetle (k8s-flux/tigerbeetle/tigerbeetle-ha.yaml,
-        # applied separately — TigerBeetle gets its own namespace, like Postgres does). Survives the loss of any
-        # one replica. Addresses are the replicas' STATIC ClusterIPs (TigerBeetle takes IPs only and a pod IP
-        # changes on restart), so this needs no change if that namespace is ever renamed again. Not secret.
-        # tigerbeetle-ha.yaml's TB_IP_0..2 must match.
+        # The SHARED TigerBeetle (ns tigerbeetle) — also used by lanai and vpp in this cluster, confirmed
+        # live (their Deployments point at the same hostnames). Reformatted 2026-09-21 from 1 replica to a
+        # 3-replica cluster at the owner's explicit direction (see docs/RESILIENCE.md "Multi-node TigerBeetle
+        # deployment notes" for why growing it in place is destructive and was not done unilaterally, and
+        # for the pre-reformat backup that was attempted).
+        #
+        # All THREE replica hostnames are listed, not just replica 0: a client that only knows one address
+        # still works (it forwards to whichever replica is primary — verified), but has NO fallback if that
+        # one address goes down, even with the other two healthy. lanai and vpp still only know replica 0 —
+        # they keep working unmodified, but only WE get the redundancy benefit until they update their own
+        # configs too (their manifests are not ours to change).
+        # Not secret: the cluster id is in the StatefulSet spec. Hostnames are resolved to an IP on every
+        # reconnect by the adapter (a pod IP changes on restart).
         - name: TB_CLUSTER_ID
-          value: "160071330234540767289684610414810526351"
+          value: "145851240909969808468846706535455565498"
         - name: TB_ADDRESSES
-          value: 10.96.240.10:3000,10.96.240.11:3000,10.96.240.12:3000
+          value: tigerbeetle-0.tigerbeetle-headless.tigerbeetle.svc.cluster.local:3000,tigerbeetle-1.tigerbeetle-headless.tigerbeetle.svc.cluster.local:3000,tigerbeetle-2.tigerbeetle-headless.tigerbeetle.svc.cluster.local:3000
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

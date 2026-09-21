@@ -169,45 +169,93 @@ the bridge restarted.
 - Backups: replicate the TB data file per the official replication protocol —
   do NOT file-copy a running replica.
 
-### Implementation (QA-034): 3-replica cluster, own namespace
+### Reality on this cluster (QA-034/036): one shared instance, three tenants, reformatted to 3 replicas
 
-`k8s-flux/tigerbeetle/tigerbeetle-ha.yaml` — applied separately from the app
-Kustomization, like `k8s-flux/postgres-oracle/`:
-`kubectl apply -f k8s-flux/tigerbeetle/tigerbeetle-ha.yaml`.
+TigerBeetle here is **shared cluster-wide infrastructure, not ours** — ns
+`tigerbeetle`, live-confirmed to also serve `lanai` (`lanai-portal`) and
+`vpp` (`vpp-orchestrator`, `vpp-server`) in addition to `whatsapp-commerce`.
 
-- **Namespace: `whatsapp-tigerbeetle`, not `whatsapp-commerce`.** TigerBeetle
-  gets its own namespace, the same way Postgres does in this cluster
-  (`pg-oracle` lives in `postgres-oracle`, not in the app that uses it). It
-  was first stood up inside `whatsapp-commerce`; while there, one replica
-  (the elected primary) was deleted and recreated by something other than
-  this work — not a probe failure, not OOM, not Flux (the app Kustomization
-  is suspended and hadn't reconciled). It self-healed in ~16 s via a benign
-  data-file-lock crash-loop. Moving it to its own namespace removes it from
-  whatever was touching `whatsapp-commerce`; if the same thing recurs in
-  `whatsapp-tigerbeetle`, that would be a stronger signal of an external actor
-  and is worth escalating.
-- **Addressing.** TigerBeetle 0.16 accepts only literal IPs in `--addresses`
-  ("invalid IPv4 or IPv6 address" for a hostname), and a pod's IP changes on
-  every restart. Each replica gets its own `Service` with a **static
-  ClusterIP** (`10.96.240.10-12`, free in the cluster's service range); a
-  replica puts `0.0.0.0` in its own slot and its peers' static IPs in theirs.
-  Because addressing is by ClusterIP, not DNS, the bridge's `TB_ADDRESSES`
-  needs no change if this namespace is ever renamed again.
-- **Verified in Docker** with the same image before deploying: 1 of 3 down →
-  writes continue; 2 of 3 down → no quorum, the adapter answers 503 after its
-  4 s bound (never hangs, never fabricates success); replicas restarted →
-  recovered within seconds. **Verified live:** all 3 replicas schedule one per
-  node (`podAntiAffinity` + `topologyKey: kubernetes.io/hostname`) with a
-  `PodDisruptionBudget` (`maxUnavailable: 1`) so a drain can only take one.
-- **Not yet done:** the bridge and server Deployments (2 replicas each,
-  `maxUnavailable: 0`, spread over nodes, `PodDisruptionBudget`s — all in
-  `k8s-flux/server-deployment.yaml`, `k8s-flux/ledger-bridge-deployment.yaml`
-  and `k8s-flux/availability/pdb.yaml`) and the `recon-worker` database wiring
-  are written and pinned by `server/availabilityManifests.test.ts` /
-  `server/ledgerWiringManifests.test.ts`, but not yet applied to the live
-  cluster — that is the next step, after the ledger-bridge and recon-worker
-  images are rebuilt from this branch (services/tb-adapter had to gain
-  overdraft-policy support first; see QA-033/034 in `.qa/defects.md`).
+**Growing it to multiple replicas is not a live operation.** Confirmed from
+the TigerBeetle 0.16.66 CLI itself (`tigerbeetle --help`): `format` fixes
+`--replica-count` into a replica's data file permanently, and `recover` only
+rebuilds a replica whose file was *lost*, within a cluster whose *other*
+replicas already agree on the same replica-count — it cannot change an
+existing cluster's replica-count. Taking a running single replica to 3
+replicas means reformatting **every** replica from scratch, destroying
+whatever was in it.
+
+An earlier version of this work stood up a *separate*, dedicated 3-replica
+TigerBeetle cluster for just `whatsapp-commerce` instead. That was the wrong
+shape: the point of a *shared* TigerBeetle is that every tenant uses the
+*same* instance, the same way `postgres-oracle` is one shared Postgres for
+many projects rather than each project running its own. It was torn down.
+While it briefly ran, its elected primary was deleted and recreated by
+something other than this work (not a liveness-probe failure, not OOM, and
+the app's Flux Kustomization was suspended and hadn't reconciled) — self-
+healed in ~16 s via a benign data-file-lock crash-loop, cause unidentified.
+
+**Reformatted live, 2026-09-21, at the owner's explicit direction** (the data
+on the single replica was, by that point, QA/smoke-test data only — nothing
+production-real had been built on the shared instance for any tenant yet).
+A pre-reformat offline backup was attempted (scale to 0, copy the ~1.1 GiB
+data file off the PVC to local disk) but the `kubectl cp` transfer failed
+partway (`unexpected EOF`, checksum mismatch on the partial file) — the
+resulting single-replica history is not recoverable. The instance was down
+(0 replicas, so `lanai`/`vpp`/us all lost ledger access) for the ~15 minutes
+this took. `k8s-flux/tigerbeetle-shared-reference.yaml` documents the applied
+StatefulSet (not Flux-managed — this namespace isn't this project's to own —
+so this file is a record, applied by hand, not part of any Kustomization).
+
+The new cluster keeps the SAME cluster id (`145851240909969808468846706535455565498`)
+and the SAME per-replica hostnames (`tigerbeetle-0/1/2.tigerbeetle-headless.tigerbeetle.svc.cluster.local:3000`,
+resolved to an IP by each consumer's adapter at connect time — TigerBeetle
+takes literal IPs only, and pod IPs change on restart, which is why each
+replica's own startup script resolves all three hostnames itself rather than
+relying on any static addressing). One replica now schedules onto the
+control-plane node (tolerating its taint) since the two worker nodes were
+already at 92–97% allocated CPU.
+
+**Verified live:** all 3 replicas came up healthy, one per node, quorum
+formed (view-change → elected primary) within seconds. A real reserve/void
+through our bridge succeeded immediately, still addressed by only
+`tigerbeetle-0` at that point — confirming existing single-address clients
+(unmodified `lanai`/`vpp` configs) keep working against the new cluster.
+Force-killing the elected primary under active writes produced **zero
+failed writes** — VSR failed over to a new primary among the remaining two
+instantly — and the killed replica rejoined within ~18 s.
+
+**A client that only knows one replica address still works** (confirmed:
+TigerBeetle forwards internally to whichever replica is primary) **but has
+no fallback if that one specific replica goes down**, even with the other
+two healthy — confirmed the opposite way too: stopping the *only* address a
+test client knew, while the other two replicas stayed up, failed every
+request from that client. So growing the cluster gives no redundancy to a
+consumer until that consumer's own client config lists more than one
+address.
+- **Our bridge:** updated to list all three hostnames
+  (`k8s-flux/ledger-bridge-deployment.yaml`) — applied live. We get the full
+  benefit.
+- **`lanai` and `vpp`:** still only configured with `tigerbeetle-0`. They
+  keep working (their one known replica is up), but have no fallback if it
+  specifically goes down, even though the cluster now tolerates that loss
+  for everyone else. Their manifests are not this project's to edit —
+  telling them to add the other two addresses is a follow-up for whoever
+  owns those deployments, not something done here.
+
+**What's live:** the 3-replica TigerBeetle cluster; our bridge at 2 replicas
+with `PodDisruptionBudget`s (`maxUnavailable: 0` rollouts, spread over
+nodes) and all three TigerBeetle addresses.
+**What's written but not yet applied:** the server Deployment's equivalent
+2-replica/PDB change and the `recon-worker` database wiring
+(`k8s-flux/server-deployment.yaml`, `k8s-flux/recon-worker-deployment.yaml`),
+pinned by `server/availabilityManifests.test.ts` /
+`server/ledgerWiringManifests.test.ts`.
+**What's NOT yet live:** the ledger-bridge and recon-worker container
+IMAGES themselves still need rebuilding and reshipping to the cluster nodes
+to pick up the QA-033 (ledger contract: overdraft protection, single-phase
+legs, idempotent retries) and QA-035 (webhook path never committed the
+ledger reservation) fixes — the live bridge is still running the
+2026-08-31 build.
 
 ## Backups (W39, PLT-1/PLT-2/PLT-8)
 

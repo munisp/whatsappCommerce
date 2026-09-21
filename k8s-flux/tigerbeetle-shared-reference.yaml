@@ -1,0 +1,208 @@
+# REFERENCE ONLY — records what is actually running in the shared `tigerbeetle` namespace, applied by hand
+# on 2026-09-21. NOT part of this project's Flux Kustomization and NOT auto-reconciled: the `tigerbeetle`
+# namespace is cluster-wide shared infrastructure (also used by `lanai` and `vpp`, confirmed live), not owned
+# by whatsapp-commerce. Kept here so the decision and its shape are traceable from this repo, the same way
+# k8s-flux/postgres-oracle/whatsapp-commerce-db.yaml records a hand-applied change to another shared namespace.
+#
+# HISTORY: this namespace held a single-replica TigerBeetle cluster (cluster id
+# 145851240909969808468846706535455565498) for its whole prior life (54+ days). Growing it in place is not a
+# live TigerBeetle operation — `format` bakes `--replica-count` into a replica's data file permanently, and
+# `recover` only rebuilds a *lost* replica within a cluster whose other replicas already agree on the count,
+# it cannot change an existing cluster's replica-count. So this was reformatted from scratch at the shared
+# instance's owner's explicit direction, destroying the single replica's prior data (the data at that point
+# was QA/smoke-test only for every tenant, not production). A pre-reformat offline backup was attempted
+# (scale to 0, copy the ~1.1 GiB data file off its PVC) but the transfer failed partway and the checksum did
+# not match — that single-replica history is not recoverable.
+#
+# The new cluster keeps the SAME cluster id and the SAME per-replica hostname scheme
+# (tigerbeetle-{0,1,2}.tigerbeetle-headless.tigerbeetle.svc.cluster.local:3000) an existing client already
+# configured with just tigerbeetle-0 (e.g. lanai, vpp, unless/until they update) keeps working unmodified —
+# verified live: it still forwards correctly to whichever replica is primary. It does NOT get any fallback
+# if that one specific replica goes down, even with the other two healthy (verified the same way) — only a
+# client that lists all three addresses (this project's bridge now does, see
+# k8s-flux/ledger-bridge-deployment.yaml) gets real redundancy. That is a decision for whoever owns each
+# consumer's own deployment, not something changed here.
+#
+# Verified live after reformatting: 3/3 replicas healthy, one per node (the control-plane node tolerates its
+# own taint here since both workers were already at 92-97% allocated CPU); quorum forms within seconds; a
+# real reserve/void succeeded through this project's bridge; force-killing the elected primary under active
+# writes produced ZERO failed writes (VSR failover to a new primary was instant) and the killed replica
+# rejoined within ~18s.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tigerbeetle-config
+  namespace: tigerbeetle
+data:
+  ADDRESSES: "tigerbeetle-0.tigerbeetle-headless:3000,tigerbeetle-1.tigerbeetle-headless:3000,tigerbeetle-2.tigerbeetle-headless:3000"
+  CLUSTER_ID: "145851240909969808468846706535455565498"
+  REPLICA_COUNT: "3"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tigerbeetle
+  namespace: tigerbeetle
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: Parallel
+  replicas: 3
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: tigerbeetle
+  serviceName: tigerbeetle-headless
+  template:
+    metadata:
+      labels:
+        app: tigerbeetle
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: tigerbeetle
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - |
+          set -e
+          RESOLVED=""
+          for host in tigerbeetle-0.tigerbeetle-headless:3000 tigerbeetle-1.tigerbeetle-headless:3000 tigerbeetle-2.tigerbeetle-headless:3000; do
+            name="${host%%:*}"
+            port="${host##*:}"
+            ip=""
+            fqdn="$name.tigerbeetle.svc.cluster.local"
+            for i in $(seq 1 180); do
+              ip=$(getent hosts "$name" | awk '{print $1}' | head -n1 || true)
+              [ -z "$ip" ] && ip=$(getent hosts "$fqdn" | awk '{print $1}' | head -n1 || true)
+              [ -n "$ip" ] && break
+              sleep 2
+            done
+            if [ -z "$ip" ]; then
+              echo "Failed to resolve $host after retries" >&2
+              exit 1
+            fi
+            if [ -z "$RESOLVED" ]; then
+              RESOLVED="$ip:$port"
+            else
+              RESOLVED="$RESOLVED,$ip:$port"
+            fi
+          done
+          exec /tb-bin/tigerbeetle start --addresses=$RESOLVED --cache-grid=256MiB /var/lib/tb/data.tigerbeetle
+        command:
+        - /bin/sh
+        - -c
+        image: ghcr.io/tigerbeetle/tigerbeetle:0.16.66
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 6
+          initialDelaySeconds: 60
+          periodSeconds: 20
+          successThreshold: 1
+          tcpSocket:
+            port: 3000
+          timeoutSeconds: 1
+        name: tigerbeetle
+        ports:
+        - containerPort: 3000
+          name: tcp
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 6
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 3000
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 500m
+            memory: 4Gi
+          requests:
+            cpu: 200m
+            memory: 1Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/tb
+          mountPropagation: None
+          name: data
+        - mountPath: /tb-bin
+          mountPropagation: None
+          name: tb-bin
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - args:
+        - |
+          set -e
+          apk add --no-cache curl unzip ca-certificates bind-tools >/dev/null
+          curl -L -o /tmp/tb.zip https://github.com/tigerbeetle/tigerbeetle/releases/download/0.16.66/tigerbeetle-x86_64-linux.zip
+          unzip -o /tmp/tb.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/tigerbeetle
+          cp /usr/local/bin/tigerbeetle /tb-bin/tigerbeetle
+          if [ ! -f /var/lib/tb/data.tigerbeetle ]; then
+            tigerbeetle format --cluster=145851240909969808468846706535455565498 --replica-count=3 --replica=${HOSTNAME##*-} /var/lib/tb/data.tigerbeetle;
+          fi
+        command:
+        - /bin/sh
+        - -c
+        image: alpine:3.19
+        imagePullPolicy: IfNotPresent
+        name: format
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/tb
+          mountPropagation: None
+          name: data
+        - mountPath: /tb-bin
+          mountPropagation: None
+          name: tb-bin
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir: {}
+        name: tb-bin
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 5Gi
+      storageClassName: standard
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tigerbeetle
+  namespace: tigerbeetle
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: tigerbeetle
