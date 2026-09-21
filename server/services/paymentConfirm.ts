@@ -27,6 +27,49 @@ import { creditWalletTopUp } from "../routers/escrow";
 import { markInvoicePaidFromPaymentIntent } from "../routers/invoice";
 import { commitReservations } from "./inventory";
 import { captureException } from "./observability";
+import { ledgerBridgeRequest, postDirectLedgerLeg, LedgerBridgeError } from "./ledgerBridge";
+import { toMinorUnits } from "./payments/currencyExponent";
+
+/**
+ * Settle a completed payment intent's TigerBeetle reservation. This is the fix for a real gap found
+ * against a live ledger (QA-033/034): payment.initiate RESERVES funds and stores ledgerPendingId, but
+ * this webhook path used to mark the intent "completed" in Postgres WITHOUT ever committing that
+ * reservation — the money stayed pending in TigerBeetle and auto-voided ~15 min later
+ * (pending_timeout_secs), silently disagreeing with a payment we had already told everyone succeeded.
+ * recon-worker's orphan repair does not cover this: it only scans 'pending'/'failed'/'cancelled'
+ * intents, never 'completed' ones (rust/recon-worker/src/main.rs).
+ *
+ * Called on EVERY confirmation path, including replays — commit and postDirectLedgerLeg are both
+ * idempotent on their key, so a repeat call is a safe no-op (`replayed: true`), which is also this
+ * function's retry story: a webhook replay from the provider is what heals a first attempt that failed
+ * because the ledger was briefly unavailable. Never throws: the DB row is already committed and the
+ * provider already has the money, so a ledger hiccup must not turn into a failed webhook response
+ * (which the provider would retry, hitting the same "already completed" branch) or a customer-visible
+ * failure — it's logged loudly instead, same as the other best-effort hooks in this file.
+ */
+async function settleIntentLedger(intent: {
+  id: string; tenantId: string; customerId: string | null; amount: string; currency: string | null; ledgerPendingId: string | null;
+}): Promise<void> {
+  try {
+    if (intent.ledgerPendingId) {
+      await ledgerBridgeRequest("/ledger/commit", "POST", { pending_id: intent.ledgerPendingId });
+    } else if (intent.customerId) {
+      const minor = toMinorUnits(parseFloat(intent.amount), intent.currency ?? "NGN");
+      await postDirectLedgerLeg({
+        debit_ref: `customer:${intent.customerId}`, credit_ref: `escrow:${intent.tenantId}`,
+        amount: minor, idempotency_key: `settle-in:${intent.id}`,
+      });
+      await postDirectLedgerLeg({
+        debit_ref: `escrow:${intent.tenantId}`, credit_ref: `merchant:${intent.tenantId}`,
+        amount: minor, idempotency_key: `settle:${intent.id}`, code: 2,
+      });
+    }
+  } catch (err: any) {
+    const detail = err instanceof LedgerBridgeError ? `${err.status ?? "unreachable"}: ${err.message}` : String(err?.message ?? err);
+    console.error(`[payment-confirm] LEDGER SETTLE FAILED for completed intent ${intent.id} (tenant ${intent.tenantId}) — Postgres says paid, TigerBeetle does not yet agree; will retry on the next webhook delivery: ${detail}`);
+    captureException(err, { service: "paymentConfirm", operation: "settleIntentLedger", tenantId: intent.tenantId, severity: "critical", extra: { intentId: intent.id, ledgerPendingId: intent.ledgerPendingId } });
+  }
+}
 
 // ── Shared provider payment confirmation (Paystack/Flutterwave webhooks) ────
 // Fixes the split-brain where payment.initiate wrote paymentIntents rows
@@ -64,6 +107,10 @@ export async function confirmProviderPayment(
   // Metadata of the matched paymentIntents row (intent path only) — drives the
   // wallet top-up credit below when metadata.type === "wallet_topup".
   let intentMetadata: Record<string, unknown> | null = null;
+  // Intent path only — drives settleIntentLedger below.
+  let intentLedgerPendingId: string | null = null;
+  let intentAmount: string | null = null;
+  let intentCurrency: string | null = null;
 
   const [tx] = await db.select().from(paymentTransactions)
     .where(eq(paymentTransactions.providerRef, reference)).limit(1);
@@ -92,7 +139,16 @@ export async function confirmProviderPayment(
     expectedCurrency = (intent.currency ?? "").toUpperCase();
     currentStatus = intent.status;
     intentMetadata = (intent.metadata as Record<string, unknown> | null) ?? null;
+    intentLedgerPendingId = intent.ledgerPendingId ?? null;
+    intentAmount = intent.amount;
+    intentCurrency = intent.currency ?? null;
   }
+  // Idempotent (commit / postDirectLedgerLeg both replay-safe): settling the ledger is safe to call on
+  // every confirmation path for this intent, including replays, which is how a first attempt that hit a
+  // ledger hiccup gets retried and healed.
+  const settleLedgerNow = () => kind === "intent"
+    ? settleIntentLedger({ id: rowId, tenantId, customerId, amount: intentAmount!, currency: intentCurrency, ledgerPendingId: intentLedgerPendingId })
+    : Promise.resolve();
 
   // ── Wallet top-up credit (completed wallet_topup payment intents) ─────────
   // creditWalletTopUp is idempotent: the credit is claimed atomically via a
@@ -227,7 +283,9 @@ export async function confirmProviderPayment(
   // ── Idempotent guarded transition to completed ────────────────────────────
   if (currentStatus === "completed") {
     // Webhook replay of an already-completed intent — still ensure the wallet
-    // top-up credit landed (idempotent no-op when it already did).
+    // top-up credit landed (idempotent no-op when it already did), and retry
+    // the ledger settle in case an earlier attempt failed (see settleIntentLedger).
+    await settleLedgerNow();
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
     await maybeSettlePoPayment();
@@ -255,12 +313,16 @@ export async function confirmProviderPayment(
   }
   if (!transitioned) {
     // Lost a race with a concurrent webhook delivery — already handled.
+    await settleLedgerNow();
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
     await maybeSettlePoPayment();
     await maybeMarkInvoicePaid();
     return { ok: true, action: "already-completed" };
   }
+  // The intent/transaction just transitioned to completed on THIS call — settle its TigerBeetle
+  // reservation now (see settleIntentLedger for why this must never have been skippable).
+  await settleLedgerNow();
 
   // ── Drive order confirmation + escrow hold creation (either path) ─────────
   // Wave-8 B2B intents reuse paymentIntents.orderId for NON-storefront

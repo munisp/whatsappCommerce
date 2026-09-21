@@ -90,7 +90,9 @@ suite("server-driven money on a real ledger", () => {
 
   it("a payment the ledger never saw (no reservation) books the INFLOW first, then settles — the escrow can never be overdrawn", async () => {
     const TENANT = uniqueId("e2e-led-leg-tenant"), ORDER = uniqueId("e2e-led-leg-order");
-    const REF = uniqueId("E2E-LEG-REF").toUpperCase(), CUSTOMER_ID = `cust-${ORDER}`, INTENT_ID = randomUUID();
+    // customerId is varchar(36); derive it from a short random suffix, not from ORDER (which is already
+    // close to that limit on its own — "cust-" + ORDER overflowed it).
+    const REF = uniqueId("E2E-LEG-REF").toUpperCase(), CUSTOMER_ID = `cust-${Math.random().toString(36).slice(2, 10)}`, INTENT_ID = randomUUID();
     await seedOrder(TENANT, ORDER, "1200.00", CUSTOMER_ID);
     const sql = getSql();
     await sql`
