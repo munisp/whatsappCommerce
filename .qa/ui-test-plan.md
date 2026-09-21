@@ -31,7 +31,7 @@
 | Tenant portal | `https://wa-app.newfire.app/tenant-portal/` |
 | Platform admin | `https://wa-app.newfire.app/platform-admin/` |
 | Login | Keycloak, realm `wacommerce` (`keycloak-servers.newfire.app`) |
-| Build under test | `server:qa-local7` (2 replicas); `ledger-bridge`, `recon-worker`, `commerce-engine`: `qa-local2` |
+| Build under test | `server:qa-local8` (2 replicas, HPA 2–4); `ledger-bridge`, `recon-worker`: `qa-local4`; `commerce-engine`: `qa-local2` |
 
 ### 0.3 Accounts — and the one precondition you must check first
 
@@ -58,10 +58,11 @@ For every **FAIL** include: the time, a screenshot, and from the Network tab the
 
 ### 0.6 Known and expected — do **not** report these as bugs
 
-- **B4** "Provision Float Account" does nothing visible (it has never worked: the bridge expects `account_type`, the UI sends `accountType`).
+- **B4** — there is **no "Provision Float Account" button any more** (removed on purpose, QA-039: it never worked, and making it work would have created permanent, unusable accounts in the shared ledger). B4 now checks that it is gone.
 - Several **Infrastructure** tiles are red (Mojaloop, APISIX, OpenAppSec, Permify, OpenSearch, Fluvio, ML stack…): those systems are not deployed here.
 - **`commerce-engine`** is not wired into anything that works (gateway's catalog/cart/order routes point at nothing). If a page depends on it, it was already empty.
 - Starting a login in **two tabs of the same browser**: the tab whose login was started *earlier* shows "Sign-in expired" if you finish the other one first (the second login replaced the first one's cookie). That is the designed behaviour — one login transaction per browser at a time — see A9.
+- **(Unverified — from reading the code, not from running it.)** On the tenant-portal sign-in screen, the small "or sign in with SSO" box: typing a Tenant ID and clicking its button should show **"SSO error: HTTP 401"**, because the call it makes needs a login and the box only appears to signed-out visitors. If it does something else, that is worth a note. (QA-039 item 1 fixed the callback's login-CSRF hole, but this flow can't be started from that screen.)
 - The **payment flow itself** (customer pays → webhook → ledger commit) cannot be started from this web UI; it begins in WhatsApp plus a payment-provider webhook. It is covered by the real-TigerBeetle end-to-end test instead.
 
 ---
@@ -83,7 +84,7 @@ For every **FAIL** include: the time, a screenshot, and from the Network tab the
 | **B1** | Infrastructure tab shows the ledger + recon worker healthy | admin | 3 | QA-038 / 030 |
 | **B2** | **Run Reconciliation** works end to end | admin | 4 | QA-038 |
 | **B3** | Service Health page | admin | 2 | QA-038 |
-| **B4** | *(informational)* Provision Float Account | admin | 2 | pre-existing |
+| **B4** | The TigerBeetle accounts card has **no** Provision button, and says why | admin | 2 | QA-039 |
 | **C1** | Non-admin is refused the admin portal | non-admin | 2 | QA-028 |
 | **C2** | Non-admin sees no platform-wide data | non-admin + admin | 6 | QA-017 / 028 |
 | **C3** | Another tenant's order is not readable | two tenants | 5 | QA-028 |
@@ -206,10 +207,11 @@ This is the button that exercises the secret end to end: browser → `server` �
 1. Open `https://wa-app.newfire.app/health`. → *A page listing services. Find the **TigerBeetle** row ("Double-entry financial ledger…").*
 - **EXPECT:** TigerBeetle online. **PASS:** online. **FAIL:** offline.
 
-### B4 — *(informational)* Provision Float Account
-1. **Finance** tab → card **TigerBeetle Ledger Accounts** → click **Provision Float Account**.
-- **EXPECT (this is the *known* behaviour):** nothing visible happens; the list keeps saying "No TB accounts provisioned yet"; the Console logs an error containing **"Ledger bridge unavailable"**. Network: the `provisionTbAccount` call returns 500.
-- **Why it fails:** UI sends `accountType`, the bridge requires `account_type` (`422 missing field account_type`). It was already broken before today. **Not a regression — record what you see and move on.**
+### B4 — The ledger accounts card has no Provision button `[P2]`
+1. **Finance** tab → card **TigerBeetle Ledger Accounts**. → *A short grey line: **"Accounts are created automatically the first time a tenant transacts."** and, below it, either a table or "No accounts recorded here yet". There is **no** "Provision Float Account" button.*
+- **WATCH FOR:** the button being there (then the old code is running), or a red error in the Console.
+- **PASS:** the note is shown and there is no button. **FAIL:** the button is present.
+- *(Why: the old button always failed silently; "fixing" it would have created accounts that nothing uses and that can never be deleted from the shared ledger. See QA-039 item 4.)*
 
 ---
 
@@ -250,7 +252,7 @@ This is the button that exercises the secret end to end: browser → `server` �
 ### D2 — The ledger bridge is down while you click `[P0]`
 This is the "a ledger outage must not take the platform down" guarantee.
 - **Setup:** signed in, on `/dashboard`.
-1. Say **"starting D2"**. I scale `ledger-bridge` to 0 for ~90 seconds. (I checked the live alert rules: `ComponentDown`, `TigerBeetleOpErrors` and `TigerBeetleUnreachable` all need **5 minutes** sustained, and the last one probes the *shared* TigerBeetle, not our bridge — so this cannot page anyone.)
+1. Say **"starting D2"**. I scale `ledger-bridge` to 0 for ~90 seconds. (I checked the live alert rules: `ComponentDown`, `TigerBeetleOpErrors` and `TigerBeetleUnreachable` all need **5 minutes** sustained, and the last one probes the *shared* TigerBeetle, not our bridge — so this cannot page anyone. The new fast ledger alert in `docs/handoff/monitoring-alerts-whatsapp-commerce.yaml` is **not live**: it belongs to another repo.)
 2. While it is down, click through **Dashboard, Products, Conversations, Orders, Tenants**. → *All load normally. Open `https://wa-app.newfire.app/health/ready` → still returns 200 — the ledger is reported as *degraded*, not as a reason to fail readiness (that is deliberate).*
 3. On **Infrastructure → Infrastructure Status**: `tigerBeetle` tile turns **red** (correct — the bridge is down).
 4. I scale it back. → *Within ~30 s the tile returns to green **without anything being restarted**.*
