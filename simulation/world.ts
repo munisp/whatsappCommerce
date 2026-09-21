@@ -643,6 +643,19 @@ export async function bootWorld(): Promise<World> {
             })
             .where(eq(schema.creditAccounts.id, CREDIT_ACCOUNT_ID));
         } catch { /* w8 tables not seeded yet */ }
+        // Mandate-repayment exactly-once state is persistent BY DESIGN (a claim is only released on a terminal
+        // outcome), so it must be wiped here or it outlives the journey that made it. Found via J165: the
+        // suite retries a failed journey (`retry: 2`), and a first attempt that died mid-flow left the
+        // per-account `crp:` pending marker and the `cr-…` reference claim behind — every retry, and every
+        // later journey that repays the seed facility, then got a 'duplicate' verdict and could never pass.
+        // A retry that cannot pass turns one transient failure into a permanent one.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { inArray: inArrRepay } = await import("drizzle-orm");
+          await world.db.delete(schema.mandateCharges);
+          await world.db.delete(schema.processedWebhookEvents)
+            .where(inArrRepay(schema.processedWebhookEvents.type, ["credit_repayment", "credit_repayment_pending"]));
+        } catch { /* mandate tables not migrated yet */ }
         // === W27 Coder F: wipe wholesale/group-buy tables between journeys ===
         try {
           const schema = await import("../drizzle/schema");

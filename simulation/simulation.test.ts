@@ -13,7 +13,7 @@
  * Or a subset:        npx tsx simulation/runner.ts j03 j18
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { bootWorld, type World } from "./world";
+import { bootWorld, CREDIT_ACCOUNT_ID, TENANT_ID, type World } from "./world";
 import { loadJourneys, runOneJourney, writeTranscripts } from "./runner";
 
 // W13: the simulation journeys draw on credit immediately after facility
@@ -39,6 +39,27 @@ describe("WhatsApp feature simulation (181 journeys)", () => {
     expect(journeys.length).toBe(425); // W46 merger FINAL: 385 (W45) + J387-J426 (A/B/C/D/E/F/G/H, 8x5) — ACTUAL verified via loadJourneys at merge. W45 merger FINAL: 350 (W44) + J352-J356 (A1) + J357-J361 (A2) + J362-J366 (B1) + J367-J371 (B2) + J372-J376 (B3) + J377-J381 (C) + J382-J386 (D) = 385 ACTUAL (verified via loadJourneys, 0 dupes).
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // Regression for the J165 failure in the one full-suite run: a journey's mandate-repayment claims outlived it, so
+  // a retried journey (`retry: 2` below) inherited its own leftovers, got 'duplicate' on every attempt, and one
+  // transient first-attempt failure became a permanent one. Reset must wipe the per-account pending marker, the
+  // exactly-once reference claims, and the mandate charge rows.
+  it("resetJourneyState wipes stranded mandate-repayment state (a retry must not inherit its own leftovers)", async () => {
+    const schema = await import("../drizzle/schema");
+    const { inArray } = await import("drizzle-orm");
+    const { pendingRepaymentMarkerRef } = await import("../server/services/tradeCredit/capture");
+    const now = new Date();
+    await world.db.insert(schema.processedWebhookEvents).values([
+      { id: pendingRepaymentMarkerRef(CREDIT_ACCOUNT_ID), tenantId: TENANT_ID, type: "credit_repayment_pending", processedAt: now },
+      { id: `cr-${CREDIT_ACCOUNT_ID}-20260921-deadbeef0000`.slice(0, 64), tenantId: TENANT_ID, type: "credit_repayment", processedAt: now },
+    ]);
+    await world.resetJourneyState();
+    const left = await world.db
+      .select()
+      .from(schema.processedWebhookEvents)
+      .where(inArray(schema.processedWebhookEvents.type, ["credit_repayment", "credit_repayment_pending"]));
+    expect(left).toEqual([]);
   });
 
   for (const j of journeys) {
