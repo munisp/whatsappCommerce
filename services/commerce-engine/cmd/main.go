@@ -11,10 +11,52 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/whatsapp-commerce/commerce-engine/internal/config"
 	"github.com/whatsapp-commerce/commerce-engine/internal/handler"
+	"github.com/whatsapp-commerce/commerce-engine/internal/middleware"
 	"github.com/whatsapp-commerce/commerce-engine/internal/store"
 	"github.com/whatsapp-commerce/otelx"
 	"go.uber.org/zap"
 )
+
+// newRouter is the real, single definition of the app's routing (which routes require the internal key,
+// which don't — only /health). main() and the tests both call this, so a route mistakenly added to the
+// wrong group is something the tests can actually catch, not just something a hand-duplicated test router
+// would miss (see rust/ledger-bridge and rust/recon-worker's build_router for the same fix applied there).
+func newRouter(cfg *config.Config, h *handler.Handler, logger *zap.Logger) *gin.Engine {
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "commerce-engine", "otel_enabled": otelx.Status()})
+	})
+
+	protected := r.Group("/")
+	protected.Use(middleware.InternalAuth(cfg, logger))
+
+	// Products & Catalog (projection reads)
+	protected.GET("/products", h.ListProducts)
+	protected.GET("/products/:id", h.GetProduct)
+	protected.GET("/products/search", h.SearchProducts)
+	protected.GET("/inventory/:sku", h.GetStockLevel)
+
+	// Cart
+	protected.POST("/carts", h.CreateCart)
+	protected.GET("/carts/:id", h.GetCart)
+	protected.POST("/carts/:id/items", h.AddCartItem)
+	protected.DELETE("/carts/:id/items/:item_id", h.RemoveCartItem)
+	protected.POST("/carts/:id/checkout", h.InitiateCheckout)
+
+	// Orders
+	protected.GET("/orders", h.ListOrders)
+	protected.GET("/orders/:id", h.GetOrder)
+	protected.POST("/orders/:id/cancel", h.CancelOrder)
+	protected.POST("/orders/:id/confirm", h.ConfirmOrder)
+
+	// Internal: catalog projection sync (from Odoo events)
+	protected.POST("/internal/sync/product", h.SyncProduct)
+	protected.POST("/internal/sync/stock", h.SyncStockLevel)
+
+	return r
+}
 
 func main() {
 	cfg := config.Load()
@@ -32,36 +74,7 @@ func main() {
 	}
 
 	h := handler.New(cfg, db, logger)
-
-	r := gin.New()
-	r.Use(gin.Recovery())
-
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "commerce-engine", "otel_enabled": otelx.Status()})
-	})
-
-	// Products & Catalog (projection reads)
-	r.GET("/products", h.ListProducts)
-	r.GET("/products/:id", h.GetProduct)
-	r.GET("/products/search", h.SearchProducts)
-	r.GET("/inventory/:sku", h.GetStockLevel)
-
-	// Cart
-	r.POST("/carts", h.CreateCart)
-	r.GET("/carts/:id", h.GetCart)
-	r.POST("/carts/:id/items", h.AddCartItem)
-	r.DELETE("/carts/:id/items/:item_id", h.RemoveCartItem)
-	r.POST("/carts/:id/checkout", h.InitiateCheckout)
-
-	// Orders
-	r.GET("/orders", h.ListOrders)
-	r.GET("/orders/:id", h.GetOrder)
-	r.POST("/orders/:id/cancel", h.CancelOrder)
-	r.POST("/orders/:id/confirm", h.ConfirmOrder)
-
-	// Internal: catalog projection sync (from Odoo events)
-	r.POST("/internal/sync/product", h.SyncProduct)
-	r.POST("/internal/sync/stock", h.SyncStockLevel)
+	r := newRouter(cfg, h, logger)
 
 	srv := &http.Server{Addr: ":" + cfg.Port, Handler: otelx.Middleware("commerce-engine")(r)} // === W35 otel ===
 	go func() {

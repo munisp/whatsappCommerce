@@ -133,7 +133,8 @@ fn classify_void_status(status: Option<u16>) -> VoidClassification {
 /// ACTIVE REPAIR: void an orphaned pending transfer via the ledger bridge.
 /// Returns Ok(true) when the void was confirmed, Ok(false) when the transfer
 /// was already settled (nothing to repair), Err on bridge failure.
-async fn void_orphan(state: &AppState, pending_id: &str) -> Result<bool, String> {
+/// Builds (does not send) the void request, so what it carries can be tested without a bridge to talk to.
+fn void_request(state: &AppState, pending_id: &str) -> reqwest::RequestBuilder {
     let mut req = state.http
         .post(format!("{}/ledger/void", state.config.ledger_bridge_url))
         .json(&serde_json::json!({ "pending_id": pending_id }));
@@ -142,7 +143,11 @@ async fn void_orphan(state: &AppState, pending_id: &str) -> Result<bool, String>
     if !state.config.platform_api_key.is_empty() {
         req = req.header("X-Internal-Api-Key", &state.config.platform_api_key);
     }
-    let resp = req.send().await;
+    req
+}
+
+async fn void_orphan(state: &AppState, pending_id: &str) -> Result<bool, String> {
+    let resp = void_request(state, pending_id).send().await;
     let (status, body) = match resp {
         Ok(r) => (Some(r.status().as_u16()), r.text().await.unwrap_or_default()),
         Err(e) => (None, e.to_string()),
@@ -771,13 +776,20 @@ mod tests {
     }
 
     #[test]
-    fn void_orphan_sends_the_configured_key_as_a_header_builder_smoke_check() {
-        // A full HTTP-level test of void_orphan would need a mock server; this pins the cheaper property —
-        // that a configured key is non-empty and distinguishable from "not configured" — so the `if
-        // !state.config.platform_api_key.is_empty()` branch in void_orphan has something to actually guard.
-        let with_key = test_state("s3cret");
-        let without_key = test_state("");
-        assert!(!with_key.config.platform_api_key.is_empty());
-        assert!(without_key.config.platform_api_key.is_empty());
+    fn the_void_request_carries_the_configured_key_and_is_otherwise_the_request_we_expect() {
+        // This is the call that actually VOIDS ledger reservations, so what it sends matters: the key (or the
+        // bridge, once enforcing, would refuse every repair), the right method/URL, and the pending id.
+        let req = void_request(&test_state("s3cret"), "pending-1").build().unwrap();
+        assert_eq!(req.method(), "POST");
+        assert_eq!(req.url().as_str(), "http://127.0.0.1:1/ledger/void");
+        assert_eq!(req.headers().get("x-internal-api-key").unwrap(), "s3cret");
+        let body = std::str::from_utf8(req.body().unwrap().as_bytes().unwrap()).unwrap().to_string();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap()["pending_id"], "pending-1");
+    }
+
+    #[test]
+    fn with_no_key_configured_the_void_request_sends_no_key_header() {
+        let req = void_request(&test_state(""), "pending-1").build().unwrap();
+        assert!(req.headers().get("x-internal-api-key").is_none());
     }
 }

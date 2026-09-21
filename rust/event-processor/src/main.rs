@@ -23,6 +23,9 @@ struct Config {
     crm_adapter_url: String,
     erp_adapter_url: String,
     max_concurrency: usize,
+    /// QA-038: shared service-to-service secret. Sent ONLY to commerce-engine (see EventRouter::internal_key_for)
+    /// — route() fans out to five different services, and the others must not be handed this secret.
+    internal_api_key: String,
 }
 
 impl Config {
@@ -37,6 +40,7 @@ impl Config {
             crm_adapter_url: std::env::var("CRM_ADAPTER_URL").unwrap_or_else(|_| "http://localhost:8085".into()),
             erp_adapter_url: std::env::var("ERP_ADAPTER_URL").unwrap_or_else(|_| "http://localhost:8086".into()),
             max_concurrency: std::env::var("MAX_CONCURRENCY").ok().and_then(|v| v.parse().ok()).unwrap_or(50),
+            internal_api_key: std::env::var("INTERNAL_API_KEY").unwrap_or_default(),
         }
     }
 }
@@ -89,13 +93,7 @@ impl EventRouter {
     async fn route(&self, envelope: &EventEnvelope) -> Result<()> {
         let _permit = self.semaphore.acquire().await?;
         let (url, path) = self.resolve_route(&envelope.event_type)?;
-        let resp = self.http
-            .post(format!("{}{}", url, path))
-            .header("X-Tenant-ID", envelope.tenant_id.to_string())
-            .header("X-Request-ID", envelope.trace_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()))
-            .json(envelope)
-            .send()
-            .await?;
+        let resp = self.build_request(&url, &path, envelope).send().await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -108,6 +106,31 @@ impl EventRouter {
         *self.route_stats.entry(envelope.event_type.clone()).or_insert(0) += 1;
         info!(event_type = %envelope.event_type, tenant_id = %envelope.tenant_id, "event routed");
         Ok(())
+    }
+
+    /// QA-038: which destinations get the shared internal secret. ONLY commerce-engine — route() fans out to five
+    /// different services (conversation-orchestrator, payment-orchestrator, crm-adapter, erp-adapter and
+    /// commerce-engine), and attaching the secret unconditionally would hand it to every one of them. None when
+    /// no key is configured (the rollout stage before commerce-engine enforces), so nothing extra is sent.
+    fn internal_key_for(&self, url: &str) -> Option<&str> {
+        if !self.config.internal_api_key.is_empty() && url == self.config.commerce_engine_url {
+            Some(self.config.internal_api_key.as_str())
+        } else {
+            None
+        }
+    }
+
+    /// Builds (does not send) the downstream request, so the headers it carries can be tested without a network.
+    fn build_request(&self, url: &str, path: &str, envelope: &EventEnvelope) -> reqwest::RequestBuilder {
+        let mut req = self.http
+            .post(format!("{}{}", url, path))
+            .header("X-Tenant-ID", envelope.tenant_id.to_string())
+            .header("X-Request-ID", envelope.trace_id.clone().unwrap_or_else(|| Uuid::new_v4().to_string()))
+            .json(envelope);
+        if let Some(key) = self.internal_key_for(url) {
+            req = req.header("X-Internal-Api-Key", key);
+        }
+        req
     }
 
     fn resolve_route(&self, event_type: &str) -> Result<(String, String)> {
@@ -273,3 +296,86 @@ async fn main() -> Result<()> {
 }
 
 fn app_state_port(config: &Config) -> u16 { config.port }
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // QA-038 — note for whoever reads this: as of this commit EventRouter::route() is never called (main() builds
+    // `_router` and drops it; the "consumer" is a heartbeat log loop). These pin the behaviour so the secret is
+    // already scoped correctly the day a consumer is wired up — they do not describe traffic that exists today.
+
+    fn router(key: &str) -> EventRouter {
+        let config = Arc::new(Config {
+            port: 8091,
+            kafka_brokers: "kafka:9092".into(),
+            kafka_group_id: "g".into(),
+            conversation_orchestrator_url: "http://conversation-orchestrator:8082".into(),
+            commerce_engine_url: "http://commerce-engine:8083".into(),
+            payment_orchestrator_url: "http://payment-orchestrator:8084".into(),
+            crm_adapter_url: "http://crm-adapter:8085".into(),
+            erp_adapter_url: "http://erp-adapter:8086".into(),
+            max_concurrency: 4,
+            internal_api_key: key.into(),
+        });
+        EventRouter::new(
+            config, Client::new(), Arc::new(Semaphore::new(4)),
+            Arc::default(), Arc::default(), Arc::new(DashMap::new()),
+        )
+    }
+
+    fn envelope(event_type: &str) -> EventEnvelope {
+        EventEnvelope {
+            id: Uuid::new_v4(), tenant_id: Uuid::new_v4(), trace_id: Some("trace-1".into()),
+            event_type: event_type.into(), event_version: "1".into(), occurred_at: "2026-01-01T00:00:00Z".into(),
+            producer: "test".into(), idempotency_key: "k".into(), payload: serde_json::json!({}),
+        }
+    }
+
+    /// The X-Internal-Api-Key the request for this event type would carry (None = header absent).
+    fn key_sent_for(r: &EventRouter, event_type: &str) -> Option<String> {
+        let (url, path) = r.resolve_route(event_type).unwrap();
+        let req = r.build_request(&url, &path, &envelope(event_type)).build().unwrap();
+        req.headers().get("x-internal-api-key").map(|v| v.to_str().unwrap().to_string())
+    }
+
+    #[test]
+    fn commerce_events_carry_the_key_when_one_is_configured() {
+        let r = router("s3cret");
+        assert_eq!(key_sent_for(&r, "commerce.order.created").as_deref(), Some("s3cret"));
+    }
+
+    #[test]
+    fn the_secret_is_never_sent_to_any_other_downstream_service() {
+        // route() fans out to five services; only commerce-engine may be handed the shared secret.
+        let r = router("s3cret");
+        for event_type in [
+            "chat.message.received",                // conversation-orchestrator (exact route)
+            "chat.conversation.created",            // conversation-orchestrator
+            "payment.mojaloop.callback.received",   // payment-orchestrator (exact route)
+            "payment.intent.completed",             // payment-orchestrator (prefix route)
+            "crm.contact.updated",                  // crm-adapter
+            "erp.inventory.updated",                // erp-adapter (exact route)
+            "erp.order.synced",                     // erp-adapter (prefix route)
+        ] {
+            assert_eq!(key_sent_for(&r, event_type), None, "{event_type} must not receive the internal secret");
+        }
+    }
+
+    #[test]
+    fn with_no_key_configured_nothing_extra_is_sent_even_to_commerce_engine() {
+        let r = router("");
+        assert_eq!(key_sent_for(&r, "commerce.order.created"), None);
+    }
+
+    #[test]
+    fn the_original_headers_are_still_there() {
+        let r = router("s3cret");
+        let (url, path) = r.resolve_route("commerce.order.created").unwrap();
+        let req = r.build_request(&url, &path, &envelope("commerce.order.created")).build().unwrap();
+        assert!(req.headers().get("x-tenant-id").is_some());
+        assert_eq!(req.headers().get("x-request-id").unwrap(), "trace-1");
+        assert_eq!(req.url().as_str(), "http://commerce-engine:8083/internal/process-event");
+    }
+}
