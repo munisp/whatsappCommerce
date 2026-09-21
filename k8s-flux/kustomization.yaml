@@ -33,3 +33,4 @@ resources:
   - ml-stack-service.yaml
   - backups/postgres-backup.yaml
   - availability/pdb.yaml
+  - network-policies.yaml

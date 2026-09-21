@@ -1,0 +1,99 @@
+# QA-026 / QA-038: ingress allowlists for the three internal services that trust the NETWORK as their only
+# access control. Before this, no NetworkPolicy existed in the namespace, so on this shared cluster any pod in ANY
+# namespace could:
+#   - POST /transfer, /ledger/commit, /ledger/reverse on the ledger-bridge (it has no authentication of its own),
+#   - act as any tenant against commerce-engine (it trusts an X-Tenant-ID header),
+#   - POST /recon/trigger on recon-worker, which runs the active ledger-repair pass.
+#
+# HOW THE ALLOWLISTS WERE DERIVED (evidence, not the stale k8s/network-policies.yaml, which describes a different
+# topology): configured callers from every Deployment's env, cross-checked against real connections sampled from
+# conntrack on all three nodes. Observed on 2026-09-21: server and recon-worker -> ledger-bridge:8095; server ->
+# recon-worker:8096; a CronJob in namespace `otel` (cluster-report-*, the platform team's health report) -> both;
+# kubelet probes (node gateway IPs) -> all. Only event-processor is configured to call commerce-engine (gateway,
+# ai-agent and payment-orchestrator read COMMERCE_ENGINE_URL but have it unset here, so they cannot reach it).
+#
+# DELIBERATELY NOT DONE HERE: no namespace-wide default-deny and no egress policies. A default-deny would need every
+# flow of ~15 deployments (Kafka, Redis, Dapr, OTel, Keycloak, WhatsApp, PSPs, ...) enumerated and proven first; a
+# wrong guess is an outage, whereas these three targeted allowlists are instantly reversible (delete the object).
+#
+# VERIFIED ON THE LIVE CLUSTER: kindnet ENFORCES NetworkPolicy here (a stranger pod was blocked, an allowed one was
+# not), and kubelet health probes pass through an ingress policy (a pod with httpGet probes stayed Ready). Both were
+# tested in a scratch namespace before applying this.
+#
+# RESIDUAL RISK: a podSelector trusts LABELS, so anyone who can create pods in this namespace can label their way past
+# it — RBAC on the namespace is the control for that. The `otel` namespace is allowed on the health ports because the
+# platform's report job has no stable pod labels to select; that namespace is the platform team's own observability
+# stack, not an application namespace. App-level authentication for the bridge and commerce-engine is a separate,
+# larger change (Rust + Go + every caller) tracked in .qa/defects.md QA-038.
+#
+# ADDING A CALLER: extend the allowlist here in the same change that points a new service at these URLs;
+# server/networkPolicyManifests.test.ts fails if a Deployment is configured to call one of them and is not listed.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ledger-bridge-ingress
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ledger-bridge
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: server
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: recon-worker
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
+      ports:
+        - {port: 8095, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: commerce-engine-ingress
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: commerce-engine
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: event-processor
+      ports:
+        - {port: 8083, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: recon-worker-ingress
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: recon-worker
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: server
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: otel
+      ports:
+        - {port: 8096, protocol: TCP}
