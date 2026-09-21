@@ -3273,7 +3273,7 @@ export const nlpRouter = router({
   /** Unified order timeline: platform order + Medusa + Odoo + Twenty CRM events */
   getOrderTimeline: protectedProcedure
     .input(z.object({ orderNumber: z.string() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
 
@@ -3281,6 +3281,11 @@ export const nlpRouter = router({
         .where(eq(orders.orderNumber, input.orderNumber))
         .limit(1);
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      // QA follow-up (P1): the order was looked up by number alone and its
+      // items, payment transactions and integration status returned to ANY
+      // logged-in user — any tenant's order, given just an order number.
+      // Load-then-assert, the pattern used across this codebase.
+      assertTenantAccess(ctx.user, order.tenantId);
 
       const items = await db.select().from(orderItems)
         .where(eq(orderItems.orderId, order.id));

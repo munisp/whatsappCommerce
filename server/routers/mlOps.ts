@@ -534,7 +534,11 @@ export const mlAbTestRouter = router({
       if (input?.status && input.status !== "all") return rows.filter(r => r.status === input.status);
       return rows;
     }),
-  create: protectedProcedure
+  // QA follow-up (P3): create/conclude write PLATFORM ML-governance records
+  // (which model versions are being compared, who won). They were open to any
+  // logged-in user — a tenant could start/conclude the platform's A/B tests.
+  // Same "platform ML-ops surface" boundary as the retrain triggers: admin.
+  create: adminProcedure
     .input(z.object({
       modelName: z.string(),
       championVersion: z.string(),
@@ -554,7 +558,7 @@ export const mlAbTestRouter = router({
       }).returning();
       return test;
     }),
-  conclude: protectedProcedure
+  conclude: adminProcedure
     // authz:exempt platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data
     .input(z.object({
       id: z.string(),
@@ -600,7 +604,7 @@ export const datasetSnapshotRouter = router({
       const db = (await getDb())!;
       return db.select().from(datasetSnapshots).orderBy(desc(datasetSnapshots.createdAt)).limit(input?.limit ?? 20);
     }),
-  create: protectedProcedure
+  create: adminProcedure
     .input(z.object({
       label: z.string().optional(),
       totalImages: z.number(),

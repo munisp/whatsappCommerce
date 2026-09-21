@@ -4,7 +4,7 @@ Generated from `server/routers/**/*.ts` via `authzScan.lib.ts` (915 procedures a
 
 Columns: procedure kind = the base-procedure access tier it's built on (this is the FIRST line of defense — public/protected/internal/operator/analyst/admin); guard mechanism = the specific in-body check found (second line of defense for protectedProcedure-based ones, which carry no automatic tenant scoping).
 
-**Summary: 71 unguarded procedure(s) found (3 money-relevant).**
+**Summary: 56 unguarded procedure(s) found (1 money-relevant).**
 
 Rows flagged **⚠ UNGUARDED** are procedures the static scanner could not find ANY tenant/role guard for and that were NOT in the reviewed exemption allowlist — these are exactly the class QA-005/006/011 hunted for manually; this table is the systematic version of that same check, covering all 915 procedures instead of a sample.
 
@@ -194,7 +194,7 @@ Rows flagged **⚠ UNGUARDED** are procedures the static scanner could not find 
 | Procedure | Verb | Kind | Guard mechanism | Money-relevant | Tenant-relevant | Status |
 |---|---|---|---|---|---|---|
 | submit | mutation | protectedProcedure | assertTenantAccess (any membership) |  | yes | OK |
-| list | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
+| list | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
 | review | mutation | protectedProcedure | inline role check |  | yes | OK |
 | getForTenant | query | protectedProcedure | assertTenantAccess (any membership) |  | yes | OK |
 
@@ -413,7 +413,7 @@ Rows flagged **⚠ UNGUARDED** are procedures the static scanner could not find 
 | generateToken | mutation | protectedProcedure | session-tenant scoping |  | yes | OK |
 | listTokens | query | protectedProcedure | session-tenant scoping |  | yes | OK |
 | listSubmissions | query | protectedProcedure | session-tenant scoping |  | yes | OK |
-| revokeToken | mutation | protectedProcedure | NONE FOUND | yes |  | ⚠ UNGUARDED |
+| revokeToken | mutation | protectedProcedure | session-tenant scoping | yes |  | OK |
 
 ## `exchanges.ts`
 
@@ -796,16 +796,16 @@ Rows flagged **⚠ UNGUARDED** are procedures the static scanner could not find 
 | getTrainingStatus | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 | getDriftMetrics | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 | getAbComparison | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| triggerRetraining | mutation | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
+| triggerRetraining | mutation | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
 | getDataPipelineStatus | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 | getMetricHistory | query | protectedProcedure | exempt: platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data |  | yes | OK |
 | getDriftAlerts | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 | getModelPerformance | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| triggerRealDataRetrain | mutation | protectedProcedure | NONE FOUND | yes |  | ⚠ UNGUARDED |
+| triggerRealDataRetrain | mutation | adminProcedure | adminProcedure (role=admin + Permify) | yes |  | OK |
 | list | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 | create | mutation | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 | conclude | mutation | protectedProcedure | exempt: platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data |  | yes | OK |
-| triggerRetrainingReal | mutation | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
+| triggerRetrainingReal | mutation | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
 | list | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 | create | mutation | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
 
@@ -831,7 +831,7 @@ Rows flagged **⚠ UNGUARDED** are procedures the static scanner could not find 
 | syncOfflineQueue | mutation | protectedProcedure | domain guard: assertNlpSessionAccess( |  | yes | OK |
 | getOfflineQueueCount | query | protectedProcedure | domain guard: assertNlpSessionAccess( |  | yes | OK |
 | getQueuedMessages | query | protectedProcedure | domain guard: assertNlpSessionAccess( |  | yes | OK |
-| getOrderTimeline | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
+| getOrderTimeline | query | protectedProcedure | assertTenantAccess (any membership) |  |  | OK |
 
 ## `notifications.ts`
 
@@ -1120,13 +1120,13 @@ Rows flagged **⚠ UNGUARDED** are procedures the static scanner could not find 
 
 | Procedure | Verb | Kind | Guard mechanism | Money-relevant | Tenant-relevant | Status |
 |---|---|---|---|---|---|---|
-| summary | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| monthlyTrend | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| tenantBreakdown | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| forecast | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| gmvLeaderboard | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| getForecastAccuracy | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
-| getConfig | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
+| summary | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
+| monthlyTrend | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
+| tenantBreakdown | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
+| forecast | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
+| gmvLeaderboard | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
+| getForecastAccuracy | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
+| getConfig | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
 
 ## `reviews.ts`
 
@@ -1508,10 +1508,10 @@ Rows flagged **⚠ UNGUARDED** are procedures the static scanner could not find 
 
 | Procedure | Verb | Kind | Guard mechanism | Money-relevant | Tenant-relevant | Status |
 |---|---|---|---|---|---|---|
-| listEvents | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
+| listEvents | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
 | retryEvent | mutation | adminProcedure | adminProcedure (role=admin + Permify) |  | yes | OK |
 | dismissEvent | mutation | adminProcedure | adminProcedure (role=admin + Permify) |  | yes | OK |
-| stats | query | protectedProcedure | NONE FOUND |  |  | ⚠ UNGUARDED |
+| stats | query | adminProcedure | adminProcedure (role=admin + Permify) |  |  | OK |
 
 ## `whatsappMedia.ts`
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
+import { router, protectedProcedure, assertTenantAccess, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { cogsDisputeRequests, tenants } from "../../drizzle/schema";
 import { eq, desc, and } from "drizzle-orm";
@@ -44,7 +44,11 @@ export const cogsDisputeRouter = router({
     }),
 
   // List all disputes (admin)
-  list: protectedProcedure
+  // QA follow-up (P2): the all-tenants review queue (tenant names, current vs
+  // requested COGS rates, justifications). review() is admin-only because it
+  // rewrites a tenant's COGS rate; the queue feeding it was open to any user.
+  // Tenants read their own via getForTenant.
+  list: adminProcedure
     .input(z.object({ status: z.enum(["pending", "approved", "rejected", "all"]).default("all") }))
     .query(async ({ input }) => {
       const db = await getDb();

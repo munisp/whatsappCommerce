@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, adminProcedure } from "../_core/trpc";
 import { getDb } from "../db";
 import { paymentTransactions, tenants, paymentGatewayConfigs } from "../../drizzle/schema";
 import { eq, gte, and, sql, desc, count } from "drizzle-orm";
@@ -18,9 +18,14 @@ function monthsAgo(n: number) {
   return startOfMonth(d);
 }
 
+// QA follow-up (P1): every procedure here aggregates paymentTransactions across
+// ALL tenants (platform GMV, per-tenant GMV leaderboard with business names and
+// COGS rates, platform net profit). They were protectedProcedure, so any
+// logged-in merchant could read every competitor's revenue. Platform-owner
+// analytics: admin only.
 export const revenueRouter = router({
   // ── Summary KPIs ────────────────────────────────────────────────────────────
-  summary: protectedProcedure.query(async () => {
+  summary: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) return null;
 
@@ -101,7 +106,7 @@ export const revenueRouter = router({
   }),
 
   // ── Monthly trend (last N months) ───────────────────────────────────────────
-  monthlyTrend: protectedProcedure
+  monthlyTrend: adminProcedure
     .input(z.object({ months: z.number().int().min(3).max(24).default(12) }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -137,7 +142,7 @@ export const revenueRouter = router({
     }),
 
   // ── Per-tenant revenue breakdown ────────────────────────────────────────────
-  tenantBreakdown: protectedProcedure
+  tenantBreakdown: adminProcedure
     .input(z.object({ limit: z.number().int().min(5).max(100).default(20) }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -176,7 +181,7 @@ export const revenueRouter = router({
     }),
 
   // ── Revenue forecast (linear regression on monthly trend) ──────────────────
-  forecast: protectedProcedure
+  forecast: adminProcedure
     .input(z.object({ horizonMonths: z.number().int().min(1).max(12).default(6) }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -236,7 +241,7 @@ export const revenueRouter = router({
     }),
 
   // ── GMV growth leaderboard ──────────────────────────────────────────────────
-  gmvLeaderboard: protectedProcedure
+  gmvLeaderboard: adminProcedure
     .input(z.object({ limit: z.number().int().min(5).max(50).default(15) }))
     .query(async ({ input }) => {
       const db = await getDb();
@@ -300,7 +305,7 @@ export const revenueRouter = router({
     }),
 
   // ── Forecast accuracy (snapshot history) ────────────────────────────────────
-  getForecastAccuracy: protectedProcedure.query(async () => {
+  getForecastAccuracy: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) return [];
     const { forecastSnapshots } = await import("../../drizzle/schema");
@@ -322,7 +327,7 @@ export const revenueRouter = router({
   }),
 
   // ── Revenue share config (read-only display) ────────────────────────────────
-  getConfig: protectedProcedure.query(() => ({
+  getConfig: adminProcedure.query(() => ({
     profitShareRate: PLATFORM_REVENUE_SHARE,
     txnShareRate: PLATFORM_TXN_SHARE,
     processingCostRate: TXN_PROCESSING_COST_RATE,

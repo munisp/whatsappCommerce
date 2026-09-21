@@ -5,7 +5,12 @@ import { desc, eq, inArray, or, and, lte } from "drizzle-orm";
 import { z } from "zod";
 
 export const webhookDlqRouter = router({
-  listEvents: protectedProcedure
+  // QA follow-up (P1): wa_webhook_events is the PLATFORM's raw ingestion queue —
+  // it has no tenantId column and rawPayload holds inbound WhatsApp messages
+  // (customer phone numbers, message text) for every tenant. listEvents/stats
+  // were protectedProcedure, i.e. readable by any logged-in user of any tenant,
+  // while their siblings retryEvent/dismissEvent were already adminProcedure.
+  listEvents: adminProcedure
     .input(z.object({
       status: z.enum(["received", "processed", "failed", "retried", "dead", "all"]).default("all"),
       limit: z.number().int().min(1).max(200).default(50),
@@ -42,7 +47,7 @@ export const webhookDlqRouter = router({
       return { ok: true };
     }),
 
-  stats: protectedProcedure.query(async () => {
+  stats: adminProcedure.query(async () => {
     const db = (await getDb())!;
     const all = await db.select({ status: waWebhookEvents.status }).from(waWebhookEvents);
     const counts = { received: 0, processed: 0, failed: 0, retried: 0, dead: 0 };

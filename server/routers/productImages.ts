@@ -3,7 +3,7 @@ import { protectedProcedure, publicProcedure, router, assertTenantAccess } from 
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { productImageCollections } from "../../drizzle/schema";
-import { eq, desc, count, sql } from "drizzle-orm";
+import { eq, and, desc, count, sql } from "drizzle-orm";
 import { avg } from "drizzle-orm";
 import { storagePut } from "../storage";
 
@@ -43,6 +43,17 @@ async function autoScoreImage(buffer: Buffer, className: string): Promise<number
 
 function getTenantId(ctx: { user: { tenantId?: string | null; id: number } }): string {
   return ctx.user.tenantId ?? `user-${ctx.user.id}`;
+}
+
+/**
+ * QA follow-up: which rows a dataset-wide operation may touch. A tenant user
+ * only ever operates on their OWN images; only a platform admin operates on
+ * the platform-wide set (which feeds the shared classifier). Returns
+ * `undefined` (no filter) for admins — drizzle's and()/where() ignore it.
+ */
+function tenantScope(ctx: { user: { role?: string; tenantId?: string | null; id: number } }) {
+  if (ctx.user.role === "admin") return undefined;
+  return eq(productImageCollections.tenantId, getTenantId(ctx));
 }
 
 // Nigerian FMCG class registry (matches finetune.py class list)
@@ -295,20 +306,28 @@ export const productImagesRouter = router({
   // Bulk clear all bboxes for a given class (for re-annotation)
   clearClassBboxes: protectedProcedure
     .input(z.object({ className: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = (await getDb())!;
+      // QA follow-up (P1): this had no tenant filter, so any logged-in user
+      // wiped the bounding-box annotations for a class across EVERY tenant.
       await db.update(productImageCollections)
         .set({ bbox: null })
-        .where(eq(productImageCollections.className, input.className));
+        .where(and(eq(productImageCollections.className, input.className), tenantScope(ctx)));
       return { ok: true, className: input.className };
     }),
 
   // Export dataset manifest (for synthetic pipeline)
-  exportManifest: protectedProcedure.mutation(async () => {
+  exportManifest: protectedProcedure.mutation(async ({ ctx }) => {
     const db = (await getDb())!;
+    // QA follow-up (P1): previously unscoped — any logged-in user received
+    // every tenant's image URLs and storage keys AND flagged every tenant's
+    // images as used in training. Now limited to the caller's own images
+    // (a platform admin keeps the platform-wide set).
+    const scope = tenantScope(ctx);
     const images = await db
       .select()
       .from(productImageCollections)
+      .where(scope)
       .orderBy(productImageCollections.className, desc(productImageCollections.createdAt));
 
     const manifest: Record<string, { imageUrl: string; imageKey: string; source: string }[]> = {};
@@ -317,9 +336,10 @@ export const productImagesRouter = router({
       manifest[img.className].push({ imageUrl: img.imageUrl, imageKey: img.imageKey, source: img.source });
     }
 
-    // Mark all as used in training
+    // Mark the exported images as used in training
     await db.update(productImageCollections)
-      .set({ usedInTraining: true });
+      .set({ usedInTraining: true })
+      .where(scope);
 
     return { manifest, totalImages: images.length, classCount: Object.keys(manifest).length };
   }),
