@@ -6,6 +6,7 @@ Session: 2026-09-20 → 2026-09-21 · Branch `development` (all work committed l
 The first pass fixed authorization, idempotency, e2e and probe defects (QA-001…QA-013). This second pass — done because the skill's own Definition of Done showed large areas untouched — went much wider and found **more, and worse, things**:
 
 - **Two internet-reachable P0/P1 holes on the live domain**: `/api/finetune/stream` and `/api/finetune/export-yolo` had **no authentication at all** — one spawned a subprocess, the other returned every tenant's product images — and the export additionally **crashed the whole server** (archiver 8 API break → uncaught exception → process shutdown), so *any unauthenticated request could take the platform down*. Fixed, tested, and **deployed live and verified** (unauthenticated calls now return 403/401).
+- **Any logged-in user of any tenant could read the platform's raw inbound WhatsApp payloads (customer phone numbers, message text), every tenant's revenue/GMV/COGS rate, and any tenant's order by number — and could wipe every tenant's image annotations** (QA-028, found by triaging *all* the matrix's unguarded rows, not just the three money-flagged ones). Fixed and tested; not yet deployed live (see §12).
 - A **cross-tenant IDOR** leaking dispute-evidence bearer tokens, **SSRF** on four tenant-configurable integrations (one via an *unauthenticated* procedure that sends a real client secret), and **three ML-ops endpoints that spawn processes for any logged-in user** (one blocks the event loop for up to 60 s).
 - Measured **capacity, resilience and deployment behavior** against the real cluster: rolling deploys, rollback and pod loss are genuinely zero-downtime (measured: 0 failures in 4,395 probes across four experiments); but a missing `ledger-bridge` causes a ~28 s **total** outage, a node loss strands services on a rate-limited registry, and the `server` runs 1 replica with limits below what load needs.
 - I also **corrected my own mistakes in the open** (see §9): two of my fixes would have regressed real behavior and were reworked before shipping.
@@ -16,7 +17,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | Area | Status | Evidence |
 |---|---|---|
 | Repo/architecture/stakeholders/roles | Done | `.qa/architecture.md`, `.qa/user-roles.md` |
-| Role × functionality matrix | Done (static, all 915 procedures) | `.qa/role-functionality-matrix.md`; blind spot: raw Express routes are outside the scanner (that is how QA-014 slipped through) |
+| Role × functionality matrix | Done (static, all 915 procedures) **and every flagged row triaged** | `.qa/role-functionality-matrix.md` (71 → 56 flagged after fixes; the rest classified in QA-028). Blind spot: raw Express routes are outside the scanner (that is how QA-014 slipped through) |
 | Requirements traceability | Done, reference-based | `.qa/requirements-matrix.md`: 126 ticket IDs → 117 code+test, 8 code only, 1 unreferenced (ORD-24). Proves wiring, not correctness. Pre-W37 waves have no stable IDs, not covered |
 | Authorization / tenant isolation | Done | QA-005/006/011/015/017; ratchet + 5 targeted suites |
 | Authentication | Partial | Audited by code + live tests of the server-initiated flow (10 tests). **Not** exercised against a real browser/Keycloak; SPA login flaw documented (QA-020) |
@@ -40,6 +41,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 |---|---|---|---|
 | QA-014 | **P0** | `/api/finetune/stream` + `/export-yolo` unauthenticated (subprocess trigger; cross-tenant data dump; stored XSS in preview) | Fixed, tested, **live** |
 | QA-024 | **P1** | export route crashed the whole server (archiver 8 API break; uncaught exception is fatal) | Fixed, 6 unit tests, e2e-proven, **live** |
+| QA-028 | **P1** | webhook DLQ raw payloads, all-tenant revenue/COGS, COGS queue, any order by number, cross-tenant image wipe/flag — open to any logged-in user | Fixed, 17 tests (SQL-level tenant assertions); **committed, NOT yet deployed live** |
 | QA-015 | P1 | evidence-portal `listTokens`/`revokeToken` cross-tenant IDOR (raw bearer tokens) | Fixed, tested, **live** |
 | QA-016 | P1/2 | SSRF guard missing on Keycloak (incl. unauthenticated `exchangeCode`), Twenty, Label Studio ×2 | Fixed, tested, **live** |
 | QA-017 | P1 | 3 ML-ops mutations spawn python for any logged-in user (+ blocking `execSync`) | Fixed → admin-only, tested, **live** |
@@ -86,12 +88,13 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 5. A zsh scripting slip made my first node-loss injection a no-op (caught from its own output, node restored, redone). A first read of a slow public URL as a "server TLS problem" was wrong — measured from the cluster host it is 0.08 s; it was this laptop's network.
 
 ## 10. Remaining risks (ranked)
-1. Live money movement isn't functional in this environment (TigerBeetle/Postgres not wired to the bridge); nothing in this pass verified the production ledger path end to end.
-2. Availability: single `server` replica, no PDB/HPA, memory limit below load, ledger-bridge coupling (28 s outages), no anti-affinity guarantee.
-3. QA-020 login CSRF; QA-026 unauthenticated `commerce-engine` behind a non-existent NetworkPolicy.
-4. Recoverability unproven on the live database.
-5. Image supply: locally shipped `:qa-local*` tags with `Never`, Flux suspended, unpushed commits, 96 %-full cluster host, rate-limited registry.
-6. Unexercised: UI/accessibility, real node failure, network faults, live load.
+1. **The QA-028 fixes are committed but not on the live cluster** (the live `server` is `qa-local2`, built before them) — until deployed, the cross-tenant reads above are still exploitable there.
+2. Live money movement isn't functional in this environment (TigerBeetle/Postgres not wired to the bridge); nothing in this pass verified the production ledger path end to end.
+3. Availability: single `server` replica, no PDB/HPA, memory limit below load, ledger-bridge coupling (28 s outages), no anti-affinity guarantee.
+4. QA-020 login CSRF; QA-026 unauthenticated `commerce-engine` behind a non-existent NetworkPolicy.
+5. Recoverability unproven on the live database.
+6. Image supply: locally shipped `:qa-local*` tags with `Never`, Flux suspended, unpushed commits, 96 %-full cluster host, rate-limited registry.
+7. Unexercised: UI/accessibility, real node failure, network faults, live load.
 
 ## 11. Readiness score (skill rubric)
 | Category | Weight | Score | Why |

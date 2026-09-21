@@ -21,7 +21,10 @@ async function saveKcConfig(tenantId: string, realm: string) {
   const admin = await adminCaller();
   const r = await admin.keycloak.saveConfig({
     tenantId,
-    serverUrl: process.env.KEYCLOAK_URL!,
+    // A tenant-supplied URL must pass the SSRF guard, which rejects loopback
+    // literals — reach the scripted realm via its public-looking alias, which
+    // metaMock's fetch interceptor maps back onto the local listener.
+    serverUrl: `http://keycloak.sim.local:${new URL(process.env.KEYCLOAK_URL!).port}`,
     realm,
     clientId: `client-${realm}`,
     clientSecret: `secret-${realm}`,

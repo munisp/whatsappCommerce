@@ -290,9 +290,13 @@ export async function bootWorld(): Promise<World> {
     setEnv("LLM_BASE_URL", "http://llm.sim.local/v1");
     setEnv("LLM_API_KEY", "sim-llm-key");
     setEnv("OPENAI_BASE_URL", "http://openai.sim.local/v1");
-    // keycloak.sim.local is mapped onto the local mock listener by metaMock's
-    // fetch interceptor (the SSRF guard rejects loopback literals).
-    setEnv("KEYCLOAK_URL", `http://keycloak.sim.local:${authPort}`);
+    // The server's OWN Keycloak (JWKS for cron/bearer auth) stays on loopback:
+    // that path is the platform's config, not tenant input, and its JWKS client
+    // does not go through the sim's fetch interceptor. Journeys that need a
+    // TENANT-configured Keycloak URL (which the SSRF guard rightly refuses to
+    // accept as a loopback literal) use the keycloak.sim.local alias instead —
+    // see j53 and the interceptor in metaMock.ts.
+    setEnv("KEYCLOAK_URL", `http://127.0.0.1:${authPort}`);
     setEnv("CORS_ORIGIN", "*");
     // payment.initiate + creditRepayLink need a Paystack secret (intercepted
     // by the fetch mock — never a real network call).
