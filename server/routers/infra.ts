@@ -463,8 +463,11 @@ export const infraRouter = router({
     }
     let lastError: string | null = null;
     try {
+      // QA-038: recon-worker now requires this once its own INTERNAL_API_KEY is set.
       const res = await fetch(`${ENV.reconWorkerUrl}/recon/trigger`, {
-        method: "POST", signal: AbortSignal.timeout(30_000),
+        method: "POST",
+        headers: process.env.INTERNAL_API_KEY ? { "X-Internal-Api-Key": process.env.INTERNAL_API_KEY } : undefined,
+        signal: AbortSignal.timeout(30_000),
       });
       if (res.ok) return res.json();
       lastError = `recon-worker responded HTTP ${res.status}`;
@@ -480,7 +483,11 @@ export const infraRouter = router({
 
   getLastReconciliation: adminProcedure.query(async () => {
     try {
-      const res = await fetch(`${ENV.reconWorkerUrl}/recon/last`, { signal: AbortSignal.timeout(5_000) });
+      // QA-038: recon-worker now requires this once its own INTERNAL_API_KEY is set.
+      const res = await fetch(`${ENV.reconWorkerUrl}/recon/last`, {
+        headers: process.env.INTERNAL_API_KEY ? { "X-Internal-Api-Key": process.env.INTERNAL_API_KEY } : undefined,
+        signal: AbortSignal.timeout(5_000),
+      });
       if (res.ok) return res.json();
     } catch { /* ignore */ }
     return { status: "no_runs_yet" };

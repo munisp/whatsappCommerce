@@ -32,11 +32,16 @@ import { ledgerAccountId } from "../services/ledgerAccounts";
 
 // ── TigerBeetle ledger helper ─────────────────────────────────────────────────
 
-async function ledgerRequest(path: string, method = "GET", body?: unknown) {
+// Exported (only) so server/internalApiKeyHeader.test.ts can call it directly — payment.ts keeps its own
+// copy of this helper (see file header), so that pin needs a way in without going through a full payment flow.
+export async function ledgerRequest(path: string, method = "GET", body?: unknown) {
   const url = `${ENV.ledgerBridgeUrl ?? "http://ledger-bridge:8095"}${path}`;
+  // QA-038: the bridge now requires this once its own INTERNAL_API_KEY is set.
+  const headers: Record<string, string> = body ? { "Content-Type": "application/json" } : {};
+  if (process.env.INTERNAL_API_KEY) headers["X-Internal-Api-Key"] = process.env.INTERNAL_API_KEY;
   const res = await fetch(url, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(8000),
   });

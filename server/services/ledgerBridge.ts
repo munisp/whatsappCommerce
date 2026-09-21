@@ -26,7 +26,13 @@ export async function ledgerBridgeRequest(path: string, method = "GET", body?: u
   try {
     res = await fetch(url, {
       method,
-      headers: injectTraceHeaders(body ? { "Content-Type": "application/json" } : {}),
+      // QA-038: the bridge now requires this header once its own INTERNAL_API_KEY is set (same shared
+      // secret already used for internalProcedure/gateway's internal auth) — sent unconditionally so this
+      // is already true the moment the bridge starts enforcing, with nothing else to redeploy.
+      headers: injectTraceHeaders({
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(process.env.INTERNAL_API_KEY ? { "X-Internal-Api-Key": process.env.INTERNAL_API_KEY } : {}),
+      }),
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(8000),
     });
