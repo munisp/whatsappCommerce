@@ -209,6 +209,13 @@ spec:
           matchLabels:
             app.kubernetes.io/instance: ledger-bridge
             app.kubernetes.io/name: ledger-bridge
+        # QA-042: count only pods of the SAME REVISION. The selector above matches every revision, so during a rolling update
+        # the still-running OLD pods (one per node) bias the count, the second new pod sees a tie between nodes, and picks by
+        # chance — measured: after two consecutive rollouts of `server` both replicas landed on ONE node (first worker, then
+        # the other), a single-node-loss outage that looked healthy. `pod-template-hash` makes the new pods spread among
+        # themselves. (Soft on purpose: a one-node cluster must still schedule both.)
+        matchLabelKeys:
+        - pod-template-hash
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler

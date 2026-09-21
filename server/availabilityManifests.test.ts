@@ -147,3 +147,17 @@ describe("ledger-bridge termination ordering (QA-042)", () => {
     expect(sleepOf(adapter) + 8).toBeLessThanOrEqual(grace);
   });
 });
+
+// QA-042: the spread constraint must be scoped to ONE revision, or a rolling update co-locates the replicas by chance (it did,
+// twice in a row, on 2026-09-22).
+describe.each([["server", server], ["ledger-bridge", bridge]] as const)("%s topology spread is per-revision (QA-042)", (_name, dep) => {
+  const c = dep.spec.template.spec.topologySpreadConstraints[0] as Obj;
+  it("spreads by node, softly, with maxSkew 1", () => {
+    expect(c.topologyKey).toBe("kubernetes.io/hostname");
+    expect(c.whenUnsatisfiable).toBe("ScheduleAnyway"); // a one-node cluster must still schedule both replicas
+    expect(c.maxSkew).toBe(1);
+  });
+  it("counts only pods of the SAME revision (matchLabelKeys: pod-template-hash)", () => {
+    expect(c.matchLabelKeys, "without this, old pods from the previous revision bias the count and the new replicas can land together").toContain("pod-template-hash");
+  });
+});
