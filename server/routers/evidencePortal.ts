@@ -68,6 +68,17 @@ export const evidencePortalRouter = router({
       if (!tenantId) throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) return [];
+      // QA follow-up: this returns the raw bearer token (the sole secret
+      // that authorizes submitting evidence as the buyer) — unlike
+      // listSubmissions/generateToken below, it had no tenant-ownership
+      // check at all, so any authenticated user of ANY tenant who knew (or
+      // obtained) another tenant's disputeId could read that tenant's live
+      // evidence-submission tokens. Same ownership check as its siblings.
+      const disputes = await db
+        .select()
+        .from(escrowDisputes)
+        .where(and(eq(escrowDisputes.id, input.disputeId), eq(escrowDisputes.tenantId, tenantId)));
+      if (!disputes.length) throw new TRPCError({ code: "NOT_FOUND", message: "Dispute not found" });
       return db
         .select()
         .from(disputeEvidenceTokens)
@@ -98,8 +109,26 @@ export const evidencePortalRouter = router({
   revokeToken: protectedProcedure
     .input(z.object({ token: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const tenantId = ctx.user.tenantId;
+      if (!tenantId) throw new TRPCError({ code: "FORBIDDEN" });
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+      // QA follow-up: previously had no ownership check at all — any
+      // authenticated user of ANY tenant who knew a token could revoke it,
+      // locking the legitimate buyer out of submitting dispute evidence for
+      // a tenant they have nothing to do with. Load the token's own dispute
+      // and verify it belongs to the caller's tenant first (same
+      // load-then-assert pattern as listTokens/listSubmissions above).
+      const tokens = await db
+        .select()
+        .from(disputeEvidenceTokens)
+        .where(eq(disputeEvidenceTokens.token, input.token));
+      if (!tokens.length) throw new TRPCError({ code: "NOT_FOUND", message: "Token not found" });
+      const disputes = await db
+        .select()
+        .from(escrowDisputes)
+        .where(and(eq(escrowDisputes.id, tokens[0].disputeId), eq(escrowDisputes.tenantId, tenantId)));
+      if (!disputes.length) throw new TRPCError({ code: "NOT_FOUND", message: "Token not found" });
       await db
         .update(disputeEvidenceTokens)
         .set({ usedAt: new Date() })
