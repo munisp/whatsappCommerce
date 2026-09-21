@@ -11,7 +11,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 - Measured **capacity, resilience and deployment behavior** against the real cluster: rolling deploys, rollback and pod loss are genuinely zero-downtime (measured: 0 failures in 4,395 probes across four experiments); but a missing `ledger-bridge` causes a ~28 s **total** outage, a node loss strands services on a rate-limited registry, and the `server` runs 1 replica with limits below what load needs.
 - I also **corrected my own mistakes in the open** (see §9): two of my fixes would have regressed real behavior and were reworked before shipping.
 
-**Decision: NO-GO for production money-moving traffic tomorrow.** Score 62/100. There are no unresolved P0s, but several availability, security and recoverability gaps remain that are all bounded and fixable (§12). It is fine to continue as a dev/staging environment.
+**Decision: NO-GO for production money-moving traffic tomorrow.** Score 63/100. There are no unresolved P0s, but several availability, security and recoverability gaps remain that are all bounded and fixable (§12). It is fine to continue as a dev/staging environment.
 
 ## 2. Scope — what was and was not tested
 | Area | Status | Evidence |
@@ -52,7 +52,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | QA-026 | P2 | no NetworkPolicies live; `commerce-engine` trusts `X-Tenant-ID` with no auth of its own | **OPEN** |
 | QA-027 | P2 | `server`: 1 replica, no HPA/PDB/metrics-server, 512Mi limit < 613–800 MiB under load, 500m CPU | **OPEN** |
 | QA-021 | P2 | no backup of any kind existed for the live DB (shared CNPG cluster has no `ScheduledBackup`) | **MITIGATED** — nightly dump + weekly restore-verify deployed and drilled; off-host copy / PITR / TigerBeetle still open |
-| CX-02 | P2 | missing `ledger-bridge` ⇒ ~28 s total app outage (design contradiction) | **OPEN — owner decision** |
+| CX-02 → QA-030 | P2 | missing `ledger-bridge` ⇒ ~28 s total app outage (design contradiction) | **FIXED + verified live** — re-run 100 % (was 80.98 %); bridge stays 1 replica until the ledger is wired |
 | CX-04 | P2 | node loss strands `ml-stack`/`recon-worker` on a rate-limited registry | **OPEN** |
 | QA-019 | info | Keycloak brute-force config not provably active (external IdP) | OPEN (external) |
 | QA-022/023/025 | info/P3 | live ledger path reality; small hardening fixes; e2e re-runnability | Done / logged |
@@ -78,7 +78,8 @@ Saturates at ~1.1–1.3 k RPS for a trivial tRPC call (~3 k for `/health`); 0 er
 | Experiment | Result |
 |---|---|
 | CX-01 abrupt loss of 1 of 2 server replicas | **PASS** 899/899 |
-| CX-02 `ledger-bridge` gone 62 s | **FAIL** 80.98 %; 28.4 s of 503s; readiness coupling |
+| CX-02 `ledger-bridge` gone 62 s | **FAIL** 80.98 %; 28.4 s of 503s; readiness coupling → fixed (QA-030), **re-run CX-02b PASS 1,498/1,498 (100 %)** |
+| CX-07 rolling deploy of that fix under load | **PASS** 749/749, ~11 s rollout |
 | CX-03 rolling deploy under load | **PASS** 1,199/1,199, ~12 s rollout |
 | CX-04 node-loss approximation | **PARTIAL** users unaffected (1,298/1,298) but 2 services stuck on image pull |
 | CX-05 rollback + roll-forward under load | **PASS** 999/999 (only works while the old local image is on the nodes) |
@@ -112,7 +113,7 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 |---|---:|---:|---|
 | Functional correctness | 20 | 15 | very broad automated coverage, real defects found+fixed; UI untested, no exhaustive edge sweep |
 | Security | 15 | 9 | many real holes closed and deployed; QA-020/026 open; no dynamic pentest |
-| Reliability | 15 | 9 | zero-downtime deploy/rollback/pod-loss proven; bridge coupling, single replica, node-loss image risk |
+| Reliability | 15 | 10 | zero-downtime deploy/rollback/pod-loss proven; ledger outage now payments-only (CX-02b); single replica, node-loss image risk remain |
 | Test coverage/quality | 10 | 7 | strong suite + ratchets; raw Express routes outside the authz scanner; no UI tests |
 | Performance | 10 | 6 | measured baseline/stress/soak locally; no SLOs, no live perf, no load shedding |
 | Scalability | 10 | 3 | no HPA/PDB/metrics-server, limits below load, single process saturates ~1.1 k rps |
@@ -121,7 +122,7 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 | Deployment safety | 5 | 3 | proven zero-downtime + rollback; fragile local-image mechanism, Flux suspended |
 | Disaster recovery | 3 | 2 | live nightly dump + weekly restore-verify, drilled; same-host only, no PITR, no off-host copy, TigerBeetle uncovered |
 | Documentation | 2 | 2 | `.qa/` evidence trail, manual tests, runbook-style chaos log |
-| **Total** | **100** | **62** | descriptive, not a substitute for judgment; no critical blocker overrides it upward |
+| **Total** | **100** | **63** | descriptive, not a substitute for judgment; no critical blocker overrides it upward |
 
 ## 12. Rollout decision
 ```
@@ -141,8 +142,8 @@ BLOCKERS (each flips the answer if closed):
      (the PVC is on the same host as the DB), PITR via WAL archiving on the shared CNPG cluster, and a TigerBeetle backup once the ledger is wired.
   2. Deploy TigerBeetle and wire ledger-bridge to it + Postgres; run the money e2e (funds-flow) against that stack.
   3. Availability: >=2 `server` replicas + PDB + anti-affinity; raise memory limit above the measured load
-     footprint; add metrics-server + HPA; run >=2 ledger-bridge replicas (or make an unreachable bridge
-     non-gating — owner decision) so a bridge restart is not an outage (CX-02).
+     footprint; add metrics-server + HPA. (The ledger-bridge coupling is closed: an unreachable bridge no longer fails
+     readiness — QA-030, CX-02b. Run >=2 bridge replicas only after the ledger is wired and multi-replica replay is tested.)
   4. Close QA-020 (real PKCE + state/nonce binding on the SPA login) and test it in real browsers.
   5. NetworkPolicies deployed via Flux + auth inside commerce-engine (QA-026).
 HIGH-RISK ISSUES: QA-020, QA-026, image supply chain (locally shipped images, suspended Flux, rate-limited registry).
