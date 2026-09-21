@@ -4,7 +4,7 @@
  * a regression here would break login for everyone — and one that "fixed" it by re-adding a client-built URL would
  * reopen login CSRF. Both are pinned.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { startLogin } from "./const";
 
 function browserAt(pathname: string, search = "") {
@@ -17,7 +17,10 @@ function browserAt(pathname: string, search = "") {
   return { assign, doc, session, href: () => (globalThis as any).window.location.href as string };
 }
 
-afterEach(() => vi.unstubAllGlobals());
+// startLogin is debounced by wall-clock time, so every test starts from its own, well-separated "now".
+let clock = 1_000_000;
+beforeEach(() => { vi.useFakeTimers(); clock += 60_000; vi.setSystemTime(clock); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("startLogin", () => {
   it.each([
@@ -53,5 +56,24 @@ describe("startLogin", () => {
     const url = new URL(String(b.assign.mock.calls[0][0]), "https://app.example");
     expect([...url.searchParams.keys()]).toEqual(["redirect"]);
     expect(url.searchParams.get("redirect")).toBe("/a?x=1&redirect=https://evil.example"); // one opaque value; the server sanitises it
+  });
+
+  describe("debounce (several failed queries fire it in the same tick)", () => {
+    it("six calls in one tick navigate ONCE — concurrent /api/auth/login responses would race to set the transaction cookie", () => {
+      const b = browserAt("/dashboard");
+      for (let i = 0; i < 6; i++) startLogin();
+      expect(b.assign).toHaveBeenCalledTimes(1);
+    });
+
+    it("still ignores a call 2.9s later, but a deliberate retry after the window (or a bfcache return) navigates again", () => {
+      const b = browserAt("/dashboard");
+      startLogin();
+      vi.setSystemTime(clock + 2_900);
+      startLogin();
+      expect(b.assign).toHaveBeenCalledTimes(1);
+      vi.setSystemTime(clock + 3_100);
+      startLogin();
+      expect(b.assign).toHaveBeenCalledTimes(2);
+    });
   });
 });

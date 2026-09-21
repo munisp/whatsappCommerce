@@ -37,3 +37,8 @@ temp
 # Docs not needed at build/runtime
 docs
 *.md
+
+# Rust build output. The TypeScript platform image never uses it, and a local `cargo build`/`cargo test` leaves
+# gigabytes here (2.4 GB observed) that would otherwise be sent to the daemon on every `docker build .`.
+rust/target
+rust/**/target

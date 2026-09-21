@@ -16,8 +16,20 @@ export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
  *
  * Call this from an event handler: `onClick={() => startLogin()}`
  * Do NOT call during render — it navigates.
+ *
+ * Debounced: main.tsx's global "UNAUTHORIZED => log in" listener fires once per FAILED QUERY, so a page with six parallel
+ * queries calls this six times in one tick. Each call would hit /api/auth/login and be handed a NEW transaction cookie;
+ * the responses race, and the cookie the browser ends up holding can belong to a different login than the one it then
+ * follows to Keycloak — the callback would reject it. (Harmless before the callback verified the cookie.) One login at a
+ * time; the window is short enough that a deliberate second click, or coming back via bfcache, still works.
  */
+const LOGIN_DEBOUNCE_MS = 3000;
+let lastLoginStartedAt = -Infinity;
+
 export const startLogin = () => {
+  const now = Date.now();
+  if (now - lastLoginStartedAt < LOGIN_DEBOUNCE_MS) return;
+  lastLoginStartedAt = now;
   // Land back on whichever app/page the user actually started from (ui/platform-admin and ui/tenant-portal live under
   // sub-paths of the same origin).
   const returnTo = `${window.location.pathname}${window.location.search}`;
