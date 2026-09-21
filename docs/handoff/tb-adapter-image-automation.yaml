@@ -1,0 +1,48 @@
+# HAND-OFF (QA-041): Flux image automation for the `tb-adapter` sidecar. NOT applied — it does not belong to this repo.
+#
+# THE PROBLEM: k8s-flux/ledger-bridge-deployment.yaml runs a second container, `tb-adapter`, which turns the bridge's HTTP
+# calls into TigerBeetle's native protocol. CI builds its image (build-and-push.yml has a `tb-adapter` entry) — but Flux
+# has ImagePolicies for 15 services and NONE for this one (checked live: `kubectl -n flux-system get imagepolicy`).
+# Its image line therefore has no `$imagepolicy` marker, is pinned to the hand-shipped `qa-local1` with
+# `imagePullPolicy: Never`, and `qa-local1` is not even on the nodes any more. Resume Flux as things stand and the
+# ledger-bridge pods fail with ErrImageNeverPull: the ledger goes down. `scripts/fluxResumePreflight.ts` reports this as a
+# blocker.
+#
+# THE FIX, in three coordinated steps — DO THEM TOGETHER, in this order:
+#   1. Add the two objects below where the other whatsapp-commerce ImageRepository/ImagePolicy objects live
+#      (newwave_platform_terraform: apps/fluxcd-newwave-dev/image-automation/image-policies-whatsapp-commerce.yaml).
+#      They are a copy of whatsapp-ledger-bridge's, with the name and image changed.
+#   2. Push this repo so CI builds `whatsapp-tb-adapter:<YYYYMMDD-HHMM>` for the first time.
+#   3. In k8s-flux/ledger-bridge-deployment.yaml, on the tb-adapter container: set the image to that tag, add the trailing
+#      marker  # {"$imagepolicy": "flux-system:whatsapp-tb-adapter"}  and change `imagePullPolicy: Never` to `IfNotPresent`.
+#      (Not done in this repo yet on purpose: a marker that names a policy that does not exist, and a tag that CI has not
+#      built, would each be a new way to break the file.)
+# Only then does `npx tsx scripts/fluxResumePreflight.ts` stop blocking on it.
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: whatsapp-tb-adapter
+  namespace: flux-system
+spec:
+  exclusionList:
+    - ^.*\.sig$
+  image: registry.digitalocean.com/talentgraph-auth/whatsapp-tb-adapter
+  interval: 57m0s
+  provider: generic
+  secretRef:
+    name: do-registry
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: whatsapp-tb-adapter
+  namespace: flux-system
+spec:
+  filterTags:
+    pattern: ^\d{8}-\d{4}$
+  imageRepositoryRef:
+    name: whatsapp-tb-adapter
+  policy:
+    alphabetical:
+      order: asc

@@ -1,0 +1,98 @@
+# DRAFT — NOT APPLIED (QA-041). An ingress allowlist for the SHARED TigerBeetle in namespace `tigerbeetle`.
+#
+# WHY IT MATTERS: TigerBeetle's protocol has no authentication, and this namespace has no NetworkPolicy. Any pod in any
+# namespace that can reach tigerbeetle-{0,1,2}.tigerbeetle-headless:3000 can read and write EVERY tenant's ledger — ours,
+# lanai's, vpp's. That is the largest exposure left in the platform. App-level auth (QA-038) and our own NetworkPolicies
+# (QA-026) protect our services; nothing protects the ledger itself.
+#
+# WHY IT IS NOT APPLIED: the namespace belongs to several teams and I have just made it a 3-replica HA cluster. A mistake
+# here is a three-team outage (and a wrong replica-to-replica rule causes VSR view changes, i.e. write stalls). It needs the
+# owner's explicit go-ahead and the runbook below — not a technical green light alone.
+#
+# EVIDENCE the allowlist is built from (2026-09-21, read-only):
+#   (1) CONFIGURATION — every Deployment/StatefulSet/CronJob in the cluster whose env names TigerBeetle:
+#         whatsapp-commerce/ledger-bridge (the tb-adapter sidecar; all 3 replica hostnames),
+#         lanai/lanai-portal, vpp/vpp-orchestrator, vpp/vpp-server (replica 0 only), gds/gds-gateway (address comes from a
+#         ConfigMap/Secret — whether it is THIS TigerBeetle is UNCONFIRMED, so it is commented out below).
+#         blueeconomy runs its OWN TigerBeetle (fc-tigerbeetle) — not a client of this one.
+#   (2) REAL FLOWS — conntrack on all three nodes, sources mapped only to Running pods (a stale-podIP trap misled an
+#       earlier attribution): the replicas talking to each other; the tigerbeetle-stunnel pod -> all 3 replicas; both
+#       ledger-bridge pods -> all 3 replicas; and each node's bridge-gateway address (10.244.N.1) -> the replica on that
+#       node, which is KUBELET'S tcpSocket probe (the StatefulSet has one). lanai and vpp had NO open connection at sample
+#       time (configured but idle). Nothing was connected through NodePort 32001; 4 short-lived flows via NodePort 32052
+#       (the TLS proxy) came from the host's docker gateway.
+#
+# WHAT THIS DELIBERATELY DOES TO THE OTHER DOOR: `tigerbeetle-external` (NodePort 32001) exposes replica 0's plaintext port
+# outside the cluster. Traffic arriving that way is SNAT'd to a node address and matches none of the rules below, so it is
+# BLOCKED. Nothing used it at sample time, and the TLS path (stunnel) is unaffected — but if an external client relies on
+# 32001, the owner must either move it to the stunnel path or add an ipBlock for its source. That is the decision.
+#
+# OPEN QUESTIONS FOR THE OWNER: (a) gds-gateway — does its ConfigMap point here? (b) anyone on NodePort 32001? (c) does
+# stunnel require client certificates? (its own ingress is open to the world by design and is not covered here).
+#
+# RUNBOOK (do in this order; every step is reversible):
+#   0. Prove kubelet's tcpSocket probes still pass through an ingress policy on THIS CNI, in a scratch namespace with a
+#      pod that has a tcpSocket probe (QA-026 proved it for httpGet; TigerBeetle uses tcpSocket).
+#   1. BEFORE: from a pod in an unrelated namespace, `nc -zv tigerbeetle-0.tigerbeetle-headless.tigerbeetle.svc 3000` -> connects.
+#   2. `kubectl apply -f` this file. Immediately watch: `kubectl -n tigerbeetle get pods -w` (0 restarts, all Ready) and
+#      `kubectl -n tigerbeetle logs tigerbeetle-0 -f` (no view-change storm).
+#   3. AFTER: the same `nc` from the unrelated namespace -> times out. From a ledger-bridge pod -> connects.
+#      Our bridge: /health/ready reports tigerbeetle healthy; a real reserve + void succeeds. Ask lanai/vpp owners to confirm.
+#   4. Watch 15 minutes. ROLLBACK, instant and lossless:  kubectl -n tigerbeetle delete networkpolicy tigerbeetle-ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tigerbeetle-ingress
+  namespace: tigerbeetle
+spec:
+  podSelector:
+    matchLabels:
+      app: tigerbeetle # the 3 replicas (NOT the stunnel pod, which is app: tigerbeetle-stunnel and stays open by design)
+  policyTypes:
+    - Ingress # ingress only: an Egress type with no rules would cut the replicas off from each other and from DNS
+  ingress:
+    - from:
+        # replicas <-> replicas (VSR). A mistake here stalls writes, so this is the rule to double-check.
+        - podSelector:
+            matchLabels:
+              app: tigerbeetle
+        # the TLS proxy for external clients
+        - podSelector:
+            matchLabels:
+              app: tigerbeetle-stunnel
+        # whatsapp-commerce: the bridge pods (the tb-adapter sidecar runs inside them). namespace AND pod, in ONE entry.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: whatsapp-commerce
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ledger-bridge
+        # lanai / vpp: configured consumers (idle at sample time)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: lanai
+          podSelector:
+            matchLabels:
+              app: lanai-portal
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vpp
+          podSelector:
+            matchLabels:
+              app: vpp-orchestrator
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vpp
+          podSelector:
+            matchLabels:
+              app: vpp-server
+        # gds-gateway: UNCONFIRMED that it uses this TigerBeetle. Uncomment only if the owner confirms.
+        # - namespaceSelector:
+        #     matchLabels:
+        #       kubernetes.io/metadata.name: gds
+        #   podSelector:
+        #     matchLabels:
+        #       app: gds-gateway
+      ports:
+        - protocol: TCP
+          port: 3000

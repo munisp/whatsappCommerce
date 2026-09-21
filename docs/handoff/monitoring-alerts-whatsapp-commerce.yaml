@@ -1,0 +1,129 @@
+# HAND-OFF (QA-041): alert rules for whatsapp-commerce that belong in the LIVE Prometheus.
+#
+# WHY THIS IS A HAND-OFF AND NOT A CHANGE: the live rules are not deployed from this repo. They come from
+# https://github.com/AfroNG/monitoring_dashboard (prometheus/alert-rules.yaml), applied by the `monitoring-dashboard`
+# Flux Kustomization. `deploy/otel/alert-rules.yml` in THIS repo is a stale copy from before that migration — which is why
+# the three Postgres-backup alerts added in QA-021 were never live (verified: the live ConfigMap has none of them).
+#
+# HOW TO APPLY: append the `groups:` below to monitoring_dashboard/prometheus/alert-rules.yaml (as new groups, so nothing
+# there is edited), and merge. Every expression was executed against the live Prometheus on 2026-09-21 (instant queries):
+# each parses, each returns its intended series, and NONE is firing today.
+#
+# ALSO WORTH DOING THERE: delete `RustServiceDown` and `GoServiceDown`. Their own comment says they evaluate empty because
+# no scrape job carries those names (an absent series never equals 0), so they read as coverage and provide none. The
+# `WhatsappDeploymentUnderReplicated` / `WhatsappCriticalServiceDown` rules below are what actually watch these services.
+groups:
+  - name: whatsapp-commerce-availability
+    interval: 60s
+    rules:
+      # Any Deployment in the namespace with fewer ready pods than it wants — for longer than a rollout takes.
+      - alert: WhatsappDeploymentUnderReplicated
+        expr: kube_deployment_status_replicas_available{namespace="whatsapp-commerce"} < kube_deployment_spec_replicas{namespace="whatsapp-commerce"}
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.deployment }} has fewer ready pods than desired"
+          description: "{{ $labels.deployment }} in whatsapp-commerce has been below its desired replica count for 10m. A rolling update takes ~15s; this is stuck. `kubectl -n whatsapp-commerce describe deploy {{ $labels.deployment }}`."
+
+      # The two services whose loss is a user-visible outage. 1 minute, not 5: with maxUnavailable 0 and 2+ replicas, ZERO
+      # available pods means everything is already down.
+      - alert: WhatsappCriticalServiceDown
+        expr: kube_deployment_status_replicas_available{namespace="whatsapp-commerce",deployment=~"server|ledger-bridge"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.deployment }} has NO ready pods"
+          description: "No ready pod for {{ $labels.deployment }} for 1m."
+
+      # All pods of one ReplicaSet on ONE node: the anti-affinity is only a soft preference and the workers are ~97% requested,
+      # so a rollout has silently put both replicas of server (and of ledger-bridge) on the same node more than once. That is a
+      # single point of failure that looks healthy. (Per ReplicaSet, and only when it has >1 pod, so an HPA at 4 pods on 3 nodes
+      # does not false-alarm.)
+      - alert: WhatsappReplicasColocated
+        expr: |
+          (
+            count by (created_by_name) (
+              count by (created_by_name, node) (
+                kube_pod_info{namespace="whatsapp-commerce", created_by_kind="ReplicaSet", created_by_name=~"(server|ledger-bridge)-[a-z0-9]+"}
+              )
+            ) == 1
+          )
+          and on (created_by_name)
+          (
+            count by (created_by_name) (
+              kube_pod_info{namespace="whatsapp-commerce", created_by_kind="ReplicaSet", created_by_name=~"(server|ledger-bridge)-[a-z0-9]+"}
+            ) > 1
+          )
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "All replicas of {{ $labels.created_by_name }} are on one node"
+          description: "Both replicas share a node, so losing it is a full outage of the service. Fix: `kubectl delete pod` one of them — it reschedules onto the other node."
+
+      # The autoscaler has run out of room: at max for 15m means capacity, not a blip, is the problem.
+      - alert: WhatsappServerAtMaxReplicas
+        expr: kube_horizontalpodautoscaler_status_current_replicas{namespace="whatsapp-commerce",horizontalpodautoscaler="server"} >= kube_horizontalpodautoscaler_spec_max_replicas{namespace="whatsapp-commerce",horizontalpodautoscaler="server"}
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "server is at its HPA maximum"
+          description: "The server HPA has been at maxReplicas for 15m. Load shedding (503 + Retry-After) is probably engaged. Raise maxReplicas only if the workers have free CPU requests."
+
+      # The server's own probe of the ledger. ComponentDown covers this at 5m; the money path deserves a faster page.
+      - alert: LedgerUnreachableFromServer
+        expr: infra_component_up{component="tigerBeetle"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The server cannot reach the ledger"
+          description: "server's infra probe of the ledger (bridge -> TigerBeetle) has failed for 2m. Payments fail with 503 ledger_unavailable; everything else keeps working by design (QA-030)."
+
+  # Moved here from deploy/otel/alert-rules.yml (QA-021) — the metrics exist live (kube-state-metrics scrapes our CronJobs).
+  - name: whatsapp-backups
+    interval: 60s
+    rules:
+      - alert: PostgresBackupStale
+        expr: |
+          (time() - kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-backup"} > 26 * 3600)
+          or
+          absent(kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-backup"})
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: "whatsapp_commerce Postgres backup is stale or missing"
+          description: "No successful postgres-backup run in over 26h (or the CronJob is gone). RPO is currently unbounded — check `kubectl get cronjob,job -n whatsapp-commerce` and the job logs."
+
+      # HONEST NOTE ON WHAT WAS PROVEN: kube_cronjob_status_last_schedule_time has no series for our CronJobs yet — they were
+      # created on 2026-09-21 and the controller has not scheduled a run (first one is 03:15 UTC), so this rule is quiet by
+      # design until then. The SAME expression was run against another namespace's CronJob that has both series: the
+      # `- on(namespace, cronjob)` join works and returns the schedule-minus-success delta (3597s there; it would fire at
+      # the real 1800s threshold). Re-check that it can fire on our own CronJobs once tonight's run has happened.
+      - alert: PostgresBackupRunFailing
+        expr: |
+          (kube_cronjob_status_last_schedule_time{namespace="whatsapp-commerce",cronjob=~"postgres-backup|postgres-restore-verify"}
+            - on(namespace, cronjob)
+            kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob=~"postgres-backup|postgres-restore-verify"}) > 1800
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latest {{ $labels.cronjob }} run did not succeed"
+          description: "The most recent scheduled {{ $labels.cronjob }} run has not completed successfully. For postgres-restore-verify this means the latest dump could NOT be restored — the backups may be unusable."
+
+      - alert: PostgresRestoreVerifyStale
+        expr: |
+          (time() - kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-restore-verify"} > 8 * 24 * 3600)
+          or
+          absent(kube_cronjob_status_last_successful_time{namespace="whatsapp-commerce",cronjob="postgres-restore-verify"})
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No successful Postgres restore drill in 8+ days"
+          description: "postgres-restore-verify has not succeeded in over 8 days. Backups are being taken but nobody has proven they restore."
