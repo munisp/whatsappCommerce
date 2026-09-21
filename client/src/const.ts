@@ -4,8 +4,12 @@ export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 /**
  * Start the Keycloak OIDC login flow.
  *
- * Uses PKCE (Proof Key for Code Exchange) for security.
- * Redirects to Keycloak's authorization endpoint.
+ * Redirects to Keycloak's authorization endpoint. NOTE: despite the
+ * "PKCE" naming below, no code_challenge is sent to Keycloak and the
+ * verifier never reaches the server, so this path has no PKCE; and the
+ * state/nonce cookie is not currently validated server-side. The
+ * server-initiated GET /api/auth/login flow does both (see server/_core/
+ * oauth.ts) — see .qa/defects.md QA-020 before relying on either here.
  *
  * Call this from an event handler: `onClick={() => startLogin()}`
  * Do NOT call during render — it has side effects (cookie write + navigation).

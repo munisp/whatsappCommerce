@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect, DragEvent, useLayoutEffect } from "react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -172,6 +173,11 @@ export function ProductImageCollectorContent() {
   const logScrollRef = useRef<HTMLDivElement>(null);
 
   const ftStream = useFineTuneStream();
+  // Fine-tune runs are platform-wide training jobs — the server only allows
+  // platform admins (/api/finetune/stream), so don't offer the button to
+  // anyone else just to have it fail with an opaque "[connection closed]".
+  const { user: authUser } = useAuth();
+  const canRunFineTune = authUser?.role === "admin";
 
   // Auto-scroll log to bottom
   useEffect(() => {
@@ -514,7 +520,13 @@ export function ProductImageCollectorContent() {
                       Stop
                     </Button>
                   ) : (
-                    <Button size="sm" className="gap-2 h-7" onClick={() => ftStream.start(dryRun)}>
+                    <Button
+                      size="sm"
+                      className="gap-2 h-7"
+                      disabled={!canRunFineTune}
+                      title={canRunFineTune ? undefined : "Fine-tune runs are limited to platform admins"}
+                      onClick={() => ftStream.start(dryRun)}
+                    >
                       <Play className="w-3 h-3" />
                       {ftStream.done ? "Re-run" : "Start Fine-Tune Run"}
                     </Button>

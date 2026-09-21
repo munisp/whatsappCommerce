@@ -5005,26 +5005,36 @@ async function startServer() {
   // ── YOLO Label Export ZIP ─────────────────────────────────────────────────
   // GET /api/finetune/export-yolo — generates per-class YOLO .txt label files and returns a zip
   //
-  // QA follow-up (P0): this route had NO authentication at all and queries
+  // QA follow-up (P0): this route had NO authentication at all and queried
   // productImageCollections (tenantId NOT NULL, drizzle/schema.ts) with no
   // tenantId filter — an unauthenticated caller could download every
   // tenant's uploaded product images (URLs, class labels, quality scores)
-  // in one ZIP. The cross-tenant SCOPE itself is intentional here (this
-  // dataset feeds one shared platform-wide YOLO classifier, the same
-  // "platform ML-ops surface, not tenant data" pattern mlOps.ts already
-  // exempts elsewhere) — the bug was the missing auth, not the missing
-  // tenant filter, so this stays platform-wide, gated to admins only.
+  // in one ZIP.
+  //
+  // The merchant-facing Inventory Hub (ProductImageCollector) links straight
+  // to this route, so blocking non-admins outright would break a real
+  // feature. Instead: authentication is required, a tenant user exports only
+  // THEIR OWN tenant's images, and only a platform admin gets the platform-
+  // wide set (which feeds the shared YOLO classifier).
   app.get("/api/finetune/export-yolo", async (req, res) => {
     try {
       const user = await sdk.authenticateRequest(req).catch(() => null);
-      if (!user || (user as any).role !== "admin") {
-        res.status(403).json({ error: "admin-only" });
+      if (!user) {
+        res.status(401).json({ error: "authentication-required" });
+        return;
+      }
+      const isAdmin = (user as any).role === "admin";
+      const callerTenantId = (user as any).tenantId as string | null | undefined;
+      if (!isAdmin && !callerTenantId) {
+        res.status(403).json({ error: "tenant-required" });
         return;
       }
       const db = await getDb();
       if (!db) { res.status(503).json({ error: "DB unavailable" }); return; }
       const { productImageCollections: picTable } = await import("../../drizzle/schema");
-      const images = await db.select().from(picTable).orderBy(picTable.className);
+      const images = await db.select().from(picTable)
+        .where(isAdmin ? undefined : eq(picTable.tenantId, callerTenantId as string))
+        .orderBy(picTable.className);
       if (images.length === 0) { res.status(404).json({ error: "No images in dataset" }); return; }
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", `attachment; filename="yolo-labels-${Date.now()}.zip"`);

@@ -436,12 +436,23 @@ describe("tRPC contract — escrow config", () => {
   });
 });
 
-describe("raw REST admin routes — QA follow-up: finetune endpoints were unauthenticated", () => {
+describe("raw REST finetune routes — QA follow-up: were unauthenticated", () => {
   // These are Express routes (server/_core/index.ts), not tRPC — QA found
   // /api/finetune/stream and /api/finetune/export-yolo had NO auth check at
   // all (unauthenticated subprocess trigger + unauthenticated cross-tenant
-  // data dump). Both are now admin-only; this proves the gate actually
-  // rejects, not just that the code compiles.
+  // data dump). stream is now admin-only (it launches a platform-wide
+  // training run). export-yolo is linked from the merchant-facing Inventory
+  // Hub, so it now requires login and is TENANT-SCOPED for tenant users;
+  // only a platform admin gets the platform-wide set.
+  const OTHER_TENANT = uniqueId("e2e-other-tenant");
+
+  beforeAll(async () => {
+    const sql = getSql();
+    await sql`
+      INSERT INTO product_image_collections (id, "tenantId", "className", "displayName", "imageUrl", "imageKey", "createdAt")
+      VALUES (${uniqueId("pic")}, ${OTHER_TENANT}, 'rice_50kg', 'Rice 50kg', '/api/storage/x.jpg', 'x.jpg', NOW())`;
+  });
+
   it("GET /api/finetune/stream → 403 with no credentials", async () => {
     const { status, body } = await getJson(CFG.platformUrl, "/api/finetune/stream");
     expect(status).toBe(403);
@@ -456,17 +467,28 @@ describe("raw REST admin routes — QA follow-up: finetune endpoints were unauth
     expect(body).toMatchObject({ error: "admin-only" });
   });
 
-  it("GET /api/finetune/export-yolo → 403 with no credentials", async () => {
+  it("GET /api/finetune/export-yolo → 401 with no credentials", async () => {
     const { status, body } = await getJson(CFG.platformUrl, "/api/finetune/export-yolo");
-    expect(status).toBe(403);
-    expect(body).toMatchObject({ error: "admin-only" });
+    expect(status).toBe(401);
+    expect(body).toMatchObject({ error: "authentication-required" });
   });
 
-  it("GET /api/finetune/export-yolo → 403 for a non-admin authenticated user", async () => {
+  it("GET /api/finetune/export-yolo → a tenant user gets ONLY their own tenant's images, never another tenant's", async () => {
+    // userToken's tenant has no images; OTHER_TENANT has one. Before the fix
+    // this returned a 200 ZIP containing OTHER_TENANT's row to anyone.
     const { status, body } = await getJson(CFG.platformUrl, "/api/finetune/export-yolo", {
       Authorization: `Bearer ${userToken}`,
     });
-    expect(status).toBe(403);
-    expect(body).toMatchObject({ error: "admin-only" });
+    expect(status).toBe(404);
+    expect(body).toMatchObject({ error: "No images in dataset" });
+  });
+
+  it("GET /api/finetune/export-yolo → a platform admin gets the platform-wide ZIP", async () => {
+    const res = await fetch(`${CFG.platformUrl}/api/finetune/export-yolo`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/zip");
+    await res.arrayBuffer();
   });
 });
