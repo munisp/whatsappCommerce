@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure } from "../_core/trpc";
+import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { paymentTransactions, modelAbTests, datasetSnapshots, agentEvents, orders } from "../../drizzle/schema";
@@ -286,7 +286,14 @@ export const mlOpsRouter = router({
   }),
 
   // Trigger retraining (in production: calls the Python continuous_trainer.py via subprocess)
-  triggerRetraining: protectedProcedure
+  //
+  // QA follow-up (P1): spawns a real OS subprocess (python3 continuous_
+  // trainer.py) — was gated only by protectedProcedure, so ANY authenticated
+  // user (any role, e.g. a plain customer account) could spam this to spawn
+  // unbounded detached training processes. Admin-only, matching the intent
+  // already documented elsewhere in this file for "platform ML-ops surface"
+  // mutations (see the EXEMPTION_ALLOWLIST entries in authzScan.lib.ts).
+  triggerRetraining: adminProcedure
     .input(z.object({ modelName: z.string(), reason: z.string().optional() }))
     .mutation(async ({ input }) => {
       const isHpo = (input.reason ?? "").toLowerCase().includes("hpo");
@@ -461,7 +468,13 @@ export const mlOpsRouter = router({
       };
     }),
   // ── Trigger real-data retrain: export orders → Parquet → run train_all.py ───
-  triggerRealDataRetrain: protectedProcedure
+  //
+  // QA follow-up (P1): runs a synchronous, BLOCKING execSync (up to 60s —
+  // freezes the entire Node event loop, not just this request) plus spawns
+  // a detached training subprocess, on a query over ALL tenants' orders —
+  // gated only by protectedProcedure. Any authenticated user could
+  // repeatedly trigger this as a platform-wide DoS. Admin-only.
+  triggerRealDataRetrain: adminProcedure
     .input(z.object({ model: z.enum(["fraud", "credit", "all"]).default("fraud"), minRows: z.number().default(500) }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -481,8 +494,11 @@ export const mlOpsRouter = router({
       const jobId = `real-retrain-${input.model}-${Date.now()}`;
       try {
         // Step 1: export real data to Parquet (synchronous, fast)
-        const { execSync } = await import("child_process");
-        execSync(`python3 "${exportScript}" --model ${input.model}`, {
+        // execFileSync (argv array, no shell) — input.model is already a
+        // z.enum so this wasn't exploitable, but string-interpolating into a
+        // shell command line is the fragile pattern; keep it structurally safe.
+        const { execFileSync } = await import("child_process");
+        execFileSync("python3", [exportScript, "--model", input.model], {
           cwd: process.cwd(),
           timeout: 60000,
           stdio: "ignore",
@@ -555,7 +571,9 @@ export const mlAbTestRouter = router({
         .where(eq(modelAbTests.id, input.id)).returning();
       return test;
     }),
-  triggerRetrainingReal: protectedProcedure
+  // QA follow-up (P1): same subprocess-spawn-open-to-any-authenticated-user
+  // gap as triggerRetraining/triggerRealDataRetrain above. Admin-only.
+  triggerRetrainingReal: adminProcedure
     .input(z.object({ modelName: z.string(), reason: z.string().optional(), dryRun: z.boolean().default(false) }))
     .mutation(async ({ input }) => {
       const scriptPath = path.join(process.cwd(), "services/ml-stack/training/continuous_trainer.py");

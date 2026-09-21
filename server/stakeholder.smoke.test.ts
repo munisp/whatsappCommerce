@@ -158,6 +158,29 @@ describe("mlOps: ML operator workflows", () => {
       caller(makeAnonCtx()).mlOps.triggerRetraining({ modelName: "fraud_detection_gnn_lstm", reason: "test" })
     ).rejects.toThrow();
   });
+
+  // QA follow-up: these 3 mutations spawn a real OS subprocess (python3
+  // training job) and were gated only by protectedProcedure — ANY
+  // authenticated user (a plain tenant owner/agent, not just "logged out")
+  // could trigger them, and triggerRealDataRetrain additionally runs a
+  // synchronous execSync that blocks the whole Node event loop for up to
+  // 60s. Now adminProcedure; these prove an AUTHENTICATED non-admin is
+  // rejected (the anonymous-only test above doesn't actually cover this —
+  // protectedProcedure already blocked anonymous callers before the fix).
+  it("triggerRetraining: authenticated non-admin (tenant owner) is rejected", async () => {
+    await expect(
+      caller(makeTenantOwnerCtx()).mlOps.triggerRetraining({ modelName: "fraud_detection_gnn_lstm", reason: "test" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  // NB: no "admin is allowed" test here — that would actually spawn a real
+  // python3 subprocess during `vitest run` (same reason the pre-existing
+  // triggerRetraining test above only ever covered rejection).
+  it("triggerRealDataRetrain: authenticated non-admin (tenant owner) is rejected", async () => {
+    await expect(
+      caller(makeTenantOwnerCtx()).mlOps.triggerRealDataRetrain({ model: "fraud", minRows: 500 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -198,6 +221,14 @@ describe("mlAbTest: A/B testing workflows", () => {
 
   it("list: anonymous user is rejected", async () => {
     await expect(caller(makeAnonCtx()).mlAbTest.list()).rejects.toThrow();
+  });
+
+  // QA follow-up: same subprocess-spawn-open-to-any-authenticated-user gap
+  // as mlOps.triggerRetraining above — now adminProcedure.
+  it("triggerRetrainingReal: authenticated non-admin (tenant owner) is rejected", async () => {
+    await expect(
+      caller(makeTenantOwnerCtx()).mlAbTest.triggerRetrainingReal({ modelName: "fraud_detection_gnn_lstm" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 
