@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { labelStudioConfigs, visualInventorySessions, visualInventoryCorrections, tenants } from "../../drizzle/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { computeExportPriority } from "../services/activeLearning";
 import { getViPolicy } from "../services/visualInventoryApply";
+import { assertSafeOutboundUrl } from "../services/ssrfGuard";
 
 // ── Label Studio Router ────────────────────────────────────────────────────────
 export const labelStudioRouter = router({
@@ -27,6 +29,18 @@ export const labelStudioRouter = router({
       autoExport: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
+      // QA follow-up: labelStudioUrl is fetched WITH the tenant's stored API
+      // token attached (testConnection/exportToLabelStudio below) — the same
+      // SSRF-to-credential-leak shape already guarded on medusa/odoo/twenty.
+      // Validate at write time so a bad URL is rejected immediately, not
+      // just at the next fetch.
+      if (input.labelStudioUrl) {
+        try {
+          assertSafeOutboundUrl(input.labelStudioUrl, "Label Studio URL");
+        } catch (err: any) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: err?.message ?? "Unsafe Label Studio URL" });
+        }
+      }
       const db = (await getDb())!;
       const tenantId = (ctx.user as { tenantId?: string }).tenantId ?? ctx.user.openId;
       const existing = await db.select({ id: labelStudioConfigs.id }).from(labelStudioConfigs).where(eq(labelStudioConfigs.tenantId, tenantId)).limit(1);
@@ -47,6 +61,10 @@ export const labelStudioRouter = router({
       return { connected: false, error: "Label Studio URL and API token are required" };
     }
     try {
+      // Request-time re-check (defense in depth on top of the write-time
+      // check in saveConfig above — a row saved before this fix existed
+      // could still hold an unsafe URL).
+      assertSafeOutboundUrl(cfg.labelStudioUrl, "Label Studio URL");
       const resp = await fetch(`${cfg.labelStudioUrl}/api/projects`, {
         headers: { Authorization: `Token ${cfg.apiToken}` },
         signal: AbortSignal.timeout(5000),
@@ -171,6 +189,7 @@ export const labelStudioRouter = router({
 
       // Push tasks to Label Studio API
       try {
+        assertSafeOutboundUrl(cfg.labelStudioUrl, "Label Studio URL");
         const resp = await fetch(`${cfg.labelStudioUrl}/api/projects/${cfg.projectId}/import`, {
           method: "POST",
           headers: {

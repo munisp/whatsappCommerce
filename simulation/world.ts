@@ -290,7 +290,9 @@ export async function bootWorld(): Promise<World> {
     setEnv("LLM_BASE_URL", "http://llm.sim.local/v1");
     setEnv("LLM_API_KEY", "sim-llm-key");
     setEnv("OPENAI_BASE_URL", "http://openai.sim.local/v1");
-    setEnv("KEYCLOAK_URL", `http://127.0.0.1:${authPort}`);
+    // keycloak.sim.local is mapped onto the local mock listener by metaMock's
+    // fetch interceptor (the SSRF guard rejects loopback literals).
+    setEnv("KEYCLOAK_URL", `http://keycloak.sim.local:${authPort}`);
     setEnv("CORS_ORIGIN", "*");
     // payment.initiate + creditRepayLink need a Paystack secret (intercepted
     // by the fetch mock — never a real network call).

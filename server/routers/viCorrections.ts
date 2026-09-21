@@ -3,6 +3,7 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { visualInventoryCorrections, visualInventorySessions, labelStudioConfigs } from "../../drizzle/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { assertSafeOutboundUrl } from "../services/ssrfGuard";
 
 // ── Visual Inventory Corrections Router ───────────────────────────────────────
 export const viCorrectionsRouter = router({
@@ -175,6 +176,10 @@ export const viCorrectionsRouter = router({
     }));
 
     try {
+      // QA follow-up: cfg.labelStudioUrl is a tenant-supplied URL fetched
+      // WITH the tenant's stored API token attached — same SSRF-to-
+      // credential-leak shape already guarded on medusa/odoo/twenty.
+      assertSafeOutboundUrl(cfg.labelStudioUrl, "Label Studio URL");
       const resp = await fetch(`${cfg.labelStudioUrl}/api/projects/${cfg.projectId}/import`, {
         method: "POST",
         headers: { Authorization: `Token ${cfg.apiToken}`, "Content-Type": "application/json" },

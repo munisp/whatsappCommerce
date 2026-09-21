@@ -9,6 +9,7 @@ import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import { ENV } from "../_core/env";
 import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
+import { assertSafeOutboundUrl } from "../services/ssrfGuard";
 
 // Keycloak integration router — stores realm/client config and tests connectivity
 // We store Keycloak config in paymentGatewayConfigs using provider = "keycloak"
@@ -28,6 +29,16 @@ export const keycloakRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
+      // QA follow-up: serverUrl is fetched server-side (with the tenant's
+      // OWN clientSecret attached, see exchangeCode below — a PUBLIC
+      // procedure) later in this flow. Validating at write time closes the
+      // gap where a malicious serverUrl saved here could be used to make
+      // the server issue arbitrary internal requests later.
+      try {
+        assertSafeOutboundUrl(input.serverUrl, "Keycloak server URL");
+      } catch (err: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: err?.message ?? "Unsafe Keycloak server URL" });
+      }
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
       const configJson = JSON.stringify({
@@ -105,6 +116,16 @@ export const keycloakRouter = router({
       clientSecret: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
+      // QA follow-up: input.serverUrl is caller-supplied and fetched
+      // server-side, and — if clientSecret is provided — a second request
+      // POSTs it to a `tokenUrl` this server takes VERBATIM from the first
+      // response's `token_endpoint` field, i.e. a malicious first server can
+      // redirect the second, secret-carrying request anywhere it likes.
+      try {
+        assertSafeOutboundUrl(input.serverUrl, "Keycloak server URL");
+      } catch (err: any) {
+        return { success: false, status: err?.message ?? "Unsafe Keycloak server URL" };
+      }
       const wellKnownUrl = `${input.serverUrl.replace(/\/$/, "")}/realms/${input.realm}/.well-known/openid-configuration`;
       try {
         const res = await fetch(wellKnownUrl, {
@@ -123,6 +144,11 @@ export const keycloakRouter = router({
         // If client secret provided, attempt client credentials token
         if (input.clientSecret) {
           const tokenUrl = data.token_endpoint as string;
+          try {
+            assertSafeOutboundUrl(tokenUrl, "Keycloak token_endpoint");
+          } catch (err: any) {
+            return { success: false, status: err?.message ?? "Unsafe token_endpoint returned by realm" };
+          }
           const tokenRes = await fetch(tokenUrl, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -216,6 +242,13 @@ export const keycloakRouter = router({
       const realm = cfg.realm as string;
       const clientId = cfg.clientId as string;
       const clientSecret = rows[0].webhookSecret ? decryptSecret(rows[0].webhookSecret) : undefined;
+
+      // QA follow-up (highest severity of the 3 keycloak.ts SSRF gaps found):
+      // this is a PUBLIC procedure (no auth at all) that sends the tenant's
+      // real, decrypted clientSecret to serverUrl — a value that was only
+      // validated at saveConfig time in this pass, so a row saved before
+      // that fix landed could still be unsafe. Re-check here too.
+      assertSafeOutboundUrl(serverUrl, "Keycloak server URL");
 
       // Exchange code for tokens at the Keycloak token endpoint
       const tokenEndpoint = `${serverUrl}/realms/${realm}/protocol/openid-connect/token`;

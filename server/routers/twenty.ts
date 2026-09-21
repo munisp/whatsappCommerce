@@ -16,6 +16,7 @@ import {
   type TwentyIntegrationConfig,
 } from "../services/integrationSync";
 import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
+import { assertSafeOutboundUrl } from "../services/ssrfGuard";
 
 const DEMO_TENANT = "demo-tenant-001";
 
@@ -65,11 +66,21 @@ type TwentyOpportunity = {
   pointOfContactId?: string | null;
 };
 
-/** Real GET against the Twenty REST API. Throws honest errors. */
+/**
+ * Real GET against the Twenty REST API. Throws honest errors.
+ *
+ * QA follow-up: cfg.baseUrl is a tenant-supplied URL (saveConfig/
+ * testConnection/configure below all accept it from the caller) that this
+ * function fetches WITH the tenant's stored API key attached — the classic
+ * SSRF-to-credential-leak shape (assertSafeOutboundUrl was already used for
+ * this exact pattern in medusa.ts/odoo.ts/escrow.ts/paymentGateway.ts, just
+ * missing here). Guarding this single chokepoint covers every caller.
+ */
 async function twentyRestGet<T>(
   cfg: TwentyIntegrationConfig,
   path: string,
 ): Promise<T> {
+  assertSafeOutboundUrl(cfg.baseUrl, "Twenty CRM baseUrl");
   const resp = await fetch(`${cfg.baseUrl}${path}`, {
     headers: { Authorization: `Bearer ${cfg.apiKey}`, Accept: "application/json" },
     signal: AbortSignal.timeout(10000),
@@ -126,6 +137,11 @@ export const twentyRouter = router({
       whatsappEnabled: z.boolean().default(true),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
+        assertSafeOutboundUrl(input.baseUrl, "Twenty CRM baseUrl");
+      } catch (err: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: err?.message ?? "Unsafe Twenty CRM baseUrl" });
+      }
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = getTenantId(ctx);
@@ -200,6 +216,11 @@ export const twentyRouter = router({
       workspaceId: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      try {
+        assertSafeOutboundUrl(input.apiUrl, "Twenty CRM baseUrl");
+      } catch (err: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: err?.message ?? "Unsafe Twenty CRM baseUrl" });
+      }
       const db = await getDb();
       if (!db) throw new Error("DB unavailable");
       const tenantId = input.tenantId ?? getTenantId(ctx);

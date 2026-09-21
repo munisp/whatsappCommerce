@@ -1063,6 +1063,17 @@ export function installFetchMock(): void {
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const u = new URL(url);
 
+    // The sim's scripted Keycloak realm is a real local listener, but is
+    // addressed by a public-looking hostname: the server's SSRF guard
+    // (server/services/ssrfGuard.ts) now — correctly — rejects loopback
+    // literals for tenant-supplied Keycloak URLs (keycloak.saveConfig/
+    // exchangeCode), so the world's KEYCLOAK_URL can no longer be
+    // 127.0.0.1. Map the fake hostname back onto the local listener here.
+    if (u.hostname === "keycloak.sim.local") {
+      const mapped = url.replace("keycloak.sim.local", "127.0.0.1");
+      return realFetch!(input instanceof Request ? new Request(mapped, input) : mapped, init);
+    }
+
     // Real network for localhost (drives the booted sim server).
     if (LOCAL_RE.test(url)) {
       return realFetch!(input, init);
