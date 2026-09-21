@@ -8,9 +8,17 @@
 # HOW THE ALLOWLISTS WERE DERIVED (evidence, not the stale k8s/network-policies.yaml, which describes a different
 # topology): configured callers from every Deployment's env, cross-checked against real connections sampled from
 # conntrack on all three nodes. Observed on 2026-09-21: server and recon-worker -> ledger-bridge:8095; server ->
-# recon-worker:8096; a CronJob in namespace `otel` (cluster-report-*, the platform team's health report) -> both;
-# kubelet probes (node gateway IPs) -> all. Only event-processor is configured to call commerce-engine (gateway,
-# ai-agent and payment-orchestrator read COMMERCE_ENGINE_URL but have it unset here, so they cannot reach it).
+# recon-worker:8096; kubelet probes (node gateway IPs) -> all. Only event-processor is configured to call
+# commerce-engine (gateway, ai-agent and payment-orchestrator read COMMERCE_ENGINE_URL but have it unset here, so
+# they cannot reach it) — and, found later, event-processor's router is dead code, so nothing calls commerce-engine
+# at all today; the entry is the intended caller, not an observed one.
+#
+# CORRECTION (same day): an earlier version of this file also allowed the whole `otel` namespace on 8095/8096,
+# because conntrack showed a source labelled `otel/cluster-report-*` hitting both. That label was WRONG: the pod-IP
+# map listed a completed report pod and a running pod under the same reused IP, and picking the first match chose
+# the wrong one — the real source, one IP hitting both ports, was a `server` replica. Prometheus has no scrape
+# target on these ports, its blackbox jobs probe other systems, and the report script uses kubectl/Prometheus/
+# Alertmanager only. An unjustified namespace-wide allow is exactly what an allowlist exists to avoid, so it is gone.
 #
 # DELIBERATELY NOT DONE HERE: no namespace-wide default-deny and no egress policies. A default-deny would need every
 # flow of ~15 deployments (Kafka, Redis, Dapr, OTel, Keycloak, WhatsApp, PSPs, ...) enumerated and proven first; a
@@ -21,10 +29,8 @@
 # tested in a scratch namespace before applying this.
 #
 # RESIDUAL RISK: a podSelector trusts LABELS, so anyone who can create pods in this namespace can label their way past
-# it — RBAC on the namespace is the control for that. The `otel` namespace is allowed on the health ports because the
-# platform's report job has no stable pod labels to select; that namespace is the platform team's own observability
-# stack, not an application namespace. App-level authentication for the bridge and commerce-engine is a separate,
-# larger change (Rust + Go + every caller) tracked in .qa/defects.md QA-038.
+# it — RBAC on the namespace is the control for that. That is why these are ALSO protected by a shared secret at the
+# application layer (QA-038): the network allowlist says who may connect, the secret says who may ask.
 #
 # ADDING A CALLER: extend the allowlist here in the same change that points a new service at these URLs;
 # server/networkPolicyManifests.test.ts fails if a Deployment is configured to call one of them and is not listed.
@@ -49,9 +55,6 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: recon-worker
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel
       ports:
         - {port: 8095, protocol: TCP}
 ---
@@ -92,8 +95,5 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: server
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: otel
       ports:
         - {port: 8096, protocol: TCP}

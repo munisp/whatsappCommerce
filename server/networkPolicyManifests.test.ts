@@ -23,9 +23,9 @@ const NAME_LABEL = "app.kubernetes.io/name";
 
 /** What each protected service is called by, as (same-namespace pod names, other namespaces) — the pinned decision. */
 const EXPECTED = {
-  "ledger-bridge-ingress": { target: "ledger-bridge", file: "ledger-bridge", port: 8095, pods: ["recon-worker", "server"], namespaces: ["otel"] },
+  "ledger-bridge-ingress": { target: "ledger-bridge", file: "ledger-bridge", port: 8095, pods: ["recon-worker", "server"], namespaces: [] },
   "commerce-engine-ingress": { target: "commerce-engine", file: "commerce-engine", port: 8083, pods: ["event-processor"], namespaces: [] },
-  "recon-worker-ingress": { target: "recon-worker", file: "recon-worker", port: 8096, pods: ["server"], namespaces: ["otel"] },
+  "recon-worker-ingress": { target: "recon-worker", file: "recon-worker", port: 8096, pods: ["server"], namespaces: [] },
 } as const;
 
 describe("network policies exist for the three services that trust the network", () => {
