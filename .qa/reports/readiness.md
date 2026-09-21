@@ -40,7 +40,7 @@ What pass 4 found and fixed — most of it by *measuring on the live cluster ins
 | Observability | Partial, improved | Rust services now traced (verified); alert rules written and **validated against the live Prometheus, but not live** (they belong to `AfroNG/monitoring_dashboard`); `RustServiceDown`/`GoServiceDown` still inert |
 | Disaster recovery | Partial, unchanged | nightly `pg_dump` + weekly restore-verify (same host); optional off-host upload written, **no destination**; no PITR; **no TigerBeetle backup** |
 | **UI, accessibility, browser compatibility** | **NOT DONE — plan written, awaiting a human** | `.qa/ui-test-plan.md` (updated for the current build) |
-| Live load/stress test | Deliberately not done (shared cluster); the HPA scale-up was demonstrated with ~240 rps, not stress |
+| Live load/stress test | Deliberately not done (shared cluster) | the HPA scale-up was demonstrated with ~240 rps, not as a stress test |
 | Long soak (>10 min) | Not done | 10-minute soak only (local) |
 
 ## 3. Defects (full evidence in `.qa/defects.md`)
