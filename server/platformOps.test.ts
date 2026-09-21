@@ -427,7 +427,6 @@ describe("health/ready deep checks", () => {
   it.each([
     ["redis", { redisOk: false }],
     ["keycloak", { keycloakOk: false }],
-    ["tigerbeetle", { tbOk: false }],
   ])("component failure (%s) → ok=false, 503 in prod / 200 in dev", async (_name, flags) => {
     stubInfra(flags);
     const report = await checkReadiness();
@@ -460,6 +459,49 @@ describe("health/ready deep checks", () => {
     expect(report.components.tigerbeetle.error).toContain("tigerbeetle + postgres");
     expect(report.ok).toBe(true);
     expect(readinessHttpStatus(report, true)).toBe(200);
+  });
+
+  // QA CX-02: an unreachable ledger-bridge used to FAIL readiness. Every server
+  // replica shares the one bridge Service, so restarting it drained every pod
+  // at once — a payments-only outage became a 28 s outage of the whole
+  // platform. It is now degraded (reported, alertable via infra_component_up)
+  // and never gating, in every way the bridge can be down.
+  function stubBridge(bridge: () => Promise<unknown>) {
+    (getDb as any).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) });
+    (getRedis as any).mockResolvedValue({ ping: vi.fn().mockResolvedValue("PONG") });
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) =>
+      String(url).includes("/protocol/openid-connect/certs")
+        ? Promise.resolve({ ok: true, json: async () => ({ keys: [{ kty: "RSA" }] }) })
+        : bridge()));
+  }
+
+  it.each([
+    ["connection refused / no endpoints", () => Promise.reject(new TypeError("fetch failed")), "unreachable"],
+    ["probe timeout", () => Promise.reject(new DOMException("The operation was aborted due to timeout", "TimeoutError")), "unreachable"],
+    ["HTTP 503", () => Promise.resolve({ ok: false, status: 503 }), "returned 503"],
+    ["HTTP 502 from a proxy", () => Promise.resolve({ ok: false, status: 502 }), "returned 502"],
+  ])("ledger-bridge %s → degraded, readiness stays green (200 even in production)", async (_label, bridge, detail) => {
+    stubBridge(bridge as () => Promise<unknown>);
+    const report = await checkReadiness();
+    expect(report.components.tigerbeetle).toMatchObject({ ok: true, degraded: true });
+    expect(report.components.tigerbeetle.error).toContain("degraded:");
+    expect(report.components.tigerbeetle.error).toContain(detail);
+    expect(report.ok).toBe(true);
+    expect(readinessHttpStatus(report, true)).toBe(200);
+  });
+
+  it("an unreachable bridge does not mask a real failure elsewhere (redis down + bridge down → still 503)", async () => {
+    (getDb as any).mockResolvedValue({ execute: vi.fn().mockResolvedValue({ rows: [] }) });
+    (getRedis as any).mockResolvedValue(null);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: string) =>
+      String(url).includes("/protocol/openid-connect/certs")
+        ? Promise.resolve({ ok: true, json: async () => ({ keys: [{ kty: "RSA" }] }) })
+        : Promise.reject(new TypeError("fetch failed"))));
+    const report = await checkReadiness();
+    expect(report.components.tigerbeetle.degraded).toBe(true);
+    expect(report.components.redis.ok).toBe(false);
+    expect(report.ok).toBe(false);
+    expect(readinessHttpStatus(report, true)).toBe(503);
   });
 
   it("ledger-bridge reachable and both dependencies healthy → ok, not degraded", async () => {

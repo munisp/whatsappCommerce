@@ -29,6 +29,23 @@ quorum/fencing prompts map onto our stack as follows:
   honest `ledger_failed` failures instead of writing phantom money. This is
   the circuit-breaker that prevents two sides of a partition from both
   believing they hold the ledger.
+- **The ledger never gates `/health/ready`.** Readiness exists to drain a pod
+  that is individually broken. The ledger-bridge is shared by every server
+  replica, so failing readiness on it drains *all* of them at once and turns a
+  payments-only outage into a platform-wide one — measured on the live cluster
+  (chaos CX-02): a bridge restart left the Service with no endpoints, every
+  server pod went unready, and every route (catalog, auth, webhooks included)
+  returned 503 for 28 s (81 % availability). `checkTigerBeetle()` therefore
+  reports `degraded` (`ok: true`) for every failure mode — bridge unreachable,
+  non-2xx, or reachable with TigerBeetle/Postgres down — and payments fail
+  honestly at the point of use (`payment.initiate` → `ledger_failed`, pinned by
+  `ledgerOutage.test.ts` for both HTTP 503 and a dead network path). It stays
+  visible: the `degraded` flag is on `/health/ready`, and
+  `infra_component_up{component="tigerBeetle"}` (independent 60 s probe) drives
+  the `ComponentDown` alert after 5 minutes. Not gating is safe *because* the
+  ledger fails closed; running the bridge with `LEDGER_ALLOW_INMEMORY=true`
+  outside dev (it fabricates results) would invalidate that, and this decision
+  would have to be revisited.
 - **Redis locks are advisory only.** `SET NX EX` idempotency locks
   (payment initiation) and the gateway limiter degrade gracefully; correctness
   never depends on them.

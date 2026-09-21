@@ -34,6 +34,7 @@ interface IntentRow {
 }
 let rows: IntentRow[] = [];
 let ledgerDown = true;
+let ledgerUnreachable = false; // network-level failure: connection refused / no Service endpoints
 const ledgerCalls: { path: string; body: any }[] = [];
 
 function makeMockDb() {
@@ -110,6 +111,7 @@ vi.stubGlobal("fetch", vi.fn(async (url: any, init?: any) => {
 
   if (path === "/transfer") {
     ledgerCalls.push({ path, body });
+    if (ledgerUnreachable) throw new TypeError("fetch failed"); // what undici throws for ECONNREFUSED/ENOTFOUND
     if (ledgerDown) return new Response("ledger_unavailable", { status: 503 });
     return new Response(JSON.stringify({
       pending_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
@@ -155,6 +157,31 @@ describe("payment.initiate — TigerBeetle ledger outage", () => {
     rows = [];
     ledgerCalls.length = 0;
     ledgerDown = true;
+    ledgerUnreachable = false;
+  });
+
+  // Readiness no longer drains pods when the bridge is unreachable (QA CX-02), so
+  // payment.initiate is now what a user hits in that state — it must fail as
+  // honestly for a dead network path as it does for an HTTP 503.
+  it("ledger-bridge UNREACHABLE (connection refused) → same honest ledger_failed, no phantom success", async () => {
+    ledgerUnreachable = true;
+    const caller = appRouter.createCaller(userCtx());
+    await expect(caller.payment.initiate(input)).rejects.toThrow(/ledger_failed: fetch failed/);
+
+    expect(rows.length).toBe(1);
+    expect(rows[0].status).toBe("failed");
+    expect(rows[0].failureReason).toContain("ledger_failed");
+    expect(rows[0].ledgerPendingId).toBeNull();
+    // No payment URL was ever produced for a payment the ledger never reserved.
+    expect(ledgerCalls.filter((c) => c.path === "/transfer").length).toBe(1);
+
+    // And it heals: bridge back → the same order pays.
+    ledgerUnreachable = false;
+    ledgerDown = false;
+    const result = await caller.payment.initiate(input);
+    expect(result.status).toBe("initiated");
+    expect(result.tbDebitOk).toBe(true);
+    expect(rows.length).toBe(1);
   });
 
   it("TB down → honest ledger_failed: error surfaced, intent marked failed, no phantom success", async () => {
