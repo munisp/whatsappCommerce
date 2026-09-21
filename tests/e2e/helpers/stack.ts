@@ -201,7 +201,11 @@ export async function closeSql() {
 
 /**
  * Insert (or refresh) a users row so sdk.authenticateRequest finds the
- * session's openId in the DB. Returns the numeric user id.
+ * session's openId in the DB. Returns the numeric user id. tenantId is
+ * refreshed too: each run mints a fresh tenant id, so without this a re-run
+ * against a stack that was not torn down (--no-teardown) leaves the fixed
+ * openIds bound to the PREVIOUS run's tenant and every tenant-scoped call
+ * fails FORBIDDEN.
  */
 export async function seedUser(opts: {
   openId: string;
@@ -214,7 +218,7 @@ export async function seedUser(opts: {
     INSERT INTO users ("openId", "name", "role", "tenantId", "lastSignedIn", "createdAt", "updatedAt")
     VALUES (${opts.openId}, ${opts.name}, ${opts.role ?? "user"}, ${opts.tenantId ?? null}, NOW(), NOW(), NOW())
     ON CONFLICT ("openId")
-    DO UPDATE SET "role" = EXCLUDED."role", "lastSignedIn" = NOW(), "updatedAt" = NOW()
+    DO UPDATE SET "role" = EXCLUDED."role", "tenantId" = EXCLUDED."tenantId", "lastSignedIn" = NOW(), "updatedAt" = NOW()
     RETURNING id`;
   return rows[0].id;
 }
