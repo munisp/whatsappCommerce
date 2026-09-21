@@ -8,6 +8,22 @@ import crypto from "crypto";
 
 let _client: MinioClient | null = null;
 
+/**
+ * QA follow-up (defense in depth): callers build keys from user-influenced
+ * segments (e.g. a merchant-chosen product class name), and this module only
+ * used to strip leading slashes — object stores don't treat keys as
+ * filesystem paths, but the same key flows to /api/storage/* serving and
+ * other consumers that might. Reject traversal segments outright rather than
+ * rely on every caller (and the object store) to be careful.
+ */
+export function normalizeStorageKey(relKey: string): string {
+  const key = relKey.replace(/^\/+/, "");
+  if (key.length === 0 || key.includes("\0") || key.includes("\\") || key.split("/").some((seg) => seg === ".." || seg === ".")) {
+    throw new Error(`invalid storage key: ${JSON.stringify(relKey.slice(0, 80))}`);
+  }
+  return key;
+}
+
 function getClient(): MinioClient {
   if (!_client) {
     const rawUrl = ENV.s3Endpoint.startsWith("http") ? ENV.s3Endpoint : `http://${ENV.s3Endpoint}`;
@@ -39,7 +55,7 @@ export async function storagePut(
   await ensureBucket();
   const client = getClient();
   const buf = typeof data === "string" ? Buffer.from(data) : Buffer.from(data as Uint8Array);
-  const key = relKey.replace(/^\/+/, "");
+  const key = normalizeStorageKey(relKey);
   await client.putObject(ENV.s3Bucket, key, buf, buf.length, { "Content-Type": contentType });
   return { key, url: `/api/storage/${key}` };
 }
@@ -53,7 +69,7 @@ export async function storagePut(
 export async function storageDelete(relKey: string): Promise<{ key: string }> {
   await ensureBucket();
   const client = getClient();
-  const key = relKey.replace(/^\/+/, "");
+  const key = normalizeStorageKey(relKey);
   await client.removeObject(ENV.s3Bucket, key);
   return { key };
 }
@@ -61,7 +77,7 @@ export async function storageDelete(relKey: string): Promise<{ key: string }> {
 export async function storageGet(relKey: string, expiresIn = 3600): Promise<{ key: string; url: string }> {
   await ensureBucket();
   const client = getClient();
-  const key = relKey.replace(/^\/+/, "");
+  const key = normalizeStorageKey(relKey);
   const url = await client.presignedGetObject(ENV.s3Bucket, key, expiresIn).catch(() => `/api/storage/${key}`);
   return { key, url };
 }
@@ -88,7 +104,7 @@ export async function storageServe(
   relKey: string
 ): Promise<{ stream: NodeJS.ReadableStream; contentType: string }> {
   const client = getClient();
-  const key = relKey.replace(/^\/+/, "");
+  const key = normalizeStorageKey(relKey);
   const stat = await client.statObject(ENV.s3Bucket, key);
   const stream = await client.getObject(ENV.s3Bucket, key);
   return { stream, contentType: stat.metaData?.["content-type"] ?? "application/octet-stream" };

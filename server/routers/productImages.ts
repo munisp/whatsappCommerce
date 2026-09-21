@@ -9,6 +9,13 @@ import { storagePut } from "../storage";
 
 // Auto-quality scoring via Florence-2 VLM: returns 1-5 score based on detection confidence
 // Falls back to null if the VLM service is unavailable or times out
+/** QA follow-up: className is an unrestricted client string; keep it to a
+ * single safe path segment when it becomes part of an object-store key. The
+ * stored className column itself is unchanged. */
+function safeKeySegment(s: string): string {
+  return s.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 128) || "unclassified";
+}
+
 async function autoScoreImage(buffer: Buffer, className: string): Promise<number | null> {
   const VLM_URL = process.env.VISUAL_INVENTORY_VLM_URL ?? "http://localhost:8081";
   try {
@@ -139,7 +146,7 @@ export const productImagesRouter = router({
       const mimeType = matches[1];
       const buffer = Buffer.from(matches[2], "base64");
       const ext = mimeType.includes("png") ? "png" : "jpg";
-      const fileKey = `product-images/${input.className}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const fileKey = `product-images/${safeKeySegment(input.className)}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
      const { url } = await storagePut(fileKey, buffer, mimeType);
 
@@ -187,7 +194,7 @@ export const productImagesRouter = router({
           const mimeType = matches[1];
           const buffer = Buffer.from(matches[2], "base64");
           const ext = mimeType.includes("png") ? "png" : "jpg";
-          const fileKey = `product-images/${input.className}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const fileKey = `product-images/${safeKeySegment(input.className)}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
           const { url } = await storagePut(fileKey, buffer, mimeType);
           // Auto-score quality if not provided by caller
           const qualityScore = img.qualityScore ?? await autoScoreImage(buffer, input.className);
