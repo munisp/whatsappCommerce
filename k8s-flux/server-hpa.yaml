@@ -1,0 +1,47 @@
+# QA-041: horizontal autoscaling for `server` (QA-027 asked for it; it needed a metrics API first — see
+# k8s-flux/cluster-addons/metrics-server.yaml, installed 2026-09-21).
+#
+# TARGET IS AN ABSOLUTE AVERAGE (600m per pod), NOT A UTILIZATION PERCENTAGE. `Utilization` is measured against the pod's
+# CPU *request*, and this pod's request is deliberately small (200m — the workers' requests are already ~97% allocated by
+# other tenants, see server-deployment.yaml) while its limit is 1 CPU and it measurably needs 130-170% of a core under load
+# (.qa/perf/summary.md). Against a 200m request, 70% "utilization" is 140m: the HPA would pin at max on any real traffic.
+# 600m is 60% of the 1-CPU limit, i.e. scale out well before the pod is CFS-throttled.
+#
+# min 2 = the availability floor (matches the PodDisruptionBudget's minAvailable: 1 needing >1 pod to be meaningful).
+# max 4 = what fits in the free requests on the workers today (200m each); raising it needs headroom that this app does not
+# control. Scale-up is quick (an overloaded single-threaded server is losing requests now); scale-down waits 10 minutes so
+# a burst does not cause flapping.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: server
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/name: server
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: server
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: AverageValue
+        averageValue: 600m
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 120

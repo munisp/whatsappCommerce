@@ -25,6 +25,7 @@ resources:
   - recon-worker-service.yaml
   - server-deployment.yaml
   - server-service.yaml
+  - server-hpa.yaml
   - webhook-ingestor-deployment.yaml
   - webhook-ingestor-service.yaml
   - fluvio-consumer-deployment.yaml

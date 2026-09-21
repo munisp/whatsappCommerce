@@ -10,9 +10,11 @@ metadata:
   namespace: whatsapp-commerce
 spec:
   progressDeadlineSeconds: 600
-  # 2 replicas (was 1): a restart, OOM-kill or node drain is no longer a full outage. Proven multi-replica-safe:
-  # chaos CX-01 (abrupt loss of one of two replicas, 899/899 OK), signed-cookie PKCE (QA-018), Redis-backed limits.
-  replicas: 2
+  # NO `replicas:` HERE ON PURPOSE (QA-041). The HorizontalPodAutoscaler (server-hpa.yaml, min 2 / max 4) owns the
+  # replica count; a `replicas:` field in this file would be re-applied by Flux on every reconcile and fight the HPA,
+  # scaling the Deployment back down mid-burst. The FLOOR of 2 lives in the HPA's minReplicas, and is what the
+  # availability test pins. (2 replicas: a restart, OOM-kill or node drain is not a full outage. Proven multi-replica-safe:
+  # chaos CX-01 (abrupt loss of one of two replicas, 899/899 OK), signed-cookie PKCE (QA-018), Redis-backed limits.)
   revisionHistoryLimit: 10
   selector:
     matchLabels:
