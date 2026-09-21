@@ -10,7 +10,9 @@ metadata:
   namespace: whatsapp-commerce
 spec:
   progressDeadlineSeconds: 600
-  replicas: 1
+  # 2 replicas: proven safe across replicas by tests/e2e/ledger-ha.test.ts (idempotency, commit/void/reverse and
+  # concurrency hold when a Service load-balances calls across pods) against ONE TigerBeetle and ONE Postgres.
+  replicas: 2
   revisionHistoryLimit: 10
   selector:
     matchLabels:
@@ -18,8 +20,8 @@ spec:
       app.kubernetes.io/name: ledger-bridge
   strategy:
     rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
+      maxSurge: 1
+      maxUnavailable: 0
     type: RollingUpdate
   template:
     metadata:
@@ -109,12 +111,13 @@ spec:
           value: 127.0.0.1 # loopback only: the bridge is the sole client
         - name: PORT
           value: "3000"
-        # The shared TigerBeetle (namespace tigerbeetle, 1 replica). Not secret: it is in the
-        # StatefulSet spec. Hostnames are resolved to an IP on every reconnect by the adapter.
+        # The 3-replica TigerBeetle in THIS namespace (k8s-flux/tigerbeetle/tigerbeetle-ha.yaml): survives the
+        # loss of any one replica. Addresses are the replicas' STATIC ClusterIPs (TigerBeetle takes IPs only and
+        # a pod IP changes on restart). Not secret. tigerbeetle-ha.yaml's TB_IP_0..2 must match.
         - name: TB_CLUSTER_ID
-          value: "145851240909969808468846706535455565498"
+          value: "160071330234540767289684610414810526351"
         - name: TB_ADDRESSES
-          value: tigerbeetle-0.tigerbeetle-headless.tigerbeetle.svc.cluster.local:3000
+          value: 10.96.240.10:3000,10.96.240.11:3000,10.96.240.12:3000
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
@@ -159,6 +162,14 @@ spec:
         volumeMounts:
         - mountPath: /tmp
           name: adapter-tmp
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/instance: ledger-bridge
+            app.kubernetes.io/name: ledger-bridge
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler

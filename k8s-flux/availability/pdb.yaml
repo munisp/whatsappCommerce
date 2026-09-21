@@ -1,0 +1,28 @@
+# Voluntary disruptions (node drains, rolling node upgrades) may take ONE replica of each of these at a time.
+# Without a budget a drain can evict both server pods (or both bridge pods) in the same instant — the outage
+# a second replica is meant to prevent. The TigerBeetle cluster has its own budget in
+# tigerbeetle/tigerbeetle-ha.yaml (maxUnavailable: 1: a second replica down means no quorum).
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: server
+  namespace: whatsapp-commerce
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: server
+      app.kubernetes.io/name: server
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ledger-bridge
+  namespace: whatsapp-commerce
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: ledger-bridge
+      app.kubernetes.io/name: ledger-bridge

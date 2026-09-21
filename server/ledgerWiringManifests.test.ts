@@ -27,8 +27,9 @@ describe("ledger-bridge deployment (QA-031)", () => {
     expect(pod.containers.map((c: Obj) => c.name).sort()).toEqual(["ledger-bridge", "tb-adapter"]);
   });
 
-  it("stays a single replica until multi-replica replay has been tested", () => {
-    expect(dep.spec.replicas).toBe(1);
+  it("runs 2 replicas — safe because tests/e2e/ledger-ha.test.ts proves idempotency, commit/void/reverse and concurrency across replicas", () => {
+    expect(dep.spec.replicas).toBeGreaterThanOrEqual(2);
+    expect(dep.spec.strategy.rollingUpdate.maxUnavailable).toBe(0); // a rollout never dips below the desired count
   });
 
   describe("bridge", () => {

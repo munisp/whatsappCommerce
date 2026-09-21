@@ -33,6 +33,23 @@ spec:
       - env:
         - name: LEDGER_BRIDGE_URL
           value: http://ledger-bridge.whatsapp-commerce.svc.cluster.local:8095
+        # QA-034: the reconciler had NO database configured, so it could not compare payment intents with the
+        # ledger at all — nothing reconciled the (now real) ledger against what the platform believes. It reads
+        # payment_intents directly and reports discrepancies to the platform's internal events endpoint.
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: whatsapp-postgres-dsn
+        - name: PLATFORM_API_URL
+          value: http://server.whatsapp-commerce.svc.cluster.local:3000
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: INTERNAL_API_KEY
+              name: whatsapp-server-internal-api-key
+        - name: RUST_LOG
+          value: info
         - name: OTEL_ENABLED
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT

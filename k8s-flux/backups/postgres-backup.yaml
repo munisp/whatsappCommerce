@@ -81,6 +81,17 @@ spec:
                   value: "14"
                 - name: HOME
                   value: /tmp
+                - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
+                # OFF-HOST COPY (optional). Create Secret postgres-backup-offhost with keys bucket, access_key,
+                # secret_key and optionally endpoint (blank = AWS S3), region, prefix, and every nightly dump is also
+                # uploaded and verified there. Unset = the job behaves as before and logs a WARNING every night.
+                # NOT the app's own S3 bucket: that one is served publicly through /api/storage/*.
+                - {name: OFFHOST_BUCKET, valueFrom: {secretKeyRef: {name: postgres-backup-offhost, key: bucket, optional: true}}}
+                - {name: OFFHOST_ACCESS_KEY, valueFrom: {secretKeyRef: {name: postgres-backup-offhost, key: access_key, optional: true}}}
+                - {name: OFFHOST_SECRET_KEY, valueFrom: {secretKeyRef: {name: postgres-backup-offhost, key: secret_key, optional: true}}}
+                - {name: OFFHOST_ENDPOINT, valueFrom: {secretKeyRef: {name: postgres-backup-offhost, key: endpoint, optional: true}}}
+                - {name: OFFHOST_REGION, valueFrom: {secretKeyRef: {name: postgres-backup-offhost, key: region, optional: true}}}
+                - {name: OFFHOST_PREFIX, valueFrom: {secretKeyRef: {name: postgres-backup-offhost, key: prefix, optional: true}}}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -133,7 +144,66 @@ spec:
                   find "$DIR" -name '.inprogress-*' -mmin +1440 -delete 2>/dev/null || true
 
                   echo "[pg-backup] OK $(basename "$FINAL") bytes=$BYTES tables=$TOC_TABLES fks=$TOC_FKS migrations=$MIGRATIONS took=${DUR}s kept=$(ls -1 "$DIR"/whatsapp_commerce-*.dump | wc -l)"
-                  echo "[pg-backup] NOTE: this copy is on the same host as the database — it does not survive host loss."
+
+                  # ---- off-host copy -------------------------------------------------------------------------------
+                  if [ -n "${OFFHOST_BUCKET:-}" ]; then
+                    # A CONFIGURED off-host copy that fails must fail the job (and so PostgresBackupRunFailing): a
+                    # backup that silently stopped leaving the host is worse than one that never claimed to. The local
+                    # dump above is already safe and retained either way.
+                    python3 - "$FINAL" <<'PY'
+                  import hashlib, os, sys, tempfile
+                  from pathlib import Path
+                  import boto3
+                  from botocore.config import Config
+
+                  final = Path(sys.argv[1])
+                  files = [final, Path(str(final) + ".sha256"), Path(str(final) + ".counts"), Path(str(final) + ".meta")]
+                  bucket = os.environ["OFFHOST_BUCKET"]
+                  prefix = (os.environ.get("OFFHOST_PREFIX") or "postgres/whatsapp_commerce").strip("/")
+                  s3 = boto3.client(
+                      "s3",
+                      endpoint_url=os.environ.get("OFFHOST_ENDPOINT") or None,
+                      region_name=os.environ.get("OFFHOST_REGION") or "us-east-1",
+                      aws_access_key_id=os.environ["OFFHOST_ACCESS_KEY"],
+                      aws_secret_access_key=os.environ["OFFHOST_SECRET_KEY"],
+                      # boto3 >= 1.36 adds request checksums by default, which many S3-compatible stores (older MinIO,
+                      # Spaces, Ceph...) reject. Integrity is verified below (size + sha256 round-trip), so only send
+                      # a checksum where the service requires one.
+                      config=Config(retries={"max_attempts": 5, "mode": "standard"}, connect_timeout=10, read_timeout=60,
+                                    s3={"addressing_style": "path"},
+                                    request_checksum_calculation="when_required", response_checksum_validation="when_required"),
+                  )
+
+                  def sha256(path):
+                      h = hashlib.sha256()
+                      with open(path, "rb") as fh:
+                          for chunk in iter(lambda: fh.read(1 << 20), b""):
+                              h.update(chunk)
+                      return h.hexdigest()
+
+                  # Sidecars first, the dump LAST — the same rule as on the volume: a listed dump is a complete set.
+                  for f in files[1:] + files[:1]:
+                      s3.upload_file(str(f), bucket, f"{prefix}/{f.name}")
+
+                  for f in files:
+                      remote = s3.head_object(Bucket=bucket, Key=f"{prefix}/{f.name}")["ContentLength"]
+                      if remote != f.stat().st_size:
+                          sys.exit(f"off-host verify FAILED: {f.name} is {remote} bytes remotely, {f.stat().st_size} locally")
+
+                  # Content round-trip for anything that is cheap to pull back; larger dumps are size-checked only.
+                  if final.stat().st_size <= 512 * 1024 * 1024:
+                      with tempfile.NamedTemporaryFile(dir="/tmp") as tmp:
+                          s3.download_file(bucket, f"{prefix}/{final.name}", tmp.name)
+                          if sha256(tmp.name) != sha256(final):
+                              sys.exit("off-host verify FAILED: the downloaded dump does not match the local checksum")
+                      mode = "size + sha256 round-trip"
+                  else:
+                      mode = "size only (dump too large to re-download)"
+                  print(f"[pg-backup] OFF-HOST OK s3://{bucket}/{prefix}/{final.name} ({mode})")
+                  PY
+                  else
+                    echo "[pg-backup] WARNING: no off-host copy configured (Secret postgres-backup-offhost). This dump is on the same host as the database and does not survive host loss."
+                  fi
               volumeMounts:
                 - {name: backups, mountPath: /backups}
                 - {name: tmp, mountPath: /tmp}
