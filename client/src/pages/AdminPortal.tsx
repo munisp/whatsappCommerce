@@ -594,7 +594,6 @@ function FinanceTab() {
   const triggerRecon = trpc.infra.triggerReconciliation.useMutation();
   const lastRecon = trpc.infra.getLastReconciliation.useQuery();
   const { data: tbAccounts } = trpc.infra.listTbAccounts.useQuery({});
-  const provisionTb = trpc.infra.provisionTbAccount.useMutation();
 
   return (
     <div className="space-y-6">
@@ -646,19 +645,17 @@ function FinanceTab() {
               </CardTitle>
               <CardDescription>Financial accounts in the atomic double-entry ledger</CardDescription>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => provisionTb.mutate({ accountType: "float", currency: "NGN" })}
-              disabled={provisionTb.isPending}
-            >
-              Provision Float Account
-            </Button>
           </div>
         </CardHeader>
         <CardContent>
+          {/* QA-039: there is no "Provision" button on purpose — accounts are created automatically, with the right
+              overdraft policy, the first time a tenant transacts. A hand-made account would be permanent in the
+              shared ledger and nothing would ever use it. */}
+          <p className="text-xs text-muted-foreground mb-3" data-testid="tb-accounts-note">
+            Accounts are created automatically the first time a tenant transacts.
+          </p>
           {(tbAccounts?.accounts?.length ?? 0) === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No TB accounts provisioned yet</p>
+            <p className="text-sm text-muted-foreground text-center py-4">No accounts recorded here yet</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

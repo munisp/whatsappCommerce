@@ -411,28 +411,29 @@ export const infraRouter = router({
     }),
 
   // ── TigerBeetle Account Management ──────────────────────────────────────────
+  // QA-039: manual provisioning is DISABLED, deliberately. It used to POST to the bridge's /accounts/provision, which
+  // (a) has never worked from here — the body was camelCase, the bridge wants snake_case, so every call was a 422 that
+  // this handler then reported as "Ledger bridge unavailable" — and (b) if the casing were simply "fixed", would start
+  // creating TigerBeetle accounts with a RANDOM id and NO kind stamp. Since QA-033 every account the platform uses is
+  // derived from a ref (server/services/ledgerAccounts.ts) and created on first use with its overdraft policy, so a
+  // hand-made account is never referenced by anything, has no `debits_must_not_exceed_credits`, and — TigerBeetle
+  // accounts cannot be deleted — would sit in the SHARED ledger (lanai and vpp use it too) forever. A button that can
+  // only litter permanent, unusable state is worse than one that says so. The input schema is kept so an old client
+  // gets this message rather than a validation error.
   provisionTbAccount: adminProcedure
     .input(z.object({
       tenantId: z.string().optional(),
       accountType: z.enum(["merchant", "escrow", "platform_fee", "float", "suspense"]),
       currency: z.string().default("NGN"),
     }))
-    .mutation(async ({ input }) => {
-      try {
-        // QA-038: /accounts/provision is protected on the bridge once its INTERNAL_API_KEY is set. This call site was
-        // missed by the first pass (found by sweeping the repo for every caller, not by a test).
-        const res = await fetch(`${ENV.ledgerBridgeUrl}/accounts/provision`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(process.env.INTERNAL_API_KEY ? { "X-Internal-Api-Key": process.env.INTERNAL_API_KEY } : {}),
-          },
-          body: JSON.stringify(input),
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (res.ok) return res.json();
-      } catch (e) { console.warn("[TigerBeetle] Provision failed:", e); }
-      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Ledger bridge unavailable" });
+    .mutation(async () => {
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message:
+          "Manual TigerBeetle account provisioning is disabled. Ledger accounts are created automatically, with the " +
+          "right overdraft policy, the first time a tenant transacts; an account made by hand would be unused, " +
+          "unconstrained and permanent in the shared ledger.",
+      });
     }),
 
   listTbAccounts: adminProcedure

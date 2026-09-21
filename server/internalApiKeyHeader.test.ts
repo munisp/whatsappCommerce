@@ -85,24 +85,26 @@ describe("server/routers/payment.ts — ledgerRequest (payment.ts's own local co
   });
 });
 
-describe("server/routers/infra.ts — provisionTbAccount (POST /accounts/provision, a protected bridge route)", () => {
-  // Missed by the first pass: found by sweeping the repo for every caller of the bridge, not by a failing test —
-  // which is exactly why it is pinned here now.
+describe("server/routers/infra.ts — provisionTbAccount is DISABLED (QA-039)", () => {
+  // It used to be the call site the first pass of QA-038 missed (found by sweeping the repo for every caller). It is no
+  // longer a caller at all: the body was never valid (camelCase vs the bridge's snake_case), and making it valid would
+  // have started creating random-id, unconstrained, PERMANENT accounts in the shared TigerBeetle. So what is pinned is
+  // that it refuses, explains itself, and never touches the bridge.
   const admin = () => appRouter.createCaller(ctxFor({ id: 1, role: "admin" }));
-  const input = { accountType: "escrow" as const, currency: "NGN" };
+  const input = { accountType: "float" as const, currency: "NGN" };
 
-  it("sends the header when configured", async () => {
+  it("refuses with PRECONDITION_FAILED and an explanation, and never calls the ledger bridge", async () => {
     process.env.INTERNAL_API_KEY = "s3cret";
-    await admin().infra.provisionTbAccount(input);
-    expect(calls[0].url).toContain("/accounts/provision");
-    expect(calls[0].headers["X-Internal-Api-Key"]).toBe("s3cret");
-    expect(calls[0].headers["Content-Type"]).toBe("application/json"); // the original header survived the change
+    await expect(admin().infra.provisionTbAccount(input)).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: expect.stringMatching(/disabled.*created automatically/is),
+    });
+    expect(calls, "no request may reach the bridge").toHaveLength(0);
   });
 
-  it("sends nothing extra when unset", async () => {
-    delete process.env.INTERNAL_API_KEY;
-    await admin().infra.provisionTbAccount(input);
-    expect(headerNames(calls[0].headers)).not.toContain("x-internal-api-key");
+  it("is still admin-only (a non-admin gets FORBIDDEN, not the explanation)", async () => {
+    await expect(appRouter.createCaller(ctxFor({ id: 2, role: "user" })).infra.provisionTbAccount(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -142,7 +144,7 @@ describe("server/routers/infra.ts — recon-worker calls (triggerReconciliation,
 
 // ── static sweep ──────────────────────────────────────────────────────────────────────────────────────────────
 // The per-call-site tests above only cover the call sites someone remembered. provisionTbAccount was missed by the
-// first pass and found by reading, not by a failing test — so this is the tripwire for the NEXT one: every place in
+// first pass (it is disabled now, QA-039) and found by reading, not by a failing test — so this is the tripwire for the NEXT one: every place in
 // server/ that builds a URL from the bridge's or recon-worker's address must either hit an OPEN path (/health,
 // /health/ready — kubelet sends no header) or set X-Internal-Api-Key nearby. Deliberately a heuristic (a header on a
 // different request within the window would fool it); its job is to make forgetting loud, not to prove correctness.
@@ -182,7 +184,7 @@ describe("static sweep: no caller of a protected bridge/recon-worker route can f
   it("is not vacuous: it finds the call sites we know exist", () => {
     const where = sites.map((s) => `${s.file}`);
     for (const known of ["services/ledgerBridge.ts", "routers/payment.ts", "routers/infra.ts"]) expect(where.some((w) => w.endsWith(known)), known).toBe(true);
-    expect(sites.length).toBeGreaterThanOrEqual(7);
+    expect(sites.length).toBeGreaterThanOrEqual(6); // was 7 before provisionTbAccount stopped being a caller (QA-039)
   });
 
   it("every one either targets an open /health path or sets X-Internal-Api-Key nearby", () => {
