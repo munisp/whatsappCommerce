@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { consumeSsoTransaction, ssoFailureMessage } from "@/lib/ssoTransaction";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -13,18 +14,21 @@ import { CheckCircle, XCircle, ShieldCheck } from "lucide-react";
  *
  * After Keycloak redirects back here with an authorization code, this page:
  *  1. Reads the `code` and `state` query params
- *  2. Calls keycloak.exchangeCode to exchange the code for tokens server-side
- *  3. Stores the resulting portal session token in localStorage
- *  4. Redirects to /portal (the portal dashboard)
+ *  2. Checks `state` against the transaction THIS TAB started (QA-039) — a callback this tab did not start is
+ *     refused before anything is sent to the server (login CSRF)
+ *  3. Calls keycloak.exchangeCode with the PKCE verifier kept by this tab, so Keycloak can refuse a code that was
+ *     issued for a different browser
+ *  4. Stores the resulting portal session token in localStorage
+ *  5. Redirects to /portal (the portal dashboard)
  *
- * The `state` param encodes the tenantId as a base64 JSON blob so we know
- * which tenant's Keycloak config to use for the token exchange.
+ * The tenant comes from the stored transaction, NOT from the URL: nothing in the query string is trusted.
  */
 export default function SsoCallback() {
   const [, navigate] = useLocation();
   const [status, setStatus] = useState<"exchanging" | "success" | "error">("exchanging");
   const [errorMsg, setErrorMsg] = useState("");
   const [tenantName, setTenantName] = useState("");
+  const startedRef = useRef(false);
 
   const exchangeMutation = trpc.keycloak.exchangeCode.useMutation({
     onSuccess(data) {
@@ -60,28 +64,26 @@ export default function SsoCallback() {
       return;
     }
 
-    // Decode tenantId from state (encoded as base64 JSON by TenantPortalLayout)
-    let tenantId = "";
-    if (state) {
-      try {
-        const decoded = JSON.parse(atob(state)) as { tenantId?: string };
-        tenantId = decoded.tenantId ?? "";
-      } catch {
-        // state may be a plain string in some flows
-        tenantId = state;
-      }
-    }
+    // Single use: consuming removes the stored transaction, so this must run exactly once (React StrictMode runs
+    // effects twice in dev — the second run would find nothing and show a spurious failure).
+    if (startedRef.current) return;
+    startedRef.current = true;
 
-    if (!tenantId) {
+    const tx = consumeSsoTransaction(state);
+    if (!tx.ok) {
       setStatus("error");
-      setErrorMsg(
-        "Could not determine tenant from SSO state. Please try logging in again."
-      );
+      setErrorMsg(ssoFailureMessage(tx.reason));
       return;
     }
 
     const redirectUri = `${window.location.origin}/portal/sso-callback`;
-    exchangeMutation.mutate({ tenantId, code, redirectUri, state: state ?? undefined });
+    exchangeMutation.mutate({
+      tenantId: tx.tenantId,
+      code,
+      redirectUri,
+      state: state ?? undefined,
+      codeVerifier: tx.codeVerifier,
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

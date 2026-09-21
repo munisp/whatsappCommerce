@@ -177,7 +177,10 @@ export const keycloakRouter = router({
     .input(z.object({
       tenantId: z.string(),
       redirectUri: z.string().url(),
-      state: z.string().optional(),
+      state: z.string().max(2048).optional(),
+      // QA-039: PKCE (RFC 7636, S256). The browser keeps the verifier; only the challenge travels through Keycloak.
+      // 43 chars = base64url(SHA-256(verifier)) with no padding — anything else is not an S256 challenge.
+      codeChallenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/, "codeChallenge must be an S256 base64url challenge").optional(),
     }))
     .query(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
@@ -202,6 +205,7 @@ export const keycloakRouter = router({
         redirect_uri: input.redirectUri,
         scope: "openid email profile",
         ...(input.state ? { state: input.state } : {}),
+        ...(input.codeChallenge ? { code_challenge: input.codeChallenge, code_challenge_method: "S256" } : {}),
       });
       const authUrl = `${serverUrl}/realms/${realm}/protocol/openid-connect/auth?${params.toString()}`;
       return { authUrl, realm, clientId };
@@ -212,9 +216,14 @@ export const keycloakRouter = router({
     .input(
       z.object({
         tenantId: z.string(),
-        code: z.string(),
+        code: z.string().max(2048),
         redirectUri: z.string().url(),
-        state: z.string().optional(),
+        state: z.string().max(2048).optional(),
+        // QA-039: the PKCE verifier for the challenge sent in getLoginUrl (RFC 7636: 43-128 unreserved characters).
+        // Forwarded to Keycloak, which is what actually binds the code to the browser that started the login.
+        // Whether `state` matches is checked in the browser (it is the only party that stored the nonce) — see
+        // client/src/lib/ssoTransaction.ts; the server has nothing to compare it with and does not pretend to.
+        codeVerifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/, "codeVerifier must be 43-128 unreserved characters").optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -258,6 +267,7 @@ export const keycloakRouter = router({
         redirect_uri: input.redirectUri,
         client_id: clientId,
         ...(clientSecret ? { client_secret: clientSecret } : {}),
+        ...(input.codeVerifier ? { code_verifier: input.codeVerifier } : {}),
       });
 
       const tokenRes = await fetch(tokenEndpoint, {

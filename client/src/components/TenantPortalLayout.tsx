@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { toast } from "sonner";
+import { beginSsoTransaction } from "@/lib/ssoTransaction";
 import NotificationCenter from "@/components/NotificationCenter";
 import { Wallet, Rocket, BarChart3, Megaphone, MapPin, BookOpen } from "lucide-react";
 
@@ -43,9 +44,11 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
     setSsoLoading(true);
     try {
       const redirectUri = `${window.location.origin}/portal/sso-callback`;
-      const state = btoa(JSON.stringify({ tenantId, returnTo: "/portal" }));
+      // QA-039: an unguessable state + PKCE challenge, remembered in THIS tab so the callback can prove it belongs
+      // to the login this tab started (see lib/ssoTransaction.ts).
+      const { state, codeChallenge } = await beginSsoTransaction(tenantId);
       const res = await fetch(
-        `/api/trpc/keycloak.getLoginUrl?batch=1&input=${encodeURIComponent(JSON.stringify({ "0": { json: { tenantId, redirectUri, state } } }))}`,
+        `/api/trpc/keycloak.getLoginUrl?batch=1&input=${encodeURIComponent(JSON.stringify({ "0": { json: { tenantId, redirectUri, state, codeChallenge } } }))}`,
         { headers: { Accept: "application/json" } }
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
