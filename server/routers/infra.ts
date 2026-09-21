@@ -419,9 +419,14 @@ export const infraRouter = router({
     }))
     .mutation(async ({ input }) => {
       try {
+        // QA-038: /accounts/provision is protected on the bridge once its INTERNAL_API_KEY is set. This call site was
+        // missed by the first pass (found by sweeping the repo for every caller, not by a test).
         const res = await fetch(`${ENV.ledgerBridgeUrl}/accounts/provision`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(process.env.INTERNAL_API_KEY ? { "X-Internal-Api-Key": process.env.INTERNAL_API_KEY } : {}),
+          },
           body: JSON.stringify(input),
           signal: AbortSignal.timeout(10_000),
         });

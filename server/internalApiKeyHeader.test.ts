@@ -1,5 +1,5 @@
 /**
- * QA-038 part 2/3: every server-side caller of ledger-bridge and recon-worker now sends
+ * QA-038 part 2/3: every server-side caller of a PROTECTED ledger-bridge / recon-worker route now sends
  * X-Internal-Api-Key when INTERNAL_API_KEY is configured — those services will start requiring it once
  * their own INTERNAL_API_KEY is set (see rust/ledger-bridge, rust/recon-worker). This is the "callers
  * send it" stage of the rollout; nothing enforces yet, but every call site is pinned here so the
@@ -85,6 +85,27 @@ describe("server/routers/payment.ts — ledgerRequest (payment.ts's own local co
   });
 });
 
+describe("server/routers/infra.ts — provisionTbAccount (POST /accounts/provision, a protected bridge route)", () => {
+  // Missed by the first pass: found by sweeping the repo for every caller of the bridge, not by a failing test —
+  // which is exactly why it is pinned here now.
+  const admin = () => appRouter.createCaller(ctxFor({ id: 1, role: "admin" }));
+  const input = { accountType: "escrow" as const, currency: "NGN" };
+
+  it("sends the header when configured", async () => {
+    process.env.INTERNAL_API_KEY = "s3cret";
+    await admin().infra.provisionTbAccount(input);
+    expect(calls[0].url).toContain("/accounts/provision");
+    expect(calls[0].headers["X-Internal-Api-Key"]).toBe("s3cret");
+    expect(calls[0].headers["Content-Type"]).toBe("application/json"); // the original header survived the change
+  });
+
+  it("sends nothing extra when unset", async () => {
+    delete process.env.INTERNAL_API_KEY;
+    await admin().infra.provisionTbAccount(input);
+    expect(headerNames(calls[0].headers)).not.toContain("x-internal-api-key");
+  });
+});
+
 describe("server/routers/infra.ts — recon-worker calls (triggerReconciliation, getLastReconciliation)", () => {
   const admin = () => appRouter.createCaller(ctxFor({ id: 1, role: "admin" }));
 
@@ -116,5 +137,56 @@ describe("server/routers/infra.ts — recon-worker calls (triggerReconciliation,
     process.env.RECON_WORKER_URL = "http://recon-worker:8096";
     await admin().infra.getLastReconciliation();
     expect(headerNames(calls[0].headers)).not.toContain("x-internal-api-key");
+  });
+});
+
+// ── static sweep ──────────────────────────────────────────────────────────────────────────────────────────────
+// The per-call-site tests above only cover the call sites someone remembered. provisionTbAccount was missed by the
+// first pass and found by reading, not by a failing test — so this is the tripwire for the NEXT one: every place in
+// server/ that builds a URL from the bridge's or recon-worker's address must either hit an OPEN path (/health,
+// /health/ready — kubelet sends no header) or set X-Internal-Api-Key nearby. Deliberately a heuristic (a header on a
+// different request within the window would fool it); its job is to make forgetting loud, not to prove correctness.
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+describe("static sweep: no caller of a protected bridge/recon-worker route can forget the header", () => {
+  const SERVER = join(__dirname);
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name.startsWith(".")) continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.ts$/.test(name) && !/\.test\.ts$|\.spec\.ts$|\.d\.ts$/.test(name)) files.push(full);
+    }
+  };
+  walk(SERVER);
+
+  // \`\${<something naming the bridge/recon-worker address>}<path>\` inside a template literal
+  const TARGET = /\$\{[^}]*(ledgerBridgeUrl|ledgerBridgeHealthUrl|reconWorkerUrl|LEDGER_BRIDGE_URL|RECON_WORKER_URL|ledgerUrl)[^}]*\}(\/[A-Za-z0-9_/:.-]*|\$\{)?/g;
+  const OPEN = /^\/health(\/ready)?$/;
+
+  const sites: Array<{ file: string; line: number; path: string; ok: boolean }> = [];
+  for (const file of files) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((text, i) => {
+      if (/^\s*(\/\/|\*)/.test(text) || /ledgerBridgeUrl:|ledgerBridgeHealthUrl:|reconWorkerUrl:/.test(text)) return; // comments, env.ts definitions
+      for (const m of text.matchAll(TARGET)) {
+        const path = (m[2] ?? "").replace(/\$\{$/, "");
+        const window = lines.slice(Math.max(0, i - 8), i + 14).join("\n");
+        sites.push({ file: file.replace(SERVER + "/", ""), line: i + 1, path: path || "(dynamic)", ok: OPEN.test(path) || /X-Internal-Api-Key/.test(window) });
+      }
+    });
+  }
+
+  it("is not vacuous: it finds the call sites we know exist", () => {
+    const where = sites.map((s) => `${s.file}`);
+    for (const known of ["services/ledgerBridge.ts", "routers/payment.ts", "routers/infra.ts"]) expect(where.some((w) => w.endsWith(known)), known).toBe(true);
+    expect(sites.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("every one either targets an open /health path or sets X-Internal-Api-Key nearby", () => {
+    const bad = sites.filter((s) => !s.ok).map((s) => `${s.file}:${s.line} → ${s.path}`);
+    expect(bad, `these call a protected bridge/recon-worker route without the internal key:\n  ${bad.join("\n  ")}`).toEqual([]);
   });
 });
