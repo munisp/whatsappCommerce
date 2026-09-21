@@ -57,6 +57,16 @@ spec:
         # Without this the bridge logs nothing at all, which leaves a ledger incident undiagnosable.
         - name: RUST_LOG
           value: info
+        # QA-038: the shared service-to-service secret. Every route except /health and /health/ready requires it
+        # once set. Same Secret and key that `server` sends and `recon-worker` sends/checks, so caller and callee
+        # can never disagree on where it comes from. No `optional: true`: if the Secret is missing the pod must
+        # fail to start, not start unauthenticated. (The tb-adapter sidecar below does NOT get it: it is loopback-
+        # only and only the bridge talks to it.)
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: INTERNAL_API_KEY
+              name: whatsapp-server-internal-api-key
         image: registry.digitalocean.com/talentgraph-auth/whatsapp-ledger-bridge:20260831-1409 # {"$imagepolicy": "flux-system:whatsapp-ledger-bridge"}
         imagePullPolicy: IfNotPresent
         name: ledger-bridge

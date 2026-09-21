@@ -43,6 +43,15 @@ spec:
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4318
+        # QA-038: sent to commerce-engine (and ONLY commerce-engine — see EventRouter::internal_key_for), which
+        # requires it once set. Same Secret and key as the services it is sent to and from. Note that as of this
+        # change the router is dead code (main() drops it; the "consumer" is a heartbeat log loop), so this is
+        # wiring for the day a consumer exists, not traffic that flows today.
+        - name: INTERNAL_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: INTERNAL_API_KEY
+              name: whatsapp-server-internal-api-key
         image: registry.digitalocean.com/talentgraph-auth/whatsapp-event-processor:20260916-1122 # {"$imagepolicy": "flux-system:whatsapp-event-processor"}
         imagePullPolicy: IfNotPresent
         name: event-processor
