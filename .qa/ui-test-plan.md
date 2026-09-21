@@ -38,6 +38,12 @@
 **`OWNER_OPEN_ID` is not set on the live server, so nobody becomes admin at login.** An account is admin only if its `users.role` was set to `admin` in the database at some point. So before anything else, do **S0**.
 
 - **S0 — find out what role your account has.** Sign in (any way), then open a new tab to `https://wa-app.newfire.app/api/auth/me`. You will see JSON like `{"user":{"id":…,"role":"admin"|"user","tenantId":"…"|null,…}}`. Write down `role` and `tenantId`.
+- **How to get a login — there are no credentials in this repo or in this plan, on purpose, and I was never given any.** Sign-in page: `https://wa-app.newfire.app/api/auth/login?redirect=%2F` (or open `/tenant-portal/` or `/platform-admin/` and click **Sign In**). It is Keycloak, realm **`wacommerce`** at `keycloak-servers.newfire.app`, titled "Sign in to wacommerce". Ways in, best first:
+  1. **Register yourself.** The sign-in form has a **Register** link (self-registration looks enabled; I did not try it, because it adds a user to a shared identity provider — your call). Use an email you control. A brand-new account is `role: "user"`.
+  2. **Use an account you already have** in that realm, if someone created one for you.
+  3. **Ask whoever administers that Keycloak** to create one.
+  Do **not** try `admin`/`admin` from `services/keycloak/README.md`: that is the *local dev container's* admin console, not this system, and guessing passwords against a shared identity provider is the wrong move. The repo's own realm export (`services/keycloak/config/realm-export.json`, a different realm name) defines zero users.
+  **Once you can sign in:** open `/api/auth/me`, then send me the email and say "make it admin" — I will set that one row's role in the app database (a live-DB write, so only on your explicit word). Group C3 additionally needs a second account in a different tenant.
 - **You need:** (1) **any** account → Group A; (2) an account with `"role":"admin"` → Groups B, D, parts of C/G; (3) *ideally* a second, non-admin account that belongs to a tenant → Group C; (4) *optionally* a third account in a **different** tenant → C3.
 - **If you have no admin account:** tell me which email to promote and I'll do a one-row `UPDATE` on the app database — but that is a write to the live database, so I'll only do it on your explicit say-so.
 
