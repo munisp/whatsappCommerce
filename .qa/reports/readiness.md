@@ -6,12 +6,12 @@ Session: 2026-09-20 → 2026-09-21 · Branch `development` (all work committed l
 The first pass fixed authorization, idempotency, e2e and probe defects (QA-001…QA-013). This second pass — done because the skill's own Definition of Done showed large areas untouched — went much wider and found **more, and worse, things**:
 
 - **Two internet-reachable P0/P1 holes on the live domain**: `/api/finetune/stream` and `/api/finetune/export-yolo` had **no authentication at all** — one spawned a subprocess, the other returned every tenant's product images — and the export additionally **crashed the whole server** (archiver 8 API break → uncaught exception → process shutdown), so *any unauthenticated request could take the platform down*. Fixed, tested, and **deployed live and verified** (unauthenticated calls now return 403/401).
-- **Any logged-in user of any tenant could read the platform's raw inbound WhatsApp payloads (customer phone numbers, message text), every tenant's revenue/GMV/COGS rate, and any tenant's order by number — and could wipe every tenant's image annotations** (QA-028, found by triaging *all* the matrix's unguarded rows, not just the three money-flagged ones). Fixed and tested; not yet deployed live (see §12).
+- **Any logged-in user of any tenant could read the platform's raw inbound WhatsApp payloads (customer phone numbers, message text), every tenant's revenue/GMV/COGS rate, and any tenant's order by number — and could wipe every tenant's image annotations** (QA-028, found by triaging *all* the matrix's unguarded rows, not just the three money-flagged ones). Fixed, tested, and **deployed live** (`server:qa-local3`, zero-failure rollout).
 - A **cross-tenant IDOR** leaking dispute-evidence bearer tokens, **SSRF** on four tenant-configurable integrations (one via an *unauthenticated* procedure that sends a real client secret), and **three ML-ops endpoints that spawn processes for any logged-in user** (one blocks the event loop for up to 60 s).
 - Measured **capacity, resilience and deployment behavior** against the real cluster: rolling deploys, rollback and pod loss are genuinely zero-downtime (measured: 0 failures in 4,395 probes across four experiments); but a missing `ledger-bridge` causes a ~28 s **total** outage, a node loss strands services on a rate-limited registry, and the `server` runs 1 replica with limits below what load needs.
 - I also **corrected my own mistakes in the open** (see §9): two of my fixes would have regressed real behavior and were reworked before shipping.
 
-**Decision: NO-GO for production money-moving traffic tomorrow.** Score 62/100. There are no unresolved P0s, but several availability, security and recoverability gaps remain that are all bounded and fixable (§12). It is fine to continue as a dev/staging environment.
+**Decision: NO-GO for production money-moving traffic tomorrow.** Score 61/100. There are no unresolved P0s, but several availability, security and recoverability gaps remain that are all bounded and fixable (§12). It is fine to continue as a dev/staging environment.
 
 ## 2. Scope — what was and was not tested
 | Area | Status | Evidence |
@@ -41,7 +41,7 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 |---|---|---|---|
 | QA-014 | **P0** | `/api/finetune/stream` + `/export-yolo` unauthenticated (subprocess trigger; cross-tenant data dump; stored XSS in preview) | Fixed, tested, **live** |
 | QA-024 | **P1** | export route crashed the whole server (archiver 8 API break; uncaught exception is fatal) | Fixed, 6 unit tests, e2e-proven, **live** |
-| QA-028 | **P1** | webhook DLQ raw payloads, all-tenant revenue/COGS, COGS queue, any order by number, cross-tenant image wipe/flag — open to any logged-in user | Fixed, 17 tests (SQL-level tenant assertions); **committed, NOT yet deployed live** |
+| QA-028 | **P1** | webhook DLQ raw payloads, all-tenant revenue/COGS, COGS queue, any order by number, cross-tenant image wipe/flag — open to any logged-in user | Fixed, 17 tests (SQL-level tenant assertions), **live** |
 | QA-029 | **P1** | `recon-worker` panics on real data (Postgres enum decoded as `String`) and its orphan-repair pass errors every run (invalid enum labels) — never worked; **and I had wrongly closed this as "contention" earlier** | Fixed + verified locally against the crashing data; regression test; **committed, deliberately NOT deployed** (first-ever execution of a money-repair path needs human review) |
 | QA-015 | P1 | evidence-portal `listTokens`/`revokeToken` cross-tenant IDOR (raw bearer tokens) | Fixed, tested, **live** |
 | QA-016 | P1/2 | SSRF guard missing on Keycloak (incl. unauthenticated `exchangeCode`), Twenty, Label Studio ×2 | Fixed, tested, **live** |
@@ -58,7 +58,15 @@ The first pass fixed authorization, idempotency, e2e and probe defects (QA-001�
 | QA-022/023/025 | info/P3 | live ledger path reality; small hardening fixes; e2e re-runnability | Done / logged |
 
 ## 4. Test results (final regression, this tree)
-RESULTS_PLACEHOLDER
+| Suite | Result |
+|---|---|
+| Main vitest (all of `server/`, `simulation/`, `client`, scripts) | **267 files, ≈3,994 passed / 7 skipped / 0 failed.** Honest composition: the definitive full run had 266 files green and **47 failures in the simulation file, caused by my own harness change** (a fake `KEYCLOAK_URL` that broke the JWKS lookup cron auth uses); I fixed it, re-ran the simulation suite (**426/426**, 181 journeys) and later added one 3-test file (`reconWorkerSchema`), also green. I did not re-run the other 266 files a second time because nothing they consume changed. |
+| Go (11 modules) | `go build` + `go vet` + `go test`: all pass (commerce-engine and payment-orchestrator now have 24 tests between them) |
+| Rust workspace | `cargo test --workspace`: pass (`ledger-bridge` 5 tests, incl. the `/health` vs `/health/ready` contract) |
+| TypeScript | `tsc --noEmit` clean |
+| e2e (real docker-compose stack; **Docker Hub was unreachable, so the Go/Rust images are the previous builds; only `platform` was rebuilt from the final tree**) | **65 passed, 4 failed, 4 skipped, 1 todo.** The 4 failures, all understood: (1–2) the two `wallet.requestWithdrawal` tests need a real Paystack sandbox credential (known, unchanged); (3) `ledger-bridge /health/ready` — the running image predates the endpoint (would pass on a rebuild); (4) `recon-worker /recon/trigger` — **a real crash, QA-029**, fixed in source and verified by running the fixed binary against the same database, but not re-provable in this docker e2e without an image rebuild. The admin YOLO export now returns a ZIP and the platform logged **0 `uncaughtException`**. |
+| Live-cluster experiments | CX-01…CX-06 (see §7) |
+| Browser / UI / accessibility | **not run** (`.qa/manual-tests.md`) |
 
 ## 5. Security findings
 See §3 and `.qa/defects.md`. Positives verified rather than assumed: SQL is parameterized everywhere sampled (Drizzle `sql` tag, sqlx, tokio-postgres); no real secrets in the repo; logout genuinely revokes tokens server-side (checked in the DB, fails closed in production); tokens are verified against JWKS, not merely decoded; CSRF has two layers for the cookie path (SameSite=Lax + Origin/Referer middleware); the rate limiter is layered (edge, per-tenant, APISIX) and fails closed. Residual: QA-020, QA-026, no dedicated tighter limit on money-moving mutations, refresh-token rotation doesn't exist (sessions simply expire after 12 h — a UX/availability trade-off, not a vulnerability).
@@ -74,6 +82,7 @@ Saturates at ~1.1–1.3 k RPS for a trivial tRPC call (~3 k for `/health`); 0 er
 | CX-03 rolling deploy under load | **PASS** 1,199/1,199, ~12 s rollout |
 | CX-04 node-loss approximation | **PARTIAL** users unaffected (1,298/1,298) but 2 services stuck on image pull |
 | CX-05 rollback + roll-forward under load | **PASS** 999/999 (only works while the old local image is on the nodes) |
+| CX-06 second rolling deploy (QA-028 fixes, `qa-local3`) | **PASS** 749/749; unauthenticated finetune routes 403/401 and the new admin-only procedures refuse a sessionless caller — verified live |
 Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 
 ## 8. Data integrity, observability, disaster recovery
@@ -90,7 +99,7 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 6. A zsh scripting slip made my first node-loss injection a no-op (caught from its own output, node restored, redone). A first read of a slow public URL as a "server TLS problem" was wrong — measured from the cluster host it is 0.08 s; it was this laptop's network.
 
 ## 10. Remaining risks (ranked)
-1. **The QA-028 fixes are committed but not on the live cluster** (the live `server` is `qa-local2`, built before them) — until deployed, the cross-tenant reads above are still exploitable there.
+1. **QA-029 (recon-worker) is fixed in source but NOT deployed** — deliberately: it makes a never-before-run ledger-repair path execute, which needs human review, and the Rust image can't be rebuilt while Docker Hub is unreachable from here. Until it ships, the live recon-worker has the panic. (QA-028 and the earlier fixes ARE live on `server:qa-local3`.)
 2. Live money movement isn't functional in this environment (TigerBeetle/Postgres not wired to the bridge); nothing in this pass verified the production ledger path end to end.
 3. Availability: single `server` replica, no PDB/HPA, memory limit below load, ledger-bridge coupling (28 s outages), no anti-affinity guarantee.
 4. QA-020 login CSRF; QA-026 unauthenticated `commerce-engine` behind a non-existent NetworkPolicy.
@@ -107,12 +116,12 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`.
 | Test coverage/quality | 10 | 7 | strong suite + ratchets; raw Express routes outside the authz scanner; no UI tests |
 | Performance | 10 | 6 | measured baseline/stress/soak locally; no SLOs, no live perf, no load shedding |
 | Scalability | 10 | 3 | no HPA/PDB/metrics-server, limits below load, single process saturates ~1.1 k rps |
-| Data integrity | 5 | 4 | invariants + migrations + restore rehearsal |
+| Data integrity | 5 | 3 | invariants + migrations + restore rehearsal are solid, but the reconciliation safety net (recon-worker) had never worked on real data — found late |
 | Observability | 5 | 3 | good stack; noise, stale target, unproven propagation |
 | Deployment safety | 5 | 3 | proven zero-downtime + rollback; fragile local-image mechanism, Flux suspended |
 | Disaster recovery | 3 | 1 | restore mechanism proven locally; live backups unverified |
 | Documentation | 2 | 2 | `.qa/` evidence trail, manual tests, runbook-style chaos log |
-| **Total** | **100** | **62** | descriptive, not a substitute for judgment; no critical blocker overrides it upward |
+| **Total** | **100** | **61** | descriptive, not a substitute for judgment; no critical blocker overrides it upward |
 
 ## 12. Rollout decision
 ```
