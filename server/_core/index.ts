@@ -3,12 +3,7 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { spawn } from "child_process";
-// archiver loaded via createRequire (CJS module)
-import { createRequire as _cjsRequire } from "module";
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const { Archiver: _ArchiverClass } = _cjsRequire(import.meta.url)("archiver");
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const archiver = (format: string, opts?: Record<string, unknown>): any => new _ArchiverClass(format, opts);
+import { createYoloArchive } from "../services/yoloExport";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -4833,19 +4828,6 @@ async function startServer() {
       createContext,
     })
   );
-  // Shared escaping helpers for the YOLO preview.html generator below —
-  // deliberately local (this file has no existing exported escapeHtml).
-  function escapeHtml(s: string): string {
-    return s.replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    }[c] as string));
-  }
-  function escapeJsString(s: string): string {
-    return s.replace(/[\\'"\n\r]/g, (c) => ({
-      "\\": "\\\\", "'": "\\'", '"': '\\"', "\n": "\\n", "\r": "\\r",
-    }[c] as string));
-  }
-
   // ── Fine-tune SSE stream ──────────────────────────────────────────────────
   // GET /api/finetune/stream — spawns finetune.py --dry-run and streams stdout/stderr as SSE
   //
@@ -5036,87 +5018,17 @@ async function startServer() {
         .where(isAdmin ? undefined : eq(picTable.tenantId, callerTenantId as string))
         .orderBy(picTable.className);
       if (images.length === 0) { res.status(404).json({ error: "No images in dataset" }); return; }
+      const archive = createYoloArchive(images);
+      // An unhandled "error" on the archive stream is an uncaught exception,
+      // which this process treats as fatal (graceful shutdown). Handle it.
+      archive.on("error", (err: Error) => {
+        console.error("[yolo-export] archive error:", err.message);
+        if (!res.headersSent) res.status(500).json({ error: "export failed" });
+        else res.destroy(err);
+      });
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Disposition", `attachment; filename="yolo-labels-${Date.now()}.zip"`);
-      const archive = archiver("zip", { zlib: { level: 6 } });
       archive.pipe(res);
-      // Build class list (sorted) for classes.txt
-      const classNames = Array.from(new Set(images.map((i: { className: string }) => i.className))).sort();
-      const classMap = Object.fromEntries(classNames.map((c, idx) => [c, idx]));
-      archive.append(classNames.join("\n"), { name: "classes.txt" });
-      // Generate one YOLO .txt label file per image
-      // Each file: <class_id> 0.5 0.5 1.0 1.0  (full-image bounding box, normalized)
-      for (const img of images) {
-        const classId = (classMap as Record<string, number>)[img.className] ?? 0;
-        const labelContent = `${classId} 0.5 0.5 1.0 1.0\n`;
-        const safeName = img.id.replace(/[^a-zA-Z0-9-]/g, "_");
-        archive.append(labelContent, { name: `labels/${img.className}/${safeName}.txt` });
-      }
-      // Add a manifest JSON
-      const manifest = classNames.map(cn => ({
-        className: cn,
-        classId: (classMap as Record<string, number>)[cn],
-        imageCount: images.filter((i: { className: string }) => i.className === cn).length,
-        images: images.filter((i: { className: string }) => i.className === cn).map((i: { id: string; imageUrl: string; qualityScore: number | null }) => ({
-          id: i.id, imageUrl: i.imageUrl, qualityScore: i.qualityScore,
-        })),
-      }));
-      archive.append(JSON.stringify(manifest, null, 2), { name: "manifest.json" });
-      // Add HTML preview page with per-image bbox overlays
-      //
-      // QA follow-up: className and imageUrl are unescaped client-controlled
-      // strings here (server/routers/productImages.ts's className is a bare
-      // z.string().min(1), no restricted charset) — a merchant could plant
-      // e.g. `</span><script>...` in a class name and get it executed in
-      // whoever opens this preview.html. id is server-generated
-      // (crypto.randomUUID() default, drizzle/schema.ts) so it's inherently
-      // safe, but it's escaped too since it's cheap and this function is the
-      // single place everything gets interpolated into HTML/JS.
-      const previewRows = images.map((img: { id: string; imageUrl: string; className: string; bbox: { x: number; y: number; w: number; h: number } | null; qualityScore: number | null }) => {
-        const classId = (classMap as Record<string, number>)[img.className] ?? 0;
-        const bboxData = img.bbox ? JSON.stringify(img.bbox) : "null";
-        const safeId = escapeHtml(img.id);
-        const safeClass = escapeHtml(img.className);
-        const safeUrl = escapeHtml(img.imageUrl);
-        return `<div class="card">
-  <div class="img-wrap">
-    <img src="${safeUrl}" crossorigin="anonymous" onload="drawBbox(this,'${escapeJsString(img.id)}')" onerror="this.style.opacity='0.3'"/>
-    <canvas id="c-${safeId}" class="overlay"></canvas>
-  </div>
-  <div class="meta"><span class="cls">${safeClass}</span> <span class="cid">#${classId}</span>${img.qualityScore ? ` ⭐${img.qualityScore}` : ""}</div>
-  <script>window.__bbox=window.__bbox||{};window.__bbox[${JSON.stringify(img.id)}]=${bboxData};</script>
-</div>`;
-      }).join("\n");
-      const previewHtml = `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>YOLO Dataset Preview</title>
-<style>
-body{font-family:sans-serif;background:#111;color:#eee;margin:0;padding:16px}
-h1{font-size:18px;margin-bottom:12px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
-.card{background:#1e1e1e;border-radius:6px;overflow:hidden;padding:6px}
-.img-wrap{position:relative;width:100%;aspect-ratio:1}
-.img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
-.overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none}
-.meta{font-size:11px;padding:4px 2px;display:flex;gap:6px;align-items:center}
-.cls{font-weight:600;color:#7dd3fc;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cid{color:#94a3b8}
-</style></head><body>
-<h1>YOLO Dataset Preview — ${images.length} images, ${classNames.length} classes</h1>
-<div class="grid">${previewRows}</div>
-<script>
-function drawBbox(img,id){
-  var bbox=window.__bbox&&window.__bbox[id];
-  if(!bbox)return;
-  var wrap=img.parentElement;
-  var c=document.getElementById('c-'+id);
-  if(!c)return;
-  c.width=wrap.offsetWidth;c.height=wrap.offsetHeight;
-  var ctx=c.getContext('2d');
-  ctx.strokeStyle='#22c55e';ctx.lineWidth=2;ctx.setLineDash([4,2]);
-  ctx.strokeRect(bbox.x*c.width,bbox.y*c.height,bbox.w*c.width,bbox.h*c.height);
-}
-</script></body></html>`;
-      archive.append(previewHtml, { name: "preview.html" });
       await archive.finalize();
     } catch (err) {
       if (!res.headersSent) res.status(500).json({ error: String(err) });
