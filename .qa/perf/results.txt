@@ -1,0 +1,254 @@
+started 2026-09-21T00:42:44Z  platform=http://127.0.0.1:65144
+baseline docker-stats wc-e2e-platform-1 cpu=1.17% mem=312.6MiB / 7.75GiB
+baseline docker-stats wc-e2e-postgres-1 cpu=4.03% mem=80.94MiB / 7.75GiB
+baseline docker-stats wc-e2e-redis-1 cpu=4.19% mem=15.44MiB / 7.75GiB
+
+### BASELINE /health c=20 15s
+{
+  "url": "http://127.0.0.1:65144/health",
+  "concurrency": 20,
+  "elapsedSec": 15.01,
+  "total": 47971,
+  "rps": 3197,
+  "errors": 0,
+  "statuses": "200:47971",
+  "meanMs": 6.23,
+  "p50Ms": 5.21,
+  "p95Ms": 10.61,
+  "p99Ms": 14.91,
+  "maxMs": 95.08
+}
+
+### BASELINE auth.me c=20 15s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 20,
+  "elapsedSec": 15.02,
+  "total": 16703,
+  "rps": 1112.3,
+  "errors": 0,
+  "statuses": "200:16703",
+  "meanMs": 17.95,
+  "p50Ms": 17.03,
+  "p95Ms": 25.59,
+  "p99Ms": 35.5,
+  "maxMs": 109.67
+}
+
+### LOAD /health c=100 20s
+{
+  "url": "http://127.0.0.1:65144/health",
+  "concurrency": 100,
+  "elapsedSec": 20.04,
+  "total": 59317,
+  "rps": 2959.3,
+  "errors": 0,
+  "statuses": "200:59317",
+  "meanMs": 33.73,
+  "p50Ms": 31.78,
+  "p95Ms": 43.29,
+  "p99Ms": 79.27,
+  "maxMs": 1195.07
+}
+
+### LOAD auth.me c=100 20s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 100,
+  "elapsedSec": 20.07,
+  "total": 22876,
+  "rps": 1140,
+  "errors": 0,
+  "statuses": "200:22876",
+  "meanMs": 87.55,
+  "p50Ms": 86.38,
+  "p95Ms": 99.31,
+  "p99Ms": 134.56,
+  "maxMs": 675.79
+}
+
+### AUTHED product.list c=20 30s (limiter expected to engage)
+{
+  "url": "http://127.0.0.1:65144/api/trpc/product.list?input=%7B%22json%22%3A%7B%22tenantId%22%3A%22perf-tenant-muaitroz-mi8ycr%22%7D%7D",
+  "concurrency": 20,
+  "elapsedSec": 30.01,
+  "total": 59888,
+  "rps": 1995.7,
+  "errors": 0,
+  "statuses": "200:400 429:59488",
+  "meanMs": 9.99,
+  "p50Ms": 8.6,
+  "p95Ms": 12.45,
+  "p99Ms": 19.59,
+  "maxMs": 228.49
+}
+
+### STRESS auth.me c=200 20s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 200,
+  "elapsedSec": 20.11,
+  "total": 22723,
+  "rps": 1129.7,
+  "errors": 0,
+  "statuses": "200:22723",
+  "meanMs": 176.54,
+  "p50Ms": 174,
+  "p95Ms": 199.56,
+  "p99Ms": 265.43,
+  "maxMs": 2903.17
+}
+
+### STRESS auth.me c=400 20s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 400,
+  "elapsedSec": 20.2,
+  "total": 25081,
+  "rps": 1241.8,
+  "errors": 0,
+  "statuses": "200:25081",
+  "meanMs": 320.49,
+  "p50Ms": 303.06,
+  "p95Ms": 372.13,
+  "p99Ms": 418.33,
+  "maxMs": 9050.87
+}
+
+### STRESS auth.me c=800 20s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 800,
+  "elapsedSec": 20.71,
+  "total": 26789,
+  "rps": 1293.3,
+  "errors": 0,
+  "statuses": "200:26789",
+  "meanMs": 606.57,
+  "p50Ms": 365.27,
+  "p95Ms": 489.66,
+  "p99Ms": 13343.03,
+  "maxMs": 20668.07
+}
+
+### SPIKE-1 calm c=10 10s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 10,
+  "elapsedSec": 10.01,
+  "total": 9023,
+  "rps": 901.1,
+  "errors": 0,
+  "statuses": "200:9023",
+  "meanMs": 11.06,
+  "p50Ms": 10.61,
+  "p95Ms": 14.96,
+  "p99Ms": 17.34,
+  "maxMs": 75.59
+}
+
+### SPIKE-2 spike c=400 10s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 400,
+  "elapsedSec": 10.18,
+  "total": 13082,
+  "rps": 1285.4,
+  "errors": 0,
+  "statuses": "200:13082",
+  "meanMs": 308.23,
+  "p50Ms": 248.73,
+  "p95Ms": 318.04,
+  "p99Ms": 2820.37,
+  "maxMs": 8619.37
+}
+
+### SPIKE-3 recovery c=10 10s
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 10,
+  "elapsedSec": 10,
+  "total": 8938,
+  "rps": 893.4,
+  "errors": 0,
+  "statuses": "200:8938",
+  "meanMs": 11.16,
+  "p50Ms": 10.43,
+  "p95Ms": 15.26,
+  "p99Ms": 21.51,
+  "maxMs": 72.52
+}
+
+### SOAK auth.me c=50 600s
+soak t=0s docker-stats wc-e2e-platform-1 cpu=131.50% mem=613MiB / 7.75GiB
+soak t=0s docker-stats wc-e2e-postgres-1 cpu=0.28% mem=81.77MiB / 7.75GiB
+soak t=0s docker-stats wc-e2e-redis-1 cpu=13.75% mem=37.21MiB / 7.75GiB
+soak t=30s docker-stats wc-e2e-platform-1 cpu=167.16% mem=614.7MiB / 7.75GiB
+soak t=30s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=95.11MiB / 7.75GiB
+soak t=30s docker-stats wc-e2e-redis-1 cpu=11.82% mem=37.47MiB / 7.75GiB
+soak t=60s docker-stats wc-e2e-platform-1 cpu=131.37% mem=741.7MiB / 7.75GiB
+soak t=60s docker-stats wc-e2e-postgres-1 cpu=5.50% mem=83.69MiB / 7.75GiB
+soak t=60s docker-stats wc-e2e-redis-1 cpu=17.32% mem=37.23MiB / 7.75GiB
+soak t=90s docker-stats wc-e2e-platform-1 cpu=134.86% mem=645.7MiB / 7.75GiB
+soak t=90s docker-stats wc-e2e-postgres-1 cpu=0.02% mem=94.85MiB / 7.75GiB
+soak t=90s docker-stats wc-e2e-redis-1 cpu=12.90% mem=37.22MiB / 7.75GiB
+soak t=120s docker-stats wc-e2e-platform-1 cpu=131.38% mem=679.3MiB / 7.75GiB
+soak t=120s docker-stats wc-e2e-postgres-1 cpu=0.02% mem=81.52MiB / 7.75GiB
+soak t=120s docker-stats wc-e2e-redis-1 cpu=12.82% mem=37.47MiB / 7.75GiB
+soak t=150s docker-stats wc-e2e-platform-1 cpu=133.00% mem=625.3MiB / 7.75GiB
+soak t=150s docker-stats wc-e2e-postgres-1 cpu=4.57% mem=94.9MiB / 7.75GiB
+soak t=150s docker-stats wc-e2e-redis-1 cpu=17.08% mem=37.47MiB / 7.75GiB
+soak t=180s docker-stats wc-e2e-platform-1 cpu=129.48% mem=624.4MiB / 7.75GiB
+soak t=180s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=81.51MiB / 7.75GiB
+soak t=180s docker-stats wc-e2e-redis-1 cpu=12.70% mem=37.22MiB / 7.75GiB
+soak t=210s docker-stats wc-e2e-platform-1 cpu=170.69% mem=621.7MiB / 7.75GiB
+soak t=210s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=94.87MiB / 7.75GiB
+soak t=210s docker-stats wc-e2e-redis-1 cpu=12.07% mem=37.47MiB / 7.75GiB
+soak t=240s docker-stats wc-e2e-platform-1 cpu=130.09% mem=800.1MiB / 7.75GiB
+soak t=240s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=81.52MiB / 7.75GiB
+soak t=240s docker-stats wc-e2e-redis-1 cpu=12.29% mem=37.48MiB / 7.75GiB
+soak t=270s docker-stats wc-e2e-platform-1 cpu=134.74% mem=677.5MiB / 7.75GiB
+soak t=270s docker-stats wc-e2e-postgres-1 cpu=0.02% mem=94.89MiB / 7.75GiB
+soak t=270s docker-stats wc-e2e-redis-1 cpu=12.57% mem=37.22MiB / 7.75GiB
+soak t=300s docker-stats wc-e2e-platform-1 cpu=132.81% mem=624.8MiB / 7.75GiB
+soak t=300s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=81.52MiB / 7.75GiB
+soak t=300s docker-stats wc-e2e-redis-1 cpu=13.57% mem=37.21MiB / 7.75GiB
+soak t=330s docker-stats wc-e2e-platform-1 cpu=133.82% mem=628.6MiB / 7.75GiB
+soak t=330s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=94.89MiB / 7.75GiB
+soak t=330s docker-stats wc-e2e-redis-1 cpu=14.05% mem=37.42MiB / 7.75GiB
+soak t=360s docker-stats wc-e2e-platform-1 cpu=130.89% mem=630.6MiB / 7.75GiB
+soak t=360s docker-stats wc-e2e-postgres-1 cpu=4.34% mem=81.54MiB / 7.75GiB
+soak t=360s docker-stats wc-e2e-redis-1 cpu=16.75% mem=37.02MiB / 7.75GiB
+soak t=390s docker-stats wc-e2e-platform-1 cpu=131.01% mem=807.7MiB / 7.75GiB
+soak t=390s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=94.88MiB / 7.75GiB
+soak t=390s docker-stats wc-e2e-redis-1 cpu=12.90% mem=36.92MiB / 7.75GiB
+soak t=420s docker-stats wc-e2e-platform-1 cpu=130.41% mem=665.3MiB / 7.75GiB
+soak t=420s docker-stats wc-e2e-postgres-1 cpu=10.48% mem=95.16MiB / 7.75GiB
+soak t=420s docker-stats wc-e2e-redis-1 cpu=12.38% mem=37.14MiB / 7.75GiB
+soak t=450s docker-stats wc-e2e-platform-1 cpu=137.97% mem=632.6MiB / 7.75GiB
+soak t=450s docker-stats wc-e2e-postgres-1 cpu=5.15% mem=81.53MiB / 7.75GiB
+soak t=450s docker-stats wc-e2e-redis-1 cpu=16.85% mem=36.79MiB / 7.75GiB
+soak t=480s docker-stats wc-e2e-platform-1 cpu=132.34% mem=629.3MiB / 7.75GiB
+soak t=480s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=94.89MiB / 7.75GiB
+soak t=480s docker-stats wc-e2e-redis-1 cpu=13.10% mem=36.75MiB / 7.75GiB
+soak t=510s docker-stats wc-e2e-platform-1 cpu=133.06% mem=627.6MiB / 7.75GiB
+soak t=510s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=81.53MiB / 7.75GiB
+soak t=510s docker-stats wc-e2e-redis-1 cpu=12.83% mem=37.02MiB / 7.75GiB
+soak t=540s docker-stats wc-e2e-platform-1 cpu=133.03% mem=630.1MiB / 7.75GiB
+soak t=540s docker-stats wc-e2e-postgres-1 cpu=0.00% mem=94.89MiB / 7.75GiB
+soak t=540s docker-stats wc-e2e-redis-1 cpu=12.92% mem=37.42MiB / 7.75GiB
+{
+  "url": "http://127.0.0.1:65144/api/trpc/auth.me",
+  "concurrency": 50,
+  "elapsedSec": 600.03,
+  "total": 721097,
+  "rps": 1201.8,
+  "errors": 0,
+  "statuses": "200:721097",
+  "meanMs": 41.59,
+  "p50Ms": 40.64,
+  "p95Ms": 52.34,
+  "p99Ms": 70.37,
+  "maxMs": 207.66
+}
+finished 2026-09-21T00:55:59Z
