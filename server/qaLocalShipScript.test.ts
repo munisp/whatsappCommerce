@@ -172,3 +172,39 @@ esac`);
     expect(calls.some((c) => /set image|apply|patch|rollout/.test(c)), "the script itself must not change the Deployment").toBe(false);
   });
 });
+
+// scripts/qa-local-delta-ship.sh — only its refusals and its plan are tested; it has not been run end to end (see its header).
+describe("delta ship — refusals and plan", () => {
+  const DELTA = join(__dirname, "..", "scripts", "qa-local-delta-ship.sh");
+  const drun = (args: string[]) => spawnSync("bash", [DELTA, ...args], { encoding: "utf8" });
+  const dout = (r: ReturnType<typeof drun>) => `${r.stdout}${r.stderr}`;
+
+  it.each([
+    [["rust", "ledger-bridge", "latest", "--expect", "x", "--dry-run"], /refusing 'latest'|tag must look like/],
+    [["rust", "ledger-bridge", "v9", "--expect", "x", "--dry-run"], /tag must look like qa-local<N>/],
+    [["rust", "ledger-bridge", "qa-local9", "--dry-run"], /at least one --expect/],
+    [["rust", "event-processor", "qa-local9", "--expect", "x", "--dry-run"], /must be ledger-bridge or recon-worker/],
+    [["server", "qa-local9", "latest", "--expect", "x", "--dry-run"], /refusing 'latest'|tag must look like/],
+    [["rust", "ledger-bridge", "qa-local9", "--expect", "x", "--bogus"], /unknown argument: --bogus/],
+    [["nonsense"], /usage:/],
+  ])("refuses %j", (args, why) => {
+    const r = drun(args as string[]);
+    expect(r.status).toBe(2);
+    expect(dout(r)).toMatch(why as RegExp);
+  });
+
+  it("prints a plan that verifies locally BEFORE uploading, and executes nothing in dry-run", () => {
+    const r = drun(["rust", "recon-worker", "qa-local9", "--expect", "NewSymbol", "--dry-run"]);
+    expect(r.status).toBe(0);
+    const text = dout(r);
+    expect(text.indexOf("extract /recon-worker from the LOCAL image")).toBeLessThan(text.indexOf("upload only that binary"));
+    expect(text).toMatch(/dry run: nothing executed/);
+  });
+
+  it("the server plan says it exports the base from the node (no network) and names the tmpfs trap", () => {
+    const r = drun(["server", "qa-local9", "qa-local7", "--expect", "NewSymbol", "--absent", "OldSymbol", "--dry-run"]);
+    expect(r.status).toBe(0);
+    expect(dout(r)).toMatch(/tmpfs/);
+    expect(dout(r)).toMatch(/NOT: OldSymbol/);
+  });
+});
