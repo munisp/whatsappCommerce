@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# NOTE (read first): this rig evaluated an event-loop-lag load shedder (commit a9c6c77) that was REMOVED again (0596e93)
+# because it did not help. The runs are kept in .qa/perf/loadshed/ as evidence. LOAD_SHED_ENABLED means nothing to any image
+# built from the current tree, so "shed-ON" == "shed-OFF" there; to reproduce the experiment build an image from a9c6c77.
+# The rig is still useful as a template: same image, same load, driver INSIDE the docker network, ABBA ordering, and an
+# open-loop mode (RATE=<rps>) for overload.
+#
 # QA-040: does load shedding bound the tail? Same server image, same load, shedding OFF vs ON. Local docker only —
 # never the shared cluster. Needs: docker, node, an image built from the current tree.
 #
