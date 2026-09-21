@@ -99,6 +99,15 @@ describe("server autoscaling (QA-041)", () => {
     expect(target).toBeGreaterThan(0.3 * limit); // ...but not so early that idle noise scales it
   });
 
+  it("the server's CPU request is small enough to FIT on the tightest worker mid-rollout (both replicas were co-located when it was 200m)", () => {
+    // ~145-345m of CPU requests were free on the tighter worker, and during a rolling update the old pod still holds its
+    // request. A request above that means the scheduler has nowhere to put the second surge pod but the OTHER worker.
+    const req = server.spec.template.spec.containers[0].resources.requests.cpu as string;
+    const millis = req.endsWith("m") ? Number(req.slice(0, -1)) : Number(req) * 1000;
+    expect(millis, "raising the request above ~140m re-creates the co-location the QA-041 rollout hit").toBeLessThanOrEqual(140);
+    expect(millis).toBeGreaterThanOrEqual(50); // ...but not so low the scheduler ignores it (actual use is 8-36m)
+  });
+
   it("does not flap: scale-down is slower than scale-up", () => {
     const b = hpa.spec.behavior;
     expect(b.scaleDown.stabilizationWindowSeconds).toBeGreaterThan(b.scaleUp.stabilizationWindowSeconds);

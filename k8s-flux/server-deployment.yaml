@@ -211,14 +211,21 @@ spec:
           periodSeconds: 10
         # QA-027: the old 512Mi limit was BELOW the 613-800 MiB the server measured under load (it would be
         # OOM-killed exactly when busiest) and the 64Mi request let the scheduler stack it on any node.
-        # The requests stay modest on purpose: the workers' CPU requests are already 92-97% allocated.
+        # The requests stay modest on purpose: the workers' CPU requests are already ~98% allocated.
+        #
+        # QA-041/042: the CPU request is 100m, NOT 200m, for a scheduling reason that cost us a rollout. The tighter worker
+        # had ~145-345m of CPU requests free, and while a rolling update is in flight the old pod still holds its request:
+        # a 200m pod did not FIT on that worker, so the scheduler had no choice and put BOTH replicas on the other one
+        # (measured after the qa-local8 rollout; scripts/qa-local-ship.sh check-spread caught it). Actual use is 8-36m per
+        # pod (metrics-server), so 100m is still several times what it needs. The HPA scales on an absolute 600m average,
+        # not on a percentage of this request, so it is unaffected.
         resources:
           limits:
             cpu: "1"
             ephemeral-storage: 256Mi
             memory: 1Gi
           requests:
-            cpu: 200m
+            cpu: 100m
             memory: 384Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
