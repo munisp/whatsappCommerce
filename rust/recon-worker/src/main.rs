@@ -673,6 +673,8 @@ async fn require_internal_key(State(state): State<AppState>, req: Request, next:
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if !constant_time_eq(presented.as_bytes(), state.config.platform_api_key.as_bytes()) {
+        // Method and path only — never the presented value (see ledger-bridge's require_internal_key).
+        warn!(method = %req.method(), path = %req.uri().path(), "rejected request: missing or invalid internal API key");
         return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "invalid_internal_api_key" }))).into_response();
     }
     next.run(req).await
