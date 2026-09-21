@@ -1369,30 +1369,6 @@ async function startServer() {
     next();
   });
 
-  // ── QA-040 load shedding ────────────────────────────────────────────────────────────────────────────────
-  // After telemetry (so a shed request is still counted, as a 503) and BEFORE body parsing / auth / routes, so a refused
-  // request costs almost nothing. Health, metrics, webhooks and internal/scheduled callers are never shed — see
-  // server/_core/loadShed.ts for why and for the thresholds. LOAD_SHED_ENABLED=false is the off-switch.
-  if (process.env.LOAD_SHED_ENABLED !== "false") {
-    const { createLoadShedMiddleware, startEventLoopLagSampler, positiveNumberFromEnv } = await import("./loadShed");
-    const sampler = startEventLoopLagSampler();
-    let shed = 0;
-    let lastLog = 0;
-    app.use(createLoadShedMiddleware({
-      lagMs: sampler.lagMs,
-      startMs: positiveNumberFromEnv(process.env.LOAD_SHED_START_MS, 200),
-      allMs: positiveNumberFromEnv(process.env.LOAD_SHED_ALL_MS, 1000),
-      onShed: () => {
-        shed += 1;
-        const now = Date.now();
-        if (now - lastLog > 10_000) { // one line per 10 s, not one per refused request
-          lastLog = now;
-          console.warn(`[load-shed] event-loop lag ${sampler.lagMs().toFixed(0)} ms — refusing non-exempt requests with 503 (${shed} shed so far)`);
-        }
-      },
-    }));
-  }
-
   // === W34 otel-core === GET /api/metrics — Prometheus text exposition.
   // Auth: METRICS_TOKEN bearer, X-Internal-Api-Key, or an admin session.
   // Honest 503 when telemetry is disabled (no fake empty exposition).
