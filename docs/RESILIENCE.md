@@ -257,6 +257,23 @@ legs, idempotent retries) and QA-035 (webhook path never committed the
 ledger reservation) fixes — the live bridge is still running the
 2026-08-31 build.
 
+## Internal service authentication (QA-026, QA-038)
+
+Two independent layers protect the three services that used to trust the network — `ledger-bridge`, `recon-worker`, `commerce-engine`:
+
+1. **NetworkPolicy** (`k8s-flux/network-policies.yaml`) — *who may connect*. Ingress-only allowlists: bridge ← `server`, `recon-worker`; recon-worker ← `server`; commerce-engine ← `event-processor`. kindnet enforces these on this cluster (tested, not assumed). No default-deny, no egress rules: a wrong guess there is an outage.
+2. **Shared secret** — *who may ask*. Every route except `/health` (and the bridge's `/health/ready`) requires `X-Internal-Api-Key` (`X-Internal-Token`/`X-Api-Key` also accepted), compared in constant time to `INTERNAL_API_KEY`. Same Secret and key everywhere: `whatsapp-server-internal-api-key`, key `INTERNAL_API_KEY`. This is the convention `server`'s `internalProcedure` and `gateway`'s `InternalTokenAuth` already used, not a new one.
+
+**Semantics:** key **unset** on a service = allowed, with a startup warning (this is the "callers not updated yet" rollout stage); key **set** = enforced immediately. `commerce-engine` additionally fails closed (503) when `ENV=production`. Rejections are logged (`rejected request: missing or invalid internal API key`, method + path, never the key) — a caller that lost the header is otherwise invisible from the callee's side.
+
+**Adding a caller** of any of these: give its Deployment `INTERNAL_API_KEY` from the Secret above, send it in the call, and add it to the NetworkPolicy allowlist. `server/internalAuthManifests.test.ts` and `server/networkPolicyManifests.test.ts` fail if a Deployment is pointed at one of these services without both. Send the key **only** to the service that needs it — `event-processor` fans out to five and scopes it to commerce-engine.
+
+**Rolling it out / changing the secret — order matters, callers before callees:** (1) deploy the callers sending the header (harmless: nothing enforces yet), (2) deploy the callees with the key unset and confirm they are still open, (3) set the key on the callees. Reverse it the same way to roll back. **Emergency off-switch:** remove `INTERNAL_API_KEY` from a callee (`kubectl patch` … `remove` the env entry) and it returns to open-with-a-warning — instant, no image change. Note `recon-worker` already carried the key (it sends it to the platform), so a new recon-worker image enforces the moment it starts: deploy `server` first.
+
+**Deployment hazard:** the manifests in `k8s-flux/` pin the *registry* image tags (and `tb-adapter:qa-local1`, since removed from the nodes). While the cluster runs hand-shipped `qa-local*` images with Flux suspended, **do not `kubectl apply` a service's manifest** to change one env var — it reverts the image and can take the service down. Use a targeted `kubectl patch --type=json` that adds only the env var. (Diff first: `kubectl diff -f` shows whether a manifest has image drift.)
+
+**What this does not cover:** the shared TigerBeetle and `postgres-oracle` namespaces have no NetworkPolicy and TigerBeetle has no protocol-level auth (another team's namespaces — see QA-038); one shared secret means compromise of any holder is compromise of all; a `podSelector` trusts labels, so RBAC on the namespace matters; and an *empty* secret value would leave the Rust services open (a *missing* Secret stops the pod).
+
 ## Backups (W39, PLT-1/PLT-2/PLT-8)
 
 ### Postgres — live cluster (`k8s-flux/backups/postgres-backup.yaml`)
