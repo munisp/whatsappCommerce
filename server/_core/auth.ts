@@ -4,7 +4,7 @@
  * Keycloak OIDC is supported via KEYCLOAK_URL env var.
  */
 import jwt from "jsonwebtoken";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes, createHash, createHmac, timingSafeEqual } from "crypto";
 import { ENV } from "./env";
 import type { Request } from "express";
 
@@ -87,8 +87,77 @@ export function getSessionUser(req: Request): JWTPayload | null {
   return null;
 }
 
+/**
+ * QA follow-up: PKCE (RFC 7636) pair for the authorization_code flow.
+ * This client is confidential (client_secret is used server-side in
+ * exchangeKeycloakCode below, never exposed to the browser), which already
+ * blocks the classic "stolen authorization code" attack PKCE targets on
+ * PUBLIC clients — but OAuth 2.1 recommends PKCE for confidential clients
+ * too, as defense-in-depth against authorization code injection (a
+ * malicious/compromised AS or network handing back a code from a different
+ * flow). codeVerifier is a high-entropy random string (RFC 7636 requires
+ * 43-128 chars from an unreserved-char alphabet; base64url of 32 random
+ * bytes is 43 chars, satisfying both bounds); codeChallenge is its S256
+ * hash, sent in the initial redirect so Keycloak can verify the SAME
+ * verifier is presented at token-exchange time.
+ */
+export function generatePkcePair(): { codeVerifier: string; codeChallenge: string } {
+  const codeVerifier = randomBytes(32).toString("base64url");
+  const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+  return { codeVerifier, codeChallenge };
+}
+
+/**
+ * Login transaction carried across the Keycloak redirect round-trip in a
+ * signed, short-lived, httpOnly cookie instead of per-process memory, so a
+ * login started on one replica can complete on another (or after a restart).
+ * An in-memory map would break exactly that: once /api/auth/login sends a
+ * code_challenge, Keycloak REQUIRES the matching code_verifier at exchange
+ * time, so a callback landing on a process that never saw the login would
+ * fail outright. HMAC-signed with JWT_SECRET (domain-separated), bound to the
+ * `state` parameter and expiry-checked on read.
+ */
+export const OAUTH_TX_COOKIE = "wa_oauth_tx";
+export const OAUTH_TX_TTL_MS = 10 * 60 * 1000;
+
+export interface OAuthTx {
+  state: string;
+  nonce: string;
+  codeVerifier: string;
+  exp: number;
+}
+
+function oauthTxSignature(body: string): Buffer {
+  return createHmac("sha256", ENV.jwtSecret).update(`oauth-tx:${body}`).digest();
+}
+
+export function signOAuthTx(tx: OAuthTx): string {
+  const body = Buffer.from(JSON.stringify(tx)).toString("base64url");
+  return `${body}.${oauthTxSignature(body).toString("base64url")}`;
+}
+
+export function verifyOAuthTx(raw: string | undefined, now: number = Date.now()): OAuthTx | null {
+  if (!raw) return null;
+  const dot = raw.indexOf(".");
+  if (dot <= 0) return null;
+  const body = raw.slice(0, dot);
+  const given = Buffer.from(raw.slice(dot + 1), "base64url");
+  const expected = oauthTxSignature(body);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  try {
+    const tx = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Partial<OAuthTx>;
+    if (
+      typeof tx.state !== "string" || typeof tx.nonce !== "string" ||
+      typeof tx.codeVerifier !== "string" || typeof tx.exp !== "number" || tx.exp < now
+    ) return null;
+    return tx as OAuthTx;
+  } catch {
+    return null;
+  }
+}
+
 /** Build Keycloak authorization URL for login redirect */
-export function buildKeycloakAuthUrl(state: string, nonce: string): string {
+export function buildKeycloakAuthUrl(state: string, nonce: string, codeChallenge?: string): string {
   const base = `${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}/protocol/openid-connect/auth`;
   const params = new URLSearchParams({
     client_id: ENV.keycloakClientId,
@@ -98,11 +167,15 @@ export function buildKeycloakAuthUrl(state: string, nonce: string): string {
     state,
     nonce,
   });
+  if (codeChallenge) {
+    params.set("code_challenge", codeChallenge);
+    params.set("code_challenge_method", "S256");
+  }
   return `${base}?${params}`;
 }
 
 /** Exchange authorization code for tokens via Keycloak */
-export async function exchangeKeycloakCode(code: string): Promise<{ accessToken: string; idToken: string } | null> {
+export async function exchangeKeycloakCode(code: string, codeVerifier?: string): Promise<{ accessToken: string; idToken: string } | null> {
   try {
     const tokenUrl = `${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}/protocol/openid-connect/token`;
     const body = new URLSearchParams({
@@ -112,6 +185,7 @@ export async function exchangeKeycloakCode(code: string): Promise<{ accessToken:
       code,
       redirect_uri: `${ENV.appUrl}/api/auth/callback`,
     });
+    if (codeVerifier) body.set("code_verifier", codeVerifier);
     const resp = await fetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

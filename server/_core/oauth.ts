@@ -15,16 +15,27 @@ import { sendWelcomeEmail } from "../services/email/resend";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
 import {
+  OAUTH_TX_COOKIE,
+  OAUTH_TX_TTL_MS,
   buildKeycloakAuthUrl,
   decodeIdToken,
   exchangeKeycloakCode,
+  generatePkcePair,
+  signOAuthTx,
   signSessionToken,
+  verifyOAuthTx,
   verifySessionToken,
 } from "./auth";
 
 const SESSION_COOKIE = "wa_session";
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
-const pendingNonces = new Map<string, string>();
+function readCookie(req: Request, name: string): string | undefined {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name) return v.join("=");
+  }
+  return undefined;
+}
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const v = req.query[key];
@@ -36,11 +47,20 @@ export function registerOAuthRoutes(app: Express) {
   app.get("/api/auth/login", (req: Request, res: Response) => {
     const state = crypto.randomBytes(16).toString("hex");
     const nonce = crypto.randomBytes(16).toString("hex");
-    pendingNonces.set(state, nonce);
-    setTimeout(() => pendingNonces.delete(state), 10 * 60 * 1000);
+    const { codeVerifier, codeChallenge } = generatePkcePair();
+    // QA follow-up: PKCE verifier + OIDC nonce ride in a signed httpOnly
+    // cookie (see signOAuthTx) rather than per-process memory — Keycloak
+    // requires the verifier at exchange time once a challenge was sent, so
+    // an in-memory store would fail every login whose callback lands on a
+    // different replica (or after a restart).
+    res.cookie(
+      OAUTH_TX_COOKIE,
+      signOAuthTx({ state, nonce, codeVerifier, exp: Date.now() + OAUTH_TX_TTL_MS }),
+      { ...getSessionCookieOptions(req), maxAge: OAUTH_TX_TTL_MS },
+    );
     const redirectTo = getQueryParam(req, "redirect") ?? "/";
     const stateWithRedirect = `${state}:${encodeURIComponent(redirectTo)}`;
-    const authUrl = buildKeycloakAuthUrl(stateWithRedirect, nonce);
+    const authUrl = buildKeycloakAuthUrl(stateWithRedirect, nonce, codeChallenge);
     res.redirect(302, authUrl);
   });
 
@@ -63,10 +83,28 @@ export function registerOAuthRoutes(app: Express) {
     }
     if (!code || !state) { res.status(400).json({ error: "code and state required" }); return; }
     try {
-      const tokens = await exchangeKeycloakCode(code);
+      // Recover this browser's login transaction from its signed cookie.
+      // Absent/tampered/expired/for-a-different-state (e.g. the legacy
+      // client-built login URL that never went through /api/auth/login, so
+      // no challenge was sent) -> no verifier, no nonce check: identical to
+      // pre-PKCE behavior for that path.
+      const tx = verifyOAuthTx(readCookie(req, OAUTH_TX_COOKIE));
+      const pending = tx && tx.state === state ? tx : undefined;
+      res.clearCookie(OAUTH_TX_COOKIE, { path: "/" });
+      const tokens = await exchangeKeycloakCode(code, pending?.codeVerifier);
       if (!tokens) { res.status(401).json({ error: "Token exchange failed" }); return; }
       const claims = decodeIdToken(tokens.idToken) as Record<string, string> | null;
       if (!claims?.sub) { res.status(400).json({ error: "Missing sub in ID token" }); return; }
+      // QA follow-up: the nonce was generated and sent to Keycloak at
+      // /api/auth/login but never actually checked against the returned ID
+      // token's own nonce claim — completing that OIDC replay defense here.
+      // Only enforced when this browser presented a valid transaction cookie
+      // for this state; the legacy client-built login path has no nonce to
+      // compare against.
+      if (pending && claims.nonce !== pending.nonce) {
+        res.status(401).json({ error: "Nonce mismatch" });
+        return;
+      }
       const isNewUser = !(await db.getUserByOpenId(claims.sub));
       await db.upsertUser({ openId: claims.sub, name: claims.name ?? claims.preferred_username ?? null, email: claims.email ?? null, loginMethod: "keycloak", lastSignedIn: new Date() });
       const user = await db.getUserByOpenId(claims.sub);
