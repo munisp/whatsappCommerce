@@ -176,22 +176,42 @@ export async function withRetry<T>(
 
 // ─── User Helpers ─────────────────────────────────────────────────────────────
 
-export async function upsertUser(user: InsertUser): Promise<void> {
+/**
+ * QA-043: decides what a login may write. Pure (no DB) so it can be tested.
+ *
+ * The rule that was missing: a login that carries NO name/email (a token without the profile claims, a provider that omits
+ * them, a phone login) must not ERASE what we already have. It used to store `null` over the top, so a registered user's
+ * name and email could vanish from the sidebar after any later sign-in. Absent information is not a request to clear it;
+ * erasure is a separate, deliberate operation (privacy.ts), never a side effect of logging in.
+ */
+export function buildUserUpsert(
+  user: InsertUser,
+  ownerOpenId: string = process.env.OWNER_OPEN_ID ?? "",
+  now: Date = new Date(),
+): { values: InsertUser; updateSet: Record<string, unknown> } {
   if (!user.openId) throw new Error("User openId is required");
-  const db = await getDb();
-  if (!db) return;
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
   const textFields = ["name", "email", "loginMethod"] as const;
   textFields.forEach((f) => {
     const v = user[f];
-    if (v !== undefined) { values[f] = v ?? null; updateSet[f] = v ?? null; }
+    if (v === undefined) return;
+    values[f] = v ?? null; // a NEW row records what it was given (or null)
+    const hasValue = typeof v === "string" ? v.trim() !== "" : v != null;
+    if (hasValue) updateSet[f] = v; // an EXISTING row is only ever changed by real information
   });
   if (user.lastSignedIn !== undefined) { values.lastSignedIn = user.lastSignedIn; updateSet.lastSignedIn = user.lastSignedIn; }
   if (user.role !== undefined) { values.role = user.role; updateSet.role = user.role; }
-  else if (user.openId === (process.env.OWNER_OPEN_ID ?? "")) { values.role = "admin"; updateSet.role = "admin"; }
-  if (!values.lastSignedIn) values.lastSignedIn = new Date();
-  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
+  else if (user.openId === ownerOpenId) { values.role = "admin"; updateSet.role = "admin"; }
+  if (!values.lastSignedIn) values.lastSignedIn = now;
+  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = now;
+  return { values, updateSet };
+}
+
+export async function upsertUser(user: InsertUser): Promise<void> {
+  const { values, updateSet } = buildUserUpsert(user);
+  const db = await getDb();
+  if (!db) return;
   // PostgreSQL upsert
   await db.insert(users).values(values).onConflictDoUpdate({
     target: users.openId,
