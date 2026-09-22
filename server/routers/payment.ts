@@ -3,10 +3,12 @@
  *
  * ATOMICITY GUARANTEES:
  * 1. Redis idempotency key — prevents double-processing of webhooks
- * 2. Temporal saga — orchestrates multi-step payment flow with compensation
- * 3. TigerBeetle ledger — atomic double-entry accounting
- * 4. PostgreSQL — source of truth for payment_intents with status machine
- * 5. Fluvio — event sourcing for audit trail
+ * 2. Temporal saga — NOT LIVE (QA-045/046): no "paymentSagaWorkflow" exists on any deployed worker;
+ *    triggerPaymentSaga() below is guarded to skip cleanly rather than attempt a doomed connection
+ * 3. TigerBeetle ledger — atomic double-entry accounting (live; verified end-to-end, QA-044/045)
+ * 4. PostgreSQL — source of truth for payment_intents with status machine (live)
+ * 5. Fluvio — live as of QA-046: publishes to topic "wacommerce-payments" via fluvio-consumer's
+ *    real /produce endpoint (previously sent the event name itself as an invalid, unlistened-to topic)
  * 6. Dapr pub/sub — cross-service event notification
  */
 import { z } from "zod";
@@ -115,7 +117,16 @@ async function releaseIdempotencyLock(key: string) {
 }
 
 // ── Temporal saga trigger ─────────────────────────────────────────────────────
-
+// QA-045/046: there is no "paymentSagaWorkflow" anywhere in this codebase to start — the only
+// Temporal worker that exists (services/temporal-workflows/worker.ts) registers
+// TenantOnboardingWorkflow / OrderFulfillmentWorkflow / InventorySyncWorkflow / BroadcastCampaignWorkflow
+// on task queue "whatsapp-commerce", not "commerce-engine", and isn't deployed anywhere in this cluster
+// regardless. So this was never a reachability problem alone: even a correct TEMPORAL_ADDRESS would only
+// change the failure mode from "start fails fast, falls back synchronously" (today, honest) to "start
+// succeeds and the workflow sits queued forever because no worker can ever execute it" (silently stuck,
+// looks durable, isn't) — strictly worse. Until a real payment-saga workflow+worker exist, guard the
+// attempt the same way onboarding.ts guards its own Temporal call: skip cleanly when unconfigured,
+// rather than pay a doomed connection timeout on every real payment.
 async function triggerPaymentSaga(workflowId: string, input: {
   paymentIntentId: string;
   tenantId: string;
@@ -124,9 +135,12 @@ async function triggerPaymentSaga(workflowId: string, input: {
   provider: string;
   reference: string;
 }) {
+  if (!process.env.TEMPORAL_ADDRESS) {
+    return { started: false, error: "not_configured" };
+  }
   try {
     const { Client, Connection } = await import("@temporalio/client");
-    const connection = await Connection.connect({ address: process.env.TEMPORAL_ADDRESS ?? "temporal:7233" });
+    const connection = await Connection.connect({ address: process.env.TEMPORAL_ADDRESS });
     const client = new Client({ connection, namespace: process.env.TEMPORAL_NAMESPACE ?? "default" });
     await client.workflow.start("paymentSagaWorkflow", {
       taskQueue: "commerce-engine",
@@ -142,13 +156,22 @@ async function triggerPaymentSaga(workflowId: string, input: {
 }
 
 // ── Fluvio event publisher ────────────────────────────────────────────────────
+// QA-045/046: this used to send the event NAME itself ("payment.initiated", "payment.failed", …) as
+// the Fluvio topic — three problems at once: (1) Fluvio topic names may only contain lowercase
+// letters, numbers and hyphens (dots are rejected outright, confirmed live: "Invalid topic name"),
+// (2) fluvio-consumer's own poll loop has always listened on the fixed topic "wacommerce.payments"
+// (now "wacommerce-payments"), never on a per-event-name topic, so nothing published here could ever
+// have reached it even with valid names, and (3) fluvio-consumer's /produce route didn't exist at all
+// until this same fix. The fixed topic is WACOMMERCE_PAYMENTS_TOPIC; eventType now travels inside the
+// payload, where the consumer (and whatever reads its forwarded events downstream) can branch on it.
+const WACOMMERCE_PAYMENTS_TOPIC = "wacommerce-payments";
 
-async function publishPaymentEvent(topic: string, payload: Record<string, unknown>) {
+async function publishPaymentEvent(eventType: string, payload: Record<string, unknown>) {
   try {
     const res = await fetch(`${ENV.fluvioConsumerUrl}/produce`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic, payload }),
+      body: JSON.stringify({ topic: WACOMMERCE_PAYMENTS_TOPIC, payload: { eventType, ...payload } }),
       signal: AbortSignal.timeout(3000),
     });
     return res.ok;
