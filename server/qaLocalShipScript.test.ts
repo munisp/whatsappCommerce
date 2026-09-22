@@ -208,3 +208,55 @@ describe("delta ship — refusals and plan", () => {
     expect(dout(r)).toMatch(/NOT: OldSymbol/);
   });
 });
+
+// The EXECUTED flow of the delta script with docker/ssh replaced by stubs. Its first real run (shipping qa-local9) showed the host
+// verifying "No business yet" as three separate words 'No', 'business', 'yet': ssh joins its arguments into one string.
+describe("delta ship — executed flow (stubbed docker/ssh)", () => {
+  const DELTA = join(__dirname, "..", "scripts", "qa-local-delta-ship.sh");
+
+  function rig() {
+    const dir = mkdtempSync(join(tmpdir(), "deltarig-"));
+    const log = join(dir, "ssh.log");
+    const stub = (name: string, body: string) => { writeFileSync(join(dir, name), `#!/bin/bash\n${body}\n`); chmodSync(join(dir, name), 0o755); };
+    // `docker cp cid:/app/dist <dest>` must leave a dist/ containing the phrases the script will grep for
+    stub("docker", `case "$1" in
+  image) exit 0 ;;
+  create) echo cid123 ;;
+  cp) mkdir -p "$3"; printf 'no-business-yet No business yet' > "$3/index.js" ;;
+  rm) exit 0 ;;
+esac`);
+    stub("ssh", `printf 'SSH-ARGS: %s\\n' "$*" >> "${log}"; cat > /dev/null`);
+    const r = spawnSync("bash", [DELTA, "server", "qa-local9", "qa-local8", "--expect", "No business yet", "--expect", "no-business-yet", "--absent", "demo-tenant-id"], {
+      encoding: "utf8", env: { ...process.env, PATH: `${dir}:${process.env.PATH}` },
+    });
+    let lines: string[] = [];
+    try { lines = readFileSync(log, "utf8").trim().split("\n"); } catch { /* no ssh calls */ }
+    return { r, lines };
+  }
+
+  it("verifies locally first, then talks to the host, and succeeds", () => {
+    const { r, lines } = rig();
+    expect(r.status, `${r.stdout}${r.stderr}`).toBe(0);
+    expect(r.stdout).toMatch(/verified locally: 'No business yet'/);
+    expect(lines.length).toBeGreaterThanOrEqual(2); // the upload, then the remote build
+  });
+
+  it("passes a multi-word --expect to the host as ONE quoted argument, not as separate words", () => {
+    const { lines } = rig();
+    const remote = lines.find((l) => l.includes("bash -s --"))!;
+    expect(remote, "the remote-build ssh call").toBeDefined();
+    expect(remote).toContain("No\\ business\\ yet"); // printf %q form: the spaces are escaped, so it stays one word
+    expect(remote).not.toMatch(/ No business yet( |$)/); // the flattened form that was checked as 'No', 'business', 'yet'
+  });
+
+  it("refuses, and never contacts the host, when the artifact still contains code that should be gone", () => {
+    const dir = mkdtempSync(join(tmpdir(), "deltarig2-"));
+    const stub = (name: string, body: string) => { writeFileSync(join(dir, name), `#!/bin/bash\n${body}\n`); chmodSync(join(dir, name), 0o755); };
+    stub("docker", `case "$1" in image) exit 0 ;; create) echo cid ;; cp) mkdir -p "$3"; printf 'No business yet demo-tenant-id' > "$3/index.js" ;; rm) exit 0 ;; esac`);
+    stub("ssh", `echo CALLED >> "${join(dir, "ssh.log")}"; cat > /dev/null`);
+    const r = spawnSync("bash", [DELTA, "server", "qa-local9", "qa-local8", "--expect", "No business yet", "--absent", "demo-tenant-id"], { encoding: "utf8", env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } });
+    expect(r.status).toBe(2);
+    expect(`${r.stdout}${r.stderr}`).toMatch(/STILL contains 'demo-tenant-id'/);
+    expect(() => readFileSync(join(dir, "ssh.log"))).toThrow(); // ssh was never invoked
+  });
+});

@@ -60,7 +60,10 @@ case "$kind_of" in
     cid=$(docker create "$image"); docker cp "$cid:/$svc" "$work/$svc"; docker rm -f "$cid" >/dev/null
     for e in "${expects[@]}"; do grep -qF -- "$e" "$work/$svc" || die "the binary does NOT contain '$e' — refusing to ship"; echo "  verified locally: '$e'"; done
     gzip -9 -c "$work/$svc" | ssh "$HOST" "mkdir -p /tmp/qa-delta && gunzip > /tmp/qa-delta/$svc && chmod +x /tmp/qa-delta/$svc"
-    ssh "$HOST" 'bash -s' -- "$svc" "$image" "${port:-}" "$NODE" "$KIND_CLUSTER" "${expects[@]}" <<'REMOTE'
+    # ssh flattens its arguments into ONE string for the remote shell, so a multi-word --expect ("No business yet") would arrive as
+    # three separate words and be verified as three separate words. printf %q quotes each argument for the remote bash.
+    remote_args="$(printf '%q ' "$svc" "$image" "${port:-}" "$NODE" "$KIND_CLUSTER" "${expects[@]}")"
+    ssh "$HOST" "bash -s -- $remote_args" <<'REMOTE'
 set -euo pipefail
 svc="$1"; image="$2"; port="$3"; node="$4"; kc="$5"; shift 5
 D=/tmp/qa-delta/ctx-$svc; mkdir -p "$D"; cp /tmp/qa-delta/$svc "$D/$svc"
@@ -95,7 +98,8 @@ REMOTE
     for e in "${expects[@]}"; do grep -rqF -- "$e" "$work/dist" || die "dist does NOT contain '$e' — refusing to ship"; echo "  verified locally: '$e'"; done
     for a in "${absents[@]+"${absents[@]}"}"; do ! grep -rqF -- "$a" "$work/dist" || die "dist STILL contains '$a' — refusing to ship"; echo "  verified locally: '$a' absent"; done
     COPYFILE_DISABLE=1 tar -czf - -C "$work" dist | ssh "$HOST" 'mkdir -p /tmp/qa-delta && rm -rf /tmp/qa-delta/dist && tar -xzf - -C /tmp/qa-delta 2>/dev/null'
-    ssh "$HOST" 'bash -s' -- "$image" "$baseimg" "$NODE" "$KIND_CLUSTER" "${expects[@]}" <<'REMOTE'
+    remote_args="$(printf '%q ' "$image" "$baseimg" "$NODE" "$KIND_CLUSTER" "${expects[@]}")"   # see the note in the rust branch
+    ssh "$HOST" "bash -s -- $remote_args" <<'REMOTE'
 set -euo pipefail
 image="$1"; base="$2"; node="$3"; kc="$4"; shift 4
 D=/tmp/qa-delta/ctx-server; mkdir -p "$D"; rm -rf "$D/dist"; cp -r /tmp/qa-delta/dist "$D/dist"
