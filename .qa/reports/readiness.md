@@ -2,10 +2,10 @@
 
 Session: 2026-09-20 → 2026-09-22 · Branch `development` (all work committed locally — about 78 commits — **not pushed**) · Environments touched: this laptop, a local docker-compose e2e stack, and the live dev cluster `kind-newwave-dev` (namespace `whatsapp-commerce`, plus the shared `tigerbeetle` and `postgres-oracle` namespaces, which belong to other teams too).
 
-This report was first written after pass 2, **updated after pass 3** (QA-033…038: the ledger, availability, login, service auth) and **again after pass 4** (QA-039…042: "fix everything except the UI test, and get to at least 90"), and **once more for the UI fixes** (QA-043: the 403s, the missing sidebars, registration details). Where a section says "pass 3" or "pass 4" it supersedes what an earlier pass said.
+This report was first written after pass 2, **updated after pass 3** (QA-033…038: the ledger, availability, login, service auth) and **again after pass 4** (QA-039…042: "fix everything except the UI test, and get to at least 90"), **once more for the UI fixes** (QA-043: the 403s, the missing sidebars, registration details), and **again after pass 5** (QA-044…046: the TigerBeetle NetworkPolicy applied and verified live, a real TigerBeetle-side fault found and fixed along the way, the monitoring-alerts PR merged and confirmed live, the push completed and CI green, and a systematic "is every component genuinely used" pass that fixed Temporal and partially fixed Fluvio). Where a section says "pass N" it supersedes what an earlier pass said.
 
 ## 1. Executive summary
-**Pass 4 result: 70 → 82 out of 100, still NO-GO for real money traffic. I did not reach 90, and I would rather say so than move the rubric.** The remaining ~9 points are not things more engineering by me can earn; §11 lists exactly what they need (your UI results, a push + CI + Flux resume, a backup destination, the owner's go-ahead on the TigerBeetle namespace, and two other repos).
+**Pass 5 result: 70 → 82 → 85 out of 100, still NO-GO for real money traffic.** Three of pass 4's "what it would take to reach 90" items are now genuinely closed — not by moving the rubric, but because they actually got done: the TigerBeetle-namespace NetworkPolicy is applied and verified live (§11 note below), the monitoring-alerts PR is merged and confirmed live in Prometheus, and the 86 commits are pushed with CI green. The remaining gap to 90 is now smaller and more concentrated: your UI test run and a real off-host backup are the two big ones left, plus the Flux-resume chain (`tb-adapter` ImagePolicy) and an authenticated payment through the live server.
 
 What pass 4 found and fixed — most of it by *measuring on the live cluster instead of reasoning*:
 - **The ledger bridge was down for 30 seconds on every pod termination (QA-042, P1, money path).** Nobody had measured the bridge under money traffic — the pass-2 experiments measured `server`. A probe that drives real `reserve → void` pairs through bridge → adapter → TigerBeetle showed **79.9 %** availability across a rollout and **72.6 %** from deleting *one of two healthy replicas* (150 failed reserves in exactly 30.0 s). Cause: the bridge handled SIGINT but not SIGTERM, which is what Kubernetes sends; as PID 1 it ignored it and lived on for the whole grace period, while its Node sidecar exited within 3 s — so a live bridge with a dead adapter answered `503` to every client whose keep-alive connection was pinned to it. **Fixed and re-measured live: rollout, graceful delete and abrupt delete (`--grace-period=0 --force`) all 100.000 %.**
@@ -16,8 +16,13 @@ What pass 4 found and fixed — most of it by *measuring on the live cluster ins
 - **Safe resumption:** a read-only Flux-resume gate that reports **4 blockers today** (64 → 78 unpushed commits; and the `tb-adapter` sidecar is pinned to a deleted tag with `imagePullPolicy: Never` and has no ImagePolicy — resuming Flux would leave the ledger-bridge pods unable to start); a ship script that verifies the artifact and keeps the rollback tag; a delta-ship for a slow link; handoffs for the pieces that live in other repos.
 - **The UI problems you reported are fixed and live (QA-043) — by rendering, not yet by a human.** One root cause: the client chose a business *for* the user instead of asking who they are. `TenantContext` defaulted to the demo tenant `tenant-001`, and **`ui/tenant-portal` never mounted the provider**, so **24 of its pages** (Products, Orders, Conversations, Payments, Invoices, …) sent `tenant-001` on every query and the server rightly answered **403** for every real merchant — and for every newly registered user, who has no business at all. Twelve more pages hard-coded `"default"`/`"demo-tenant-1"`/`"demo-tenant-id"`. Now: the tenant is derived from the signed-in user on every render; a new user gets a **"Welcome — set up your business" screen inside the sidebar** instead of a wall of 403s; the sidebar shows their **real name, email and "No business yet" / business name / "Platform admin"** (it showed "User", or the identity provider's raw UUID); a login that carried no name/email no longer **erases** the stored ones; **Escrow and Revenue** (admin-only) are hidden from merchants; **`/wholesale`, `/group-deals`, the 404 page and the account menu's Settings** (which went to a route that exists in no app) keep the sidebar. Verified by 59 new tests that render the real layout for a new user, a merchant and an admin, and by the live bundles of all three apps; **not** walked in a real browser (`.qa/ui-test-plan.md`, group F).
 - **Corrections of my own work, in the open (§9):** my "13 s tail, no load shedding" finding was mostly a measurement artifact; I then built a load shedder and **removed it** because it did not help; my CPU-request theory for the co-location was wrong; and a `git stash` slip briefly applied one of your own old stashes to my working tree (restored path-by-path; all four stashes intact).
+- **Pass 5 (QA-044…046), all live and verified on the cluster:**
+  - **The TigerBeetle-namespace NetworkPolicy (drafted in pass 4) is now applied.** Full runbook: proved the exposure first (an unrelated pod reached TigerBeetle directly), applied, watched closely, proved the after-state (that pod now blocked, `ledger-bridge` still works), held clean for 89+ minutes with a live reserve→void probe at 100% before and after. **Along the way, found and fixed a real, silent, pre-existing fault**: `tigerbeetle-0` held a stale cached DNS address for its peer, degrading the cluster to 2-of-3 quorum with zero alerting (ruled out the policy as the cause first — the fault predated it by 21+ minutes; ruled out network — raw TCP was fine; found the actual stale address via a live packet capture; fixed with a graceful restart of the correct replica). Write availability was 100% throughout; this was invisible to every existing signal (QA-044).
+  - **The monitoring-alerts PR is merged and confirmed live** — not just opened: Flux reconciled it, Prometheus reloaded, and its own rules API confirms all 8 new rules loaded and the 2 dead always-empty ones gone.
+  - **Pushed:** 86 commits to `origin/development`, fast-forward, 0 Claude attribution. CI (typecheck + tests + audit + simulation) and the image build both green.
+  - **A systematic pass on "is every declared component genuinely used"** (Postgres, Redis, Kafka, Fluvio, Temporal) found: Temporal was silently attempting a doomed connection on every payment (no workflow or worker exists for it anywhere in this codebase — fixed by guarding, not by a superficial address fix that would have made it worse); Fluvio's consumer/producer were built against an HTTP API that was never implemented, with invalid topic names, against topics that didn't exist (all three fixed and shipped) — but the Fluvio *cluster itself* has zero SPUs registered, a gap outside this repo that blocks it from actually moving data yet; Redis is busy but shares an unpartitioned keyspace with three unrelated projects; and a real payment was driven end-to-end through the actual production code paths (not a shortcut), proving TigerBeetle and Postgres agree, independently verified on both sides (QA-045/046).
 
-**Decision: NO-GO for production traffic that moves real money.** The blockers are no longer "the ledger doesn't work" or "one replica"; they are (1) **nothing has been driven through a real browser** (the login and every page); (2) **recoverability** — no off-host copy, no PITR, no TigerBeetle backup; (3) the **shared TigerBeetle namespace has no network policy and its protocol has no authentication** (a policy is drafted and validated, not applied — it needs the owner); (4) an **image supply chain of hand-shipped `qa-local*` tags with Flux suspended and 78 commits unpushed**. Fine to continue as dev/staging.
+**Decision: NO-GO for production traffic that moves real money — but the reasons have narrowed.** (1) **nothing has been driven through a real browser** (the login and every page) — unchanged; (2) **recoverability** — no off-host copy, no PITR, no TigerBeetle backup — unchanged; (3) ~~the shared TigerBeetle namespace has no network policy~~ **closed in pass 5** — applied and verified live; (4) the image supply chain is mostly closed too — **pushed, CI green** — but Flux stays suspended until the `tb-adapter` ImagePolicy gap closes. Fine to continue as dev/staging.
 
 ## 2. Scope — what was and was not tested
 | Area | Status | Evidence |
@@ -142,42 +147,47 @@ Details, hypotheses and rollback steps: `.qa/chaos/experiments.md`; probes: `.qa
 21. **(QA-043) I had filed all of this under "UI: not done — tooling gap" and treated it as someone else's next step.** It was findable without a browser: rendering the real components with `react-dom/server` and reading the code paths a *newly registered* user takes found the root cause in an afternoon. I should have built that harness in pass 1.
 
 ## 10. Remaining risks (ranked)
-1. **The UI and the login have never been driven by a human** (the plan is `.qa/ui-test-plan.md`; group A is the part a terminal cannot prove, and the new group F walks the registration → set-up → merchant journey). The QA-043 fixes are verified by rendering the real components, not in a browser against real Keycloak.
-2. **The shared TigerBeetle and Postgres namespaces are open to any pod, and TigerBeetle has no authentication** — full read/write on every tenant's ledger; NodePort 32001 exposes it outside the cluster. A validated policy is drafted; applying it needs the owner.
-3. **Recoverability:** no off-host backup destination, no PITR, no TigerBeetle backup.
-4. **Image supply chain:** 78 commits unpushed; hand-shipped `qa-local*` tags with `imagePullPolicy: Never`; **resuming Flux now would leave the ledger-bridge pods unable to start** (`tb-adapter`); a replaced node has none of the images; the cluster host is at 98 % disk; the link to it is intermittently a 23 KB/s relay.
-5. **No admission control for overload:** one process has none, and I did not inspect the ingress.
-6. **Node loss and TigerBeetle-side faults were not exercised**; alerts for this platform's own availability are handed off, not live.
-7. **Live money path only partly exercised:** bridge-level reserve/void/overdraft verified; an authenticated `payment.initiate` → confirm through the live `server` is not; the reconciler's repair pass has never fired.
-8. **Unfixed findings:** stranded `crp:` marker liveness; `commerce-engine` unwired; `paymentTransactions` has no ledger link (an owner decision); `payment-orchestrator`'s stale bridge contract; `lanai`/`vpp` list a single TigerBeetle address.
-9. Unexercised: UI/accessibility/browser compatibility, network faults, a live load test, a soak beyond 10 minutes (local).
+1. **The UI and the login have never been driven by a human** (the plan is `.qa/ui-test-plan.md`; group A is the part a terminal cannot prove, and the new group F walks the registration → set-up → merchant journey). The QA-043 fixes are verified by rendering the real components, not in a browser against real Keycloak. Pass 5 added one more real, production-code-path transaction (a payment driven through `payment.initiate` → a real signed webhook, QA-045/046) — still not a browser.
+2. ~~The shared TigerBeetle namespace is open to any pod~~ **CLOSED in pass 5**: the NetworkPolicy is applied and verified live (89+ min clean, 100% write availability before/after). The **Postgres namespace** (`postgres-oracle`) is still open to any pod — that part of the original risk stands. TigerBeetle's wire protocol still has no authentication of its own; the NetworkPolicy is what's standing in for it (ingress allowlist, not crypto). NodePort 32001 (plaintext, external) is now blocked by the same policy — nothing was using it at the time it was applied.
+3. **Recoverability:** no off-host backup destination, no PITR, no TigerBeetle backup. Unchanged.
+4. **Image supply chain:** commits are pushed (0 unpushed) and CI is green — **most of this risk is closed**. What's left: hand-shipped `qa-local*` tags are still what's actually running (`imagePullPolicy: Never`); **resuming Flux now would still leave the ledger-bridge pods unable to start** (`tb-adapter` has no ImagePolicy); a replaced node has none of the images; the cluster host is at 95% disk; the link to it is intermittently a 23 KB/s relay (mitigated this pass by building locally and shipping only the image, not building on the host).
+5. **A second, independent infra gap found this pass and not fixable from this repo:** the shared Fluvio cluster has zero SPUs (Streaming Processing Units) registered — its own control plane works (topics can be created/listed) but no data can actually be produced or consumed by anyone, from any namespace. `fluvio-consumer`'s code is now correct and will work the moment this is fixed elsewhere; until then it fails loudly with backoff instead of hanging or hot-looping. Needs whoever owns the `fluvio` namespace.
+6. **No admission control for overload:** one process has none, and I did not inspect the ingress.
+7. **Node loss was not exercised**; TigerBeetle-side faults now *were* — not by design (QA-044 was a real pre-existing fault found while preparing the NetworkPolicy, not an injected chaos experiment) — but a deliberate node-loss/TigerBeetle chaos experiment still has not been run. Alerts for this platform's own availability are live now (pass 5), not handed off.
+8. **Live money path more exercised, still partial:** bridge-level reserve/void/overdraft verified; **an authenticated `payment.initiate` → real signed webhook → escrow → settle through the live `server` is now verified too** (QA-045/046, TigerBeetle and Postgres independently confirmed to agree); the reconciler's repair pass has still never fired.
+9. **Unfixed findings:** stranded `crp:` marker liveness; `commerce-engine` unwired; `paymentTransactions` has no ledger link (an owner decision); `payment-orchestrator`'s stale bridge contract; `lanai`/`vpp` list a single TigerBeetle address; Redis has no per-app keyspace isolation (shares db0 with `lanai`/`alfred`/`velma`, found this pass).
+10. Unexercised: UI/accessibility/browser compatibility, network faults, a live load test, a soak beyond 10 minutes (local).
 
 ## 11. Readiness score (skill rubric)
-| Category | Weight | Pass 3 | **Pass 4** | Why |
-|---|---:|---:|---:|---|
-| Functional correctness | 20 | 16 | **18** | a money-path availability defect fixed with live before/after; **and the user-blocking UI defects** (403 on every merchant/new-user page, no way in for a registered user, wrong details, missing sidebars) fixed and live; **still not walked in a real browser** |
-| Security | 15 | 11 | **13** | SSO CSRF, fail-closed auth, junk-provisioning path removed; **TigerBeetle/Postgres namespaces open** (drafted, not applied), no dynamic pentest, login not browser-run |
-| Reliability | 15 | 12 | **14** | bridge/server rollouts, graceful and abrupt pod loss measured at 100 %; spread fixed; HPA demonstrated; **no node-loss or TigerBeetle-side faults** |
-| Test coverage/quality | 10 | 8 | **9** | 4,415 tests green, every guard mutation-checked (real gaps closed), a test that sends a real SIGTERM, **and now UI rendering tests** (the real layout for a new user / merchant / admin); **no browser test**, e2e not re-run as a whole, default-timeout flakiness on a loaded machine |
-| Performance | 10 | 6 | **7** | measured properly and a wrong claim corrected; open-loop overload characterised; **no SLOs, no ingress measurement, no live load test, no in-process protection** |
-| Scalability | 10 | 4 | **6** | metrics-server + HPA, scale-up demonstrated 2 → 4; max 4, bridge fixed at 2, single-process ceiling, connection floods unaddressed |
-| Data integrity | 5 | 4 | **4** | harness isolation fixed; reconciler repair pass **still never fired**, stranded-marker gap open, TigerBeetle history lost |
-| Observability | 5 | 3 | **4** | Rust services traced (verified), rules validated against live Prometheus — **but not live**, inert alerts remain |
-| Deployment safety | 5 | 2 | **3** | artifact-verifying ship script, retained rollback tags, resume gate, measured rollouts; **still hand-shipped images, Flux suspended, 78 commits unpushed, tb-adapter has no ImagePolicy** |
-| Disaster recovery | 3 | 2 | **2** | unchanged: same-host dump, no destination, no PITR, no TigerBeetle backup |
-| Documentation | 2 | 2 | **2** | `.qa/` evidence trail, `docs/RESILIENCE.md`, `docs/handoff/`, UI plan |
-| **Total** | **100** | **70** | **82** | descriptive, not a substitute for judgment |
+| Category | Weight | Pass 3 | Pass 4 | **Pass 5** | Why |
+|---|---:|---:|---:|---:|---|
+| Functional correctness | 20 | 16 | 18 | **18** | unchanged this pass — the money-path and UI defects from pass 4 still stand fixed; **still not walked in a real browser** |
+| Security | 15 | 11 | 13 | **14** | **TigerBeetle-namespace policy applied and verified live** (was drafted-only); Postgres namespace still open, TigerBeetle's own protocol still has no authentication (the NetworkPolicy is an allowlist, not crypto), no dynamic pentest, login not browser-run |
+| Reliability | 15 | 12 | 14 | **14** | unchanged — the TigerBeetle-side fault found and fixed this pass (QA-044) was a real pre-existing bug, not a deliberate chaos experiment, so it doesn't fill the "TigerBeetle-side faults exercised" gap the way an intentional one would; **still no node-loss test** |
+| Test coverage/quality | 10 | 8 | 9 | **9** | unchanged — full regression still green (291 files / 4,418 tests) after this pass's code changes; **still no browser test** |
+| Performance | 10 | 6 | 7 | **7** | unchanged; **no SLOs, no ingress measurement, no live load test** |
+| Scalability | 10 | 4 | 6 | **6** | unchanged |
+| Data integrity | 5 | 4 | 4 | **4** | a real payment now proves TigerBeetle/Postgres agree end to end (QA-045/046) — but that's one transaction, not a systemic guarantee; reconciler repair pass **still never fired** |
+| Observability | 5 | 3 | 4 | **5** | **the alert rules are now actually live** — merged, Flux-reconciled, confirmed present in Prometheus's own rules API — closing exactly the gap pass 4 flagged ("validated but not live") |
+| Deployment safety | 5 | 2 | 3 | **4** | **pushed (0 commits unpushed, was 78) and CI green** (real images build); still hand-shipped `qa-local*` tags actually running, Flux still suspended, `tb-adapter` still has no ImagePolicy |
+| Disaster recovery | 3 | 2 | 2 | **2** | unchanged: same-host dump, no destination, no PITR, no TigerBeetle backup |
+| Documentation | 2 | 2 | 2 | **2** | `.qa/` evidence trail, `docs/RESILIENCE.md`, `docs/handoff/`, UI plan, this update |
+| **Total** | **100** | **70** | **82** | **85** | descriptive, not a substitute for judgment |
 
-**What it would take to reach 90 — and why I could not get there alone.** Each item is something only you (or another repo's owner) can do or authorise:
+**What it would take to reach 90 — and why I could not get there alone.** Each item is something only you (or another repo's/namespace's owner) can do or authorise. Three rows from pass 4's version of this table are gone because they're done:
+
 | Needs | Points it would earn | Why it is not mine to do |
 |---|---:|---|
 | **Your UI test run** (`.qa/ui-test-plan.md`, login first, then group F) | Functional +2, Security +1, Test +1 | needs a human and a real Keycloak login |
-| **Push → CI builds real images → an ImagePolicy for `tb-adapter` → Flux resumed and verified** | Deployment +2, Reliability +1 | `git push` and a Flux resume are outward-facing; the ImagePolicy lives in another repo; the gate (`scripts/fluxResumePreflight.ts`) is ready |
 | **A backup destination** (a bucket + credentials) and a **TigerBeetle backup** you have restored once | DR +1, Data integrity +1 | the code is written; it needs credentials I must not invent |
-| **The owner's go-ahead to apply the TigerBeetle-namespace policy** (and a decision on NodePort 32001) | Security +1 | a mistake is a three-team outage; it is another team's namespace |
-| **Merge the alert rules into `monitoring_dashboard`** | Observability +1 | another repo; I did not touch it |
+| **An ImagePolicy for `tb-adapter` → Flux resumed and verified** | Deployment +1, Reliability +1 | the ImagePolicy lives in another repo; the gate (`scripts/fluxResumePreflight.ts`) is ready; a Flux resume is outward-facing |
+| **Someone who owns the `fluvio` namespace registers a working SPU** | Reliability +1 | shared infra this repo doesn't own — same category as TigerBeetle was |
 | **SLOs you sign off + an ingress measurement** | Performance +1, Scalability +1 | thresholds are stakeholder decisions; I did not inspect the ingress |
-If all of these land the total is about **95**; the first four rows alone (UI run, push/CI/Flux, backup destination, TigerBeetle policy) are worth about +10, i.e. **~92**. Without them, ~82 is what the evidence supports.
+| ~~The owner's go-ahead to apply the TigerBeetle-namespace policy~~ | — | **done, pass 5** |
+| ~~Merge the alert rules into `monitoring_dashboard`~~ | — | **done, pass 5** |
+| ~~Push → CI builds real images~~ | — | **done, pass 5** |
+
+If all of the remaining rows land the total is about **93**; the UI run and the backup destination alone are worth about +5, i.e. **~90**. Without them, **85** is what the evidence supports.
 
 ## 12. Rollout decision
 ```
@@ -195,18 +205,22 @@ EVIDENCE: §3–§8 and .qa/{defects.md, chaos/experiments.md, perf/summary.md, 
 BLOCKERS (each flips the answer if closed):
   1. UI + login driven by a human: run .qa/ui-test-plan.md (group A first), fix what it finds.
   2. Recoverability: an OFF-HOST backup destination, PITR on the shared CNPG cluster, and a TigerBeetle backup restored once.
-  3. Shared-infrastructure exposure: the owner applies an ingress allowlist to the `tigerbeetle` (and `postgres-oracle`)
-     namespace — drafted and validated in docs/handoff/ — and decides what to do about NodePort 32001.
-  4. Image supply chain: push, let CI build real tags, add the tb-adapter ImagePolicy (docs/handoff/), then run
-     `npx tsx scripts/fluxResumePreflight.ts` until it says SAFE — only THEN resume Flux.
-  5. A real authenticated payment through the live `server` (initiate → confirm/webhook → escrow → settle), watching the
-     ledger and the reconciler (and an owner decision on the `paymentTransactions` kind).
+  3. Image supply chain, remainder: add the tb-adapter ImagePolicy (docs/handoff/), then run
+     `npx tsx scripts/fluxResumePreflight.ts` until it says SAFE — only THEN resume Flux. (Push + CI: DONE, pass 5.)
+  4. Someone who owns the `fluvio` namespace registers a working SPU (found pass 5; fluvio-consumer's code is ready).
+  5. Postgres namespace (`postgres-oracle`) is still open to any pod — same category of exposure TigerBeetle had, not yet
+     addressed (TigerBeetle itself: DONE, pass 5).
 CLOSED IN PASS 4: bridge SIGTERM outage; replica co-location; Rust tracing; SSO login CSRF; fail-closed service auth;
      autoscaling (HPA demonstrated); a safe-resume gate; rollback tags retained.
-HIGH-RISK ISSUES: the open TigerBeetle namespace; image supply chain (locally shipped images, suspended Flux, 78 unpushed
-     commits, a resume that would break the ledger); recoverability; unbounded overload at the ingress.
-REMAINING TESTS: UI + accessibility; loss of a whole node; network faults; TigerBeetle-side faults (owner's say-so); a live
-     load test; an authenticated payment; the reconciler's repair path with a real orphaned reservation.
+CLOSED IN PASS 5: TigerBeetle-namespace NetworkPolicy (applied, verified live, 89+ min clean); a real TigerBeetle-side
+     fault (stale DNS, silent quorum degradation); monitoring alerts (merged, confirmed live); the push (86 commits, CI
+     green); Temporal's doomed-connection-on-every-payment; a real end-to-end payment proving TigerBeetle/Postgres agree.
+HIGH-RISK ISSUES: the open Postgres namespace; the Fluvio cluster's missing SPU; remaining image supply chain (locally
+     shipped images still what's running, suspended Flux, tb-adapter has no ImagePolicy); recoverability; unbounded
+     overload at the ingress.
+REMAINING TESTS: UI + accessibility; loss of a whole node; network faults; a live
+     load test; the reconciler's repair path with a real orphaned reservation. (An authenticated payment through the
+     live server: DONE, pass 5 — QA-045/046.)
 REQUIRED REGRESSION after the above: full vitest with a realistic timeout + `npm run simulate` + go + cargo + the e2e
      stack, and the chaos probes (.qa/chaos/) after ANY change to the bridge, the adapter or a rollout setting.
 OPERATIONAL REQUIREMENTS: after every rollout run `scripts/qa-local-ship.sh check-spread <deployment>`; use the money-path
