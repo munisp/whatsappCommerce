@@ -54,7 +54,7 @@ spec:
             secretKeyRef:
               key: INTERNAL_API_KEY
               name: whatsapp-server-internal-api-key
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-event-processor:20260916-1122 # {"$imagepolicy": "flux-system:whatsapp-event-processor"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-event-processor:20260922-0600 # {"$imagepolicy": "flux-system:whatsapp-event-processor"}
         imagePullPolicy: IfNotPresent
         name: event-processor
         ports:
