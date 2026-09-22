@@ -8,10 +8,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Store, DollarSign, Users, TrendingUp, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "default";
 
 export function MarketplacePortalContent() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ businessName: "", ownerPhone: "", ownerName: "", email: "", category: "", commissionRate: "10.00" });
 

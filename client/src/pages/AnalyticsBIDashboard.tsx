@@ -3,10 +3,11 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Users, AlertTriangle, BarChart2 } from "lucide-react";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "default";
 
 export default function AnalyticsBIDashboard() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const { data: summary } = trpc.analyticsBI.biSummary.useQuery({ tenantId: TENANT_ID });
   const { data: cohorts } = trpc.analyticsBI.listCohorts.useQuery({ tenantId: TENANT_ID });
   const { data: churnRisks } = trpc.analyticsBI.listChurnRisks.useQuery({ tenantId: TENANT_ID });

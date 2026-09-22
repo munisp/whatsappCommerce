@@ -10,11 +10,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Smartphone, TrendingUp, CheckCircle2, XCircle, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "default";
 const PROVIDERS = ["mtn_momo", "airtel_money", "mpesa", "orange_money", "wave"] as const;
 
 export default function MobileMoneyPortal() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ provider: "mtn_momo", phoneNumber: "", amount: "", currency: "NGN", description: "" });
 

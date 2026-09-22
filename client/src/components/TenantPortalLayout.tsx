@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { beginSsoTransaction } from "@/lib/ssoTransaction";
 import NotificationCenter from "@/components/NotificationCenter";
 import { Wallet, Rocket, BarChart3, Megaphone, MapPin, BookOpen } from "lucide-react";
+import { displayNameFor } from "@/lib/tenantAccess";
 
 const NAV = [
   { label: "Dashboard", path: "/portal", icon: LayoutDashboard },
@@ -139,7 +140,10 @@ export function TenantPortalLayout({ children }: { children: React.ReactNode }) 
             </div>
             <div>
               <p className="text-sm font-semibold text-white">Merchant Portal</p>
-              <p className="text-xs text-slate-400 truncate max-w-[120px]">{user.name ?? user.openId}</p>
+              {/* QA-043: this used to show `user.name ?? user.openId` — for a newly registered person with no display name that is
+                  the identity provider's raw UUID. displayNameFor falls back to the email's local part, never an internal id. */}
+              <p className="text-xs text-slate-300 truncate max-w-[140px]" data-testid="portal-account-name">{displayNameFor(user)}</p>
+              {user.email && <p className="text-[11px] text-slate-500 truncate max-w-[140px]" data-testid="portal-account-email">{user.email}</p>}
             </div>
           </div>
         </div>

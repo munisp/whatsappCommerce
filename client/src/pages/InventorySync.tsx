@@ -10,8 +10,8 @@ import {
   RefreshCw, Package, AlertTriangle, CheckCircle2, XCircle,
   Database, Clock, TrendingDown, ShieldCheck
 } from "lucide-react";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const DEMO_TENANT = "tenant-001";
 
 function StockStatusBadge({ status }: { status: string }) {
   if (status === "out_of_stock") return <Badge variant="destructive" className="gap-1"><XCircle className="w-3 h-3" />Out of Stock</Badge>;
@@ -31,6 +31,7 @@ function SyncStatusBadge({ status }: { status: string }) {
 }
 
 export function InventorySyncContent() {
+  const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [tenantId] = useState(DEMO_TENANT);
 
   const { data: stockLevels = [], isLoading: loadingStock, refetch: refetchStock } =

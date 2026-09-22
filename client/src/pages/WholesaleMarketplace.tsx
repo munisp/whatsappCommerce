@@ -15,8 +15,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Search, Package } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveTenant } from "@/contexts/TenantContext";
+import DashboardLayout from "@/components/DashboardLayout";
 
-const TENANT_ID = "default";
 
 function fmt(cents: number, currency = "NGN") {
   return `${currency} ${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -32,6 +33,7 @@ const statusColor = (s: string) =>
         : "bg-gray-100 text-gray-700";
 
 export default function WholesaleMarketplace() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [listingForm, setListingForm] = useState({
     title: "", description: "", category: "", moq: "1",
     tiers: [{ minQty: "1", maxQty: "", unitPriceCents: "" }],
@@ -69,6 +71,7 @@ export default function WholesaleMarketplace() {
   });
 
   return (
+    <DashboardLayout>
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Wholesale Marketplace</h1>
@@ -264,5 +267,6 @@ export default function WholesaleMarketplace() {
         </TabsContent>
       </Tabs>
     </div>
+    </DashboardLayout>
   );
 }

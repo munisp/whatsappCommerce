@@ -13,8 +13,8 @@ import {
   Plus, Play, Pause, Archive, Trash2, ArrowUp, ArrowDown, GitBranch,
   Clock, MessageSquare, LogOut, Split, Loader2, Route, Users,
 } from "lucide-react";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "demo-tenant-1";
 
 const statusColors: Record<string, string> = {
   draft: "bg-slate-500/15 text-slate-400 border-slate-500/30",
@@ -183,6 +183,7 @@ function StepList({ steps, editable, onChange }: { steps: Step[]; editable: bool
 }
 
 export default function Journeys() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<Journey | null>(null);

@@ -9,10 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Building2, ShoppingCart, FileText, TrendingUp, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "default";
 
 export function B2BPortalContent() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [rfqOpen, setRfqOpen] = useState(false);
   const [poOpen, setPoOpen] = useState(false);
   const [rfqForm, setRfqForm] = useState({ buyerPhone: "", buyerName: "", quantity: "1", productId: "", notes: "" });

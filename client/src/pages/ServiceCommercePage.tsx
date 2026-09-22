@@ -9,10 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar, Package, RefreshCw, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "default";
 
 export function ServiceCommercePageContent() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [svcOpen, setSvcOpen] = useState(false);
   const [apptOpen, setApptOpen] = useState(false);
   const [svcForm, setSvcForm] = useState({ name: "", serviceType: "appointment" as "appointment" | "digital" | "subscription" | "physical", price: "", currency: "NGN", description: "" });

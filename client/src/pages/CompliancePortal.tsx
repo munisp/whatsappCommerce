@@ -10,10 +10,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FileText, Building, Gavel, CheckCircle2, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "default";
 
 export default function CompliancePortal() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [taxOpen, setTaxOpen] = useState(false);
   const [cacOpen, setCacOpen] = useState(false);
   const [bidOpen, setBidOpen] = useState(false);

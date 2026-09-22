@@ -12,6 +12,9 @@ export default defineConfig({
       "@assets": path.resolve(templateRoot, "attached_assets"),
     },
   },
+  // The app is built with the automatic JSX runtime (the Vite React plugin); without this vitest's esbuild compiles TSX with the
+  // classic runtime and any component that does not `import React` throws "React is not defined" when a test renders it.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     include: ["server/**/*.test.ts", "server/**/*.spec.ts", "simulation/**/*.test.ts", "client/**/*.test.ts", "scripts/**/*.test.ts"],

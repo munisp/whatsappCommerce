@@ -5,6 +5,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -43,11 +44,20 @@ import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 import { Button } from "./ui/button";
 import NotificationCenter from "./NotificationCenter";
 import { useActiveTenant } from "@/contexts/TenantContext";
+import { NoBusinessYet } from "./NoBusinessYet";
+import {
+  accountSubtitle, displayNameFor, initialFor, isAllowedWithoutBusiness, isPlatformAdmin, needsBusinessSetup,
+} from "@/lib/tenantAccess";
 
 type NavItem = {
   icon: React.ElementType;
   label: string;
   path: string;
+  /**
+   * QA-043: the page behind this link only works for platform admins (its queries are admin-only on the server, QA-028).
+   * Showing it to a merchant meant a link whose every click was a 403, so non-admins are simply not offered it.
+   */
+  adminOnly?: boolean;
 };
 
 type NavGroup = {
@@ -136,8 +146,10 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     icon: CreditCard,
     items: [
       { icon: CreditCard,      label: "Payments",        path: "/payments" },
-      { icon: Lock,            label: "Escrow",          path: "/escrow" },
-      { icon: TrendingUp,      label: "Revenue",         path: "/revenue" },
+      // adminOnly: escrow.getStats and seven revenue.* queries are platform-wide and admin-only — a merchant clicking these got a 403.
+      // (A merchant's own revenue is Analytics -> "/portal/analytics".)
+      { icon: Lock,            label: "Escrow",          path: "/escrow",  adminOnly: true },
+      { icon: TrendingUp,      label: "Revenue",         path: "/revenue", adminOnly: true },
       { icon: FileText,        label: "Invoices",        path: "/invoices" },
       { icon: Smartphone,      label: "Mobile Money",    path: "/mobile-money" },
       { icon: Wallet,          label: "Wallet",          path: "/portal/wallet" },
@@ -287,6 +299,15 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
+
+// QA-043: what a freshly REGISTERED user sees. They have no business yet, so every tenant page would only answer 403 —
+// the one thing they can usefully do is create one.
+const GET_STARTED_GROUP: NavGroup = {
+  id: "get-started",
+  label: "Get started",
+  icon: Rocket,
+  items: [{ icon: Rocket, label: "Set up your business", path: "/onboarding-wizard" }],
+};
 
 // Which config renders is determined by the running app, not by role —
 // BASE_URL only depends on the build `command` (see the .dockerignore/App.tsx
@@ -470,7 +491,20 @@ function DashboardLayoutContent({
     }
   }, [user?.tenantId, activeTenantId, setActiveTenantId]);
 
-  const visibleGroups = IS_PLATFORM_ADMIN ? PLATFORM_NAV_GROUPS : TENANT_NAV_GROUPS;
+  // QA-043: the nav follows who is signed in as well as which app is running.
+  //  - a platform admin sees everything;
+  //  - a merchant does not see links that only admins can use (each would be a 403);
+  //  - a newly registered user (no business yet) sees only the way to create one.
+  const admin = isPlatformAdmin(user);
+  const setupOnly = needsBusinessSetup(user);
+  const blocked = setupOnly && !isAllowedWithoutBusiness(location);
+  const visibleGroups = useMemo(() => {
+    if (IS_PLATFORM_ADMIN) return PLATFORM_NAV_GROUPS;
+    if (setupOnly) return [GET_STARTED_GROUP];
+    return TENANT_NAV_GROUPS
+      .map(g => ({ ...g, items: g.items.filter(i => !i.adminOnly || admin) }))
+      .filter(g => g.items.length > 0);
+  }, [admin, setupOnly]);
   const allItems = useMemo(
     () => visibleGroups.flatMap(g => g.items.map(i => ({ ...i, group: g.label }))),
     [visibleGroups]
@@ -666,23 +700,34 @@ function DashboardLayoutContent({
                   <DropdownMenuTrigger asChild>
                     <SidebarMenuButton className="h-12">
                       <Avatar className="h-8 w-8">
-                        <AvatarFallback className="text-xs">
-                          {user?.name?.charAt(0)?.toUpperCase() ?? "U"}
-                        </AvatarFallback>
+                        <AvatarFallback className="text-xs">{initialFor(user)}</AvatarFallback>
                       </Avatar>
                       {!isCollapsed && (
-                        <div className="flex flex-col text-left min-w-0">
-                          <span className="text-sm font-medium truncate">{user?.name ?? "User"}</span>
-                          <span className="text-xs text-muted-foreground truncate">{user?.email ?? ""}</span>
+                        <div className="flex flex-col text-left min-w-0" data-testid="sidebar-account">
+                          <span className="text-sm font-medium truncate" data-testid="sidebar-account-name">{displayNameFor(user)}</span>
+                          <span className="text-xs text-muted-foreground truncate" data-testid="sidebar-account-email">{user?.email ?? ""}</span>
+                          <span className="text-[11px] text-muted-foreground/80 truncate" data-testid="sidebar-account-subtitle">
+                            {accountSubtitle(user, myTenant?.name)}
+                          </span>
                         </div>
                       )}
                     </SidebarMenuButton>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent side="top" align="start" className="w-56">
-                    <DropdownMenuItem onClick={() => setLocation("/settings")}>
-                      <Settings className="mr-2 h-4 w-4" /> Settings
-                    </DropdownMenuItem>
+                    <DropdownMenuLabel className="font-normal">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium truncate">{displayNameFor(user)}</span>
+                        <span className="text-xs text-muted-foreground truncate">{user?.email ?? ""}</span>
+                        <span className="text-xs text-muted-foreground truncate">{accountSubtitle(user, myTenant?.name)}</span>
+                      </div>
+                    </DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    {/* QA-043: this used to go to "/settings", a route that exists in NO app — every click landed on the 404 page, which has no sidebar. */}
+                    {!IS_PLATFORM_ADMIN && !setupOnly && (
+                      <DropdownMenuItem onClick={() => setLocation("/tenant-settings")}>
+                        <Settings className="mr-2 h-4 w-4" /> Settings
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={logout}>
                       <LogOut className="mr-2 h-4 w-4" /> Sign out
                     </DropdownMenuItem>
@@ -714,7 +759,9 @@ function DashboardLayoutContent({
             <NotificationCenter />
           </div>
         </div>
-        <main className="flex-1 overflow-auto">{children}</main>
+        {/* QA-043: a user with no business yet gets the set-up screen INSIDE the shell (sidebar + their account details), not a
+            tenant page that can only 403. The pages that create a business (NO_BUSINESS_ALLOWED_PATHS) render normally. */}
+        <main className="flex-1 overflow-auto">{blocked ? <NoBusinessYet name={displayNameFor(user)} /> : children}</main>
       </SidebarInset>
     </>
   );

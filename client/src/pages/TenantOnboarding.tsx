@@ -16,6 +16,7 @@ import {
   TrendingUp, DollarSign, Zap, Star, Info,
 } from "lucide-react";
 import { Mail } from "lucide-react";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Step = "business_profile" | "billing_model" | "whatsapp_setup" | "kyc_kyb" | "review";
@@ -343,6 +344,9 @@ function DocumentUploadRow({
 
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
 export default function TenantOnboarding() {
+  // QA-043: the signed-in user's own business ("" until they have one). This page hard-coded "demo-tenant-id", so its KYC and
+  // progress-email calls were refused (403) for every real tenant.
+  const { activeTenantId } = useActiveTenant();
   const [, navigate] = useLocation();
   const [currentStep, setCurrentStep] = useState<Step>("business_profile");
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
@@ -697,7 +701,7 @@ export default function TenantOnboarding() {
                   {form.kycApplicationId ? (
                     <LivenessCamera
                       applicationId={form.kycApplicationId}
-                      tenantId="demo-tenant-id"
+                      tenantId={activeTenantId}
                       onComplete={(sessionId, status) => {
                         updateForm({ livenessSessionId: sessionId, livenessStatus: status });
                         if (status === "passed") toast.success("Liveness check passed!");
@@ -708,8 +712,8 @@ export default function TenantOnboarding() {
                       <p className="text-sm text-muted-foreground">Create a KYC application first to start liveness check.</p>
                       <Button
                         variant="outline"
-                        onClick={() => createApplication.mutate({ tenantId: "demo-tenant-id", type: "kyb" })}
-                        disabled={createApplication.isPending}
+                        onClick={() => createApplication.mutate({ tenantId: activeTenantId, type: "kyb" })}
+                        disabled={createApplication.isPending || !activeTenantId}
                       >
                         {createApplication.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                         Initialize KYC Application
@@ -797,8 +801,8 @@ export default function TenantOnboarding() {
                     variant="outline"
                     size="sm"
                     className="gap-2 text-xs"
-                    onClick={() => sendProgressEmail.mutate({ tenantId: "demo-tenant-id" })}
-                    disabled={sendProgressEmail.isPending}
+                    onClick={() => sendProgressEmail.mutate({ tenantId: activeTenantId })}
+                    disabled={sendProgressEmail.isPending || !activeTenantId}
                   >
                     {sendProgressEmail.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
                     Send Progress Email

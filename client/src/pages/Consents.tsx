@@ -8,8 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { ShieldCheck, ShieldOff, Download, UserX, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
-const TENANT_ID = "demo-tenant-1";
 
 type ConsentRow = {
   id: string;
@@ -26,6 +26,7 @@ type ConsentRow = {
 const fmt = (d: string | Date | null | undefined) => (d ? new Date(d).toLocaleString() : "—");
 
 export default function Consents() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [phone, setPhone] = useState("");
 
   const { data: rows, refetch, isLoading } = trpc.consents.list.useQuery({ tenantId: TENANT_ID, limit: 500 });

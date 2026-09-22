@@ -11,8 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Users, Clock, Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveTenant } from "@/contexts/TenantContext";
+import DashboardLayout from "@/components/DashboardLayout";
 
-const TENANT_ID = "default";
 
 function fmt(cents: number, currency = "NGN") {
   return `${currency} ${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
@@ -36,6 +37,7 @@ const statusColor = (s: string) =>
         : "bg-gray-100 text-gray-700";
 
 export default function GroupDeals() {
+  const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [form, setForm] = useState({
     title: "", unitPriceCents: "", retailPriceCents: "", thresholdQty: "", deadlineHours: "72",
   });
@@ -71,6 +73,7 @@ export default function GroupDeals() {
   });
 
   return (
+    <DashboardLayout>
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -173,5 +176,6 @@ export default function GroupDeals() {
         </Card>
       )}
     </div>
+    </DashboardLayout>
   );
 }

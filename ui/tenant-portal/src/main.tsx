@@ -7,6 +7,7 @@ import superjson from "superjson";
 import App from "./App";
 import { isLoggingOut, startLogin } from "@/const";
 import "@/index.css";
+import { TenantProvider } from "@/contexts/TenantContext";
 
 // Vite fires this when a lazy route chunk fails to load — always true for any
 // tab left open across a deploy, since each deploy replaces /assets/ with a
@@ -73,7 +74,12 @@ const trpcClient = trpc.createClient({
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
-      <App />
+      {/* QA-043: this app never mounted a TenantProvider, so every page that asks useActiveTenant() for "the business I am
+          looking at" got the context's built-in default — the demo tenant "tenant-001" — with a no-op setter. 24 pages sent it
+          on every query and the server refused each one with a 403 for every real merchant. */}
+      <TenantProvider>
+        <App />
+      </TenantProvider>
     </QueryClientProvider>
   </trpc.Provider>
 );

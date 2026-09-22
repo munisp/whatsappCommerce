@@ -131,10 +131,13 @@ export default function BroadcastCampaigns() {
   // W21: AI uplift targeting toggle (send preview dialog).
   const [rankByUplift, setRankByUplift] = useState(false);
 
+  // QA-043: the signed-in user's own tenant — this query used to hard-code "demo-tenant-1" and 403 for every real tenant.
+  const { activeTenantId } = useActiveTenant();
+
   // W21: uplift model status + on-demand training (per-tenant, guarded server-side).
   const { data: upliftStatus, refetch: refetchUpliftStatus } = trpc.broadcast.upliftModelStatus.useQuery(
-    { tenantId: "demo-tenant-1" },
-    { retry: false },
+    { tenantId: activeTenantId },
+    { retry: false, enabled: !!activeTenantId },
   );
   const trainUplift = trpc.broadcast.trainUpliftModel.useMutation({
     onSuccess: (r) => {
@@ -145,7 +148,6 @@ export default function BroadcastCampaigns() {
     onError: (e) => toast.error(e.message),
   });
 
-  const { activeTenantId } = useActiveTenant();
   const { data: campaignsData, isLoading, refetch } = trpc.broadcast.list.useQuery({ tenantId: activeTenantId });
   const campaigns = (campaignsData?.campaigns ?? []) as Campaign[];
 
