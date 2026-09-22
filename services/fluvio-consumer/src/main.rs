@@ -92,6 +92,20 @@ impl Config {
             .trim_end_matches('/')
             .to_string()
     }
+
+    /// QA-046 (SPU discovery): this cluster's SPUs have no external ingress configured
+    /// (`publicEndpoint.ingress: []`, confirmed live via `kubectl get spus.fluvio.infinyon.com`) — only
+    /// `publicEndpointLocal`, the in-cluster DNS address (`fluvio-spu-main-0.fluvio.svc.cluster.local`).
+    /// `use_spu_local_address` is exactly the SDK's switch for this case. Every real caller of this
+    /// service is itself in-cluster (a different namespace, but still in-cluster), so this is the
+    /// correct default here, not a workaround — the moment (if ever) this cluster gets a real external
+    /// ingress for Fluvio, this would need to become configurable, but nothing in this deployment needs
+    /// that today.
+    fn cluster_config(&self) -> FluvioClusterConfig {
+        let mut cfg = FluvioClusterConfig::new(self.fluvio_addr());
+        cfg.use_spu_local_address = true;
+        cfg
+    }
 }
 
 // ─── Event Types ──────────────────────────────────────────────────────────────
@@ -188,8 +202,7 @@ async fn consume_topic(config: Arc<Config>, client: reqwest::Client, topic: Stri
 }
 
 async fn run_one_topic(config: &Config, client: &reqwest::Client, topic: &str) -> Result<()> {
-    let cluster_config = FluvioClusterConfig::new(config.fluvio_addr());
-    let fluvio = Fluvio::connect_with_config(&cluster_config)
+    let fluvio = Fluvio::connect_with_config(&config.cluster_config())
         .await
         .with_context(|| format!("connect to Fluvio SC at {}", config.fluvio_addr()))?;
 
@@ -484,7 +497,7 @@ async fn main() -> Result<()> {
     } else {
         // Connect once for the producer side (health + /produce); each consumer task connects
         // separately since fluvio::Fluvio is not Sync-shareable across the long-lived stream borrows.
-        match Fluvio::connect_with_config(&FluvioClusterConfig::new(config.fluvio_addr())).await {
+        match Fluvio::connect_with_config(&config.cluster_config()).await {
             Ok(fluvio) => {
                 info!(endpoint = %config.fluvio_addr(), "connected to Fluvio (producer side)");
                 *state.fluvio.write().await = Some(fluvio);

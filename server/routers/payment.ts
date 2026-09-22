@@ -7,8 +7,9 @@
  *    triggerPaymentSaga() below is guarded to skip cleanly rather than attempt a doomed connection
  * 3. TigerBeetle ledger — atomic double-entry accounting (live; verified end-to-end, QA-044/045)
  * 4. PostgreSQL — source of truth for payment_intents with status machine (live)
- * 5. Fluvio — live as of QA-046: publishes to topic "wacommerce-payments" via fluvio-consumer's
- *    real /produce endpoint (previously sent the event name itself as an invalid, unlistened-to topic)
+ * 5. Fluvio — fully live as of QA-047: publishes to topic "wacommerce-payments" via fluvio-consumer's
+ *    real /produce endpoint, which a real registered SPU now actually stores and a real consumer reads
+ *    back (QA-046 fixed the app-level bugs; QA-047 fixed the cluster's missing SPU and endpoint config)
  * 6. Dapr pub/sub — cross-service event notification
  */
 import { z } from "zod";
