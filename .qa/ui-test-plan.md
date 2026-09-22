@@ -98,9 +98,15 @@ For every **FAIL** include: the time, a screenshot, and from the Network tab the
 | **D2** | Ledger bridge down while you click | any + me | 6 | QA-030 |
 | **D3** | Rolling restart while you click | any + me | 6 | QA-012 / 027 |
 | **E1** | SSRF guard on the Keycloak setup form | admin | 4 | QA-016 |
+| **F1** | Register a brand-new account and see YOUR details in the sidebar | none (you register) | 6 | QA-043 |
+| **F2** | A new user gets the set-up screen, not a wall of 403s | the F1 account | 4 | QA-043 |
+| **F3** | Create the business; the sidebar and pages switch to it | the F1 account | 8 | QA-043 |
+| **F4** | A merchant's pages load with **no 403s** | the F1 account (after F3) | 8 | QA-043 |
+| **F5** | The sidebar is present everywhere it should be | any signed-in | 5 | QA-043 |
+| **F6** | Admin-only links: admin sees them, a merchant does not | admin + merchant | 4 | QA-043 |
 | **G1** | Smoke sweep of ~16 pages | admin (+ non-admin) | 20 | regression |
 
-**Suggested order:** S0 → A1–A9 → B1–B3 → G1 → C → E1 → D (D last, because I disturb the cluster).
+**Suggested order:** S0 → A1–A9 → **F1–F6 (the account/403/sidebar fixes — do these early, they need a fresh account)** → B1–B3 → G1 → C → E1 → D (D last, because I disturb the cluster).
 
 ---
 
@@ -284,6 +290,53 @@ The server used to POST a tenant's real client secret to whatever URL the tenant
 - **PASS:** all three rejected. **FAIL:** any attempts a connection.
 
 ---
+
+## 6a. Group F — Registration, the sidebar, the 403s (QA-043)
+
+**What was wrong, in one paragraph.** The app's front end picked a business for you (a hard-coded demo tenant, `tenant-001`) instead of asking who you are, so almost every merchant page sent the wrong business and the server refused it with a **403**. A newly registered account has no business at all, so *every* page did that. Several pages had no sidebar, the sidebar showed "User" (or an internal id) instead of your details, and two links (Escrow, Revenue) only work for admins. All fixed in `server:qa-local9`. **You need a fresh account for F1–F4** (the point is what a brand-new user sees), so use the **Register** link on the sign-in form (see §0.3).
+
+**Set-up for all of F:** DevTools open, **Network** tab, filter box: `trpc`, and tick **Preserve log**. A 403 shows as a red row with status **403**.
+
+### F1 — Register, and see your own details in the sidebar `[P0]`
+1. Private window → `https://wa-app.newfire.app/tenant-portal/` → **Sign In** → on the Keycloak form click **Register**. Fill it in with a real email, a first and last name, and a password; submit (verify the email if it asks).
+2. → *You come back to the app, signed in.*
+3. Look at the **bottom of the left sidebar**. → ***Three lines:** your name (first + last as you typed them), your email, and **"No business yet"**.* Click it: the menu opens with the same three lines at the top, then **Sign out** (there is **no Settings** item yet — you have no business).
+- **WATCH FOR:** the name showing as **"User"**, a long random id, or just your email twice; the third line missing; a blank avatar letter.
+- **PASS:** name + email + "No business yet". **FAIL:** anything else (screenshot it).
+- *Also try:* register a second account with **no** first/last name if the form lets you. → *The name line shows the part of your email before the `@`, never "User".*
+
+### F2 — A new user gets a set-up screen, not a wall of red errors `[P0]`
+1. Still signed in as the new account. Look at the page in the middle. → ***"Welcome, {your name}"** and a big **Set up your business** button.*
+2. Look at the left navigation. → *A single group, **Get started → Set up your business**. **No** Products / Orders / Conversations / Payments.*
+3. In the address bar go to `https://wa-app.newfire.app/tenant-portal/products`. → *The same "Welcome / Set up your business" screen (you are not sent to an error page).*
+4. Network tab. → ***No red 403 rows.** (Before the fix you would see several `403` responses on every page.)*
+- **PASS:** set-up screen, one nav entry, zero 403s. **FAIL:** any 403, a blank page, or the merchant navigation.
+
+### F3 — Create the business; the sidebar and pages switch to it `[P0]`
+1. Click **Set up your business** → the wizard opens (the sidebar is still there).
+2. Enter a business name (e.g. `QA Test Stores`) and continue past the first step. → *A green toast, something like `Tenant "QA Test Stores" provisioned`.*
+3. Look at the sidebar without reloading. → ***The full merchant navigation appears**, the sidebar's top shows **QA Test Stores**, and the account block's third line changes from "No business yet" to **QA Test Stores**.*
+4. Reload the page (**⌘R**). → *Same: business name shown, full navigation.*
+- **WATCH FOR:** having to sign out and in to see the change; the third line still saying "No business yet".
+- **PASS:** it switches without a manual reload, and survives one. **FAIL:** otherwise. (Note the time if it needs a reload — that is a bug I need to look at.)
+
+### F4 — A merchant's pages load with no 403s `[P0]`
+As the F3 account, open each of these and watch the Network tab (`trpc` filter): `/products`, `/orders`, `/conversations`, `/payments`, `/invoices`, `/tenant-settings`, `/broadcast`, `/consents`, `/journeys`, `/analytics-bi`, `/mobile-money`, `/wholesale`, `/group-deals`.
+- **EXPECT:** pages load (empty states like "No orders yet" are fine); **no row with status 403**.
+- **A 403 is a FAIL** — send me the page, the row's URL (the part after `/api/trpc/`) and the response body. A **401** is a different thing (signed out); a **400** is a form validation message.
+- *(These are the pages that used to hard-code or default to the demo tenant.)*
+
+### F5 — The sidebar is present everywhere it should be `[P1]`
+1. `https://wa-app.newfire.app/tenant-portal/wholesale` and `/tenant-portal/group-deals`. → ***The sidebar is there** on both. (These two used to render without one.)*
+2. Open the account menu (bottom of the sidebar) → **Settings** (once you have a business, F3). → *Tenant Settings page, **with** the sidebar. (It used to go to a "Page Not Found" screen with no sidebar.)*
+3. Go to `.../tenant-portal/this-page-does-not-exist`. → *"404 Page Not Found" **inside** the sidebar layout.*
+4. Signed out, `https://wa-app.newfire.app/track/anything` and the storefront `https://wa-app.newfire.app/shop/anything`. → *These stay **bare** on purpose (public links) — that is correct, not a bug.*
+- **PASS:** 1–3 have the sidebar, 4 does not.
+
+### F6 — Admin-only links `[P1]`
+- As a **merchant** (F3 account): open the **Payments** group in the sidebar. → ***No "Escrow" and no "Revenue".** (Both only work for admins; they used to be there and return 403.)*
+- As an **admin** (needs S0/promotion): the same group. → ***Escrow and Revenue are there** and load.*
+- **PASS:** the two behave as described. **FAIL:** a merchant sees them, or an admin does not.
 
 ## 7. Group G — Smoke sweep (regression)
 
