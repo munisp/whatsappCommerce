@@ -127,8 +127,14 @@ spec:
       # existed only an in-memory test double implemented that contract, so the bridge had never
       # run against a real ledger. See services/tb-adapter and docs/RESILIENCE.md "Ledger wiring".
       - name: tb-adapter
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-tb-adapter:qa-local1
-        imagePullPolicy: Never # locally shipped like the other qa-local images (see project notes)
+        # QA-046/047: this used to pin a locally-shipped qa-local tag with imagePullPolicy Never and no
+        # ImagePolicy — CI does build this image (build-and-push.yml), it just had nothing watching the
+        # registry for it. Fixed: real CI tag, IfNotPresent, an ImagePolicy that exists now
+        # (flux-system:whatsapp-tb-adapter). The live cluster may still run a hand-shipped qa-local tag
+        # ahead of whatever's here — that's normal during active QA, see reference_cluster_access notes;
+        # this line is what a Flux resume would apply, and now that's a real, currently-pullable image.
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-tb-adapter:20260922-0600 # {"$imagepolicy": "flux-system:whatsapp-tb-adapter"}
+        imagePullPolicy: IfNotPresent
         env:
         - name: HOST
           value: 127.0.0.1 # loopback only: the bridge is the sole client
