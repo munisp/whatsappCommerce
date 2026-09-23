@@ -78,3 +78,23 @@ export function accountSubtitle(u: SessionUser, businessName: string | null | un
   if (!u.tenantId) return "No business yet";
   return clean(businessName) || "Merchant";
 }
+
+/**
+ * True when a react-query key belongs to a tenant-scoped tRPC call whose `tenantId` input is the empty string — i.e. "no
+ * business yet" (a freshly registered user, or a session that has not resolved yet).
+ *
+ * Why this exists: the shell hides a page's CONTENTS for a user with no business, but a page's own hooks still run, so
+ * every page that called `trpc.x.useQuery({ tenantId })` fired that request anyway and got a 403 ("You can only access your
+ * own tenant's data") — 23 pages did not guard it themselves. Holding those queries back centrally (see appQueryClient)
+ * fixes them all; an empty tenant is never a valid one, so nothing legitimate is lost.
+ *
+ * Key shape (tRPC v11): [ ["router","procedure"], { input, type } ].
+ */
+export function queryHasEmptyTenantId(queryKey: readonly unknown[]): boolean {
+  const meta = queryKey[1];
+  if (!meta || typeof meta !== "object") return false;
+  const input = (meta as { input?: unknown }).input;
+  if (!input || typeof input !== "object") return false;
+  const tenantId = (input as { tenantId?: unknown }).tenantId;
+  return typeof tenantId === "string" && tenantId.trim() === "";
+}

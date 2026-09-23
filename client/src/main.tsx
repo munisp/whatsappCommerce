@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { COOKIE_NAME, UNAUTHED_ERR_MSG } from '@shared/const';
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { createAppQueryClient } from "@/lib/appQueryClient";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
@@ -23,7 +24,7 @@ window.addEventListener("vite:preloadError", () => {
 });
 setTimeout(() => sessionStorage.removeItem("vitePreloadReloaded"), 10_000);
 
-const queryClient = new QueryClient();
+const queryClient = createAppQueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
