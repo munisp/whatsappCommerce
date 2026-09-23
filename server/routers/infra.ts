@@ -136,8 +136,18 @@ export async function collectInfraComponentStatuses(): Promise<Record<string, Se
       ? ping(`${ENV.apisixAdminUrl}/apisix/admin/routes`, 3000, { "X-API-KEY": ENV.apisixAdminKey })
       : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
     ping(`${ENV.keycloakUrl}/realms/${ENV.keycloakRealm}/protocol/openid-connect/certs`),
-    ENV.openappsecUrl
-      ? ping(`${ENV.openappsecUrl}/api/v1/health`, 3000, ENV.openappsecToken ? { Authorization: `Bearer ${ENV.openappsecToken}` } : {})
+    // The self-hosted open-appsec agent (ghcr.io/openappsec/agent, open-source
+    // build) has no REST "management API" of its own — that /api/v1/health
+    // shape this used to hit belongs to Check Point's commercial cloud
+    // console, which isn't what's deployed here. It runs as an attachment
+    // inside the shared APISIX gateway (same pod as the `apisix` check
+    // above), so its only externally-checkable signal is that same admin
+    // API — X-API-KEY, not Bearer. Checking OUR route specifically (not the
+    // generic /apisix/admin/routes the `apisix` tile already covers) proves
+    // the gateway that has open-appsec attached actually knows about us,
+    // rather than duplicating that tile's check.
+    ENV.openappsecUrl && ENV.openappsecToken
+      ? ping(`${ENV.openappsecUrl}/apisix/admin/routes/whatsapp-server-route`, 3000, { "X-API-KEY": ENV.openappsecToken })
       : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
     ENV.permifyUrl
       ? ping(`${ENV.permifyUrl}/healthz`)

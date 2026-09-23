@@ -1,0 +1,62 @@
+# open-appsec WAF policy for wa-app.newfire.app, on the cluster's shared
+# open-appsec/APISIX ingress controller (namespace appsec-apisix-dev).
+#
+# Scope: these resources ONLY affect traffic for host wa-app.newfire.app —
+# via Policy.spec.specific-rules[].host, never Policy.spec.default (the
+# shared fallback every other tenant on this ingress controller relies on).
+# Do not add a `default:` block here.
+#
+# Mode: detect-learn (log + build the ML model; never blocks) rather than
+# prevent-learn, deliberately, for the first rollout against real live
+# traffic — nothing here has been observed by open-appsec before. Move to
+# prevent-learn once a learning period has passed with no false positives.
+#
+# Adapted from the docker-compose-era services/middleware/openappsec-policy.yaml
+# (standalone agent YAML format) into the real CRDs this cluster's open-appsec
+# actually reads (policies.openappsec.io / practices.openappsec.io /
+# exceptions.openappsec.io) — the two formats are not interchangeable.
+apiVersion: openappsec.io/v1beta1
+kind: Practice
+metadata:
+  name: wacommerce-web-practice
+  namespace: whatsapp-commerce
+spec:
+  web-attacks:
+    override-mode: detect-learn
+    max-body-size-kb: 1024
+    max-header-size-bytes: 8192
+    max-url-size-bytes: 2048
+    minimum-confidence: critical
+  anti-bot:
+    override-mode: detect-learn
+    injected-URIs:
+      - uri: /api/trpc/
+    validated-URIs:
+      - uri: /api/trpc/
+---
+apiVersion: openappsec.io/v1beta1
+kind: Exception
+metadata:
+  name: wacommerce-webhook-exception
+  namespace: whatsapp-commerce
+spec:
+  - action: skip
+    comment: "Meta webhook is HMAC-SHA256 signature-verified by the app itself — the WAF must not interfere with delivery"
+    hostName:
+      - wa-app.newfire.app
+    url:
+      - /api/webhook/whatsapp
+---
+apiVersion: openappsec.io/v1beta1
+kind: Policy
+metadata:
+  name: wacommerce-policy
+  namespace: whatsapp-commerce
+spec:
+  specific-rules:
+    - host: wa-app.newfire.app
+      mode: detect-learn
+      practices:
+        - wacommerce-web-practice
+      exceptions:
+        - wacommerce-webhook-exception
