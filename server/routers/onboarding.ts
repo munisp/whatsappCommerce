@@ -4,7 +4,7 @@ import { getDb } from "../db";
 import { tenantOnboarding, tenants, users } from "../../drizzle/schema";
 import * as membership from "../services/membership";
 import type { TenantOnboarding } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
 import {
@@ -325,10 +325,33 @@ export const onboardingRouter = router({
             accessToken: z.string().min(1, "accessToken must not be empty"),
           })
           .parse(input.data);
-        await db
-          .update(tenants)
-          .set({ whatsappPhoneNumberId: creds.phoneNumberId, updatedAt: new Date() })
-          .where(eq(tenants.id, input.tenantId));
+        const [conflict] = await db
+          .select({ id: tenants.id })
+          .from(tenants)
+          .where(and(eq(tenants.whatsappPhoneNumberId, creds.phoneNumberId), ne(tenants.id, input.tenantId)))
+          .limit(1);
+        if (conflict) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: `WhatsApp phone number id ${creds.phoneNumberId} is already configured on another tenant`,
+          });
+        }
+        try {
+          await db
+            .update(tenants)
+            .set({ whatsappPhoneNumberId: creds.phoneNumberId, updatedAt: new Date() })
+            .where(eq(tenants.id, input.tenantId));
+        } catch (error: unknown) {
+          const code = (error as { code?: string; cause?: { code?: string } })?.code
+            ?? (error as { cause?: { code?: string } })?.cause?.code;
+          if (code === "23505") {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: `WhatsApp phone number id ${creds.phoneNumberId} is already configured on another tenant`,
+            });
+          }
+          throw error;
+        }
         await updateTenantSettings(input.tenantId, (s) => {
           // Encrypt at rest (v1: envelope) — reads decrypt transparently.
           s.whatsapp = { ...(s.whatsapp ?? {}), accessToken: encryptSecret(creds.accessToken) };

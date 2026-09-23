@@ -42,14 +42,48 @@ function pick(r: Row, cols: Row | undefined): Row {
   return out;
 }
 
+/**
+ * Structural evaluator for drizzle-orm's eq/ne/and SQL objects, so this fake
+ * matches real filtering instead of returning every row regardless of the
+ * where clause. Only the shapes this suite's routers actually build
+ * (eq, ne, and — each an SQL instance with a recognizable queryChunks
+ * layout) are understood; anything else falls back to "matches" so existing
+ * single-row-store tests that never needed real filtering keep working.
+ */
+function evalDrizzleCondition(cond: any, row: Row): boolean {
+  const chunks = cond?.queryChunks;
+  if (!Array.isArray(chunks)) return true;
+  // and(a, b): SQL{queryChunks:[StringChunk("("), SQL{queryChunks:[aSQL, StringChunk(" and "), bSQL]}, StringChunk(")")]}
+  if (chunks.length === 3 && chunks[0]?.value?.[0] === "(" && chunks[2]?.value?.[0] === ")") {
+    return evalDrizzleCondition(chunks[1], row);
+  }
+  if (chunks.length === 3 && chunks[1]?.value?.[0] === " and ") {
+    return evalDrizzleCondition(chunks[0], row) && evalDrizzleCondition(chunks[2], row);
+  }
+  // eq/ne(column, value): SQL{queryChunks:[StringChunk, Column, StringChunk(op), Param, StringChunk]}
+  if (chunks.length === 5) {
+    const colName = chunks[1]?.name;
+    const op = chunks[2]?.value?.[0];
+    const val = chunks[3]?.value;
+    if (colName && op === " = ") return row[colName] === val;
+    if (colName && op === " <> ") return row[colName] !== val;
+  }
+  return true;
+}
+
 function makeFakeDb() {
   return {
     select(cols?: Row) {
       return {
         from(table: unknown) {
-          const getRows = () => (stores.get(table) ?? []).map((r) => pick(r, cols));
+          let condition: unknown = null;
+          const getRows = () => {
+            const rows = stores.get(table) ?? [];
+            const filtered = condition ? rows.filter((r) => evalDrizzleCondition(condition, r)) : rows;
+            return filtered.map((r) => pick(r, cols));
+          };
           const chain: any = {
-            where: () => chain,
+            where: (cond: unknown) => { condition = cond; return chain; },
             orderBy: () => chain,
             limit: async (n?: number) => {
               const rows = getRows();

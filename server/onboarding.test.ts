@@ -384,6 +384,30 @@ describe("validation failure blocks activation", () => {
   });
 });
 
+describe("WhatsApp identity conflicts", () => {
+  it("rejects a phone number already claimed by another tenant", async () => {
+    const admin = onboardingRouter.createCaller(adminCtx);
+    const first = await admin.start({ name: "First Shop" });
+    const second = await admin.start({ name: "Second Shop" });
+    const firstCaller = onboardingRouter.createCaller(makeCtx(makeUser("user", first.tenantId)));
+    const secondCaller = onboardingRouter.createCaller(makeCtx(makeUser("user", second.tenantId)));
+
+    await firstCaller.updateStep({
+      tenantId: first.tenantId,
+      step: "whatsapp",
+      data: { phoneNumberId: "1314669825055636", accessToken: "first-token" },
+    });
+
+    await expect(secondCaller.updateStep({
+      tenantId: second.tenantId,
+      step: "whatsapp",
+      data: { phoneNumberId: "1314669825055636", accessToken: "second-token" },
+    })).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+  });
+});
+
 describe("cross-tenant access", () => {
   it("rejects tenant B operating on tenant A onboarding", async () => {
     const admin = onboardingRouter.createCaller(adminCtx);
