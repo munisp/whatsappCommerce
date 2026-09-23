@@ -116,18 +116,75 @@ export function parseSanctionsList(body: unknown, listLabel = "REMOTE"): Sanctio
   return [];
 }
 
+/**
+ * RFC 4180-style CSV reader: quoted fields may contain commas, doubled quotes
+ * and newlines. A naive split(",") cut names like "ANGLO-CARIBBEAN CO., LTD."
+ * in half, which corrupts exactly the entries a sanctions screen exists for.
+ */
+function splitCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  const endRow = () => {
+    row.push(field.trim());
+    field = "";
+    if (row.some((f) => f !== "")) rows.push(row);
+    row = [];
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ",") { row.push(field.trim()); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      endRow();
+    } else field += c;
+  }
+  endRow();
+  return rows;
+}
+
+/**
+ * OFAC's published sdn.csv has NO header row: col 0 is the entity number, col 1
+ * the name, col 2 the type ("-0- " when null), then program etc. Detected by
+ * shape (numeric col 0, non-numeric col 1) over the first rows.
+ */
+function isOfacSdnLayout(rows: string[][]): boolean {
+  const sample = rows.slice(0, 5);
+  return (
+    sample.length > 0 &&
+    sample.every((r) => r.length >= 3 && /^\d+$/.test(r[0]) && r[1] !== "" && !/^\d+$/.test(r[1]))
+  );
+}
+
 function parseCsv(text: string, listLabel: string): SanctionsEntry[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length === 0) return [];
-  const header = lines[0].toLowerCase().split(",").map((h) => h.trim());
+  const all = splitCsv(text);
+  if (all.length === 0) return [];
+  const header = all[0].map((h) => h.toLowerCase());
   const hasHeader = header.includes("name");
+  const out: SanctionsEntry[] = [];
+
+  if (!hasHeader && isOfacSdnLayout(all)) {
+    for (const cols of all) {
+      const name = cols[1];
+      if (!name) continue;
+      // The SDN entity number is NOT a registration number: leaving it in `id`
+      // would let an unrelated business whose registration number happens to be
+      // e.g. "12345" hard-match an SDN entry regardless of name.
+      out.push({ name, id: undefined, list: listLabel });
+    }
+    return out;
+  }
+
   const nameIdx = hasHeader ? header.indexOf("name") : 0;
   const idIdx = hasHeader ? header.indexOf("id") : 1;
   const listIdx = hasHeader ? header.indexOf("list") : 2;
-  const rows = hasHeader ? lines.slice(1) : lines;
-  const out: SanctionsEntry[] = [];
-  for (const line of rows) {
-    const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+  for (const cols of hasHeader ? all.slice(1) : all) {
     const name = cols[nameIdx];
     if (!name || name.toLowerCase() === "name") continue;
     out.push({

@@ -46,6 +46,60 @@ describe("parseSanctionsList", () => {
     const out = parseSanctionsList({ entries: [{ name: "X Y" }] });
     expect(out).toEqual([{ name: "X Y", id: undefined, list: "REMOTE" }]);
   });
+  it("keeps commas and escaped quotes inside quoted CSV fields", () => {
+    const out = parseSanctionsList('name,id,list\n"Doe, John",RC1,UN\n"The ""Big"" Co",,EU\n');
+    expect(out).toEqual([
+      { name: "Doe, John", id: "RC1", list: "UN" },
+      { name: 'The "Big" Co', id: undefined, list: "EU" },
+    ]);
+  });
+  it("still reads a legacy headerless name,id,list CSV", () => {
+    expect(parseSanctionsList("Konga Evil Enterprises,RC999,UN\n")).toEqual([
+      { name: "Konga Evil Enterprises", id: "RC999", list: "UN" },
+    ]);
+  });
+});
+
+// Real rows from OFAC's published sdn.csv (headerless: ent_num, name, type, program, ...).
+const OFAC_SDN_CSV = [
+  '36,"AEROCARIBBEAN AIRLINES",-0- ,"CUBA",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ',
+  '173,"ANGLO-CARIBBEAN CO., LTD.",-0- ,"CUBA",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ',
+  `306,"BANCO NACIONAL DE CUBA",-0- ,"CUBA",-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,-0- ,"a.k.a. 'BNC'."`,
+].join("\r\n");
+
+describe("OFAC SDN csv layout", () => {
+  it("reads the name from column 1, not the entity number in column 0", () => {
+    const out = parseSanctionsList(OFAC_SDN_CSV, "OFAC-SDN");
+    expect(out.map((e) => e.name)).toEqual([
+      "AEROCARIBBEAN AIRLINES",
+      "ANGLO-CARIBBEAN CO., LTD.",
+      "BANCO NACIONAL DE CUBA",
+    ]);
+    expect(out.every((e) => e.list === "OFAC-SDN")).toBe(true);
+  });
+  it("does not expose the SDN entity number as a registration-number id", () => {
+    const out = parseSanctionsList(OFAC_SDN_CSV, "OFAC-SDN");
+    expect(out.every((e) => e.id === undefined)).toBe(true);
+    // an unrelated business whose registration number is "36" must not hard-match
+    expect(matchEntries({ name: "Totally Different Ltd", registrationNumber: "36" }, out)).toHaveLength(0);
+  });
+  it("catches a real sanctioned name (regression: entity numbers used to be read as names)", () => {
+    const out = parseSanctionsList(OFAC_SDN_CSV, "OFAC-SDN");
+    const m = matchEntries({ name: "Banco Nacional de Cuba" }, out);
+    expect(m).toHaveLength(1);
+    expect(m[0].list).toBe("OFAC-SDN");
+    expect(matchEntries({ name: "Acme Trading Nigeria Ltd" }, out)).toHaveLength(0);
+  });
+  it("screenEntity end to end against an SDN-format remote list", async () => {
+    const http = makeFakeHttp({ routes: { [LIST_URL]: { status: 200, body: OFAC_SDN_CSV } } });
+    const hit = await screenEntity({ name: "BANCO NACIONAL DE CUBA" }, { env: env(), http });
+    expect(hit.source).toBe("remote");
+    expect(hit.hit).toBe(true);
+    expect(hit.degraded).toBeUndefined();
+    __resetSanctionsCache();
+    const clean = await screenEntity({ name: "Acme Trading Nigeria Ltd" }, { env: env(), http });
+    expect(clean.hit).toBe(false);
+  });
 });
 
 describe("fuzzy matching", () => {
