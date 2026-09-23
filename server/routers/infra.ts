@@ -146,8 +146,16 @@ export async function collectInfraComponentStatuses(): Promise<Record<string, Se
     // generic /apisix/admin/routes the `apisix` tile already covers) proves
     // the gateway that has open-appsec attached actually knows about us,
     // rather than duplicating that tile's check.
+    //
+    // "c53ea9e6" is APISIX's own opaque generated id for the ApisixRoute
+    // named whatsapp-server-route (apisix-ingress-controller mints it, not
+    // the k8s object name — confirmed live via GET .../apisix/admin/routes
+    // and matching on name "whatsapp-commerce_whatsapp-server-route_rule-1"
+    // / hosts ["wa-app.newfire.app"]). It's stable unless that ApisixRoute
+    // is deleted and recreated; if this tile ever goes red with a 404,
+    // re-look-up the id the same way rather than assume the check is wrong.
     ENV.openappsecUrl && ENV.openappsecToken
-      ? ping(`${ENV.openappsecUrl}/apisix/admin/routes/whatsapp-server-route`, 3000, { "X-API-KEY": ENV.openappsecToken })
+      ? ping(`${ENV.openappsecUrl}/apisix/admin/routes/c53ea9e6`, 3000, { "X-API-KEY": ENV.openappsecToken })
       : Promise.resolve({ online: false, latencyMs: 0, error: "not_configured" } as ServiceStatus),
     ENV.permifyUrl
       ? ping(`${ENV.permifyUrl}/healthz`)
