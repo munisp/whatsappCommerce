@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { router, protectedProcedure, adminProcedure } from "../_core/trpc";
+import { router, adminProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { paymentTransactions, modelAbTests, datasetSnapshots, agentEvents, orders } from "../../drizzle/schema";
@@ -148,14 +148,23 @@ function driftSeriesFromLog(rows: DriftAlertRow[], days: number): Array<{
     .sort((a, b) => a.timestamp - b.timestamp);
 }
 
+// QA follow-up (C2): every read here used to be protectedProcedure — any
+// authenticated user, any tenant, not just admins. None of it is tenant
+// data (no tenant names, GMV, phone numbers or message text — verified by
+// reading every query: MLflow experiment/run internals, aggregate drift/
+// precision-recall stats, a platform-wide transaction *count*), so this
+// was a real but narrower gap than typical cross-tenant leaks. Tightened
+// to admin-only anyway as the more conservative default for platform-wide
+// ML-ops telemetry, on the same "operator tooling, not tenant data"
+// boundary the write endpoints below were already held to.
 export const mlOpsRouter = router({
   // List all MLflow experiments
-  getExperiments: protectedProcedure.query(async () => {
+  getExperiments: adminProcedure.query(async () => {
     return getExperiments();
   }),
 
   // Get all runs for a specific experiment
-  getMlflowRuns: protectedProcedure
+  getMlflowRuns: adminProcedure
     // authz:exempt platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data
     .input(z.object({ experimentId: z.string() }))
     .query(async ({ input }) => {
@@ -164,7 +173,7 @@ export const mlOpsRouter = router({
     }),
 
   // Get all runs across all experiments (summary view)
-  getAllRuns: protectedProcedure.query(async () => {
+  getAllRuns: adminProcedure.query(async () => {
     const experiments = getExperiments();
     const allRuns = [];
     for (const exp of experiments) {
@@ -177,7 +186,7 @@ export const mlOpsRouter = router({
   }),
 
   // Training status: latest run per experiment
-  getTrainingStatus: protectedProcedure.query(async () => {
+  getTrainingStatus: adminProcedure.query(async () => {
     const experiments = getExperiments();
     const status = [];
     for (const exp of experiments) {
@@ -205,7 +214,7 @@ export const mlOpsRouter = router({
 
   // Drift metrics time series — derived from the real drift log; honest
   // unavailable when the ml-stack drift job has never run (W30, V3#7).
-  getDriftMetrics: protectedProcedure
+  getDriftMetrics: adminProcedure
     .input(z.object({ modelName: z.string().optional(), days: z.number().min(1).max(90).default(14) }))
     .query(async ({ input }) => {
       const rows = readDriftLogRows();
@@ -241,7 +250,7 @@ export const mlOpsRouter = router({
     }),
 
   // A/B model comparison: champion vs challenger metrics
-  getAbComparison: protectedProcedure.query(async () => {
+  getAbComparison: adminProcedure.query(async () => {
     const experiments = getExperiments();
     const comparisons = [];
     for (const exp of experiments) {
@@ -330,7 +339,7 @@ export const mlOpsRouter = router({
     }),
 
   // Recent transaction volume for training data pipeline status
-  getDataPipelineStatus: protectedProcedure.query(async () => {
+  getDataPipelineStatus: adminProcedure.query(async () => {
     const db = await getDb();
     if (!db) {
       return {
@@ -354,7 +363,7 @@ export const mlOpsRouter = router({
   }),
 
   // Per-step metric history for all runs in an experiment — powers time-series charts
-  getMetricHistory: protectedProcedure
+  getMetricHistory: adminProcedure
     // authz:exempt platform ML-ops surface (mlflow experiments/model AB tests), operator tooling not tenant data
     .input(z.object({ experimentId: z.string() }))
     .query(async ({ input }) => {
@@ -386,7 +395,7 @@ export const mlOpsRouter = router({
         charts,
       };
     }),
-  getDriftAlerts: protectedProcedure.query(async () => {
+  getDriftAlerts: adminProcedure.query(async () => {
     const driftLogPath = path.join(process.cwd(), "services/ml-stack/data/lakehouse/drift_log.json");
     try {
       const raw = fs.readFileSync(driftLogPath, "utf-8");
@@ -408,7 +417,7 @@ export const mlOpsRouter = router({
   // events (confidence scores + escalation flags), NOT evaluated model
   // quality against labeled ground truth. The UI must label them as such
   // (see client MLOpsDashboard "Live Model Performance" disclaimer).
-  getModelPerformance: protectedProcedure
+  getModelPerformance: adminProcedure
     .input(z.object({ windowHours: z.number().min(1).max(168).default(24) }).optional())
     .query(async ({ input }) => {
       const db = await getDb();
@@ -526,7 +535,7 @@ export const mlOpsRouter = router({
 
 // ── DB-backed A/B Test Management ────────────────────────────────────────────
 export const mlAbTestRouter = router({
-  list: protectedProcedure
+  list: adminProcedure
     .input(z.object({ status: z.enum(["running", "concluded", "all"]).default("all") }).optional())
     .query(async ({ input }) => {
       const db = (await getDb())!;
@@ -598,7 +607,7 @@ export const mlAbTestRouter = router({
 
 // ── Dataset Snapshots ─────────────────────────────────────────────────────────
 export const datasetSnapshotRouter = router({
-  list: protectedProcedure
+  list: adminProcedure
     .input(z.object({ limit: z.number().min(1).max(50).default(20) }).optional())
     .query(async ({ input }) => {
       const db = (await getDb())!;
