@@ -88,8 +88,12 @@ export function withdrawalStepUpThreshold(env: NodeJS.ProcessEnv = process.env):
 
 /**
  * The step-up OTP goes to the tenant ADMIN phone: the phone of an owner-role
- * member (tenant_memberships), falling back to a phone-bearing user whose
- * users.tenantId matches. Fail closed (null) when none is found.
+ * member (tenant_memberships). For a tenant with no membership rows at all
+ * (a legacy solo merchant, never formally structured into staff roles),
+ * falls back to a phone-bearing user whose users.tenantId matches — that
+ * fallback never applies once real staff roles exist, or any non-owner
+ * staff member who links a phone would silently become the step-up
+ * recipient. Fail closed (null) when no eligible phone is found.
  */
 export async function resolveTenantAdminPhone(db: DbHandle, tenantId: string): Promise<string | null> {
   const ownerRows = await db
@@ -109,6 +113,24 @@ export async function resolveTenantAdminPhone(db: DbHandle, tenantId: string): P
       .catch(() => [] as { phone: string | null }[]);
     if (u?.phone) return normalisePhone(u.phone);
   }
+  // QA follow-up: this fallback must NEVER fire once a tenant has a real
+  // staff structure — it used to grab ANY user whose users.tenantId
+  // matched, no role check at all, meaning the first non-owner staff member
+  // to link a phone (analyst, catalog, anyone) silently became the
+  // recipient of every step-up OTP for the tenant, including the one
+  // gating membership.add's "owner" grant — a real privilege-escalation
+  // path, and one that got materially easier the moment self-service phone
+  // linking (PhoneAuthPage) stopped being admin-only. Restrict the
+  // fallback to tenants with NO tenant_memberships rows at all: its only
+  // legitimate purpose is a legacy solo merchant, never formally
+  // structured, whose own account is the tenant's only user.
+  const [anyMembership] = await db
+    .select({ id: tenantMemberships.id })
+    .from(tenantMemberships)
+    .where(eq(tenantMemberships.tenantId, tenantId))
+    .limit(1)
+    .catch(() => [] as { id: string }[]);
+  if (anyMembership) return null; // structured tenant, no owner phone on file — fail closed, never fall through to staff
   const [fallback] = await db
     .select({ phone: users.phone })
     .from(users)
