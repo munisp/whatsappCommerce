@@ -44,6 +44,20 @@ function toISODate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+// QA follow-up: "no tenant admin phone on file" used to be a dead-end toast
+// on both the explicit payout-change step-up and a large withdrawal's own
+// server-side step-up gate — nothing on this page (or anywhere a regular
+// user could find) linked to where that's actually fixed.
+function showStepUpError(e: any) {
+  if (e?.data?.code === "PRECONDITION_FAILED" && /admin phone/i.test(e?.message ?? "")) {
+    toast.error(e.message, {
+      action: { label: "Register phone", onClick: () => { window.location.href = "/phone-auth"; } },
+    });
+  } else {
+    toast.error(e?.message ?? "Step-up verification failed");
+  }
+}
+
 function MerchantWalletInner() {
   // Sourced from the session-derived tenant record (not the localStorage-backed
   // TenantContext switcher) — this page moves real money, so tenantId must
@@ -94,7 +108,7 @@ function MerchantWalletInner() {
       setWithdrawOpen(false);
       refetch();
     },
-    onError: (e) => toast.error(e.message),
+    onError: showStepUpError,
   });
 
   const topUp = trpc.wallet.topUp.useMutation({
@@ -455,7 +469,7 @@ function MerchantWalletInner() {
                   }
                   withdraw.mutate({ tenantId, amount: toNum(withdrawAmount) });
                 } catch (e: any) {
-                  toast.error(e.message ?? "Step-up verification failed");
+                  showStepUpError(e);
                 }
               }}>
               {withdraw.isPending ? "Processing…" : "Submit Withdrawal"}

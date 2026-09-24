@@ -809,6 +809,14 @@ function DashboardLayoutContent({
                         <Settings className="mr-2 h-4 w-4" /> Settings
                       </DropdownMenuItem>
                     )}
+                    {/* QA follow-up: this page has real self-service value (it's the only
+                        way to register the WhatsApp number step-up OTPs are sent to) but
+                        had no link anywhere reachable by a regular tenant user. */}
+                    {!setupOnly && (
+                      <DropdownMenuItem onClick={() => setLocation("/phone-auth")}>
+                        <KeyRound className="mr-2 h-4 w-4" /> Phone & WhatsApp
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem onClick={logout}>
                       <LogOut className="mr-2 h-4 w-4" /> Sign out
                     </DropdownMenuItem>
