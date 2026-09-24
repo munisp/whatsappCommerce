@@ -12,7 +12,7 @@
  * Platform admins (users.role = 'admin') bypass all membership checks.
  */
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../db";
 import {
   tenantMemberships,
@@ -110,6 +110,7 @@ export async function addMember(input: {
   const userId = toUserKey(input.userId);
   const existing = await listMembers(input.tenantId);
   const current = existing.find((m) => m.userId === userId);
+  let result: TenantMembership;
   if (current) {
     // Already a member: update role if a different one was requested.
     if (input.role && input.role !== current.role) {
@@ -118,22 +119,40 @@ export async function addMember(input: {
         .set({ role: input.role })
         .where(eq(tenantMemberships.id, current.id))
         .returning();
-      return updated[0] ?? { ...current, role: input.role };
+      result = updated[0] ?? { ...current, role: input.role };
+    } else {
+      result = current;
     }
-    return current;
+  } else {
+    const role: MembershipRole =
+      existing.length === 0 ? "owner" : (input.role ?? "operator");
+    const inserted = await db
+      .insert(tenantMemberships)
+      .values({
+        tenantId: input.tenantId,
+        userId,
+        role,
+        invitedBy: input.invitedBy != null ? toUserKey(input.invitedBy) : null,
+      })
+      .returning();
+    result = inserted[0];
   }
-  const role: MembershipRole =
-    existing.length === 0 ? "owner" : (input.role ?? "operator");
-  const inserted = await db
-    .insert(tenantMemberships)
-    .values({
-      tenantId: input.tenantId,
-      userId,
-      role,
-      invitedBy: input.invitedBy != null ? toUserKey(input.invitedBy) : null,
-    })
-    .returning();
-  return inserted[0];
+  // QA follow-up: a staff member granted ONLY here (tenant_memberships) still
+  // had users.tenantId = null — and the client's "does this user have a
+  // business yet" gate (needsBusinessSetup, client/src/lib/tenantAccess.ts)
+  // looks at users.tenantId alone, not tenant_memberships, so an invited
+  // teammate kept landing on the "set up your business" wizard forever, even
+  // once they were a real member. Mirrors what removeMember already does
+  // symmetrically on the way out. Only sets it when currently unset — never
+  // override an existing home tenant for someone who already has one.
+  const numericId = Number(userId);
+  if (Number.isInteger(numericId)) {
+    const { users } = await import("../../drizzle/schema");
+    await db.update(users)
+      .set({ tenantId: input.tenantId, updatedAt: new Date() })
+      .where(and(eq(users.id, numericId), isNull(users.tenantId)));
+  }
+  return result;
 }
 
 /**
