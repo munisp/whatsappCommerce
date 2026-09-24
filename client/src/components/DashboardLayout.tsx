@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,6 +65,18 @@ type NavGroup = {
   id: string;
   label: string;
   icon: React.ElementType;
+  /**
+   * QA follow-up: tenant staff roles (owner/operator/analyst/finance/catalog,
+   * tenant_memberships.role — a different axis from adminOnly's platform
+   * role) had zero UI reflection anywhere; every role saw an identical
+   * sidebar. Catalog is the one role the tracker draws an explicit line for
+   * ("can edit Products/Inventory, not Payments/Finance") — hide this group
+   * for it. Deliberately narrow: analyst is documented as seeing the same
+   * pages as operator (its restriction is on write actions, not navigation),
+   * and finance's "editing rights elsewhere may be limited" has no clean
+   * per-group rule, so neither is touched here.
+   */
+  hideForTenantRoles?: string[];
   items: NavItem[];
 };
 
@@ -144,6 +157,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "finance",
     label: "Payments & Finance",
     icon: CreditCard,
+    hideForTenantRoles: ["catalog"],
     items: [
       { icon: CreditCard,      label: "Payments",        path: "/payments" },
       // adminOnly: escrow.getStats and seven revenue.* queries are platform-wide and admin-only — a merchant clicking these got a 403.
@@ -315,6 +329,15 @@ const GET_STARTED_GROUP: NavGroup = {
 // BASE_URL only depends on the build `command` (see the .dockerignore/App.tsx
 // NODE_ENV-leak fix), so it's a reliable signal at both build and runtime.
 const IS_PLATFORM_ADMIN = import.meta.env.BASE_URL.includes("/platform-admin");
+
+/** Display labels for tenant_memberships.role, shown next to the account name so each role is visibly distinct. */
+const TENANT_ROLE_LABEL: Record<string, string> = {
+  owner: "Owner",
+  operator: "Operator",
+  analyst: "Analyst",
+  finance: "Finance",
+  catalog: "Catalog",
+};
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const NAV_EXPANDED_KEY = "nav-expanded-groups";
@@ -500,13 +523,25 @@ function DashboardLayoutContent({
   const admin = isPlatformAdmin(user);
   const setupOnly = needsBusinessSetup(user);
   const blocked = setupOnly && !isAllowedWithoutBusiness(location);
+
+  // QA follow-up: tenant_memberships.role (owner/operator/analyst/finance/
+  // catalog) — a separate axis from platform admin above. myRole is safe for
+  // every role to call about itself (unlike the operatorProcedure-gated
+  // myMembership, which analyst/finance/catalog fail outright).
+  const { data: myRoleData } = trpc.membership.myRole.useQuery(
+    { tenantId: activeTenantId },
+    { enabled: !IS_PLATFORM_ADMIN && !setupOnly && !!activeTenantId },
+  );
+  const tenantRole = admin ? "owner" : (myRoleData?.role ?? null);
+
   const visibleGroups = useMemo(() => {
     if (IS_PLATFORM_ADMIN) return PLATFORM_NAV_GROUPS;
     if (setupOnly) return [GET_STARTED_GROUP];
     return TENANT_NAV_GROUPS
+      .filter(g => !tenantRole || !g.hideForTenantRoles?.includes(tenantRole))
       .map(g => ({ ...g, items: g.items.filter(i => !i.adminOnly || admin) }))
       .filter(g => g.items.length > 0);
-  }, [admin, setupOnly]);
+  }, [admin, setupOnly, tenantRole]);
   const allItems = useMemo(
     () => visibleGroups.flatMap(g => g.items.map(i => ({ ...i, group: g.label }))),
     [visibleGroups]
@@ -706,7 +741,14 @@ function DashboardLayoutContent({
                       </Avatar>
                       {!isCollapsed && (
                         <div className="flex flex-col text-left min-w-0" data-testid="sidebar-account">
-                          <span className="text-sm font-medium truncate" data-testid="sidebar-account-name">{displayNameFor(user)}</span>
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            <span className="text-sm font-medium truncate" data-testid="sidebar-account-name">{displayNameFor(user)}</span>
+                            {tenantRole && (
+                              <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-normal shrink-0" data-testid="sidebar-account-role">
+                                {TENANT_ROLE_LABEL[tenantRole] ?? tenantRole}
+                              </Badge>
+                            )}
+                          </span>
                           <span className="text-xs text-muted-foreground truncate" data-testid="sidebar-account-email">{user?.email ?? ""}</span>
                           <span className="text-[11px] text-muted-foreground/80 truncate" data-testid="sidebar-account-subtitle">
                             {accountSubtitle(user, myTenant?.name)}
@@ -718,7 +760,14 @@ function DashboardLayoutContent({
                   <DropdownMenuContent side="top" align="start" className="w-56">
                     <DropdownMenuLabel className="font-normal">
                       <div className="flex flex-col">
-                        <span className="text-sm font-medium truncate">{displayNameFor(user)}</span>
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-sm font-medium truncate">{displayNameFor(user)}</span>
+                          {tenantRole && (
+                            <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-normal shrink-0">
+                              {TENANT_ROLE_LABEL[tenantRole] ?? tenantRole}
+                            </Badge>
+                          )}
+                        </span>
                         <span className="text-xs text-muted-foreground truncate">{user?.email ?? ""}</span>
                         <span className="text-xs text-muted-foreground truncate">{accountSubtitle(user, myTenant?.name)}</span>
                       </div>

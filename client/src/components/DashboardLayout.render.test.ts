@@ -8,10 +8,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const state: { user: any; loading: boolean; path: string; tenantName: string | null } = { user: null, loading: false, path: "/orders", tenantName: null };
+const state: { user: any; loading: boolean; path: string; tenantName: string | null; tenantRole: string | null } = { user: null, loading: false, path: "/orders", tenantName: null, tenantRole: null };
 
 vi.mock("@/_core/hooks/useAuth", () => ({ useAuth: () => ({ user: state.user, loading: state.loading, logout: vi.fn() }) }));
-vi.mock("@/lib/trpc", () => ({ trpc: { tenant: { myTenant: { useQuery: () => ({ data: state.tenantName ? { name: state.tenantName, logoUrl: null, primaryColor: null } : { name: null, logoUrl: null, primaryColor: null } }) } } } }));
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    tenant: { myTenant: { useQuery: () => ({ data: state.tenantName ? { name: state.tenantName, logoUrl: null, primaryColor: null } : { name: null, logoUrl: null, primaryColor: null } }) } },
+    membership: { myRole: { useQuery: () => ({ data: { role: state.tenantRole } }) } },
+  },
+}));
 vi.mock("wouter", () => ({ useLocation: () => [state.path, vi.fn()], Link: ({ children }: any) => children }));
 vi.mock("@/hooks/useMobile", () => ({ useIsMobile: () => false }));
 vi.mock("./NotificationCenter", () => ({ default: () => null }));
@@ -21,7 +26,7 @@ beforeEach(() => {
   const store = new Map<string, string>();
   vi.stubGlobal("localStorage", { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) });
   vi.stubGlobal("document", { cookie: "" });
-  state.user = null; state.loading = false; state.path = "/orders"; state.tenantName = null;
+  state.user = null; state.loading = false; state.path = "/orders"; state.tenantName = null; state.tenantRole = null;
 });
 
 // Nav groups are collapsible and only the active one starts expanded, so a link in a collapsed group is absent from the
@@ -120,6 +125,23 @@ describe("DashboardLayout — a merchant (has a business)", () => {
     const html = await render();
     expect(html).toMatch(/data-testid="sidebar-account-name"[^>]*>ada</);
     expect(html).not.toMatch(/sidebar-account-name"[^>]*>User</);
+  });
+
+  it("shows the tenant role as a badge next to the account name, once myRole resolves", async () => {
+    state.tenantRole = "operator";
+    const html = await render();
+    expect(html).toMatch(/data-testid="sidebar-account-role"[^>]*>Operator</);
+  });
+
+  it("hides Payments & Finance for the catalog role, but not for operator", async () => {
+    state.tenantRole = "catalog";
+    const catalogHtml = await render();
+    expect(catalogHtml).not.toContain(">Payments<");
+    expect(catalogHtml).not.toContain(">Invoices<");
+
+    state.tenantRole = "operator";
+    const operatorHtml = await render();
+    expect(operatorHtml).toContain(">Payments<");
   });
 });
 

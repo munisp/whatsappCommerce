@@ -11,7 +11,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, inArray } from "drizzle-orm";
-import { operatorProcedure, router } from "../_core/trpc";
+import { assertTenantAccess, operatorProcedure, protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
 import { users } from "../../drizzle/schema";
 import * as membership from "../services/membership";
@@ -71,10 +71,35 @@ export const membershipRouter = router({
       return rows[0] ?? null;
     }),
 
-  /** My own membership in a tenant (role discovery for the UI). */
+  /**
+   * My own membership in a tenant. Gated by operatorProcedure like the rest
+   * of this router — unused by any client today, and can't actually serve
+   * "role discovery for the UI" for analyst/finance/catalog, since they fail
+   * the same gate that's supposed to tell them their role. See `myRole`.
+   */
   myMembership: operatorProcedure
     .input(tenantInput)
     .query(({ ctx, input }) => membership.getMembership(ctx.user!.id, input.tenantId)),
+
+  /**
+   * My own role in a tenant — deliberately NOT operatorProcedure. Asking
+   * "what's my own role" must be safe for every role, including the ones
+   * `operatorProcedure` rejects; without this, analyst/finance/catalog have
+   * no way to learn their own role and the UI can't reflect it (QA follow-up:
+   * the sidebar looked identical for every tenant role because nothing could
+   * tell it apart).
+   */
+  myRole: protectedProcedure
+    .input(tenantInput)
+    .query(async ({ ctx, input }) => {
+      // assertTenantAccess only requires SOME membership (any role) or the
+      // legacy users.tenantId shortcut — unlike operatorProcedure, it never
+      // rejects analyst/finance/catalog, which is exactly the point here.
+      assertTenantAccess(ctx.user!, input.tenantId);
+      if (ctx.user!.role === "admin") return { role: "owner" as const };
+      const m = await membership.getMembership(ctx.user!.id, input.tenantId);
+      return { role: m?.role ?? null };
+    }),
 
   /**
    * Add a staff member to a tenant. The first member of a tenant is forced
