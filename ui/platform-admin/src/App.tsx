@@ -49,6 +49,8 @@ const LabelStudioPipe = lazy(() => import("@/pages/LabelStudioPipe"));
 const ScanStatsDashboard = lazy(() => import("@/pages/ScanStatsDashboard"));
 const HermesDashboard = lazy(() => import("@/pages/HermesDashboard"));
 const CogsDisputes = lazy(() => import("@/pages/CogsDisputes"));
+const RevenueDashboard = lazy(() => import("@/pages/RevenueDashboard"));
+const EscrowDashboard = lazy(() => import("@/pages/EscrowDashboard"));
 
 // UnifiedOnboarding (generic multi-service provisioning wizard) and
 // TenantOnboarding/"/onboarding" (KYC-driven admin onboarding) were two
@@ -100,6 +102,8 @@ function Router() {
         <Route path="/agent-architecture" component={AgentArchitecture} />
         <Route path="/nlp-simulator" component={NLPSimulator} />
         <Route path="/ml-ops" component={MLOpsDashboard} />
+        <Route path="/revenue" component={RevenueDashboard} />
+        <Route path="/escrow" component={EscrowDashboard} />
         <Route path="/reconciliation" component={ReconciliationSim} />
         <Route path="/webhook-dlq" component={WebhookDLQ} />
         <Route path="/label-studio" component={LabelStudioPipe} />

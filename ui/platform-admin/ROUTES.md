@@ -51,3 +51,14 @@ access (e.g. `tenant.getWhatsAppConfig`/`updateWhatsAppConfig`). See the
 note left in the main conversation — reclassifying those to
 `tenantAdminProcedure` is a separate pass across ~40 routers, not attempted
 here.
+
+## QA follow-up: `/revenue` and `/escrow` were missed by the original split
+
+These two were left in `ui/tenant-portal`'s nav only, gated by `adminOnly`
+(their queries are platform-wide and admin-only — `escrow.getStats` and
+seven `revenue.*` procedures) — but a real platform admin uses this app,
+`ui/platform-admin`, not the tenant portal, so `adminOnly` there never had
+an admin around to show itself to. Added both here (route + "Finance & Ops"
+nav entry) so platform-wide revenue/escrow data is actually reachable by
+the admins it's gated for. Left in tenant-portal too rather than removed,
+since nothing there was wrong — just insufficient on its own.

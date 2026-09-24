@@ -278,6 +278,8 @@ const PLATFORM_NAV_GROUPS: NavGroup[] = [
     label: "Finance & Ops",
     icon: GitMerge,
     items: [
+      { icon: TrendingUp,      label: "Revenue",          path: "/revenue" },
+      { icon: Lock,            label: "Escrow",           path: "/escrow" },
       { icon: GitMerge,        label: "Reconciliation",   path: "/reconciliation" },
       { icon: AlertTriangle,   label: "Webhook DLQ",      path: "/webhook-dlq" },
       { icon: AlertTriangle,   label: "COGS Disputes",    path: "/cogs-disputes" },
