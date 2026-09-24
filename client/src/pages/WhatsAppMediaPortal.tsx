@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { useActiveTenant } from "@/contexts/TenantContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -41,14 +42,12 @@ function formatBytes(bytes: number | null | undefined): string {
 
 export default function WhatsAppMediaPortal() {
   const { user } = useAuth();
-  const [tenantId, setTenantId] = useState("");
+  const { activeTenantId: tenantId } = useActiveTenant();
   const [filterType, setFilterType] = useState("all");
   const [searchPhone, setSearchPhone] = useState("");
   const [uploading, setUploading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const { data: tenants } = trpc.tenant.list.useQuery(undefined, { enabled: !!user });
 
   const { data: mediaFiles, refetch, isLoading } = trpc.whatsappMedia.list.useQuery(
     { tenantId, documentType: filterType === "all" ? undefined : filterType, limit: 100 },
@@ -70,7 +69,7 @@ export default function WhatsAppMediaPortal() {
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !tenantId) { toast.error("Select a tenant first"); return; }
+    if (!file || !tenantId) { toast.error("No active tenant — try reloading the page"); return; }
     if (file.size > 10 * 1024 * 1024) { toast.error("File too large (max 10 MB)"); return; }
     setUploading(true);
     try {
@@ -130,16 +129,6 @@ export default function WhatsAppMediaPortal() {
 
       {/* Filters */}
       <div className="flex gap-3 flex-wrap">
-        <Select value={tenantId} onValueChange={setTenantId}>
-          <SelectTrigger className="w-52">
-            <SelectValue placeholder="Select tenant…" />
-          </SelectTrigger>
-          <SelectContent>
-            {tenants?.map(t => (
-              <SelectItem key={t.id} value={t.id}>{(t as any).businessName ?? t.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
         <Select value={filterType} onValueChange={setFilterType}>
           <SelectTrigger className="w-44">
             <SelectValue placeholder="Document type" />
@@ -174,7 +163,7 @@ export default function WhatsAppMediaPortal() {
 
       {/* File list */}
       {!tenantId ? (
-        <div className="text-center py-16 text-muted-foreground">Select a tenant to view media files</div>
+        <div className="text-center py-16 text-muted-foreground">Loading…</div>
       ) : isLoading ? (
         <div className="text-center py-16 text-muted-foreground">Loading…</div>
       ) : filtered.length === 0 ? (

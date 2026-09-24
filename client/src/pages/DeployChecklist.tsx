@@ -1,6 +1,5 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -73,7 +72,7 @@ function buildChecklist(origin: string): CheckItem[] {
   ];
 }
 
-function DeployChecklistInner() {
+export default function DeployChecklist() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -188,13 +187,5 @@ function DeployChecklistInner() {
         ))}
       </div>
     </DashboardLayout>
-  );
-}
-
-export default function DeployChecklist() {
-  return (
-    <AdminGuard>
-      <DeployChecklistInner />
-    </AdminGuard>
   );
 }
