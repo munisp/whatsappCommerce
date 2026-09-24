@@ -7,11 +7,12 @@ import { useLocation } from "wouter";
 
 // This page is shared between the legacy combined client's root (/) and
 // ui/tenant-portal's own root (/tenant-portal/), built with different Vite
-// `base` values. On the legacy root there's no real signed-in experience to
-// return to, so "Sign In" first funnels into the tenant portal — its own
-// copy of this page then starts the real login and correctly returns there.
-const IS_LEGACY_ROOT = import.meta.env.BASE_URL === "/";
-
+// `base` values. Both have a full signed-in experience of their own (the
+// legacy root has always had its own /dashboard and nav), so "Sign In"
+// starts a real login directly on whichever one the visitor is on — it used
+// to bounce the legacy root to /tenant-portal/ first (from back when the
+// legacy root supposedly had nothing to return to), which just meant two
+// clicks through what looked like the same landing page before Keycloak.
 export default function Home() {
   const { isAuthenticated } = useAuth();
   const [, navigate] = useLocation();
@@ -22,8 +23,6 @@ export default function Home() {
   const handleCta = () => {
     if (isAuthenticated) {
       navigate("/dashboard");
-    } else if (IS_LEGACY_ROOT) {
-      window.location.href = "/tenant-portal/";
     } else {
       startLogin();
     }
