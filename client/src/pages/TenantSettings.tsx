@@ -19,13 +19,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
-  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Upload, Users, Warehouse, X,
+  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Upload, UserPlus, Users, Warehouse, X,
 } from "lucide-react";
 import type {
   BrandingConfig, CommerceConfig, CrmCustomField, DeliveryZone, InventoryConfig,
@@ -1395,6 +1400,257 @@ function CtwaSection({ tenantId }: { tenantId: string }) {
   );
 }
 
+// ─── Team ────────────────────────────────────────────────────────────────────
+
+// "owner" is deliberately excluded — granting it requires a step-up OTP to
+// the tenant's admin phone (server/routers/membership.ts), a separate,
+// rarer flow that doesn't belong bundled into ordinary staff invites.
+const STAFF_ROLES = ["operator", "analyst", "finance", "catalog"] as const;
+type StaffRole = (typeof STAFF_ROLES)[number];
+
+const ROLE_META: Record<string, { label: string; description: string; badgeClass: string }> = {
+  owner: { label: "Owner", description: "Full control of this business.", badgeClass: "bg-purple-100 text-purple-800" },
+  operator: { label: "Operator", description: "Day-to-day operations — orders, products, conversations, payments.", badgeClass: "bg-blue-100 text-blue-800" },
+  analyst: { label: "Analyst", description: "Read-only access to analytics and reports.", badgeClass: "bg-slate-100 text-slate-700" },
+  finance: { label: "Finance", description: "Can act on payments, refunds and withdrawals.", badgeClass: "bg-green-100 text-green-800" },
+  catalog: { label: "Catalog", description: "Can edit products and inventory, not payments.", badgeClass: "bg-amber-100 text-amber-800" },
+};
+
+type TeamMember = {
+  id: string;
+  tenantId: string;
+  userId: string;
+  role: string;
+  createdAt: string | Date;
+  email: string | null;
+  name: string | null;
+};
+
+function TeamSection({ tenantId }: { tenantId: string }) {
+  const { user } = useAuth();
+  const utils = trpc.useUtils();
+  const { data: members, isLoading, error } = trpc.membership.list.useQuery({ tenantId });
+
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<StaffRole>("operator");
+  const [lookup, setLookup] = useState<{ id: number; email: string | null; name: string | null } | null | undefined>(undefined);
+  const [looking, setLooking] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<TeamMember | null>(null);
+
+  const addMember = trpc.membership.add.useMutation({
+    onSuccess: () => {
+      toast.success("Team member added");
+      utils.membership.list.invalidate({ tenantId });
+      setEmail("");
+      setLookup(undefined);
+      setRole("operator");
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const changeRole = trpc.membership.add.useMutation({
+    onSuccess: () => {
+      toast.success("Role updated");
+      utils.membership.list.invalidate({ tenantId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const removeMember = trpc.membership.remove.useMutation({
+    onSuccess: () => {
+      toast.success("Removed from team");
+      utils.membership.list.invalidate({ tenantId });
+      setRemoveTarget(null);
+    },
+    onError: (e) => {
+      toast.error(e.message);
+      setRemoveTarget(null);
+    },
+  });
+
+  const doLookup = async () => {
+    const candidate = email.trim().toLowerCase();
+    if (!candidate) return;
+    setLooking(true);
+    try {
+      const found = await utils.membership.findUserByEmail.fetch({ tenantId, email: candidate });
+      setLookup(found);
+      if (!found) toast.error("No account found with that email — they need to sign up first.");
+    } catch (e: any) {
+      toast.error(e.message ?? "Lookup failed");
+    } finally {
+      setLooking(false);
+    }
+  };
+
+  if (isLoading) return <SectionLoading />;
+
+  if (error) {
+    const forbidden = (error as any)?.data?.code === "FORBIDDEN";
+    return (
+      <Card>
+        <CardContent className="py-10 text-center text-sm text-muted-foreground">
+          {forbidden
+            ? "Only the business owner or an operator can manage the team — ask one of them to add or remove people for you."
+            : `Couldn't load the team (${error.message}).`}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const owners = (members ?? []).filter((m: TeamMember) => m.role === "owner");
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Invite a teammate</CardTitle>
+          <CardDescription>
+            They need an account already — ask them to sign up, then enter the email they used.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 max-w-xl">
+          <div className="flex gap-2">
+            <Input
+              type="email"
+              placeholder="teammate@example.com"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setLookup(undefined);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && doLookup()}
+            />
+            <Button variant="outline" onClick={doLookup} disabled={!email.trim() || looking}>
+              {looking ? <Loader2 className="w-4 h-4 animate-spin" /> : "Look up"}
+            </Button>
+          </div>
+          {lookup === null && (
+            <p className="text-xs text-destructive">
+              No account found with that email. They need to sign up first, then you can add them.
+            </p>
+          )}
+          {lookup && (
+            <div className="rounded-lg border p-3 space-y-3">
+              <p className="text-sm">
+                <span className="font-medium">{lookup.name || lookup.email}</span>
+                {lookup.name && <span className="text-muted-foreground"> · {lookup.email}</span>}
+              </p>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">Role</Label>
+                <Select value={role} onValueChange={(v) => setRole(v as StaffRole)}>
+                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STAFF_ROLES.map((r) => (
+                      <SelectItem key={r} value={r}>{ROLE_META[r].label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">{ROLE_META[role].description}</p>
+              <Button onClick={() => addMember.mutate({ tenantId, userId: lookup.id, role })} disabled={addMember.isPending}>
+                {addMember.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <UserPlus className="w-4 h-4 mr-1" />}
+                Add to team
+              </Button>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Transferring ownership isn't available here yet — ask an engineer for that one.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Team ({(members ?? []).length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {(members ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">No team members yet.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(members as TeamMember[]).map((m) => {
+                  const isSelf = user != null && String(user.id) === m.userId;
+                  const isLastOwner = m.role === "owner" && owners.length <= 1;
+                  return (
+                    <TableRow key={m.id}>
+                      <TableCell>
+                        {m.name || "—"}
+                        {isSelf && <span className="text-muted-foreground"> (you)</span>}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{m.email || "—"}</TableCell>
+                      <TableCell>
+                        {m.role === "owner" ? (
+                          <Badge className={ROLE_META.owner.badgeClass}>{ROLE_META.owner.label}</Badge>
+                        ) : (
+                          <Select
+                            value={m.role}
+                            onValueChange={(v) => changeRole.mutate({ tenantId, userId: m.userId, role: v as StaffRole })}
+                          >
+                            <SelectTrigger className="w-32 h-8"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {STAFF_ROLES.map((r) => (
+                                <SelectItem key={r} value={r}>{ROLE_META[r].label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isLastOwner}
+                          title={isLastOwner ? "A business must always have at least one owner" : undefined}
+                          onClick={() => setRemoveTarget(m)}
+                        >
+                          <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={!!removeTarget} onOpenChange={(o) => !o && setRemoveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {removeTarget?.name || removeTarget?.email || "this person"} from the team?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              They'll immediately lose access to this business and be signed out of any active session.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => removeTarget && removeMember.mutate({ tenantId, userId: removeTarget.userId })}
+            >
+              {removeMember.isPending && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
 function SectionLoading() {
   return (
     <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center">
@@ -1424,6 +1680,7 @@ export default function TenantSettings() {
 
         <Tabs defaultValue="branding">
           <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="team" className="gap-1.5"><UserPlus className="w-3.5 h-3.5" /> Team</TabsTrigger>
             <TabsTrigger value="branding" className="gap-1.5"><Palette className="w-3.5 h-3.5" /> Branding</TabsTrigger>
             <TabsTrigger value="domains" className="gap-1.5"><Globe className="w-3.5 h-3.5" /> Domains</TabsTrigger>
             <TabsTrigger value="commerce" className="gap-1.5"><ShoppingCart className="w-3.5 h-3.5" /> Commerce</TabsTrigger>
@@ -1433,6 +1690,7 @@ export default function TenantSettings() {
             <TabsTrigger value="promos" className="gap-1.5"><Tag className="w-3.5 h-3.5" /> Promos</TabsTrigger>
             <TabsTrigger value="ctwa" className="gap-1.5"><QrCode className="w-3.5 h-3.5" /> Links &amp; QR</TabsTrigger>
           </TabsList>
+          <TabsContent value="team" className="mt-4"><TeamSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="branding" className="mt-4"><BrandingSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="domains" className="mt-4"><DomainsSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="commerce" className="mt-4"><CommerceSection tenantId={tenantId} /></TabsContent>

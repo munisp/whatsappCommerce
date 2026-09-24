@@ -10,8 +10,10 @@
  */
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { eq, inArray } from "drizzle-orm";
 import { operatorProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
+import { users } from "../../drizzle/schema";
 import * as membership from "../services/membership";
 import { writeAuditLog } from "./audit";
 
@@ -20,10 +22,54 @@ const roleEnum = z.enum(["owner", "operator", "analyst", "finance", "catalog"]);
 const tenantInput = z.object({ tenantId: z.string().min(1) });
 
 export const membershipRouter = router({
-  /** List all members of a tenant. */
+  /**
+   * List all members of a tenant, enriched with name/email — the raw
+   * tenant_memberships row only carries userId, which isn't something a
+   * team-management UI can show a human.
+   */
   list: operatorProcedure
     .input(tenantInput)
-    .query(({ input }) => membership.listMembers(input.tenantId)),
+    .query(async ({ input }) => {
+      const members = await membership.listMembers(input.tenantId);
+      if (members.length === 0) return [];
+      const db = await getDb();
+      if (!db) return members.map((m) => ({ ...m, email: null, name: null }));
+      const numericIds = members
+        .map((m) => Number(m.userId))
+        .filter((id) => Number.isInteger(id));
+      const rows = numericIds.length
+        ? await db
+            .select({ id: users.id, email: users.email, name: users.name })
+            .from(users)
+            .where(inArray(users.id, numericIds))
+        : [];
+      const byId = new Map(rows.map((r) => [String(r.id), r]));
+      return members.map((m) => ({
+        ...m,
+        email: byId.get(m.userId)?.email ?? null,
+        name: byId.get(m.userId)?.name ?? null,
+      }));
+    }),
+
+  /**
+   * Look up a user by exact email, so an owner/operator can invite someone
+   * they already know without needing their raw numeric user id. Only an
+   * exact match is returned (no partial/fuzzy search) to avoid turning this
+   * into a directory-harvesting tool — the caller must already know the
+   * teammate's real email.
+   */
+  findUserByEmail: operatorProcedure
+    .input(tenantInput.extend({ email: z.string().email() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      const rows = await db
+        .select({ id: users.id, email: users.email, name: users.name })
+        .from(users)
+        .where(eq(users.email, input.email))
+        .limit(1);
+      return rows[0] ?? null;
+    }),
 
   /** My own membership in a tenant (role discovery for the UI). */
   myMembership: operatorProcedure
