@@ -10,7 +10,7 @@
  *                                  ↘ failed (with reasons)
  */
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "../db";
 import { tenants } from "../../drizzle/schema";
 import {
@@ -25,7 +25,8 @@ import { decryptSecret } from "./crypto/secrets";
 export const ONBOARDING_STATUSES = ["draft", "configuring", "validating", "live", "failed"] as const;
 export type OnboardingStatus = (typeof ONBOARDING_STATUSES)[number];
 
-export const ONBOARDING_STEPS = ["whatsapp", "useCases", "integrations", "branding"] as const;
+// === W47 merchant === ONB-M-14: "payout" joins the provisioning checklist.
+export const ONBOARDING_STEPS = ["whatsapp", "useCases", "integrations", "branding", "payout"] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
 export interface CreateTenantDraft {
@@ -73,8 +74,9 @@ function slugify(name: string): string {
  */
 export async function createTenant(
   draft: CreateTenantDraft,
+  dbOverride?: any, // W47 crosscutting (ONB-SM-3): caller-scoped transaction
 ): Promise<{ tenantId: string; slug: string; settings: TenantSettings }> {
-  const db = await getDb();
+  const db = dbOverride ?? (await getDb());
   if (!db) throw new Error("Database unavailable");
 
   const tenantId = randomUUID();
@@ -90,17 +92,73 @@ export async function createTenant(
 
   const settings = buildDefaultTenantSettings(draft.name);
 
-  await db.insert(tenants).values({
-    id: tenantId,
-    name: draft.name,
-    slug,
-    plan: draft.plan ?? "starter",
-    status: "trial",
-    settings: settings as unknown as Record<string, unknown>,
-  });
+  // === W47 merchant === ONB-M-10: the slug check-then-insert above still
+  // races (two concurrent same-name signups both pass the SELECT). Catch
+  // the unique-violation and retry once with a deterministic suffix instead
+  // of leaking a raw 23505 to the caller.
+  try {
+    await db.insert(tenants).values({
+      id: tenantId,
+      name: draft.name,
+      slug,
+      plan: draft.plan ?? "starter",
+      status: "trial",
+      settings: settings as unknown as Record<string, unknown>,
+    });
+  } catch (e: any) {
+    const code = e?.code ?? e?.cause?.code;
+    if (code !== "23505") throw e;
+    slug = `${slug}-${tenantId.slice(0, 8)}`.slice(0, 100);
+    await db.insert(tenants).values({
+      id: tenantId,
+      name: draft.name,
+      slug,
+      plan: draft.plan ?? "starter",
+      status: "trial",
+      settings: settings as unknown as Record<string, unknown>,
+    });
+  }
+  // === END W47 merchant ===
 
   return { tenantId, slug, settings };
 }
+
+// === W47 crosscutting (ONB-SM-3): orphan-tenant sweep =====================
+/**
+ * Tenants created but never given a member (crash between insert and
+ * membership, abandoned copilot sessions) are unreachable clutter. Marks
+ * trial tenants older than `olderThanDays` (default 7) with NO
+ * tenant_memberships and NO onboarding session as status 'archived' and
+ * audit-logs each. Returns the archived tenant ids. Never deletes — the
+ * audit trail and any attached data stay inspectable.
+ */
+export async function sweepOrphanedTrialTenants(olderThanDays = 7): Promise<string[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database unavailable");
+  const cutoff = new Date(Date.now() - olderThanDays * 86_400_000);
+  const rows = (await db.execute(sql`
+    SELECT t.id FROM tenants t
+    WHERE t.status = 'trial' AND t."createdAt" < ${cutoff}
+      AND NOT EXISTS (SELECT 1 FROM tenant_memberships m WHERE m."tenantId" = t.id)
+      AND NOT EXISTS (SELECT 1 FROM onboarding_sessions s WHERE s.tenant_id = t.id)
+    LIMIT 200`)) as unknown as any[];
+  const list = (Array.isArray(rows) ? rows : (rows as any).rows ?? []).map((r: any) => String(r.id));
+  const { writeAuditLog } = await import("../routers/audit");
+  for (const id of list) {
+    await db.execute(sql`UPDATE tenants SET status = 'churned', "updatedAt" = now() WHERE id = ${id} AND status = 'trial'`);
+    await writeAuditLog({
+      actorId: "system:orphan-sweep",
+      actorRole: "system",
+      action: "onboarding.orphan_tenant_swept",
+      entityType: "tenant",
+      entityId: id,
+      tenantId: id,
+      summary: `orphaned trial tenant ${id} (no memberships, no onboarding session) marked churned by sweep`,
+    }).catch(() => {});
+  }
+  return list;
+}
+// === END W47 crosscutting ===
 
 // ─── State machine helpers ───────────────────────────────────────────────────
 
@@ -212,6 +270,27 @@ export async function checkWabaAccess(
   }
 }
 
+// === W47 merchant === ONB-M-15
+/** LIVE check: Telegram Bot API getMe with the tenant bot token. */
+export async function checkTelegramBotToken(
+  botToken: string,
+  fetchFn: FetchFn = fetch,
+): Promise<ValidationCheckResult> {
+  const check = "telegram";
+  if (!botToken) return { check, ok: false, detail: "missing botToken" };
+  try {
+    const res = await fetchFn(`https://api.telegram.org/bot${encodeURIComponent(botToken)}/getMe`, {
+      method: "GET",
+    });
+    if (res.status === 200) return { check, ok: true };
+    const body = await res.text().catch(() => "");
+    return { check, ok: false, detail: `Telegram getMe returned ${res.status}: ${body.slice(0, 200)}` };
+  } catch (e: any) {
+    return { check, ok: false, detail: `Telegram getMe request failed: ${e?.message ?? e}` };
+  }
+}
+// === END W47 merchant ===
+
 /** Test-connection call for one enabled integration provider. */
 export async function checkIntegrationConnection(
   provider: IntegrationProvider,
@@ -292,6 +371,17 @@ export async function runTenantValidation(
   if (wabaId) {
     checks.push(await checkWabaAccess(wabaId, waAccessToken, fetchFn));
   }
+
+  // === W47 merchant === ONB-M-15: when a Telegram bot is configured for
+  // the tenant, validate its reachability too (getMe) — onboarding was
+  // previously WhatsApp-only and a dead Telegram bot token went live
+  // silently. (Merchant-facing onboarding remains WhatsApp-first by design;
+  // this closes the validation gap for tenants that ALSO run Telegram.)
+  const tg = (settings as any)?.telegram ?? {};
+  if (tg.enabled === true && typeof tg.botToken === "string" && tg.botToken) {
+    checks.push(await checkTelegramBotToken(decryptSecret(tg.botToken), fetchFn));
+  }
+  // === END W47 merchant ===
 
   const integrations = settings.integrations ?? {};
   for (const provider of INTEGRATION_PROVIDERS) {

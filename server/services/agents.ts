@@ -40,10 +40,25 @@ function toCents(v: unknown): number {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
 
+// === W47 stakeholders === ONB-S-11 agent self-dealing guards.
+/** Per-tenant commission cap (bps). Env-overridable; default 30%. */
+export function agentCommissionBpsCap(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.AGENT_COMMISSION_BPS_CAP ?? "3000");
+  return Number.isInteger(raw) && raw >= 0 && raw <= 10000 ? raw : 3000;
+}
+
+/** Digit-normalised phone comparison (agent phone vs order customer). */
+export function phonesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const d = (p: string) => p.replace(/\D/g, "");
+  return d(a).length > 0 && d(a) === d(b);
+}
+// === END W47 stakeholders ===
+
 // ── Agent CRUD ────────────────────────────────────────────────────────────────
 export async function upsertAgent(
   db: Db,
-  input: { tenantId: string; name: string; phone: string; code: string; commissionBps: number; status?: "active" | "suspended"; metadata?: Record<string, unknown> | null },
+  input: { tenantId: string; name: string; phone: string; code: string; commissionBps: number; status?: "active" | "suspended"; metadata?: Record<string, unknown> | null; phoneChangeAuthorized?: boolean },
 ) {
   if (!input.name?.trim()) throw new AgentError("invalid-agent", "agent name required");
   if (!input.phone?.trim()) throw new AgentError("invalid-agent", "agent phone required");
@@ -52,10 +67,29 @@ export async function upsertAgent(
   if (!Number.isInteger(input.commissionBps) || input.commissionBps < 0 || input.commissionBps > 10000) {
     throw new AgentError("invalid-agent", "commissionBps must be an integer 0..10000");
   }
+  // === W47 stakeholders === ONB-S-11: commission cap (default 3000 bps =
+  // 30%) — an operator can no longer mint a 100%-commission agent.
+  const cap = agentCommissionBpsCap();
+  if (input.commissionBps > cap) {
+    throw new AgentError("commission-cap", `commissionBps may not exceed the tenant cap of ${cap} bps (${cap / 100}%)`);
+  }
+  // === END W47 stakeholders ===
   const [existing] = await db.select().from(agents)
     .where(and(eq(agents.tenantId, input.tenantId), eq(agents.code, code))).limit(1);
   const now = new Date();
   if (existing) {
+    // === W47 stakeholders === ONB-S-11: the payout phone is IMMUTABLE once
+    // the agent has any paid commission unless the caller authorized the
+    // change out-of-band (router enforces a payout_change step-up OTP).
+    const phoneChanged = !phonesMatch(existing.phone, input.phone);
+    if (phoneChanged) {
+      const [paid] = await db.select({ id: agentCommissions.id }).from(agentCommissions)
+        .where(and(eq(agentCommissions.agentId, existing.id), eq(agentCommissions.status, "paid"))).limit(1);
+      if (paid && !input.phoneChangeAuthorized) {
+        throw new AgentError("payout-phone-locked", "agent payout phone is locked after the first paid commission — a payout_change step-up OTP is required to reroute payouts");
+      }
+    }
+    // === END W47 stakeholders ===
     await db.update(agents).set({
       name: input.name, phone: input.phone, commissionBps: input.commissionBps,
       status: input.status ?? existing.status,
@@ -98,6 +132,13 @@ export async function attributeOrderToAgent(
     .where(and(eq(orders.id, opts.orderId), eq(orders.tenantId, opts.tenantId))).limit(1);
   if (!order) throw new AgentError("not-found", "order not found");
 
+  // === W47 stakeholders === ONB-S-11: self-order exclusion — an agent can
+  // never earn commission on an order placed by their OWN phone.
+  if (phonesMatch(order.customerId, agent.phone)) {
+    throw new AgentError("self-dealing", "an agent cannot be attributed to their own order (agent phone matches the order customer)");
+  }
+  // === END W47 stakeholders ===
+
   // Stamp attribution onto the order (merge into existing metadata).
   const meta = { ...((order.metadata as any) ?? {}), agentId: agent.id, agentCode: agent.code };
   await db.update(orders).set({ metadata: meta as any, updatedAt: new Date() }).where(eq(orders.id, order.id));
@@ -111,6 +152,13 @@ export async function attributeOrderToAgent(
 /** Accrue (or return the existing) commission for a paid order. */
 export async function accrueCommission(db: Db, opts: { tenantId: string; agent: any; order: any }) {
   const { agent, order } = opts;
+  // === W47 stakeholders === ONB-S-11: self-order exclusion at the single
+  // accrual point too (sweep/checkout-attributed orders bypass
+  // attributeOrderToAgent's guard).
+  if (phonesMatch(order.customerId, agent.phone)) {
+    throw new AgentError("self-dealing", "an agent cannot accrue commission on their own order");
+  }
+  // === END W47 stakeholders ===
   const orderTotalCents = toCents(order.totalAmount);
   if (!(orderTotalCents > 0)) throw new AgentError("invalid-amount", "order total is not positive");
   const commissionCents = Math.floor((orderTotalCents * Number(agent.commissionBps)) / 10000);

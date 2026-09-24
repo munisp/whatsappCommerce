@@ -268,6 +268,17 @@ export async function recordVendorBillPayment(
   }
   // === END W45 orders-p0 ===
 
+  // === W47 stakeholders (ONB-S-8) — vendor payee vetting ===
+  // A bill linked to the vendors registry pays out only when the vendor is
+  // active AND — before the FIRST wallet payout to that vendor — the tenant
+  // holds an approved KYB (fail-closed kycGate). Bills without a vendorId
+  // (legacy ad-hoc payees) keep the pre-W47 path.
+  if ((bill as any).vendorId) {
+    const { requireVendorFirstPayoutGate } = await import("./vendors");
+    await requireVendorFirstPayoutGate(db, opts.tenantId, (bill as any).vendorId);
+  }
+  // === END W47 stakeholders ===
+
   // ── W31 approval contract (Coder C collaboration) ──────────────────────
   // If the approvals module + a tenant policy exist and this amount crosses
   // the threshold, the bill honestly parks in 'pending_approval' and NO
@@ -447,6 +458,14 @@ export async function recordVendorBillPayment(
   }
 
   const [updated] = await db.select().from(vendorBills).where(eq(vendorBills.id, bill.id));
+
+  // === W47 stakeholders === ONB-S-8: stamp the vendor's first successful
+  // payout (kybTier → basic) after the debit committed.
+  if ((updated as any).vendorId) {
+    const { markVendorFirstPaid } = await import("./vendors");
+    await markVendorFirstPaid(db, (updated as any).vendorId);
+  }
+  // === END W47 stakeholders ===
 
   // Odoo hook (fire-and-forget, honest): enqueue the paid bill into the
   // outbox; if Odoo isn't configured the row simply stays queued.

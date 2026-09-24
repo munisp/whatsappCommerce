@@ -560,7 +560,54 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j424-dbclock-premigration-dump"),
     import("./journeys/j425-kafka-topics-idempotence"),
     import("./journeys/j426-redact-language-picker"),
+    // === W47 merchant ===
+    import("./journeys/j427-legacy-complete-gate"),
+    import("./journeys/j428-copilot-golive-kyb"),
+    import("./journeys/j429-wizard-real-apis"),
+    import("./journeys/j430-order-intake-lifecycle-gate"),
+    import("./journeys/j431-number-conflict-savestep"),
+    import("./journeys/j432-start-races"),
+    import("./journeys/j433-progress-consolidation"),
+    import("./journeys/j434-staff-invites"),
+    import("./journeys/j435-appeal-payout"),
+    import("./journeys/j436-telegram-validation-sweep"),
+    // === END W47 merchant ===
     // === W46 platform-p2 END ===
+    // === W47 buyer (Coder B): J437-J446 (merger owns registry count) ===
+    import("./journeys/j437-age-gate-digits"),
+    import("./journeys/j438-recycled-number-guard"),
+    import("./journeys/j439-consent-gate-all-types"),
+    import("./journeys/j440-tg-no-parity"),
+    import("./journeys/j441-consent-proof-version"),
+    import("./journeys/j442-identity-merge"),
+    import("./journeys/j443-buyer-kyb-message"),
+    import("./journeys/j444-erasure-coverage"),
+    import("./journeys/j445-nlp-session-integrity"),
+    import("./journeys/j446-sticky-locale-guard"),
+    // === W47 stakeholders (Coder C): J447-J456 (merger owns registry count) ===
+    import("./journeys/j447-owner-change-guard"),
+    import("./journeys/j448-staff-invite-flow"),
+    import("./journeys/j449-invite-resend-binding"),
+    import("./journeys/j450-capability-fail-closed"),
+    import("./journeys/j451-vendor-payee-vetting"),
+    import("./journeys/j452-agent-self-dealing"),
+    import("./journeys/j453-phone-uniqueness"),
+    import("./journeys/j454-referral-clawback"),
+    import("./journeys/j455-rider-onboarding"),
+    import("./journeys/j456-stakeholder-notifications"),
+    // === END W47 stakeholders ===
+    // === W47 crosscutting (Coder D): J457-J466 ===
+    import("./journeys/j457-owner-bootstrap"),
+    import("./journeys/j458-device-factor-policy"),
+    import("./journeys/j459-intake-abuse-caps"),
+    import("./journeys/j460-cas-single-winner"),
+    import("./journeys/j461-onboarding-i18n"),
+    import("./journeys/j462-dormant-identity-reset"),
+    import("./journeys/j463-consent-atomic-regrant"),
+    import("./journeys/j464-age-attestation-proof"),
+    import("./journeys/j465-referral-guards"),
+    import("./journeys/j466-onboarding-p2-hardening"),
+    // === W47 crosscutting END ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

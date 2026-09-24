@@ -1,0 +1,8 @@
+{
+  "id": "J432",
+  "title": "onboarding.start atomic claim + slug race retry (ONB-M-9/M-10)",
+  "feature": "W47 merchant: no duplicate tenants, no 23505 leaks",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

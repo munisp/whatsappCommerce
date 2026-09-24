@@ -1004,6 +1004,19 @@ export async function handleProcurementChat(
         nextState: state("confirm", data),
       };
     }
+    // === W47 buyer (ONB-B-7): buyer-KYB block gets honest copy + a ===
+    // remediation path, and the draft cart SURVIVES (same as the suspension
+    // branch) so the buyer can resend CONFIRM once verified.
+    if (result.reason === "buyer_kyb_required") {
+      return {
+        reply:
+          "🚫 This is a business-to-business order, so your business needs a quick verification (KYB) before we can submit it. " +
+          "Start it here: sign in to the merchant portal → Settings → Verification, or reply KYB and we'll guide you. " +
+          "Your draft cart is unchanged — resend CONFIRM once you're verified.",
+        nextState: state("confirm", data),
+      };
+    }
+    // === END W47 buyer ===
     return { reply: "Sorry, that supplier isn't available for procurement right now.", nextState: null };
   }
   const po = result.po!;

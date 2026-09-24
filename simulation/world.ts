@@ -815,9 +815,28 @@ export async function bootWorld(): Promise<World> {
               .where(eq(schema.tenants.id, tid))
               .limit(1);
             const s = { ...((t?.settings ?? {}) as Record<string, any>) };
+            // === W47 merger === ONB-M-5 isolation: journeys that flip the
+            // seed tenant's onboarding lifecycle (intake-gate tests) must
+            // not leak — restore the mature-store "live" baseline.
+            const ob = (s.onboarding ?? {}) as Record<string, any>;
+            if (ob.status !== "live") {
+              s.onboarding = {
+                status: "live",
+                reasons: [],
+                completedSteps: ["whatsapp", "useCases", "integrations", "branding", "payout"],
+                validationPassed: true,
+                validatedAt: new Date().toISOString(),
+              };
+            }
+            // === END W47 merger ===
             if ("catalogDrafts" in s || "erpProvision" in s) {
               delete s.catalogDrafts;
               delete s.erpProvision;
+              await world.db
+                .update(schema.tenants)
+                .set({ settings: s, updatedAt: new Date() })
+                .where(eq(schema.tenants.id, tid));
+            } else if (ob.status !== "live") {
               await world.db
                 .update(schema.tenants)
                 .set({ settings: s, updatedAt: new Date() })
@@ -1098,6 +1117,17 @@ async function seedWorld(world: World): Promise<void> {
     defaultCurrency: "NGN",
     defaultLanguage: "en",
     settings: {
+      // === W47 merger === ONB-M-5: the paid-order-intake lifecycle gate
+      // requires onboarding status "live" — the seed store is a mature,
+      // long-live merchant, so seed the marker explicitly.
+      onboarding: {
+        status: "live",
+        reasons: [],
+        completedSteps: ["whatsapp", "useCases", "integrations", "branding", "payout"],
+        validationPassed: true,
+        validatedAt: new Date().toISOString(),
+      },
+      // === END W47 merger ===
       plan: { tier: "growth", limits: { messagesPerMonth: 1_000_000, ordersPerMonth: 1_000_000 } },
       whatsapp: { accessToken: WA_ACCESS_TOKEN, wabaId: WABA_ID, displayPhone: DISPLAY_PHONE },
       adminPhone: ADMIN_PHONE,
@@ -1199,6 +1229,15 @@ async function seedWorld(world: World): Promise<void> {
     defaultCurrency: "NGN",
     defaultLanguage: "en",
     settings: {
+      // === W47 merger === ONB-M-5 intake gate: mature live store baseline.
+      onboarding: {
+        status: "live",
+        reasons: [],
+        completedSteps: ["whatsapp", "useCases", "integrations", "branding", "payout"],
+        validationPassed: true,
+        validatedAt: new Date().toISOString(),
+      },
+      // === END W47 merger ===
       plan: { tier: "growth", limits: { messagesPerMonth: 1_000_000, ordersPerMonth: 1_000_000 } },
       whatsapp: { accessToken: WA_ACCESS_TOKEN, wabaId: SUPPLIER_WABA_ID, displayPhone: SUPPLIER_DISPLAY_PHONE },
       adminPhone: SUPPLIER_ADMIN_PHONE,
@@ -1288,6 +1327,19 @@ async function seedWorld(world: World): Promise<void> {
       components: [{ type: "BODY", text: "Promo for {{1}}" }],
     },
   ]);
+
+  // === W47 merger === ONB-B-3 (buyer) hoisted the first-contact NDPR
+  // consent gate ABOVE every message type — including supplier button
+  // replies and admin commands that previously bypassed it. The world's
+  // two fixed long-standing phones are established, consenting contacts:
+  // seed their consent rows so legacy journeys keep working (consent rows
+  // survive resetJourneyState).
+  {
+    const { recordConsent } = await import("../server/services/consent");
+    await recordConsent(db, { tenantId: TENANT_ID, phone: ADMIN_PHONE, granted: true });
+    await recordConsent(db, { tenantId: SUPPLIER_TENANT_ID, phone: SUPPLIER_ADMIN_PHONE, granted: true });
+  }
+  // === END W47 merger ===
 }
 
 // ── Assertion helpers (shared by all journeys) ───────────────────────────────

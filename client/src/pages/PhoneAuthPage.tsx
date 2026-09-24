@@ -11,6 +11,8 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+// W47 (ONB-ID-1): device fingerprint for the mandatory login second factor.
+import { getDeviceFingerprintHash } from "@/lib/deviceFingerprint";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -468,7 +470,12 @@ function OtpTestPanel() {
                 className="font-mono tracking-widest"
               />
               <Button
-                onClick={() => verifyOtp.mutate({ sessionId, otp })}
+                onClick={async () => {
+                  // W47 (ONB-ID-1): DEVICE_FACTOR_POLICY=required needs a
+                  // device fingerprint on login verifies.
+                  const deviceHash = await getDeviceFingerprintHash().catch(() => undefined);
+                  verifyOtp.mutate({ sessionId, otp, ...(deviceHash ? { deviceHash } : {}) });
+                }}
                 disabled={verifyOtp.isPending || otp.length !== 6}
               >
                 {verifyOtp.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Verify"}

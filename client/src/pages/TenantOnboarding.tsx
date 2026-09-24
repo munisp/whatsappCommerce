@@ -1,7 +1,11 @@
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
+// === W47 merchant === ONB-M-11: resolve the tenant from the session
+// (previously hardcoded "demo-tenant-id" — FORBIDDEN for every real
+// merchant, and a probe-able literal).
+import { useAuth } from "@/_core/hooks/useAuth";
+// === END W47 merchant ===
 import DashboardLayout from "@/components/DashboardLayout";
-import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -17,7 +21,6 @@ import {
   TrendingUp, DollarSign, Zap, Star, Info,
 } from "lucide-react";
 import { Mail } from "lucide-react";
-import { useActiveTenant } from "@/contexts/TenantContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Step = "business_profile" | "billing_model" | "whatsapp_setup" | "kyc_kyb" | "review";
@@ -344,11 +347,10 @@ function DocumentUploadRow({
 }
 
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
-function TenantOnboardingInner() {
-  // QA-043: the signed-in user's own business ("" until they have one). This page hard-coded "demo-tenant-id", so its KYC and
-  // progress-email calls were refused (403) for every real tenant.
-  const { activeTenantId } = useActiveTenant();
+export default function TenantOnboarding() {
   const [, navigate] = useLocation();
+  const { user } = useAuth(); // === W47 merchant === ONB-M-11
+  const tenantId = user?.tenantId ?? ""; // === W47 merchant === ONB-M-11
   const [currentStep, setCurrentStep] = useState<Step>("business_profile");
   const [form, setForm] = useState<FormData>(INITIAL_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -702,7 +704,7 @@ function TenantOnboardingInner() {
                   {form.kycApplicationId ? (
                     <LivenessCamera
                       applicationId={form.kycApplicationId}
-                      tenantId={activeTenantId}
+                      tenantId={tenantId}
                       onComplete={(sessionId, status) => {
                         updateForm({ livenessSessionId: sessionId, livenessStatus: status });
                         if (status === "passed") toast.success("Liveness check passed!");
@@ -713,8 +715,11 @@ function TenantOnboardingInner() {
                       <p className="text-sm text-muted-foreground">Create a KYC application first to start liveness check.</p>
                       <Button
                         variant="outline"
-                        onClick={() => createApplication.mutate({ tenantId: activeTenantId, type: "kyb" })}
-                        disabled={createApplication.isPending || !activeTenantId}
+                        onClick={() => {
+                          if (!tenantId) { toast.error("No business is linked to your account yet — complete store setup first."); return; }
+                          createApplication.mutate({ tenantId, type: "kyb" });
+                        }}
+                        disabled={createApplication.isPending}
                       >
                         {createApplication.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                         Initialize KYC Application
@@ -802,8 +807,11 @@ function TenantOnboardingInner() {
                     variant="outline"
                     size="sm"
                     className="gap-2 text-xs"
-                    onClick={() => sendProgressEmail.mutate({ tenantId: activeTenantId })}
-                    disabled={sendProgressEmail.isPending || !activeTenantId}
+                    onClick={() => {
+                      if (!tenantId) { toast.error("No business is linked to your account yet."); return; }
+                      sendProgressEmail.mutate({ tenantId });
+                    }}
+                    disabled={sendProgressEmail.isPending}
                   >
                     {sendProgressEmail.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
                     Send Progress Email
@@ -834,13 +842,5 @@ function TenantOnboardingInner() {
       </div>
     </div>
     </DashboardLayout>
-  );
-}
-
-export default function TenantOnboarding() {
-  return (
-    <AdminGuard>
-      <TenantOnboardingInner />
-    </AdminGuard>
   );
 }

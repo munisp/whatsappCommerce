@@ -33,7 +33,7 @@
  * defense-in-depth on adminProcedure only.
  */
 import { TRPCError } from "@trpc/server";
-import { getMembership, membershipRoleEnum } from "./membership";
+import { getMembership, hasAnyMembership, membershipRoleEnum } from "./membership";
 // The role→capability map itself now lives in shared/capabilities.ts, so the
 // client can mirror the same rule the server enforces instead of guessing at
 // it (QA follow-up). Re-exported here so existing importers of this module
@@ -63,15 +63,17 @@ export async function assertCapabilityAccess(
 ): Promise<void> {
   if (user.role === "admin") return;
   let membership = null as Awaited<ReturnType<typeof getMembership>>;
+  let lookupFailed = false;
   try {
     membership = await getMembership(user.id, tenantId);
   } catch (err) {
+    lookupFailed = true;
     console.error(`[assertCapabilityAccess:${cap}] membership lookup failed:`, (err as Error)?.message);
     membership = null;
   }
   // A row without a valid role is malformed (or a stubbed lookup leaking an
   // unrelated row) — the column is NOT NULL in the real schema, so treat it
-  // as no membership and fall through to the legacy shortcuts below.
+  // as no membership and fall through to the checks below.
   if (membership && (membershipRoleEnum as readonly string[]).includes(membership.role)) {
     if (roleHasCapability(membership.role, cap)) return;
     throw new TRPCError({
@@ -79,6 +81,29 @@ export async function assertCapabilityAccess(
       message: `This action requires the "${cap}" capability (your role "${membership.role}" does not grant it)`,
     });
   }
+  // === W47 stakeholders === ONB-S-6/S-7: fail CLOSED.
+  // - When the tenant HAS membership rows, the capability map is
+  //   authoritative — the legacy users.tenantId / memberships shortcuts do
+  //   NOT pass (a removed staffer with an intact users.tenantId regains
+  //   nothing).
+  // - When the membership lookup failed and we cannot even determine
+  //   whether rows exist, deny (loudly) instead of falling through to the
+  //   legacy shortcuts during a DB wobble.
+  const anyRows = await hasAnyMembership(tenantId);
+  if (anyRows === null && lookupFailed) {
+    console.error(`[assertCapabilityAccess:${cap}] FAIL-CLOSED: membership lookup failed for user ${user.id} on tenant ${tenantId}`);
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Membership lookup failed — access denied (fail closed). Retry shortly.",
+    });
+  }
+  if (anyRows === true) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `This action requires the "${cap}" capability via a tenant membership (legacy shortcuts are disabled once a tenant has staff roles)`,
+    });
+  }
+  // === END W47 stakeholders ===
   if (user.tenantId && user.tenantId === tenantId) return;
   if (Array.isArray(user.memberships) && user.memberships.includes(tenantId)) return;
   throw new TRPCError({

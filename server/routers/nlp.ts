@@ -246,7 +246,7 @@ export interface ChatOrderResult {
   // === END W46 uc-ux ===
   /** === W46 privacy-consent (TEN-15): age gate blocked the order — the
    * buyer must attest to `requiredAge` before checkout proceeds. === */
-  ageGate?: { requiredAge: number; restrictedProductIds: string[] } | null;
+  ageGate?: { requiredAge: number; restrictedProductIds: string[]; underage?: boolean; statedAge?: number } | null;
 }
 
 /** Buyer-facing reply when (part of) the cart can't be fulfilled: names the
@@ -320,6 +320,11 @@ export async function createChatOrder(
     /** === W46 privacy-consent (TEN-15): buyer attested their age in this
      * checkout turn (affirmative reply verified by the caller). === */
     ageAttested?: boolean;
+    /** === W47 buyer (ONB-B-1): the ACTUAL digits the buyer stated; the
+     * gate compares them against requiredAge (truthful minors fail). === */
+    ageAttestedAge?: number | null;
+    /** W47 (ONB-TOCTOU-2): evidence wamid for the attestation row. */
+    ageProofWamid?: string | null;
   },
 ): Promise<ChatOrderResult> {
   const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
@@ -353,12 +358,15 @@ export async function createChatOrder(
       phone: opts.waPhoneNumber,
       productIds: items.map((i) => i.productId),
       attested: opts.ageAttested === true,
+      // W47 buyer (ONB-B-1): actual stated digits decide the verdict.
+      attestedAge: opts.ageAttestedAge ?? null,
       source: "chat_reply",
+      proofWamid: opts.ageProofWamid ?? null, // W47 (ONB-TOCTOU-2)
     });
     if (!gate.ok) {
       return {
         created: false,
-        ageGate: { requiredAge: gate.requiredAge!, restrictedProductIds: gate.restrictedProductIds ?? [] },
+        ageGate: { requiredAge: gate.requiredAge!, restrictedProductIds: gate.restrictedProductIds ?? [], underage: gate.underage === true, statedAge: gate.statedAge },
         currency: items[0].currency,
       };
     }
@@ -987,6 +995,10 @@ export const nlpRouter = router({
       // WhatsApp path is byte-equivalent (key == waPhoneNumber).
       channel: z.string().optional(),
       // === END W37 telegram ===
+      // === W47 crosscutting (ONB-TOCTOU-2): inbound message id — stamped as
+      // proofWamid on age attestations created at this turn. ===
+      wamid: z.string().max(120).optional(),
+      // === END W47 crosscutting ===
    }))
     .mutation(async ({ input }) => {
       const db = await getDb();
@@ -1022,6 +1034,23 @@ export const nlpRouter = router({
       const { sessionKeyFor } = await import("../services/channelIdentity");
       const sessionKey = sessionKeyFor(input.channel ?? "whatsapp", input.waPhoneNumber);
       // === END W37 telegram ===
+      // === W47 buyer (ONB-B-6): cross-channel identity merge — resolve the
+      // canonical buyer identity (E.164 phone when a Telegram chat explicitly
+      // self-shared its phone) so orders / attestations / consent state merge
+      // across WhatsApp + Telegram. Session/cart rows stay keyed by the
+      // channel session key (routing); buyer-identity keys use buyerKey. ===
+      let buyerKey = sessionKey;
+      if ((input.channel ?? "whatsapp") !== "whatsapp") {
+        try {
+          const { resolveIdentity, channelFromSessionKey } = await import("../services/channelIdentity");
+          const parsed = channelFromSessionKey(sessionKey);
+          const identity = await resolveIdentity(db, input.tenantId, parsed.channel, parsed.id);
+          if (identity.phoneE164) buyerKey = identity.phoneE164;
+        } catch (e: any) {
+          console.warn("[nlp] identity resolve failed (using channel key):", e?.message);
+        }
+      }
+      // === END W47 buyer ===
       const existing = await db.select().from(nlpSessions)
         .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, sessionKey)))
         .limit(1);
@@ -1029,8 +1058,33 @@ export const nlpRouter = router({
       const detectedLang = detectLanguage(input.message);
       let session = existing[0];
 
+      // === W47 crosscutting (ONB-ID-3): recycled-number protection — a
+      // session dormant longer than ONB_DORMANT_DAYS (default 90) must NOT
+      // silently hand the prior owner's cart/consent/context to whoever now
+      // holds the number. Wipe the session, expire the consent decision (so
+      // the consent prompt re-fires), and start fresh. ===
+      if (session?.lastActivityAt) {
+        const dormantDays = Number.parseInt(process.env.ONB_DORMANT_DAYS ?? "", 10) || 90;
+        const cutoff = Date.now() - dormantDays * 86_400_000;
+        if (new Date(session.lastActivityAt as any).getTime() < cutoff) {
+          const { resetDormantIdentity } = await import("../services/consent");
+          await resetDormantIdentity(db, {
+            tenantId: input.tenantId,
+            phone: sessionKey,
+            channel: input.channel ?? "whatsapp",
+            lastActivityAt: new Date(session.lastActivityAt as any),
+          });
+          await db.delete(nlpSessions).where(eq(nlpSessions.id, session.id));
+          session = undefined as any;
+        }
+      }
+      // === END W47 crosscutting ===
+
       if (!session) {
-        const [newSession] = await db.insert(nlpSessions).values({
+        // === W47 buyer (ONB-B-10) + crosscutting (ONB-ID-2): single-winner insert — the UNIQUE index
+        // on (tenantId, waPhoneNumber) (mig 0166) makes the race loser a
+        // no-op; re-select to load the winner's row. ===
+        const inserted = await db.insert(nlpSessions).values({
           id: crypto.randomUUID(),
           tenantId: input.tenantId,
           waPhoneNumber: sessionKey, // === W37 telegram === (== input.waPhoneNumber for whatsapp)
@@ -1041,11 +1095,19 @@ export const nlpRouter = router({
           messageHistory: [],
           lastActivityAt: new Date(),
           createdAt: new Date(),
-        }).returning();
-        session = newSession;
+        }).onConflictDoNothing().returning();
+        session = inserted[0] ?? (await db.select().from(nlpSessions)
+          .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, sessionKey)))
+          .limit(1))[0];
+        if (!session) throw new Error("nlp_sessions get-or-create failed after conflict re-select");
+        // === END W47 buyer ===
       } else {
-        // Update language if newly detected
-        if (detectedLang !== "english") {
+        // Update language if newly detected — === W47 buyer (ONB-B-12):
+        // NEVER overwrite once the buyer picked a sticky locale via the
+        // language picker; detection no longer flips mid-conversation. ===
+        const { getStickyLocale } = await import("../services/i18n");
+        const sticky = await getStickyLocale(input.tenantId, sessionKey).catch(() => null);
+        if (detectedLang !== "english" && !sticky) {
           await db.update(nlpSessions)
             .set({ language: detectedLang, lastActivityAt: new Date() })
             .where(eq(nlpSessions.id, session.id));
@@ -1157,7 +1219,8 @@ export const nlpRouter = router({
           const finalizeOrder = async (fulfillment: "pickup" | "delivery", address: string | null) => {
             const order = await createChatOrder(db, {
               tenantId: input.tenantId,
-              waPhoneNumber: input.waPhoneNumber,
+              // W47 buyer (ONB-B-6): canonical cross-channel buyer identity.
+              waPhoneNumber: buyerKey,
               customerName: input.customerName,
               cartSessionId: activeCartId,
               fulfillment,
@@ -2903,7 +2966,8 @@ export const nlpRouter = router({
           } as any);
           const result = await caller.orderCrud.buyerCancel({
             tenantId: input.tenantId,
-            phone: input.waPhoneNumber,
+            // W47 buyer (ONB-B-6): canonical cross-channel buyer identity.
+            phone: buyerKey,
             reason: input.message.slice(0, 200),
           });
           llmResult.reply = result.escrowRefunded
@@ -2945,14 +3009,43 @@ export const nlpRouter = router({
         // === END W46 uc-ux ===
         // === W46 privacy-consent (TEN-15): age attestation capture — an
         // affirmative reply ("yes 18+", "I am 21") at any confirm turn is a
-        // one-shot attestation for THIS checkout (persisted by the gate). ===
-        const { AGE_AFFIRM_RE } = await import("../services/ageGate");
-        const ageAffirm = AGE_AFFIRM_RE.exec(input.message ?? "");
-        const ageAttested = ctx.awaitingAgeAttestation === true && !!ageAffirm;
+        // one-shot attestation for THIS checkout (persisted by the gate).
+        // === W47 buyer (ONB-B-1 / ONB-B-11): the captured digits decide —
+        // a truthful minor FAILS (attestedAge = actual digits); an explicit
+        // denial removes the restricted items instead of looping. ===
+        const { parseAgeAttestationReply } = await import("../services/ageGate");
+        const ageReply = ctx.awaitingAgeAttestation === true
+          ? parseAgeAttestationReply(input.message ?? "")
+          : null;
+        const ageAttested = ageReply?.affirmed === true;
+        const ageAttestedAge = ageReply?.affirmed === true ? ageReply.statedAge ?? null : null;
         if (ageAttested) delete ctx.awaitingAgeAttestation;
-        // === END W46 privacy-consent ===
+        // ONB-B-11: explicit denial at the prompt → remove the restricted
+        // items from the cart and let the buyer continue with the rest
+        // (no indefinite re-prompt loop, no dead end).
+        if (ageReply?.affirmed === false && cartSession) {
+          delete ctx.awaitingAgeAttestation;
+          const cartRows = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
+          const gatedIds = new Set(
+            (await db.select({ id: products.id }).from(products)
+              .where(and(eq(products.tenantId, input.tenantId), eq(products.ageRestricted, true))))
+              .map((p: any) => p.id),
+          );
+          const removed = cartRows.filter((i) => gatedIds.has(i.productId));
+          for (const i of removed) {
+            await db.delete(cartItems).where(eq(cartItems.id, i.id));
+          }
+          const { buildAgeGateDenialReply } = await import("../services/ageGate");
+          llmResult.reply = buildAgeGateDenialReply(removed.map((i) => i.productName));
+          llmResult.nextState = removed.length < cartRows.length ? "checkout_confirm" : "browse";
+          // Fall through to persist ctx; skip the order-creation below.
+          ctx.lastAgeDenialAt = Date.now();
+        }
+        // === END W46/W47 ===
         const items = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
-        if (items.length > 0) {
+        // W47 buyer (ONB-B-11): denial already produced the reply — skip
+        // order creation entirely this turn.
+        if (ageReply?.affirmed !== false && items.length > 0) {
           const subtotal = items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0);
           const currency = items[0].currency;
           const fulfillment = typeof ctx.fulfillment === "string" ? ctx.fulfillment as "pickup" | "delivery" : null;
@@ -2974,7 +3067,8 @@ export const nlpRouter = router({
               : null;
             const order = await createChatOrder(db, {
               tenantId: input.tenantId,
-              waPhoneNumber: input.waPhoneNumber,
+              // W47 buyer (ONB-B-6): canonical cross-channel buyer identity.
+              waPhoneNumber: buyerKey,
               customerName: input.customerName,
               cartSessionId: cartSession.id,
               fulfillment,
@@ -2995,17 +3089,42 @@ export const nlpRouter = router({
               deliverySlotId: typeof ctx.deliverySlotId === "string" ? ctx.deliverySlotId : null,
               // === END W46 uc-ux ===
               // === W46 privacy-consent (TEN-15): one-shot age attestation ===
+              // === W47 buyer (ONB-B-1): pass the ACTUAL stated digits ===
               ageAttested,
+              ageAttestedAge,
+              // W47 (ONB-TOCTOU-2): evidence id on the attestation row.
+              ageProofWamid: input.wamid ?? null,
             });
             // === W46 privacy-consent (TEN-15): gate blocked — prompt attestation ===
             if (order.ageGate) {
-              ctx.awaitingAgeAttestation = true;
-              const { buildAgeAttestationPrompt } = await import("../services/ageGate");
+              const { buildAgeAttestationPrompt, buildAgeGateUnderageReply } = await import("../services/ageGate");
+              // W47 (ONB-I18N-1): localized attestation prompt.
+              const { localeFromSessionLanguage } = await import("../services/i18n");
               const gated = new Set(order.ageGate.restrictedProductIds);
               const names = items.filter((i) => gated.has(i.productId)).map((i) => i.productName);
-              llmResult.reply = buildAgeAttestationPrompt(order.ageGate.requiredAge, names);
+              // === W47 buyer (ONB-B-1): truthful minor — the attestation
+              // FAILED. Remove the restricted items from the cart, clear the
+              // prompt flag (no loop) and let the buyer continue with the
+              // remaining items. ===
+              if (order.ageGate.underage === true) {
+                delete ctx.awaitingAgeAttestation;
+                for (const i of items.filter((i) => gated.has(i.productId))) {
+                  await db.delete(cartItems).where(eq(cartItems.id, i.id));
+                }
+                llmResult.reply = buildAgeGateUnderageReply(
+                  order.ageGate.requiredAge, order.ageGate.statedAge ?? 0, names,
+                );
+                llmResult.nextState = names.length < items.length ? "checkout_confirm" : "browse";
+              } else {
+              ctx.awaitingAgeAttestation = true;
+              llmResult.reply = buildAgeAttestationPrompt(
+                order.ageGate.requiredAge,
+                names,
+                localeFromSessionLanguage(session?.language),
+              );
               llmResult.nextState = "checkout_confirm";
-            // === END W46 privacy-consent ===
+              }
+            // === END W46/W47 ===
             // === W46 uc-ux (Coder E): UC-27 min-order block ===============
             } else if (order.minOrderBlock) {
               const { minOrderBlockReply } = await import("../services/minOrder");

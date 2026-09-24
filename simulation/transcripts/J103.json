@@ -7,118 +7,118 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014160081",
-      "profileName": "Sim User 0081",
-      "inboundId": "wamid.sim.in.text.00292",
-      "at": 1789707710883,
+      "phone": "2348014664108",
+      "profileName": "Sim User 4108",
+      "inboundId": "wamid.sim.in.text.00298",
+      "at": 1789790664712,
       "kind": "text",
-      "text": "i want these [bb3c6e13]"
+      "text": "i want these [bfaac975]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00292",
-      "at": 1789707710889
+      "wamid": "wamid.sim.in.text.00298",
+      "at": 1789790664720
     },
     {
       "dir": "out",
-      "phone": "2348014160081",
-      "wamid": "wamid.sim.000473",
+      "phone": "2348014664108",
+      "wamid": "wamid.sim.000482",
       "statuses": [
         "sent"
       ],
-      "at": 1789707710940,
+      "at": 1789790664761,
       "kind": "text",
       "body": "✅ 2 × Ankara Fabric\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348014160081",
-      "profileName": "Sim User 0081",
-      "inboundId": "wamid.sim.in.text.00293",
-      "at": 1789707711428,
+      "phone": "2348014664108",
+      "profileName": "Sim User 4108",
+      "inboundId": "wamid.sim.in.text.00299",
+      "at": 1789790665268,
       "kind": "text",
-      "text": "confirm please [bb3c6e13]"
+      "text": "confirm please [bfaac975]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00293",
-      "at": 1789707711433
+      "wamid": "wamid.sim.in.text.00299",
+      "at": 1789790665278
     },
     {
       "dir": "out",
-      "phone": "2348014160081",
-      "wamid": "wamid.sim.000474",
+      "phone": "2348014664108",
+      "wamid": "wamid.sim.000483",
       "statuses": [
         "sent"
       ],
-      "at": 1789707711458,
+      "at": 1789790665339,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Ankara Fabric — ₦5,000.00 each\nSubtotal: ₦10,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348014160081",
-      "profileName": "Sim User 0081",
-      "inboundId": "wamid.sim.in.text.00294",
-      "at": 1789707711978,
+      "phone": "2348014664108",
+      "profileName": "Sim User 4108",
+      "inboundId": "wamid.sim.in.text.00300",
+      "at": 1789790665821,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00294",
-      "at": 1789707711983
+      "wamid": "wamid.sim.in.text.00300",
+      "at": 1789790665831
     },
     {
       "dir": "out",
-      "phone": "2348014160081",
-      "wamid": "wamid.sim.000475",
+      "phone": "2348014664108",
+      "wamid": "wamid.sim.000484",
       "statuses": [
         "sent"
       ],
-      "at": 1789707712025,
+      "at": 1789790665901,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU6HRGNB*\n2 × Ankara Fabric — ₦5,000.00 each\n*Total: ₦10,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/35e54eba-4afc-497a-8ea4-674b2d19601a\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/1269f78a-460a-4801-a630-e570b955db75.epw_DdT6WX5WQrlZO4HW5H0I"
+      "body": "🧾 *Pickup Order ORD-MU7V5G99*\n2 × Ankara Fabric — ₦5,000.00 each\n*Total: ₦10,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/f88c3713-2859-4a54-88dd-c23b1c90a26c\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/28bf15b1-b1b1-42e1-8182-31f8144b113d.03sjwkBwzGfswN9h14-E7x2X"
     },
     {
       "dir": "out",
-      "phone": "2348014160081",
-      "wamid": "wamid.sim.000476",
+      "phone": "2348014664108",
+      "wamid": "wamid.sim.000485",
       "statuses": [
         "sent"
       ],
-      "at": 1789707712035,
+      "at": 1789790665906,
       "kind": "interactive",
-      "body": "Order ORD-MU6HRGNB — manage it here:",
+      "body": "Order ORD-MU7V5G99 — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:1269f78a-460a-4801-a630-e570b955db75",
+          "id": "order_track:28bf15b1-b1b1-42e1-8182-31f8144b113d",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:1269f78a-460a-4801-a630-e570b955db75",
+          "id": "order_pay:28bf15b1-b1b1-42e1-8182-31f8144b113d",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:1269f78a-460a-4801-a630-e570b955db75",
+          "id": "order_cancel:28bf15b1-b1b1-42e1-8182-31f8144b113d",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348014160081",
-      "wamid": "wamid.sim.000477",
+      "phone": "2348014664108",
+      "wamid": "wamid.sim.000486",
       "statuses": [
         "sent"
       ],
-      "at": 1789707712541,
+      "at": 1789790666396,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MU6HRGNB\n\n2 × Ankara Fabric — ₦10,000.00\n\nSubtotal: ₦10,000.00\n*Total paid: ₦10,000.00*\nPayment ref: 35e54eba-4afc-497a-8ea4-674b2d19601a\n\n🔎 Track your order: http://localhost:4173/track/1269f78a-460a-4801-a630-e570b955db75.epw_DdT6WX5WQrlZO4HW5H0I"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MU7V5G99\n\n2 × Ankara Fabric — ₦10,000.00\n\nSubtotal: ₦10,000.00\n*Total paid: ₦10,000.00*\nPayment ref: f88c3713-2859-4a54-88dd-c23b1c90a26c\n\n🔎 Track your order: http://localhost:4173/track/28bf15b1-b1b1-42e1-8182-31f8144b113d.03sjwkBwzGfswN9h14-E7x2X"
     }
   ]
 }

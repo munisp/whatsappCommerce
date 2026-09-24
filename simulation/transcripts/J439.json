@@ -1,0 +1,172 @@
+{
+  "id": "J439",
+  "title": "ONB-B-3 consent gate covers buttons/media/CTWA/location on WA",
+  "feature": "W47 buyer hoisted consent gate",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348012858524",
+      "profileName": "Sim User 8524",
+      "inboundId": "wamid.sim.in.btn.00560",
+      "at": 1789791185828,
+      "kind": "button_reply",
+      "text": "Shop",
+      "payloadId": "menu_1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00560",
+      "at": 1789791185847
+    },
+    {
+      "dir": "out",
+      "phone": "2348012858524",
+      "wamid": "wamid.sim.001030",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791185863,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019467109",
+      "profileName": "Sim User 7109",
+      "inboundId": "wamid.sim.in.img.00561",
+      "at": 1789791186376,
+      "kind": "image",
+      "mediaKind": "image",
+      "mediaId": "media-j439-1",
+      "caption": "what is this?"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.img.00561",
+      "at": 1789791186385
+    },
+    {
+      "dir": "out",
+      "phone": "2348019467109",
+      "wamid": "wamid.sim.001031",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791186393,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348017359576",
+      "profileName": "Sim User 9576",
+      "inboundId": "wamid.sim.in.loc.00562",
+      "at": 1789791186931,
+      "kind": "location",
+      "lat": 6.5244,
+      "lng": 3.3792,
+      "locationName": "Home",
+      "address": "Lagos"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.loc.00562",
+      "at": 1789791186940
+    },
+    {
+      "dir": "out",
+      "phone": "2348017359576",
+      "wamid": "wamid.sim.001032",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791186948,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012534074",
+      "profileName": "Sim User 4074",
+      "inboundId": "wamid.sim.in.text.00563",
+      "at": 1789791187477,
+      "kind": "text",
+      "text": "simdeal"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00563",
+      "at": 1789791187486
+    },
+    {
+      "dir": "out",
+      "phone": "2348012534074",
+      "wamid": "wamid.sim.001033",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791187497,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012858524",
+      "profileName": "Sim User 8524",
+      "inboundId": "wamid.sim.in.text.00564",
+      "at": 1789791188025,
+      "kind": "text",
+      "text": "YES"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00564",
+      "at": 1789791188034
+    },
+    {
+      "dir": "out",
+      "phone": "2348012858524",
+      "wamid": "wamid.sim.001034",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791188052,
+      "kind": "text",
+      "body": "Thank you! You've opted in to order updates on WhatsApp.\n\nWelcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n\nReply with a number to choose an option."
+    },
+    {
+      "dir": "in",
+      "phone": "2348012858524",
+      "profileName": "Sim User 8524",
+      "inboundId": "wamid.sim.in.btn.00565",
+      "at": 1789791188585,
+      "kind": "button_reply",
+      "text": "Shop",
+      "payloadId": "menu_1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.btn.00565",
+      "at": 1789791188594
+    },
+    {
+      "dir": "out",
+      "phone": "2348012858524",
+      "wamid": "wamid.sim.001035",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791188636,
+      "kind": "text",
+      "body": "Sorry, I didn't quite get that — type 'menu' to see options."
+    }
+  ]
+}

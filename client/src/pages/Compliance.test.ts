@@ -20,9 +20,16 @@ describe("Compliance (SOC2) page wiring", () => {
     expect(existsSync(pagePath)).toBe(true);
   });
 
-  it("is lazy-loaded and routed at /soc2", () => {
-    expect(appSrc).toContain('const Compliance = lazy(() => import("./pages/Compliance"))');
-    expect(appSrc).toContain('<Route path="/soc2" component={Compliance} />');
+  // QA follow-up: /soc2 is platform-wide security tooling (audit chain,
+  // access review, anomaly/collusion detection) that had no guard at all in
+  // the legacy app, reachable by any signed-in user via direct URL. Rather
+  // than lazy-load Compliance.tsx directly here, the legacy app now
+  // redirects to its properly admin-gated home in ui/platform-admin (which
+  // still imports and routes to this same Compliance.tsx page directly —
+  // see ui/platform-admin/src/App.tsx).
+  it("redirects /soc2 to ui/platform-admin instead of rendering it directly", () => {
+    expect(appSrc).not.toContain('const Compliance = lazy(() => import("./pages/Compliance"))');
+    expect(appSrc).toContain('<Route path="/soc2" component={() => <AdminRouteRedirect to="/soc2" />} />');
   });
 
   it("has a nav entry", () => {

@@ -4,5 +4,17 @@
   "feature": "writeAuditLog on tenant/kyc/membership/marketplace admin mutations with actor + target tenant + before/after",
   "pass": true,
   "businessName": "Simply Green (simulated tenant)",
-  "messages": []
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099911111",
+      "wamid": "wamid.sim.000736",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789790978655,
+      "kind": "text",
+      "body": "⚠️ Your business verification (KYB) was rejected. You have 14 days to re-verify from the portal before your store stops accepting new orders. Payouts of earned funds are not affected."
+    }
+  ]
 }

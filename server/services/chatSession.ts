@@ -41,6 +41,9 @@ export interface ChatSession {
   /** W46 (MSG-23): the low-confidence picker is offered at most once per
    *  session — a customer who ignores it keeps the resolved locale. */
   languagePickerOffered?: boolean;
+  /** W47 buyer (ONB-B-2): true while a recycled-number identity challenge
+   *  (name confirmation / NEW-owner clean slate) is open. */
+  awaitingIdentityVerify?: boolean;
   /**
    * Optimistic-concurrency version. Every save bumps it; saveSessionCas
    * refuses to overwrite a session whose stored version differs from the

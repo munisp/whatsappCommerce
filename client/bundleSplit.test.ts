@@ -20,7 +20,12 @@ const viteSrc = readFileSync(path.join(root, "vite.config.ts"), "utf8");
 
 describe("client bundle code-splitting", () => {
   it("heavy routes are lazy-loaded, not statically imported", () => {
-    for (const page of ["LiveLogisticsMap", "OnboardingCopilot", "AdminPortal", "MLOpsDashboard"]) {
+    // QA follow-up: LiveLogisticsMap and MLOpsDashboard no longer render
+    // directly in this app — /logistics-map and /ml-ops now redirect to
+    // ui/platform-admin (the confirmed-admin-only home for these routes),
+    // which lazy-loads and routes to them on its own. Dropped from this
+    // app's own lazy-import list along with the routes themselves.
+    for (const page of ["OnboardingCopilot", "AdminPortal"]) {
       expect(appSrc, `${page} must be lazy`).toContain(`const ${page} = lazy(`);
       expect(appSrc, `${page} must NOT be a static import`).not.toMatch(
         new RegExp(`^import ${page} from`, "m"),

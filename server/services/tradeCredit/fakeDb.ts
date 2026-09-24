@@ -32,6 +32,7 @@ import {
   tenants,
   bureauReportLog,
   graphAlerts,
+  tenantMemberships,
 } from "../../../drizzle/schema";
 
 // ── Row types (JS camelCase props, mirroring drizzle $inferSelect) ──────────
@@ -317,6 +318,7 @@ function tableName(table: unknown): string {
     customers,
     users,
     graph_alerts: graphAlerts,
+    tenant_memberships: tenantMemberships,
   })) {
     if (t === table) return name;
   }
@@ -356,6 +358,11 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     : t === "customers" ? store.customers
     : t === "users" ? store.users
     : t === "graph_alerts" ? store.graphAlerts
+    // W47 MERGER: assertMoneyAccess/assertCapabilityAccess now probe
+    // tenant_memberships (hasAnyMembership) before falling back to the
+    // legacy users.tenantId shortcut these tests exercise — always empty
+    // here since none of these test tenants have any staff rows modeled.
+    : t === "tenant_memberships" ? []
     : store.tenants;
 
   // ── SELECT filtering — matches every select shape in the services ────────

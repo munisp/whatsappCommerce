@@ -189,6 +189,7 @@ function fetchOk(url: string) {
 beforeEach(() => {
   stores.tenants = [];
   stores.kyc_applications = [];
+  stores.users = [];
   temporalMock.startTenantOnboardingWorkflow.mockClear();
 });
 
@@ -206,6 +207,10 @@ describe("onboarding.start (provisioning)", () => {
 
   it("is self-service: any authenticated user may provision a tenant and becomes its owner", async () => {
     const founder = makeUser("user", null);
+    // === W47 merchant === ONB-M-9: start() now claims users.tenantId
+    // atomically (guarded UPDATE) — seed the founder's user row.
+    stores.users = [{ id: founder.id, tenantId: null }];
+    // === END W47 merchant ===
     const caller = onboardingRouter.createCaller(makeCtx(founder));
     const res = await caller.start({ name: "Founder Co" });
 

@@ -1,10 +1,28 @@
 import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { getDb } from "../db";
-import { merchantOnboardingProgress } from "../../drizzle/schema";
+import { merchantOnboardingProgress, tenants } from "../../drizzle/schema";
+// === W47 merchant === ONB-M-7: surface the CANONICAL onboarding state
+// (settings.onboarding — the one activate enforces) alongside the legacy
+// wizard-progress flags, so the portal wizard, the funnel and support all
+// read one truth.
+import { getOnboardingState } from "../services/onboarding";
+// === END W47 merchant ===
 import { eq, count } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import crypto from "crypto";
+
+// === W47 merchant === ONB-M-7 helper
+async function canonicalState(db: any, tenantId: string) {
+  const [t] = await db
+    .select({ settings: tenants.settings })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1)
+    .catch(() => [] as any[]);
+  return getOnboardingState(t?.settings);
+}
+// === END W47 merchant ===
 
 export const onboardingProgressRouter = router({
   // Get current progress for the logged-in tenant
@@ -29,6 +47,7 @@ export const onboardingProgressRouter = router({
         stepData: {} as Record<string, unknown>,
         isCompleted: false,
         completedAt: null as Date | null,
+        canonical: await canonicalState(db, tenantId),
       };
     }
 
@@ -39,6 +58,7 @@ export const onboardingProgressRouter = router({
       stepData: (row.stepData as Record<string, unknown>) ?? {},
       isCompleted: row.isCompleted,
       completedAt: row.completedAt,
+      canonical: await canonicalState(db, tenantId),
     };
   }),
 

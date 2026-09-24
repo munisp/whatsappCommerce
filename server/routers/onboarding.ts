@@ -1,10 +1,9 @@
 import { z } from "zod";
 import { router, protectedProcedure, adminProcedure, assertTenantAccess } from "../_core/trpc";
 import { getDb } from "../db";
-import { tenantOnboarding, tenants, users } from "../../drizzle/schema";
-import * as membership from "../services/membership";
+import { tenantOnboarding, tenants, tenantMemberships, users } from "../../drizzle/schema";
 import type { TenantOnboarding } from "../../drizzle/schema";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { TRPCError } from "@trpc/server";
 import {
@@ -25,6 +24,14 @@ import { parseWaMenuConfig, waCustomItemSchema, waUseCaseSchema } from "../../sh
 import { encryptSecret } from "../services/crypto/secrets";
 import { requireApprovedKyb } from "../services/kycGate";
 import { startTenantOnboardingWorkflow } from "../temporal";
+// === W47 merchant ===
+import {
+  goLiveTenant,
+  isPayoutConfigured,
+  setInitialPayoutBank,
+} from "../services/onboardingLifecycle";
+import { findWhatsAppNumberConflict } from "../services/whatsappNumbers";
+// === END W47 merchant ===
 
 /** plan → billing model for the TenantOnboardingWorkflow input. */
 const PLAN_BILLING_MODEL = {
@@ -98,7 +105,20 @@ export const onboardingRouter = router({
         .from(tenantOnboarding)
         .where(eq(tenantOnboarding.tenantId, input.tenantId))
         .limit(1);
-      return record ?? null;
+      // === W47 merchant === ONB-M-7: three divergent trackers meant
+      // getProgress/getStatus/funnel each reported a different truth. The
+      // canonical state is settings.onboarding (the one activate enforces);
+      // legacy tenant_onboarding rows are still returned for back-compat
+      // but the response now carries the canonical state so callers can
+      // converge on it.
+      const [tenant] = await db
+        .select({ settings: tenants.settings })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      const canonical = getOnboardingState(tenant?.settings);
+      return { ...(record ?? null as any), canonical };
+      // === END W47 merchant ===
     }),
 
   saveStep: protectedProcedure
@@ -120,10 +140,27 @@ export const onboardingRouter = router({
       const currentIdx = STEP_ORDER.indexOf(input.step as OnboardingStep);
       const nextStep: OnboardingStep = STEP_ORDER[Math.min(currentIdx + 1, STEP_ORDER.length - 1)];
 
+      // === W47 merchant === ONB-M-17: whitelist the writable columns per
+      // step. The previous `...(input.data)` spread allowed mass assignment
+      // (a client could overwrite currentStep — even jump straight to
+      // "completed" — or set arbitrary columns).
+      const data = input.data as Record<string, unknown>;
+      const allowedKeys = [
+        "billingModel", "profitShareRate", "subscriptionFee", "subscriptionCycle",
+        "minMonthlyFee", "maxProfitShareRate", "businessType", "businessDescription",
+        "businessCountry", "businessCurrency", "estimatedMonthlyGmv",
+        "estimatedMonthlyOrders", "whatsappVerified", "aiConfigured", "onboardingNotes",
+      ] as const;
+      const whitelisted: Record<string, unknown> = {};
+      for (const k of allowedKeys) {
+        if (k in data) whitelisted[k] = data[k];
+      }
+      // === END W47 merchant ===
+
       const updateData = {
         currentStep: nextStep,
         updatedAt: new Date(),
-        ...(input.data as Partial<TenantOnboarding>),
+        ...(whitelisted as Partial<TenantOnboarding>),
       };
 
       if (existing.length > 0) {
@@ -133,7 +170,7 @@ export const onboardingRouter = router({
           id: randomUUID(),
           tenantId: input.tenantId,
           currentStep: nextStep,
-          ...(input.data as Partial<TenantOnboarding>),
+          ...(whitelisted as Partial<TenantOnboarding>),
         });
       }
       return { ok: true, nextStep };
@@ -145,12 +182,21 @@ export const onboardingRouter = router({
       assertTenantAccess(ctx.user, input.tenantId);
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
+      // === W47 merchant === ONB-M-1: the legacy wizard previously flipped
+      // tenants.status to 'active' with NO validation and NO KYB gate — a
+      // live, callable go-live bypass. Route through the SAME goLiveTenant
+      // gate (validation passed + approved KYB) the web activate and the
+      // chat copilot use. The tenant_onboarding row is only marked
+      // completed after the gate succeeds.
+      await goLiveTenant(input.tenantId, {
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        source: "legacy-complete",
+      });
+      // === END W47 merchant ===
       await db.update(tenantOnboarding)
         .set({ currentStep: "completed", completedAt: new Date(), updatedAt: new Date() })
         .where(eq(tenantOnboarding.tenantId, input.tenantId));
-      await db.update(tenants)
-        .set({ status: "active", updatedAt: new Date() })
-        .where(eq(tenants.id, input.tenantId));
       return { ok: true };
     }),
 
@@ -176,8 +222,31 @@ export const onboardingRouter = router({
       const [onboardingRow] = await db.select().from(tenantOnboarding)
         .where(eq(tenantOnboarding.tenantId, input.tenantId));
       const step = onboardingRow?.currentStep ?? "not_started";
-      console.log(`[Onboarding] Progress email sent to tenant ${tenant.name} (${input.tenantId}), step: ${step}`);
-      return { ok: true, tenantName: tenant.name, step };
+      // === W47 merchant === ONB-M-18: actually SEND the progress email
+      // (previously console.log only) to the tenant owner's account email.
+      // Best-effort: email delivery failure never fails the mutation.
+      let emailed = false;
+      try {
+        const [owner] = await db
+          .select({ email: users.email, name: users.name })
+          .from(users)
+          .where(eq(users.tenantId, input.tenantId))
+          .limit(1);
+        if (owner?.email) {
+          const { sendEmail } = await import("../services/email/resend");
+          emailed = await sendEmail({
+            to: owner.email,
+            subject: `Finish setting up ${tenant.name} — you're at step: ${step}`,
+            html: `<p>Hi${owner.name ? ` ${owner.name}` : ""},</p><p>Your store <b>${tenant.name}</b> is not live yet — onboarding is at step <b>${step}</b>. Sign in to your portal to finish setup and start accepting orders.</p>`,
+            text: `Your store ${tenant.name} is not live yet — onboarding is at step ${step}. Sign in to finish setup.`,
+          });
+        }
+      } catch (e: any) {
+        console.warn("[Onboarding] progress email send failed:", e?.message);
+      }
+      console.log(`[Onboarding] Progress email for tenant ${tenant.name} (${input.tenantId}), step: ${step}, emailed=${emailed}`);
+      return { ok: true, tenantName: tenant.name, step, emailed };
+      // === END W47 merchant ===
     }),
 
   // ─── Tenant provisioning pipeline ──────────────────────────────────────────
@@ -207,6 +276,10 @@ export const onboardingRouter = router({
           .optional(),
         plan: z.enum(["starter", "growth", "enterprise"]).optional(),
         businessType: z.string().trim().max(100).optional(),
+        // === W47 merchant === ONB-M-16: capture the merchant's verified
+        // phone at provisioning so settings.adminPhone is stamped (tenant
+        // invites bind to it; admin alerts resolve it).
+        phone: z.string().trim().min(7).max(30).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -221,7 +294,75 @@ export const onboardingRouter = router({
           message: "You already have a business on this platform. Use the dashboard for your existing business, or contact support to set up an additional one.",
         });
       }
-      const { tenantId, slug, settings } = await createTenant(input);
+      // === W47 merchant (ONB-M-9) + crosscutting (ONB-SM-3): claim-first AND
+      // single-transaction provisioning. Two concurrent start() calls both
+      // passed the check above; claim the caller's tenantId slot FIRST with a
+      // guarded UPDATE — exactly one concurrent caller wins; the loser gets an
+      // honest CONFLICT. Tenant + owner membership + user link then commit in
+      // ONE transaction so a crash cannot orphan a memberless tenant. ===
+      let claimedTenantSlot = false;
+      const db0 = await getDb();
+      if (!db0) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+      if (ctx.user.role !== "admin") {
+        const claimed = await db0
+          .update(users)
+          .set({ tenantId: "__claiming__", updatedAt: new Date() })
+          .where(and(eq(users.id, ctx.user.id), isNull(users.tenantId)))
+          .returning({ id: users.id });
+        if (!claimed.length) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "You already have a business on this platform. Use the dashboard for your existing business, or contact support to set up an additional one.",
+          });
+        }
+        claimedTenantSlot = true;
+      }
+      let tenantId: string;
+      let slug: string;
+      let settings: Awaited<ReturnType<typeof createTenant>>["settings"];
+      try {
+        const provision = async (tx: any) => {
+          const created = await createTenant(input, tx);
+          // Self-service: the creating user becomes the tenant's owner (unless
+          // they're a platform admin provisioning on a business's behalf, whose
+          // tenant-agnostic identity/users.tenantId must stay untouched).
+          if (ctx.user.role !== "admin") {
+            await tx.insert(tenantMemberships).values({
+              tenantId: created.tenantId,
+              userId: String(ctx.user.id),
+              role: "owner",
+              invitedBy: String(ctx.user.id),
+            });
+            await tx.update(users).set({ tenantId: created.tenantId })
+              .where(and(eq(users.id, ctx.user.id), eq(users.tenantId, "__claiming__")));
+          }
+          return created;
+        };
+        // Test doubles / drivers without transactions fall back to sequential
+        // execution (real drivers always run the atomic path above).
+        ({ tenantId, slug, settings } = typeof db0.transaction === "function"
+          ? await db0.transaction(async (tx: any) => provision(tx))
+          : await provision(db0));
+        claimedTenantSlot = false;
+        // === W47 merchant === ONB-M-16: stamp settings.adminPhone.
+        const adminPhone = input.phone ?? (ctx.user.phoneVerified ? ctx.user.phone : null);
+        if (adminPhone) {
+          await updateTenantSettings(tenantId, (s) => {
+            if (!s.adminPhone) (s as Record<string, unknown>).adminPhone = adminPhone;
+          });
+        }
+        // === END W47 merchant ===
+      } catch (err) {
+        // Roll back the atomic slot claim so a failed provisioning does not
+        // permanently block the user from retrying.
+        if (claimedTenantSlot) {
+          await db0.update(users).set({ tenantId: null })
+            .where(and(eq(users.id, ctx.user.id), eq(users.tenantId, "__claiming__")))
+            .catch(() => {});
+        }
+        throw err;
+      }
+      // === END W47 merchant (ONB-M-9) / crosscutting (ONB-SM-3) ===
 
       // Kick off the TenantOnboardingWorkflow when Temporal is configured
       // (env-gated; graceful skip otherwise — provisioning must succeed
@@ -239,15 +380,10 @@ export const onboardingRouter = router({
         }
       }
 
-      // Self-service: the creating user becomes the tenant's owner (unless
-      // they're a platform admin provisioning on a business's behalf, whose
-      // tenant-agnostic identity/users.tenantId must stay untouched).
-      if (ctx.user.role !== "admin") {
-        const db = await getDb();
-        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
-        await membership.addMember({ tenantId, userId: ctx.user.id, role: "owner", invitedBy: ctx.user.id });
-        await db.update(users).set({ tenantId }).where(eq(users.id, ctx.user.id));
-      }
+      // (W47 ONB-M-9 + ONB-SM-3: owner membership + users.tenantId assignment
+      // moved BEFORE this block, inside the claim-first provisioning
+      // transaction above. Platform admins provisioning on a business's
+      // behalf keep their tenant-agnostic identity/users.tenantId untouched.)
 
       return {
         tenantId,
@@ -285,6 +421,12 @@ export const onboardingRouter = router({
         whatsappConfigured: Boolean(
           tenant.whatsappPhoneNumberId && settings.whatsapp?.accessToken,
         ),
+        // === W47 merchant === ONB-M-14/M-7: readiness truth — payout
+        // destination + canonical tracker marker so the dashboard/wizard
+        // all read ONE state.
+        payoutConfigured: await isPayoutConfigured(db, input.tenantId),
+        canonicalProgress: true as const,
+        // === END W47 merchant ===
       };
     }),
 
@@ -296,7 +438,7 @@ export const onboardingRouter = router({
     .input(
       z.object({
         tenantId: z.string(),
-        step: z.enum(["whatsapp", "useCases", "integrations", "branding"]),
+        step: z.enum(["whatsapp", "useCases", "integrations", "branding", "payout"]),
         data: z.record(z.string(), z.unknown()),
       }),
     )
@@ -323,19 +465,29 @@ export const onboardingRouter = router({
           .object({
             phoneNumberId: z.string().trim().min(1).max(64),
             accessToken: z.string().min(1, "accessToken must not be empty"),
+            // === W47 merchant === ONB-M-6: accept wabaId/verifyToken like
+            // the operator path (tenant.updateWhatsAppConfig) so the
+            // self-serve wizard collects the same configuration.
+            wabaId: z.string().trim().max(64).optional(),
+            verifyToken: z.string().max(255).optional(),
           })
           .parse(input.data);
-        const [conflict] = await db
-          .select({ id: tenants.id })
-          .from(tenants)
-          .where(and(eq(tenants.whatsappPhoneNumberId, creds.phoneNumberId), ne(tenants.id, input.tenantId)))
-          .limit(1);
-        if (conflict) {
+        // === W47 merchant === ONB-M-6: the same honest CONFLICT pre-check
+        // as tenant.updateWhatsAppConfig — previously a duplicate
+        // phone_number_id here surfaced as a raw 23505 (or silently
+        // hijacked another tenant's inbound webhook traffic).
+        const conflictId = await findWhatsAppNumberConflict(creds.phoneNumberId, input.tenantId);
+        if (conflictId) {
           throw new TRPCError({
             code: "CONFLICT",
-            message: `WhatsApp phone number id ${creds.phoneNumberId} is already configured on another tenant`,
+            message: "That WhatsApp phone number is already connected to another business on this platform.",
           });
         }
+        // === END W47 merchant ===
+        // try/catch retained as a race-condition backstop: the pre-check
+        // above and this update are not atomic, so a concurrent onboarding
+        // request for the same phoneNumberId can still slip through the
+        // check and hit the DB's unique constraint.
         try {
           await db
             .update(tenants)
@@ -347,15 +499,34 @@ export const onboardingRouter = router({
           if (code === "23505") {
             throw new TRPCError({
               code: "CONFLICT",
-              message: `WhatsApp phone number id ${creds.phoneNumberId} is already configured on another tenant`,
+              message: "That WhatsApp phone number is already connected to another business on this platform.",
             });
           }
           throw error;
         }
         await updateTenantSettings(input.tenantId, (s) => {
           // Encrypt at rest (v1: envelope) — reads decrypt transparently.
-          s.whatsapp = { ...(s.whatsapp ?? {}), accessToken: encryptSecret(creds.accessToken) };
+          s.whatsapp = {
+            ...(s.whatsapp ?? {}),
+            accessToken: encryptSecret(creds.accessToken),
+            ...(creds.wabaId ? { wabaId: creds.wabaId } : {}),
+            ...(creds.verifyToken ? { verifyToken: encryptSecret(creds.verifyToken) } : {}),
+          } as TenantSettings["whatsapp"];
         });
+      } else if (input.step === "payout") {
+        // === W47 merchant === ONB-M-14: initial payout-destination capture
+        // during onboarding (first withdrawal previously failed late on a
+        // null bank account). Only the FIRST capture is allowed here —
+        // changes go through escrow.updatePayoutBankDetails (step-up OTP).
+        const payout = z
+          .object({
+            bankAccountName: z.string().trim().min(1).max(255),
+            bankAccountNumber: z.string().trim().min(6).max(20),
+            bankCode: z.string().trim().min(1).max(10),
+          })
+          .parse(input.data);
+        await setInitialPayoutBank(input.tenantId, payout);
+        // === END W47 merchant ===
       } else if (input.step === "useCases") {
         const patch = z
           .object({
@@ -460,20 +631,15 @@ export const onboardingRouter = router({
       if (!tenant) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
       const state = getOnboardingState(tenant.settings);
       if (state.status === "live") return { ok: true, ...state };
-      if (state.status !== "validating" || !state.validationPassed) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: `Cannot activate: validation has not passed (status=${state.status}). Run onboarding.validate first.`,
-        });
-      }
-      // Hard KYB gate: an approved KYB application is a precondition for
-      // go-live. Fails closed in production (see services/kycGate).
-      await requireApprovedKyb(input.tenantId, db);
-      const next = await setOnboardingStatus(input.tenantId, "live");
-      await db
-        .update(tenants)
-        .set({ status: "active", updatedAt: new Date() })
-        .where(eq(tenants.id, input.tenantId));
+      // === W47 merchant === ONB-M-1/M-2: all go-live paths (web activate,
+      // legacy complete, chat copilot) funnel through the single
+      // goLiveTenant gate — validation-passed + approved KYB, audited.
+      const next = await goLiveTenant(input.tenantId, {
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        source: "web-activate",
+      });
+      // === END W47 merchant ===
       return { ok: true, ...next };
     }),
 

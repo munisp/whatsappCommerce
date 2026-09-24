@@ -87,8 +87,11 @@ const waOpsAlertSchema = z.object({
  * waSender. Metering never blocks or fails the send (recordUsage swallows its
  * own errors).
  */
-async function sendWhatsAppTextMetered(
-  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+// === W47 merchant === ONB-M-5/M-8: per-(tenant, buyer) cooldown for the
+// "store not open" auto-reply so a chatty buyer isn't spammed.
+const intakeBlockedReplyCooldown = new Map<string, number>();
+// === END W47 merchant ===
+async function sendWhatsAppTextMetered(  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
   tenantId: string,
   phone: string,
   text: string,
@@ -232,6 +235,36 @@ async function processWaWebhookValue(
           });
           continue;
         }
+        // === W47 merchant (ONB-M-5 / ONB-M-8): lifecycle gate on paid
+        // order intake. Draft/trial/pre-KYB tenants (whatsapp creds pasted
+        // before validation/go-live) must NOT receive commerce traffic, and
+        // a live tenant whose KYB lapsed past the grace window stops taking
+        // new orders. Blocked buyers get ONE honest auto-reply per 24h
+        // (cooldown map) instead of a silent dead-end; the message is not
+        // dispatched. Telegram parity: same gate in telegramInbound's
+        // dispatchToNlp (both via services/onboardingLifecycle). ===
+        if (tenant && !isOnboardingIntake) {
+          try {
+            const { checkOrderIntakeAllowed } = await import("../services/onboardingLifecycle");
+            const intake = await checkOrderIntakeAllowed(db, tenant as any);
+            if (!intake.allowed) {
+              console.warn(`[whatsapp-webhook] intake blocked (tenant=${(tenant as any).id}, reason=${intake.reason}) for ${waPhoneNumber}`);
+              const cooldownKey = `${(tenant as any).id}:${waPhoneNumber}`;
+              const last = intakeBlockedReplyCooldown.get(cooldownKey) ?? 0;
+              if (Date.now() - last > 24 * 3600 * 1000 && intake.buyerMessage) {
+                intakeBlockedReplyCooldown.set(cooldownKey, Date.now());
+                await sendWhatsAppText((tenant as any).id, waPhoneNumber, intake.buyerMessage, { notifType: "store_not_open" })
+                  .catch((e: any) => console.warn("[whatsapp-webhook] store-not-open reply failed:", e?.message));
+              }
+              continue;
+            }
+          } catch (e: any) {
+            // Gate lookup errors fail OPEN (logged) — a transient db error
+            // must not halt all commerce for a healthy tenant.
+            console.error("[whatsapp-webhook] intake gate error — processing anyway:", e?.message);
+          }
+        }
+        // === END W47 merchant ===
         // === W45 webhook-core (MSG-3 / TEN-21): unknown phone_number_id →
         // quarantine. NEVER dispatch under the shared "default" tenant in
         // production (cross-tenant contamination); outside production the
@@ -375,6 +408,37 @@ async function processWaWebhookValue(
         } catch (e: any) {
           console.error("[whatsapp-webhook] human_active check failed — processing normally:", e?.message);
         }
+        // === W47 buyer (ONB-B-3): hoisted NDPR first-contact consent gate ==
+        // The gate used to live only on the TEXT path — buttons, media
+        // (mirror + AI-scan), CTWA keyword claims and location all processed
+        // first contacts with no consent row. Prompt once regardless of
+        // message type, BEFORE any type-specific branch (system number-port
+        // messages carry no user content and are exempt). TG already gates
+        // callbacks/voice/location — this restores WA/TG parity.
+        if (msg.type !== "system") {
+          try {
+            const { waFirstContactConsentGate } = await import("../services/useCases");
+            const gateOutcome = await waFirstContactConsentGate({
+              db,
+              tenant: tenant ?? null,
+              tenantId,
+              phone: waPhoneNumber,
+              text: msg.type === "text" ? msg.text?.body ?? "" : undefined,
+              wamid: msg.id,
+              customerName: contactName || undefined,
+            });
+            if (gateOutcome?.handled) {
+              if (gateOutcome.reply) {
+                await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, gateOutcome.reply, { notifType: "consent_gate" })
+                  .catch((e: any) => console.error("[whatsapp-webhook] consent gate reply send error:", e?.message));
+              }
+              continue;
+            }
+          } catch (e: any) {
+            console.error("[whatsapp-webhook] first-contact consent gate error — processing normally:", e?.message);
+          }
+        }
+        // === END W47 buyer ===
         // ── WA messaging ops: contact auto-provisioning + 24h session window ──
         // Upsert the customer from Meta's contacts[] payload (profile name
         // fills only an empty name) and stamp the inbound window. Text
@@ -827,6 +891,9 @@ async function processWaWebhookValue(
               phone: waPhoneNumber,
               text: textBody,
               customerName: contactName || undefined,
+              // W47 buyer (ONB-B-5) + crosscutting (ONB-TOCTOU-1): pass the inbound wamid so
+              // consent grants carry their evidence id (TEN-16 trail).
+              wamid: typeof msg?.id === "string" ? msg.id : undefined,
             });
             if (menuOutcome.handled) {
               handledByMenu = true;
@@ -867,6 +934,8 @@ async function processWaWebhookValue(
                 waPhoneNumber,
                 message: textBody,
                 customerName: contactName || undefined,
+                // W47 (ONB-TOCTOU-2): evidence id for consent/age artifacts.
+                wamid: typeof msg?.id === "string" ? msg.id : undefined,
               });
               if (nlpResult?.reply && nlpResult.intent !== "ussd_menu") {
                 await sendWhatsAppTextMetered(db, tenantId, waPhoneNumber, nlpResult.reply)
@@ -1919,6 +1988,27 @@ async function startServer() {
     }
   });
   // === END W46 privacy-consent ===
+
+  // === W47 merchant (ONB-M-18) ===
+  // ── Scheduled: abandoned-onboarding sweep (daily) ──────────────────────
+  // Nudges the tenant admin at 7d, churns half-onboarded trial tenants with
+  // no orders at 45d. Idempotent via the onboarding_reengagement_log ledger.
+  // After deploy: manus-heartbeat create --name onboarding-abandoned-sweep --cron "0 0 8 * * *" --path /api/scheduled/onboarding-abandoned-sweep
+  app.post("/api/scheduled/onboarding-abandoned-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { sweepAbandonedOnboardingTenants } = await import("../services/onboardingLifecycle");
+      const run = await sweepAbandonedOnboardingTenants(db);
+      return res.json({ ok: true, run });
+    } catch (e: any) {
+      console.error("[onboarding-abandoned-sweep] cron failed:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "onboarding-abandoned-sweep failed" });
+    }
+  });
+  // === END W47 merchant ===
 
   // ── Scheduled: inventory sync (Heartbeat cron, fires every 5 min) ──────────
   app.post("/api/scheduled/inventory-sync", async (req, res) => {
@@ -5359,6 +5449,25 @@ async function startServer() {
       return res.status(500).json({ error: String(err?.message) });
     }
   });
+
+  // === W47 crosscutting (ONB-SM-3): orphan-tenant sweep (cron-only) =======
+  // Trial tenants with no membership and no onboarding session older than
+  // ONB_ORPHAN_SWEEP_DAYS (default 7) are marked churned + audited.
+  app.post("/api/cron/orphan-tenant-sweep", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron) return res.status(403).json({ error: "cron-only" });
+      const days = Number.parseInt(process.env.ONB_ORPHAN_SWEEP_DAYS ?? "", 10) || 7;
+      const { sweepOrphanedTrialTenants } = await import("../services/onboarding");
+      const swept = await sweepOrphanedTrialTenants(days);
+      console.log(`[orphan-tenant-sweep] swept ${swept.length} orphaned trial tenant(s)`);
+      return res.status(200).json({ ok: true, swept: swept.length, tenantIds: swept });
+    } catch (err: any) {
+      console.error("[orphan-tenant-sweep]", err);
+      return res.status(500).json({ error: String(err?.message) });
+    }
+  });
+  // === END W47 crosscutting ===
 
   // ── Internal: settlement recon feed (recon-worker / bank feeds) ───────────
   // HMAC-SHA256 over the raw body (X-Recon-Signature: sha256=<hex>), secret

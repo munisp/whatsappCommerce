@@ -7,69 +7,69 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348011341629",
-      "wamid": "wamid.sim.000769",
+      "phone": "2348018779173",
+      "wamid": "wamid.sim.000779",
       "statuses": [
         "sent"
       ],
-      "at": 1789707996069,
+      "at": 1789791004823,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304-54DA (reason: wrong size). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304-715D (reason: wrong size). The merchant will review it shortly."
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000770",
+      "wamid": "wamid.sim.000780",
       "statuses": [
         "sent"
       ],
-      "at": 1789707996072,
+      "at": 1789791004825,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304-54DA (reason: wrong size). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304-715D (reason: wrong size). The merchant will review it shortly."
     },
     {
       "dir": "out",
-      "phone": "2348011341629",
-      "wamid": "wamid.sim.000771",
+      "phone": "2348018779173",
+      "wamid": "wamid.sim.000781",
       "statuses": [
         "sent"
       ],
-      "at": 1789707996126,
+      "at": 1789791004928,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304b-FEB3 (reason: damaged). The merchant will review it shortly."
-    },
-    {
-      "dir": "out",
-      "phone": "2348099900000",
-      "wamid": "wamid.sim.000772",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789707996129,
-      "kind": "text",
-      "body": "📦 Return requested for order W41-j304b-FEB3 (reason: damaged). The merchant will review it shortly."
-    },
-    {
-      "dir": "out",
-      "phone": "2348011341629",
-      "wamid": "wamid.sim.000773",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789707996166,
-      "kind": "text",
-      "body": "📦 Return requested for order W41-j304c-72DE (reason: late delivery). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304b-0467 (reason: damaged). The merchant will review it shortly."
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000774",
+      "wamid": "wamid.sim.000782",
       "statuses": [
         "sent"
       ],
-      "at": 1789707996170,
+      "at": 1789791004932,
       "kind": "text",
-      "body": "📦 Return requested for order W41-j304c-72DE (reason: late delivery). The merchant will review it shortly."
+      "body": "📦 Return requested for order W41-j304b-0467 (reason: damaged). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348018779173",
+      "wamid": "wamid.sim.000783",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791005006,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304c-E377 (reason: late delivery). The merchant will review it shortly."
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000784",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1789791005007,
+      "kind": "text",
+      "body": "📦 Return requested for order W41-j304c-E377 (reason: late delivery). The merchant will review it shortly."
     }
   ]
 }

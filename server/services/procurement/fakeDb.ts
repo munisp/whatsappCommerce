@@ -12,6 +12,7 @@ import {
   products,
   purchaseOrders,
   supplierProfiles,
+  tenantMemberships,
   tenants,
   wholesalePriceTiers,
 } from "../../../drizzle/schema";
@@ -131,6 +132,7 @@ const TABLES: Record<string, unknown> = {
   kyc_applications: kycApplications,
   products,
   wholesale_price_tiers: wholesalePriceTiers,
+  tenant_memberships: tenantMemberships,
 };
 
 function tableName(table: unknown): string {
@@ -176,7 +178,10 @@ export function makeFakeDb(seed?: Partial<FakeStore>) {
     products: "products",
     wholesale_price_tiers: "wholesaleTiers",
   };
-  const rowsOf = (t: string): any[] => store[STORE_KEY[t]] as any[];
+  // W47 MERGER: assertMoneyAccess now probes tenant_memberships
+  // (hasAnyMembership) before falling back to the legacy users.tenantId
+  // shortcut these tests exercise — always empty, no store entry needed.
+  const rowsOf = (t: string): any[] => (t === "tenant_memberships" ? [] : store[STORE_KEY[t]] as any[]);
 
   function runSelect(t: string, fields: Record<string, unknown> | undefined, cond: unknown, orderExprs: unknown[], limitN?: number): any[] {
     let rows = filterRows(rowsOf(t), t, cond);

@@ -23,6 +23,17 @@ export const journey: Journey = {
     const tenantA = (await admin.onboarding.start({ name: "Invite Store A" })).tenantId;
     const tenantB = (await admin.onboarding.start({ name: "Invite Store B" })).tenantId;
 
+    // === W47 stakeholders === ONB-S-4: invites are phone-bound — seed the
+    // tenants' admin phones and redeem with phone-identity proofs.
+    const schema = await import("../../drizzle/schema");
+    const { eq } = await import("drizzle-orm");
+    const phoneA = "+2348050000054", phoneB = "+2348050000154";
+    await world.db.update(schema.tenants).set({ settings: { adminPhone: phoneA } }).where(eq(schema.tenants.id, tenantA));
+    await world.db.update(schema.tenants).set({ settings: { adminPhone: phoneB } }).where(eq(schema.tenants.id, tenantB));
+    const proofFor = (phone: string) =>
+      jwt.sign({ type: "phone_identity", phone }, JWT_SECRET_VALUE, { expiresIn: "15m" });
+    // === END W47 stakeholders ===
+
     // ── Non-admin mint attempts: own tenant AND cross-tenant → 403 ────────
     const tenantAUser = await tenantCaller(tenantA);
     await expectTrpcError(
@@ -53,7 +64,7 @@ export const journey: Journey = {
 
     // ── Magic link validates into a session for the invited tenant ONLY ────
     const pub = await publicCaller();
-    const session = await pub.tenantInvite.validate({ token: inviteB.token });
+    const session = await pub.tenantInvite.validate({ token: inviteB.token, identityProof: proofFor(phoneB) });
     assert(session.valid === true, "magic link validates");
     const sessionPayload = jwt.verify(session.sessionToken!, JWT_SECRET_VALUE) as any;
     assert(sessionPayload.type === "portal_session", "session token type is portal_session");
@@ -63,7 +74,7 @@ export const journey: Journey = {
 
     // An invite for tenant A yields an A-scoped session — never B.
     const inviteA = await admin.tenantInvite.create({ tenantId: tenantA, expiryHours: 24 });
-    const sessionA = await pub.tenantInvite.validate({ token: inviteA.token });
+    const sessionA = await pub.tenantInvite.validate({ token: inviteA.token, identityProof: proofFor(phoneA) });
     assert(sessionA.valid === true, "tenant-A invite validates");
     const payloadA = jwt.verify(sessionA.sessionToken!, JWT_SECRET_VALUE) as any;
     assert(payloadA.tenantId === tenantA, "tenant-A session scoped to A");

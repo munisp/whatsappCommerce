@@ -1,3 +1,17 @@
+// === W47 merchant ===
+/**
+ * ONB-M-3: this wizard was previously fake end-to-end (toast-only WhatsApp
+ * "verification", toast-only products/zones, hardcoded checklist, toast-only
+ * go-live). Every step now persists through the real APIs:
+ *   WhatsApp  → onboarding.updateStep { step: "whatsapp" } (conflict-checked)
+ *   Products  → product.create (per product, honest partial-failure surface)
+ *   Zones     → tenantConfig.getCommerceConfig / setCommerceConfig
+ *   SLA       → sla.updateConfig (already real)
+ *   Go Live   → onboarding.validate THEN onboarding.activate (KYB + validation
+ *               enforced server-side); failures surface the server's message.
+ * The review checklist is derived from onboarding.getStatus — nothing is
+ * hardcoded "done".
+ */
 import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
 import { trpc } from "@/lib/trpc";
@@ -9,7 +23,6 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import {
   CheckCircle2,
-  Circle,
   MessageSquare,
   Package,
   MapPin,
@@ -21,6 +34,7 @@ import {
   Plus,
   Trash2,
   AlertCircle,
+  XCircle,
 } from "lucide-react";
 import { Save, RefreshCw } from "lucide-react";
 
@@ -33,28 +47,37 @@ const STEPS = [
   { id: "review", label: "Go Live", icon: Rocket, description: "Review and launch" },
 ];
 
-// ─── Step 1: WhatsApp Setup ───────────────────────────────────────────────────
-function WhatsAppStep({ onNext }: { onNext: () => void }) {
-  const [phone, setPhone] = useState("");
-  const [verifyCode, setVerifyCode] = useState("");
-  const [codeSent, setCodeSent] = useState(false);
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e ?? "Unknown error");
+}
 
-  const handleSendCode = () => {
-    if (!phone.match(/^\+?[0-9]{10,15}$/)) {
-      toast.error("Invalid phone number — enter a valid WhatsApp business number");
+// ─── Step 1: WhatsApp Setup (REAL: onboarding.updateStep whatsapp) ───────────
+function WhatsAppStep({ tenantId, onNext }: { tenantId: string; onNext: () => void }) {
+  const [phoneNumberId, setPhoneNumberId] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [wabaId, setWabaId] = useState("");
+  const updateStep = trpc.onboarding.updateStep.useMutation();
+
+  const handleSave = async () => {
+    if (!phoneNumberId.trim() || !accessToken.trim()) {
+      toast.error("Enter both the Phone Number ID and the Access Token from your Meta Business Manager.");
       return;
     }
-    setCodeSent(true);
-    toast.success(`Verification code sent to ${phone}`);
-  };
-
-  const handleVerify = () => {
-    if (verifyCode.length < 4) {
-      toast.error("Enter the verification code");
-      return;
+    try {
+      await updateStep.mutateAsync({
+        tenantId,
+        step: "whatsapp",
+        data: {
+          phoneNumberId: phoneNumberId.trim(),
+          accessToken: accessToken.trim(),
+          ...(wabaId.trim() ? { wabaId: wabaId.trim() } : {}),
+        },
+      });
+      toast.success("WhatsApp credentials saved — they will be verified live when you go live.");
+      onNext();
+    } catch (e) {
+      toast.error(errMsg(e));
     }
-    toast.success("WhatsApp connected! Your business number is now active.");
-    onNext();
   };
 
   return (
@@ -62,52 +85,57 @@ function WhatsAppStep({ onNext }: { onNext: () => void }) {
       <div>
         <h2 className="text-xl font-semibold mb-1">Connect your WhatsApp Business number</h2>
         <p className="text-sm text-muted-foreground">
-          Customers will send orders to this number. You need a WhatsApp Business API account.
+          Customers will send orders to this number. You need a WhatsApp Business API (Cloud API) account.
         </p>
       </div>
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3">
         <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
         <div className="text-sm text-amber-800">
-          <p className="font-medium">Before you start</p>
-          <p>Make sure your number is registered on the WhatsApp Business API (Meta Business Manager). Personal WhatsApp numbers are not supported.</p>
+          <p className="font-medium">Where to find these</p>
+          <p>
+            Meta Business Manager → WhatsApp → API Setup: copy the <b>Phone number ID</b> and a permanent
+            <b> access token</b>. Credentials are encrypted at rest and verified live against the Meta Graph API
+            during the go-live check — nothing is "connected" until that check passes.
+          </p>
         </div>
       </div>
       <div className="space-y-4">
         <div>
-          <label className="text-sm font-medium mb-1.5 block">WhatsApp Business Phone Number</label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="+234 800 000 0000"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                disabled={codeSent}
-              />
-            </div>
-            <Button onClick={handleSendCode} disabled={codeSent || !phone} variant="outline">
-              {codeSent ? "Code Sent" : "Send Code"}
-            </Button>
+          <label className="text-sm font-medium mb-1.5 block">Phone Number ID *</label>
+          <div className="relative">
+            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="e.g. 123456789012345"
+              value={phoneNumberId}
+              onChange={(e) => setPhoneNumberId(e.target.value)}
+            />
           </div>
         </div>
-        {codeSent && (
-          <div>
-            <label className="text-sm font-medium mb-1.5 block">Verification Code</label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="Enter 6-digit code"
-                value={verifyCode}
-                onChange={(e) => setVerifyCode(e.target.value)}
-                maxLength={6}
-                className="max-w-xs"
-              />
-              <Button onClick={handleVerify}>Verify & Continue</Button>
-            </div>
-          </div>
-        )}
+        <div>
+          <label className="text-sm font-medium mb-1.5 block">Access Token *</label>
+          <Input
+            type="password"
+            placeholder="Permanent access token"
+            value={accessToken}
+            onChange={(e) => setAccessToken(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium mb-1.5 block">WhatsApp Business Account ID (optional)</label>
+          <Input
+            placeholder="WABA ID (enables template management)"
+            value={wabaId}
+            onChange={(e) => setWabaId(e.target.value)}
+          />
+        </div>
       </div>
-      {!codeSent && (
+      <div className="flex gap-3">
+        <Button onClick={handleSave} disabled={updateStep.isPending} className="flex-1">
+          {updateStep.isPending ? "Saving…" : <>Save & Continue <ChevronRight className="h-4 w-4 ml-1" /></>}
+        </Button>
+      </div>
+      {!updateStep.isPending && (
         <Button variant="ghost" className="text-sm text-muted-foreground" onClick={onNext}>
           Skip for now — I'll set this up later
         </Button>
@@ -116,22 +144,47 @@ function WhatsAppStep({ onNext }: { onNext: () => void }) {
   );
 }
 
-// ─── Step 2: Products ─────────────────────────────────────────────────────────
-function ProductsStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+// ─── Step 2: Products (REAL: product.create) ──────────────────────────────────
+function ProductsStep({ tenantId, onNext, onBack }: { tenantId: string; onNext: () => void; onBack: () => void }) {
   const [products, setProducts] = useState([{ name: "", price: "", description: "" }]);
+  const [saving, setSaving] = useState(false);
+  const createProduct = trpc.product.create.useMutation();
 
   const addProduct = () => setProducts((p) => [...p, { name: "", price: "", description: "" }]);
   const removeProduct = (i: number) => setProducts((p) => p.filter((_, idx) => idx !== i));
   const updateProduct = (i: number, field: string, value: string) =>
     setProducts((p) => p.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)));
 
-  const handleNext = () => {
+  const handleNext = async () => {
     const valid = products.filter((p) => p.name.trim() && p.price.trim());
     if (valid.length === 0) {
       toast.error("Add at least one product with a name and price to continue.");
       return;
     }
-    toast.success(`${valid.length} product(s) saved. You can add more from the Products page.`);
+    setSaving(true);
+    const failures: string[] = [];
+    let created = 0;
+    for (const p of valid) {
+      try {
+        await createProduct.mutateAsync({
+          tenantId,
+          sku: `ONB-${Date.now().toString(36)}-${created + 1}`,
+          name: p.name.trim(),
+          description: p.description.trim() || undefined,
+          price: String(Number(p.price) || 0),
+          currency: "NGN",
+        });
+        created++;
+      } catch (e) {
+        failures.push(`${p.name.trim()}: ${errMsg(e)}`);
+      }
+    }
+    setSaving(false);
+    if (failures.length) {
+      toast.error(`${failures.length} product(s) failed to save — ${failures[0]}`);
+      if (created === 0) return; // honest dead-end: do NOT advance on total failure
+    }
+    toast.success(`${created} product(s) saved. You can add more from the Products page.`);
     onNext();
   };
 
@@ -190,29 +243,52 @@ function ProductsStep({ onNext, onBack }: { onNext: () => void; onBack: () => vo
       </div>
       <div className="flex gap-3">
         <Button variant="outline" onClick={onBack}><ChevronLeft className="h-4 w-4 mr-1" />Back</Button>
-        <Button onClick={handleNext} className="flex-1">Save Products <ChevronRight className="h-4 w-4 ml-1" /></Button>
+        <Button onClick={handleNext} disabled={saving} className="flex-1">
+          {saving ? "Saving…" : <>Save Products <ChevronRight className="h-4 w-4 ml-1" /></>}
+        </Button>
       </div>
     </div>
   );
 }
 
-// ─── Step 3: Delivery Zones ───────────────────────────────────────────────────
-function DeliveryZonesStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+// ─── Step 3: Delivery Zones (REAL: tenantConfig.setCommerceConfig) ────────────
+function DeliveryZonesStep({ tenantId, onNext, onBack }: { tenantId: string; onNext: () => void; onBack: () => void }) {
   const [zones, setZones] = useState([{ name: "", fee: "", eta: "" }]);
+  const commerceConfig = trpc.tenantConfig.getCommerceConfig.useQuery({ tenantId });
+  const setCommerceConfig = trpc.tenantConfig.setCommerceConfig.useMutation();
 
   const addZone = () => setZones((z) => [...z, { name: "", fee: "", eta: "" }]);
   const removeZone = (i: number) => setZones((z) => z.filter((_, idx) => idx !== i));
   const updateZone = (i: number, field: string, value: string) =>
     setZones((z) => z.map((item, idx) => (idx === i ? { ...item, [field]: value } : item)));
 
-  const handleNext = () => {
+  const handleNext = async () => {
     const valid = zones.filter((z) => z.name.trim());
     if (valid.length === 0) {
       toast.error("Add at least one delivery zone to continue.");
       return;
     }
-    toast.success(`${valid.length} delivery zone(s) saved.`);
-    onNext();
+    try {
+      const existing = commerceConfig.data ?? { currency: "NGN", pickupEnabled: true, deliveryZones: [] };
+      const newZones = valid.map((z) => ({
+        name: z.name.trim(),
+        fee: Number(z.fee) || 0,
+        currency: "NGN",
+        ...(z.eta.trim() ? { estimatedDays: Number(z.eta) || 0 } : {}),
+      }));
+      await setCommerceConfig.mutateAsync({
+        tenantId,
+        config: {
+          currency: existing.currency ?? "NGN",
+          pickupEnabled: existing.pickupEnabled ?? true,
+          deliveryZones: [...(existing.deliveryZones ?? []), ...newZones],
+        },
+      });
+      toast.success(`${newZones.length} delivery zone(s) saved.`);
+      onNext();
+    } catch (e) {
+      toast.error(`Could not save delivery zones: ${errMsg(e)}`);
+    }
   };
 
   return (
@@ -270,13 +346,15 @@ function DeliveryZonesStep({ onNext, onBack }: { onNext: () => void; onBack: () 
       </div>
       <div className="flex gap-3">
         <Button variant="outline" onClick={onBack}><ChevronLeft className="h-4 w-4 mr-1" />Back</Button>
-        <Button onClick={handleNext} className="flex-1">Save Zones <ChevronRight className="h-4 w-4 ml-1" /></Button>
+        <Button onClick={handleNext} disabled={setCommerceConfig.isPending} className="flex-1">
+          {setCommerceConfig.isPending ? "Saving…" : <>Save Zones <ChevronRight className="h-4 w-4 ml-1" /></>}
+        </Button>
       </div>
     </div>
   );
 }
 
-// ─── Step 4: SLA Config ───────────────────────────────────────────────────────
+// ─── Step 4: SLA Config (already real: sla.updateConfig) ──────────────────────
 function SlaConfigStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const [releaseHours, setReleaseHours] = useState(72);
   const [warningHours, setWarningHours] = useState(24);
@@ -288,8 +366,8 @@ function SlaConfigStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
       await updateSla.mutateAsync({ releaseDeadlineHours: releaseHours, warningHours, autoReleaseEnabled: autoRelease });
       toast.success(`SLA configured — escrow will auto-release after ${releaseHours}h.`);
       onNext();
-    } catch {
-      toast.info("Using default SLA settings. You can update this later in the Escrow Dashboard.");
+    } catch (e) {
+      toast.error(`Could not save SLA settings: ${errMsg(e)}. You can update this later in the Escrow Dashboard.`);
       onNext();
     }
   };
@@ -357,18 +435,45 @@ function SlaConfigStep({ onNext, onBack }: { onNext: () => void; onBack: () => v
   );
 }
 
-// ─── Step 5: Review & Go Live ─────────────────────────────────────────────────
-function ReviewStep({ onComplete, onBack }: { onComplete: () => void; onBack: () => void }) {
+// ─── Step 5: Review & Go Live (REAL: getStatus checklist + validate + activate)
+function ReviewStep({ tenantId, onComplete, onBack }: { tenantId: string; onComplete: () => void; onBack: () => void }) {
+  const status = trpc.onboarding.getStatus.useQuery({ tenantId }, { enabled: !!tenantId });
+  const validate = trpc.onboarding.validate.useMutation();
+  const activate = trpc.onboarding.activate.useMutation();
+  const [busy, setBusy] = useState(false);
+
+  const s = status.data;
   const checklistItems = [
-    { label: "WhatsApp Business number configured", done: true },
-    { label: "First products added to catalogue", done: true },
-    { label: "Delivery zones set", done: true },
-    { label: "Escrow SLA deadline configured", done: true },
+    { label: "WhatsApp Business number configured", done: !!s?.whatsappConfigured },
+    { label: "Payout bank details captured", done: !!s?.payoutConfigured },
+    { label: "Live connection validation passed", done: !!s?.validationPassed },
+    { label: "Business verification (KYB) approved", done: s?.tenantStatus === "active" || s?.status === "live" },
   ];
 
-  const handleGoLive = () => {
-    toast.success("You're live! Your WhatsApp Commerce store is now active.");
-    onComplete();
+  const handleGoLive = async () => {
+    if (!tenantId) {
+      toast.error("No business is linked to this account yet.");
+      return;
+    }
+    setBusy(true);
+    try {
+      // Honest two-phase go-live: run the LIVE validation first, then the
+      // gated activate (KYB enforced server-side). Failures surface the
+      // server's real reason — no toast-only success.
+      const report = await validate.mutateAsync({ tenantId });
+      if (!report.passed) {
+        toast.error(`Validation failed: ${(report as any).reasons?.join("; ") || "connection checks failed"}. Fix the issues and try again.`);
+        return;
+      }
+      await activate.mutateAsync({ tenantId });
+      toast.success("You're live! Customers can now place orders on your WhatsApp number.");
+      onComplete();
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setBusy(false);
+      status.refetch();
+    }
   };
 
   return (
@@ -376,30 +481,36 @@ function ReviewStep({ onComplete, onBack }: { onComplete: () => void; onBack: ()
       <div>
         <h2 className="text-xl font-semibold mb-1">You're ready to go live!</h2>
         <p className="text-sm text-muted-foreground">
-          Review your setup below. You can always update these settings from your portal dashboard.
+          Review your setup below. Go-live runs a live connection check and requires approved business verification (KYB).
         </p>
       </div>
       <div className="border rounded-lg divide-y">
         {checklistItems.map((item, i) => (
           <div key={i} className="flex items-center gap-3 p-3">
-            <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+            {item.done ? (
+              <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+            ) : (
+              <XCircle className="h-5 w-5 text-muted-foreground shrink-0" />
+            )}
             <span className="text-sm">{item.label}</span>
-            <Badge variant="secondary" className="ml-auto text-xs">Done</Badge>
+            <Badge variant={item.done ? "secondary" : "outline"} className="ml-auto text-xs">
+              {item.done ? "Done" : "Pending"}
+            </Badge>
           </div>
         ))}
       </div>
       <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800">
-        <p className="font-medium">What happens next?</p>
+        <p className="font-medium">What happens when you go live?</p>
         <ul className="mt-1 space-y-1 list-disc list-inside text-green-700">
-          <li>Customers can start placing orders via your WhatsApp number</li>
-          <li>Payments are held in escrow until delivery is confirmed</li>
-          <li>You'll receive real-time notifications for every order and payment event</li>
+          <li>We verify your WhatsApp credentials live against the Meta Graph API</li>
+          <li>Your approved KYB status is confirmed (a legal go-live requirement)</li>
+          <li>Only then does your store open for customer orders — payments are held in escrow until delivery</li>
         </ul>
       </div>
       <div className="flex gap-3">
         <Button variant="outline" onClick={onBack}><ChevronLeft className="h-4 w-4 mr-1" />Back</Button>
-        <Button onClick={handleGoLive} className="flex-1 bg-green-600 hover:bg-green-700">
-          <Rocket className="h-4 w-4 mr-2" /> Go Live Now
+        <Button onClick={handleGoLive} disabled={busy} className="flex-1 bg-green-600 hover:bg-green-700">
+          <Rocket className="h-4 w-4 mr-2" /> {busy ? "Checking…" : "Go Live Now"}
         </Button>
       </div>
     </div>
@@ -412,8 +523,9 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
 
-  // Load saved progress on mount
+  // Load saved progress on mount (tenantId comes from the session server-side)
   const { data: savedProgress } = trpc.onboardingProgress.getProgress.useQuery();
+  const tenantId = savedProgress?.tenantId ?? "";
 
   // Restore progress when data loads
   useEffect(() => {
@@ -504,9 +616,6 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
                 <span className={`text-xs font-medium hidden sm:block ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
                   {step.label}
                 </span>
-                {i < STEPS.length - 1 && (
-                  <div className={`absolute hidden`} />
-                )}
               </div>
             );
           })}
@@ -514,11 +623,19 @@ export default function OnboardingWizard({ onComplete }: { onComplete?: () => vo
 
         {/* Step content */}
         <div className="bg-background border rounded-xl p-6 shadow-sm">
-          {currentStep === 0 && <WhatsAppStep onNext={goNext} />}
-          {currentStep === 1 && <ProductsStep onNext={goNext} onBack={goBack} />}
-          {currentStep === 2 && <DeliveryZonesStep onNext={goNext} onBack={goBack} />}
-          {currentStep === 3 && <SlaConfigStep onNext={goNext} onBack={goBack} />}
-          {currentStep === 4 && <ReviewStep onComplete={handleComplete} onBack={goBack} />}
+          {!tenantId && savedProgress === undefined ? (
+            <p className="text-sm text-muted-foreground">Loading your business…</p>
+          ) : !tenantId ? (
+            <p className="text-sm text-muted-foreground">No business is linked to this account yet — create one first.</p>
+          ) : (
+            <>
+              {currentStep === 0 && <WhatsAppStep tenantId={tenantId} onNext={goNext} />}
+              {currentStep === 1 && <ProductsStep tenantId={tenantId} onNext={goNext} onBack={goBack} />}
+              {currentStep === 2 && <DeliveryZonesStep tenantId={tenantId} onNext={goNext} onBack={goBack} />}
+              {currentStep === 3 && <SlaConfigStep onNext={goNext} onBack={goBack} />}
+              {currentStep === 4 && <ReviewStep tenantId={tenantId} onComplete={handleComplete} onBack={goBack} />}
+            </>
+          )}
         </div>
 
         {/* Save and Continue Later */}

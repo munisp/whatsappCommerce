@@ -110,6 +110,27 @@ export interface CopilotTextPack {
   summaryIntegrationsRevised: string;
   /** Confirmation after an explicit language switch ({language}). */
   languageSwitched: string;
+  // === W47 crosscutting (ONB-I18N-1): WhatsApp intake-channel system
+  // messages — previously hardcoded English-only in waOnboarding.ts. ===
+  /** Fail-safe reply when processing throws. */
+  failsafe: string;
+  /** Prompt to describe edits after tapping "Edit". */
+  editPrompt: string;
+  /** Stale/malformed button reply. */
+  malformedAction: string;
+  /** Voice note could not be transcribed. */
+  voiceUnavailable: string;
+  /** Unsupported message type (not text/audio). */
+  unsupported: string;
+  /** Terminal "live" follow-up ({appUrl}) — points at the phone-bound
+   *  invite login, never a bare portal the merchant can't log into. */
+  terminalLive: string;
+  /** Terminal "failed" follow-up. */
+  terminalFailed: string;
+  /** The auto-minted owner invite link after go-live ({link}). */
+  liveOwnerInvite: string;
+  /** ONB-ABU-1: per-phone intake throttle tripped. */
+  throttled: string;
 }
 
 const en: CopilotTextPack = {
@@ -187,6 +208,26 @@ const en: CopilotTextPack = {
   summaryUseCasesRevised: "Suggested use cases (revised): {list}",
   summaryIntegrationsRevised: "Suggested integrations (revised): {list}",
   languageSwitched: "No problem — I'll continue in {language}.",
+  // === W47 crosscutting (ONB-I18N-1) ===
+  failsafe: "Something went wrong on my end — sorry about that. Type *restart* to try again. 🙏",
+  editPrompt: "Sure — reply with your changes in one message and I'll rework the proposal.",
+  malformedAction:
+    "Sorry, that button didn't work (it may have expired). Tell me what you'd like to do, or type *restart* to begin again.",
+  voiceUnavailable: "I couldn't process that voice note — could you type it out instead? ✍️",
+  unsupported: "I can only read text and voice notes for now — tell me about your business in words. 🙂",
+  terminalLive:
+    "🎉 Congratulations — your store is live!\n\n" +
+    "Next steps:\n" +
+    "1. Connect your own WhatsApp number via embedded signup: {appUrl}/settings/whatsapp\n" +
+    "2. We've sent you a secure login link for your admin portal — it works only with a " +
+    "verification code sent to THIS phone, so keep this number active.\n\n" +
+    "Welcome aboard! 🚀",
+  terminalFailed:
+    "I'm sorry — the setup hit a problem and couldn't complete. The details above explain what went wrong.\n\n" +
+    "Type *restart* and we'll try again together. 🙏",
+  liveOwnerInvite:
+    "🔐 Your secure portal login link (valid 24 hours, opens only after a code sent to this phone): {link}",
+  throttled: "You're messaging faster than I can keep up — please wait a little and try again. 🙏",
 };
 
 const fr: CopilotTextPack = {
@@ -263,6 +304,26 @@ const fr: CopilotTextPack = {
   summaryUseCasesRevised: "Cas d'usage suggérés (révisés) : {list}",
   summaryIntegrationsRevised: "Intégrations suggérées (révisées) : {list}",
   languageSwitched: "Pas de problème — je continue en {language}.",
+  // === W47 crosscutting (ONB-I18N-1) ===
+  failsafe: "Une erreur s'est produite de mon côté — désolé. Tapez *restart* pour réessayer. 🙏",
+  editPrompt: "Bien sûr — répondez avec vos modifications en un message et je retravaillerai la proposition.",
+  malformedAction:
+    "Désolé, ce bouton n'a pas fonctionné (il a peut-être expiré). Dites-moi ce que vous souhaitez faire, ou tapez *restart* pour recommencer.",
+  voiceUnavailable: "Je n'ai pas pu traiter cette note vocale — pouvez-vous l'écrire en texte ? ✍️",
+  unsupported: "Je ne peux lire que du texte et des notes vocales pour l'instant — décrivez votre commerce en mots. 🙂",
+  terminalLive:
+    "🎉 Félicitations — votre boutique est en ligne !\n\n" +
+    "Prochaines étapes :\n" +
+    "1. Connectez votre propre numéro WhatsApp via l'inscription intégrée : {appUrl}/settings/whatsapp\n" +
+    "2. Nous vous avons envoyé un lien de connexion sécurisé vers votre portail — il ne fonctionne " +
+    "qu'avec un code de vérification envoyé à CE numéro, gardez-le actif.\n\n" +
+    "Bienvenue ! 🚀",
+  terminalFailed:
+    "Je suis désolé — la configuration a rencontré un problème. Les détails ci-dessus expliquent ce qui s'est passé.\n\n" +
+    "Tapez *restart* et nous réessaierons ensemble. 🙏",
+  liveOwnerInvite:
+    "🔐 Votre lien de connexion sécurisé au portail (valide 24 h, ne s'ouvre qu'après un code envoyé à ce numéro) : {link}",
+  throttled: "Vous envoyez des messages plus vite que je ne peux suivre — patientez un peu puis réessayez. 🙏",
 };
 
 const ha: CopilotTextPack = {
@@ -339,6 +400,26 @@ const ha: CopilotTextPack = {
   summaryUseCasesRevised: "Amfanoni da aka ba da shawara (gyararre): {list}",
   summaryIntegrationsRevised: "Haɗin kayan aiki da aka ba da shawara (gyararre): {list}",
   languageSwitched: "Ba wata matsala — zan ci gaba da {language}.",
+  // === W47 crosscutting (ONB-I18N-1) ===
+  failsafe: "Wata matsala ta faru a gare ni — yi hakuri. Rubuta *restart* don sake gwadawa. 🙏",
+  editPrompt: "Madalla — aiko da canje-canjenka a saƙo ɗaya, zan sake fasalta shawarar.",
+  malformedAction:
+    "Yi hakuri, wannan maɓallin bai yi aiki ba (wataƙila ya ƙare). Faɗa min abin da kake son yi, ko rubuta *restart* don farawa sake.",
+  voiceUnavailable: "Ban iya sarrafa wannan saƙon murya ba — za ka iya rubuta shi? ✍️",
+  unsupported: "A yanzu ina iya karanta saƙon rubutu da murya kawai — faɗa min game da kasuwancinka da kalmomi. 🙂",
+  terminalLive:
+    "🎉 Taya murna — shagönanka yana aiki yanzu!\n\n" +
+    "Matakai na gaba:\n" +
+    "1. Haɗa lambar WhatsApp ta ka ta hanyar embedded signup: {appUrl}/settings/whatsapp\n" +
+    "2. Mun aiko maka da hanyar shiga ta sirri zuwa portal — tana aiki ne kawai da lambar " +
+    "tabbatarwa da za a aika zuwa WANNAN lambar, don ka riƙe ta.\n\n" +
+    "Barka da zuwa! 🚀",
+  terminalFailed:
+    "Yi hakuri — shirin ya ƙarye kuma bai cika ba. Cikakkun bayanai a sama sun bayyana matsalar.\n\n" +
+    "Rubuta *restart* za mu sake gwadawa tare. 🙏",
+  liveOwnerInvite:
+    "🔐 Hanyar shiga ta sirri zuwa portal (tana aiki awa 24, tana buɗewa ne kawai bayan lambar da aka aika zuwa wannan lambar): {link}",
+  throttled: "Kana aika saƙwanni cikin sauri fiye da yadda zan iya bin duka — ka jira kaɗan sannan ka sake gwadawa. 🙏",
 };
 
 const yo: CopilotTextPack = {
@@ -415,6 +496,26 @@ const yo: CopilotTextPack = {
   summaryUseCasesRevised: "Àwọn lílò tí a dámọ̀ọ́nìí (àtúnṣe): {list}",
   summaryIntegrationsRevised: "Àwọn ìsopọ̀ tí a dámọ̀ọ́nìí (àtúnṣe): {list}",
   languageSwitched: "Kò sí wàhálà — màá tẹ̀síwájú ní {language}.",
+  // === W47 crosscutting (ONB-I18N-1) ===
+  failsafe: "Nǹkan kan ṣẹ̀ṣẹ̀ lọ́wọ́ mi — má bínú. Tẹ *restart* láti gbìyànjú lẹ́ẹ̀kansi. 🙏",
+  editPrompt: "Ó dára — fi àwọn àyípadà rẹ ránṣẹ́ nínú ìfiránṣẹ́ kan ṣoṣo, màá tún ìdábò náà ṣe.",
+  malformedAction:
+    "Má bínú, bọ́tìnnì yẹn kò ṣiṣẹ́ (ó lè ti parí). Sọ ohun tí o fẹ́ ṣe fún mi, tàbí tẹ *restart* láti bẹ̀rẹ̀ lẹ́ẹ̀kansi.",
+  voiceUnavailable: "Mi ò lè ṣe àtúnwò sí nọ́ńta ohun yẹn — ṣé o lè kọ ọ́ sílẹ̀? ✍️",
+  unsupported: "Ọ̀rọ̀ kíkọ àti nọ́ńta ohun nìkan ni m lè kà fún ìsìnyí — sọ nípa iṣẹ́ òwò rẹ ní ọ̀rọ̀. 🙂",
+  terminalLive:
+    "🎉 Ẹ ku àyọ — ìtajá yín ti bẹ̀rẹ̀ iṣẹ́!\n\n" +
+    "Àwọn ìgbésẹ̀ tókàn:\n" +
+    "1. So nọ́ńbà WhatsApp tirẹ pọ̀ nípasẹ ìforúkọsílẹ̀ inú-èlò: {appUrl}/settings/whatsapp\n" +
+    "2. A ti fi ọ̀na asopọ̀ ìwọlé ààbò ránṣẹ́ sí ẹ fún pótà àkóso — ó ṣiṣẹ́ pẹ̀lú kóòdù ìjẹ́rìíṣí " +
+    "tí a ó fi ránṣẹ́ sí NǑ́ǸBÀ yìí nìkan, jẹ́ kí nọ́ńbà náà wà láàyè.\n\n" +
+    "Ẹ kú àbọ̀! 🚀",
+  terminalFailed:
+    "Má bínú — ìṣètò lọ sí ìdíwọ́ tí kò lè parí. Àlàyé ló ṣàlàyé ohun tó ṣẹ̀.\n\n" +
+    "Tẹ *restart* ká gbìyànjú papọ̀ lẹ́ẹ̀kansi. 🙏",
+  liveOwnerInvite:
+    "🔐 Ọ̀na asopọ̀ ìwọlé pótà ààbò yín (ó pé fún wákàtí 24, ó máa ṣí lẹ́yìn kóòdù tí a fi ránṣẹ́ sí nọ́ńbà yìí): {link}",
+  throttled: "Ẹ ń fi ìfiránṣẹ́ ránṣẹ́ jù bí mo ṣe lè tẹ̀le — dúró díẹ̀ kí ẹ sì gbìyànjú lẹ́ẹ̀kansi. 🙏",
 };
 
 const ig: CopilotTextPack = {
@@ -491,6 +592,26 @@ const ig: CopilotTextPack = {
   summaryUseCasesRevised: "Ojiji a tụrụ aro (edoziri): {list}",
   summaryIntegrationsRevised: "Njikọ a tụrụ aro (edoziri): {list}",
   languageSwitched: "Ọ dị mma — m aga n'ihu na {language}.",
+  // === W47 crosscutting (ONB-I18N-1) ===
+  failsafe: "Ihe ọzọ mere n'akụkụ m — ndo. Dee *restart* iji nwaa ọzọ. 🙏",
+  editPrompt: "Ọ dị mma — ziga mgbanwe gị n'otu ozi, m ga-arụgharị atụmatụ ahụ ọzọ.",
+  malformedAction:
+    "Ndo, bọtịnụ ahụ adịghị arụ ọrụ (ọ nwere ike ịgụla). Gwara m ihe ị chọrọ ime, ma ọ bụ dee *restart* iji malite ọzọ.",
+  voiceUnavailable: "Enweghị m ike ịgụ nke ozi olu ahụ — ị nwere ike ide ya? ✍️",
+  unsupported: "Ugbu a m na-agụ naanị ederede na ozi olu — gwaa m banyere azụmahịa gị n'okwu. 🙂",
+  terminalLive:
+    "🎉 Ekele — ụlọ ahịa gị arụla ọrụ!\n\n" +
+    "Ihe ọzọ ị ga-eme:\n" +
+    "1. Jikọọ nọmba WhatsApp gị site na ndebanye aha etinyere: {appUrl}/settings/whatsapp\n" +
+    "2. Anyị ezigola gị njikọ nbanye echekwara maka portal gị — ọ na-arụ ọrụ naanị site na koodu " +
+    "nyocha a ga-eziga na nọmba a, debe ya.\n\n" +
+    "Nnọọ! 🚀",
+  terminalFailed:
+    "Ndo — nhazi ahụ zutere nsogbu ma agaghị emechara. Nkọwa dị n'elu kọwara ihe mere.\n\n" +
+    "Dee *restart* ka anyị nwaa ọzọ ọnụ. 🙏",
+  liveOwnerInvite:
+    "🔐 Njikọ nbanye portal echekwara gị (ọ na-adị irè awa 24, ọ na-emeghe naanị mgbe koodu ezigara nọmba a): {link}",
+  throttled: "Ị na-eziga ozi ngwa ngwa karịa ka m nwere ike iso — chere obere oge wee nwaa ọzọ. 🙏",
 };
 
 const pcm: CopilotTextPack = {
@@ -567,6 +688,26 @@ const pcm: CopilotTextPack = {
   summaryUseCasesRevised: "Use cases wey I suggest (revised): {list}",
   summaryIntegrationsRevised: "Integrations wey I suggest (revised): {list}",
   languageSwitched: "No wahala — I go continue for {language}.",
+  // === W47 crosscutting (ONB-I18N-1) ===
+  failsafe: "Something do me for here — sorry o. Type *restart* make we try again. 🙏",
+  editPrompt: "No wahala — reply with the changes wey you want for one message, I go rework the proposal.",
+  malformedAction:
+    "Sorry, dat button no work (e fit don expire). Tell me wetin you wan do, or type *restart* to start again.",
+  voiceUnavailable: "I no fit process dat voice note — abeg type am instead? ✍️",
+  unsupported: "Na only text and voice note I fit read for now — tell me about your business with words. 🙂",
+  terminalLive:
+    "🎉 Congrats — your shop don live!\n\n" +
+    "Next steps:\n" +
+    "1. Connect your own WhatsApp number via embedded signup: {appUrl}/settings/whatsapp\n" +
+    "2. We don send you one secure login link for your admin portal — e go work only with " +
+    "verification code wey we go send to THIS phone, so keep dis number on.\n\n" +
+    "Welcome aboard! 🚀",
+  terminalFailed:
+    "Sorry — the setup jam problem and e no complete. The details up there explain wetin happen.\n\n" +
+    "Type *restart* make we try again together. 🙏",
+  liveOwnerInvite:
+    "🔐 Your secure portal login link (e dey valid for 24 hours, e go open only after code wey dem send to dis phone): {link}",
+  throttled: "You dey message pass as I fit follow — abeg wait small and try again. 🙏",
 };
 
 export const COPILOT_TEXT_PACKS: Record<CopilotLanguage, CopilotTextPack> = {

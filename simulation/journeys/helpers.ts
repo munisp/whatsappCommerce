@@ -723,8 +723,12 @@ export async function resetGeoDiscovery(world: World): Promise<void> {
 /** Give a tenant an approved KYB application (discovery gates on it). */
 export async function approveKyb(world: World, tenantId: string): Promise<void> {
   const schema = await import("../../drizzle/schema");
+  // === W47 merchant === kyc_applications.id is varchar(36); uuid-shaped
+  // tenant ids made the old `kyb-geo-${tenantId}` key overflow the column.
+  const id = `kyb-${tenantId}`.replace(/-/g, "").slice(0, 36);
+  // === END W47 merchant ===
   await world.db.insert(schema.kycApplications).values({
-    id: `kyb-geo-${tenantId}`,
+    id,
     tenantId,
     type: "kyb",
     status: "approved",

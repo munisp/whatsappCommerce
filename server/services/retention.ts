@@ -14,6 +14,7 @@ import {
   conversations,
   customers,
   kycDocuments,
+  nlpSessions,
   orders,
   retentionPolicies,
 } from "../../drizzle/schema";
@@ -31,6 +32,11 @@ export const PURGEABLE_ENTITIES = {
   // always wins). Purge deletes the DB row; the S3 scan is deleted/tombstoned
   // via the erasure path (kycPrivacy) — purge is retention, not erasure.
   kyc_documents: { table: kycDocuments, tenantCol: kycDocuments.tenantId, createdCol: kycDocuments.createdAt },
+  // === W47 buyer (ONB-B-10): idle-TTL sweep for NLP sessions — purge keys
+  // off lastActivityAt (idle cutoff), messageHistory is already rotated to
+  // the last 20 entries at write time in routers/nlp.ts. ===
+  nlp_sessions: { table: nlpSessions, tenantCol: nlpSessions.tenantId, createdCol: nlpSessions.lastActivityAt },
+  // === END W47 buyer ===
 } as const;
 
 export type PurgeableEntity = keyof typeof PURGEABLE_ENTITIES;

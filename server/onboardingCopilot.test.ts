@@ -134,6 +134,15 @@ vi.mock("./services/brandStudio", () => ({
   generateBrandKit: vi.fn(),
   pushWhatsappProfile: vi.fn(),
 }));
+// === W47 merchant === ONB-M-2: copilot goLive now enforces requireApprovedKyb.
+// The in-memory db mock has no kyc_applications rows, so the gate is mocked
+// here; the REAL gate behavior is covered end-to-end by sim journey J428.
+const requireApprovedKybMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("./services/kycGate", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("./services/kycGate")>();
+  return { ...orig, requireApprovedKyb: requireApprovedKybMock };
+});
+// === END W47 merchant ===
 
 import { invokeLLM } from "./_core/llm";
 import { generateBrandKit, pushWhatsappProfile } from "./services/brandStudio";
@@ -952,6 +961,9 @@ describe("onboardingCopilot router", () => {
     const gl = s2.proposals.find((p) => p.kind === "goLive")!;
     await caller.approveProposal({ sessionId, proposalId: gl.id, approve: true });
     expect((await getFresh(sessionId)).state).toBe("live");
+    // === W47 merchant === ONB-M-2: go-live consulted the KYB gate.
+    expect(requireApprovedKybMock).toHaveBeenCalledWith(s2.tenantId, expect.anything());
+    // === END W47 merchant ===
   });
 
   it("editProposal via router rejects an invalid waMenu payload with BAD_REQUEST", async () => {

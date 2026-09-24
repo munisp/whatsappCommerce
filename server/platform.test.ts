@@ -4,6 +4,9 @@ import type { TrpcContext } from "./_core/context";
 
 // ─── Mock DB ──────────────────────────────────────────────────────────────────
 vi.mock("./db", () => ({
+  // W47 MERGER: no DB in this suite — membership/capability lookups see "no
+  // rows" (legacy shortcuts intact) instead of throwing fail-closed.
+  getDb: vi.fn().mockResolvedValue(null),
   getTenants: vi.fn().mockResolvedValue([
     { id: "t1", name: "Acme Store", slug: "acme-store", plan: "growth", status: "active", aiEnabled: true, defaultCurrency: "USD", defaultLanguage: "en", createdAt: new Date(), updatedAt: new Date() },
   ]),

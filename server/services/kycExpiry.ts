@@ -123,6 +123,16 @@ export async function runKycExpirySweep(
         `Please complete re-verification to keep selling — open the KYC section to start a new application.`,
       );
       if (sent) result.notified++;
+      // === W47 merchant === ONB-M-8: an expired KYB on a LIVE tenant now
+      // starts the re-verification grace window — after KYB_GRACE_DAYS the
+      // store stops taking new orders with an honest buyer message (instead
+      // of trading silently until a withdrawal fails).
+      if (app.type === "kyb") {
+        const { applyKybRestriction } = await import("./onboardingLifecycle");
+        await applyKybRestriction(db, app.tenantId, "expired").catch((e: any) =>
+          console.error(`[kyc-expiry-sweep] kyb restriction stamp failed for tenant ${app.tenantId}:`, e?.message));
+      }
+      // === END W47 merchant ===
     } catch (err) {
       result.errors++;
       console.error(`[kyc-expiry-sweep] failed for application ${app.id}:`, (err as Error)?.message);

@@ -212,8 +212,12 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
+// W47 MERGER: read LLM_BASE_URL lazily — simulation journeys import
+// server/_core/env statically (before the world boots and setEnv() runs), so
+// the frozen ENV mirror can hold the pre-boot default.
+const llmBaseUrl = () => process.env.LLM_BASE_URL ?? ENV.llmBaseUrl;
 const resolveApiUrl = () =>
-  `${ENV.llmBaseUrl.replace(/\/+$/, "")}/chat/completions`;
+  `${llmBaseUrl().replace(/\/+$/, "")}/chat/completions`;
 
 const assertApiKey = () => {
   if (!ENV.llmApiKey) {
@@ -433,7 +437,7 @@ export type ModelsResponse = {
 export async function listLLMModels(): Promise<ModelsResponse> {
   assertApiKey();
 
-  const url = `${ENV.llmBaseUrl.replace(/\/+$/, "")}/models`;
+  const url = `${llmBaseUrl().replace(/\/+$/, "")}/models`;
 
   const response = await fetchWithBackoff(url, {
     headers: { authorization: `Bearer ${ENV.llmApiKey}` },

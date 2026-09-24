@@ -43,6 +43,9 @@ import {
   type ProposalKind,
 } from "./session";
 import { sessionLanguage, t } from "./language";
+// === W47 crosscutting (ONB-SM-1) ===
+import { bootstrapTenantOwner } from "./bootstrapTenantOwner";
+// === END W47 crosscutting ===
 
 // ─── Zod payloads ────────────────────────────────────────────────────────────
 
@@ -311,6 +314,21 @@ export const COPILOT_TOOL_SCHEMAS: Tool[] = [
 /** Create the tenant lazily on first apply (session.tenantId is null until then). */
 async function ensureTenant(session: OnboardingSession): Promise<string> {
   if (session.tenantId) return session.tenantId;
+  // === W47 crosscutting (ONB-ABU-1): per-phone tenant-creation throttle —
+  // the chat intake is unauthenticated; without a cap it is a fake-merchant
+  // factory (mass "trial" tenants). ===
+  if (session.channel === "whatsapp" && session.phone) {
+    const { bumpIntakeCounter, INTAKE_LIMITS } = await import("../intakeThrottle");
+    if (!(await bumpIntakeCounter("tenant", session.phone))) {
+      await auditCopilot(session, "onboarding_copilot.tenant_throttled", `tenant creation throttled for phone`, {
+        limitPerDay: INTAKE_LIMITS.tenantsPerDay,
+      });
+      throw new Error(
+        "This number has reached the daily new-business limit on the onboarding line. Please try again tomorrow or contact support.",
+      );
+    }
+  }
+  // === END W47 crosscutting ===
   const facts = session.intake.facts;
   const { tenantId } = await createTenant({
     name: facts.businessName?.trim() || "New Business",
@@ -555,19 +573,55 @@ const handlers: Record<
     if (state.status === "live") {
       return { ok: true, result: { alreadyLive: true } };
     }
-    // CHECKPOINT — go-live requires passed validation.
-    if (state.status !== "validating" || !state.validationPassed) {
-      throw new Error(
-        `Cannot go live: validation has not passed (status=${state.status}). Run runValidation first.`,
-      );
+    // === W47 merchant === ONB-M-2: copilot go-live previously checked only
+    // validation and flipped the tenant active with ZERO KYB — a second
+    // go-live path with a weaker security posture than web activate. Route
+    // through the single goLiveTenant gate (validation + requireApprovedKyb,
+    // audited). Kyb rejection surfaces to the merchant as an honest error.
+    const { goLiveTenant } = await import("../onboardingLifecycle");
+    const next = await goLiveTenant(session.tenantId, {
+      actorId: null,
+      actorRole: "system",
+      source: "chat-copilot",
+    });
+    // === W47 crosscutting (ONB-SM-1 / ONB-M-4): a live chat-onboarded
+    // tenant MUST have an accountable owner — users row + owner membership +
+    // settings.adminPhone + a phone-bound first-login invite. The typed seam
+    // is now a STATIC import (module landed). Bootstrap failure does NOT
+    // roll back the KYB-gated go-live; it is audit-logged loudly. ===
+    let ownerBootstrap: Awaited<ReturnType<typeof bootstrapTenantOwner>> | null = null;
+    if (session.channel === "whatsapp" && session.phone) {
+      try {
+        ownerBootstrap = await bootstrapTenantOwner({
+          tenantId: session.tenantId,
+          phone: session.phone,
+          actorId: `copilot:${session.id}`,
+        });
+      } catch (e: any) {
+        console.error(`[onboardingCopilot] owner bootstrap FAILED for tenant ${session.tenantId}:`, e?.message);
+        await auditCopilot(session, "onboarding_copilot.owner_bootstrap_failed", `owner bootstrap failed: ${e?.message ?? e}`);
+      }
     }
-    await setOnboardingStatus(session.tenantId, "live");
-    await db
-      .update(tenants)
-      .set({ status: "active", updatedAt: new Date() })
-      .where(eq(tenants.id, session.tenantId));
-    await auditCopilot(session, "onboarding_copilot.go_live", `tenant ${session.tenantId} is live`);
-    return { ok: true, result: { live: true } };
+    // === END W47 merchant + crosscutting ===
+    await auditCopilot(session, "onboarding_copilot.go_live", `tenant ${session.tenantId} is live (KYB-gated)`);
+    const lang = sessionLanguage(session);
+    const replies: CopilotReply[] = [];
+    if (ownerBootstrap) {
+      replies.push({
+        type: "text",
+        text: t(lang, "liveOwnerInvite", { link: ownerBootstrap.inviteUrl }),
+      });
+    }
+    return {
+      ok: true,
+      result: {
+        live: true,
+        ...next,
+        ownerUserId: ownerBootstrap?.ownerUserId ?? null,
+        inviteJti: ownerBootstrap?.inviteJti ?? null,
+      },
+      replies,
+    };
   },
 };
 

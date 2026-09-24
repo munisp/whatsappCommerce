@@ -176,6 +176,10 @@ export async function buildLatestOrderStatusReply(
   tenantId: string,
   phone: string,
 ): Promise<string | null> {
+  // === W47 buyer (ONB-B-2): recycled-number proof before disclosure ===
+  const gateReply = await orderHistoryGateReply(db, tenantId, phone);
+  if (gateReply) return gateReply.reply;
+  // === END W47 buyer ===
   const [order] = await recentOrdersForPhone(db, tenantId, phone, 1);
   if (!order) return null;
   const [shipment] = await db
@@ -211,7 +215,20 @@ const shopHandler: UseCaseHandler = async (ctx, _session, input) => {
 };
 
 /** track → recent orders with status + tracking links. */
-const trackHandler: UseCaseHandler = async (ctx) => {
+const trackHandler: UseCaseHandler = async (ctx, session) => {
+  // === W47 buyer (ONB-B-2): recycled-number proof before disclosure ===
+  const gate = await orderHistoryGateReply(ctx.db, ctx.tenantId, ctx.phone, ctx.customerName);
+  if (gate) {
+    return {
+      reply: gate.reply,
+      // Keep the challenge alive through applyOutcome (nextState:null would
+      // clear the session): a name-confirm challenge rides the session.
+      nextState: gate.identityName
+        ? { mode: "menu", awaitingIdentityVerify: true, data: { ...session?.data, identityName: gate.identityName, identityVerifyAttempts: 0 } }
+        : null,
+    };
+  }
+  // === END W47 buyer ===
   const list = await recentOrdersForPhone(ctx.db, ctx.tenantId, ctx.phone, 5);
   if (list.length === 0) {
     return {
@@ -621,6 +638,157 @@ async function dispatchSelection(
 
 // ── WhatsApp orchestrator ────────────────────────────────────────────────────
 
+// === W47 buyer (ONB-B-2 / ONB-B-3 / ONB-B-8): shared chat-surface guards ===
+
+/**
+ * ONB-B-2: gate order-history-disclosing intents on chat identity trust.
+ * Returns the buyer-facing challenge/portal reply when disclosure must wait,
+ * or null when disclosure may proceed. Fail-closed on ambiguity.
+ */
+export async function orderHistoryGateReply(
+  db: Db,
+  tenantId: string,
+  phone: string,
+  customerName?: string | null,
+): Promise<{ reply: string; identityName?: string } | null> {
+  const { assessChatIdentity, IDENTITY_VERIFY_PROMPT } = await import("./chatIdentityTrust");
+  const a = await assessChatIdentity(db, tenantId, phone, customerName);
+  if (!a.requiresProof) return null;
+  if (!a.knownName) {
+    // No name on file to confirm against → the portal device-auth path is
+    // the proof (fail closed on ambiguity, never disclose order PII).
+    return {
+      reply:
+        "For your security I can't share order details on this number yet. " +
+        "Please sign in to the customer portal with this phone number to confirm it's you, then ask again. " +
+        "If this number recently became yours, reply NEW to start fresh.",
+    };
+  }
+  // Persist the challenge for channels without session plumbing (reaction
+  // path); the use-case path ALSO carries it via nextState because
+  // applyOutcome clears the session on nextState:null outcomes.
+  const session = await getSession(tenantId, phone);
+  await saveSession({
+    ...(session ?? newSession(tenantId, phone)),
+    awaitingIdentityVerify: true,
+    data: { ...session?.data, identityName: a.knownName, identityVerifyAttempts: 0 },
+  });
+  return { reply: IDENTITY_VERIFY_PROMPT, identityName: a.knownName };
+}
+
+/**
+ * ONB-B-8: chat self-service erasure command ("DELETE MY DATA" →
+ * "CONFIRM DELETE"). Shared by the WA orchestrator and telegramInbound
+ * (channel parity). Returns an outcome when the message was consumed.
+ */
+export async function handleChatErasureCommand(opts: {
+  db: Db;
+  tenantId: string;
+  phone: string;
+  text: string;
+  session?: ChatSession | null;
+}): Promise<InboundOutcome | null> {
+  const { db, tenantId, phone } = opts;
+  const t = opts.text.trim();
+  const session = opts.session ?? await getSession(tenantId, phone);
+  const pendingAt = Number(session?.data?.confirmErasureAt ?? 0);
+  const pendingFresh = pendingAt > 0 && Date.now() - pendingAt < 10 * 60_000;
+  if (/^delete my data$/i.test(t)) {
+    await saveSession({
+      ...(session ?? newSession(tenantId, phone)),
+      data: { ...session?.data, confirmErasureAt: Date.now() },
+    });
+    return {
+      handled: true,
+      reply:
+        "⚠️ This permanently deletes your chat history, saved cart, consent record and personal details for this number. " +
+        "Orders already paid are kept for legal/tax records but are anonymized. " +
+        "Reply CONFIRM DELETE within 10 minutes to proceed, or send anything else to cancel.",
+    };
+  }
+  if (!pendingFresh) return null;
+  if (!/^confirm delete$/i.test(t)) {
+    // Any other reply cancels the pending erasure (quietly — message flows on).
+    await saveSession({
+      ...(session ?? newSession(tenantId, phone)),
+      data: { ...session?.data, confirmErasureAt: undefined },
+    });
+    return null;
+  }
+  const { erasePhoneKeyedBuyerData } = await import("./buyerErasure");
+  const result = await erasePhoneKeyedBuyerData(db, tenantId, phone);
+  // Tombstone the customer profile itself (orders keep their customerId but
+  // the row no longer resolves to a live phone — same shape as portal DSAR).
+  // whatsappPhone is varchar(30) — compact tombstone.
+  const chatTombstone = `er${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  await db
+    .update(customers)
+    .set({ name: null, email: null, whatsappPhone: chatTombstone, chatIdentityVerifiedAt: null, updatedAt: new Date() })
+    .where(and(eq(customers.tenantId, tenantId), eq(customers.whatsappPhone, phone)))
+    .catch(() => {});
+  await clearSession(tenantId, phone);
+  const { writeAuditLog } = await import("../routers/audit");
+  await writeAuditLog({
+    actorId: `chat:${phone}`, actorRole: "buyer", action: "privacy.erasure.chat",
+    entityType: "customer", entityId: phone, tenantId,
+    summary: `Chat self-service erasure for ***${phone.slice(-4)}: ${JSON.stringify(result.counts)}`,
+    after: { counts: result.counts, keys: result.erasedKeys.map((k) => `***${k.slice(-4)}`) },
+  }).catch(() => {});
+  return {
+    handled: true,
+    reply:
+      "Your data has been deleted. If you message us again you'll start fresh — " +
+      "we'll ask for your consent before anything else.",
+  };
+}
+
+/**
+ * ONB-B-3: hoisted first-contact consent gate for ALL WhatsApp message
+ * types (text, interactive buttons, media incl. AI-scan/mirror, CTWA,
+ * location). Called by processWaWebhookValue BEFORE any type-specific
+ * branch so a first contact is always answered with the NDPR prompt /
+ * decision — no customers row processing, media mirroring or menu action
+ * happens for a number that was never asked. Telegram already gates
+ * callbacks/voice/location; this restores parity on WA.
+ */
+export async function waFirstContactConsentGate(opts: {
+  db: Db;
+  tenant: { id: string; name?: string | null; settings?: unknown } | null;
+  tenantId: string;
+  phone: string;
+  /** Text body when the inbound is a text message (YES/NO parse). */
+  text?: string;
+  wamid?: string;
+  customerName?: string;
+}): Promise<InboundOutcome | null> {
+  const { db, tenantId, phone } = opts;
+  const existing = await getConsent(db, tenantId, phone);
+  if (existing) return null; // decided (granted or denied) — normal flow
+  if (opts.text) {
+    // Text first contacts flow through the full conversational handler
+    // (prompt copy, YES/NO recording with proofWamid, welcome menu).
+    return handleConversationalInbound({
+      db,
+      tenant: opts.tenant,
+      tenantId,
+      phone,
+      text: opts.text,
+      customerName: opts.customerName,
+      wamid: opts.wamid,
+    });
+  }
+  // Non-text first contact (button tap, media, location): prompt once.
+  const tenantSettings = (opts.tenant?.settings ?? null) as Record<string, unknown> | null;
+  const localeResolution = await resolveLocaleDetailed({ tenantId, phone, text: "", tenantSettings })
+    .catch(() => ({ locale: "en" as Locale }));
+  const session = await getSession(tenantId, phone);
+  if (!session?.awaitingConsent) {
+    await saveSession({ ...newSession(tenantId, phone), awaitingConsent: true });
+  }
+  return { handled: true, reply: tr(localeResolution.locale, "consentPrompt") };
+}
+// === END W47 buyer ===
+
 /**
  * Drive one inbound WhatsApp text message through consent → menu → use cases.
  * Returns { handled: false } when the message should be processed by the
@@ -633,6 +801,11 @@ export async function handleConversationalInbound(opts: {
   phone: string;
   text: string;
   customerName?: string;
+  /** W47 buyer (ONB-B-5): inbound WhatsApp message id — recorded as
+   *  proof-of-consent evidence when this message carries the YES reply. */
+  /** === W47 crosscutting (ONB-TOCTOU-1): inbound WhatsApp message id —
+   *  stamped as proofWamid on consent grants (TEN-16 evidence). === */
+  wamid?: string;
 }): Promise<InboundOutcome> {
   const { db, tenantId, phone, text } = opts;
   const tenantSettings = (opts.tenant?.settings ?? null) as Record<string, unknown> | null;
@@ -686,7 +859,8 @@ export async function handleConversationalInbound(opts: {
         // === W46 privacy-consent (TEN-16): re-grant rate limit — a flood of
         // re-grants right after withdrawal keeps the withdrawal standing. ===
         try {
-          await recordConsent(db, { tenantId, phone, granted: true });
+          // W47 (ONB-TOCTOU-1): pass the evidence wamid on re-grants too.
+          await recordConsent(db, { tenantId, phone, granted: true, proofWamid: opts.wamid ?? null });
         } catch (e: any) {
           const { ConsentRegrantRateLimited } = await import("./consent");
           if (e instanceof ConsentRegrantRateLimited) {
@@ -704,6 +878,51 @@ export async function handleConversationalInbound(opts: {
   }
   // === END W40 MSG-1 ===
 
+  // === W47 buyer (ONB-B-2): recycled-number verification challenge ========
+  // A pending challenge intercepts ALL subsequent text until resolved — the
+  // bot never exposes order PII while it is open. Fail-closed.
+  if (session?.awaitingIdentityVerify) {
+    const { cleanSlateForNewOwner, markChatIdentityVerified, namesMatch,
+      IDENTITY_CLEAN_SLATE_REPLY, IDENTITY_VERIFY_LOCKED_REPLY, IDENTITY_VERIFY_OK_REPLY,
+      MAX_IDENTITY_VERIFY_ATTEMPTS } = await import("./chatIdentityTrust");
+    if (/^new$/i.test(text.trim())) {
+      await cleanSlateForNewOwner(db, tenantId, phone);
+      await clearSession(tenantId, phone);
+      const { writeAuditLog } = await import("../routers/audit");
+      await writeAuditLog({
+        actorId: `chat:${phone}`, actorRole: "buyer", action: "buyer.identity.clean_slate",
+        entityType: "customer", entityId: phone, tenantId,
+        summary: `Recycled-number clean slate: phone ***${phone.slice(-4)} tombstoned prior chat identity (new owner declared)`,
+      }).catch(() => {});
+      return { handled: true, reply: IDENTITY_CLEAN_SLATE_REPLY };
+    }
+    const known = typeof session.data?.identityName === "string" ? session.data.identityName : "";
+    if (known && namesMatch(known, text)) {
+      await markChatIdentityVerified(db, tenantId, phone);
+      await saveSession({ ...session, awaitingIdentityVerify: false, data: { ...session.data, identityName: undefined } });
+      return { handled: true, reply: `${IDENTITY_VERIFY_OK_REPLY}Reply "track" to see your orders.` };
+    }
+    const attempts = Number(session.data?.identityVerifyAttempts ?? 0) + 1;
+    if (attempts >= MAX_IDENTITY_VERIFY_ATTEMPTS) {
+      await saveSession({ ...session, awaitingIdentityVerify: false, data: { ...session.data, identityName: undefined, identityVerifyAttempts: 0 } });
+      return { handled: true, reply: IDENTITY_VERIFY_LOCKED_REPLY };
+    }
+    await saveSession({ ...session, data: { ...session.data, identityVerifyAttempts: attempts } });
+    return { handled: true, reply: "That name doesn't match our records. Try again, or reply NEW if this number recently became yours." };
+  }
+  // === END W47 buyer (ONB-B-2) ===
+
+  // === W47 buyer (ONB-B-8): chat self-service erasure (NDPR DSAR) =========
+  // Chat-only buyers have no portal account; "DELETE MY DATA" + an explicit
+  // CONFIRM DELETE second step erases all phone-keyed PII and leaves a
+  // clean-slate re-onboarding path. Channel parity: telegramInbound routes
+  // the same keywords through handleChatErasureCommand.
+  {
+    const erasureOutcome = await handleChatErasureCommand({ db, tenantId, phone, text, session });
+    if (erasureOutcome) return erasureOutcome;
+  }
+  // === END W47 buyer (ONB-B-8) ===
+
   if (!existingConsent) {
     const decision = parseConsentReply(text);
     if (decision === null) {
@@ -713,7 +932,8 @@ export async function handleConversationalInbound(opts: {
       }
       return { handled: true, reply: tr(locale, "consentPrompt") };
     }
-    await recordConsent(db, { tenantId, phone, granted: decision });
+    // W47 (ONB-TOCTOU-1): the buyer's YES/NO wamid is the consent evidence.
+    await recordConsent(db, { tenantId, phone, granted: decision, proofWamid: opts.wamid ?? null });
     if (!decision) {
       await clearSession(tenantId, phone);
       return { handled: true, reply: tr(locale, "consentDenied") };
