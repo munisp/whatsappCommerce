@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,7 +53,7 @@ function formatTs(ts: number) {
   return new Date(ts).toLocaleString();
 }
 
-export default function MLOpsDashboard() {
+function MLOpsDashboardInner() {
   const [selectedExperiment, setSelectedExperiment] = useState<string>("");
   const [driftDays, setDriftDays] = useState(14);
   const [retrainingModel, setRetrainingModel] = useState<string | null>(null);
@@ -956,5 +957,13 @@ export default function MLOpsDashboard() {
         </DialogContent>
       </Dialog>
     </DashboardLayout>
+  );
+}
+
+export default function MLOpsDashboard() {
+  return (
+    <AdminGuard>
+      <MLOpsDashboardInner />
+    </AdminGuard>
   );
 }

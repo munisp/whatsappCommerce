@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -77,7 +78,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function RevenueDashboard() {
+function RevenueDashboardInner() {
   const [trendMonths, setTrendMonths] = useState("12");
   const [forecastHorizon, setForecastHorizon] = useState("6");
   const { data: summary, isLoading: summaryLoading } = trpc.revenue.summary.useQuery();
@@ -547,5 +548,13 @@ export default function RevenueDashboard() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function RevenueDashboard() {
+  return (
+    <AdminGuard>
+      <RevenueDashboardInner />
+    </AdminGuard>
   );
 }

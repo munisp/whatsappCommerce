@@ -14,6 +14,7 @@
 import React, { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { AdminGuard } from "@/components/AdminGuard";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,24 +32,6 @@ import {
   Users, Workflow, XCircle, Zap, ArrowLeftRight, Bot,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-
-// ── Role guard ────────────────────────────────────────────────────────────────
-
-function AdminGuard({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  if (!user) return <div className="p-8 text-center text-muted-foreground">Loading...</div>;
-  if (user.role !== "admin") {
-    return (
-      <div className="p-8 text-center">
-        <Shield className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Access Restricted</h2>
-        <p className="text-muted-foreground">This page requires administrator privileges.</p>
-        <Badge variant="outline" className="mt-2">Your role: {user.role}</Badge>
-      </div>
-    );
-  }
-  return <>{children}</>;
-}
 
 // ── Integration status card ───────────────────────────────────────────────────
 

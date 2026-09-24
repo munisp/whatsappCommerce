@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ const STATUS_COLORS: Record<string, string> = {
   rejected: "bg-red-100 text-red-800",
 };
 
-export default function CogsDisputes() {
+function CogsDisputesInner() {
   const [statusFilter, setStatusFilter] = useState<"pending" | "approved" | "rejected" | "all">("all");
   const [reviewDialog, setReviewDialog] = useState<{ id: string; action: "approved" | "rejected" } | null>(null);
   const [reviewNote, setReviewNote] = useState("");
@@ -185,5 +186,13 @@ export default function CogsDisputes() {
         </DialogContent>
       </Dialog>
     </DashboardLayout>
+  );
+}
+
+export default function CogsDisputes() {
+  return (
+    <AdminGuard>
+      <CogsDisputesInner />
+    </AdminGuard>
   );
 }

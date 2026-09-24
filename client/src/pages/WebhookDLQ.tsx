@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +19,7 @@ const STATUS_CONFIG: Record<string, { color: string; icon: React.ElementType }> 
   dead: { color: "bg-gray-200 text-gray-700", icon: Skull },
 };
 
-export default function WebhookDLQ() {
+function WebhookDLQInner() {
   const [filter, setFilter] = useState<EventStatus>("all");
   const utils = trpc.useUtils();
 
@@ -137,5 +138,13 @@ export default function WebhookDLQ() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function WebhookDLQ() {
+  return (
+    <AdminGuard>
+      <WebhookDLQInner />
+    </AdminGuard>
   );
 }
