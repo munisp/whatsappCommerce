@@ -24,7 +24,17 @@ export async function createContext(
   try {
     user = await sdk.authenticateRequest(opts.req);
   } catch (error) {
-    // Authentication is optional for public procedures.
+    // Authentication is optional for public procedures, so a rejection here
+    // is not itself a bug — a signed-out visitor hits this on every request.
+    // But it was previously silent, which cost real debugging time tracking
+    // down a stale session-revocation marker (QA follow-up): a request with
+    // a cookie that looked valid to a human (and to /api/auth/me, which does
+    // no revocation check) was being rejected here with no trace anywhere.
+    // Cheap enough at this volume to always log; skip the common "no cookie
+    // at all" case, which isn't informative.
+    if (opts.req.headers.cookie) {
+      console.warn("[Auth] createContext: authenticateRequest rejected a request with cookies present:", (error as Error)?.message ?? error);
+    }
     user = null;
   }
 

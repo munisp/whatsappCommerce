@@ -136,6 +136,20 @@ export async function addMember(input: {
       })
       .returning();
     result = inserted[0];
+    // QA follow-up: removeMember() unconditionally sets a 24h "revoke every
+    // future session" marker for whoever it removes. Re-adding that same
+    // person here never cleared it, so every one of their NEW logins kept
+    // silently failing isSessionRevoked() for up to 24h — the raw
+    // /api/auth/me route (no revocation check) showed them signed in while
+    // every tRPC call (which does check) treated them as signed out, with
+    // nothing logged anywhere to explain why. Only on a genuine re-add (this
+    // branch, not the role-update branch above) — an admin's explicit
+    // kill-switch on someone who NEVER left the tenant must not be silently
+    // undone by an unrelated role change.
+    const { clearUserSessionRevocation } = await import("../_core/sdk");
+    await clearUserSessionRevocation(input.userId).catch((err) =>
+      console.error("[membership.addMember] clearing session revocation failed:", (err as Error)?.message),
+    );
   }
   // QA follow-up: a staff member granted ONLY here (tenant_memberships) still
   // had users.tenantId = null — and the client's "does this user have a

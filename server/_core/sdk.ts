@@ -148,6 +148,24 @@ export async function revokeAllUserSessions(
   revocationCache.delete(marker);
 }
 
+/**
+ * QA follow-up: removeMember() calls revokeAllUserSessions() unconditionally
+ * on every removal, leaving a 24h "revoke everything" marker. Re-adding that
+ * person (addMember()) never cleared it, so a removed-then-re-added staff
+ * member's every NEW login kept silently failing isSessionRevoked() for up
+ * to 24h — /api/auth/me (no revocation check) showed them signed in while
+ * every tRPC call (which does check) treated them as signed out, with no
+ * error logged anywhere. Call this from addMember() so re-adding someone
+ * actually restores their access immediately.
+ */
+export async function clearUserSessionRevocation(userId: string | number): Promise<void> {
+  const marker = userRevocationMarkerJti(userId);
+  const conn = await db.getDb();
+  if (!conn) return;
+  await conn.delete(sessionRevocations).where(eq(sessionRevocations.jti, marker));
+  revocationCache.delete(marker);
+}
+
 // ─── W12 tenancy: per-user membership snapshot (for assertTenantAccess) ──────
 const MEMBERSHIP_CACHE_TTL_MS = 60_000;
 const membershipCache = new Map<string, { tenants: string[]; checkedAt: number }>();
