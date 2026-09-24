@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useActiveTenant } from "@/contexts/TenantContext";
 
 type ItemType = "section" | "button" | "list_item" | "quick_reply" | "catalog_link" | "url";
 
@@ -205,6 +206,12 @@ export function MenuBuilderContent() {
   const [pushResult, setPushResult] = useState<{ payload: unknown; pushedAt: Date; itemCount: number } | null>(null);
   const [medusaPickerOpen, setMedusaPickerOpen] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  // QA follow-up: menu items could only ever be built by hand-typing a
+  // title/payload, or imported from Medusa — this platform's OWN product
+  // catalog (Products page) had no picker at all.
+  const [catalogPickerOpen, setCatalogPickerOpen] = useState(false);
+  const [selectedCatalogProductIds, setSelectedCatalogProductIds] = useState<string[]>([]);
+  const { activeTenantId } = useActiveTenant();
 
   const utils = trpc.useUtils();
   const { data: menus = [], refetch: refetchMenus } = trpc.menu.list.useQuery();
@@ -260,6 +267,43 @@ export function MenuBuilderContent() {
     },
     onError: (e) => toast.error(e.message),
   });
+
+  // Native catalog picker — this platform's own products (Products page),
+  // not an external integration. No bulk-import endpoint exists for these
+  // (unlike Medusa's), so this loops menu.addItem per selected product —
+  // the same mutation the manual "Add" dialog already uses.
+  const { data: catalogProducts, isLoading: catalogProductsLoading } = trpc.product.list.useQuery(
+    { tenantId: activeTenantId },
+    { enabled: catalogPickerOpen && !!activeTenantId }
+  );
+  const [importingFromCatalog, setImportingFromCatalog] = useState(false);
+  async function importSelectedFromCatalog() {
+    if (!selectedMenuId || selectedCatalogProductIds.length === 0) return;
+    const selected = (catalogProducts ?? []).filter((p) => selectedCatalogProductIds.includes(p.id));
+    setImportingFromCatalog(true);
+    try {
+      let sortOrder = items.length;
+      for (const p of selected) {
+        await addItem.mutateAsync({
+          menuId: selectedMenuId,
+          item: {
+            type: "list_item",
+            title: p.name.slice(0, 24),
+            description: `${p.currency} ${Number(p.price).toFixed(2)} · Stock: ${p.stockQuantity}`,
+            payload: `product:${p.id}`,
+            sortOrder: sortOrder++,
+          },
+        });
+      }
+      toast.success(`Imported ${selected.length} product${selected.length === 1 ? "" : "s"} from your catalog`);
+      setCatalogPickerOpen(false);
+      setSelectedCatalogProductIds([]);
+    } catch (e: any) {
+      toast.error(e.message ?? "Import failed");
+    } finally {
+      setImportingFromCatalog(false);
+    }
+  }
 
   function toggleProduct(id: string) {
     setSelectedProductIds(prev =>
@@ -407,6 +451,9 @@ export function MenuBuilderContent() {
                       <Button variant="outline" size="sm" className="gap-1.5 border-border text-xs h-8" onClick={() => setAutoPopOpen(true)}>
                         <Zap className="w-3.5 h-3.5 text-yellow-400" /> Auto-Populate
                       </Button>
+                      <Button variant="outline" size="sm" className="gap-1.5 border-border text-xs h-8" onClick={() => setCatalogPickerOpen(true)}>
+                        <ShoppingBag className="w-3.5 h-3.5 text-primary" /> From Catalog
+                      </Button>
                       <Button variant="outline" size="sm" className="gap-1.5 border-border text-xs h-8" onClick={() => setMedusaPickerOpen(true)}>
                         <Package className="w-3.5 h-3.5 text-purple-400" /> Import Medusa
                       </Button>
@@ -535,6 +582,75 @@ export function MenuBuilderContent() {
                   >
                     {importFromMedusa.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Package className="w-3.5 h-3.5" />}
                     Import Selected
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Native Catalog Product Picker Dialog ── */}
+      <Dialog open={catalogPickerOpen} onOpenChange={open => { setCatalogPickerOpen(open); if (!open) setSelectedCatalogProductIds([]); }}>
+        <DialogContent className="bg-card border-border max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShoppingBag className="w-4 h-4 text-primary" /> Add Products from Your Catalog
+            </DialogTitle>
+          </DialogHeader>
+          {catalogProductsLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (catalogProducts?.length ?? 0) === 0 ? (
+            <div className="py-6 text-center space-y-2">
+              <ShoppingBag className="w-10 h-10 mx-auto text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">No products yet</p>
+              <p className="text-xs text-muted-foreground/70">Add products on the Products page first, then come back to build your menu from them.</p>
+            </div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              <p className="text-xs text-muted-foreground">
+                Select products to add as menu items to <strong>{currentMenu?.name}</strong>.
+              </p>
+              <ScrollArea className="h-72 border border-border rounded-lg">
+                <div className="divide-y divide-border">
+                  {catalogProducts?.map(product => (
+                    <label
+                      key={product.id}
+                      className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                    >
+                      <Checkbox
+                        checked={selectedCatalogProductIds.includes(product.id)}
+                        onCheckedChange={() => setSelectedCatalogProductIds(ids =>
+                          ids.includes(product.id) ? ids.filter(x => x !== product.id) : [...ids, product.id]
+                        )}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-card-foreground truncate">{product.name}</p>
+                        <p className="text-xs text-muted-foreground">{product.sku}{product.category ? ` · ${product.category}` : ""}</p>
+                      </div>
+                      <span className="text-xs font-medium text-card-foreground shrink-0">
+                        {product.currency} {Number(product.price).toLocaleString()}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </ScrollArea>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-muted-foreground">
+                  {selectedCatalogProductIds.length} of {catalogProducts?.length} selected
+                </span>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setCatalogPickerOpen(false)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    className="bg-primary text-primary-foreground gap-1.5"
+                    disabled={selectedCatalogProductIds.length === 0 || importingFromCatalog || !selectedMenuId}
+                    onClick={importSelectedFromCatalog}
+                  >
+                    {importingFromCatalog ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShoppingBag className="w-3.5 h-3.5" />}
+                    Add Selected
                   </Button>
                 </div>
               </div>
