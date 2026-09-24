@@ -94,6 +94,7 @@ export const productRouter = router({
       tenantId: z.string(),
       name: z.string().optional(),
       description: z.string().optional(),
+      category: z.string().optional(),
       price: z.string().optional(),
       stockQuantity: z.number().int().min(0).optional(),
       status: z.enum(["active", "inactive", "archived"]).optional(),

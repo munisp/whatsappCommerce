@@ -8,9 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
-import { AlertTriangle, CheckCircle2, Download, ImageIcon, Package, Plus, RefreshCw, TrendingUp, Upload, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, ImageIcon, Package, Pencil, Plus, RefreshCw, TrendingUp, Upload, X, XCircle } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -68,6 +69,20 @@ function ProductsInner() {
   // Fetch unfiltered list — the server-side filter uses case-sensitive SQL `like`
   // on name only, so searching is done client-side (case-insensitive) instead.
   const { data: productList, refetch } = trpc.product.list.useQuery({ tenantId: DEMO_TENANT });
+  // Real category taxonomy (product_taxonomy, seeded Nigerian FMCG data) —
+  // QA follow-up: category used to be free text, no consistency at all.
+  const { data: taxonomyCategories } = trpc.taxonomy.categories.useQuery();
+  const categoryOptions = (taxonomyCategories ?? []).map((c) => c.category);
+
+  // QA follow-up: there was no way to edit an existing product at all —
+  // product.update existed server-side, nothing on this page ever called it.
+  const [editingProduct, setEditingProduct] = useState<{
+    id: string; name: string; category: string; price: string; stockQuantity: number; status: "active" | "inactive" | "archived";
+  } | null>(null);
+  const updateMutation = trpc.product.update.useMutation({
+    onSuccess: () => { toast.success("Product updated"); setEditingProduct(null); refetch(); },
+    onError: (e) => toast.error(e.message),
+  });
   const q = search.trim().toLowerCase();
   const filteredProducts = !q
     ? (productList ?? [])
@@ -260,7 +275,6 @@ function ProductsInner() {
                   {[
                     { key: "sku", label: "SKU", placeholder: "PROD-001" },
                     { key: "name", label: "Name", placeholder: "Product Name" },
-                    { key: "category", label: "Category", placeholder: "Electronics" },
                     { key: "price", label: "Price (NGN)", placeholder: "1500.00" },
                   ].map((f) => (
                     <div key={f.key} className="space-y-1">
@@ -268,6 +282,17 @@ function ProductsInner() {
                       <Input value={(form as any)[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} className="bg-input border-border" />
                     </div>
                   ))}
+                  <div className="space-y-1">
+                    <Label>Category</Label>
+                    <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
+                      <SelectTrigger className="bg-input border-border"><SelectValue placeholder="Select a category" /></SelectTrigger>
+                      <SelectContent>
+                        {categoryOptions.map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-1">
                     <Label>Stock Quantity</Label>
                     <Input type="number" value={form.stockQuantity} onChange={(e) => setForm({ ...form, stockQuantity: parseInt(e.target.value) || 0 })} className="bg-input border-border" />
@@ -342,11 +367,12 @@ function ProductsInner() {
                   <TableHead>Price</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredProducts.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">{q ? `No products match "${search}".` : "No products yet. Add your first product or import via CSV."}</TableCell></TableRow>
                 ) : filteredProducts.map((p) => (
                   <TableRow key={p.id} className="border-border hover:bg-accent/30">
                     <TableCell>
@@ -364,6 +390,19 @@ function ProductsInner() {
                     <TableCell className="font-mono">{p.currency} {Number(p.price).toFixed(2)}</TableCell>
                     <TableCell className={p.stockQuantity <= (p.lowStockThreshold ?? 10) ? "text-yellow-400 font-mono" : "font-mono"}>{p.stockQuantity}</TableCell>
                     <TableCell><Badge variant="outline" className={statusColors[p.status] ?? ""}>{p.status}</Badge></TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canEditCatalog}
+                        title={canEditCatalog ? "Edit product" : "Your role doesn't have the catalog capability"}
+                        onClick={() => setEditingProduct({
+                          id: p.id, name: p.name, category: p.category ?? "", price: String(p.price), stockQuantity: p.stockQuantity, status: p.status,
+                        })}
+                      >
+                        <Pencil className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -371,6 +410,71 @@ function ProductsInner() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Edit product dialog */}
+      <Dialog open={!!editingProduct} onOpenChange={(v) => !v && setEditingProduct(null)}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader><DialogTitle>Edit Product</DialogTitle></DialogHeader>
+          {editingProduct && (
+            <div className="space-y-3 mt-2">
+              <div className="space-y-1">
+                <Label>Name</Label>
+                <Input
+                  value={editingProduct.name}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, name: e.target.value })}
+                  className="bg-input border-border"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Category</Label>
+                <Select value={editingProduct.category} onValueChange={(v) => setEditingProduct({ ...editingProduct, category: v })}>
+                  <SelectTrigger className="bg-input border-border"><SelectValue placeholder="Select a category" /></SelectTrigger>
+                  <SelectContent>
+                    {categoryOptions.map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Price (NGN)</Label>
+                <Input
+                  value={editingProduct.price}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })}
+                  className="bg-input border-border"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Stock Quantity</Label>
+                <Input
+                  type="number"
+                  value={editingProduct.stockQuantity}
+                  onChange={(e) => setEditingProduct({ ...editingProduct, stockQuantity: parseInt(e.target.value) || 0 })}
+                  className="bg-input border-border"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Status</Label>
+                <Select value={editingProduct.status} onValueChange={(v) => setEditingProduct({ ...editingProduct, status: v as "active" | "inactive" | "archived" })}>
+                  <SelectTrigger className="bg-input border-border"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="archived">Archived</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                className="w-full bg-primary text-primary-foreground"
+                disabled={updateMutation.isPending}
+                onClick={() => updateMutation.mutate({ tenantId: DEMO_TENANT, ...editingProduct })}
+              >
+                {updateMutation.isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }
