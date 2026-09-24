@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch, useLocation } from "wouter";
+import { Route, Switch, useLocation, useParams } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
@@ -13,8 +13,6 @@ import PortalMagicLogin from "@/pages/portal/PortalMagicLogin";
 // Route-level code splitting: every non-essential page is a lazy chunk so
 // the initial bundle only carries the shell + dashboard/login. Heavy routes
 // (LiveLogisticsMap/maplibre, OnboardingCopilot, admin/analytics pages) load on demand.
-const Tenants = lazy(() => import("./pages/Tenants"));
-const TenantDetail = lazy(() => import("./pages/TenantDetail"));
 const Products = lazy(() => import("./pages/Products"));
 const Conversations = lazy(() => import("./pages/Conversations"));
 const Orders = lazy(() => import("./pages/Orders"));
@@ -26,21 +24,18 @@ const ReviewsModeration = lazy(() => import("./pages/ReviewsModeration"));
 // === END W27 ===
 const OrderTimeline = lazy(() => import("./pages/OrderTimeline"));
 const Payments = lazy(() => import("./pages/Payments"));
-const ServiceHealth = lazy(() => import("./pages/ServiceHealth"));
 const TwentyCRM = lazy(() => import("./pages/TwentyCRM"));
 const Crm = lazy(() => import("./pages/Crm"));
 const OdooHub = lazy(() => import("./pages/OdooHub"));
 const WhatsAppMenuHub = lazy(() => import("./pages/WhatsAppMenuHub"));
 const IntegrationHub = lazy(() => import("./pages/IntegrationHub"));
 const TemplateLibrary = lazy(() => import("./pages/TemplateLibrary"));
-const TenantMenuAssignment = lazy(() => import("./pages/TenantMenuAssignment"));
 const CredentialWizard = lazy(() => import("./pages/CredentialWizard"));
 const TemplateVersions = lazy(() => import("./pages/TemplateVersions"));
 const BroadcastCampaigns = lazy(() => import("./pages/BroadcastCampaigns"));
 const Journeys = lazy(() => import("./pages/Journeys"));
 const Consents = lazy(() => import("./pages/Consents"));
 const InventoryHub = lazy(() => import("./pages/InventoryHub"));
-const TenantOnboarding = lazy(() => import("./pages/TenantOnboarding"));
 const TrackOrder = lazy(() => import("./pages/TrackOrder"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const PortalDashboard = lazy(() => import("./pages/portal/PortalDashboard"));
@@ -56,15 +51,8 @@ const PortalBookkeeping = lazy(() => import("./pages/portal/PortalBookkeeping"))
 const PortalOdooSettings = lazy(() => import("./pages/portal/PortalOdooSettings"));
 // === END W28 odoo-sync ===
 const DeployChecklist = lazy(() => import("./pages/DeployChecklist"));
-const MLOpsDashboard = lazy(() => import("./pages/MLOpsDashboard"));
 const ReconciliationSim = lazy(() => import("./pages/ReconciliationSim"));
-const AlertRules = lazy(() => import("./pages/AlertRules"));
 const SsoCallback = lazy(() => import("./pages/portal/SsoCallback"));
-const CogsDisputes = lazy(() => import("./pages/CogsDisputes"));
-const SsoUsers = lazy(() => import("./pages/SsoUsers"));
-const RevenueDashboard = lazy(() => import("./pages/RevenueDashboard"));
-const EscrowDashboard = lazy(() => import("./pages/EscrowDashboard"));
-const LogisticsTracker = lazy(() => import("./pages/LogisticsTracker"));
 const DisputeManagement = lazy(() => import("./pages/DisputeManagement"));
 const MerchantWallet = lazy(() => import("./pages/portal/MerchantWallet"));
 // === W27 savings-insurance-vouchers (Coder G) ===
@@ -84,12 +72,9 @@ const DiscoverNearby = lazy(() => import("./pages/DiscoverNearby"));
 const Shop = lazy(() => import("./pages/Shop"));
 const StorefrontSettings = lazy(() => import("./pages/StorefrontSettings"));
 const MerchantGeoSettings = lazy(() => import("./pages/MerchantGeoSettings"));
-const LiveLogisticsMap = lazy(() => import("./pages/LiveLogisticsMap"));
 // === W28 medusa-storefront (Coder B) ===
 const MedusaStorefrontSettings = lazy(() => import("./pages/MedusaStorefrontSettings"));
 // === END W28 medusa-storefront ===
-const HealthStatus = lazy(() => import("./pages/HealthStatus"));
-const AuditLogViewer = lazy(() => import("./pages/AuditLogViewer"));
 const WaTemplates = lazy(() => import("./pages/WaTemplates"));
 const SupplierDirectory = lazy(() => import("./pages/SupplierDirectory"));
 const ProcurementHub = lazy(() => import("./pages/ProcurementHub"));
@@ -106,17 +91,12 @@ const MultiChannelHub = lazy(() => import("./pages/MultiChannelHub"));
 const MobileMoneyPortal = lazy(() => import("./pages/MobileMoneyPortal"));
 const AnalyticsBIDashboard = lazy(() => import("./pages/AnalyticsBIDashboard"));
 const CompliancePortal = lazy(() => import("./pages/CompliancePortal"));
-const Compliance = lazy(() => import("./pages/Compliance"));
 const MedusaHub = lazy(() => import("./pages/MedusaHub"));
-const WebhookDLQ = lazy(() => import("./pages/WebhookDLQ"));
 const IntegrationHealth = lazy(() => import("./pages/IntegrationHealth"));
 const LabelStudioPipe = lazy(() => import("./pages/LabelStudioPipe"));
-const ScanStatsDashboard = lazy(() => import("./pages/ScanStatsDashboard"));
-const TenantAnalytics = lazy(() => import("./pages/TenantAnalytics"));
 const HermesDashboard = lazy(() => import("./pages/HermesDashboard"));
 const PhoneAuthPage = lazy(() => import("./pages/PhoneAuthPage"));
 const WhatsAppProfilePage = lazy(() => import("./pages/WhatsAppProfilePage"));
-const InfraHealth = lazy(() => import("./pages/InfraHealth"));
 const AdminPortal = lazy(() => import("./pages/AdminPortal"));
 const OnboardingCopilot = lazy(() => import("./pages/OnboardingCopilot"));
 // === W27 catalog-ai ===
@@ -136,6 +116,23 @@ function RouteRedirect({ to }: { to: string }) {
   return null;
 }
 
+// QA follow-up: ui/platform-admin's own ROUTES.md documents a deliberate
+// split of this monolith's admin-only routes into that dedicated app (one
+// blanket role==="admin" AuthGate instead of this app's per-page guards),
+// but never redirected the originals here — so every admin page below kept
+// answering at its old, less-consistently-guarded legacy path too. This is
+// the follow-up .qa/defects.md already flagged ("hiding them from the
+// merchant nav is a follow-up"): finish the migration by redirecting each
+// route ui/platform-admin/ROUTES.md classified as admin-only, rather than
+// leaving two live copies. Routes intentionally left alone: pages already
+// confirmed tenant self-service this session (/phone-auth,
+// /whatsapp-profile, /compliance, /deploy-checklist, /audit-log, /setup —
+// the last is genuinely per-tenant integration credentials, not a platform
+// tool, despite the ambiguous placement ROUTES.md itself flagged).
+function AdminRouteRedirect({ to }: { to: string }) {
+  return <RouteRedirect to={`/platform-admin${to}`} />;
+}
+
 function RouteFallback() {
   return (
     <div className="flex items-center justify-center min-h-[60vh]" aria-label="Loading page">
@@ -150,8 +147,11 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
-      <Route path="/tenants" component={Tenants} />
-      <Route path="/tenants/:id" component={TenantDetail} />
+      <Route path="/tenants" component={() => <AdminRouteRedirect to="/tenants" />} />
+      <Route path="/tenants/:id" component={() => {
+        const { id } = useParams<{ id: string }>();
+        return <AdminRouteRedirect to={`/tenants/${id}`} />;
+      }} />
       <Route path="/products" component={Products} />
       <Route path="/conversations" component={Conversations} />
       <Route path="/orders" component={Orders} />
@@ -164,21 +164,21 @@ function Router() {
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/track/:token" component={TrackOrder} />
       <Route path="/payments" component={Payments} />
-      <Route path="/health" component={ServiceHealth} />
+      <Route path="/health" component={() => <AdminRouteRedirect to="/health" />} />
       <Route path="/twenty-crm" component={TwentyCRM} />
       <Route path="/crm" component={Crm} />
       <Route path="/odoo-erp" component={OdooHub} />
       <Route path="/menu-builder" component={WhatsAppMenuHub} />
       <Route path="/integrations" component={IntegrationHub} />
       <Route path="/templates" component={TemplateLibrary} />
-      <Route path="/tenant-menus" component={TenantMenuAssignment} />
+      <Route path="/tenant-menus" component={() => <AdminRouteRedirect to="/tenant-menus" />} />
       <Route path="/setup" component={CredentialWizard} />
       <Route path="/template-versions" component={TemplateVersions} />
       <Route path="/broadcast" component={BroadcastCampaigns} />
       <Route path="/journeys" component={Journeys} />
       <Route path="/consents" component={Consents} />
       <Route path="/inventory" component={InventoryHub} />
-      <Route path="/onboarding" component={TenantOnboarding} />
+      <Route path="/onboarding" component={() => <AdminRouteRedirect to="/onboarding" />} />
           <Route path="/invoices" component={Invoices} />
           <Route path="/portal" component={PortalDashboard} />
           {/* Magic-link login: matches the /portal/login?token=... links generated by server/routers/tenantInvite.ts */}
@@ -196,15 +196,15 @@ function Router() {
           <Route path="/portal/odoo" component={PortalOdooSettings} />
           {/* === END W28 odoo-sync === */}
           <Route path="/deploy-checklist" component={DeployChecklist} />
-          <Route path="/ml-ops" component={MLOpsDashboard} />
+          <Route path="/ml-ops" component={() => <AdminRouteRedirect to="/ml-ops" />} />
           <Route path="/reconciliation" component={ReconciliationSim} />
-          <Route path="/alert-rules" component={AlertRules} />
+          <Route path="/alert-rules" component={() => <AdminRouteRedirect to="/alert-rules" />} />
           <Route path="/portal/sso-callback" component={SsoCallback} />
-          <Route path="/sso-users" component={SsoUsers} />
-          <Route path="/cogs-disputes" component={CogsDisputes} />
-          <Route path="/revenue" component={RevenueDashboard} />
-          <Route path="/escrow" component={EscrowDashboard} />
-          <Route path="/logistics" component={LogisticsTracker} />
+          <Route path="/sso-users" component={() => <AdminRouteRedirect to="/sso-users" />} />
+          <Route path="/cogs-disputes" component={() => <AdminRouteRedirect to="/cogs-disputes" />} />
+          <Route path="/revenue" component={() => <AdminRouteRedirect to="/revenue" />} />
+          <Route path="/escrow" component={() => <AdminRouteRedirect to="/escrow" />} />
+          <Route path="/logistics" component={() => <AdminRouteRedirect to="/logistics" />} />
           <Route path="/disputes" component={DisputeManagement} />
           <Route path="/portal/wallet" component={MerchantWallet} />
           <Route path="/portal/setup" component={() => <OnboardingWizard onComplete={() => { window.location.href = "/portal"; }} />} />
@@ -223,9 +223,9 @@ function Router() {
         {/* === W28 medusa-storefront (Coder B) === */}
         <Route path="/settings/medusa-storefront" component={MedusaStorefrontSettings} />
         {/* === END W28 medusa-storefront === */}
-          <Route path="/logistics-map" component={LiveLogisticsMap} />
-          <Route path="/system-health" component={HealthStatus} />
-          <Route path="/audit-logs" component={AuditLogViewer} />
+          <Route path="/logistics-map" component={() => <AdminRouteRedirect to="/logistics-map" />} />
+          <Route path="/system-health" component={() => <AdminRouteRedirect to="/system-health" />} />
+          <Route path="/audit-logs" component={() => <AdminRouteRedirect to="/audit-logs" />} />
           {/* === W27 savings-insurance-vouchers (Coder G) === */}
           <Route path="/savings-circles" component={SavingsCircles} />
           <Route path="/insurance" component={InsurancePolicies} />
@@ -242,21 +242,21 @@ function Router() {
           <Route path="/service-commerce" component={() => <RouteRedirect to="/sales-channels" />} />
           <Route path="/analytics-bi" component={AnalyticsBIDashboard} />
           <Route path="/compliance" component={CompliancePortal} />
-          <Route path="/soc2" component={Compliance} />
+          <Route path="/soc2" component={() => <AdminRouteRedirect to="/soc2" />} />
           <Route path="/medusa" component={MedusaHub} />
-          <Route path="/webhook-dlq" component={WebhookDLQ} />
+          <Route path="/webhook-dlq" component={() => <AdminRouteRedirect to="/webhook-dlq" />} />
           <Route path="/visual-inventory" component={() => <RouteRedirect to="/inventory" />} />
           <Route path="/medusa-onboarding" component={() => <RouteRedirect to="/medusa" />} />
           <Route path="/odoo-medusa-bridge" component={() => <RouteRedirect to="/odoo-erp" />} />
           <Route path="/label-studio" component={LabelStudioPipe} />
           <Route path="/fmcg-taxonomy" component={() => <RouteRedirect to="/inventory" />} />
-          <Route path="/scan-stats" component={ScanStatsDashboard} />
+          <Route path="/scan-stats" component={() => <AdminRouteRedirect to="/scan-stats" />} />
           <Route path="/product-images" component={() => <RouteRedirect to="/inventory" />} />
-          <Route path="/tenant-analytics" component={TenantAnalytics} />
+          <Route path="/tenant-analytics" component={() => <AdminRouteRedirect to="/tenant-analytics" />} />
           <Route path="/hermes" component={HermesDashboard} />
           <Route path="/phone-auth" component={PhoneAuthPage} />
           <Route path="/whatsapp-profile" component={WhatsAppProfilePage} />
-          <Route path="/infra-health" component={InfraHealth} />
+          <Route path="/infra-health" component={() => <AdminRouteRedirect to="/infra-health" />} />
           <Route path="/admin" component={AdminPortal} />
           <Route path="/integration-health" component={IntegrationHealth} />
           <Route path="/unified-onboarding" component={() => <RouteRedirect to="/onboarding" />} />
