@@ -1,4 +1,5 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
+import { useCapability } from "@/hooks/useCapability";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,8 @@ const statusColors: Record<string, string> = {
 
 export default function Products() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
+  const { has: hasCapability } = useCapability();
+  const canEditCatalog = hasCapability("catalog");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", stockQuantity: 0, imageUrl: "" });
@@ -127,7 +130,14 @@ export default function Products() {
             {/* CSV Import Dialog */}
             <Dialog open={csvOpen} onOpenChange={(v) => { setCsvOpen(v); if (!v) { setCsvStep("upload"); setCsvRows([]); setImportResult(null); } }}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="gap-2 border-border bg-transparent"><Upload className="w-4 h-4" />Import CSV</Button>
+                <Button
+                  variant="outline"
+                  className="gap-2 border-border bg-transparent"
+                  disabled={!canEditCatalog}
+                  title={canEditCatalog ? undefined : "Your role doesn't have the catalog capability — this requires owner, operator or catalog"}
+                >
+                  <Upload className="w-4 h-4" />Import CSV
+                </Button>
               </DialogTrigger>
               <DialogContent className="bg-card border-border max-w-2xl">
                 <DialogHeader><DialogTitle>Bulk Import Products</DialogTitle></DialogHeader>
@@ -235,7 +245,13 @@ export default function Products() {
             {/* Single product add dialog */}
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild>
-                <Button className="bg-primary text-primary-foreground gap-2"><Plus className="w-4 h-4" />Add Product</Button>
+                <Button
+                  className="bg-primary text-primary-foreground gap-2"
+                  disabled={!canEditCatalog}
+                  title={canEditCatalog ? undefined : "Your role doesn't have the catalog capability — this requires owner, operator or catalog"}
+                >
+                  <Plus className="w-4 h-4" />Add Product
+                </Button>
               </DialogTrigger>
               <DialogContent className="bg-card border-border">
                 <DialogHeader><DialogTitle>Add Product</DialogTitle></DialogHeader>

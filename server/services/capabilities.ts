@@ -34,22 +34,14 @@
  */
 import { TRPCError } from "@trpc/server";
 import { getMembership, membershipRoleEnum } from "./membership";
-import type { MembershipRole } from "../../drizzle/schema";
+// The role→capability map itself now lives in shared/capabilities.ts, so the
+// client can mirror the same rule the server enforces instead of guessing at
+// it (QA follow-up). Re-exported here so existing importers of this module
+// are unaffected.
+import { ROLE_CAPABILITIES, roleHasCapability, type Capability } from "../../shared/capabilities";
 
-export type Capability = "finance" | "catalog" | "orders" | "reports";
-
-export const ROLE_CAPABILITIES: Record<MembershipRole, readonly Capability[]> = {
-  owner: ["finance", "catalog", "orders", "reports"],
-  operator: ["finance", "catalog", "orders"], // finance retained as legacy compat (see header)
-  analyst: ["reports"],
-  finance: ["finance"],
-  catalog: ["catalog"],
-};
-
-/** Does this membership role hold the given capability? */
-export function roleHasCapability(role: MembershipRole, cap: Capability): boolean {
-  return (ROLE_CAPABILITIES[role] ?? []).includes(cap);
-}
+export { ROLE_CAPABILITIES, roleHasCapability };
+export type { Capability };
 
 /**
  * Require `cap` for `tenantId`. Semantics mirror assertMoneyAccess:

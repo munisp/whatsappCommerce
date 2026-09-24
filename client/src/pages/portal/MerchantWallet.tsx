@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { useCapability } from "@/hooks/useCapability";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,8 @@ export default function MerchantWallet() {
   // for the same fix.
   const { data: myTenant } = trpc.tenantPortal.getMyTenant.useQuery();
   const tenantId = myTenant?.id ?? "";
+  const { has: hasCapability } = useCapability(tenantId);
+  const canWithdraw = hasCapability("finance");
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [bankAccount, setBankAccount] = useState("");
@@ -171,7 +174,11 @@ export default function MerchantWallet() {
         </div>
         <div className="flex items-center gap-2">
           {isPspMode && (
-            <Button onClick={() => setWithdrawOpen(true)} disabled={!wallet || toNum(wallet.availableBalance) <= 0}>
+            <Button
+              onClick={() => setWithdrawOpen(true)}
+              disabled={!wallet || toNum(wallet.availableBalance) <= 0 || !canWithdraw}
+              title={canWithdraw ? undefined : "Your role doesn't have the finance capability — withdrawals require owner, operator or finance"}
+            >
               Request Withdrawal
             </Button>
           )}
