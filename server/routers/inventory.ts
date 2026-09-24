@@ -84,6 +84,69 @@ export const inventoryRouter = router({
       return { success: true, recordsSynced: result.recordsSynced, syncedReservations: result.syncedReservations };
     }),
 
+  // ── Manual stock correction ─────────────────────────────────────────────────
+  // QA follow-up: recordStockAdjustment (services/stockAdjustments.ts) is
+  // "the SINGLE audit-write helper for every stock mutation on the
+  // platform" per its own header, and its reason enum has "correction"/
+  // "count" cases specifically for this — but nothing ever called it for a
+  // manual entry. A merchant doing a physical stock count had no way to fix
+  // a wrong number at all.
+  adjustStock: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      productId: z.string(),
+      newQuantity: z.number().int().min(0),
+      reason: z.enum(["correction", "count", "damage", "theft", "other"]).default("correction"),
+      note: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const { assertCapabilityAccess } = await import("../services/capabilities");
+      await assertCapabilityAccess(ctx.user, input.tenantId, "catalog");
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const { recordStockAdjustment } = await import("../services/stockAdjustments");
+
+      const result = await db.transaction(async (tx) => {
+        const [product] = await tx.select({ stockQuantity: products.stockQuantity })
+          .from(products)
+          .where(and(eq(products.id, input.productId), eq(products.tenantId, input.tenantId)))
+          .limit(1);
+        if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
+
+        const deltaQty = input.newQuantity - product.stockQuantity;
+        if (deltaQty === 0) return { newQuantity: input.newQuantity, adjustmentId: null as string | null };
+
+        await tx.update(products)
+          .set({ stockQuantity: input.newQuantity })
+          .where(and(eq(products.id, input.productId), eq(products.tenantId, input.tenantId)));
+
+        // inventory_snapshots only exists for ERP-synced products (see
+        // reserveStock above) — keep it in lockstep when present, or the
+        // Stock Sync view's COALESCE(snapshot, products.stockQuantity)
+        // would silently show the stale synced number instead.
+        await tx.execute(sql`
+          UPDATE inventory_snapshots
+          SET "stockQty" = ${input.newQuantity},
+              "availableQty" = GREATEST(${input.newQuantity} - "reservedQty", 0),
+              "lastSyncedAt" = NOW()
+          WHERE "tenantId" = ${input.tenantId} AND "productId" = ${input.productId}
+        `);
+
+        const adjustmentId = await recordStockAdjustment(tx, {
+          tenantId: input.tenantId,
+          productId: input.productId,
+          deltaQty,
+          reason: input.reason,
+          refType: "manual",
+          actorId: String(ctx.user.id),
+          note: input.note ?? `Manual ${input.reason}: ${product.stockQuantity} → ${input.newQuantity}`,
+        });
+        return { newQuantity: input.newQuantity, adjustmentId };
+      });
+      return result;
+    }),
+
   // ── Reserve stock (oversell guard) ─────────────────────────────────────────
   reserveStock: protectedProcedure
     .input(z.object({

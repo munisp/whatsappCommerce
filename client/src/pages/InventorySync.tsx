@@ -5,12 +5,18 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Spinner } from "@/components/ui/spinner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import {
   RefreshCw, Package, AlertTriangle, CheckCircle2, XCircle,
-  Database, Clock, TrendingDown, ShieldCheck
+  Database, Clock, TrendingDown, ShieldCheck, Pencil, Loader2
 } from "lucide-react";
 import { useActiveTenant } from "@/contexts/TenantContext";
+import { useCapability } from "@/hooks/useCapability";
 
 
 function StockStatusBadge({ status }: { status: string }) {
@@ -33,6 +39,8 @@ function SyncStatusBadge({ status }: { status: string }) {
 export function InventorySyncContent() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [tenantId] = useState(DEMO_TENANT);
+  const { has: hasCapability } = useCapability();
+  const canEditCatalog = hasCapability("catalog");
 
   const { data: stockLevels = [], isLoading: loadingStock, refetch: refetchStock } =
     trpc.inventory.getStockLevels.useQuery({ tenantId });
@@ -40,6 +48,25 @@ export function InventorySyncContent() {
     trpc.inventory.getStockAlerts.useQuery({ tenantId });
   const { data: syncHistory = [], refetch: refetchHistory } =
     trpc.inventory.getSyncHistory.useQuery({ tenantId, limit: 10 });
+
+  // QA follow-up: there was no way to manually correct a stock count at all
+  // — getStockLevels/syncFromOdoo (read + Odoo pull) existed, nothing wrote
+  // a manual correction.
+  const [adjustingProduct, setAdjustingProduct] = useState<{ productId: string; productName: string; currentQty: number } | null>(null);
+  const [adjustQty, setAdjustQty] = useState("");
+  const [adjustReason, setAdjustReason] = useState<"correction" | "count" | "damage" | "theft" | "other">("correction");
+  const [adjustNote, setAdjustNote] = useState("");
+  const adjustStock = trpc.inventory.adjustStock.useMutation({
+    onSuccess: () => {
+      toast.success("Stock updated");
+      setAdjustingProduct(null);
+      setAdjustQty("");
+      setAdjustNote("");
+      refetchStock();
+      refetchAlerts();
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const syncMutation = trpc.inventory.syncFromOdoo.useMutation({
     onSuccess: (data) => {
@@ -198,11 +225,12 @@ export function InventorySyncContent() {
                   <TableHead className="text-right">Threshold</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Source</TableHead>
+                  <TableHead className="w-12"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {stockLevels.length === 0 ? (
-                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">No products found</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">No products found</TableCell></TableRow>
                 ) : stockLevels.map((row: any) => (
                   <TableRow key={row.productId}>
                     <TableCell className="font-medium">{row.productName}</TableCell>
@@ -216,6 +244,22 @@ export function InventorySyncContent() {
                       <Badge variant="outline" className="text-xs">
                         {row.lastSyncedAt ? "Odoo" : "Local"}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canEditCatalog}
+                        title={canEditCatalog ? "Correct stock count" : "Your role doesn't have the catalog capability"}
+                        onClick={() => {
+                          setAdjustingProduct({ productId: row.productId, productName: row.productName, currentQty: Number(row.stockQty) });
+                          setAdjustQty(String(row.stockQty));
+                          setAdjustReason("correction");
+                          setAdjustNote("");
+                        }}
+                      >
+                        <Pencil className="w-4 h-4 text-muted-foreground hover:text-foreground" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -260,6 +304,75 @@ export function InventorySyncContent() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Adjust Stock Dialog */}
+      <Dialog open={!!adjustingProduct} onOpenChange={(open) => !open && setAdjustingProduct(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Adjust Stock</DialogTitle>
+          </DialogHeader>
+          {adjustingProduct && (
+            <div className="space-y-4 py-2">
+              <div className="text-sm text-muted-foreground">
+                {adjustingProduct.productName} — current stock: <span className="font-semibold text-foreground">{adjustingProduct.currentQty}</span>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="adjust-qty">New Quantity</Label>
+                <Input
+                  id="adjust-qty"
+                  type="number"
+                  min={0}
+                  value={adjustQty}
+                  onChange={(e) => setAdjustQty(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="adjust-reason">Reason</Label>
+                <Select value={adjustReason} onValueChange={(v) => setAdjustReason(v as typeof adjustReason)}>
+                  <SelectTrigger id="adjust-reason">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="correction">Correction</SelectItem>
+                    <SelectItem value="count">Physical Count</SelectItem>
+                    <SelectItem value="damage">Damage</SelectItem>
+                    <SelectItem value="theft">Theft</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="adjust-note">Note (optional)</Label>
+                <Textarea
+                  id="adjust-note"
+                  placeholder="Add context for this adjustment…"
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                  rows={2}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setAdjustingProduct(null)}>Cancel</Button>
+                <Button
+                  disabled={adjustStock.isPending || adjustQty === "" || isNaN(Number(adjustQty)) || Number(adjustQty) < 0}
+                  onClick={() => {
+                    if (!adjustingProduct) return;
+                    adjustStock.mutate({
+                      tenantId,
+                      productId: adjustingProduct.productId,
+                      newQuantity: parseInt(adjustQty, 10),
+                      reason: adjustReason,
+                      note: adjustNote.trim() || undefined,
+                    });
+                  }}
+                >
+                  {adjustStock.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
