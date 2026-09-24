@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Gift } from "lucide-react";
 
-export default function LoyaltyConfig() {
+function LoyaltyConfigInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const utils = trpc.useUtils();
   const { data: rules } = trpc.loyalty.getRules.useQuery({ tenantId });
@@ -134,5 +135,13 @@ export default function LoyaltyConfig() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function LoyaltyConfig() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <LoyaltyConfigInner />
+    </CapabilityGuard>
   );
 }

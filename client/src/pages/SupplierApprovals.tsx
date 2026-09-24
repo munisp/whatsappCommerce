@@ -14,6 +14,7 @@
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { CreditStatusChip } from "@/components/b2b/CreditStatusChip";
 import { PoStatusBadge } from "@/components/b2b/PoStatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -112,7 +113,7 @@ function PendingCard({
   );
 }
 
-export default function SupplierApprovals() {
+function SupplierApprovalsInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const utils = useB2bUtils();
   const { data: pending, isLoading, error, refetch } = usePos({ tenantId, side: "supplier", status: "submitted" });
@@ -379,5 +380,13 @@ export default function SupplierApprovals() {
         </DialogContent>
       </Dialog>
     </DashboardLayout>
+  );
+}
+
+export default function SupplierApprovals() {
+  return (
+    <CapabilityGuard roles={["owner", "operator", "finance"]}>
+      <SupplierApprovalsInner />
+    </CapabilityGuard>
   );
 }

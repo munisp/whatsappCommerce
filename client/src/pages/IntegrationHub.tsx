@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -75,7 +76,7 @@ function IntegrationCard({
   );
 }
 
-export default function IntegrationHub() {
+function IntegrationHubInner() {
   const { data: twentyCfg } = trpc.twenty.getConfig.useQuery();
   const { data: odooCfg } = trpc.odoo.getConfig.useQuery();
   const { data: menus = [] } = trpc.menu.list.useQuery();
@@ -214,5 +215,13 @@ export default function IntegrationHub() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function IntegrationHub() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <IntegrationHubInner />
+    </CapabilityGuard>
   );
 }

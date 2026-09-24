@@ -8,6 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1661,7 +1662,7 @@ function SectionLoading() {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
-export default function TenantSettings() {
+function TenantSettingsInner() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
 
@@ -1702,5 +1703,13 @@ export default function TenantSettings() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function TenantSettings() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <TenantSettingsInner />
+    </CapabilityGuard>
   );
 }

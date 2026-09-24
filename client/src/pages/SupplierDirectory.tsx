@@ -7,6 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { PoBuilderDrawer } from "@/components/b2b/PoBuilderDrawer";
 import { SupplierCard } from "@/components/b2b/SupplierCard";
 import { Button } from "@/components/ui/button";
@@ -129,7 +130,7 @@ function MyProfileDialog({
   );
 }
 
-export default function SupplierDirectory() {
+function SupplierDirectoryInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const utils = useB2bUtils();
   const { data: suppliers, isLoading, error, refetch, isFetching } = useSuppliers(tenantId);
@@ -241,5 +242,13 @@ export default function SupplierDirectory() {
       <PoBuilderDrawer tenantId={tenantId} supplier={poSupplier} open={poOpen} onOpenChange={setPoOpen} />
       <MyProfileDialog tenantId={tenantId} open={profileOpen} onOpenChange={setProfileOpen} />
     </DashboardLayout>
+  );
+}
+
+export default function SupplierDirectory() {
+  return (
+    <CapabilityGuard roles={["owner", "operator", "finance"]}>
+      <SupplierDirectoryInner />
+    </CapabilityGuard>
   );
 }

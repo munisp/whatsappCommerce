@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ExternalLink, Globe, Loader2, Store } from "lucide-react";
 
-export default function StorefrontSettings() {
+function StorefrontSettingsInner() {
   const utils = trpc.useUtils();
   const settings = trpc.storefront.merchant.getSettings.useQuery();
 
@@ -170,5 +171,13 @@ export default function StorefrontSettings() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function StorefrontSettings() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <StorefrontSettingsInner />
+    </CapabilityGuard>
   );
 }

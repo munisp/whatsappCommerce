@@ -10,6 +10,7 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,7 +68,7 @@ function BandBadge({ band }: { band?: string | null }) {
   );
 }
 
-export default function Crm() {
+function CrmInner() {
   const { user } = useAuth();
   const [tenantId, setTenantId] = useState<string>("");
   const { data: tenantsData } = trpc.tenant.list.useQuery(undefined, { enabled: !!user });
@@ -314,5 +315,13 @@ export default function Crm() {
         </Sheet>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function Crm() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <CrmInner />
+    </CapabilityGuard>
   );
 }

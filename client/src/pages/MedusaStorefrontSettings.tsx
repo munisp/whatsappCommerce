@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ArrowDownToLine, Loader2, Plug, RefreshCw, Store } from "lucide-react";
 
-export default function MedusaStorefrontSettings() {
+function MedusaStorefrontSettingsInner() {
   const utils = trpc.useUtils();
   const mappingQuery = trpc.medusa.getMapping.useQuery();
 
@@ -193,5 +194,13 @@ export default function MedusaStorefrontSettings() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function MedusaStorefrontSettings() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <MedusaStorefrontSettingsInner />
+    </CapabilityGuard>
   );
 }

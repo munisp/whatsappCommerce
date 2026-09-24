@@ -4,6 +4,7 @@
 // toggle, and the reconciliation queue (failed outbox rows + retry).
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,7 @@ import { Button } from "@/components/ui/button";
 
 type SyncMode = "push" | "batch" | "ondemand";
 
-export default function PortalOdooSettings() {
+function PortalOdooSettingsInner() {
   const utils = trpc.useUtils();
   const { data } = trpc.odooSync.getConfig.useQuery();
   const { data: outbox } = trpc.odooSync.outbox.list.useQuery({});
@@ -181,5 +182,13 @@ export default function PortalOdooSettings() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function PortalOdooSettings() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <PortalOdooSettingsInner />
+    </CapabilityGuard>
   );
 }

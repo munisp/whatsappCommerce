@@ -2,7 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { roleHasCapability, type Capability } from "@shared/capabilities";
+import { roleHasCapability, type Capability, type MembershipRole } from "@shared/capabilities";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,6 +82,13 @@ type NavGroup = {
    * restricting them here would block something the server actually allows.
    */
   requiresCapability?: Capability;
+  /**
+   * For groups with no clean single-capability fit — e.g. tenant
+   * configuration is really "whoever manages this business" rather than any
+   * one of finance/catalog/orders/reports. An explicit allowlist instead of
+   * inventing a 5th pseudo-capability the server doesn't have.
+   */
+  requiresRoles?: readonly MembershipRole[];
   items: NavItem[];
 };
 
@@ -123,6 +130,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "supply-chain",
     label: "Supply Chain",
     icon: Store,
+    requiresRoles: ["owner", "operator", "finance"],
     items: [
       { icon: Store,           label: "Supplier Directory", path: "/suppliers" },
       { icon: ShoppingCart,    label: "Procurement Hub",    path: "/procurement" },
@@ -192,6 +200,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "integrations",
     label: "Integrations",
     icon: Globe,
+    requiresRoles: ["owner", "operator"],
     items: [
       { icon: Globe,           label: "Integration Hub", path: "/integrations" },
       { icon: Activity,        label: "Integration Health", path: "/integration-health" },
@@ -207,6 +216,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "configuration",
     label: "Configuration",
     icon: SlidersHorizontal,
+    requiresRoles: ["owner", "operator"],
     items: [
       { icon: Rocket,          label: "Onboarding Wizard", path: "/onboarding-wizard" },
       { icon: Rocket,          label: "Store Setup",      path: "/portal/setup" },
@@ -221,6 +231,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "loyalty-rewards",
     label: "Loyalty & Rewards",
     icon: Gift,
+    requiresCapability: "catalog",
     items: [
       { icon: Gift,            label: "Loyalty",         path: "/loyalty" },
       { icon: PiggyBank,       label: "Savings Circles", path: "/savings-circles" },
@@ -542,17 +553,22 @@ function DashboardLayoutContent({
   );
   const tenantRole = admin ? "owner" : (myRoleData?.role ?? null);
   // Same capability map the server enforces (shared/capabilities.ts) — a
-  // group whose requiresCapability the caller's role doesn't hold is hidden.
-  // Still loading (tenantRole null but the query hasn't settled) shows
-  // everything rather than nothing, to avoid a flash of a near-empty sidebar.
-  const hasCapability = (cap: NavGroup["requiresCapability"]) =>
-    !cap || !tenantRole || roleHasCapability(tenantRole, cap);
+  // group whose requiresCapability/requiresRoles the caller's role doesn't
+  // satisfy is hidden. Still loading (tenantRole null but the query hasn't
+  // settled) shows everything rather than nothing, to avoid a flash of a
+  // near-empty sidebar.
+  const groupVisible = (g: NavGroup) => {
+    if (!tenantRole) return true;
+    if (g.requiresCapability && !roleHasCapability(tenantRole, g.requiresCapability)) return false;
+    if (g.requiresRoles && !g.requiresRoles.includes(tenantRole)) return false;
+    return true;
+  };
 
   const visibleGroups = useMemo(() => {
     if (IS_PLATFORM_ADMIN) return PLATFORM_NAV_GROUPS;
     if (setupOnly) return [GET_STARTED_GROUP];
     return TENANT_NAV_GROUPS
-      .filter(g => hasCapability(g.requiresCapability))
+      .filter(groupVisible)
       .map(g => ({ ...g, items: g.items.filter(i => !i.adminOnly || admin) }))
       .filter(g => g.items.length > 0);
   }, [admin, setupOnly, tenantRole]);

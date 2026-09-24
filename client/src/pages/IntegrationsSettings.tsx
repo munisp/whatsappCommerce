@@ -13,6 +13,7 @@
  */
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -400,7 +401,7 @@ function VisualSearchCard({ tenantId }: { tenantId: string }) {
   );
 }
 
-export default function IntegrationsSettings() {
+function IntegrationsSettingsInner() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
 
@@ -557,5 +558,13 @@ export default function IntegrationsSettings() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function IntegrationsSettings() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <IntegrationsSettingsInner />
+    </CapabilityGuard>
   );
 }

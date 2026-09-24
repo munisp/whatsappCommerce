@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ function StatusChip({ status }: { status: string }) {
   return <Badge variant={variant as any} className="capitalize">{status}</Badge>;
 }
 
-export default function MerchantGeoSettings() {
+function MerchantGeoSettingsInner() {
   const utils = trpc.useUtils();
   const location = trpc.geo.merchant.getLocation.useQuery();
   const listings = trpc.geo.merchant.listSponsoredListings.useQuery();
@@ -330,5 +331,13 @@ export default function MerchantGeoSettings() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function MerchantGeoSettings() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <MerchantGeoSettingsInner />
+    </CapabilityGuard>
   );
 }

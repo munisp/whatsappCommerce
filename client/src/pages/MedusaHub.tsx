@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MedusaIntegrationContent } from "@/pages/MedusaIntegration";
 import { MedusaOnboardingContent } from "@/pages/MedusaOnboarding";
@@ -6,7 +7,7 @@ import { MedusaOnboardingContent } from "@/pages/MedusaOnboarding";
 // Overview (read: browse synced products/orders/regions) and Add Products
 // (write: draft and push new products to Medusa) are the read/write halves
 // of the same Medusa connection — were two separate nav items.
-export default function MedusaHub() {
+function MedusaHubInner() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-4">
@@ -30,5 +31,13 @@ export default function MedusaHub() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function MedusaHub() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <MedusaHubInner />
+    </CapabilityGuard>
   );
 }

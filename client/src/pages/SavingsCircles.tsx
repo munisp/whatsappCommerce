@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +21,7 @@ function fmt(cents: number, currency = "NGN") {
   return `${currency} ${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function SavingsCircles() {
+function SavingsCirclesInner() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
   const utils = trpc.useUtils();
@@ -207,5 +208,13 @@ export default function SavingsCircles() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function SavingsCircles() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <SavingsCirclesInner />
+    </CapabilityGuard>
   );
 }

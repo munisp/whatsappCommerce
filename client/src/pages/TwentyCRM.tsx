@@ -1,5 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +39,7 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`inline-block w-2 h-2 rounded-full ${map[status] ?? "bg-zinc-500"}`} />;
 }
 
-export default function TwentyCRM() {
+function TwentyCRMInner() {
   const [configOpen, setConfigOpen] = useState(false);
   const [form, setForm] = useState({ baseUrl: "https://api.twenty.com", apiKey: "", workspaceId: "", syncContacts: true, syncDeals: true, whatsappEnabled: true });
   const [sendOpen, setSendOpen] = useState(false);
@@ -331,5 +332,13 @@ export default function TwentyCRM() {
         </DialogContent>
       </Dialog>
     </DashboardLayout>
+  );
+}
+
+export default function TwentyCRM() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <TwentyCRMInner />
+    </CapabilityGuard>
   );
 }

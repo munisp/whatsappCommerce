@@ -14,6 +14,7 @@
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { CreditAgingCards } from "@/components/b2b/CreditAgingTable";
 import { LimitGauge } from "@/components/b2b/LimitGauge";
 import { RepaymentDialog } from "@/components/b2b/RepaymentDialog";
@@ -670,7 +671,7 @@ function SupplierView({ tenantId }: { tenantId: string }) {
   );
 }
 
-export default function CreditAccounts() {
+function CreditAccountsInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   return (
     <DashboardLayout>
@@ -697,5 +698,13 @@ export default function CreditAccounts() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function CreditAccounts() {
+  return (
+    <CapabilityGuard roles={["owner", "operator", "finance"]}>
+      <CreditAccountsInner />
+    </CapabilityGuard>
   );
 }

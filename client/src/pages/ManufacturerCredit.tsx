@@ -10,6 +10,7 @@
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { LimitGauge } from "@/components/b2b/LimitGauge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,7 +84,7 @@ function parseWeights(f: ProgramForm): { onTime?: number; volume?: number; tenur
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-export default function ManufacturerCredit() {
+function ManufacturerCreditInner() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId ?? "";
   const utils = trpc.useUtils();
@@ -458,5 +459,13 @@ export default function ManufacturerCredit() {
         </Dialog>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ManufacturerCredit() {
+  return (
+    <CapabilityGuard roles={["owner", "operator", "finance"]}>
+      <ManufacturerCreditInner />
+    </CapabilityGuard>
   );
 }

@@ -12,6 +12,7 @@
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { PoBuilderDrawer } from "@/components/b2b/PoBuilderDrawer";
 import { PoStatusBadge } from "@/components/b2b/PoStatusBadge";
 import { RepaymentDialog } from "@/components/b2b/RepaymentDialog";
@@ -52,7 +53,7 @@ const DUE_TONE: Record<string, string> = {
   none: "text-muted-foreground",
 };
 
-export default function ProcurementHub() {
+function ProcurementHubInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const utils = useB2bUtils();
   const [statusFilter, setStatusFilter] = useState<"all" | PoStatus>("all");
@@ -310,5 +311,13 @@ export default function ProcurementHub() {
         />
       )}
     </DashboardLayout>
+  );
+}
+
+export default function ProcurementHub() {
+  return (
+    <CapabilityGuard roles={["owner", "operator", "finance"]}>
+      <ProcurementHubInner />
+    </CapabilityGuard>
   );
 }

@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { OdooERPContent } from "@/pages/OdooERP";
 import { OdooMedusaBridgeContent } from "@/pages/OdooMedusaBridge";
@@ -7,7 +8,7 @@ import { OdooMedusaBridgeContent } from "@/pages/OdooMedusaBridge";
 // stock mapping, were two separate "Odoo-adjacent" nav items split across
 // different groups (Integrations vs. Commerce & Catalog). Both live under
 // Odoo here since neither is a daily merchant workflow.
-export default function OdooHub() {
+function OdooHubInner() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-4">
@@ -31,5 +32,13 @@ export default function OdooHub() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function OdooHub() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <OdooHubInner />
+    </CapabilityGuard>
   );
 }

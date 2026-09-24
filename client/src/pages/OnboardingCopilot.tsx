@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -48,7 +49,7 @@ import {
 
 const VALIDATION_STATES = new Set(["validating", "live", "failed"]);
 
-export default function OnboardingCopilot() {
+function OnboardingCopilotInner() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -347,5 +348,13 @@ export default function OnboardingCopilot() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function OnboardingCopilot() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <OnboardingCopilotInner />
+    </CapabilityGuard>
   );
 }

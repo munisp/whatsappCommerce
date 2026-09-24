@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -132,7 +133,7 @@ function IntegrationCard({ integration, onPing }: { integration: Integration; on
   );
 }
 
-export default function IntegrationHealth() {
+function IntegrationHealthInner() {
   const utils = trpc.useUtils();
   const [pinging, setPinging] = useState<string | null>(null);
 
@@ -316,5 +317,13 @@ export default function IntegrationHealth() {
       </div>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function IntegrationHealth() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <IntegrationHealthInner />
+    </CapabilityGuard>
   );
 }

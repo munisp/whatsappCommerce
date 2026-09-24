@@ -179,6 +179,46 @@ describe("DashboardLayout — a merchant (has a business)", () => {
     expect(html).toContain(">Payments<");
     expect(html).toContain(">Analytics BI<");
   });
+
+  it("Configuration and Integrations (requiresRoles) are owner/operator only", async () => {
+    state.tenantRole = "analyst";
+    const analystHtml = await render();
+    expect(analystHtml).not.toContain(">Tenant Settings<");
+    expect(analystHtml).not.toContain(">Integration Hub<");
+
+    state.tenantRole = "finance";
+    const financeHtml = await render();
+    expect(financeHtml).not.toContain(">Tenant Settings<");
+
+    state.tenantRole = "operator";
+    const operatorHtml = await render();
+    expect(operatorHtml).toContain(">Tenant Settings<");
+    expect(operatorHtml).toContain(">Integration Hub<");
+  });
+
+  it("Supply Chain (requiresRoles) admits owner/operator/finance, not analyst/catalog", async () => {
+    state.tenantRole = "finance";
+    const financeHtml = await render();
+    expect(financeHtml).toContain(">Supplier Directory<");
+
+    state.tenantRole = "catalog";
+    const catalogHtml = await render();
+    expect(catalogHtml).not.toContain(">Supplier Directory<");
+
+    state.tenantRole = "analyst";
+    const analystHtml = await render();
+    expect(analystHtml).not.toContain(">Supplier Directory<");
+  });
+
+  it("Loyalty & Rewards (requiresCapability catalog) admits catalog, not finance/analyst", async () => {
+    state.tenantRole = "catalog";
+    const catalogHtml = await render();
+    expect(catalogHtml).toContain(">Loyalty<");
+
+    state.tenantRole = "finance";
+    const financeHtml = await render();
+    expect(financeHtml).not.toContain(">Loyalty<");
+  });
 });
 
 describe("DashboardLayout — a platform admin", () => {

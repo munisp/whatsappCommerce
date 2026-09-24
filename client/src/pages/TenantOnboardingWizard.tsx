@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,7 +102,7 @@ interface ValidationCheck {
   detail?: string;
 }
 
-export default function TenantOnboardingWizard() {
+function TenantOnboardingWizardInner() {
   const { user, refresh } = useAuth();
   const [, navigate] = useLocation();
   const { activeTenantId, setActiveTenantId } = useActiveTenant();
@@ -1193,5 +1194,13 @@ export default function TenantOnboardingWizard() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function TenantOnboardingWizard() {
+  return (
+    <CapabilityGuard roles={["owner", "operator"]}>
+      <TenantOnboardingWizardInner />
+    </CapabilityGuard>
   );
 }
