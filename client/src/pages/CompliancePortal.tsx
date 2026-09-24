@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
-import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +13,7 @@ import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 
 
-function CompliancePortalInner() {
+export default function CompliancePortal() {
   const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [taxOpen, setTaxOpen] = useState(false);
   const [cacOpen, setCacOpen] = useState(false);
@@ -136,13 +135,5 @@ function CompliancePortalInner() {
         </Tabs>
       </div>
     </DashboardLayout>
-  );
-}
-
-export default function CompliancePortal() {
-  return (
-    <AdminGuard>
-      <CompliancePortalInner />
-    </AdminGuard>
   );
 }

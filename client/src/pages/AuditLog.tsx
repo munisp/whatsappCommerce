@@ -1,5 +1,4 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +29,7 @@ const INTENT_COLORS: Record<string, string> = {
 
 const PAGE_SIZE = 25;
 
-function AuditLogInner() {
+export default function AuditLog() {
   const [tenantId, setTenantId] = useState("");
   const [eventType, setEventType] = useState("all");
   const [search, setSearch] = useState("");
@@ -271,13 +270,5 @@ function AuditLogInner() {
         )}
       </div>
     </DashboardLayout>
-  );
-}
-
-export default function AuditLog() {
-  return (
-    <AdminGuard>
-      <AuditLogInner />
-    </AdminGuard>
   );
 }

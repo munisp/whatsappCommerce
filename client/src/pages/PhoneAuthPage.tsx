@@ -11,7 +11,6 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -563,7 +562,7 @@ function ArchitectureCard() {
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-function PhoneAuthPageInner() {
+export default function PhoneAuthPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-2xl">
@@ -584,10 +583,3 @@ function PhoneAuthPageInner() {
   );
 }
 
-export default function PhoneAuthPage() {
-  return (
-    <AdminGuard>
-      <PhoneAuthPageInner />
-    </AdminGuard>
-  );
-}

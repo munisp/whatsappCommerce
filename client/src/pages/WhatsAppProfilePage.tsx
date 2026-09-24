@@ -9,7 +9,6 @@
  */
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
-import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -581,7 +580,7 @@ function NotificationHistoryCard() {
   );
 }
 
-function WhatsAppProfilePageInner() {
+export default function WhatsAppProfilePage() {
   return (
     <DashboardLayout>
       <div className="space-y-6 max-w-2xl">
@@ -603,10 +602,3 @@ function WhatsAppProfilePageInner() {
   );
 }
 
-export default function WhatsAppProfilePage() {
-  return (
-    <AdminGuard>
-      <WhatsAppProfilePageInner />
-    </AdminGuard>
-  );
-}

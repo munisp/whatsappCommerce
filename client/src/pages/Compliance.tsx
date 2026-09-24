@@ -1,5 +1,4 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import { AdminGuard } from "@/components/AdminGuard";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -107,7 +106,7 @@ function fmtDate(s: string | null | undefined) {
   return Number.isNaN(d.getTime()) ? s : d.toLocaleString();
 }
 
-function ComplianceInner() {
+export default function Compliance() {
   const auditChain = complianceApi.verifyAuditChain.useQuery(undefined, {
     retry: false,
     refetchInterval: 60_000,
@@ -547,13 +546,5 @@ function ComplianceInner() {
         </Card>
       </div>
     </DashboardLayout>
-  );
-}
-
-export default function Compliance() {
-  return (
-    <AdminGuard>
-      <ComplianceInner />
-    </AdminGuard>
   );
 }
