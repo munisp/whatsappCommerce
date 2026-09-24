@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 // useRef kept for future canvas-based sparklines if needed
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -67,7 +68,7 @@ function POStatusBadge({ status }: { status: string }) {
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
-export default function HermesDashboard() {
+function HermesDashboardInner() {
   const { user } = useAuth();
   const tenantId = user?.tenantId ?? "";
 
@@ -492,5 +493,13 @@ export default function HermesDashboard() {
       </Tabs>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function HermesDashboard() {
+  return (
+    <AdminGuard>
+      <HermesDashboardInner />
+    </AdminGuard>
   );
 }

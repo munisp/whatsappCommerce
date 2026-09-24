@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,7 +61,7 @@ function downloadCsv(filename: string, rows: AuditRow[]) {
   URL.revokeObjectURL(url);
 }
 
-export default function AuditLogViewer() {
+function AuditLogViewerInner() {
   const { user } = useAuth();
   const [action, setAction] = useState<string>("all");
   const [from, setFrom] = useState("");
@@ -244,5 +245,13 @@ export default function AuditLogViewer() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function AuditLogViewer() {
+  return (
+    <AdminGuard>
+      <AuditLogViewerInner />
+    </AdminGuard>
   );
 }

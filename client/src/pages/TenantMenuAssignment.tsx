@@ -1,5 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -145,7 +146,7 @@ function AssignMenuDialog({ tenant, menus, onClose, onAssigned }: {
   );
 }
 
-export default function TenantMenuAssignment() {
+function TenantMenuAssignmentInner() {
   const [assignTarget, setAssignTarget] = useState<Tenant | null>(null);
   const utils = trpc.useUtils();
 
@@ -297,5 +298,13 @@ export default function TenantMenuAssignment() {
         />
       )}
     </DashboardLayout>
+  );
+}
+
+export default function TenantMenuAssignment() {
+  return (
+    <AdminGuard>
+      <TenantMenuAssignmentInner />
+    </AdminGuard>
   );
 }

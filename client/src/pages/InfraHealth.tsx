@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -353,7 +354,7 @@ const SERVICE_META: Record<string, { description: string; icon: string }> = {
   reconWorker: { description: "Financial reconciliation worker (Rust)", icon: "⚖️" },
 };
 
-export default function InfraHealth() {
+function InfraHealthInner() {
   const [tab, setTab] = useState("overview");
   const { data, isLoading, refetch, dataUpdatedAt } = trpc.infra.infraHealth.useQuery(undefined, {
     refetchInterval: 30_000,
@@ -449,5 +450,13 @@ export default function InfraHealth() {
       </Tabs>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function InfraHealth() {
+  return (
+    <AdminGuard>
+      <InfraHealthInner />
+    </AdminGuard>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -40,7 +41,7 @@ function StatCard({ title, value, sub, growth, loading }: {
   );
 }
 
-export default function TenantAnalytics() {
+function TenantAnalyticsInner() {
   const { user } = useAuth();
   const [days, setDays] = useState("30");
   const [tenantId, setTenantId] = useState<string>("");
@@ -233,5 +234,13 @@ export default function TenantAnalytics() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function TenantAnalytics() {
+  return (
+    <AdminGuard>
+      <TenantAnalyticsInner />
+    </AdminGuard>
   );
 }

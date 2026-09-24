@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -92,7 +93,7 @@ function SlaExtensionAllList() {
   );
 }
 
-export default function EscrowDashboard() {
+function EscrowDashboardInner() {
   const [stateFilter, setStateFilter] = useState<string>("all");
   const [configEditing, setConfigEditing] = useState(false);
   const [timelineEscrowId, setTimelineEscrowId] = useState<string | null>(null);
@@ -739,5 +740,13 @@ export default function EscrowDashboard() {
       </AlertDialogContent>
     </AlertDialog>
     </>
+  );
+}
+
+export default function EscrowDashboard() {
+  return (
+    <AdminGuard>
+      <EscrowDashboardInner />
+    </AdminGuard>
   );
 }

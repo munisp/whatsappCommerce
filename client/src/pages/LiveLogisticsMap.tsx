@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,7 +52,7 @@ const OSM_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
-export default function LiveLogisticsMap() {
+function LiveLogisticsMapInner() {
   // Delivery-zone ETAs are inherently per-tenant, so this map always shows
   // one tenant at a time — picked locally here, not a global sidebar concept.
   const { data: tenants } = trpc.tenant.list.useQuery({ limit: 100 });
@@ -306,5 +307,13 @@ export default function LiveLogisticsMap() {
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
+  );
+}
+
+export default function LiveLogisticsMap() {
+  return (
+    <AdminGuard>
+      <LiveLogisticsMapInner />
+    </AdminGuard>
   );
 }

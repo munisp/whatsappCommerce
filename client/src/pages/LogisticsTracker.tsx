@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-gray-100 text-gray-600",
@@ -29,7 +30,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-export default function LogisticsTracker() {
+function LogisticsTrackerInner() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [tenantFilter, setTenantFilter] = useState("all");
   const [simStatus, setSimStatus] = useState<Record<string, string>>({});
@@ -192,5 +193,13 @@ export default function LogisticsTracker() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function LogisticsTracker() {
+  return (
+    <AdminGuard>
+      <LogisticsTrackerInner />
+    </AdminGuard>
   );
 }

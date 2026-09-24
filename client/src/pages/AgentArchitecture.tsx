@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -220,7 +221,7 @@ const agentCapabilities = [
 ];
 
 // ─── Component ────────────────────────────────────────────────────────────────
-export default function AgentArchitecture() {
+function AgentArchitectureInner() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-8 max-w-6xl mx-auto">
@@ -394,5 +395,13 @@ export default function AgentArchitecture() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function AgentArchitecture() {
+  return (
+    <AdminGuard>
+      <AgentArchitectureInner />
+    </AdminGuard>
   );
 }

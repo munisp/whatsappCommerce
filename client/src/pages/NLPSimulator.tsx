@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Send, Bot, User, Globe, RefreshCw, ShoppingCart, Wifi, WifiOff, Signal, CloudOff, CloudUpload, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +33,7 @@ interface Message {
   confidence?: number;
 }
 
-export default function NLPSimulator() {
+function NLPSimulatorInner() {
   const [tenantId, setTenantId] = useState(DEMO_TENANTS[0].id);
   const [phone, setPhone] = useState("+2348012345678");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -457,5 +458,13 @@ export default function NLPSimulator() {
       </div>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function NLPSimulator() {
+  return (
+    <AdminGuard>
+      <NLPSimulatorInner />
+    </AdminGuard>
   );
 }

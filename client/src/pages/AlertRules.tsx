@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -243,7 +244,7 @@ function EditThresholdDialog({
   );
 }
 
-export default function AlertRules() {
+function AlertRulesInner() {
   const [showCreate, setShowCreate] = useState(false);
   const [editingRule, setEditingRule] = useState<AlertRuleRow | null>(null);
   const [activeTab, setActiveTab] = useState("rules");
@@ -549,5 +550,13 @@ export default function AlertRules() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function AlertRules() {
+  return (
+    <AdminGuard>
+      <AlertRulesInner />
+    </AdminGuard>
   );
 }

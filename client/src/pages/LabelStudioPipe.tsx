@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,7 +14,7 @@ import {
   ExternalLink, Info, Zap, Tag, BarChart3, Settings,
 } from "lucide-react";
 
-export default function LabelStudioPipe() {
+function LabelStudioPipeInner() {
   const [form, setForm] = useState({ labelStudioUrl: "", apiToken: "", projectId: "", projectName: "", autoExport: false });
   const [testing, setTesting] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -258,5 +259,13 @@ export default function LabelStudioPipe() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function LabelStudioPipe() {
+  return (
+    <AdminGuard>
+      <LabelStudioPipeInner />
+    </AdminGuard>
   );
 }

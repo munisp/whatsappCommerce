@@ -1,5 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -424,7 +425,7 @@ function ConfigurePanel({ integration, onClose }: { integration: typeof INTEGRAT
   );
 }
 
-export default function CredentialWizard() {
+function CredentialWizardInner() {
   const [configuring, setConfiguring] = useState<AnyIntegration | null>(null);
   const { data: twentyConfig } = trpc.twenty.getConfig.useQuery();
   const { data: odooConfig } = trpc.odoo.getConfig.useQuery();
@@ -487,5 +488,13 @@ export default function CredentialWizard() {
         <ConfigurePanel integration={configuring} onClose={() => setConfiguring(null)} />
       )}
     </DashboardLayout>
+  );
+}
+
+export default function CredentialWizard() {
+  return (
+    <AdminGuard>
+      <CredentialWizardInner />
+    </AdminGuard>
   );
 }

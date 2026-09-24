@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { trpc } from "@/lib/trpc";
@@ -46,7 +47,7 @@ const langColors: Record<string, string> = {
   TypeScript: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
 };
 
-export default function ServiceHealth() {
+function ServiceHealthInner() {
   const { data: health } = trpc.agent.health.useQuery();
   const { data: layerHealth, isLoading: layerLoading } = trpc.hermes.layerHealth.useQuery(
     undefined,
@@ -403,3 +404,11 @@ const INFRA_SERVICES: Array<{
   { key: "fluvio",      label: "Fluvio",       lang: "Rust",   desc: "Streaming event consumer — wacommerce.* topics → Node webhook",                color: "amber" },
   { key: "dapr",        label: "Dapr",         lang: "Go",     desc: "Sidecar runtime — pub/sub, state store, service invocation",                   color: "violet" },
 ];
+
+export default function ServiceHealth() {
+  return (
+    <AdminGuard>
+      <ServiceHealthInner />
+    </AdminGuard>
+  );
+}

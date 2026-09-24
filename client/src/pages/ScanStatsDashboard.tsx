@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ function AccuracyBar({ pct }: { pct: number }) {
   );
 }
 
-export default function ScanStatsDashboard() {
+function ScanStatsDashboardInner() {
   const [days, setDays] = useState(30);
   const { data: stats, isLoading, refetch } = trpc.visualInventory.scanStats.useQuery({ days });
 
@@ -278,5 +279,13 @@ export default function ScanStatsDashboard() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ScanStatsDashboard() {
+  return (
+    <AdminGuard>
+      <ScanStatsDashboardInner />
+    </AdminGuard>
   );
 }

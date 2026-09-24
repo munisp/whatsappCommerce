@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,7 +39,7 @@ const COMPONENT_META: Array<{
   { key: "tigerbeetle", label: "TigerBeetle", description: "Ledger-bridge /health probe", icon: Wallet },
 ];
 
-export default function HealthStatus() {
+function HealthStatusInner() {
   const [report, setReport] = useState<ReadinessReport | null>(null);
   const [httpStatus, setHttpStatus] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,5 +183,13 @@ export default function HealthStatus() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function HealthStatus() {
+  return (
+    <AdminGuard>
+      <HealthStatusInner />
+    </AdminGuard>
   );
 }

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -343,7 +344,7 @@ function DocumentUploadRow({
 }
 
 // ─── Main Wizard ──────────────────────────────────────────────────────────────
-export default function TenantOnboarding() {
+function TenantOnboardingInner() {
   // QA-043: the signed-in user's own business ("" until they have one). This page hard-coded "demo-tenant-id", so its KYC and
   // progress-email calls were refused (403) for every real tenant.
   const { activeTenantId } = useActiveTenant();
@@ -833,5 +834,13 @@ export default function TenantOnboarding() {
       </div>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function TenantOnboarding() {
+  return (
+    <AdminGuard>
+      <TenantOnboardingInner />
+    </AdminGuard>
   );
 }

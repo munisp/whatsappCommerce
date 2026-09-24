@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -109,7 +110,7 @@ function StepCard({ step, index }: { step: SimStep; index: number }) {
   );
 }
 
-export default function ReconciliationSim() {
+function ReconciliationSimInner() {
   const [provider, setProvider] = useState<"paystack" | "flutterwave" | "mojaloop">("paystack");
   const [amount, setAmount] = useState("5000");
   const [currency, setCurrency] = useState("NGN");
@@ -456,5 +457,13 @@ export default function ReconciliationSim() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ReconciliationSim() {
+  return (
+    <AdminGuard>
+      <ReconciliationSimInner />
+    </AdminGuard>
   );
 }

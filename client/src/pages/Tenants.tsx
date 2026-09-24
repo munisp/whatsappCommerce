@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +28,7 @@ const statusColors: Record<string, string> = {
   churned: "bg-gray-500/20 text-gray-400 border-gray-500/30",
 };
 
-export default function Tenants() {
+function TenantsInner() {
   const [, navigate] = useLocation();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: "", slug: "", plan: "starter" as const, defaultCurrency: "USD" });
@@ -168,5 +169,13 @@ export default function Tenants() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function Tenants() {
+  return (
+    <AdminGuard>
+      <TenantsInner />
+    </AdminGuard>
   );
 }

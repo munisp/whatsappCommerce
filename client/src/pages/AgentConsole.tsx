@@ -1,5 +1,6 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -16,7 +17,7 @@ const INTENT_TYPES = [
   { label: "Handoff", value: 3, color: "bg-red-500" },
 ];
 
-export default function AgentConsole() {
+function AgentConsoleInner() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const { data: stats } = trpc.agent.stats.useQuery({ tenantId: DEMO_TENANT });
   const { data: health } = trpc.agent.health.useQuery();
@@ -147,5 +148,13 @@ export default function AgentConsole() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function AgentConsole() {
+  return (
+    <AdminGuard>
+      <AgentConsoleInner />
+    </AdminGuard>
   );
 }

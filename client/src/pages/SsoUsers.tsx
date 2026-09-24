@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { AdminGuard } from "@/components/AdminGuard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +26,7 @@ function timeAgo(date: Date | string | null): string {
   return `${days}d ago`;
 }
 
-export default function SsoUsers() {
+function SsoUsersInner() {
   const [search, setSearch] = useState("");
 
   const { data, isLoading } = trpc.keycloak.listSsoProfiles.useQuery(
@@ -185,5 +186,13 @@ export default function SsoUsers() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function SsoUsers() {
+  return (
+    <AdminGuard>
+      <SsoUsersInner />
+    </AdminGuard>
   );
 }
