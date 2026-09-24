@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import type { EscrowDispute } from "../../../drizzle/schema";
 import { AlertTriangle, Download } from "lucide-react";
 
@@ -48,7 +49,7 @@ const RESOLUTION_LABELS: Record<string, string> = {
   no_action: "No Action",
 };
 
-export default function DisputeManagement() {
+function DisputeManagementInner() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [selected, setSelected] = useState<EscrowDispute | null>(null);
   const [resolution, setResolution] = useState<string>("full_release_to_merchant");
@@ -286,5 +287,13 @@ function EscalationTimer({ deadlineMs }: { deadlineMs: number }) {
       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
       <span>Escalation deadline: {remaining || new Date(deadlineMs).toLocaleString()}</span>
     </div>
+  );
+}
+
+export default function DisputeManagement() {
+  return (
+    <CapabilityGuard cap="orders">
+      <DisputeManagementInner />
+    </CapabilityGuard>
   );
 }

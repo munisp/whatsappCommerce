@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarketplacePortalContent } from "@/pages/MarketplacePortal";
 import { B2BPortalContent } from "@/pages/B2BPortal";
@@ -8,7 +9,7 @@ import { ServiceCommercePageContent } from "@/pages/ServiceCommercePage";
 // multi-seller marketplace, wholesale/B2B, and appointments/subscriptions/
 // digital goods. Each was a thin standalone page; grouped as siblings here
 // instead of three more top-level nav items.
-export default function SalesChannelsHub() {
+function SalesChannelsHubInner() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-4">
@@ -36,5 +37,13 @@ export default function SalesChannelsHub() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function SalesChannelsHub() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <SalesChannelsHubInner />
+    </CapabilityGuard>
   );
 }

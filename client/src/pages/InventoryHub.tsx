@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { InventorySyncContent } from "@/pages/InventorySync";
 import { VisualInventoryContent } from "@/pages/VisualInventory";
@@ -9,7 +10,7 @@ import { FmcgTaxonomyContent } from "@/pages/FmcgTaxonomy";
 // that feed that AI, and the product reference data that feeds its
 // autocomplete — four pages that were previously four separate top-level
 // nav items despite all converging on the same inventory data.
-export default function InventoryHub() {
+function InventoryHubInner() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-4">
@@ -41,5 +42,13 @@ export default function InventoryHub() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function InventoryHub() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <InventoryHubInner />
+    </CapabilityGuard>
   );
 }

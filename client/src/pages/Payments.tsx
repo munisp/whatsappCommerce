@@ -1,5 +1,6 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,7 +28,7 @@ const providerColors: Record<string, string> = {
   manual: "bg-gray-500/20 text-gray-400",
 };
 
-export default function Payments() {
+function PaymentsInner() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const { data: paymentList, isLoading } = trpc.payment.list.useQuery({
@@ -121,5 +122,13 @@ export default function Payments() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function Payments() {
+  return (
+    <CapabilityGuard cap="finance">
+      <PaymentsInner />
+    </CapabilityGuard>
   );
 }

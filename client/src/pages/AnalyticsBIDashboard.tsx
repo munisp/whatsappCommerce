@@ -1,12 +1,13 @@
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Users, AlertTriangle, BarChart2 } from "lucide-react";
 import { useActiveTenant } from "@/contexts/TenantContext";
 
 
-export default function AnalyticsBIDashboard() {
+function AnalyticsBIDashboardInner() {
   const { activeTenantId: TENANT_ID } = useActiveTenant();
   const { data: summary } = trpc.analyticsBI.biSummary.useQuery({ tenantId: TENANT_ID });
   const { data: cohorts } = trpc.analyticsBI.listCohorts.useQuery({ tenantId: TENANT_ID });
@@ -88,5 +89,13 @@ export default function AnalyticsBIDashboard() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function AnalyticsBIDashboard() {
+  return (
+    <CapabilityGuard cap="reports">
+      <AnalyticsBIDashboardInner />
+    </CapabilityGuard>
   );
 }

@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -32,7 +33,7 @@ function fmt(n: number) {
   return `₦${n.toLocaleString()}`;
 }
 
-export default function MerchantAnalytics() {
+function MerchantAnalyticsInner() {
   const [period, setPeriod] = useState<Period>("30d");
   const [compare, setCompare] = useState(false);
 
@@ -301,5 +302,13 @@ export default function MerchantAnalytics() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function MerchantAnalytics() {
+  return (
+    <CapabilityGuard cap="reports">
+      <MerchantAnalyticsInner />
+    </CapabilityGuard>
   );
 }

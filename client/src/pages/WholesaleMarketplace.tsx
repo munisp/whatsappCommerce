@@ -17,6 +17,7 @@ import { Plus, Search, Package } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 
 
 function fmt(cents: number, currency = "NGN") {
@@ -32,7 +33,7 @@ const statusColor = (s: string) =>
         ? "bg-red-100 text-red-800"
         : "bg-gray-100 text-gray-700";
 
-export default function WholesaleMarketplace() {
+function WholesaleMarketplaceInner() {
   const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [listingForm, setListingForm] = useState({
     title: "", description: "", category: "", moq: "1",
@@ -268,5 +269,13 @@ export default function WholesaleMarketplace() {
       </Tabs>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function WholesaleMarketplace() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <WholesaleMarketplaceInner />
+    </CapabilityGuard>
   );
 }

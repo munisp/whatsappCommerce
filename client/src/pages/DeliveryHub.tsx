@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +27,7 @@ function naira(cents: number) {
   return `₦${(cents / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function DeliveryHub() {
+function DeliveryHubInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const utils = trpc.useUtils();
   const { data: adapters } = trpc.deliveryAggregation.listAdapters.useQuery({ tenantId });
@@ -193,5 +194,13 @@ export default function DeliveryHub() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function DeliveryHub() {
+  return (
+    <CapabilityGuard cap="orders">
+      <DeliveryHubInner />
+    </CapabilityGuard>
   );
 }

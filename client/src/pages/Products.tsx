@@ -1,6 +1,7 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { useCapability } from "@/hooks/useCapability";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +20,7 @@ const statusColors: Record<string, string> = {
   archived: "bg-gray-500/20 text-gray-400 border-gray-500/30",
 };
 
-export default function Products() {
+function ProductsInner() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const { has: hasCapability } = useCapability();
   const canEditCatalog = hasCapability("catalog");
@@ -371,5 +372,13 @@ export default function Products() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function Products() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <ProductsInner />
+    </CapabilityGuard>
   );
 }

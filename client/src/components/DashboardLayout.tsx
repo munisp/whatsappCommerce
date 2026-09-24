@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { roleHasCapability, type Capability } from "@shared/capabilities";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,17 +67,21 @@ type NavGroup = {
   label: string;
   icon: React.ElementType;
   /**
-   * QA follow-up: tenant staff roles (owner/operator/analyst/finance/catalog,
-   * tenant_memberships.role — a different axis from adminOnly's platform
-   * role) had zero UI reflection anywhere; every role saw an identical
-   * sidebar. Catalog is the one role the tracker draws an explicit line for
-   * ("can edit Products/Inventory, not Payments/Finance") — hide this group
-   * for it. Deliberately narrow: analyst is documented as seeing the same
-   * pages as operator (its restriction is on write actions, not navigation),
-   * and finance's "editing rights elsewhere may be limited" has no clean
-   * per-group rule, so neither is touched here.
+   * QA follow-up (principle of least access): tenant staff roles
+   * (owner/operator/analyst/finance/catalog, tenant_memberships.role — a
+   * different axis from adminOnly's platform role) had zero UI reflection
+   * anywhere; every role saw an identical sidebar, and every page was
+   * reachable by direct URL regardless of role. Groups covering one of the
+   * server's 4 defined capabilities (shared/capabilities.ts: finance/
+   * catalog/orders/reports) are hidden from a role that doesn't hold it —
+   * matching CapabilityGuard, which is the real boundary on each of those
+   * groups' pages (hiding the link alone would not stop direct navigation).
+   * Groups outside that 4-capability model (Overview, Messaging, Supply
+   * Chain, Integrations, Configuration, Loyalty & Rewards) are left
+   * unrestricted — the server defines no capability boundary for them, so
+   * restricting them here would block something the server actually allows.
    */
-  hideForTenantRoles?: string[];
+  requiresCapability?: Capability;
   items: NavItem[];
 };
 
@@ -102,6 +107,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "commerce",
     label: "Commerce & Catalog",
     icon: ShoppingBag,
+    requiresCapability: "catalog",
     items: [
       { icon: Package,         label: "Products",        path: "/products" },
       { icon: Sparkles,        label: "Catalog AI Drafts", path: "/catalog-ai-drafts" },
@@ -146,6 +152,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "orders",
     label: "Orders & Fulfilment",
     icon: Truck,
+    requiresCapability: "orders",
     items: [
       { icon: BarChart3,       label: "Orders",          path: "/orders" },
       { icon: AlertTriangle,   label: "Disputes",        path: "/disputes" },
@@ -157,7 +164,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "finance",
     label: "Payments & Finance",
     icon: CreditCard,
-    hideForTenantRoles: ["catalog"],
+    requiresCapability: "finance",
     items: [
       { icon: CreditCard,      label: "Payments",        path: "/payments" },
       // adminOnly: escrow.getStats and seven revenue.* queries are platform-wide and admin-only — a merchant clicking these got a 403.
@@ -175,6 +182,7 @@ const TENANT_NAV_GROUPS: NavGroup[] = [
     id: "analytics",
     label: "Analytics",
     icon: BarChart3,
+    requiresCapability: "reports",
     items: [
       { icon: BarChart3,       label: "Analytics BI",    path: "/analytics-bi" },
       { icon: BarChart2,       label: "Merchant Analytics", path: "/portal/analytics" },
@@ -533,12 +541,18 @@ function DashboardLayoutContent({
     { enabled: !IS_PLATFORM_ADMIN && !setupOnly && !!activeTenantId },
   );
   const tenantRole = admin ? "owner" : (myRoleData?.role ?? null);
+  // Same capability map the server enforces (shared/capabilities.ts) — a
+  // group whose requiresCapability the caller's role doesn't hold is hidden.
+  // Still loading (tenantRole null but the query hasn't settled) shows
+  // everything rather than nothing, to avoid a flash of a near-empty sidebar.
+  const hasCapability = (cap: NavGroup["requiresCapability"]) =>
+    !cap || !tenantRole || roleHasCapability(tenantRole, cap);
 
   const visibleGroups = useMemo(() => {
     if (IS_PLATFORM_ADMIN) return PLATFORM_NAV_GROUPS;
     if (setupOnly) return [GET_STARTED_GROUP];
     return TENANT_NAV_GROUPS
-      .filter(g => !tenantRole || !g.hideForTenantRoles?.includes(tenantRole))
+      .filter(g => hasCapability(g.requiresCapability))
       .map(g => ({ ...g, items: g.items.filter(i => !i.adminOnly || admin) }))
       .filter(g => g.items.length > 0);
   }, [admin, setupOnly, tenantRole]);

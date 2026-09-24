@@ -1,5 +1,6 @@
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { Plus, FileText, CheckCircle, Clock, AlertTriangle, DollarSign, Send, CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ const STATUS_BADGE: Record<string, { label: string; variant: "default" | "second
   cancelled: { label: "Cancelled", variant: "outline" },
 };
 
-export default function Invoices() {
+function InvoicesInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({
@@ -193,5 +194,13 @@ export default function Invoices() {
       </Dialog>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function Invoices() {
+  return (
+    <CapabilityGuard cap="finance">
+      <InvoicesInner />
+    </CapabilityGuard>
   );
 }

@@ -3,6 +3,7 @@
 // expense records, digest opt-in, and tax-ready CSV/PDF export.
 import { useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +30,7 @@ function download(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-export default function PortalBookkeeping() {
+function PortalBookkeepingInner() {
   const [frequency, setFrequency] = useState<"daily" | "weekly">("weekly");
   const [from, setFrom] = useState(todayKey(-30));
   const [to, setTo] = useState(todayKey());
@@ -190,5 +191,13 @@ export default function PortalBookkeeping() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function PortalBookkeeping() {
+  return (
+    <CapabilityGuard cap="finance">
+      <PortalBookkeepingInner />
+    </CapabilityGuard>
   );
 }

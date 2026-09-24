@@ -1,5 +1,6 @@
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -22,7 +23,7 @@ const statusColors: Record<string, string> = {
   refunded: "bg-orange-500/20 text-orange-400 border-orange-500/30",
 };
 
-export default function Orders() {
+function OrdersInner() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
@@ -183,5 +184,13 @@ export default function Orders() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function Orders() {
+  return (
+    <CapabilityGuard cap="orders">
+      <OrdersInner />
+    </CapabilityGuard>
   );
 }

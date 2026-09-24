@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +25,7 @@ function Stars({ n }: { n: number }) {
   );
 }
 
-export default function ReviewsModeration() {
+function ReviewsModerationInner() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const utils = trpc.useUtils();
   const { data: summary } = trpc.reviews.summary.useQuery({ tenantId });
@@ -123,5 +124,13 @@ export default function ReviewsModeration() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function ReviewsModeration() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <ReviewsModerationInner />
+    </CapabilityGuard>
   );
 }

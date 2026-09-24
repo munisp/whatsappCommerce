@@ -7,6 +7,7 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -128,7 +129,7 @@ function DraftCard({ draft, tenantId, onChanged }: { draft: Draft; tenantId: str
   );
 }
 
-export default function CatalogAIDrafts() {
+function CatalogAIDraftsInner() {
   const { user } = useAuth();
   const [tenantId, setTenantId] = useState<string>("");
   const [status, setStatus] = useState<string>("pending_confirm");
@@ -188,5 +189,13 @@ export default function CatalogAIDrafts() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function CatalogAIDrafts() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <CatalogAIDraftsInner />
+    </CapabilityGuard>
   );
 }

@@ -143,6 +143,42 @@ describe("DashboardLayout — a merchant (has a business)", () => {
     const operatorHtml = await render();
     expect(operatorHtml).toContain(">Payments<");
   });
+
+  it("least-access: finance sees only Payments & Finance among the 4 capability-scoped groups", async () => {
+    state.tenantRole = "finance";
+    const html = await render();
+    expect(html).toContain(">Payments<"); // finance capability
+    expect(html).not.toContain(">Products<"); // catalog capability
+    expect(html).not.toContain(">Orders<"); // orders capability
+    expect(html).not.toContain(">Analytics BI<"); // reports capability
+  });
+
+  it("least-access: analyst sees only Analytics among the 4 capability-scoped groups", async () => {
+    state.tenantRole = "analyst";
+    const html = await render();
+    expect(html).toContain(">Analytics BI<"); // reports capability
+    expect(html).not.toContain(">Payments<"); // finance capability
+    expect(html).not.toContain(">Products<"); // catalog capability
+    expect(html).not.toContain(">Orders<"); // orders capability
+  });
+
+  it("operator sees catalog/orders/finance but not analytics (no reports capability)", async () => {
+    state.tenantRole = "operator";
+    const html = await render();
+    expect(html).toContain(">Products<");
+    expect(html).toContain(">Orders<");
+    expect(html).toContain(">Payments<");
+    expect(html).not.toContain(">Analytics BI<");
+  });
+
+  it("owner sees all 4 capability-scoped groups", async () => {
+    state.tenantRole = "owner";
+    const html = await render();
+    expect(html).toContain(">Products<");
+    expect(html).toContain(">Orders<");
+    expect(html).toContain(">Payments<");
+    expect(html).toContain(">Analytics BI<");
+  });
 });
 
 describe("DashboardLayout — a platform admin", () => {

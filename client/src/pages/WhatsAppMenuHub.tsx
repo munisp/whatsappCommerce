@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MenuBuilderContent } from "@/pages/MenuBuilder";
 import { WaMenuBuilderContent } from "@/pages/WaMenuBuilder";
@@ -9,7 +10,7 @@ import { WaMenuBuilderContent } from "@/pages/WaMenuBuilder";
 // (tenantConfig.waMenu). Same identical page title in both source files
 // made them look like duplicates — they aren't, so this groups them as
 // tabs of one destination instead of two confusingly-named nav items.
-export default function WhatsAppMenuHub() {
+function WhatsAppMenuHubInner() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-4">
@@ -33,5 +34,13 @@ export default function WhatsAppMenuHub() {
         </Tabs>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function WhatsAppMenuHub() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <WhatsAppMenuHubInner />
+    </CapabilityGuard>
   );
 }

@@ -9,6 +9,7 @@
  */
 import { useMemo, useState } from "react";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,7 +75,7 @@ function ScoreGauge({ score }: { score: number }) {
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
-export default function CreditDashboard() {
+function CreditDashboardInner() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
   const utils = trpc.useUtils();
@@ -381,5 +382,13 @@ export default function CreditDashboard() {
         </DialogContent>
       </Dialog>
     </DashboardLayout>
+  );
+}
+
+export default function CreditDashboard() {
+  return (
+    <CapabilityGuard cap="finance">
+      <CreditDashboardInner />
+    </CapabilityGuard>
   );
 }

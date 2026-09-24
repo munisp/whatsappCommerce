@@ -13,6 +13,7 @@ import { Users, Clock, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 
 
 function fmt(cents: number, currency = "NGN") {
@@ -36,7 +37,7 @@ const statusColor = (s: string) =>
         ? "bg-red-100 text-red-800"
         : "bg-gray-100 text-gray-700";
 
-export default function GroupDeals() {
+function GroupDealsInner() {
   const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [form, setForm] = useState({
     title: "", unitPriceCents: "", retailPriceCents: "", thresholdQty: "", deadlineHours: "72",
@@ -177,5 +178,13 @@ export default function GroupDeals() {
       )}
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function GroupDeals() {
+  return (
+    <CapabilityGuard cap="catalog">
+      <GroupDealsInner />
+    </CapabilityGuard>
   );
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import { useActiveTenant } from "@/contexts/TenantContext";
 
 const PROVIDERS = ["mtn_momo", "airtel_money", "mpesa", "orange_money", "wave"] as const;
 
-export default function MobileMoneyPortal() {
+function MobileMoneyPortalInner() {
   const { activeTenantId: TENANT_ID } = useActiveTenant();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ provider: "mtn_momo", phoneNumber: "", amount: "", currency: "NGN", description: "" });
@@ -78,5 +79,13 @@ export default function MobileMoneyPortal() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function MobileMoneyPortal() {
+  return (
+    <CapabilityGuard cap="finance">
+      <MobileMoneyPortalInner />
+    </CapabilityGuard>
   );
 }

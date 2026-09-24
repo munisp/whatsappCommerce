@@ -1,6 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { useCapability } from "@/hooks/useCapability";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,7 @@ function toISODate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-export default function MerchantWallet() {
+function MerchantWalletInner() {
   // Sourced from the session-derived tenant record (not the localStorage-backed
   // TenantContext switcher) — this page moves real money, so tenantId must
   // never be a stale/placeholder client-side value. See PortalDashboard.tsx
@@ -464,5 +465,13 @@ export default function MerchantWallet() {
       </Dialog>
     </div>
     </DashboardLayout>
+  );
+}
+
+export default function MerchantWallet() {
+  return (
+    <CapabilityGuard cap="finance">
+      <MerchantWalletInner />
+    </CapabilityGuard>
   );
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { CapabilityGuard } from "@/components/CapabilityGuard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,7 +61,7 @@ function money(n: number, currency = "NGN") {
   return `${currency === "NGN" ? "₦" : `${currency} `}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export default function CodBoard() {
+function CodBoardInner() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
   const utils = trpc.useUtils();
@@ -403,5 +404,13 @@ export default function CodBoard() {
         </Card>
       </div>
     </DashboardLayout>
+  );
+}
+
+export default function CodBoard() {
+  return (
+    <CapabilityGuard cap="orders">
+      <CodBoardInner />
+    </CapabilityGuard>
   );
 }
