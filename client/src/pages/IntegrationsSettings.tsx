@@ -27,6 +27,7 @@ import {
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
+import { TelegramSetupCard } from "@/components/TelegramSetupCard";
 import {
   Camera, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Plug, RefreshCw, ShoppingBag, XCircle,
 } from "lucide-react";
@@ -444,6 +445,7 @@ function IntegrationsSettingsInner() {
             <SystemCard key={s} tenantId={tenantId} system={s} />
           ))}
           <MetaCatalogCard tenantId={tenantId} />
+          <TelegramSetupCard tenantId={tenantId} />
           <VisualSearchCard tenantId={tenantId} />
         </div>
 

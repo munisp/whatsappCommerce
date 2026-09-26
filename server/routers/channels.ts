@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { router, protectedProcedure, internalProcedure, assertTenantAccess } from "../_core/trpc";
 // === W34 otel-core === traceparent propagation to ml-stack.
 import { injectTraceHeaders } from "../_core/telemetry";
@@ -263,6 +263,16 @@ export const channelsRouter = router({
     }),
 
   // ── Channel Message History ──────────────────────────────────────────────
+  //
+  // Found live 2026-09-26, aggressive dashboard QA sweep: `channelMessages` genuinely IS the real log for
+  // ussd/sms (`processUssd`/`processSms` above are real, wired-up webhook handlers) — but for whatsapp/telegram
+  // it's nearly empty. `processTelegram` in this same file is dead code (confirmed: zero references anywhere
+  // in the real webhook routing, `_core/index.ts` or `routers.ts`) — the ACTUAL live Telegram/WhatsApp
+  // pipeline (nlp.ts, telegramInbound.ts) never writes to `channelMessages` at all. Merges the real
+  // channelMessages rows (ussd/sms/instagram) with a synthesized row per `nlp_sessions` entry (one row per
+  // customer chat, most-recent-message-as-body — messageHistory has no per-message timestamp to give each
+  // historical message its own accurate row, so this is a deliberate, labeled simplification rather than
+  // fabricated per-message data) for whatsapp/telegram, which is where the real chat volume actually lives.
   listMessages: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
@@ -272,9 +282,53 @@ export const channelsRouter = router({
     .query(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
-      const conds = [eq(channelMessages.tenantId, input.tenantId)];
-      if (input.channel) conds.push(eq(channelMessages.channel, input.channel));
-      return db.select().from(channelMessages).where(and(...conds)).orderBy(desc(channelMessages.createdAt)).limit(input.limit);
+      const realChannels = ["sms", "ussd", "instagram", "email"] as const;
+      const wantsReal = !input.channel || (realChannels as readonly string[]).includes(input.channel);
+      const wantsSessions = !input.channel || input.channel === "whatsapp" || input.channel === "telegram";
+
+      const realRows = wantsReal
+        ? await (async () => {
+            const conds = [eq(channelMessages.tenantId, input.tenantId)];
+            if (input.channel) conds.push(eq(channelMessages.channel, input.channel));
+            else conds.push(inArray(channelMessages.channel, [...realChannels]));
+            return db.select().from(channelMessages).where(and(...conds)).orderBy(desc(channelMessages.createdAt)).limit(input.limit);
+          })()
+        : [];
+
+      const sessionRows = wantsSessions
+        ? await (async () => {
+            const { nlpSessions } = await import("../../drizzle/schema");
+            const sessions = await db.select().from(nlpSessions)
+              .where(eq(nlpSessions.tenantId, input.tenantId))
+              .orderBy(desc(nlpSessions.lastActivityAt))
+              .limit(input.limit);
+            return sessions
+              .map((s) => {
+                const channel = s.waPhoneNumber.startsWith("telegram:") ? "telegram" as const : "whatsapp" as const;
+                const rawAddress = channel === "telegram" ? s.waPhoneNumber.slice("telegram:".length) : s.waPhoneNumber;
+                const history = Array.isArray(s.messageHistory) ? s.messageHistory as Array<{ role?: string; content?: string }> : [];
+                const last = history[history.length - 1];
+                return {
+                  id: s.id,
+                  tenantId: s.tenantId,
+                  channel,
+                  direction: (last?.role === "assistant" ? "outbound" : "inbound") as "inbound" | "outbound",
+                  fromAddress: last?.role === "assistant" ? input.tenantId : rawAddress,
+                  toAddress: last?.role === "assistant" ? rawAddress : input.tenantId,
+                  body: last?.content ?? "",
+                  processed: true,
+                  metadata: null as unknown,
+                  nlpResponse: null as string | null,
+                  createdAt: s.lastActivityAt,
+                };
+              })
+              .filter((r) => !input.channel || r.channel === input.channel);
+          })()
+        : [];
+
+      return [...realRows, ...sessionRows]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, input.limit);
     }),
 
   // ── Channel Stats ────────────────────────────────────────────────────────
@@ -283,11 +337,23 @@ export const channelsRouter = router({
     .query(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
       const db = (await getDb())!;
-      const msgs = await db.select().from(channelMessages).where(eq(channelMessages.tenantId, input.tenantId));
+      const { nlpSessions } = await import("../../drizzle/schema");
+      const [msgs, sessions] = await Promise.all([
+        db.select().from(channelMessages).where(eq(channelMessages.tenantId, input.tenantId)),
+        db.select({ waPhoneNumber: nlpSessions.waPhoneNumber }).from(nlpSessions).where(eq(nlpSessions.tenantId, input.tenantId)),
+      ]);
       const byChannel: Record<string, number> = {};
+      // Real channelMessages rows — only genuinely populated for ussd/sms/instagram (see listMessages above).
       for (const m of msgs) {
+        if (m.channel === "whatsapp" || m.channel === "telegram") continue; // superseded by nlp_sessions below
         byChannel[m.channel] = (byChannel[m.channel] ?? 0) + 1;
       }
-      return { total: msgs.length, byChannel };
+      // whatsapp/telegram real volume comes from nlp_sessions (one conversation per row), not channelMessages.
+      for (const s of sessions) {
+        const channel = s.waPhoneNumber.startsWith("telegram:") ? "telegram" : "whatsapp";
+        byChannel[channel] = (byChannel[channel] ?? 0) + 1;
+      }
+      const total = Object.values(byChannel).reduce((sum, n) => sum + n, 0);
+      return { total, byChannel };
     }),
 });

@@ -78,7 +78,7 @@ afterEach(() => vi.unstubAllGlobals());
 describe("MedusaClient", () => {
   const cfg = { url: "https://medusa.example.com/", apiKey: "mk_secret", enabled: true };
 
-  it("upsertProduct (create) posts to /admin/products with Bearer auth and mapped body", async () => {
+  it("upsertProduct (create) posts to /admin/products with Basic auth and mapped body", async () => {
     const { calls } = stubFetchOnce({ product: { id: "prod_1" } });
     const client = new MedusaClient(cfg);
     const res = await client.upsertProduct(
@@ -89,7 +89,7 @@ describe("MedusaClient", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("https://medusa.example.com/admin/products");
     const headers = calls[0].init.headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("Bearer mk_secret");
+    expect(headers["Authorization"]).toBe("Basic mk_secret");
     const body = JSON.parse(String(calls[0].init.body));
     expect(body.title).toBe("Ankara Dress");
     expect(body.variants[0].sku).toBe("ANK-1");
@@ -106,8 +106,11 @@ describe("MedusaClient", () => {
     expect(calls[0].url).toBe("https://medusa.example.com/admin/products/prod_9");
   });
 
-  it("createDraftOrder maps items and metadata", async () => {
-    const { calls } = stubFetchOnce({ draft_order: { id: "do_1" } });
+  it("createDraftOrder resolves the region for the currency, then maps items and metadata", async () => {
+    const { calls } = stubFetchSequence([
+      { payload: { regions: [{ id: "reg_1", currency_code: "ngn" }] } }, // region lookup
+      { payload: { draft_order: { id: "do_1" } } }, // create
+    ]);
     const client = new MedusaClient(cfg);
     const res = await client.createDraftOrder(
       {
@@ -119,8 +122,10 @@ describe("MedusaClient", () => {
       FAST,
     );
     expect(res.id).toBe("do_1");
-    expect(calls[0].url).toBe("https://medusa.example.com/admin/draft-orders");
-    const body = JSON.parse(String(calls[0].init.body));
+    expect(calls[0].url).toBe("https://medusa.example.com/admin/regions?limit=100");
+    expect(calls[1].url).toBe("https://medusa.example.com/admin/draft-orders");
+    const body = JSON.parse(String(calls[1].init.body));
+    expect(body.region_id).toBe("reg_1");
     expect(body.items[0]).toEqual({ title: "Dress", quantity: 2, unit_price: 10 });
     expect(body.metadata.platformOrderId).toBe("ord_1");
   });
@@ -154,9 +159,9 @@ describe("TwentyClient", () => {
 
   it("upsertPerson searches by email then POSTs when not found", async () => {
     const { calls } = stubFetchSequence([
-      { payload: { data: [] } }, // email search: no match
-      { payload: { data: [] } }, // phone search: no match
-      { payload: { data: { id: "person_1" } } }, // create
+      { payload: { data: { people: [] } } }, // email search: no match
+      { payload: { data: { people: [] } } }, // phone search: no match
+      { payload: { data: { createPerson: { id: "person_1" } } } }, // create
     ]);
     const client = new TwentyClient(cfg);
     const res = await client.upsertPerson(
@@ -177,7 +182,7 @@ describe("TwentyClient", () => {
   });
 
   it("upsertPerson PATCHes when a match exists", async () => {
-    const { calls } = stubFetchSequence([{ payload: { data: [{ id: "p9" }] } }, { payload: {} }]);
+    const { calls } = stubFetchSequence([{ payload: { data: { people: [{ id: "p9" }] } } }, { payload: {} }]);
     const client = new TwentyClient(cfg);
     const res = await client.upsertPerson({ email: "x@y.z", firstName: "X" }, FAST);
     expect(res.id).toBe("p9");

@@ -421,6 +421,7 @@ describe("confirmProviderPayment credit_repayment hook", () => {
             })();
             const self: any = thenable(rows);
             self.limit = async () => rows;
+            self.for = async () => rows; // SELECT … FOR UPDATE (AF-01 order lock)
             return self;
           },
         }),
@@ -451,6 +452,8 @@ describe("confirmProviderPayment credit_repayment hook", () => {
       }),
       delete: () => ({ where: () => thenable([]) }),
       execute: async () => [],
+      // Single connection: a transaction just runs against the same fake.
+      transaction: async (fn: (tx: any) => Promise<any>) => fn(db),
     };
     return db;
   }

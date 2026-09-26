@@ -39,7 +39,7 @@ single `Ingress` (`k8s/ingress.yaml`) targets APISIX only. DNS egress goes to
 | temporal → temporal-db : 5432 | `POSTGRES_SEEDS=temporal-db` (`k8s/temporal-deployment.yaml`, compose) |
 | keycloak → keycloak-db : 5432 | `KC_DB_URL` (compose, `k8s/keycloak.yaml`) |
 | permify → permify-db : 5432 | `PERMIFY_DATABASE_URI` (`k8s/permify-deployment.yaml`, compose) |
-| temporal-worker → temporal/postgres/redis/platform | `services/temporal-workflows/worker.ts` env contract |
+| temporal-worker → temporal-frontend : 7233, server : 3000 | `services/temporal-workflows/worker.ts` env contract. It no longer touches postgres/redis directly: activities call the server's tRPC `internalProcedure` endpoints (`temporalInternal.*`) with `X-Internal-Token` = `INTERNAL_API_KEY`. |
 | hermes-router → kafka(ns) : 9092 / redis / 443 (Hermes cloud) | `rust/hermes-router/src/main.rs` config |
 | monitoring(ns) → apisix : 9091, hermes-router : 8096 | Prometheus scrape (`allow-prometheus-scrape`) |
 
@@ -81,7 +81,7 @@ requests+limits. Notes/exceptions:
 | ai-agent | `GET /health:8090` | `ai-agent/api/main.py` (`@app.get("/health")`) |
 | hermes-router | `GET /health:8096` | `rust/hermes-router/src/main.rs` route table |
 | temporal | tcpSocket :7233 | gRPC frontend; no HTTP health on 7233 |
-| **temporal-worker** | **none — honest gap** | `services/temporal-workflows/worker.ts` exposes **no HTTP endpoint** (pure gRPC poller). No probe is invented; liveness relies on process exit + restart. Consider adding a tiny `/healthz` listener. |
+| **temporal-worker** | `GET /healthz:8080` | `services/temporal-workflows/worker.ts` — 200 only while the poller is `RUNNING`, else 503 (so liveness means "actually polling", not "process is up"). Manifest: `k8s-tools/temporal-worker.yaml`. |
 | tigerbeetle | tcpSocket :3000 | binary protocol, no HTTP; deep health via ledger-bridge `/health` (`tigerbeetle.healthy`) and platform `/api/health/tigerbeetle` |
 | permify | `GET /healthz:3476` | compose healthcheck curls `:3476/healthz` |
 | keycloak | readiness `GET /health/ready:8080`, liveness `GET /health/live:8080` | `KC_HEALTH_ENABLED=true` (compose) |

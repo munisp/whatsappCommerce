@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { AlertTriangle, CheckCircle2, Download, ImageIcon, Package, Pencil, Plus, RefreshCw, TrendingUp, Upload, X, XCircle } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
@@ -27,7 +27,22 @@ function ProductsInner() {
   const canEditCatalog = hasCapability("catalog");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", stockQuantity: 0, imageUrl: "" });
+  // QA follow-up: this form used to omit currency entirely, so every product silently got the server's Zod
+  // default (USD) regardless of the merchant's actual country — the "Price (NGN)" label below was a promise the
+  // form never kept. Now explicit and editable, defaulting to NGN (this platform's primary market).
+  const [form, setForm] = useState({ sku: "", name: "", description: "", category: "", price: "", currency: "NGN", stockQuantity: 0, imageUrl: "" });
+  // Found live 2026-09-26 (user: "everything should be naira"): the "NGN" default above was a hardcoded
+  // literal, not actually derived from the tenant's own configured currency (Settings → Commerce →
+  // Currency, now wired to tenants.defaultCurrency — see tenantConfig.ts's setCommerceConfig). Once a
+  // merchant sets their real currency there, new products should default to it, not to a value this file
+  // happens to hardcode.
+  const { data: myTenant } = trpc.tenant.myTenant.useQuery();
+  useEffect(() => {
+    if (open && myTenant?.currency) {
+      setForm((f) => ({ ...f, currency: myTenant.currency }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, myTenant?.currency]);
   const [uploadingImage, setUploadingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const uploadImageMutation = trpc.medusaOnboarding.uploadImage.useMutation();
@@ -77,7 +92,7 @@ function ProductsInner() {
   // QA follow-up: there was no way to edit an existing product at all —
   // product.update existed server-side, nothing on this page ever called it.
   const [editingProduct, setEditingProduct] = useState<{
-    id: string; name: string; category: string; price: string; stockQuantity: number; status: "active" | "inactive" | "archived";
+    id: string; name: string; category: string; price: string; currency: string; stockQuantity: number; status: "active" | "inactive" | "archived";
   } | null>(null);
   const updateMutation = trpc.product.update.useMutation({
     onSuccess: () => { toast.success("Product updated"); setEditingProduct(null); refetch(); },
@@ -275,13 +290,28 @@ function ProductsInner() {
                   {[
                     { key: "sku", label: "SKU", placeholder: "PROD-001" },
                     { key: "name", label: "Name", placeholder: "Product Name" },
-                    { key: "price", label: "Price (NGN)", placeholder: "1500.00" },
                   ].map((f) => (
                     <div key={f.key} className="space-y-1">
                       <Label>{f.label}</Label>
                       <Input value={(form as any)[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} className="bg-input border-border" />
                     </div>
                   ))}
+                  <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <div className="space-y-1">
+                      <Label>Price</Label>
+                      <Input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} placeholder="1500.00" className="bg-input border-border" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Currency</Label>
+                      <Input
+                        value={form.currency}
+                        onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase().slice(0, 3) })}
+                        placeholder="NGN"
+                        maxLength={3}
+                        className={`w-20 font-mono uppercase bg-input border-border ${/^[A-Z]{3}$/.test(form.currency) ? "" : "border-destructive"}`}
+                      />
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     <Label>Category</Label>
                     <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
@@ -321,7 +351,11 @@ function ProductsInner() {
                     )}
                     <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImageFileChange} />
                   </div>
-                  <Button className="w-full bg-primary text-primary-foreground" onClick={() => createMutation.mutate({ tenantId: DEMO_TENANT, ...form, imageUrl: form.imageUrl || undefined })} disabled={createMutation.isPending}>
+                  <Button
+                    className="w-full bg-primary text-primary-foreground"
+                    onClick={() => createMutation.mutate({ tenantId: DEMO_TENANT, ...form, imageUrl: form.imageUrl || undefined })}
+                    disabled={createMutation.isPending || !/^[A-Z]{3}$/.test(form.currency)}
+                  >
                     {createMutation.isPending ? "Creating..." : "Create Product"}
                   </Button>
                 </div>
@@ -397,7 +431,7 @@ function ProductsInner() {
                         disabled={!canEditCatalog}
                         title={canEditCatalog ? "Edit product" : "Your role doesn't have the catalog capability"}
                         onClick={() => setEditingProduct({
-                          id: p.id, name: p.name, category: p.category ?? "", price: String(p.price), stockQuantity: p.stockQuantity, status: p.status,
+                          id: p.id, name: p.name, category: p.category ?? "", price: String(p.price), currency: p.currency, stockQuantity: p.stockQuantity, status: p.status,
                         })}
                       >
                         <Pencil className="w-4 h-4 text-muted-foreground hover:text-foreground" />
@@ -436,13 +470,24 @@ function ProductsInner() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1">
-                <Label>Price (NGN)</Label>
-                <Input
-                  value={editingProduct.price}
-                  onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })}
-                  className="bg-input border-border"
-                />
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <div className="space-y-1">
+                  <Label>Price</Label>
+                  <Input
+                    value={editingProduct.price}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, price: e.target.value })}
+                    className="bg-input border-border"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Currency</Label>
+                  <Input
+                    value={editingProduct.currency}
+                    onChange={(e) => setEditingProduct({ ...editingProduct, currency: e.target.value.toUpperCase().slice(0, 3) })}
+                    maxLength={3}
+                    className={`w-20 font-mono uppercase bg-input border-border ${/^[A-Z]{3}$/.test(editingProduct.currency) ? "" : "border-destructive"}`}
+                  />
+                </div>
               </div>
               <div className="space-y-1">
                 <Label>Stock Quantity</Label>
@@ -466,7 +511,7 @@ function ProductsInner() {
               </div>
               <Button
                 className="w-full bg-primary text-primary-foreground"
-                disabled={updateMutation.isPending}
+                disabled={updateMutation.isPending || !/^[A-Z]{3}$/.test(editingProduct.currency)}
                 onClick={() => updateMutation.mutate({ tenantId: DEMO_TENANT, ...editingProduct })}
               >
                 {updateMutation.isPending ? "Saving..." : "Save Changes"}

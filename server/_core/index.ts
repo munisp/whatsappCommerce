@@ -18,6 +18,8 @@ import { runRecoverySweeps, sweepEndpointAuth, sweepIntervalMinutes } from "./re
 import { registerGracefulShutdown } from "./gracefulShutdown";
 import { WebSocketServer, WebSocket } from "ws";
 import { sdk } from "./sdk";
+import { COOKIE_NAME } from "@shared/const";
+import { parse as parseCookieHeader } from "cookie";
 import { getDb } from "../db";
 import { inventorySnapshots, invoices } from "../../drizzle/schema";
 import { runInventorySyncHeartbeat } from "../services/inventorySync";
@@ -1392,6 +1394,12 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  // AF-04: req.ip must be the real client behind our own proxies, never a
+  // client-written X-Forwarded-For entry (see trustProxySetting).
+  {
+    const { trustProxySetting } = await import("../services/rateLimit");
+    app.set("trust proxy", trustProxySetting());
+  }
 
   // === W34 otel-core === lazy, fail-open OTel bootstrap. Activated only when
   // OTEL_ENABLED=true; init failure warns and continues (requests unaffected).
@@ -1599,15 +1607,18 @@ async function startServer() {
     app.use(createEdgeRateLimitMiddleware());
   }
 
-  // ── Redis-backed per-tenant rate limiting ─────────────────────────────────
-  // 200 req/min per tenant (identified by X-Tenant-Id header or JWT sub)
+  // ── Redis-backed per-caller rate limiting ─────────────────────────────────
+  // 200 req/min per signed-in user (verified session cookie), else per client
+  // IP. AF-04: this used to key on the client-supplied X-Tenant-Id header
+  // (rotatable → unlimited) and otherwise on req.ip, which without
+  // `trust proxy` was the gateway pod — one bucket shared by every user.
   app.use("/api/trpc", async (req: any, res: any, next: any) => {
     const { checkRateLimit } = await import("./rateLimit");
-    const tenantKey = req.headers["x-tenant-id"] as string
-      ?? (req.user as any)?.tenantId
-      ?? req.ip
-      ?? "anon";
-    const windowKey = `rl:trpc:${tenantKey}:${Math.floor(Date.now() / 60000)}`;
+    const { clientIp } = await import("../services/rateLimit");
+    const sessionCookie = req.headers.cookie ? parseCookieHeader(req.headers.cookie)[COOKIE_NAME] : undefined;
+    const session = sessionCookie ? await sdk.verifySession(sessionCookie) : null;
+    const callerKey = session ? `user:${session.openId}` : `ip:${clientIp(req)}`;
+    const windowKey = `rl:trpc:${callerKey}:${Math.floor(Date.now() / 60000)}`;
     // checkRateLimit treats an unreachable Redis as a FAILURE (never count=0):
     // production fails CLOSED (503), dev/test fails OPEN with a warning.
     const decision = await checkRateLimit(windowKey, 200, 60, isProd);
@@ -2390,13 +2401,10 @@ async function startServer() {
       }
       // === W39 PAY-8: dispute / refund-status events (previously bare-200'd) ===
       if (typeof payload.event === "string" && payload.event.startsWith("charge.dispute")) {
-        const { recordPspDispute } = await import("../services/payments/disputes");
+        const { recordPspDispute, paystackDisputeStatus } = await import("../services/payments/disputes");
         const d = payload.data ?? {};
         const reference = (d.transaction?.reference ?? d.reference ?? null) as string | null;
-        const resolution = String(d.resolution ?? d.status ?? "").toLowerCase();
-        const status = payload.event === "charge.dispute.resolve"
-          ? (resolution.includes("won") ? "won" : resolution.includes("lost") || resolution.includes("accepted") ? "lost" : "lost")
-          : "open";
+        const status = paystackDisputeStatus(payload.event, d.resolution ?? d.status);
         const result = await recordPspDispute(db, {
           provider: "paystack",
           providerRef: reference ?? "unknown",
@@ -3136,8 +3144,8 @@ async function startServer() {
       // W30 (V2#6): fixed-window rate limit per calling gateway IP.
       const { checkRateLimit } = await import("./rateLimit");
       const { isProd } = await import("./env");
-      const ip = (req.headers["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
-      const decision = await checkRateLimit(`ussd:${ip}`, 60, 60, isProd);
+      const { clientIp } = await import("../services/rateLimit");
+      const decision = await checkRateLimit(`ussd:${clientIp(req)}`, 60, 60, isProd);
       if (!decision.allowed) {
         res.status(429).set("Retry-After", String(decision.retryAfter));
         return res.send("END Too many requests. Please try again later.");

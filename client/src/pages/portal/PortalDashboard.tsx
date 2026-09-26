@@ -15,7 +15,7 @@ function formatNGN(val: string | number | null | undefined) {
 }
 
 function KpiCard({ title, value, icon: Icon, sub, color = "emerald" }: {
-  title: string; value: string | number; icon: any; sub?: string; color?: string;
+  title: string; value: React.ReactNode; icon: any; sub?: React.ReactNode; color?: string;
 }) {
   return (
     <Card className="bg-slate-800 border-slate-700">
@@ -104,10 +104,44 @@ export default function PortalDashboard() {
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             <Link href="/portal/wallet">
-              <KpiCard title="Wallet Balance" value={formatNGN(wallet?.availableBalance)} icon={Wallet} sub="available to withdraw" color="emerald" />
+              <KpiCard
+                title="Wallet Balance"
+                value={formatNGN(wallet?.availableBalance)}
+                icon={Wallet}
+                // Found live 2026-09-26 (user: "the order that just came in didn't go to wallet"): a
+                // confirmed order's payment DOES land in the wallet the moment it's paid — but into
+                // escrowBalance, not availableBalance (money only becomes withdrawable after delivery is
+                // confirmed — that's the whole point of escrow). This card showed ONLY availableBalance
+                // with no mention of escrow at all, so a merchant watching it after a real order had no
+                // way to tell the money was tracked, held, and safe rather than simply missing.
+                sub={
+                  wallet && parseFloat(wallet.escrowBalance) > 0
+                    ? `available to withdraw · ${formatNGN(wallet.escrowBalance)} held in escrow`
+                    : "available to withdraw"
+                }
+                color="emerald"
+              />
             </Link>
             <KpiCard title="Total Orders" value={kpis?.orders ?? 0} icon={ShoppingCart} sub="paid orders" />
-            <KpiCard title="Revenue" value={`$${(kpis?.revenue ?? 0).toLocaleString()}`} icon={DollarSign} sub="all-time" color="yellow" />
+            <KpiCard
+              title="Revenue"
+              // Found live 2026-09-26 (user: "i still see dollars here"): hardcoded "$" regardless of the
+              // order's real currency — the same bug already fixed on the admin Orders page (QA-056
+              // BUG-06) and the main Dashboard, just a THIRD, independent copy of the same revenue query
+              // (server/routers/tenantPortal.ts's own getDashboardKpis, not db.ts's getOrderStats).
+              value={
+                kpis && kpis.revenueByCurrency.length > 0 ? (
+                  <span className="space-x-2">
+                    {kpis.revenueByCurrency.map((r) => (
+                      <span key={r.currency}>{r.currency} {r.amount.toLocaleString()}</span>
+                    ))}
+                  </span>
+                ) : "0"
+              }
+              icon={DollarSign}
+              sub="all-time"
+              color="yellow"
+            />
             <KpiCard title="Conversations" value={kpis?.conversations ?? 0} icon={MessageSquare} sub="all channels" color="blue" />
             <KpiCard title="Customers" value={kpis?.customers ?? 0} icon={Users} sub="registered" color="purple" />
             <KpiCard title="Pending Invoices" value={kpis?.pendingInvoices ?? 0} icon={FileText} sub="awaiting payment" color="orange" />
@@ -130,7 +164,9 @@ export default function PortalDashboard() {
                       <p className="text-xs text-slate-400">{new Date(order.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-white">${Number(order.totalAmount).toLocaleString()}</p>
+                      {/* Found live 2026-09-26: hardcoded "$" regardless of order.currency — same fix as
+                          the admin Orders table's per-row display. */}
+                      <p className="text-sm font-semibold text-white">{order.currency} {Number(order.totalAmount).toLocaleString()}</p>
                       <Badge variant="outline" className="text-xs border-slate-600 text-slate-300">{order.status}</Badge>
                     </div>
                   </div>

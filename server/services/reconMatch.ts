@@ -194,6 +194,16 @@ export async function matchSettlement(db: Db, s: SettlementInput): Promise<Settl
     },
   });
   if (!result.ok && result.action !== "already-completed") {
+    // AF-01: settled money for an order that can no longer take it is
+    // quarantined (+ refund attempted) like a PSP webhook, never left silent.
+    const { runPaymentMismatchQuarantineHook } = await import("./payments/paymentMismatchQuarantine");
+    await runPaymentMismatchQuarantineHook(db, {
+      provider: tx.provider ?? "recon",
+      reference: tx.providerRef,
+      result,
+      amountMajor: s.amount,
+      currency: tx.currency ?? order.currency,
+    });
     return { ...base, outcome: "error", orderId: order.id, detail: result.action };
   }
 

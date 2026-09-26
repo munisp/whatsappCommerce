@@ -1,0 +1,87 @@
+# Local, in-cluster LLM — see ollama-pvc.yaml for why. Single replica (a shared model server, not something that
+# needs to scale horizontally in a dev/QA cluster) with the model directory on a PVC so a restart doesn't re-pull.
+#
+# Every server/*.ts invokeLLM() call site that sets an explicit model uses the literal string "gpt-5-mini"
+# (verified: `grep -rn "invokeLLM(" server --include=*.ts | grep -oP 'model:\s*"[^"]+"' | sort -u` returns exactly
+# one match, repo-wide) — rather than touch that application code, the pulled model is ALIASED to "gpt-5-mini"
+# inside Ollama (`ollama cp <real-model> gpt-5-mini`, a one-time post-deploy step, not part of this manifest) so
+# server/routers/nlp.ts's hardcoded `model: "gpt-5-mini"` resolves without any code change.
+#
+# NOT flux-managed (Flux is suspended on this cluster — see the "Live cluster state" note in project memory):
+# applied directly with `kubectl apply -f`, same as every other hand-shipped piece of this dev cluster. Kept here
+# for documentation/reproducibility, not because Flux will ever reconcile it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/instance: ollama
+    app.kubernetes.io/name: ollama
+  name: ollama
+  namespace: ollama
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  strategy:
+    # Recreate, not RollingUpdate: two Ollama replicas would each try to bind the same PVC (ReadWriteOnce) — with
+    # a single replica, RollingUpdate's surge pod would just hang Pending forever waiting for the volume.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: ollama
+      app.kubernetes.io/name: ollama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: ollama
+        app.kubernetes.io/name: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+              name: port-11434
+              protocol: TCP
+          env:
+            # Keep the model resident between requests — this is a low-traffic dev/QA bot, not worth reloading a
+            # multi-GB model from disk on every idle gap.
+            - name: OLLAMA_KEEP_ALIVE
+              value: "24h"
+          volumeMounts:
+            - name: models
+              mountPath: /root/.ollama
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 12Gi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: ollama-models
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30

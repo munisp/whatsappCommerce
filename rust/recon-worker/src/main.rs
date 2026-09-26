@@ -161,6 +161,15 @@ enum VoidClassification {
     Retry,
 }
 
+/// AF-05: a completed intent with no `ledgerPendingId` is still ledger-tracked
+/// when the server settled it with direct single-phase legs and recorded that
+/// in `metadata.ledgerSettle.mode = "direct"` (server/services/paymentConfirm.ts
+/// settleIntentLedger). Without this, every such intent — e.g. every wallet
+/// top-up — raised "completed without ledger tracking" on every pass.
+fn settled_by_direct_legs(mode: Option<&str>) -> bool {
+    mode == Some("direct")
+}
+
 fn classify_void_status(status: Option<u16>) -> VoidClassification {
     match status {
         Some(s) if (200..300).contains(&s) => VoidClassification::Voided,
@@ -266,7 +275,8 @@ async fn run_recon(state: &AppState) -> ReconResult {
                 let rows = client.query(
                     r#"SELECT id::text, "tenantId", "orderId",
                               CAST(amount AS float8) as amount,
-                              status::text AS status, "ledgerPendingId"
+                              status::text AS status, "ledgerPendingId",
+                              metadata->'ledgerSettle'->>'mode' AS ledger_settle_mode
                        FROM payment_intents
                        WHERE status IN ('completed', 'failed')
                          AND "createdAt" > NOW() - INTERVAL '24 hours'
@@ -280,13 +290,13 @@ async fn run_recon(state: &AppState) -> ReconResult {
                         for row in &rows {
                             // A row we cannot decode must surface as an alert
                             // (we could not verify it), never crash the run.
-                            let parsed: Result<(String, String, f64, String, Option<String>), _> = (|| {
+                            let parsed: Result<(String, String, f64, String, Option<String>, Option<String>), _> = (|| {
                                 Ok::<_, tokio_postgres::Error>((
                                     row.try_get(0)?, row.try_get(1)?, row.try_get(3)?,
-                                    row.try_get(4)?, row.try_get(5)?,
+                                    row.try_get(4)?, row.try_get(5)?, row.try_get(6)?,
                                 ))
                             })();
-                            let (id, tenant_id, amount, status, ledger_id) = match parsed {
+                            let (id, tenant_id, amount, status, ledger_id, settle_mode) = match parsed {
                                 Ok(v) => v,
                                 Err(e) => {
                                     error!(run_id = %run_id, error = %e, "unparseable payment_intents row");
@@ -345,6 +355,11 @@ async fn run_recon(state: &AppState) -> ReconResult {
                                             });
                                         }
                                     }
+                                } else if settled_by_direct_legs(settle_mode.as_deref()) {
+                                    // AF-05: no two-phase reservation, but the
+                                    // server posted the direct settle legs and
+                                    // stamped metadata.ledgerSettle — tracked.
+                                    matched += 1;
                                 } else {
                                     // Completed payment with no ledger ID
                                     alerts.push(ReconAlert {
@@ -759,6 +774,14 @@ async fn require_internal_key(State(state): State<AppState>, req: Request, next:
 // ─── Tests ────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn direct_leg_settlement_counts_as_tracked() {
+        assert!(super::settled_by_direct_legs(Some("direct")));
+        assert!(!super::settled_by_direct_legs(None));
+        assert!(!super::settled_by_direct_legs(Some("")));
+        assert!(!super::settled_by_direct_legs(Some("pending")));
+    }
+
     use super::*;
 
     /// Void-response classification contract:

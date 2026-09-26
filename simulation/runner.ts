@@ -608,6 +608,26 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j465-referral-guards"),
     import("./journeys/j466-onboarding-p2-hardening"),
     // === W47 crosscutting END ===
+    // === Temporal worker ⇄ platform contract (real HTTP + real DB) ===
+    import("./journeys/j467-temporal-worker-platform"),
+    import("./journeys/j468-temporal-enable-gate"),
+    import("./journeys/j469-telegram-default-off"),
+    import("./journeys/j470-telegram-setup-card"),
+    import("./journeys/j471-telegram-whatsapp-parity"),
+    import("./journeys/j472-late-payment-dead-order"),
+    import("./journeys/j473-unified-webhook-quarantine"),
+    import("./journeys/j474-wallet-topup-ledger-tracked"),
+    import("./journeys/j475-escrow-hold-atomic-heal"),
+    import("./journeys/j476-telegram-start-shows-menu"),
+    import("./journeys/j477-telegram-order-and-pay"),
+    import("./journeys/j478-deterministic-order-llm-down"),
+    import("./journeys/j479-telegram-delivery-location-request"),
+    import("./journeys/j480-cart-shortage-recovery"),
+    import("./journeys/j481-session-language-self-correct"),
+    import("./journeys/j482-support-handoff-contact-line"),
+    import("./journeys/j483-deterministic-first-routing"),
+    import("./journeys/j484-deterministic-dispute-routing"),
+    import("./journeys/j485-wallet-currency-mismatch-refused"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

@@ -128,7 +128,7 @@ async function releaseIdempotencyLock(key: string) {
 // looks durable, isn't) — strictly worse. Until a real payment-saga workflow+worker exist, guard the
 // attempt the same way onboarding.ts guards its own Temporal call: skip cleanly when unconfigured,
 // rather than pay a doomed connection timeout on every real payment.
-async function triggerPaymentSaga(workflowId: string, input: {
+export async function triggerPaymentSaga(workflowId: string, input: {
   paymentIntentId: string;
   tenantId: string;
   amount: number;
@@ -138,6 +138,13 @@ async function triggerPaymentSaga(workflowId: string, input: {
 }) {
   if (!process.env.TEMPORAL_ADDRESS) {
     return { started: false, error: "not_configured" };
+  }
+  // Having an address is not enough: paymentSagaWorkflow has no implementation on any worker, so
+  // starting it would queue a workflow that never runs. Opt in via TEMPORAL_ENABLED_WORKFLOWS
+  // only once a real saga + worker exist.
+  const { temporalWorkflowEnabled } = await import("../temporal");
+  if (!temporalWorkflowEnabled("paymentSagaWorkflow")) {
+    return { started: false, error: "not_enabled" };
   }
   try {
     const { Client, Connection } = await import("@temporalio/client");

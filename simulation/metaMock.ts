@@ -136,10 +136,13 @@ class LlmMockState {
   };
   /** Every completion request (for debugging/assertions). */
   calls: Array<{ userText: string; body: any }> = [];
+  /** When true, an LLM call throws (simulates a network error) instead of answering — for testing the deterministic fallback. */
+  forceNetworkError = false;
 
   reset() {
     this.rules = [];
     this.calls = [];
+    this.forceNetworkError = false;
   }
 
   when(match: LlmRule["match"], respond: LlmRule["respond"]) {
@@ -352,6 +355,12 @@ export const tg = {
   files: new Map<string, string>(),
   /** Scripted file download bytes per file_path. */
   fileBytes: new Map<string, Buffer>(),
+  /** The bot getMe answers with (settings-card journeys). */
+  bot: { id: 123456789, username: "simstore_bot", firstName: "Sim Store Bot" },
+  /** Tokens Telegram "does not know": every method answers 401 Unauthorized for them. */
+  invalidTokens: new Set<string>(),
+  /** What setWebhook recorded, and what getWebhookInfo reports back. */
+  webhook: { url: "", secretToken: "", pending: 0, lastError: null as string | null },
   scriptFile(fileId: string, filePath: string, bytes: Buffer): void {
     this.files.set(fileId, filePath);
     this.fileBytes.set(filePath, bytes);
@@ -363,12 +372,37 @@ export const tg = {
     this.calls.length = 0;
     this.files.clear();
     this.fileBytes.clear();
+    this.bot = { id: 123456789, username: "simstore_bot", firstName: "Sim Store Bot" };
+    this.invalidTokens.clear();
+    this.webhook = { url: "", secretToken: "", pending: 0, lastError: null };
   },
 };
 
 function handleTelegram(token: string, method: string, bodyText: string | null): Response {
   const body = parseJsonSafe(bodyText) ?? {};
   tg.calls.push({ token, method, body });
+  if (tg.invalidTokens.has(token)) {
+    return jsonResponse({ ok: false, error_code: 401, description: "Unauthorized" }, 401);
+  }
+  if (method === "getMe") {
+    return jsonResponse({ ok: true, result: { id: tg.bot.id, is_bot: true, first_name: tg.bot.firstName, username: tg.bot.username } });
+  }
+  if (method === "setWebhook") {
+    tg.webhook.url = String(body.url ?? "");
+    tg.webhook.secretToken = String(body.secret_token ?? "");
+    return jsonResponse({ ok: true, result: true, description: "Webhook was set" });
+  }
+  if (method === "getWebhookInfo") {
+    return jsonResponse({
+      ok: true,
+      result: {
+        url: tg.webhook.url,
+        has_custom_certificate: false,
+        pending_update_count: tg.webhook.pending,
+        ...(tg.webhook.lastError ? { last_error_message: tg.webhook.lastError, last_error_date: 1788000000 } : {}),
+      },
+    });
+  }
   if (method === "getFile") {
     const fileId = String(body.file_id ?? "");
     const filePath = tg.files.get(fileId);
@@ -1089,6 +1123,10 @@ export function installFetchMock(): void {
     }
     if (LLM_RE.test(url)) {
       record(url, method, bodyText, headers);
+      // Journeys testing the deterministic fallback (LLM outage) set this instead of mocking a bad response —
+      // throwing here is what a real `fetch` does on a connection refused, the exact failure mode found live
+      // 2026-09-25 (LLM_BASE_URL pointed at nothing).
+      if (llm.forceNetworkError) throw new Error("simulated LLM network error");
       return handleLlm(parseJsonSafe(bodyText));
     }
     if (OPENAI_RE.test(url)) {

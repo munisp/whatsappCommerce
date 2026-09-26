@@ -47,7 +47,17 @@ export default function TenantDetail() {
             {[
               { label: "Conversations", value: dash.conversations.total, icon: MessageSquare, color: "text-blue-400" },
               { label: "Orders", value: dash.orders.total, icon: Building2, color: "text-green-400" },
-              { label: "Revenue", value: `$${dash.orders.revenue.toLocaleString()}`, icon: Globe, color: "text-primary" },
+              {
+                // Found live 2026-09-26 (user: "i still see dollars here"): hardcoded "$" regardless of
+                // the tenant's real order currencies — dash.orders already comes from db.getOrderStats
+                // (QA-056 BUG-06's fix), which returns revenueByCurrency; this page just never read it.
+                label: "Revenue",
+                value: dash.orders.revenueByCurrency.length > 0
+                  ? dash.orders.revenueByCurrency.map((r) => `${r.currency} ${r.amount.toLocaleString()}`).join(" · ")
+                  : "0",
+                icon: Globe,
+                color: "text-primary",
+              },
               { label: "AI Interactions", value: dash.agent.total, icon: Bot, color: "text-yellow-400" },
             ].map((m) => (
               <Card key={m.label} className="bg-card border-border">

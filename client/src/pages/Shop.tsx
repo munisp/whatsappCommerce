@@ -13,7 +13,7 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MapPin, MessageCircle, ShoppingBag, Store } from "lucide-react";
+import { Loader2, MapPin, MessageCircle, Send, ShoppingBag, Store } from "lucide-react";
 
 interface StorefrontProduct {
   id: string;
@@ -62,6 +62,15 @@ export default function Shop() {
         `Hello ${shop.businessName}! I'd like to place an order from your online shop.`,
       )}`
     : null;
+  // Found live 2026-09-26: this storefront only ever offered a WhatsApp link, even for a tenant with a
+  // configured, enabled Telegram bot — a buyer who prefers (or only has) Telegram had no way in. NOT
+  // using a `?start=<payload>` deep link deliberately: telegramInbound.ts's command matcher requires an
+  // EXACT "/start" with no trailing text (`/^\/(start|stop)(?:@\w+)?\s*$/i`) — a payload would make
+  // Telegram send "/start shop" instead, which misses that regex entirely and falls through as an
+  // unrecognized text message instead of triggering the real welcome/consent flow.
+  const telegramUrl = shop.telegramBotUsername
+    ? `https://t.me/${shop.telegramBotUsername}`
+    : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -70,13 +79,25 @@ export default function Shop() {
         <div className="max-w-3xl mx-auto px-4 py-10">
           <h1 className="text-3xl font-bold">{shop.businessName}</h1>
           {shop.heroText && <p className="mt-2 text-white/90">{shop.heroText}</p>}
-          {chatUrl && (
-            <Button asChild className="mt-4 bg-white text-black hover:bg-white/90">
-              <a href={chatUrl} target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="mr-2 h-4 w-4" />
-                Order on WhatsApp
-              </a>
-            </Button>
+          {(chatUrl || telegramUrl) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {chatUrl && (
+                <Button asChild className="bg-white text-black hover:bg-white/90">
+                  <a href={chatUrl} target="_blank" rel="noopener noreferrer">
+                    <MessageCircle className="mr-2 h-4 w-4" />
+                    Order on WhatsApp
+                  </a>
+                </Button>
+              )}
+              {telegramUrl && (
+                <Button asChild variant="outline" className="border-white/40 bg-transparent text-white hover:bg-white/10">
+                  <a href={telegramUrl} target="_blank" rel="noopener noreferrer">
+                    <Send className="mr-2 h-4 w-4" />
+                    Order on Telegram
+                  </a>
+                </Button>
+              )}
+            </div>
           )}
         </div>
       </header>
@@ -134,14 +155,24 @@ export default function Shop() {
           )}
         </section>
 
-        {chatUrl && (
-          <section className="pb-8">
-            <Button asChild size="lg" className="w-full" style={{ backgroundColor: theme }}>
-              <a href={chatUrl} target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="mr-2 h-5 w-5" />
-                Chat with {shop.businessName} on WhatsApp to order
-              </a>
-            </Button>
+        {(chatUrl || telegramUrl) && (
+          <section className="pb-8 space-y-2">
+            {chatUrl && (
+              <Button asChild size="lg" className="w-full" style={{ backgroundColor: theme }}>
+                <a href={chatUrl} target="_blank" rel="noopener noreferrer">
+                  <MessageCircle className="mr-2 h-5 w-5" />
+                  Chat with {shop.businessName} on WhatsApp to order
+                </a>
+              </Button>
+            )}
+            {telegramUrl && (
+              <Button asChild size="lg" variant="outline" className="w-full">
+                <a href={telegramUrl} target="_blank" rel="noopener noreferrer">
+                  <Send className="mr-2 h-5 w-5" />
+                  Chat with {shop.businessName} on Telegram to order
+                </a>
+              </Button>
+            )}
           </section>
         )}
       </main>

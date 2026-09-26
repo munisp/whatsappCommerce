@@ -10,7 +10,7 @@
  * clarification lines the caller appends to the reply.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { cartItems, cartSessions, nlpSessions } from "../../drizzle/schema";
 
 type Db = NonNullable<Awaited<ReturnType<typeof import("../db").getDb>>>;
@@ -108,6 +108,12 @@ export interface AddItemsResult {
  * Add all extracted items to the buyer's cart (creating the cart session and
  * linking it to the NLP session when needed). Returns what was added plus a
  * clarification line per item that was ambiguous, unknown, or out of stock.
+ *
+ * `replaceProductIds` — product ids to SET to the newly-mentioned quantity rather than add on top of what's
+ * already there. Used for shortage recovery: after "you asked for 10, only 8 left", a buyer saying "I'll take 3"
+ * means "change my order to 3", not "add 3 more to the stuck 10" (which would just reproduce the same shortage).
+ * Anything not in this set merges into the existing cart row for that product (summed), never creating a second
+ * row for the same product — a product mentioned twice used to insert two separate `cart_items` rows for it.
  */
 export async function addExtractedItemsToCart(
   db: Db,
@@ -118,6 +124,7 @@ export async function addExtractedItemsToCart(
     cartSession: any | null;
     products: CatalogProduct[];
     items: ExtractedItem[];
+    replaceProductIds?: Set<string>;
   },
 ): Promise<AddItemsResult> {
   const added: AddedCartItem[] = [];
@@ -157,12 +164,37 @@ export async function addExtractedItemsToCart(
       await db.update(nlpSessions).set({ cartSessionId: cs.id }).where(eq(nlpSessions.id, opts.session.id));
     }
 
+    // Only the shortage-recovery replace case touches an existing row — an ordinary add ALWAYS inserts a fresh
+    // row, unchanged from before. (An earlier version of this made every repeated mention of the same product
+    // merge into one row, which sounded like a strict improvement — one line instead of two for "1 milo" then
+    // "2 milo" — but broke `buildReorder`: it deliberately reuses the caller's cart session, which can still hold
+    // a leftover row from an order that was already paid for [carts aren't cleared on checkout — a real, separate,
+    // pre-existing gap, not this function's to fix], and a plain reorder then silently merged into that stale row
+    // instead of rebuilding a clean quantity. Found via 12+ unrelated journeys failing in the full suite, none of
+    // them anywhere near cart-merging on the surface — traced to this.)
+    const replace = opts.replaceProductIds?.has(match.product.id) ?? false;
+    let finalQuantity = item.quantity;
+    if (replace) {
+      const existing = await db.select().from(cartItems)
+        .where(and(eq(cartItems.cartSessionId, cartSession.id), eq(cartItems.productId, match.product.id)))
+        .limit(1);
+      if (existing[0]) {
+        await db.update(cartItems)
+          .set({ quantity: finalQuantity, unitPrice: match.product.price, currency: match.product.currency })
+          .where(eq(cartItems.id, existing[0].id));
+        added.push({
+          productId: match.product.id, productName: match.product.name, quantity: finalQuantity,
+          unitPrice: match.product.price, currency: match.product.currency, confidence: match.confidence,
+        });
+        continue;
+      }
+    }
     await db.insert(cartItems).values({
       id: crypto.randomUUID(),
       cartSessionId: cartSession.id,
       productId: match.product.id,
       productName: match.product.name,
-      quantity: item.quantity,
+      quantity: finalQuantity,
       unitPrice: match.product.price,
       currency: match.product.currency,
       createdAt: new Date(),
@@ -170,7 +202,7 @@ export async function addExtractedItemsToCart(
     added.push({
       productId: match.product.id,
       productName: match.product.name,
-      quantity: item.quantity,
+      quantity: finalQuantity,
       unitPrice: match.product.price,
       currency: match.product.currency,
       confidence: match.confidence,
@@ -178,4 +210,52 @@ export async function addExtractedItemsToCart(
   }
 
   return { cartSession, added, clarifications };
+}
+
+export interface RemovedCartItem {
+  productId: string;
+  productName: string;
+}
+
+export interface RemoveItemsResult {
+  removed: RemovedCartItem[];
+  /** Human-readable clarification line per mention that was ambiguous or not actually in the cart. */
+  clarifications: string[];
+}
+
+/**
+ * Remove items from the buyer's cart by name (the same fuzzy match `addExtractedItemsToCart` uses). Declared as a
+ * valid LLM intent (`remove_from_cart`) since this feature was designed, but never had a server-side handler at
+ * all — found live 2026-09-25 when a buyer, told "remove the unavailable items" after a stock shortage, had no way
+ * to actually do it (the message just wasn't acted on, LLM or no LLM).
+ */
+export async function removeItemsFromCart(
+  db: Db,
+  opts: { cartSessionId: string; products: CatalogProduct[]; mentions: string[] },
+): Promise<RemoveItemsResult> {
+  const removed: RemovedCartItem[] = [];
+  const clarifications: string[] = [];
+  const currentRows = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, opts.cartSessionId));
+
+  for (const mention of opts.mentions) {
+    const match = matchCatalogItem(opts.products, mention);
+    if (match.status === "ambiguous") {
+      const names = match.candidates.map((c) => c.name).join(", ");
+      clarifications.push(`❓ "${mention}" — did you mean: ${names}? Reply with the exact name to remove it.`);
+      continue;
+    }
+    if (match.status === "not_found") {
+      clarifications.push(`⚠️ Sorry, I couldn't match "${mention}" to anything on the menu.`);
+      continue;
+    }
+    const row = currentRows.find((r) => r.productId === match.product.id);
+    if (!row) {
+      clarifications.push(`⚠️ "${match.product.name}" isn't in your cart.`);
+      continue;
+    }
+    await db.delete(cartItems).where(eq(cartItems.id, row.id));
+    removed.push({ productId: match.product.id, productName: match.product.name });
+  }
+
+  return { removed, clarifications };
 }

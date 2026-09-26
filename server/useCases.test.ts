@@ -273,6 +273,27 @@ describe("support use case", () => {
     expect(s?.activeUseCase).toBe("support");
     expect(s?.step).toBe("awaiting_issue");
   });
+
+  it("appends the tenant's support phone/email to the first reply when configured", async () => {
+    const { db } = makeDb([CONSENTED]);
+    await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
+    const tenantWithSupport = {
+      ...FULL_MENU_TENANT,
+      settings: { ...FULL_MENU_TENANT.settings, support: { phone: "+234 900 000 0000", email: "help@ada.example" } },
+    };
+    const out = await call(db, "3", tenantWithSupport);
+    expect(out.reply).toMatch(/describe your issue/i);
+    expect(out.reply).toContain("+234 900 000 0000");
+    expect(out.reply).toContain("help@ada.example");
+  });
+
+  it("omits the contact line entirely when no support phone/email is configured", async () => {
+    const { db } = makeDb([CONSENTED]);
+    await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
+    const out = await call(db, "3", FULL_MENU_TENANT); // no settings.support at all
+    expect(out.reply).toMatch(/describe your issue/i);
+    expect(out.reply).not.toMatch(/reach us directly/i);
+  });
 });
 
 describe("booking use case (slot filling)", () => {
@@ -338,6 +359,33 @@ describe("handoff use case", () => {
     expect(updates[0]).toMatchObject({ aiHandled: false, status: "pending" });
     expect(updates[0].metadata).toMatchObject({ foo: 1, handoffRequested: true });
     expect(sendWhatsAppTextMock).toHaveBeenCalledWith(T, "2349000000000", expect.stringContaining(P), expect.anything());
+  });
+
+  it("appends the tenant's support phone/email when configured", async () => {
+    const CONV = { id: "conv-1", tenantId: T, customerId: "cust-1", status: "open", metadata: {} };
+    const { db } = makeDb([CONSENTED, [CUSTOMER], [CONV]]);
+    await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
+    const tenant = {
+      ...FULL_MENU_TENANT,
+      settings: {
+        ...FULL_MENU_TENANT.settings,
+        adminPhone: "2349000000000",
+        support: { phone: "+234 900 000 0000", email: "help@ada.example" },
+      },
+    };
+    const out = await call(db, "5", tenant);
+    expect(out.reply).toMatch(/human agent/i);
+    expect(out.reply).toContain("+234 900 000 0000");
+    expect(out.reply).toContain("help@ada.example");
+  });
+
+  it("still connects the buyer when the admin has no phone on file (no admin ever gets paged, but the reply doesn't crash or lie about that)", async () => {
+    const CONV = { id: "conv-1", tenantId: T, customerId: "cust-1", status: "open", metadata: {} };
+    const { db } = makeDb([CONSENTED, [CUSTOMER], [CONV]]);
+    await saveSession({ ...newSession(T, P), awaitingMenuSelection: true });
+    const out = await call(db, "5", FULL_MENU_TENANT); // no adminPhone, no settings.support
+    expect(out.reply).toMatch(/human agent/i);
+    expect(sendWhatsAppTextMock).not.toHaveBeenCalled();
   });
 });
 

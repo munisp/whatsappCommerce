@@ -1,0 +1,23 @@
+# Ollama model storage — found 2026-09-26: the live server has NEVER had a real LLM configured (LLM_BASE_URL
+# unset, defaulting to an unreachable localhost:11434 — see .qa/defects.md QA-051/QA-054). The code was already
+# written to talk to a local Ollama instance by default (server/_core/env.ts's llmBaseUrl/llmApiKey defaults are
+# literally "http://localhost:11434/v1" / "ollama") — this just actually stands one up, IN the cluster, so nothing
+# ever calls out to an external LLM provider over the internet.
+#
+# A PVC keeps the pulled model (several GB) across pod restarts — without it, a pod recreation would need to
+# re-pull the model from the internet every time, defeating half the point.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: ollama
+  labels:
+    app.kubernetes.io/instance: ollama
+    app.kubernetes.io/name: ollama
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 20Gi

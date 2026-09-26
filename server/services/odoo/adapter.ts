@@ -127,10 +127,20 @@ export class JsonRpcOdooAdapter implements OdooAdapter {
     });
     if (!res.ok) throw new OdooRpcError(`odoo http ${res.status}`, res.status);
     const body = (await res.json().catch(() => null)) as
-      | { result?: unknown; error?: { message?: string; code?: number } }
+      | { result?: unknown; error?: { message?: string; code?: number; data?: { message?: string; name?: string } } }
       | null;
     if (!body) throw new OdooRpcError("odoo returned non-json response");
-    if (body.error) throw new OdooRpcError(body.error.message ?? "odoo rpc error", body.error.code);
+    if (body.error) {
+      // Odoo's top-level error.message is always the generic "Odoo Server
+      // Error" — the actual cause (e.g. a validation error, a missing
+      // field) is in error.data.message. Surface that when present instead
+      // of discarding it.
+      const detail = body.error.data?.message ?? body.error.data?.name;
+      const message = detail
+        ? `${body.error.message ?? "odoo rpc error"}: ${detail}`
+        : body.error.message ?? "odoo rpc error";
+      throw new OdooRpcError(message, body.error.code);
+    }
     return body.result;
   }
 
@@ -165,6 +175,22 @@ export class JsonRpcOdooAdapter implements OdooAdapter {
     return id;
   }
 
+  private currencyIdCache = new Map<string, number>();
+
+  /** Odoo's account.move.currency_id is a res.currency record id, not the
+   * ISO code string — resolve (and cache) it per adapter instance. */
+  private async resolveCurrencyId(isoCode: string): Promise<number> {
+    const code = isoCode.toUpperCase();
+    const cached = this.currencyIdCache.get(code);
+    if (cached != null) return cached;
+    const found = (await this.execute("res.currency", "search", [[["name", "=", code]]], { limit: 1 })) as number[];
+    if (!Array.isArray(found) || found.length === 0) {
+      throw new OdooRpcError(`odoo has no res.currency record for ISO code '${code}'`);
+    }
+    this.currencyIdCache.set(code, found[0]);
+    return found[0];
+  }
+
   async createPartner(ref: string, name: string): Promise<{ partnerId: number }> {
     const found = (await this.execute("res.partner", "search", [[["ref", "=", ref]]], { limit: 1 })) as number[];
     if (Array.isArray(found) && found.length > 0) return { partnerId: found[0] };
@@ -174,11 +200,12 @@ export class JsonRpcOdooAdapter implements OdooAdapter {
 
   async createInvoice(input: OdooInvoiceInput): Promise<{ invoiceId: number }> {
     const { partnerId } = await this.createPartner(input.partnerRef, input.partnerName);
+    const currencyId = await this.resolveCurrencyId(input.currency);
     const invoiceId = await this.createId("account.move", {
       move_type: "out_invoice",
       partner_id: partnerId,
       ref: input.reference,
-      currency_id: input.currency,
+      currency_id: currencyId,
       invoice_line_ids: input.lines.map((l) => [0, 0, {
         name: l.description,
         quantity: l.quantity,

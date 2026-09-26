@@ -156,6 +156,7 @@ async function persistCheckpoint(
   runId: string,
   journeyId: string,
   checkpoint: ActivityCheckpoint,
+  mode: OrchestrationResult["mode"] = "local-fallback",
 ): Promise<void> {
   const existing = await loadResult(db, runId);
   const checkpoints = [...(existing?.checkpoints ?? []).filter((c) => c.name !== checkpoint.name), checkpoint];
@@ -163,7 +164,7 @@ async function persistCheckpoint(
     .update(temporalWorkflowRuns)
     .set({
       result: {
-        mode: "local-fallback",
+        mode,
         journeyId,
         checkpoints,
       } satisfies Partial<OrchestrationResult> as unknown as Record<string, unknown>,
@@ -259,6 +260,146 @@ export async function executeOrchestrationLocally(
   };
   await updateWorkflowStatus(runId, "completed", finalResult as unknown as Record<string, unknown>);
   return { status: "completed", executed };
+}
+
+// ── Temporal-owned execution (worker → internal endpoints) ─────────────────
+//
+// When a run is started on Temporal, the JourneyOrchestrationWorkflow sequences the steps and
+// the worker calls back into the functions below, one registered activity at a time. Temporal
+// provides the durability (retries, timers, replay); these functions only run ONE registered
+// activity with the SAME context, idempotency key and checkpoint shape the local executor uses,
+// so the business logic stays in the registry and is never reimplemented.
+
+/**
+ * How long a worker activity waits for its run row. startWorkflow() records the row right AFTER
+ * Temporal accepts the start, so a fast worker can be a few milliseconds ahead of the insert.
+ */
+export const RUN_ROW_WAIT_MS = 10_000;
+
+async function loadOrchestrationRun(db: DbHandle, runId: string, waitMs: number) {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const [row] = await db
+      .select()
+      .from(temporalWorkflowRuns)
+      .where(eq(temporalWorkflowRuns.runId, runId))
+      .limit(1);
+    if (row) return row;
+    if (Date.now() >= deadline) return null;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+/** The ordered activity names of a registered journey (what the workflow iterates). */
+export async function getJourneyPlan(journeyId: string): Promise<string[]> {
+  await ensureBuiltins();
+  const activities = registry.get(journeyId);
+  if (!activities) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `unknown orchestration journey: ${journeyId}` });
+  }
+  return activities.map((a) => a.name);
+}
+
+/**
+ * Run ONE registered activity of a Temporal-owned run. Idempotent: an activity that already has
+ * a checkpoint is NOT re-executed (covers the retry after "ran, but the response was lost").
+ * Returns only whether it was a replay — outputs stay in the run's checkpoints, server-side, so
+ * they never enter Temporal's workflow history.
+ */
+export async function runOrchestrationActivityForTemporal(
+  db: DbHandle,
+  input: { runId: string; activityName: string },
+  opts: { waitMs?: number } = {},
+): Promise<{ cached: boolean }> {
+  const row = await loadOrchestrationRun(db, input.runId, opts.waitMs ?? RUN_ROW_WAIT_MS);
+  if (!row || row.workflowType !== ORCHESTRATION_WORKFLOW_TYPE) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `orchestration run ${input.runId} not found` });
+  }
+  if (row.status !== "running") {
+    throw new TRPCError({ code: "CONFLICT", message: `orchestration run ${input.runId} is ${row.status}, not running` });
+  }
+  const journeyId = ((row.input as any)?.journeyId ?? "") as string;
+  await ensureBuiltins();
+  const activities = registry.get(journeyId);
+  if (!activities) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `unknown orchestration journey: ${journeyId || "(missing)"}` });
+  }
+  const activity = activities.find((a) => a.name === input.activityName);
+  if (!activity) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `journey ${journeyId} has no activity "${input.activityName}"` });
+  }
+
+  const stored = await loadResult(db, input.runId);
+  const done = new Map<string, ActivityCheckpoint>();
+  for (const c of stored?.checkpoints ?? []) done.set(c.name, c);
+  if (done.has(activity.name)) return { cached: true };
+
+  const outputs: Record<string, unknown> = {};
+  for (const a of activities) {
+    const cp = done.get(a.name);
+    if (cp) outputs[a.name] = cp.output;
+  }
+  const key = checkpointKey(input.runId, activity.name);
+  const ctx: OrchestrationContext = {
+    workflowId: row.workflowId,
+    runId: input.runId,
+    journeyId,
+    // Tenant + params come from the recorded run, never from the caller of this endpoint.
+    tenantId: row.tenantId ?? undefined,
+    params: ((row.input as any)?.params ?? {}) as Record<string, unknown>,
+    db,
+    outputs,
+    idempotencyKey: key,
+  };
+  try {
+    const output = await activity.run(ctx);
+    await persistCheckpoint(
+      db,
+      input.runId,
+      journeyId,
+      { name: activity.name, key, output: output ?? null, at: new Date().toISOString() },
+      "temporal",
+    );
+    return { cached: false };
+  } catch (err: any) {
+    // Record what failed (the run stays 'running'; Temporal retries this activity with the SAME
+    // idempotency key), then let the error surface as a retryable 500.
+    const existing = await loadResult(db, input.runId);
+    await db
+      .update(temporalWorkflowRuns)
+      .set({
+        result: {
+          mode: "temporal",
+          journeyId,
+          checkpoints: existing?.checkpoints ?? [],
+          lastError: String(err?.message ?? err),
+        } as unknown as Record<string, unknown>,
+      })
+      .where(eq(temporalWorkflowRuns.runId, input.runId));
+    throw err;
+  }
+}
+
+/** Close a Temporal-owned run in temporal_workflow_runs. Idempotent: a run already closed is left as is. */
+export async function finishTemporalOrchestration(
+  db: DbHandle,
+  input: { runId: string; status: "completed" | "failed" | "cancelled"; error?: string },
+): Promise<{ status: string; alreadyClosed: boolean }> {
+  const row = await loadOrchestrationRun(db, input.runId, 0);
+  if (!row || row.workflowType !== ORCHESTRATION_WORKFLOW_TYPE) {
+    throw new TRPCError({ code: "NOT_FOUND", message: `orchestration run ${input.runId} not found` });
+  }
+  if (row.status !== "running") return { status: row.status, alreadyClosed: true };
+  const journeyId = ((row.input as any)?.journeyId ?? "") as string;
+  const stored = await loadResult(db, input.runId);
+  const result: OrchestrationResult = {
+    mode: "temporal",
+    journeyId,
+    checkpoints: stored?.checkpoints ?? [],
+    ...(input.error ? { lastError: input.error } : {}),
+  };
+  await updateWorkflowStatus(input.runId, input.status, result as unknown as Record<string, unknown>, input.error);
+  return { status: input.status, alreadyClosed: false };
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────

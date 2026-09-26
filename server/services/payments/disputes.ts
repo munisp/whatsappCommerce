@@ -35,6 +35,22 @@ type Db = any;
 export type DisputeKind = "chargeback" | "dispute";
 export type DisputeStatus = "open" | "won" | "lost" | "accepted";
 
+/**
+ * Map a Paystack dispute event to our status. Paystack resolves a dispute
+ * with `resolution` = "merchant-accepted" (the merchant conceded — the
+ * customer is refunded) or "declined" (the customer's claim was rejected —
+ * the merchant keeps the money). Anything unrecognised stays "open" so a
+ * human looks at it; it is never reported to the merchant as lost.
+ */
+export function paystackDisputeStatus(event: string, resolution: unknown): DisputeStatus {
+  if (event !== "charge.dispute.resolve") return "open";
+  const r = String(resolution ?? "").toLowerCase();
+  if (r === "declined" || r.includes("won")) return "won";
+  if (r.includes("accepted")) return "accepted";
+  if (r.includes("lost")) return "lost";
+  return "open";
+}
+
 /** Resolve a PSP payment reference to (tenantId, orderId) via either table. */
 async function resolveReference(
   db: Db,

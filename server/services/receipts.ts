@@ -98,11 +98,17 @@ function metadataNumber(meta: Record<string, unknown> | null, key: string): numb
  * (customers row, or the chat-flow convention of customerId == WhatsApp
  * phone), the tenant branding name, and the delivery PIN when a shipment
  * exists. Throws on unexpected errors — the caller must catch+log.
+ *
+ * `freshPin`: pass the PLAINTEXT pin when the caller just generated one this same request (e.g.
+ * paymentConfirm.ts's ensureDeliveryShipment, right after payment) — the DB only ever stores the hash
+ * (see logistics.ts's hashDeliveryPin), so a freshly-minted PIN can't be recovered by reading the row
+ * back; this is the only way this message ever displays a PIN for a NEW shipment.
  */
 export async function sendOrderReceipt(
   db: DbHandle,
   orderId: string,
   paymentRef: string,
+  freshPin?: string | null,
 ): Promise<{ sent: boolean; reason?: string }> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   if (!order) return { sent: false, reason: "order-not-found" };
@@ -155,10 +161,11 @@ export async function sendOrderReceipt(
     total: Number(order.totalAmount),
     currency: order.currency,
     paymentRef,
-    // W30: PINs are stored hashed ("pinv1:…") — never print the hash; only
-    // legacy plaintext values are displayable (fresh PINs are sent at
-    // shipment creation time).
-    deliveryPin: shipment?.deliveryPin && !shipment.deliveryPin.startsWith("pinv1:") ? shipment.deliveryPin : null,
+    // W30: PINs are stored hashed ("pinv1:…") — never print the hash; only legacy plaintext values are
+    // displayable that way. `freshPin` (this same request's just-generated plaintext) takes priority —
+    // it's the ONLY way a newly-created shipment's PIN ever reaches the buyer, since the row itself only
+    // ever holds the hash from the moment it's written.
+    deliveryPin: freshPin ?? (shipment?.deliveryPin && !shipment.deliveryPin.startsWith("pinv1:") ? shipment.deliveryPin : null),
     trackingUrl: trackingUrlFor(order.id),
   });
 

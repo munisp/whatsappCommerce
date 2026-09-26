@@ -238,7 +238,7 @@ describe("onboarding.start (provisioning)", () => {
     const row = stores.tenants.find((t) => t.id === res.tenantId)!;
     const settings = row.settings as any;
 
-    expect(settings.commerce).toEqual({ currency: "NGN", pickupEnabled: true, deliveryZones: [] });
+    expect(settings.commerce).toEqual({ currency: "NGN", pickupEnabled: true, codEnabled: true, deliveryZones: [] });
     expect(settings.branding).toEqual({ name: "Adire Atelier", logoUrl: null, primaryColor: "#8A5A2B" });
     expect(settings.crm).toEqual({ customFields: [], pipelineStages: ["new", "qualified", "won", "lost"] });
     expect(settings.inventory).toEqual({ source: "local", lowStockThreshold: 5 });

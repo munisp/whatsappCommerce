@@ -20,12 +20,13 @@ import type { getDb } from "../db";
 import {
   paymentTransactions, paymentIntents, orders,
   escrowConfig, escrowTransactions, merchantWallets, walletTransactions,
+  inventoryReservations, logisticsShipments,
 } from "../../drizzle/schema";
 import { splitEscrowAmounts } from "../../shared/escrowAmounts";
 import { syncLocalChange } from "./integrations/outbox";
 import { creditWalletTopUp } from "../routers/escrow";
 import { markInvoicePaidFromPaymentIntent } from "../routers/invoice";
-import { commitReservations } from "./inventory";
+import { commitReservations, reserveStock, InsufficientStockError } from "./inventory";
 import { captureException } from "./observability";
 import { ledgerBridgeRequest, postDirectLedgerLeg, LedgerBridgeError } from "./ledgerBridge";
 import { toMinorUnits } from "./payments/currencyExponent";
@@ -47,9 +48,12 @@ import { toMinorUnits } from "./payments/currencyExponent";
  * (which the provider would retry, hitting the same "already completed" branch) or a customer-visible
  * failure — it's logged loudly instead, same as the other best-effort hooks in this file.
  */
-async function settleIntentLedger(intent: {
-  id: string; tenantId: string; customerId: string | null; amount: string; currency: string | null; ledgerPendingId: string | null;
-}): Promise<void> {
+async function settleIntentLedger(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  intent: {
+    id: string; tenantId: string; customerId: string | null; amount: string; currency: string | null; ledgerPendingId: string | null;
+  },
+): Promise<void> {
   try {
     if (intent.ledgerPendingId) {
       await ledgerBridgeRequest("/ledger/commit", "POST", { pending_id: intent.ledgerPendingId });
@@ -63,11 +67,131 @@ async function settleIntentLedger(intent: {
         debit_ref: `escrow:${intent.tenantId}`, credit_ref: `merchant:${intent.tenantId}`,
         amount: minor, idempotency_key: `settle:${intent.id}`, code: 2,
       });
+      // AF-05: an intent settled by direct legs has no ledgerPendingId, and
+      // recon-worker used to alert on it every pass ("completed without
+      // ledger tracking") even though both legs were posted. Record where
+      // the money went so recon can tell tracked from untracked.
+      await db.update(paymentIntents)
+        .set({
+          metadata: sql`COALESCE(${paymentIntents.metadata}, '{}'::jsonb) || ${JSON.stringify({
+            ledgerSettle: { mode: "direct", idempotencyKeys: [`settle-in:${intent.id}`, `settle:${intent.id}`], amountMinor: minor },
+          })}::jsonb`,
+        })
+        .where(eq(paymentIntents.id, intent.id));
     }
   } catch (err: any) {
     const detail = err instanceof LedgerBridgeError ? `${err.status ?? "unreachable"}: ${err.message}` : String(err?.message ?? err);
     console.error(`[payment-confirm] LEDGER SETTLE FAILED for completed intent ${intent.id} (tenant ${intent.tenantId}) — Postgres says paid, TigerBeetle does not yet agree; will retry on the next webhook delivery: ${detail}`);
     captureException(err, { service: "paymentConfirm", operation: "settleIntentLedger", tenantId: intent.tenantId, severity: "critical", extra: { intentId: intent.id, ledgerPendingId: intent.ledgerPendingId } });
+  }
+}
+
+// Found live 2026-09-26 (user: "let's fix it and include it in the message after the user has paid"):
+// receipts.ts's sendOrderReceipt has ALWAYS been ready to show a delivery PIN — it reads
+// logisticsShipments.deliveryPin and slots it into the receipt message — but nothing ever created a
+// shipment for a chat-originated order, so that slot was permanently empty. The only shipment-creation
+// path in the whole app (logistics.createShipment) is a heavy Shipbubble-style booking mutation with no
+// UI caller anywhere (verified: zero client references) and requires structured sender/recipient address
+// data chat checkout never collects — not something to fabricate. This creates the lightweight shipment
+// record the PIN system actually needs (every field it touches — senderName, senderAddress, etc. — is
+// nullable in the schema; only orderId/tenantId are required), scoped to delivery-fulfillment orders
+// only, and returns the PLAINTEXT pin so the receipt can show it in the SAME message the buyer already
+// gets after paying — the stored copy is hashed immediately, same as createShipment's own convention.
+async function ensureDeliveryShipment(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  orderId: string,
+  tenantId: string,
+): Promise<string | null> {
+  try {
+    const [order] = await db.select({ metadata: orders.metadata }).from(orders).where(eq(orders.id, orderId)).limit(1);
+    const fulfillment = (order?.metadata as Record<string, unknown> | null)?.fulfillment;
+    if (fulfillment !== "delivery") return null;
+
+    const [existing] = await db.select({ id: logisticsShipments.id }).from(logisticsShipments)
+      .where(eq(logisticsShipments.orderId, orderId)).limit(1);
+    if (existing) return null; // already has a shipment (or PIN was already issued) — never re-issue
+
+    const { generateDeliveryPin, hashDeliveryPin } = await import("../routers/logistics");
+    const id = randomUUID();
+    const pin = generateDeliveryPin();
+    await db.insert(logisticsShipments).values({
+      id, orderId, tenantId,
+      provider: "manual",
+      status: "pending",
+      deliveryPin: hashDeliveryPin(pin, id),
+    }).onConflictDoNothing();
+    return pin;
+  } catch (err: any) {
+    console.error(`[payment-confirm] ensureDeliveryShipment failed for order ${orderId} (non-fatal — receipt sends without a PIN):`, err?.message);
+    return null;
+  }
+}
+
+/**
+ * failureReason prefix stamped on a payment that arrived for an order that
+ * could no longer take it (AF-01). A replay of the same provider event sees
+ * the prefix and returns the same verdict instead of re-evaluating — so a
+ * payment that was already quarantined + refunded can never later confirm
+ * the order (e.g. once stock is replenished).
+ */
+export const ORDER_NOT_PAYABLE_PREFIX = "order-not-payable";
+
+/**
+ * AF-01: may this order still be confirmed by a payment landing NOW?
+ *
+ *  - cancelled / refunded order → no: its stock was already restocked and
+ *    the merchant has stopped expecting it. Confirming it would resurrect a
+ *    dead order that holds no stock (oversell) and open an escrow hold.
+ *  - every reservation of the order was RELEASED (the expiry sweeper gave
+ *    the stock back after RESERVATION_MAX_AGE) → re-reserve the same lines
+ *    claim-first; if the stock is gone the order cannot be fulfilled → no.
+ *  - otherwise (still reserved, already committed, or never stock-tracked)
+ *    → yes.
+ *
+ * The order row is locked FOR UPDATE so two concurrent deliveries cannot
+ * both re-reserve; the loser sees the winner's 'reserved' rows. A shortage
+ * throws out of the transaction so a multi-line partial re-reserve rolls
+ * back as a whole.
+ */
+async function ensureOrderPayable(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  tenantId: string,
+  orderId: string,
+  now: Date,
+): Promise<{ payable: true } | { payable: false; reason: string }> {
+  try {
+    return await db.transaction(async (tx) => {
+      const [order] = await tx
+        .select({ status: orders.status })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId)))
+        .for("update");
+      if (!order) return { payable: true as const };
+      if (order.status === "cancelled" || order.status === "refunded") {
+        return { payable: false as const, reason: `order is ${order.status}` };
+      }
+      const rows = await tx
+        .select()
+        .from(inventoryReservations)
+        .where(and(eq(inventoryReservations.orderId, orderId), eq(inventoryReservations.tenantId, tenantId)));
+      if (rows.length === 0 || rows.some((r) => r.status === "reserved" || r.status === "committed")) {
+        return { payable: true as const };
+      }
+      await reserveStock(
+        tx,
+        tenantId,
+        orderId,
+        rows.map((r) => ({ productId: r.productId, qty: r.qty, variantId: r.variantId ?? undefined })),
+        now,
+      );
+      console.log(`[payment-confirm] order ${orderId}: reservation had expired — stock re-reserved for the late payment`);
+      return { payable: true as const };
+    });
+  } catch (err) {
+    if (err instanceof InsufficientStockError) {
+      return { payable: false, reason: `stock reservation expired and the stock is no longer available (${err.message})` };
+    }
+    throw err;
   }
 }
 
@@ -104,6 +228,7 @@ export async function confirmProviderPayment(
   let expectedAmount: number;
   let expectedCurrency: string;
   let currentStatus: string;
+  let currentFailureReason: string | null;
   // Metadata of the matched paymentIntents row (intent path only) — drives the
   // wallet top-up credit below when metadata.type === "wallet_topup".
   let intentMetadata: Record<string, unknown> | null = null;
@@ -123,6 +248,7 @@ export async function confirmProviderPayment(
     expectedAmount = parseFloat(tx.amount);
     expectedCurrency = (tx.currency ?? "").toUpperCase();
     currentStatus = tx.status;
+    currentFailureReason = tx.failureReason ?? null;
   } else {
     const [intent] = await db.select().from(paymentIntents)
       .where(eq(paymentIntents.providerPaymentId, reference)).limit(1);
@@ -138,6 +264,7 @@ export async function confirmProviderPayment(
     expectedAmount = parseFloat(intent.amount);
     expectedCurrency = (intent.currency ?? "").toUpperCase();
     currentStatus = intent.status;
+    currentFailureReason = intent.failureReason ?? null;
     intentMetadata = (intent.metadata as Record<string, unknown> | null) ?? null;
     intentLedgerPendingId = intent.ledgerPendingId ?? null;
     intentAmount = intent.amount;
@@ -147,7 +274,7 @@ export async function confirmProviderPayment(
   // every confirmation path for this intent, including replays, which is how a first attempt that hit a
   // ledger hiccup gets retried and healed.
   const settleLedgerNow = () => kind === "intent"
-    ? settleIntentLedger({ id: rowId, tenantId, customerId, amount: intentAmount!, currency: intentCurrency, ledgerPendingId: intentLedgerPendingId })
+    ? settleIntentLedger(db, { id: rowId, tenantId, customerId, amount: intentAmount!, currency: intentCurrency, ledgerPendingId: intentLedgerPendingId })
     : Promise.resolve();
 
   // ── Wallet top-up credit (completed wallet_topup payment intents) ─────────
@@ -252,6 +379,125 @@ export async function confirmProviderPayment(
     }
   };
 
+  // ── Escrow hold for a paid order (idempotent) ────────────────────────────
+  // Runs on the claiming call AND on every replay: if the first attempt died
+  // after the payment claim (AF-06), the provider's redelivery creates the
+  // missing hold instead of skipping it as "already-completed".
+  const ensureEscrowHold = async (oid: string) => {
+    const [existingEscrow] = await db.select({ id: escrowTransactions.id })
+      .from(escrowTransactions)
+      .where(eq(escrowTransactions.orderId, oid))
+      .limit(1);
+    if (!existingEscrow) {
+      const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
+      const confirmWindowHours = cfg?.buyerConfirmWindowHours ?? 24;
+      const custodyMode = (cfg?.custodyMode ?? "pssp") as "pssp" | "psp";
+      // Integer minor-units split (shared/escrowAmounts) — same invariant as
+      // escrow.createHold: platformFee + netMerchantAmount == amount always.
+      const split = splitEscrowAmounts(expectedAmount, cfg?.platformFeeRate ?? "0.03125");
+      const escrowId = randomUUID();
+      // AF-06: the hold, the PSP-mode wallet transaction and the wallet
+      // balance move together or not at all. Before, a crash between them
+      // left a hold whose wallet was never credited, and every replay then
+      // skipped (the hold already existed) — the gap could never heal.
+      await db.transaction(async (tx) => {
+        const inserted = await tx.insert(escrowTransactions).values({
+          id: escrowId,
+          orderId: oid,
+          tenantId,
+          customerId,
+          amount: split.gross,
+          platformFee: split.fee,
+          netMerchantAmount: split.net,
+          currency: expectedCurrency || "NGN",
+          custodyMode,
+          state: "escrow_held",
+          buyerConfirmDeadline: new Date(Date.now() + confirmWindowHours * 3600 * 1000),
+          idempotencyKey: `escrow-hold:${oid}`,
+          createdAt: now,
+          updatedAt: now,
+        }).onConflictDoNothing().returning({ id: escrowTransactions.id });
+
+        if (inserted.length > 0 && custodyMode === "psp") {
+          // PSP mode: credit the merchant's escrow wallet (mirrors escrow.createHold)
+          let [wallet] = await tx.select().from(merchantWallets)
+            .where(eq(merchantWallets.tenantId, tenantId));
+          if (!wallet) {
+            const walletId = randomUUID();
+            await tx.insert(merchantWallets).values({
+              id: walletId, tenantId, currency: expectedCurrency || "NGN",
+              availableBalance: "0", escrowBalance: "0", totalEarned: "0", totalWithdrawn: "0",
+              custodyMode: "psp", isActive: true, createdAt: now, updatedAt: now,
+            }).onConflictDoNothing();
+            [wallet] = await tx.select().from(merchantWallets)
+              .where(eq(merchantWallets.tenantId, tenantId));
+          }
+          // Found live 2026-09-26 (user: "everything should be naira"): this used to credit
+          // `split.gross` — the ORDER's amount in the ORDER's own currency (expectedCurrency, which can
+          // legitimately differ from the wallet's, e.g. one of this tenant's leftover USD orders from the
+          // earlier currency bug) — straight into escrowBalance, then labeled the ledger row with
+          // `wallet.currency` regardless. A $9,500 payment would have silently become "₦9,500" in the
+          // wallet: the raw number carried over, the currency label did not. Wallets are single-currency
+          // by design (getOrCreateWallet/getOrCreatePlatformFeeWallet in escrow.ts always create "NGN"),
+          // so a mismatch here is never a legitimate multi-currency wallet — it's corruption. Refuse to
+          // credit rather than fabricate a conversion; the escrow_transactions row above already recorded
+          // its own correct currency, so the money isn't lost, just not auto-reconciled into the wallet.
+          const walletCurrency = wallet?.currency ?? "NGN";
+          const orderCurrency = expectedCurrency || "NGN";
+          if (wallet && orderCurrency !== walletCurrency) {
+            console.error(`[payment-confirm] REFUSING wallet credit for order ${oid}: payment currency ${orderCurrency} does not match wallet currency ${walletCurrency} (tenant ${tenantId}) — escrow hold recorded correctly, but the wallet ledger was NOT touched. Needs manual reconciliation.`);
+          } else if (wallet) {
+            const before = parseFloat(wallet.escrowBalance);
+            const after = before + split.grossMinor / 100;
+            const walletTxId = randomUUID();
+            await tx.insert(walletTransactions).values({
+              id: walletTxId,
+              walletId: wallet.id,
+              tenantId,
+              type: "escrow_credit",
+              amount: split.gross,
+              balanceBefore: before.toFixed(2),
+              balanceAfter: after.toFixed(2),
+              currency: wallet.currency,
+              orderId: oid,
+              escrowTxId: escrowId,
+              description: `Escrow hold for order ${oid} (${opts.provider} webhook confirmation)`,
+              reference,
+              createdAt: now,
+            });
+            await tx.update(merchantWallets).set({
+              escrowBalance: sql`${merchantWallets.escrowBalance} + ${split.gross}`,
+              updatedAt: now,
+            }).where(eq(merchantWallets.id, wallet.id));
+            await tx.update(escrowTransactions)
+              .set({ buyerWalletTxId: walletTxId, updatedAt: now })
+              .where(eq(escrowTransactions.id, escrowId));
+          }
+        }
+      });
+    }
+  };
+  const ensureEscrowHoldOnReplay = async () => {
+    if (!orderId) return;
+    const [paid] = await db
+      .select({ id: orders.id })
+      .from(orders)
+      .where(and(
+        eq(orders.id, orderId),
+        eq(orders.tenantId, tenantId),
+        eq(orders.paymentStatus, "completed"),
+        sql`${orders.status} NOT IN ('cancelled', 'refunded')`,
+      ))
+      .limit(1);
+    if (!paid) return;
+    try {
+      await ensureEscrowHold(orderId);
+    } catch (err: any) {
+      console.error(`[payment-confirm] escrow hold retry failed for order ${orderId}:`, err?.message);
+      captureException(err, { service: "paymentConfirm", operation: "escrowHoldRetry", tenantId, severity: "critical", extra: { orderId, reference } });
+    }
+  };
+
   // ── Amount/currency verification (BEFORE any state mutation) ─────────────
   // Wave 26 audit F1b: EXACT integer minor-unit comparison — no ₦0.01
   // tolerance. A webhook reporting even 1 kobo off the expected amount is
@@ -280,12 +526,19 @@ export async function confirmProviderPayment(
     return { ok: false, action: "amount-currency-mismatch", detail: reason };
   }
 
+  // AF-01: this reference was already judged unpayable (and handed to the
+  // quarantine + auto-refund seam) — a replay must return the same verdict.
+  if (currentStatus !== "completed" && currentFailureReason?.startsWith(ORDER_NOT_PAYABLE_PREFIX)) {
+    return { ok: false, action: "order-not-payable", detail: currentFailureReason };
+  }
+
   // ── Idempotent guarded transition to completed ────────────────────────────
   if (currentStatus === "completed") {
     // Webhook replay of an already-completed intent — still ensure the wallet
     // top-up credit landed (idempotent no-op when it already did), and retry
     // the ledger settle in case an earlier attempt failed (see settleIntentLedger).
     await settleLedgerNow();
+    await ensureEscrowHoldOnReplay();
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
     await maybeSettlePoPayment();
@@ -314,16 +567,13 @@ export async function confirmProviderPayment(
   if (!transitioned) {
     // Lost a race with a concurrent webhook delivery — already handled.
     await settleLedgerNow();
+    await ensureEscrowHoldOnReplay();
     await maybeCreditWalletTopUp();
     await maybeApplyCreditRepayment();
     await maybeSettlePoPayment();
     await maybeMarkInvoicePaid();
     return { ok: true, action: "already-completed" };
   }
-  // The intent/transaction just transitioned to completed on THIS call — settle its TigerBeetle
-  // reservation now (see settleIntentLedger for why this must never have been skippable).
-  await settleLedgerNow();
-
   // ── Drive order confirmation + escrow hold creation (either path) ─────────
   // Wave-8 B2B intents reuse paymentIntents.orderId for NON-storefront
   // references: po_payment intents carry the purchase-order uuid and
@@ -342,6 +592,42 @@ export async function confirmProviderPayment(
       .limit(1);
     if (!orderRow) orderId = null;
   }
+
+  // AF-01: a payment for an order that was cancelled, or whose stock was
+  // released and is now gone, must not confirm it. This call won the claim,
+  // so it alone hands the payment back: status → failed with the
+  // ORDER_NOT_PAYABLE_PREFIX reason, ledger reservation left to auto-void,
+  // and the webhook seam (runPaymentMismatchQuarantineHook) quarantines and
+  // auto-refunds the collected amount.
+  if (orderId) {
+    const gate = await ensureOrderPayable(db, tenantId, orderId, now);
+    if (!gate.payable) {
+      const reason = `${ORDER_NOT_PAYABLE_PREFIX}: ${gate.reason}`;
+      console.error(`[payment-confirm] REJECTED ${opts.provider} ref=${reference} for order ${orderId}: ${reason}`);
+      if (kind === "transaction") {
+        await db.update(paymentTransactions)
+          .set({ status: "failed", failureReason: reason.slice(0, 500), updatedAt: now })
+          .where(eq(paymentTransactions.id, rowId));
+      } else {
+        await db.update(paymentIntents)
+          .set({ status: "failed", failureReason: reason, updatedAt: now })
+          .where(eq(paymentIntents.id, rowId));
+      }
+      captureException(new Error(`[AF-01] payment for unpayable order: ${reason}`), {
+        service: "paymentConfirm",
+        operation: "orderNotPayable",
+        tenantId,
+        severity: "critical",
+        extra: { orderId, reference, provider: opts.provider },
+      });
+      return { ok: false, action: "order-not-payable", detail: reason };
+    }
+  }
+
+  // The intent/transaction just transitioned to completed on THIS call — settle its TigerBeetle
+  // reservation now (see settleIntentLedger for why this must never have been skippable).
+  await settleLedgerNow();
+
   if (orderId) {
     // Wave 26 audit F1b: tenant-scoped update — the order lookup/transition
     // must never touch a row outside the payment's own tenant.
@@ -351,6 +637,9 @@ export async function confirmProviderPayment(
         eq(orders.id, orderId),
         eq(orders.tenantId, tenantId),
         sql`${orders.paymentStatus} <> 'completed'`,
+        // AF-01: never resurrect a terminal order, even if it was cancelled
+        // between ensureOrderPayable and here.
+        sql`${orders.status} NOT IN ('cancelled', 'refunded')`,
       ));
 
     // Payment confirmed → commit the stock reservations made at order
@@ -380,8 +669,11 @@ export async function confirmProviderPayment(
     // from the confirmed order row — business name, itemized lines, discount,
     // delivery fee, total paid, payment ref, delivery PIN, tracking link.
     try {
+      // Delivery-fulfillment orders get a shipment (+ fresh PIN) created right here, right after
+      // payment — see ensureDeliveryShipment's own comment for why nothing did this before.
+      const freshPin = await ensureDeliveryShipment(db, orderId, tenantId);
       const { sendOrderReceipt } = await import("./receipts");
-      const receipt = await sendOrderReceipt(db, orderId, reference);
+      const receipt = await sendOrderReceipt(db, orderId, reference, freshPin);
       if (!receipt.sent) {
         console.warn(`[payment-confirm] receipt skipped for order ${orderId}: ${receipt.reason}`);
       }
@@ -396,78 +688,7 @@ export async function confirmProviderPayment(
       });
     }
 
-    const [existingEscrow] = await db.select({ id: escrowTransactions.id })
-      .from(escrowTransactions)
-      .where(eq(escrowTransactions.orderId, orderId))
-      .limit(1);
-    if (!existingEscrow) {
-      const [cfg] = await db.select().from(escrowConfig).where(eq(escrowConfig.id, 1));
-      const confirmWindowHours = cfg?.buyerConfirmWindowHours ?? 24;
-      const custodyMode = (cfg?.custodyMode ?? "pssp") as "pssp" | "psp";
-      // Integer minor-units split (shared/escrowAmounts) — same invariant as
-      // escrow.createHold: platformFee + netMerchantAmount == amount always.
-      const split = splitEscrowAmounts(expectedAmount, cfg?.platformFeeRate ?? "0.03125");
-      const escrowId = randomUUID();
-      const inserted = await db.insert(escrowTransactions).values({
-        id: escrowId,
-        orderId,
-        tenantId,
-        customerId,
-        amount: split.gross,
-        platformFee: split.fee,
-        netMerchantAmount: split.net,
-        currency: expectedCurrency || "NGN",
-        custodyMode,
-        state: "escrow_held",
-        buyerConfirmDeadline: new Date(Date.now() + confirmWindowHours * 3600 * 1000),
-        idempotencyKey: `escrow-hold:${orderId}`,
-        createdAt: now,
-        updatedAt: now,
-      }).onConflictDoNothing().returning({ id: escrowTransactions.id });
-
-      if (inserted.length > 0 && custodyMode === "psp") {
-        // PSP mode: credit the merchant's escrow wallet (mirrors escrow.createHold)
-        let [wallet] = await db.select().from(merchantWallets)
-          .where(eq(merchantWallets.tenantId, tenantId));
-        if (!wallet) {
-          const walletId = randomUUID();
-          await db.insert(merchantWallets).values({
-            id: walletId, tenantId, currency: expectedCurrency || "NGN",
-            availableBalance: "0", escrowBalance: "0", totalEarned: "0", totalWithdrawn: "0",
-            custodyMode: "psp", isActive: true, createdAt: now, updatedAt: now,
-          }).onConflictDoNothing();
-          [wallet] = await db.select().from(merchantWallets)
-            .where(eq(merchantWallets.tenantId, tenantId));
-        }
-        if (wallet) {
-          const before = parseFloat(wallet.escrowBalance);
-          const after = before + split.grossMinor / 100;
-          const walletTxId = randomUUID();
-          await db.insert(walletTransactions).values({
-            id: walletTxId,
-            walletId: wallet.id,
-            tenantId,
-            type: "escrow_credit",
-            amount: split.gross,
-            balanceBefore: before.toFixed(2),
-            balanceAfter: after.toFixed(2),
-            currency: wallet.currency,
-            orderId,
-            escrowTxId: escrowId,
-            description: `Escrow hold for order ${orderId} (${opts.provider} webhook confirmation)`,
-            reference,
-            createdAt: now,
-          });
-          await db.update(merchantWallets).set({
-            escrowBalance: sql`${merchantWallets.escrowBalance} + ${split.gross}`,
-            updatedAt: now,
-          }).where(eq(merchantWallets.id, wallet.id));
-          await db.update(escrowTransactions)
-            .set({ buyerWalletTxId: walletTxId, updatedAt: now })
-            .where(eq(escrowTransactions.id, escrowId));
-        }
-      }
-    }
+    await ensureEscrowHold(orderId);
   }
 
   // Credit the merchant wallet for wallet_topup payment intents (idempotent).

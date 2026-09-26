@@ -252,7 +252,7 @@ export default function Conversations() {
       <ConversationTimeline
         open={timelineOpen}
         onClose={() => setTimelineOpen(false)}
-        conversation={selectedConv as any}
+        conversation={selectedConv}
         tenantId={DEMO_TENANT}
       />
     </DashboardLayout>

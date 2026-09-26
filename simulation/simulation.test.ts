@@ -24,7 +24,7 @@ process.env.CREDIT_TENURE_GATE_DAYS = "0";
 // module top level so every journey gets a statically-defined test block.
 const journeys = await loadJourneys();
 
-describe("WhatsApp feature simulation (465 journeys)", () => {
+describe("WhatsApp feature simulation (482 journeys)", () => {
   let world: World;
 
   beforeAll(async () => {
@@ -36,7 +36,7 @@ describe("WhatsApp feature simulation (465 journeys)", () => {
   });
 
   it("loads the full journey registry", () => {
-    expect(journeys.length).toBe(465); // W47 merger FINAL: 425 (W46) + J427-J466 (merchant10+buyer10+stakeholders10+crosscutting10) ACTUAL via loadJourneys. W46 FINAL: 385 (W45) + J387-J426 (A/B/C/D/E/F/G/H, 8x5) — ACTUAL verified via loadJourneys at merge. W45 merger FINAL: 350 (W44) + J352-J356 (A1) + J357-J361 (A2) + J362-J366 (B1) + J367-J371 (B2) + J372-J376 (B3) + J377-J381 (C) + J382-J386 (D) = 385 ACTUAL (verified via loadJourneys, 0 dupes).
+    expect(journeys.length).toBe(484); // 470 + J472 (late payment on a dead order, AF-01) + J473 (unified webhook quarantine, AF-02) + J474 (wallet top-up ledger-tracked, AF-05) + J475 (escrow hold atomic + healed, AF-06) + J476 (telegram /start shows the welcome menu, every consent-grant path) + J477 (telegram: place an order and pay, end to end) + J478 (deterministic order fallback survives a real LLM outage, WhatsApp + Telegram) + J479 (telegram delivery location-request reaches the chat for real) + J480 (cart shortage recovery: remove_from_cart + shortage-aware replace) + J481 (session language self-corrects, no longer a one-way ratchet) + J482 (support/handoff replies carry a real phone+email, QA-054) + J483 (deterministic-first routing: greeting/stock-question/product-detail/cheaper-options fast paths, LLM only for what deterministic can't place, QA-055) + J484 (dispute-raising reaches the fast deterministic path too — was LLM-only, the least reliable link) + J485 (escrow.createHold refuses a currency-mismatched wallet credit instead of silently corrupting the balance) = 484 ACTUAL via loadJourneys (470+14). 465 (W47) + J467 (temporal worker contract, real DB) + J468 (temporal enable-list gate, real DB) + J469 (telegram default-off) + J470 (telegram settings card) + J471 (telegram/whatsapp menu-engine parity). W47 merger FINAL: 425 (W46) + J427-J466 (merchant10+buyer10+stakeholders10+crosscutting10) ACTUAL via loadJourneys. W46 FINAL: 385 (W45) + J387-J426 (A/B/C/D/E/F/G/H, 8x5) — ACTUAL verified via loadJourneys at merge. W45 merger FINAL: 350 (W44) + J352-J356 (A1) + J357-J361 (A2) + J362-J366 (B1) + J367-J371 (B2) + J372-J376 (B3) + J377-J381 (C) + J382-J386 (D) = 385 ACTUAL (verified via loadJourneys, 0 dupes).
     const ids = journeys.map((j) => j.id);
     expect(new Set(ids).size).toBe(ids.length);
   });

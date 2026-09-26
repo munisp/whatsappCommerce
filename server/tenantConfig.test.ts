@@ -1,8 +1,8 @@
 /**
  * tenantConfig.test.ts — per-tenant customization APIs.
  *
- * Covers: CRM customFields CRUD + pipelineStages, inventory/commerce/branding
- * get/set, waMenu full replace + item-level ops with contract validation
+ * Covers: CRM customFields CRUD + pipelineStages, inventory/commerce/branding/
+ * support get/set, waMenu full replace + item-level ops with contract validation
  * (unknown use-case ids, empty labels, order collisions, non-hex color),
  * previewWaMenu rendering with mocked products/orders, and cross-tenant
  * rejection. DB is mocked in-memory.
@@ -302,6 +302,22 @@ describe("inventoryConfig / commerceConfig / brandingConfig", () => {
     await expect(
       callerA().setCommerceConfig({ tenantId: TENANT_A, config: { ...cfg, currency: "naira" } }),
     ).rejects.toThrow();
+  });
+
+  it("support get/set (buyer-facing contact) + zod rejection", async () => {
+    expect(await callerA().getSupportConfig({ tenantId: TENANT_A })).toEqual({ phone: null, email: null });
+    const saved = await callerA().setSupportConfig({
+      tenantId: TENANT_A,
+      config: { phone: "+234 900 000 0000", email: "Support@Example.com" },
+    });
+    // schema lower-cases email on the way in
+    expect(saved).toEqual({ phone: "+234 900 000 0000", email: "support@example.com" });
+    await expect(
+      callerA().setSupportConfig({ tenantId: TENANT_A, config: { phone: "0900", email: "not-an-email" } }),
+    ).rejects.toThrow();
+    // null is a valid "not configured" value for either field
+    const cleared = await callerA().setSupportConfig({ tenantId: TENANT_A, config: { phone: null, email: null } });
+    expect(cleared).toEqual({ phone: null, email: null });
   });
 
   it("branding get/set + hex color enforcement", async () => {

@@ -114,7 +114,7 @@ import { manufacturerProgramsRouter } from "./routers/manufacturerPrograms";
 import { creditRepayRouter } from "./routers/creditRepay";
 import { onboardingCopilotRouter } from "./routers/onboardingCopilot";
 import { membershipRouter } from "./routers/membership";
-import { ridersRouter } from "./routers/riders"; // === W47 stakeholders ===
+import { driversRouter } from "./routers/drivers"; // replaces the retired per-tenant riders.ts (2026-09-26)
 // === W31 approvals (Coder C) ===
 import { approvalsRouter } from "./routers/approvals";
 // === END W31 approvals ===
@@ -180,9 +180,7 @@ export const appRouter = router({
       }),
   }),
   membership: membershipRouter,
-  // === W47 stakeholders ===
-  riders: ridersRouter,
-  // === END W47 stakeholders ===
+  drivers: driversRouter,
   // === W31 approvals (Coder C) ===
   approvals: approvalsRouter,
   // === END W31 approvals ===
@@ -297,6 +295,7 @@ export const appRouter = router({
   hermes: hermesRouter,
   infra: infraRouter,
   temporal: temporalRouter,
+  temporalInternal: temporalInternalRouter,
   orchestrator: orchestratorRouter,
   search: searchRouter,
   ai: aiRouter,
@@ -372,6 +371,7 @@ export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
 import { searchRouter } from "./routers/search";
 import { temporalRouter } from "./routers/temporal";
+import { temporalInternalRouter } from "./routers/temporalInternal";
 import { orchestratorRouter } from "./routers/orchestrator";
 // === W27 catalog-ai ===
 import { catalogAIRouter } from "./routers/catalogAI";

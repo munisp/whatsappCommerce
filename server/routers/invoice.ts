@@ -211,7 +211,8 @@ export const invoiceRouter = router({
 
       const [tenant] = await db.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, inv.tenantId)).limit(1);
       const paymentIntentId = crypto.randomUUID();
-      const ref = `INV-PAY-${Date.now()}-${inv.tenantId.slice(0, 6).toUpperCase()}`;
+      // AF-07: include the intent id — timestamp + tenant alone can collide.
+      const ref = `INV-PAY-${Date.now()}-${inv.tenantId.slice(0, 6).toUpperCase()}-${paymentIntentId.slice(0, 8).toUpperCase()}`;
 
       // payment_intents.orderId / customerId are NOT NULL and have no invoice
       // concept — scope by invoice/tenant id, same convention as wallet top-up.

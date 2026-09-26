@@ -31,7 +31,7 @@ import { customers, orders, users, whatsappNotificationLog, whatsappCustomerRepl
 import { eq, desc, and, ilike, gte, lte, or, sql, inArray } from "drizzle-orm";
 import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import { z } from "zod";
-import { sendWhatsAppTemplate, sendWhatsAppText, resolveTenantWaCredentials } from "../services/waSender";
+import { sendWhatsAppTemplate } from "../services/waSender";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -542,6 +542,12 @@ export const whatsappNotificationsRouter = router({
     }),
 
   /** Send a text reply from admin to a customer via WhatsApp (per-tenant creds). */
+  // Found live 2026-09-26: this used to call sendWhatsAppText directly — a Telegram customer's chat id
+  // (or an order placed via Telegram) would silently fail here, the same bug class as
+  // conversation.sendMessage (see ConversationTimeline.tsx's fix comment). Routed through the same
+  // resolveCustomerChannel + sendChannelMessage pattern this file already uses for order-status
+  // notifications (W37, above) — the "Reply to customer" panel on the order timeline page now actually
+  // works for a Telegram order.
   sendAdminReply: protectedProcedure
     .input(z.object({
       phone: z.string().min(7),
@@ -563,17 +569,20 @@ export const whatsappNotificationsRouter = router({
         }
       }
       try {
-        const result = await sendWhatsAppText(tenantId, input.phone, input.message, {
+        const { resolveCustomerChannel } = await import("../services/channelParity");
+        const { sendChannelMessage } = await import("../services/channelSender");
+        const route = await resolveCustomerChannel(tenantId, input.phone);
+        const result = await sendChannelMessage(tenantId, route.channel, route.to, { kind: "text", text: input.message }, {
           notifType: "admin_reply",
           orderId: input.orderId ?? null,
           userId: ctx.user?.id ?? null,
         });
         if (result.simulated) return { sent: false, simulated: true, wamid: null };
-        return { sent: true, simulated: false, wamid: result.wamids[0] ?? null };
+        return { sent: true, simulated: false, wamid: result.messageIds[0] ?? null };
       } catch (err: any) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: err?.message ?? "WhatsApp send failed",
+          message: err?.message ?? "Message send failed",
         });
       }
     }),
@@ -654,7 +663,10 @@ Draft a helpful reply to the customer's most recent message. Reply in plain text
       return { suggestion: suggestion.trim() };
     }),
 
-  /** Upload a file (image/PDF) to S3 and send it as a WhatsApp media message. */
+  // Found live 2026-09-26: this posted straight to graph.facebook.com with WhatsApp-only credentials —
+  // the same bug as sendAdminReply above, in the attachment path. Routed through sendChannelMessage's
+  // "media" kind, which already has a real Telegram media sender (server/services/telegramSender.ts).
+  /** Upload a file (image/PDF) to S3 and send it as a media message on the customer's real channel. */
   sendAttachment: protectedProcedure
     .input(z.object({
       phone: z.string().min(7),
@@ -675,11 +687,10 @@ Draft a helpful reply to the customer's most recent message. Reply in plain text
       const storageKey = generateStorageKey(input.fileName);
       const { url: storageUrl } = await storagePut(storageKey, fileBuffer, input.mimeType);
 
-      // 2. Determine WhatsApp message type
       const isImage = input.mimeType.startsWith("image/");
-      const waType = isImage ? "image" : "document";
+      const mediaType: "image" | "document" = isImage ? "image" : "document";
 
-      // 3. Send via WhatsApp Cloud API with per-tenant credentials (waSender resolution)
+      // 2. Resolve tenant + real channel
       let tenantId = ctx.user?.tenantId ?? "default";
       if (input.orderId) {
         const db = await getDb();
@@ -692,52 +703,27 @@ Draft a helpful reply to the customer's most recent message. Reply in plain text
           tenantId = ord.tenantId;
         }
       }
-      const creds = await resolveTenantWaCredentials(tenantId);
-      if (!creds) {
-        return { sent: false, simulated: true, wamid: null, storageUrl };
-      }
-      const token = creds.accessToken;
-      const phoneId = creds.phoneNumberId;
 
-      // Build absolute URL for WhatsApp (needs a public URL)
+      // Build an absolute URL — both WhatsApp's and Telegram's media APIs need one.
       const appUrl = process.env.VITE_FRONTEND_FORGE_API_URL?.replace("/v1", "") ?? "";
       const publicUrl = storageUrl.startsWith("http") ? storageUrl : `${appUrl}${storageUrl}`;
 
-      const mediaPayload: Record<string, unknown> = {
-        messaging_product: "whatsapp",
-        to: input.phone.replace(/[^0-9]/g, ""),
-        type: waType,
-        [waType]: {
-          link: publicUrl,
-          ...(input.caption ? { caption: input.caption } : {}),
-          ...(waType === "document" ? { filename: input.fileName } : {}),
-        },
-      };
-
-      const resp = await fetch(
-        `https://graph.facebook.com/v21.0/${phoneId}/messages`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(mediaPayload),
-          signal: AbortSignal.timeout(15000),
-        }
-      );
-
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
+      try {
+        const { resolveCustomerChannel } = await import("../services/channelParity");
+        const { sendChannelMessage } = await import("../services/channelSender");
+        const route = await resolveCustomerChannel(tenantId, input.phone);
+        const result = await sendChannelMessage(tenantId, route.channel, route.to, {
+          kind: "media",
+          media: { type: mediaType, link: publicUrl, caption: input.caption, filename: input.fileName },
+        }, { notifType: "admin_attachment", orderId: input.orderId ?? null, userId: ctx.user?.id ?? null });
+        if (result.simulated) return { sent: false, simulated: true, wamid: null, storageUrl };
+        return { sent: true, simulated: false, wamid: result.messageIds[0] ?? null, storageUrl };
+      } catch (err: any) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: (err as any)?.error?.message ?? "WhatsApp media send failed",
+          message: err?.message ?? "Media send failed",
         });
       }
-
-      const data = await resp.json() as any;
-      const wamid: string | null = data?.messages?.[0]?.id ?? null;
-      return { sent: true, simulated: false, wamid, storageUrl };
     }),
 });
 

@@ -1,0 +1,8 @@
+# Ollama lives in its own namespace, not whatsapp-commerce — it's shared infrastructure (a local LLM runtime), not
+# an application component of this one service. See ollama-pvc.yaml for why it exists at all.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ollama
+  labels:
+    app.kubernetes.io/part-of: whatsapp-commerce-platform

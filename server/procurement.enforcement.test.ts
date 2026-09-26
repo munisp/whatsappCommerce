@@ -16,7 +16,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const sendTextMock = vi.hoisted(() => vi.fn(async () => ({ sent: true })));
 const sendInteractiveMock = vi.hoisted(() => vi.fn(async () => ({ sent: true })));
-vi.mock("./services/waSender", () => ({
+vi.mock("./services/waSender", async (importOriginal) => ({
+  // Pure retry policy (no I/O) — telegramSender re-exports it at load time.
+  ...(({ classifyWaSendError, WA_RETRY_BACKOFF_MS, WA_RETRY_MAX_ATTEMPTS }) => ({ classifyWaSendError, WA_RETRY_BACKOFF_MS, WA_RETRY_MAX_ATTEMPTS }))(
+    await importOriginal<typeof import("./services/waSender")>(),
+  ),
   sendWhatsAppText: (...a: any[]) => sendTextMock(...a),
   sendWhatsAppInteractive: (...a: any[]) => sendInteractiveMock(...a),
   sendWhatsAppMedia: vi.fn(async () => ({ sent: true })),

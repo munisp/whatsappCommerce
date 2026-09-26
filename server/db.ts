@@ -16,6 +16,7 @@ import {
   whatsappTemplates, InsertWhatsappTemplate, WhatsappTemplate,
   tenantMenuAssignments, TenantMenuAssignment,
   whatsappMenus, WhatsappMenu,
+  nlpSessions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -327,62 +328,112 @@ export async function getCustomerCount(tenantId: string) {
 }
 
 // ─── Conversation Helpers ─────────────────────────────────────────────────────
+//
+// Found live 2026-09-26, aggressive dashboard QA sweep: these used to query the `conversations` table —
+// which is essentially DEAD. Verified directly: 0 rows for a real, active test tenant with an extensive,
+// ongoing Telegram chat history. The actual, current live chat pipeline (server/routers/nlp.ts,
+// telegramInbound.ts, _core/index.ts) writes to `nlp_sessions` + `agent_events`, and never touches
+// `conversations` for an ordinary shop conversation at all — `conversations` appears to be a legacy/Chatwoot-era
+// table (it still has a `chatwootConversationId` column) the current architecture superseded without the
+// dashboard ever being updated to match. This wasn't a Telegram-specific gap — WhatsApp conversations were
+// equally invisible; Telegram just happened to be what got tested first.
+//
+// Rewritten to read the REAL data (`nlp_sessions`, one row per real customer chat, works identically for
+// WhatsApp and Telegram — a session's `waPhoneNumber` is either a real WA number or `telegram:<chat_id>`).
+// Some fields are necessarily approximated rather than fabricated — see inline notes — because the current
+// architecture doesn't track a rich open/bot/human/escalated status the way the old `conversations` schema
+// implied; showing a defensible, labeled approximation of REAL data beats returning a confident, precise "0".
+
+function channelForSessionKey(waPhoneNumber: string): "whatsapp" | "telegram" {
+  return waPhoneNumber.startsWith("telegram:") ? "telegram" : "whatsapp";
+}
+
+/** The raw, channel-native address a session's key represents (strips the "telegram:" session-key prefix). */
+function rawAddressForSessionKey(waPhoneNumber: string): string {
+  return waPhoneNumber.startsWith("telegram:") ? waPhoneNumber.slice("telegram:".length) : waPhoneNumber;
+}
+
+/** A session counts as "recently active" (our stand-in for open/bot-active) within this window. */
+const RECENTLY_ACTIVE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export async function getConversations(tenantId: string, status?: string, limit = 50, offset = 0) {
   const db = await getDb();
   if (!db) return [];
-  const conditions = [eq(conversations.tenantId, tenantId)];
-  if (status) conditions.push(eq(conversations.status, status as any));
-  const rows = await db
-    .select({
-      id: conversations.id,
-      tenantId: conversations.tenantId,
-      customerId: conversations.customerId,
-      chatwootConversationId: conversations.chatwootConversationId,
-      status: conversations.status,
-      channel: conversations.channel,
-      assignedAgentId: conversations.assignedAgentId,
-      currentFlowStep: conversations.currentFlowStep,
-      lastIntent: conversations.lastIntent,
-      cartId: conversations.cartId,
-      messageCount: conversations.messageCount,
-      aiHandled: conversations.aiHandled,
-      escalatedAt: conversations.escalatedAt,
-      resolvedAt: conversations.resolvedAt,
-      firstResponseAt: conversations.firstResponseAt,
-      metadata: conversations.metadata,
-      createdAt: conversations.createdAt,
-      updatedAt: conversations.updatedAt,
-      customerPhone: customers.whatsappPhone,
-      customerName: customers.name,
-    })
-    .from(conversations)
-    .leftJoin(customers, eq(conversations.customerId, customers.id))
-    .where(and(...conditions))
-    .orderBy(desc(conversations.updatedAt))
+  const sessions = await db.select().from(nlpSessions)
+    .where(eq(nlpSessions.tenantId, tenantId))
+    .orderBy(desc(nlpSessions.lastActivityAt))
     .limit(limit)
     .offset(offset);
-  return rows;
+  if (sessions.length === 0) return [];
+  // One query for the latest intent per session, instead of N+1 — DISTINCT ON needs raw SQL, drizzle's query
+  // builder has no "latest row per group" primitive.
+  const sessionIds = sessions.map((s) => s.id);
+  const latestIntents = sessionIds.length > 0
+    ? await db.execute(sql`
+        SELECT DISTINCT ON ("conversationId") "conversationId", "intentType"
+        FROM agent_events
+        WHERE "conversationId" = ANY(${sessionIds})
+        ORDER BY "conversationId", "createdAt" DESC
+      `).catch(() => [] as Array<{ conversationId: string; intentType: string | null }>)
+    : [];
+  const intentBySession = new Map(
+    (latestIntents as unknown as Array<{ conversationId: string; intentType: string | null }>)
+      .map((r) => [r.conversationId, r.intentType]),
+  );
+  const now = Date.now();
+  const rows = sessions.map((s) => {
+    const recentlyActive = now - new Date(s.lastActivityAt).getTime() < RECENTLY_ACTIVE_WINDOW_MS;
+    // "open"/"resolved" is a recency-based approximation — the current architecture has no explicit
+    // open/closed state per conversation the way the old (unused) `conversations` table's enum implied.
+    const derivedStatus = recentlyActive ? "open" : "resolved";
+    return {
+      id: s.id,
+      tenantId: s.tenantId,
+      customerId: s.waPhoneNumber,
+      chatwootConversationId: null,
+      status: derivedStatus,
+      channel: channelForSessionKey(s.waPhoneNumber),
+      assignedAgentId: null,
+      currentFlowStep: s.state,
+      lastIntent: intentBySession.get(s.id) ?? null,
+      cartId: s.cartSessionId,
+      messageCount: Array.isArray(s.messageHistory) ? s.messageHistory.length : 0,
+      // No "a human took over" signal exists in the current architecture (see channels.channelStats below) —
+      // defaulting true (bot-handled) is accurate for how every conversation actually starts and, absent a
+      // real handoff-tracking mechanism, stays.
+      aiHandled: true,
+      escalatedAt: null,
+      resolvedAt: null,
+      firstResponseAt: null,
+      metadata: s.context,
+      createdAt: s.createdAt,
+      updatedAt: s.lastActivityAt,
+      customerPhone: rawAddressForSessionKey(s.waPhoneNumber),
+      customerName: s.customerName,
+    };
+  });
+  return status ? rows.filter((r) => r.status === status) : rows;
 }
 
 export async function getConversationStats(tenantId: string) {
   const db = await getDb();
   if (!db) return { total: 0, open: 0, botActive: 0, humanActive: 0, resolved: 0, escalated: 0 };
-  const [total, open, botActive, humanActive, resolved, escalated] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(conversations).where(eq(conversations.tenantId, tenantId)),
-    db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.status, "open"))),
-    db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.status, "bot_active"))),
-    db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.status, "human_active"))),
-    db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), eq(conversations.status, "resolved"))),
-    db.select({ count: sql<number>`count(*)` }).from(conversations).where(and(eq(conversations.tenantId, tenantId), sql`"escalatedAt" IS NOT NULL`)),
-  ]);
+  const sessions = await db.select({ lastActivityAt: nlpSessions.lastActivityAt }).from(nlpSessions)
+    .where(eq(nlpSessions.tenantId, tenantId));
+  const now = Date.now();
+  const open = sessions.filter((s) => now - new Date(s.lastActivityAt).getTime() < RECENTLY_ACTIVE_WINDOW_MS).length;
   return {
-    total: Number(total[0]?.count ?? 0),
-    open: Number(open[0]?.count ?? 0),
-    botActive: Number(botActive[0]?.count ?? 0),
-    humanActive: Number(humanActive[0]?.count ?? 0),
-    resolved: Number(resolved[0]?.count ?? 0),
-    escalated: Number(escalated[0]?.count ?? 0),
+    total: sessions.length,
+    open,
+    // Mirrors `open` — every conversation is bot-handled by default in the current architecture (see the
+    // `aiHandled` note above); there is no real signal to distinguish a separately-tracked "bot active" state.
+    botActive: open,
+    // Neither is tracked anywhere in the current architecture (the old `conversations.status`
+    // human_active/escalated enum values, and `escalatedAt`, belonged to the dead table above) — showing a
+    // real 0 here because it's genuinely unknown, not fabricating a plausible-looking non-zero number.
+    humanActive: 0,
+    resolved: sessions.length - open,
+    escalated: 0,
   };
 }
 
@@ -398,21 +449,54 @@ export async function getOrders(tenantId: string, status?: string, limit = 50, o
 
 export async function getOrderStats(tenantId: string) {
   const db = await getDb();
-  if (!db) return { total: 0, pending: 0, confirmed: 0, delivered: 0, revenue: 0 };
-  const [total, pending, confirmed, delivered, revenue] = await Promise.all([
+  if (!db) return { total: 0, pending: 0, confirmed: 0, delivered: 0, revenue: 0, revenueByCurrency: [] as Array<{ currency: string; amount: number }> };
+  const [total, pending, confirmed, delivered, revenueRows] = await Promise.all([
     db.select({ count: sql<number>`count(*)` }).from(orders).where(eq(orders.tenantId, tenantId)),
     db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "pending"))),
     db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "confirmed"))),
     db.select({ count: sql<number>`count(*)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.status, "delivered"))),
-    db.select({ total: sql<number>`COALESCE(SUM("totalAmount"), 0)` }).from(orders).where(and(eq(orders.tenantId, tenantId), eq(orders.paymentStatus, "completed"))),
+    // Found live 2026-09-26, aggressive dashboard QA sweep: this used to be a single COALESCE(SUM(...))
+    // across every completed order regardless of currency. This tenant has a real mix of NGN and USD
+    // orders (from before the currency/location bug was fixed — see order-currency memory), so that sum
+    // was adding e.g. ₦10,000 + $9,500 into one meaningless number and the UI slapped a hardcoded "$" on
+    // it. Grouping by currency is the actual fix; `revenue` below is kept only for legacy callers that
+    // don't yet render per-currency and is itself still a cross-currency sum (documented, not fixed) —
+    // new UI should read `revenueByCurrency`.
+    db.select({ currency: orders.currency, total: sql<number>`COALESCE(SUM("totalAmount"), 0)` })
+      .from(orders)
+      .where(and(eq(orders.tenantId, tenantId), eq(orders.paymentStatus, "completed")))
+      .groupBy(orders.currency),
   ]);
+  const revenueByCurrency = revenueRows.map((r) => ({ currency: r.currency, amount: Number(r.total ?? 0) }));
   return {
     total: Number(total[0]?.count ?? 0),
     pending: Number(pending[0]?.count ?? 0),
     confirmed: Number(confirmed[0]?.count ?? 0),
     delivered: Number(delivered[0]?.count ?? 0),
-    revenue: Number(revenue[0]?.total ?? 0),
+    revenue: revenueByCurrency.reduce((sum, r) => sum + r.amount, 0),
+    revenueByCurrency,
   };
+}
+
+// Found live 2026-09-26, aggressive dashboard QA sweep: several orders (mostly artifacts of the
+// currency/location bug — see order-currency memory) sit in "pending"/unpaid forever with no way for a
+// tenant to close them out from the dashboard. Deliberately narrow: only orders that never actually
+// collected money (`paymentStatus !== "completed"`) can be cancelled this way — an order with completed
+// payment already has real funds in escrow, and closing that out has to go through the existing
+// escrow.initiateRefund flow (server/routers/escrow.ts), not a raw status flip here.
+export async function cancelOrder(tenantId: string, orderId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const db = await getDb();
+  if (!db) return { ok: false, error: "DB unavailable" };
+  const [order] = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.tenantId, tenantId))).limit(1);
+  if (!order) return { ok: false, error: "Order not found" };
+  if (order.paymentStatus === "completed") {
+    return { ok: false, error: "This order has completed payment — use the escrow refund flow instead of cancelling it directly." };
+  }
+  if (order.status === "cancelled" || order.status === "delivered" || order.status === "refunded") {
+    return { ok: false, error: `Order is already ${order.status} and cannot be cancelled.` };
+  }
+  await db.update(orders).set({ status: "cancelled", updatedAt: new Date() }).where(eq(orders.id, orderId));
+  return { ok: true };
 }
 
 // ─── Payment Helpers ──────────────────────────────────────────────────────────
@@ -481,16 +565,25 @@ export async function upsertServiceHealth(serviceName: string, status: string, l
 export async function getPlatformOverview() {
   const db = await getDb();
   if (!db) return null;
-  const [tenantStats, orderRevenue, convCount, agentCount] = await Promise.all([
+  // Found live 2026-09-26 (user: "i still see dollars here"): the FOURTH independent copy of the same
+  // bug found this session (getOrderStats/tenantPortal.getDashboardKpis/this one) — a bare SUM across
+  // every tenant's orders with no GROUP BY currency, then rendered with a hardcoded "$" on the platform
+  // admin's own headline KPI. Platform-wide, so a per-currency breakdown is the honest answer rather than
+  // one number.
+  const [tenantStats, orderCount, revenueRows, convCount, agentCount] = await Promise.all([
     db.select({ count: sql<number>`count(*)`, active: sql<number>`SUM(CASE WHEN status='active' THEN 1 ELSE 0 END)` }).from(tenants),
-    db.select({ revenue: sql<number>`COALESCE(SUM("totalAmount"), 0)`, count: sql<number>`count(*)` }).from(orders).where(eq(orders.paymentStatus, "completed")),
+    db.select({ count: sql<number>`count(*)` }).from(orders).where(eq(orders.paymentStatus, "completed")),
+    db.select({ currency: orders.currency, total: sql<number>`COALESCE(SUM("totalAmount"), 0)` })
+      .from(orders).where(eq(orders.paymentStatus, "completed")).groupBy(orders.currency),
     db.select({ count: sql<number>`count(*)` }).from(conversations),
     db.select({ count: sql<number>`count(*)` }).from(agentEvents),
   ]);
+  const revenueByCurrency = revenueRows.map((r) => ({ currency: r.currency, amount: Number(r.total ?? 0) }));
   return {
     tenants: { total: Number(tenantStats[0]?.count ?? 0), active: Number(tenantStats[0]?.active ?? 0) },
-    revenue: Number(orderRevenue[0]?.revenue ?? 0),
-    orders: Number(orderRevenue[0]?.count ?? 0),
+    revenue: revenueByCurrency.reduce((s, r) => s + r.amount, 0),
+    revenueByCurrency,
+    orders: Number(orderCount[0]?.count ?? 0),
     conversations: Number(convCount[0]?.count ?? 0),
     agentInteractions: Number(agentCount[0]?.count ?? 0),
   };

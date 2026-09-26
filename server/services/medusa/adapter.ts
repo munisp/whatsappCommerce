@@ -105,7 +105,12 @@ export class HttpMedusaAdapter implements MedusaAdapter {
       ...init,
       headers: {
         "Content-Type": "application/json",
-        "x-medusa-access-token": this.apiKey,
+        // Medusa v2 dropped the v1 x-medusa-access-token header; secret API
+        // keys now authenticate via HTTP Basic with the raw key as the
+        // "username" (no base64 of a user:pass pair, no Bearer scheme —
+        // confirmed against a live v2 instance, which 401s Bearer with an
+        // explicit "must be sent using HTTP Basic authentication" message).
+        Authorization: `Basic ${this.apiKey}`,
         ...(init?.headers ?? {}),
       },
       signal: AbortSignal.timeout(10000),

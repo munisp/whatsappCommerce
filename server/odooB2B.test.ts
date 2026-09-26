@@ -268,8 +268,8 @@ describe("TwentyClient opportunities", () => {
 
   it("upsertOpportunity creates with company, micros amount and stage", async () => {
     const { calls } = stubFetchSequence([
-      { payload: { data: [] } }, // find by name
-      { payload: { data: { id: "opp-1" } } }, // create
+      { payload: { data: { opportunities: [] } } }, // find by name
+      { payload: { data: { createOpportunity: { id: "opp-1" } } } }, // create
     ]);
     const c = new TwentyClient(cfg);
     const res = await c.upsertOpportunity(
@@ -289,8 +289,8 @@ describe("TwentyClient opportunities", () => {
 
   it("upsertOpportunity patches the existing deal matched by name", async () => {
     const { calls } = stubFetchSequence([
-      { payload: { data: [{ id: "opp-9" }] } },
-      { payload: { data: { id: "opp-9" } } },
+      { payload: { data: { opportunities: [{ id: "opp-9" }] } } },
+      { payload: { data: { updateOpportunity: { id: "opp-9" } } } },
     ]);
     const c = new TwentyClient(cfg);
     const res = await c.upsertOpportunity({ name: "PO PO-00042", stage: "CUSTOMER" }, FAST);
@@ -436,10 +436,10 @@ describe("b2b outbox dispatch", () => {
 
   it("twenty PO event → supplier company upsert + opportunity in mapped stage", async () => {
     const { calls } = stubFetchSequence([
-      { payload: { data: [{ id: "co-1" }] } }, // company found
-      { payload: { data: { id: "co-1" } } }, // company patch
-      { payload: { data: [] } }, // opportunity find
-      { payload: { data: { id: "opp-1" } } }, // opportunity create
+      { payload: { data: { companies: [{ id: "co-1" }] } } }, // company found
+      { payload: { data: { updateCompany: { id: "co-1" } } } }, // company patch
+      { payload: { data: { opportunities: [] } } }, // opportunity find
+      { payload: { data: { createOpportunity: { id: "opp-1" } } } }, // opportunity create
     ]);
     const db = makeConfigDb([settings]);
     const event = makeEvent({ system: "twenty", entity: "purchase_order", action: "po.invoiced", data: PO_DATA });

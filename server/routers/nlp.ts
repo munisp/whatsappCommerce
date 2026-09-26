@@ -50,7 +50,7 @@ import {
   syncContactToTwenty,
   pushOrderActivityToTwenty,
 } from "../services/integrationSync";
-import { normalizeExtractedItems, addExtractedItemsToCart, matchCatalogItem } from "../services/nlpCart";
+import { normalizeExtractedItems, addExtractedItemsToCart, removeItemsFromCart, matchCatalogItem } from "../services/nlpCart";
 import { quoteDeliveryFee } from "../services/deliveryQuote";
 import { trackingUrlFor } from "../services/trackingToken";
 import {
@@ -63,7 +63,7 @@ import { matchFaq, parseFaqSettings } from "../services/faq";
 import { buildReorder, buildReorderReply } from "../services/reorder";
 import { raiseChatDispute, buildDisputeReply } from "../services/chatDispute";
 import { touchCartMarker } from "../services/cartRecovery";
-import { localeFromSessionLanguage, tr } from "../services/i18n";
+import { localeFromSessionLanguage, tr, detectLocaleDetailed } from "../services/i18n";
 import { validatePromo, applyPromo } from "../services/promos";
 import { subscribeToWaitlist, unsubscribeFromWaitlist } from "../services/waitlist";
 import { toMinorUnitsExact, minorUnitsToString } from "../../shared/escrowAmounts";
@@ -918,20 +918,87 @@ const FALLBACK_ERRORS: Record<string, string> = {
   pidgin: "Sorry, I no understand wetin you talk. Try again or type 'help'.",
 };
 
-const LANGUAGE_HINTS: Record<string, string[]> = {
-  yoruba: ["ẹ", "ọ", "ṣ", "jẹ", "wa", "mo", "ni", "fun", "ati", "se", "bawo", "kini", "ewo"],
-  hausa: ["na", "da", "ba", "mai", "ina", "kuma", "don", "shi", "ta", "suna", "yaya", "wane"],
-  igbo: ["ọ", "ị", "ụ", "bụ", "nke", "na", "ya", "ha", "gị", "m", "dị", "nọ", "ebe"],
-  pidgin: ["abeg", "wetin", "dey", "oga", "no be", "wey", "comot", "chop", "wahala", "sharp sharp", "how far"],
-};
-
+/**
+ * Was a crude substring-hint matcher (e.g. Igbo's hint was the single letter "m") that flagged almost any English
+ * text as a Nigerian language — found live 2026-09-25: "menu_3" and "I want to place an order" both came back
+ * mislocalized because they merely CONTAIN a one-or-two-letter hint somewhere. Now delegates to the SAME
+ * word-boundary, confidence-gated detector the menu engine uses (server/services/i18n.ts), so this module and the
+ * menu engine can never disagree about the same message's language again. A weak or zero-confidence signal stays
+ * English — it never guesses a non-English language from an ambiguous or short message (a bare number, an id).
+ * Pidgin has no dedicated entry in i18n.ts's detector, so it — like the pidgin copy in FALLBACK_ERRORS below — is
+ * unreachable here; harmless to keep, not worth a special-case for a locale the shared detector doesn't recognize.
+ */
+const LOCALE_TO_NLP_LANGUAGE: Partial<Record<string, string>> = { yo: "yoruba", ha: "hausa", ig: "igbo" };
 function detectLanguage(text: string): string {
-  const lower = text.toLowerCase();
-  for (const [lang, hints] of Object.entries(LANGUAGE_HINTS)) {
-    if (hints.some(h => lower.includes(h))) return lang;
+  const det = detectLocaleDetailed(text);
+  if (!det.lowConfidence && det.locale !== "en") {
+    return LOCALE_TO_NLP_LANGUAGE[det.locale] ?? "english";
   }
   return "english";
 }
+
+/**
+ * Product images are stored as relative paths (`/api/storage/<tenant>/<file>.jpg`) — fine for the app's own
+ * `<img src>` tags, but Telegram/WhatsApp's media-by-URL APIs fetch the image themselves and need a real,
+ * resolvable URL. Found live 2026-09-26 via the actual Bot API rejection: `"Bad Request: invalid file HTTP URL
+ * specified: URL host is empty"` — every product-detail image send had been failing outright, silently (the
+ * send just logs and moves on), on every channel, for every tenant. Already-absolute URLs pass through untouched.
+ */
+function absoluteImageUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${ENV.appUrl.replace(/\/+$/, "")}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+/**
+ * "How do I pay" / "what account should I pay to" / "share the paystack link" — anything asking where real
+ * money goes. Deliberately a loose, unanchored match (unlike most deterministic patterns in deterministicShop.ts,
+ * which anchor the whole message to avoid false-positive collisions) — the cost of missing one of these and
+ * letting the LLM improvise a fake account or link is much higher than the cost of a rare false match.
+ */
+const PAYMENT_QUERY_RE = /(?:how\s+(?:do|can)\s+i\s+pay|how\s+(?:do|can)\s+i\s+(?:complete|make)\s+(?:the\s+|my\s+)?payment|what\s+account\s+(?:should|do)\s+i\s+pay|which\s+account\s+(?:should|do)\s+i\s+pay|where\s+do\s+i\s+(?:pay|send)|(?:share|send|resend|give\s+me)\s+(?:the\s+)?(?:paystack|payment)\s*link|payment\s+link\s*(?:please)?)/i;
+
+/**
+ * Schema-ENFORCED (not just instructed) output for the LLM shop-assistant call — found live 2026-09-26 running
+ * against a local model: a plain "RESPOND WITH JSON" instruction in the system prompt was not reliable enough.
+ * Once real conversation history was in play the model would sometimes answer in plain prose with no JSON at all,
+ * or (worse, with only `response_format: "json_object"` — "valid JSON of SOME shape" but not this one) return a
+ * syntactically-valid but empty "{}", which parses cleanly while being useless. `json_schema` mode (constrained
+ * decoding, not just a hint) reliably fixed both — verified directly against the same failing live conversation
+ * before this was wired in. A large hosted model would likely never have needed this; a smaller local one does.
+ */
+const SHOP_REPLY_SCHEMA = {
+  name: "shop_reply",
+  schema: {
+    type: "object",
+    properties: {
+      reply: { type: "string" },
+      intent: {
+        type: "string",
+        enum: ["browse", "search", "add_to_cart", "remove_from_cart", "view_cart", "checkout", "confirm_order", "order_status", "support", "greeting", "reorder", "dispute", "cancel_order", "discover_nearby", "browse_wholesale", "join_group_deal", "unknown"],
+      },
+      nextState: {
+        type: "string",
+        enum: ["greeting", "browse", "product_detail", "add_to_cart", "checkout_address", "checkout_confirm", "payment", "order_confirmed", "support"],
+      },
+      extractedItems: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { product: { type: "string" }, quantity: { type: "number" } },
+          required: ["product", "quantity"],
+          additionalProperties: false,
+        },
+      },
+      extractedProduct: { type: ["string", "null"] },
+      extractedQuantity: { type: ["number", "null"] },
+      extractedAddress: { type: ["string", "null"] },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+    },
+    required: ["reply", "intent", "nextState", "extractedItems", "extractedProduct", "extractedQuantity", "extractedAddress", "confidence"],
+    additionalProperties: false,
+  },
+  strict: true,
+} as const;
 
 function buildSystemPrompt(language: string, products: Array<{ name: string; price: string; currency: string; stockQuantity: number }>, tenantName: string): string {
   const productList = products.slice(0, 20).map(p =>
@@ -946,9 +1013,9 @@ function buildSystemPrompt(language: string, products: Array<{ name: string; pri
     pidgin: "Respond in Nigerian Pidgin English. Be casual, friendly, and use common pidgin expressions.",
   };
 
-  return `You are a helpful WhatsApp shopping assistant for ${tenantName}. ${langInstructions[language] ?? langInstructions.english}
+  return `You are ${tenantName}'s shop attendant on WhatsApp — a real person the customer is chatting with, not a menu system. ${langInstructions[language] ?? langInstructions.english}
 
-You help customers browse products, add items to their cart, and complete purchases — all through natural conversation.
+You're only being asked about messages a simple keyword/catalog matcher couldn't confidently place on its own (it already handles the everyday stuff — add/remove/confirm/view cart, greetings, "how many X left", "show me X", "cheaper options"). What reaches you is the genuinely open-ended part: real conversation, indirect phrasing, questions, requests that need actual reasoning about the catalog — answer like the helpful person behind the counter would, not a script.
 
 AVAILABLE PRODUCTS:
 ${productList}
@@ -963,6 +1030,8 @@ CONVERSATION RULES:
 7. If the customer wants to REPEAT a previous order ("repeat my last order", "same as last time", "the usual", "reorder"), use intent "reorder" — the system rebuilds the cart from their last paid order automatically.
 8. If the customer raises a DISPUTE or complaint about an order ("I want to dispute", "my order never arrived", "you sent the wrong item", "I'm not happy with my order"), use intent "dispute" — the system logs the dispute and notifies the team automatically.
 9. If the customer wants to CANCEL an order they placed ("cancel my order", "cancel the order", "I don't want it anymore", "please cancel order #..."), use intent "cancel_order" — the system cancels it if it hasn't shipped and refunds any payment. Do NOT use "dispute" for plain cancellation requests.
+10. If the customer describes a DISH or RECIPE and asks what they need for it ("I need ingredients for jollof rice", "what do I need to make suya?"), figure out which AVAILABLE PRODUCTS above are actual ingredients/components for it and suggest those specifically by name — don't just repeat the whole catalog. If the customer agrees, put them in extractedItems like any other add. If nothing in stock is genuinely relevant, say so honestly rather than forcing a match.
+11. When nothing else in these rules fits — an opinion, small talk, "what do you recommend" — just talk to them like a helpful person would. Use intent "unknown" only when you truly have nothing useful to say (this is already a fallback path — a plain, honest, ON-TOPIC answer beats a forced classification).
 
 RESPOND WITH JSON (no markdown):
 {
@@ -1105,9 +1174,14 @@ export const nlpRouter = router({
         // Update language if newly detected — === W47 buyer (ONB-B-12):
         // NEVER overwrite once the buyer picked a sticky locale via the
         // language picker; detection no longer flips mid-conversation. ===
+        // Was `detectedLang !== "english"` — a one-way ratchet: once a single false-positive non-English
+        // detection landed (the old crude hint matcher, or any genuinely weak/ambiguous message), the session was
+        // stuck replying in that language FOREVER, since a later confidently-English message was never allowed to
+        // reset it back. `detectLanguage` (server/routers/nlp.ts) is now confidence-gated in both directions —
+        // syncing unconditionally (still never when `sticky`, that guard is unchanged) just lets it self-correct.
         const { getStickyLocale } = await import("../services/i18n");
         const sticky = await getStickyLocale(input.tenantId, sessionKey).catch(() => null);
-        if (detectedLang !== "english" && !sticky) {
+        if (!sticky && detectedLang !== session.language) {
           await db.update(nlpSessions)
             .set({ language: detectedLang, lastActivityAt: new Date() })
             .where(eq(nlpSessions.id, session.id));
@@ -1126,6 +1200,11 @@ export const nlpRouter = router({
         imageUrl: products.imageUrl,
       }).from(products)
         .where(and(eq(products.tenantId, input.tenantId), eq(products.status, "active")))
+        // Deterministic order: without one, LIMIT returns whichever 30 rows the query planner feels like, which
+        // silently drops products from what the assistant (LLM prompt AND the deterministic fallback's catalog
+        // listing) can ever mention once a tenant has more than 30 active products — found via a flaky-looking
+        // test failure that was actually this, not flakiness (J478 always failed in the full suite, never solo).
+        .orderBy(products.createdAt)
         .limit(30);
 
       // 3. Load cart for context
@@ -1162,8 +1241,26 @@ export const nlpRouter = router({
 
           // W17/F10: cash-on-delivery intent at any checkout step sticks to
           // the session ("2 cash on delivery", "delivery, I go pay cash").
+          // Found live 2026-09-26 (user: "the payment should only be through paystack"): COD used to be
+          // available to every buyer on every tenant unconditionally — this tenant wants online-only
+          // checkout. New per-tenant settings.commerce.codEnabled (default true, so every OTHER tenant's
+          // existing behavior is unchanged) — only queried when the message actually mentions COD, so
+          // ordinary checkout messages don't pay an extra DB round trip.
+          // Tracked separately from stepCtx.paymentMethod (which only takes "cod" when actually allowed)
+          // so the checkout-summary message built further below can mention it was declined, without
+          // this block trying to set the turn's final `reply` itself — `reply` is only meaningfully
+          // assigned later in this same turn (awaitingFulfillment/awaitingAddress branches), so setting
+          // it here would just get silently overwritten.
+          let codDeclined = false;
           if (/\b(cod|c\.o\.d|cash on delivery|pay on delivery|pay cash|cash when (i|una) receive)\b/i.test(text)) {
-            stepCtx.paymentMethod = "cod";
+            const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, input.tenantId)).limit(1);
+            const commerce = ((t?.settings as Record<string, unknown> | null)?.commerce ?? {}) as Record<string, unknown>;
+            const codEnabled = commerce.codEnabled !== false; // default true — opt-out, not opt-in
+            if (codEnabled) {
+              stepCtx.paymentMethod = "cod";
+            } else {
+              codDeclined = true;
+            }
           }
 
           // === W46 orders-p2 (ORD-25): buyer free-text note capture =======
@@ -1272,7 +1369,7 @@ export const nlpRouter = router({
             nextState = "payment";
             stepIntent = "confirm_order";
             stepOrderCard = { orderId: order.orderId!, orderNumber: order.orderNumber!, paymentUrl: order.paymentUrl ?? null };
-            const summary = buildOrderSummary({
+            let summary = buildOrderSummary({
               fmt: (await dualFormatterFor(db, input.tenantId)) ?? undefined,
               fulfillment,
               orderNumber: order.orderNumber!,
@@ -1298,6 +1395,13 @@ export const nlpRouter = router({
                   })(),
               // === END W46 uc-money ===
             });
+            // Found live 2026-09-26 (user: "the payment should only be through paystack"): tell the
+            // buyer plainly why they're getting a payment link instead of the COD they asked for,
+            // applied uniformly to every summary exit path below (installment/loyalty/gift annotations
+            // all build on this same `summary`).
+            if (codDeclined) {
+              summary = `This store accepts online payment only (Paystack) — cash on delivery isn't available here.\n\n${summary}`;
+            }
             // W41 (UC-1): installment plan — the link charges the down
             // payment only; explain the schedule honestly.
             if (order.installment) {
@@ -1362,15 +1466,19 @@ export const nlpRouter = router({
                 stepCtx.awaitingAddress = true;
                 nextState = "checkout_address";
                 reply = "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍";
-                // Native location request (interactive location_request_message).
-                // Fire-and-forget: a send failure never blocks checkout — the
-                // free-text address path above remains fully functional.
-                void import("../services/waLocation")
-                  .then(({ sendWhatsAppLocationRequest }) =>
-                    sendWhatsAppLocationRequest(
+                // Native location request (WA's interactive location_request_message, Telegram's request_location
+                // reply keyboard). Fire-and-forget: a send failure never blocks checkout — the free-text address
+                // path above remains fully functional. Was hardcoded to the WhatsApp-only sender regardless of
+                // channel — on Telegram that meant calling Meta's Graph API with "telegram:<chat_id>" as the
+                // recipient phone number, which Meta silently rejects (swallowed by the .catch below), so a
+                // Telegram customer never saw the button at all despite the reply text promising one.
+                void import("../services/channelSender")
+                  .then(({ sendChannelMessage }) =>
+                    sendChannelMessage(
                       input.tenantId,
+                      (input.channel as "whatsapp" | "telegram" | undefined) ?? "whatsapp",
                       input.waPhoneNumber,
-                      "📍 Share your delivery location — or just type your full address here.",
+                      { kind: "location_request", text: "📍 Share your delivery location — or just type your full address here." },
                     ),
                   )
                   .catch((e: unknown) => console.error("[nlp] location request send failed:", (e as Error)?.message));
@@ -2805,17 +2913,6 @@ export const nlpRouter = router({
         await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
         return { reply: statusMsg, intent: "hermes_status", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
       }
-     const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
-      const cartSummary = cartItemsList.length > 0
-        ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
-        : "\nCURRENT CART: empty";
-
-      const messages = [
-        { role: "system" as const, content: systemPrompt + cartSummary },
-        ...history.map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
-        { role: "user" as const, content: input.message },
-      ];
-
       let llmResult: {
         reply: string; intent: string; nextState: string;
         extractedItems?: Array<{ product?: string | null; quantity?: number | null }> | null;
@@ -2823,21 +2920,85 @@ export const nlpRouter = router({
         extractedAddress: string | null; confidence: number;
       };
 
-      try {
-        const raw = await invokeLLM({ messages, model: "gpt-5-mini" });
-        const rawContent = raw.choices?.[0]?.message?.content;
-        const content = typeof rawContent === "string" ? rawContent : "{}";
-        // Strip markdown code fences if present
-        const cleaned = content.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
-        llmResult = JSON.parse(cleaned);
-      } catch {
+      // 5. Classify — deterministic FIRST, always (2026-09-26, user's direction): most buyer messages are simple,
+      // unambiguous catalog operations (add/remove/confirm/view cart/greeting/stock question/product lookup) that
+      // don't need an LLM's understanding and shouldn't pay its latency (15-60s on this environment's CPU-only
+      // inference — instant matters more than eloquence for "confirm" or "2 milo"). The LLM is only invoked below
+      // when classifyDeterministically returns `intent: "unknown"` — genuinely open-ended messages (natural
+      // conversation, "what ingredients do I need for jollof rice", indirect phrasing) a rule-based matcher has no
+      // business guessing at.
+      const { classifyDeterministically } = await import("../services/deterministicShop");
+      llmResult = classifyDeterministically(input.message, tenantProducts, cartItemsList, session.state);
+      // Was the real LLM's answer actually used, or did we stay on the deterministic classification/catch-all?
+      // Recorded on agent_events below — "gpt-5-mini" there used to be a flat lie regardless of which path
+      // answered (found live 2026-09-26 while debugging why images never appeared: there was no way to tell
+      // from agent_events alone whether a real LLM call had EVER succeeded for a tenant).
+      let usedLlm = false;
+
+      // Payment/account questions get a GROUNDED answer from the real order + real payment link — NEVER left to
+      // the LLM to improvise. Found live 2026-09-26: asked "Ok so what account should I pay to?" and "Can you
+      // share the paystack link with me?", the LLM answered "Send the payment to our WhatsApp business account"
+      // and fabricated a link (https://example.com/pay) that was never a real Paystack checkout URL — an LLM
+      // asked something it has no real data for will confidently make something up, and a question about where
+      // real money goes is the one place that can never be allowed to happen. Checked BEFORE the LLM escalation
+      // below, so it's also instant, not a 15-60s round trip for something this codebase already knows the
+      // answer to.
+      if (llmResult.intent === "unknown" && PAYMENT_QUERY_RE.test(input.message)) {
+        const [recentOrder] = await db.select().from(orders)
+          .where(and(eq(orders.tenantId, input.tenantId), eq(orders.customerId, input.waPhoneNumber), eq(orders.paymentStatus, "unpaid")))
+          .orderBy(desc(orders.createdAt)).limit(1);
+        let paymentReply: string;
+        if (recentOrder) {
+          const [tx] = await db.select().from(paymentTransactions)
+            .where(eq(paymentTransactions.orderId, recentOrder.id))
+            .orderBy(desc(paymentTransactions.createdAt)).limit(1);
+          paymentReply = tx?.paymentUrl
+            ? `💳 Here's your payment link for order ${recentOrder.orderNumber}:\n${tx.paymentUrl}\n\nJust tap it to pay online — no account number needed.`
+            : `I don't have a payment link ready for order ${recentOrder.orderNumber} yet. Type "confirm" and I'll generate a fresh one for you.`;
+        } else {
+          paymentReply = `I don't see a pending order to pay for right now. Add something to your cart and type "confirm" to check out.`;
+        }
         llmResult = {
-          reply: FALLBACK_ERRORS[session.language] ?? FALLBACK_ERRORS.english,
-          intent: "unknown", nextState: session.state,
-          extractedItems: [],
-          extractedProduct: null, extractedQuantity: null,
-          extractedAddress: null, confidence: 0,
+          reply: paymentReply, intent: "order_status", nextState: session.state,
+          extractedItems: [], extractedProduct: null, extractedQuantity: null, extractedAddress: null, confidence: 1,
         };
+      } else if (llmResult.intent === "unknown") {
+        const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
+        const cartSummary = cartItemsList.length > 0
+          ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
+          : "\nCURRENT CART: empty";
+
+        const messages = [
+          { role: "system" as const, content: systemPrompt + cartSummary },
+          ...history.map(h => ({ role: h.role as "user" | "assistant", content: h.content })),
+          { role: "user" as const, content: input.message },
+        ];
+
+        try {
+          const raw = await invokeLLM({ messages, model: "gpt-5-mini", outputSchema: SHOP_REPLY_SCHEMA });
+          const rawContent = raw.choices?.[0]?.message?.content;
+          const content = typeof rawContent === "string" ? rawContent : "{}";
+          // Strip markdown code fences if present (schema enforcement should make this unnecessary, but costs
+          // nothing to keep as a second line of defense against a provider that doesn't honor response_format).
+          const cleaned = content.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+          const parsed = JSON.parse(cleaned);
+          // Schema enforcement guarantees valid JSON SYNTAX, not a non-empty, USEFUL answer — found live
+          // 2026-09-26: the model could still return a syntactically-valid but completely empty "{}", which
+          // parses cleanly while leaving `reply`/`intent` undefined. Require both before trusting it over the
+          // deterministic catch-all already sitting in `llmResult` (built above, never thrown away here).
+          if (parsed && typeof parsed.reply === "string" && parsed.reply.trim() && typeof parsed.intent === "string" && parsed.intent.trim()) {
+            llmResult = parsed;
+            usedLlm = true;
+          }
+        } catch {
+          // The LLM is unreachable, timed out, or (despite schema enforcement) still returned something
+          // unparseable — keep the deterministic catch-all reply already in `llmResult`, never a dead end.
+        }
+        if (llmResult.intent === "unknown" && llmResult.confidence === 0.3) {
+          // classifyDeterministically's own catalog-listing reply already covers this case well; keep it instead
+          // of overwriting with the flatter FALLBACK_ERRORS text, but preserve the localized wording as a prefix.
+          llmResult.reply = `${FALLBACK_ERRORS[session.language] ?? FALLBACK_ERRORS.english}\n\n${llmResult.reply}`;
+        }
       }
 
       // 6. Act on intent
@@ -2882,6 +3043,12 @@ export const nlpRouter = router({
               }
             }
           }
+          // Shortage recovery: a mention of a product that was JUST reported short (buildShortageReply told the
+          // buyer to "adjust your quantities") means "change my order to this amount", not "add this on top of
+          // the stuck quantity that already caused the shortage" — one-shot, consumed below regardless of outcome.
+          const replaceProductIds = new Set(
+            Array.isArray(ctx.lastShortageProductIds) ? (ctx.lastShortageProductIds as string[]) : [],
+          );
           const result = await addExtractedItemsToCart(db, {
             tenantId: input.tenantId,
             waPhoneNumber: input.waPhoneNumber,
@@ -2889,6 +3056,7 @@ export const nlpRouter = router({
             cartSession,
             products: tenantProducts,
             items: itemsToAdd,
+            replaceProductIds,
           });
           cartSession = result.cartSession;
           if (result.added.length > 0) {
@@ -2898,14 +3066,50 @@ export const nlpRouter = router({
               .map(a => `✅ ${a.quantity} × ${a.productName}`)
               .join("\n");
             llmResult.reply = `${addedSummary}\n${llmResult.reply ?? ""}`.trim();
-          }
-          if (result.clarifications.length > 0) {
-            llmResult.reply = `${llmResult.reply ?? ""}\n\n${result.clarifications.join("\n")}`.trim();
+            if (result.clarifications.length > 0) {
+              llmResult.reply = `${llmResult.reply}\n\n${result.clarifications.join("\n")}`.trim();
+            }
+          } else if (result.clarifications.length > 0) {
+            // Nothing was actually added — the LLM's own `reply` text may already claim otherwise. Found live
+            // 2026-09-26: a buyer typed "Dani" (a product that doesn't exist) and got back "✅ 1 × Dani milk"
+            // *followed by* "⚠️ Sorry, I couldn't find 'Dani milk' on the menu" — the LLM had freely written a
+            // success-sounding reply before the real catalog lookup ran, and the old code only ever APPENDED
+            // the real result, never replaced a false claim already sitting in llmResult.reply. Once the
+            // grounded backend lookup is the only source of truth for what happened, it also has to be the
+            // only source of truth for what the customer is told — discard the LLM's own guess entirely here.
+            llmResult.reply = result.clarifications.join("\n");
           }
           // Refresh the abandoned-cart marker (24h TTL) on every cart update.
           if (result.cartSession) {
             await touchCartMarker(input.tenantId, input.waPhoneNumber).catch(() => {});
           }
+        }
+        delete ctx.lastShortageProductIds;
+      }
+
+      if (llmResult.intent === "remove_from_cart") {
+        // `remove_from_cart` has been a declared, LLM-recognized intent since this router's system prompt was
+        // written (see the intent enum above) but had NO handler at all — found live 2026-09-25 when a buyer told
+        // "remove the unavailable items" after a stock shortage had no way to actually do it, on any channel, with
+        // or without a working LLM. Accepts the same extractedItems/extractedProduct shape add_to_cart does; only
+        // the product name matters here (quantity is ignored — removal always removes the whole line).
+        const mentions = normalizeExtractedItems(llmResult).map((i) => i.product);
+        if (mentions.length > 0 && cartSession) {
+          const result = await removeItemsFromCart(db, { cartSessionId: cartSession.id, products: tenantProducts, mentions });
+          cartItemsList = await db.select().from(cartItems).where(eq(cartItems.cartSessionId, cartSession.id));
+          const lines: string[] = [];
+          if (result.removed.length > 0) {
+            lines.push(result.removed.map((r) => `🗑️ Removed ${r.productName}`).join("\n"));
+          }
+          if (result.clarifications.length > 0) lines.push(result.clarifications.join("\n"));
+          lines.push(
+            cartItemsList.length > 0
+              ? `\nYour cart now:\n${cartItemsList.map((i) => `• ${i.quantity} × ${i.productName}`).join("\n")}\n\nType "confirm" when ready, or tell me what else to change.`
+              : "\nYour cart is now empty.",
+          );
+          llmResult.reply = lines.join("\n");
+        } else if (!cartSession) {
+          llmResult.reply = "Your cart is already empty — there's nothing to remove.";
         }
       }
 
@@ -3186,7 +3390,12 @@ export const nlpRouter = router({
       const productQuery = llmResult.extractedProduct?.trim();
       if (
         productQuery &&
-        (llmResult.intent === "search" || llmResult.intent === "browse" || llmResult.nextState === "product_detail")
+        // "product_detail" isn't in the system prompt's own allowed `intent` enum (only `nextState`'s) — but a
+        // local Ollama model was observed live (2026-09-26, gpt-5-mini alias over qwen2.5:7b-instruct) using it
+        // as the INTENT value anyway for "show me X" queries. Tolerating it here costs nothing (no other code
+        // treats that string as a meaningful intent) and is what actually gets an image shown for that phrasing
+        // against a real model, so it's checked in both positions rather than corrected only in one.
+        (llmResult.intent === "search" || llmResult.intent === "browse" || llmResult.intent === "product_detail" || llmResult.nextState === "product_detail")
       ) {
         const q = productQuery.toLowerCase();
         const match =
@@ -3199,10 +3408,16 @@ export const nlpRouter = router({
             .select({ displayCurrency: tenants.displayCurrency, displayFxRates: tenants.displayFxRates })
             .from(tenants).where(eq(tenants.id, input.tenantId)).limit(1)
             .catch(() => [] as any[]);
+          const absImageUrl = absoluteImageUrl(match.imageUrl);
           productImage = {
-            link: match.imageUrl,
+            link: absImageUrl,
             caption: `${match.name} — ${formatPriceDual(fxTenant, Number(match.price), match.currency)}`,
           };
+          // Also put the link in the plain reply TEXT, not just the native photo attachment — the user's own
+          // request (2026-09-26), and genuinely more robust: the native photo send is one more network call
+          // that can fail (as it silently had been, live, before the absolute-URL fix above) with nothing
+          // reaching the customer; the text reply is the one thing this turn always actually delivers.
+          llmResult.reply = `${llmResult.reply}\n📷 ${absImageUrl}`.trim();
         }
       }
 
@@ -3229,7 +3444,7 @@ export const nlpRouter = router({
         intentType: llmResult.intent,
         confidence: llmResult.confidence?.toFixed(3) ?? "0.000",
         escalated: false,
-        model: "gpt-5-mini",
+        model: usedLlm ? "gpt-5-mini" : "deterministic",
         createdAt: new Date(),
       });
 

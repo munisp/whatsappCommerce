@@ -207,7 +207,10 @@ export async function runPaymentMismatchQuarantineHook(
     rawPayload?: unknown;
   },
 ): Promise<QuarantineOutcome | null> {
-  if (opts.result.ok || opts.result.action !== "amount-currency-mismatch") return null;
+  // AF-01: "order-not-payable" is the same situation from the buyer's side —
+  // the PSP collected money for an order that will not be fulfilled — so it
+  // takes the same quarantine + full auto-refund path.
+  if (opts.result.ok || (opts.result.action !== "amount-currency-mismatch" && opts.result.action !== "order-not-payable")) return null;
   try {
     const [intent] = await db
       .select()

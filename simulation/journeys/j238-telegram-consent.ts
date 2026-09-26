@@ -37,11 +37,13 @@ export const journey: Journey = {
     const fromId = 770239;
     const key = `telegram:${chatId}`;
 
-    // 1. /start → opt-in.
+    // 1. /start → opt-in. Two sends follow, not one: the opt-in confirmation, then the welcome menu in the same
+    //    turn (WA parity). Wait for both, or the menu's slower DB-bound send can still be in flight when step 2
+    //    posts STOP right after — landing late and being mistaken for the stop confirmation below.
     let before = tg.callsFor("sendMessage").length;
     let res = await tgPost(world, TENANT_ID, TG_SECRET, tgTextUpdate(970240, chatId, fromId, "/start"));
     assert(res.status === 200, "start must ack 200");
-    await world.waitFor(() => tg.callsFor("sendMessage").length > before, 5000, "opt-in confirmation");
+    await world.waitFor(() => tg.callsFor("sendMessage").length > before + 1, 5000, "opt-in confirmation + welcome menu");
     let row = await consentRow(world, key);
     assert(row?.granted === true && !row.withdrawn_at, `/start must grant consent, got ${JSON.stringify(row)}`);
     assert(await hasChannelConsent(TENANT_ID, key, CONSENT_CHANNEL_TELEGRAM) === true, "consent must be active after /start");

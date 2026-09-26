@@ -41,9 +41,14 @@ function makeDb(opts: { intent?: any; orderRow?: any; existingEscrow?: any } = {
   };
   const select = vi.fn(() => ({
     from: vi.fn((table: any) => ({
-      where: vi.fn(() => ({
-        limit: vi.fn(() => Promise.resolve(rowsByTable[getTableName(table)] ?? [])),
-      })),
+      where: vi.fn(() => {
+        const rows = () => Promise.resolve(rowsByTable[getTableName(table)] ?? []);
+        return {
+          limit: vi.fn(rows),
+          for: vi.fn(rows), // SELECT … FOR UPDATE (AF-01 order lock)
+          then: (res: (v: any) => void, rej?: (e: any) => void) => rows().then(res, rej),
+        };
+      }),
     })),
   }));
   const update = vi.fn((table: any) => ({
@@ -63,7 +68,10 @@ function makeDb(opts: { intent?: any; orderRow?: any; existingEscrow?: any } = {
   const insert = vi.fn(() => ({
     values: vi.fn(() => ({ onConflictDoNothing: () => ({ returning: () => Promise.resolve([]) }) })),
   }));
-  return { select, update, insert, whereConds } as any;
+  const db: any = { select, update, insert, whereConds };
+  // Single connection: a transaction just runs against the same fake.
+  db.transaction = async (fn: (tx: any) => Promise<any>) => fn(db);
+  return db;
 }
 
 const BASE = {

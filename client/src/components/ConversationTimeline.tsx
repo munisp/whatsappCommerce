@@ -15,8 +15,11 @@ type Conversation = {
   id: string;
   customerName: string;
   customerPhone: string;
-  lastMessage: string;
-  lastMessageAt: Date | string;
+  // Found live 2026-09-26: this was named lastMessageAt, a field db.getConversations never actually
+  // returns (it returns updatedAt) — the mismatch was silently masked by `conversation={selectedConv as
+  // any}` at the call site, so `new Date(undefined)` rendered "Invalid Date" forever, right next to the
+  // now-fixed real message thread (QA-060) where it finally became visible. Renamed to the real field.
+  updatedAt: Date | string;
   status: string;
   aiConfidence?: number | null;
   intent?: string | null;
@@ -100,7 +103,7 @@ export default function ConversationTimeline({
           </span>
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            {new Date(conversation.lastMessageAt).toLocaleString()}
+            {new Date(conversation.updatedAt).toLocaleString()}
           </span>
         </div>
 
@@ -196,6 +199,10 @@ export default function ConversationTimeline({
                 sendMessageMutation.mutate({
                   tenantId,
                   toPhone: conversation.customerPhone,
+                  // Found live 2026-09-26: sendMessage was hardcoded to WhatsApp's Graph API regardless of
+                  // channel — a Telegram chat id sent there would just fail. `conversation.channel` is real,
+                  // available data on this row (see server/db.ts's getConversations rewrite).
+                  channel: (conversation as any).channel ?? "whatsapp",
                   body: messageText,
                 })
               }

@@ -37,6 +37,7 @@ const Journeys = lazy(() => import("./pages/Journeys"));
 const Consents = lazy(() => import("./pages/Consents"));
 const InventoryHub = lazy(() => import("./pages/InventoryHub"));
 const TrackOrder = lazy(() => import("./pages/TrackOrder"));
+const DriverApp = lazy(() => import("./pages/driver/DriverApp"));
 const Invoices = lazy(() => import("./pages/Invoices"));
 const PortalDashboard = lazy(() => import("./pages/portal/PortalDashboard"));
 const PortalProducts = lazy(() => import("./pages/portal/PortalProducts"));
@@ -163,6 +164,7 @@ function Router() {
       {/* === END W27 === */}
       <Route path="/orders/:orderNumber" component={OrderTimeline} />
       <Route path="/track/:token" component={TrackOrder} />
+      <Route path="/driver" component={DriverApp} />
       <Route path="/payments" component={Payments} />
       <Route path="/health" component={() => <AdminRouteRedirect to="/health" />} />
       <Route path="/twenty-crm" component={TwentyCRM} />

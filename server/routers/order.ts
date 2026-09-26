@@ -21,5 +21,15 @@ export const orderRouter = router({
       assertTenantAccess(ctx.user, input.tenantId);
       return db.getOrderStats(input.tenantId);
     }),
+
+  // Found live 2026-09-26, aggressive dashboard QA sweep: several orders sit in "pending"/unpaid forever
+  // (mostly artifacts of the now-fixed currency/location bug) with no way for a tenant to close them out.
+  // Scoped to unpaid orders only — see the doc comment on db.cancelOrder for why.
+  cancel: protectedProcedure
+    .input(z.object({ tenantId: z.string(), orderId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      return db.cancelOrder(input.tenantId, input.orderId);
+    }),
 });
 

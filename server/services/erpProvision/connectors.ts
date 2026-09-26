@@ -218,7 +218,9 @@ async function twentyGraphql<T = any>(
   label: string,
 ): Promise<T> {
   const res = await fetchJsonWithRetry(
-    `${cfg.baseUrl}/api`,
+    // Twenty's workspace GraphQL API is served at /graphql, not /api — /api
+    // 404s on every call (confirmed against a live Twenty instance).
+    `${cfg.baseUrl}/graphql`,
     {
       method: "POST",
       headers: {
@@ -299,7 +301,7 @@ export const twentyConnector: ErpConnector = {
             const created = await twentyGraphql(
               cfg,
               `mutation CreateCompany($name: String!) {
-                 createCompany(input: { name: $name }) { id }
+                 createCompany(data: { name: $name }) { id }
                }`,
               { name: ctx.businessName },
               "create company",

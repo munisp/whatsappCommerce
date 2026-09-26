@@ -185,9 +185,20 @@ async function recordWalletTxInTx(
   tenantId: string,
   type: WalletTxType,
   amount: number,
-  opts: { orderId?: string; escrowTxId?: string; description?: string; reference?: string; metadata?: Record<string, unknown> },
-) {
+  opts: { orderId?: string; escrowTxId?: string; description?: string; reference?: string; metadata?: Record<string, unknown>; currency?: string },
+): Promise<string | null> {
   const wallet = await lockWalletRow(tx, walletId);
+  // Found live 2026-09-26 (user: "everything should be naira"): mirrors the same guard added to
+  // paymentConfirm.ts's inline wallet-credit path. `amount` for escrow_credit comes from the ORDER's
+  // payment (createHold's `input.currency`, caller-supplied below) — this tenant has real leftover
+  // non-NGN orders from the earlier currency bug. Wallets are single-currency by design
+  // (getOrCreateWallet always creates "NGN"), so crediting a mismatched-currency amount would silently
+  // corrupt the balance under a wrong label. Refuse rather than fabricate a conversion; the caller's
+  // escrow_transactions row already recorded its own correct currency separately.
+  if (type === "escrow_credit" && opts.currency && opts.currency !== wallet.currency) {
+    console.error(`[escrow] REFUSING wallet credit (tenant ${tenantId}, wallet ${walletId}): payment currency ${opts.currency} does not match wallet currency ${wallet.currency} — escrow hold recorded correctly, but the wallet ledger was NOT touched. Needs manual reconciliation.`);
+    return null;
+  }
   const before = wallet.availableBalance;
   // escrow_credit moves funds INTO escrowBalance; escrow_refund / fee_deduction
   // move funds OUT of escrowBalance (back to buyer / to the platform). Only
@@ -287,7 +298,7 @@ async function recordWalletTx(
   tenantId: string,
   type: WalletTxType,
   amount: number,
-  opts: { orderId?: string; escrowTxId?: string; description?: string; reference?: string; metadata?: Record<string, unknown> },
+  opts: { orderId?: string; escrowTxId?: string; description?: string; reference?: string; metadata?: Record<string, unknown>; currency?: string },
 ) {
   return db.transaction(async (tx) => recordWalletTxInTx(tx, walletId, tenantId, type, amount, opts));
 }
@@ -906,9 +917,15 @@ export const escrowRouter = router({
         const txId = await recordWalletTx(db, wallet.id, input.tenantId, "escrow_credit", holdAmount, {
           orderId: input.orderId, escrowTxId: id,
           description: `Escrow hold for order ${input.orderId}`,
+          currency: input.currency,
         });
-        await db.update(escrowTransactions).set({ buyerWalletTxId: txId, updatedAt: new Date() })
-          .where(eq(escrowTransactions.id, id));
+        // txId is null when recordWalletTxInTx refused a currency-mismatched credit (see its own
+        // comment) — the escrow hold above already recorded its own correct currency either way, so
+        // only link buyerWalletTxId when a wallet transaction actually happened.
+        if (txId) {
+          await db.update(escrowTransactions).set({ buyerWalletTxId: txId, updatedAt: new Date() })
+            .where(eq(escrowTransactions.id, id));
+        }
       }
 
       // Update order status to processing
@@ -1531,14 +1548,21 @@ export const escrowDisputeRouter = router({
         .orderBy(desc(escrowDisputes.createdAt));
     }),
 
-  review: adminProcedure
+  // Found live 2026-09-26, aggressive dashboard QA sweep: this was `adminProcedure` — PLATFORM admin only. A
+  // tenant's own owner/operator could see a dispute (`list`, `protectedProcedure`) and escalate it
+  // (`escalate`, `protectedProcedure` + `assertTenantAccess`) but was hard-blocked from ever actually
+  // resolving it — the one action that matters. Same class of gap as QA-005/006 (money-moving procedures
+  // stuck behind the wrong access check) and the same fix: `assertMoneyAccess` (owner|operator|finance),
+  // matching `confirmDelivery` above — a dispute resolution moves real money (refund/release), so a
+  // plain `assertTenantAccess` would be too permissive, but PLATFORM-admin-only was too restrictive by far.
+  review: protectedProcedure
     .input(z.object({
       disputeId: z.string(),
       resolution: z.enum(["full_release_to_merchant", "full_refund_to_buyer", "partial_refund", "no_action"]),
       refundAmount: z.number().optional(),
       resolverNotes: z.string().optional(),
       // Accepted for backwards compatibility but IGNORED — the resolver identity
-      // is always derived from the authenticated admin session.
+      // is always derived from the authenticated session.
       resolvedBy: z.string().optional(),
       buyerEmail: z.string().email().optional(),
     }))
@@ -1547,6 +1571,7 @@ export const escrowDisputeRouter = router({
       if (!db) throw new Error("DB unavailable");
       const [dispute] = await db.select().from(escrowDisputes).where(eq(escrowDisputes.id, input.disputeId));
       if (!dispute) throw new Error("Dispute not found");
+      await assertMoneyAccess(ctx.user, dispute.tenantId);
       if (["resolved_merchant", "resolved_buyer"].includes(dispute.status)) {
         throw new TRPCError({ code: "CONFLICT", message: "Dispute is already resolved" });
       }
@@ -2379,7 +2404,9 @@ export const walletRouter = router({
       }
 
       const paymentIntentId = crypto.randomUUID();
-      const ref = `TOPUP-${Date.now()}-${input.tenantId.slice(0, 6).toUpperCase()}`;
+      // AF-07: timestamp + tenant alone collides for two top-ups in the same
+      // millisecond (providerPaymentId is not unique); add the intent id.
+      const ref = `TOPUP-${Date.now()}-${input.tenantId.slice(0, 6).toUpperCase()}-${paymentIntentId.slice(0, 8).toUpperCase()}`;
       const baseMetadata: Record<string, unknown> = {
         type: "wallet_topup",
         walletId: wallet.id,

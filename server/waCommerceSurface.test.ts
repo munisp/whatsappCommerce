@@ -11,17 +11,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("./db", () => ({ getDb: vi.fn() }));
 vi.mock("./_core/llm", () => ({ invokeLLM: vi.fn() }));
 vi.mock("./services/waLocation", () => ({ sendWhatsAppLocationRequest: vi.fn().mockResolvedValue({ sent: true, simulated: false }) }));
-vi.mock("./services/waSender", () => ({
+vi.mock("./services/waSender", async (importOriginal) => ({
+  // Pure retry policy (no I/O) — telegramSender re-exports it at load time.
+  ...(({ classifyWaSendError, WA_RETRY_BACKOFF_MS, WA_RETRY_MAX_ATTEMPTS }) => ({ classifyWaSendError, WA_RETRY_BACKOFF_MS, WA_RETRY_MAX_ATTEMPTS }))(
+    await importOriginal<typeof import("./services/waSender")>(),
+  ),
   resolveTenantWaCredentials: vi.fn(),
   normalizeWaPhone: (p: string) => p.replace(/[^\d]/g, ""),
   sendWhatsAppText: vi.fn().mockResolvedValue({ sent: true }),
   sendWhatsAppMedia: vi.fn().mockResolvedValue({ sent: true }),
   sendWhatsAppInteractive: vi.fn().mockResolvedValue({ sent: true }),
+  // waSender.ts has its OWN full sendWhatsAppLocationRequest (not a re-export of waLocation.ts's — that one is
+  // now dead code, nothing outside its own tests imports it any more) — this is the one channelSender.ts's
+  // "whatsapp" + "location_request" case actually calls.
+  sendWhatsAppLocationRequest: vi.fn().mockResolvedValue({ sent: true, simulated: false }),
 }));
 
 import { getDb } from "./db";
 import { invokeLLM } from "./_core/llm";
 import { sendWhatsAppLocationRequest as sendLocationReqMock } from "./services/waLocation";
+import { sendWhatsAppLocationRequest as sendWaSenderLocationReqMock } from "./services/waSender";
 import {
   resolveTenantWaCredentials,
   sendWhatsAppMedia,
@@ -318,9 +327,20 @@ describe("nlp checkout — location request", () => {
     const res: any = await caller.nlp.processMessage({ tenantId: "t1", waPhoneNumber: "234801", message: "2" });
     expect(res.state).toBe("checkout_address");
     expect(res.reply).toContain("delivery address");
-    expect(sendLocationReqMock).toHaveBeenCalledWith(
+    // The location-request send is routed through channelSender.ts (server/routers/nlp.ts's `void
+    // import("../services/channelSender").then(...)`), deliberately fire-and-forget so the reply above doesn't
+    // block on it — processMessage resolving doesn't mean that dynamic import + then() has settled yet, so poll
+    // rather than assert immediately (a fixed short sleep looked right in isolation but flaked under the full
+    // suite's CPU contention — same "0 calls" failure, just timing-dependent; confirmed by reproducing it in a
+    // full `vitest run`, not guessed). And as of the same channel-routing fix, the call lands on waSender.ts's
+    // OWN sendWhatsAppLocationRequest (via channelSender.ts's "whatsapp" case), not waLocation.ts's — this test
+    // used to assert on the latter, from before that fix existed.
+    await vi.waitFor(() => expect(sendWaSenderLocationReqMock).toHaveBeenCalled(), { timeout: 2000 });
+    expect(sendWaSenderLocationReqMock).toHaveBeenCalledWith(
       "t1", "234801",
       expect.stringContaining("location"),
+      undefined,
     );
+    expect(sendLocationReqMock).not.toHaveBeenCalled();
   });
 });

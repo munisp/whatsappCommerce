@@ -299,8 +299,14 @@ export async function completeDeliveryWithProof(
     const phone = await resolveBuyerPhone(db, order.id);
     if (phone) {
       const { sendCustomerText } = await import("./channelParity");
+      // Found live 2026-09-26: the Reviews admin page's own copy claims "buyers are prompted on WhatsApp
+      // after delivery," but nothing ever actually sent that prompt — the review-submission flow itself
+      // works (nlp.ts's "RATE 1-5 ..." handler, verified-purchase gated) but was undiscoverable, so the
+      // reviews table sat at zero rows despite real deliveries happening. This is the one moment the
+      // buyer is both eligible (order just went delivered = hasVerifiedPurchase becomes true) and most
+      // likely to actually respond.
       await sendCustomerText(opts.tenantId, phone, POD_CATEGORY,
-        `✅ Proof of delivery received for order ${order.orderNumber} — your order is now marked delivered. Enjoy! If anything is wrong, just reply here.`,
+        `✅ Proof of delivery received for order ${order.orderNumber} — your order is now marked delivered. Enjoy! If anything is wrong, just reply here.\n\n⭐ How was it? Reply "RATE 5 great!" (1-5) to leave a review — it helps other buyers and the seller.`,
         { notifType: POD_CATEGORY, orderId: order.id } as any);
     }
   } catch (e: any) {

@@ -43,6 +43,22 @@ async function getTemporalClient(): Promise<unknown | null> {
   }
 }
 
+/**
+ * Which workflow types may run on Temporal.
+ *
+ * Connecting the server to Temporal (TEMPORAL_ADDRESS) must NOT, by itself, reroute every flow
+ * onto it: several flows have no worker behind them yet (the payment saga, journey
+ * orchestration, tenant onboarding, order fulfilment), and a workflow started with nobody to
+ * run it just sits there looking durable. Default: NONE. Opt in per type, comma-separated
+ * (TEMPORAL_ENABLED_WORKFLOWS="InventorySyncWorkflow,BroadcastCampaignWorkflow"), or "*" for all.
+ */
+export function temporalWorkflowEnabled(workflowType: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = (env.TEMPORAL_ENABLED_WORKFLOWS ?? "").trim();
+  if (!raw) return false;
+  if (raw === "*") return true;
+  return raw.split(",").map((t) => t.trim()).filter(Boolean).includes(workflowType);
+}
+
 export interface WorkflowStartResult {
   workflowId: string;
   runId: string;
@@ -67,8 +83,12 @@ export async function startWorkflow(
   const workflowId = options.workflowId ?? `${workflowType}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const db = await getDb();
 
+  // Configured but not opted in for THIS workflow type: behave exactly as if Temporal were down
+  // (local record, started:false) so the caller's existing non-Temporal path runs.
+  const notEnabled = !!process.env.TEMPORAL_ADDRESS && !temporalWorkflowEnabled(workflowType);
+
   try {
-    const client = await getTemporalClient();
+    const client = notEnabled ? null : await getTemporalClient();
     if (client) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handle = await (client as any).workflow.start(workflowType, {
@@ -116,7 +136,12 @@ export async function startWorkflow(
       }).onConflictDoNothing();
     } catch { /* ignore */ }
   }
-  return { workflowId, runId: syntheticRunId, started: false, error: "temporal_unavailable" };
+  return {
+    workflowId,
+    runId: syntheticRunId,
+    started: false,
+    error: notEnabled ? "temporal_not_enabled_for_workflow" : "temporal_unavailable",
+  };
 }
 
 /**

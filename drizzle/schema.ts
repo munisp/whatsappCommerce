@@ -4339,9 +4339,10 @@ export const deliveries = pgTable("deliveries", {
   dropoffAddress: jsonb("dropoff_address"),
   recipientPhone: varchar("recipient_phone", { length: 30 }),
   statusHistory:  jsonb("status_history").notNull().default([]),
-  // === W47 stakeholders (ONB-S-10, mig 0167): assigned registered rider. ===
-  riderId:        uuid("rider_id"),
-  // === END W47 stakeholders ===
+  // Assigned driver from the platform-wide drivers pool (retired the per-tenant `riders` table
+  // 2026-09-26 — see the drivers table's own doc comment). No FK constraint, matching this column's
+  // original convention.
+  driverId:       uuid("driver_id"),
   bookedAt:       timestamp("booked_at"),
   deliveredAt:    timestamp("delivered_at"),
   createdAt:      timestamp("created_at").notNull().defaultNow(),
@@ -6939,30 +6940,61 @@ export type StaffInvite = typeof staffInvites.$inferSelect;
 export type NewStaffInvite = typeof staffInvites.$inferInsert;
 
 /**
- * ONB-S-10 — rider registry (mig 0167). Merchants register their own
- * riders (phone-bound, merchant-approved); deliveries to "local-dispatch"
- * riders are assigned to an ACTIVE rider row so there is a per-rider
- * trail instead of an untracked "whoever shows up".
+ * Platform-wide independent driver pool (mig 0171, replaces the per-tenant
+ * ONB-S-10 `riders` table above — retired 2026-09-26 on the user's explicit
+ * direction: "let's have our own drivers, they'll have their own apps, then
+ * register, switch on their location, then merchant can pick the driver
+ * closest to them"). Drivers are NOT scoped to a tenant — one driver can be
+ * picked by any merchant, matching a real delivery-gig model (Gokada/
+ * Chowdeck-style) rather than each merchant maintaining their own roster.
+ * Verified by email OTP (server/routers/drivers.ts + driverEmailOtpSessions
+ * below) — phone is a contact field, not itself OTP-verified, since this is
+ * a platform-level signup with no tenant WhatsApp number to send from; the
+ * Resend integration (server/services/email/resend.ts) already runs live in
+ * this cluster, unlike a generic SMS provider.
  */
-export const riders = pgTable("riders", {
+export const driverStatusEnum = pgEnum("driver_status", ["pending_verification", "offline", "online", "suspended"]);
+
+export const drivers = pgTable("drivers", {
   id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: varchar("tenant_id", { length: 36 }).notNull(),
-  phone: varchar("phone", { length: 30 }).notNull(),
   name: varchar("name", { length: 160 }).notNull(),
-  /** pending | active | suspended */
-  status: varchar("status", { length: 16 }).notNull().default("pending"),
-  /** Optional ID/document reference captured at registration. */
-  idReference: varchar("id_reference", { length: 64 }),
-  createdBy: varchar("created_by", { length: 64 }),
-  approvedBy: varchar("approved_by", { length: 64 }),
+  phone: varchar("phone", { length: 30 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
+  emailVerifiedAt: timestamp("email_verified_at"),
+  status: driverStatusEnum("status").notNull().default("pending_verification"),
+  vehicleType: varchar("vehicle_type", { length: 30 }),
+  // Last reported position — the driver's own browser pushes this while
+  // they're online (see drivers.updateLocation); null until their first
+  // update. Same numeric precision as merchantLocations' lat/lng.
+  currentLat: numeric("current_lat", { precision: 10, scale: 7 }),
+  currentLng: numeric("current_lng", { precision: 10, scale: 7 }),
+  lastLocationAt: timestamp("last_location_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex("riders_tenant_phone_uq").on(t.tenantId, t.phone),
-  index("riders_tenant_idx").on(t.tenantId, t.status),
+  uniqueIndex("drivers_email_uq").on(t.email),
+  index("drivers_status_idx").on(t.status),
 ]);
-export type Rider = typeof riders.$inferSelect;
-export type NewRider = typeof riders.$inferInsert;
+export type Driver = typeof drivers.$inferSelect;
+export type NewDriver = typeof drivers.$inferInsert;
+
+/** Email OTP sessions for driver signup/login — mirrors phoneAuth.ts's phoneOtpSessions shape/conventions
+ *  (hashOtp/verifyOtpHash/generateOtp from server/routers/phoneAuth.ts are reused as-is; only the delivery
+ *  channel and the keyed identifier differ). */
+export const driverEmailOtpSessions = pgTable("driver_email_otp_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: varchar("email", { length: 255 }).notNull(),
+  otpHash: varchar("otp_hash", { length: 128 }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  /** signup | login */
+  purpose: varchar("purpose", { length: 16 }).notNull().default("login"),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("driver_email_otp_email_purpose_uq").on(t.email, t.purpose),
+]);
+export type DriverEmailOtpSession = typeof driverEmailOtpSessions.$inferSelect;
+export type NewDriverEmailOtpSession = typeof driverEmailOtpSessions.$inferInsert;
 
 /**
  * ONB-S-8 — first-class vendor registry (mig 0168). Vendor bills used to

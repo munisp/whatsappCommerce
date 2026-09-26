@@ -3,8 +3,7 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
 import { channelMessages, conversations } from "../../drizzle/schema";
-import { eq, desc } from "drizzle-orm";
-import { ENV } from "../_core/env";
+import { eq, desc, and } from "drizzle-orm";
 
 export const conversationRouter = router({
   list: protectedProcedure
@@ -26,6 +25,14 @@ export const conversationRouter = router({
       return db.getConversationStats(input.tenantId);
     }),
 
+  // Found live 2026-09-26: this only ever read `channelMessages` — the same legacy table
+  // `db.getConversations`/`getConversationStats` were fixed off of (BUG-01/02, QA-056), but this SIBLING
+  // procedure never got the matching fix. A WhatsApp/Telegram conversation's `messageCount` now correctly
+  // comes from real `nlp_sessions` data, but the actual message BODIES still only existed in a table
+  // nothing writes to for those channels — so the timeline showed "This conversation has 12 messages, but
+  // they could not be loaded" for every real WA/Telegram thread, exactly the QA-056 pattern (fix the
+  // count, forget the detail view it feeds). Merges real `channelMessages` rows (still genuine for
+  // ussd/sms/instagram/email) with the session's own `messageHistory` for whatsapp/telegram.
   getMessages: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
@@ -42,53 +49,86 @@ export const conversationRouter = router({
         .where(eq(channelMessages.tenantId, input.tenantId))
         .orderBy(desc(channelMessages.createdAt))
         .limit(input.limit);
-      // Filter by phone if provided (match fromAddress or toAddress)
+      const realRows = input.customerPhone
+        ? rows.filter(r => r.fromAddress === input.customerPhone || r.toAddress === input.customerPhone)
+        : rows;
+
+      const { nlpSessions } = await import("../../drizzle/schema");
+      const { or } = await import("drizzle-orm");
+      const sessionConds = [eq(nlpSessions.tenantId, input.tenantId)];
       if (input.customerPhone) {
-        return rows.filter(r =>
-          r.fromAddress === input.customerPhone || r.toAddress === input.customerPhone
-        );
+        // A session key is either the raw phone (whatsapp) or "telegram:<chat_id>" — match either form.
+        sessionConds.push(or(
+          eq(nlpSessions.waPhoneNumber, input.customerPhone),
+          eq(nlpSessions.waPhoneNumber, `telegram:${input.customerPhone}`),
+        )!);
       }
-      return rows;
+      const sessions = await dbConn.select().from(nlpSessions).where(and(...sessionConds))
+        .orderBy(desc(nlpSessions.lastActivityAt)).limit(20);
+
+      // messageHistory has no per-message timestamp (documented in channels.ts's own synthesis) — this
+      // spaces synthesized rows one minute apart counting back from the session's real lastActivityAt, so
+      // the timeline orders and displays sensibly. It's an honest approximation of WHEN, never fabricated
+      // WHAT: role/content come straight from the real stored turn.
+      const synthRows: (typeof channelMessages.$inferSelect)[] = [];
+      for (const s of sessions) {
+        const history = Array.isArray(s.messageHistory) ? s.messageHistory as Array<{ role?: string; content?: string }> : [];
+        const channel = s.waPhoneNumber.startsWith("telegram:") ? "telegram" : "whatsapp";
+        const rawAddress = s.waPhoneNumber.startsWith("telegram:") ? s.waPhoneNumber.slice("telegram:".length) : s.waPhoneNumber;
+        const base = new Date(s.lastActivityAt).getTime();
+        history.forEach((h, i) => {
+          const direction = h.role === "assistant" ? "outbound" : "inbound";
+          synthRows.push({
+            id: `${s.id}:${i}`,
+            channel: channel as any,
+            direction: direction as any,
+            fromAddress: direction === "outbound" ? input.tenantId : rawAddress,
+            toAddress: direction === "outbound" ? rawAddress : input.tenantId,
+            tenantId: s.tenantId,
+            body: h.content ?? "",
+            nlpResponse: null,
+            processed: true,
+            metadata: null,
+            createdAt: new Date(base - (history.length - 1 - i) * 60_000),
+          } as typeof channelMessages.$inferSelect);
+        });
+      }
+
+      return [...realRows, ...synthRows]
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, input.limit);
     }),
 
+  // Found live 2026-09-26, aggressive dashboard QA sweep: this was hardcoded to a direct WhatsApp Graph API
+  // call — a Telegram chat id passed as `toPhone` would just fail (Meta rejects it as an invalid recipient).
+  // Also used the GLOBAL `ENV.waToken`/`ENV.waPhoneNumberId` env vars instead of this TENANT's own configured
+  // credentials (every other WhatsApp sender in this codebase resolves per-tenant creds — this one didn't),
+  // so a reply from any tenant other than whichever one happens to own those global env values would have
+  // sent from the wrong WhatsApp number, or failed outright. Routed through the same channel-agnostic
+  // `sendChannelMessage` facade the rest of the platform uses — fixes both issues at once.
   sendMessage: protectedProcedure
     .input(z.object({
       tenantId: z.string(),
       toPhone: z.string(),
+      channel: z.enum(["whatsapp", "telegram"]).default("whatsapp"),
       body: z.string().min(1).max(4096),
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
-      if (!ENV.waToken || !ENV.waPhoneNumberId) {
-        return { sent: false, error: "WhatsApp credentials not configured — set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID in Secrets." };
-      }
-      const normalized = input.toPhone.startsWith("+") ? input.toPhone : `+${input.toPhone.replace(/\D/g, "")}`;
       try {
-        const res = await fetch(
-          `https://graph.facebook.com/v19.0/${ENV.waPhoneNumberId}/messages`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${ENV.waToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messaging_product: "whatsapp",
-              to: normalized,
-              type: "text",
-              text: { body: input.body },
-            }),
-          }
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({})) as any;
-          return { sent: false, error: err?.error?.message ?? `HTTP ${res.status}` };
+        const { sendChannelMessage } = await import("../services/channelSender");
+        const result = await sendChannelMessage(input.tenantId, input.channel, input.toPhone, { kind: "text", text: input.body });
+        if (!result.sent && !result.simulated) {
+          return { sent: false, error: "Message could not be delivered — check the channel's credentials are configured for this tenant." };
         }
         // Store outbound message in channelMessages for timeline display
         const dbConn = await getDb();
         if (dbConn) {
           await dbConn.insert(channelMessages).values({
-            channel: "whatsapp",
+            channel: input.channel,
             direction: "outbound",
-            fromAddress: ENV.waPhoneNumberId,
-            toAddress: normalized,
+            fromAddress: input.tenantId,
+            toAddress: input.toPhone,
             tenantId: input.tenantId,
             body: input.body,
             processed: true,

@@ -29,6 +29,17 @@ spec:
       - env:
         - name: FLUVIO_ENDPOINT
           value: http://fluvio-sc-public.fluvio.svc.cluster.local:9003
+        # Where consumed records are forwarded (POST /api/internal/events). Without these the consumer
+        # defaults to http://localhost:3000 with an EMPTY key: every record it reads is dropped at the
+        # forward step ("forward_events failed ... localhost:3000"), and the platform never records it.
+        # The platform accepts the shared INTERNAL_API_KEY as X-API-Key.
+        - name: PLATFORM_API_URL
+          value: http://server.whatsapp-commerce.svc.cluster.local:3000
+        - name: PLATFORM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: whatsapp-server-internal-api-key
+              key: INTERNAL_API_KEY
         - name: OTEL_ENABLED
           value: "true"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT

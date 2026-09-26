@@ -31,30 +31,55 @@ function ChartEmptyState({ label }: { label: string }) {
 
 export default function Dashboard() {
   const { activeTenantId: DEMO_TENANT } = useActiveTenant();
-  const { data: overview } = trpc.analytics.platformOverview.useQuery();
+  const { user } = useAuth();
+  // Found live 2026-09-26, aggressive dashboard QA sweep: platformOverview/revenueTrend/conversationSplitTrend/
+  // escalationSlaStats are all `adminProcedure` — PLATFORM admin only — but were fetched unconditionally for
+  // EVERY signed-in user. A tenant owner (not a platform admin) got a real 403 on all four, which the UI
+  // silently rendered as genuine "0" data: "0 of 0 tenants", "$0 revenue", "0 orders" — indistinguishable from
+  // an actually-empty platform, and seriously misleading for a real business owner. Gated behind the same
+  // `user?.role === "admin"` check already used for the UsagePlanWidget/WaQualityWidget below, so a non-admin
+  // never fires (or renders) requests they're not allowed to see, and sees their own real tenant numbers
+  // (already correctly shown in the "Tenant Metrics" section further down) instead.
+  const isPlatformAdmin = user?.role === "admin";
+  // Found live 2026-09-26: this section's header was hardcoded to literally say "Demo Tenant", regardless of
+  // whose real data was actually being shown (a leftover from when this page was built against a fixed demo
+  // tenant, before it was wired to the real signed-in tenant elsewhere) — confusing for any real merchant.
+  const { data: myTenant } = trpc.tenant.myTenant.useQuery(undefined, { enabled: !!DEMO_TENANT });
+  const { data: overview } = trpc.analytics.platformOverview.useQuery(undefined, { enabled: isPlatformAdmin });
   const { data: tenantDash } = trpc.analytics.tenantDashboard.useQuery({ tenantId: DEMO_TENANT });
-  const { data: escalationSla } = trpc.escrowDispute.escalationSlaStats.useQuery();
+  const { data: escalationSla } = trpc.escrowDispute.escalationSlaStats.useQuery(undefined, { enabled: isPlatformAdmin });
   const { data: stockData } = trpc.inventory.getStockLevels.useQuery(
     { tenantId: DEMO_TENANT },
     { enabled: !!DEMO_TENANT }
   );
   const { data: funnelData } = trpc.onboardingProgress.getFunnelAnalytics.useQuery();
-  const revenueTrendQ = trpc.analytics.revenueTrend.useQuery();
-  const convSplitQ = trpc.analytics.conversationSplitTrend.useQuery();
+  const revenueTrendQ = trpc.analytics.revenueTrend.useQuery(undefined, { enabled: isPlatformAdmin });
+  const convSplitQ = trpc.analytics.conversationSplitTrend.useQuery(undefined, { enabled: isPlatformAdmin });
   const revenueData = revenueTrendQ.data?.points ?? [];
   const convData = convSplitQ.data?.points ?? [];
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
   const lowStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "low_stock").length ?? 0;
   const outOfStockCount = stockData?.filter((s: { stockStatus: string }) => s.stockStatus === "out_of_stock").length ?? 0;
 
+  // Platform-wide (cross-tenant) — only meaningful, and only fetched, for a real platform admin (see the
+  // `isPlatformAdmin`-gated queries above). "Customers" is tenant-scoped and real for everyone.
   const kpis = [
-    { label: "Active Tenants", value: overview?.tenants?.active ?? 0, icon: Building2, color: "text-primary", sub: `of ${overview?.tenants?.total ?? 0} total` },
-    { label: "Total Revenue", value: `$${(overview?.revenue ?? 0).toLocaleString()}`, icon: TrendingUp, color: "text-green-400", sub: "all-time completed" },
-    { label: "Conversations", value: (overview?.conversations ?? 0).toLocaleString(), icon: MessageSquare, color: "text-blue-400", sub: "all tenants" },
-    { label: "Orders", value: (overview?.orders ?? 0).toLocaleString(), icon: ShoppingCart, color: "text-purple-400", sub: "paid orders" },
-    { label: "AI Interactions", value: (overview?.agentInteractions ?? 0).toLocaleString(), icon: Bot, color: "text-yellow-400", sub: "agent events" },
-  { label: "Customers", value: (tenantDash?.customers ?? 0).toLocaleString(), icon: Users, color: "text-cyan-400", sub: "registered" },
+    ...(isPlatformAdmin ? [
+      { label: "Active Tenants", value: overview?.tenants?.active ?? 0, icon: Building2, color: "text-primary", sub: `of ${overview?.tenants?.total ?? 0} total` },
+      {
+        // Found live 2026-09-26 (user: "i still see dollars here"): hardcoded "$" summing every
+        // tenant's orders regardless of currency — see db.ts's getPlatformOverview fix.
+        label: "Total Revenue",
+        value: overview && overview.revenueByCurrency.length > 0
+          ? overview.revenueByCurrency.map((r) => `${r.currency} ${r.amount.toLocaleString()}`).join(" · ")
+          : "0",
+        icon: TrendingUp, color: "text-green-400", sub: "all-time completed",
+      },
+      { label: "Conversations", value: (overview?.conversations ?? 0).toLocaleString(), icon: MessageSquare, color: "text-blue-400", sub: "all tenants" },
+      { label: "Orders", value: (overview?.orders ?? 0).toLocaleString(), icon: ShoppingCart, color: "text-purple-400", sub: "paid orders" },
+      { label: "AI Interactions", value: (overview?.agentInteractions ?? 0).toLocaleString(), icon: Bot, color: "text-yellow-400", sub: "agent events" },
+    ] : []),
+    { label: "Customers", value: (tenantDash?.customers ?? 0).toLocaleString(), icon: Users, color: "text-cyan-400", sub: "registered" },
   ];
 
   const alertColor = outOfStockCount > 0 ? "text-red-400" : lowStockCount > 0 ? "text-amber-400" : "text-green-400";
@@ -64,8 +89,10 @@ export default function Dashboard() {
     <DashboardLayout>
       <div className="p-6 space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Platform Overview</h1>
-          <p className="text-muted-foreground mt-1">Real-time metrics across all tenants and services</p>
+          <h1 className="text-2xl font-bold text-foreground">{isPlatformAdmin ? "Platform Overview" : "Dashboard"}</h1>
+          <p className="text-muted-foreground mt-1">
+            {isPlatformAdmin ? "Real-time metrics across all tenants and services" : "Real-time metrics for your business"}
+          </p>
         </div>
 
         {/* KPI Grid */}
@@ -120,7 +147,8 @@ export default function Dashboard() {
           <PendingPoApprovalsWidget />
         </div>
 
-        {/* Charts */}
+        {/* Charts — platform-wide (cross-tenant) aggregates, admin-only; see isPlatformAdmin note above */}
+        {isPlatformAdmin && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="bg-card border-border">
             <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Revenue Trend (USD)</CardTitle></CardHeader>
@@ -167,13 +195,14 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+        )}
 
         {/* Tenant Metrics */}
         {/* W22: merchant copilot Ask box (tenant-scoped aggregates only) */}
         <CopilotAskWidget tenantId={DEMO_TENANT} />
         {tenantDash && (
           <Card className="bg-card border-border">
-            <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Tenant Metrics — Demo Tenant</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Tenant Metrics — {myTenant?.name ?? "Your business"}</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[

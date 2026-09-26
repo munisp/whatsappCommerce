@@ -7,10 +7,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 import { formatDistanceToNow } from "date-fns";
-import { Bell, Clock, MessageSquare, Package, ShoppingCart, TrendingUp, Truck } from "lucide-react";
+import { Bell, Clock, MessageSquare, Package, ShoppingCart, TrendingUp, Truck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { toast } from "sonner";
 
 
 const statusColors: Record<string, string> = {
@@ -50,6 +51,20 @@ function OrdersInner() {
     return (orderList ?? []).filter((o) => (unreadCounts[o.id] ?? 0) > 0);
   }, [orderList, unreadCounts, unreadOnly]);
 
+  const utils = trpc.useUtils();
+  const cancelMutation = trpc.order.cancel.useMutation({
+    onSuccess: (result) => {
+      if (result.ok) {
+        toast.success("Order cancelled");
+        utils.order.list.invalidate();
+        utils.order.stats.invalidate();
+      } else {
+        toast.error(result.error);
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
@@ -64,7 +79,6 @@ function OrdersInner() {
             { label: "Total Orders", value: stats?.total ?? 0, icon: ShoppingCart, color: "text-blue-400" },
             { label: "Pending", value: stats?.pending ?? 0, icon: Package, color: "text-yellow-400" },
             { label: "Confirmed", value: stats?.confirmed ?? 0, icon: Truck, color: "text-green-400" },
-            { label: "Revenue", value: `$${(stats?.revenue ?? 0).toLocaleString()}`, icon: TrendingUp, color: "text-primary" },
           ].map((s) => (
             <Card key={s.label} className="bg-card border-border">
               <CardContent className="p-4">
@@ -78,6 +92,29 @@ function OrdersInner() {
               </CardContent>
             </Card>
           ))}
+          {/* Found live 2026-09-26, aggressive dashboard QA sweep: this card used to render a single
+              hardcoded "$" total that blindly summed every completed order's totalAmount regardless of
+              its own currency column — meaningless once a tenant has a real mix of NGN and USD orders
+              (as this one does). Revenue is now broken out per currency (server/db.ts's getOrderStats). */}
+          <Card className="bg-card border-border">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Revenue</p>
+                  {stats && stats.revenueByCurrency.length > 0 ? (
+                    stats.revenueByCurrency.map((r) => (
+                      <p key={r.currency} className="text-lg font-bold mt-1 text-primary font-mono">
+                        {r.currency} {r.amount.toLocaleString()}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="text-2xl font-bold mt-1 text-primary">0</p>
+                  )}
+                </div>
+                <TrendingUp className="w-8 h-8 text-primary opacity-60" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Filter */}
@@ -173,6 +210,21 @@ function OrdersInner() {
                             <MessageSquare className="w-2.5 h-2.5" />
                             {unreadCounts[o.id]}
                           </button>
+                        )}
+                        {/* Found live 2026-09-26: unpaid orders (mostly leftover from the now-fixed
+                            currency/location bug) had no way to be closed out from the dashboard. Scoped
+                            to unpaid, non-terminal orders — a paid order has real escrowed funds and goes
+                            through the refund flow instead (server.cancelOrder rejects it either way). */}
+                        {o.paymentStatus !== "completed" && !["cancelled", "delivered", "refunded"].includes(o.status) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs gap-1 text-muted-foreground hover:text-red-400"
+                            disabled={cancelMutation.isPending}
+                            onClick={() => cancelMutation.mutate({ tenantId: DEMO_TENANT, orderId: o.id })}
+                          >
+                            <X className="w-3 h-3" /> Cancel
+                          </Button>
                         )}
                       </div>
                     </TableCell>

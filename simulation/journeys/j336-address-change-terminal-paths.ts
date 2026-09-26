@@ -41,6 +41,9 @@ export const journey: Journey = {
     await setAllowAddressChange(world, false);
     try {
       await world.text(phone0, "change my address to 5 Nowhere St, Lagos");
+      // The reply is sent by the async pipeline after world.text() returns; wait for THIS message instead of
+      // reading whatever is latest (an intermittent empty read otherwise).
+      await world.waitFor(() => bodyText(world.outbound.lastOfType("text", phone0)).includes("doesn't allow address changes"), 10000, "flag-off refusal sent");
       const off = bodyText(world.outbound.lastOfType("text", phone0));
       assertIncludes(off, "doesn't allow address changes", "flag-off refusal is honest");
     } finally {
@@ -154,10 +157,15 @@ export const journey: Journey = {
     }, 10000, "TG request parked as pending");
     const reqT = await latestReq(world, seedT.orderId);
     // Buyer got a TG reply; merchant got a TG inline-keyboard card.
-    await world.waitFor(() => tg.callsFor("sendMessage").length > sendBefore, 10000, "TG replies sent");
-    const buyerReply = tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === buyerChat && (c.body?.text ?? "").includes("pending merchant approval"));
+    // Wait for BOTH specific messages, not merely "some message was sent": the buyer's reply and the
+    // merchant's card go out back to back in either order, and waiting for the first one raced the second
+    // (intermittent "TG buyer pending confirmation" failure, ~3 runs in 8 before this).
+    const findBuyerReply = () => tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === buyerChat && (c.body?.text ?? "").includes("pending merchant approval"));
+    const findCard = () => tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === adminChat && JSON.stringify(c.body ?? {}).includes(`addrchg:approve:${reqT.id}`));
+    await world.waitFor(() => !!findBuyerReply() && !!findCard(), 10000, "TG buyer reply and merchant card sent");
+    const buyerReply = findBuyerReply();
     assert(buyerReply, "TG buyer pending confirmation");
-    const card = tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === adminChat && JSON.stringify(c.body ?? {}).includes(`addrchg:approve:${reqT.id}`));
+    const card = findCard();
     assert(card, "TG merchant card with inline keyboard (same id grammar)");
 
     // Merchant approves from the TG card callback.

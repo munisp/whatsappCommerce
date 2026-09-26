@@ -1,0 +1,90 @@
+# Temporal worker for the WhatsApp Commerce platform (services/temporal-workflows).
+#
+# NOT managed by Flux — apply by hand:  kubectl apply -f k8s-tools/temporal-worker.yaml
+# Supersedes the stale k8s/temporal-worker.yaml (wrong address/namespace, old image, secrets that
+# do not exist in this cluster).
+#
+# Image: build + ship with
+#   docker build --platform linux/amd64 -f services/temporal-workflows/Dockerfile \
+#     -t registry.digitalocean.com/talentgraph-auth/whatsapp-temporal-worker:<tag> .
+#   scripts/qa-local-ship.sh ship temporal-worker <tag> --expect kycSubmitted --path /app/services/temporal-workflows
+# then bump the image tag below (or `kubectl set image deploy/temporal-worker temporal-worker=...`).
+#
+# Prerequisite: the `whatsapp-commerce` namespace must exist on the Temporal cluster:
+#   kubectl -n temporal exec deploy/temporal-admintools -- \
+#     temporal operator namespace create --namespace whatsapp-commerce --retention 72h
+#
+# Auth: the worker's activities call the server's tRPC internalProcedure endpoints with the
+# shared INTERNAL_API_KEY, read from the SAME secret the server uses — never copied.
+#
+# What runs today: InventorySyncWorkflow is fully backed. The onboarding / order / broadcast
+# workflows exist but their activities fail honestly (ActivityNotImplemented) until internal
+# endpoints are built. The server does NOT start any workflow on Temporal unless
+# TEMPORAL_ENABLED_WORKFLOWS names it (default: none), so applying this changes no live flow.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-worker
+  namespace: whatsapp-commerce
+  labels:
+    app.kubernetes.io/name: temporal-worker
+    app.kubernetes.io/part-of: whatsapp-commerce-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: temporal-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: temporal-worker
+        app.kubernetes.io/part-of: whatsapp-commerce-platform
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: temporal-worker
+          image: registry.digitalocean.com/talentgraph-auth/whatsapp-temporal-worker:qa-local1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: health
+              containerPort: 8080
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: temporal-frontend.temporal.svc.cluster.local:7233
+            - name: TEMPORAL_NAMESPACE
+              value: whatsapp-commerce
+            - name: TEMPORAL_TASK_QUEUE
+              value: whatsapp-commerce
+            - name: PLATFORM_API_URL
+              value: http://server.whatsapp-commerce.svc.cluster.local:3000
+            - name: PLATFORM_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: whatsapp-server-internal-api-key
+                  key: INTERNAL_API_KEY
+            - name: HEALTH_PORT
+              value: "8080"
+          readinessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          # Restarts the pod if the poller stops RUNNING (503) — honest liveness, not "process is up".
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            # Startup bundles the workflows with webpack — a memory spike above steady state.
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

@@ -96,6 +96,9 @@ export const productRouter = router({
       description: z.string().optional(),
       category: z.string().optional(),
       price: z.string().optional(),
+      // QA follow-up: the create form silently defaulted every product to USD (the Zod default below, never
+      // overridden) with no way to fix it afterward short of delete-and-recreate — update now accepts it too.
+      currency: z.string().length(3).optional(),
       stockQuantity: z.number().int().min(0).optional(),
       status: z.enum(["active", "inactive", "archived"]).optional(),
     }))

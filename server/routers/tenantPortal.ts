@@ -47,15 +47,24 @@ export const tenantPortalRouter = router({
   // ── Dashboard KPIs ────────────────────────────────────────────────────────
   getDashboardKpis: tenantScopedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    if (!db) return { orders: 0, revenue: 0, conversations: 0, customers: 0, pendingInvoices: 0 };
+    if (!db) return { orders: 0, revenue: 0, revenueByCurrency: [] as Array<{ currency: string; amount: number }>, conversations: 0, customers: 0, pendingInvoices: 0 };
 
-    const [orderStats] = await db.select({
-      total: count(),
-      revenue: sum(orders.totalAmount),
-    }).from(orders).where(and(
+    const [orderCount] = await db.select({ total: count() }).from(orders).where(and(
       eq(orders.tenantId, ctx.tenantId),
       eq(orders.paymentStatus, "completed"),
     ));
+    // Found live 2026-09-26 (user: "i still see dollars here"): this was a bare sum(totalAmount) with no
+    // GROUP BY currency — the exact same bug already fixed in server/db.ts's getOrderStats (QA-056
+    // BUG-06), just a SECOND, independent implementation the portal dashboard uses instead of that one
+    // (same pattern QA-049 already found: this app has parallel client/router surfaces that don't share
+    // fixes). Grouping by currency here too rather than reusing db.getOrderStats — this procedure is
+    // tenant-portal-scoped (tenantScopedProcedure/ctx.tenantId) with its own conversations/customers/
+    // invoices KPIs alongside it, not a drop-in replacement.
+    const revenueRows = await db.select({ currency: orders.currency, total: sql<number>`COALESCE(SUM("totalAmount"), 0)` })
+      .from(orders)
+      .where(and(eq(orders.tenantId, ctx.tenantId), eq(orders.paymentStatus, "completed")))
+      .groupBy(orders.currency);
+    const revenueByCurrency = revenueRows.map((r) => ({ currency: r.currency, amount: Number(r.total ?? 0) }));
 
     const [convStats] = await db.select({ total: count() }).from(conversations)
       .where(eq(conversations.tenantId, ctx.tenantId));
@@ -67,8 +76,9 @@ export const tenantPortalRouter = router({
       .where(and(eq(invoices.tenantId, ctx.tenantId), eq(invoices.status, "sent")));
 
     return {
-      orders: Number(orderStats?.total ?? 0),
-      revenue: Number(orderStats?.revenue ?? 0),
+      orders: Number(orderCount?.total ?? 0),
+      revenue: revenueByCurrency.reduce((s, r) => s + r.amount, 0),
+      revenueByCurrency,
       conversations: Number(convStats?.total ?? 0),
       customers: Number(custStats?.total ?? 0),
       pendingInvoices: Number(invStats?.total ?? 0),

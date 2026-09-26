@@ -8,6 +8,15 @@ import { tenants } from "../../drizzle/schema";
 import { DEFAULT_TENANT_ID, getTenantByIdForTheme } from "../_core/tenantDomain";
 import { decryptSecret, encryptSecret } from "../services/crypto/secrets";
 import { writeAuditLog } from "./audit";
+import { ENV } from "../_core/env";
+import { telegramEnabled } from "../services/telegramSender";
+import {
+  buildTelegramWebhookUrl,
+  getBotIdentity,
+  loadStoredTelegramConfig,
+  registerWebhook,
+  storeWebhookSecret,
+} from "../services/telegramSetup";
 // === W47 merchant === ONB-M-6: shared ownership pre-check (also used by
 // onboarding.updateStep). Local copy removed.
 import { findWhatsAppNumberConflict } from "../services/whatsappNumbers";
@@ -217,6 +226,10 @@ export const tenantRouter = router({
         botToken: botToken ? "••••••••" + botToken.slice(-4) : "",
         webhookSecretSet: Boolean(typeof tg.webhookSecret === "string" && tg.webhookSecret),
         configured: Boolean(tg.enabled === true && botToken),
+        // For the settings card: is the feature switched on for this server at all, and where must Telegram
+        // deliver this business's updates (null when the app's public address is not https).
+        serverEnabled: telegramEnabled(),
+        webhookUrl: buildTelegramWebhookUrl(process.env.APP_URL ?? ENV.appUrl, t.id),
       };
     }),
 
@@ -224,7 +237,8 @@ export const tenantRouter = router({
     .input(z.object({
       tenantId: z.string(),
       // Bot API token format: <bot_id>:<35-char secret>.
-      botToken: z.string().regex(/^\d{5,}:[A-Za-z0-9_-]{30,}$/, "Invalid Telegram bot token format"),
+      // Optional once a token is stored, so the toggle / username can be changed without re-typing it.
+      botToken: z.string().regex(/^\d{5,}:[A-Za-z0-9_-]{30,}$/, "Invalid Telegram bot token format").optional(),
       botUsername: z.string().min(3).max(64).regex(/^@?[A-Za-z0-9_]{3,}$/, "Invalid Telegram bot username"),
       enabled: z.boolean().default(false),
       // Optional: rotating the webhook secret. Unset/empty → a fresh random
@@ -253,6 +267,10 @@ export const tenantRouter = router({
       }
       const settings = { ...((t.settings ?? {}) as Record<string, unknown>) };
       const prev = (settings.telegram ?? {}) as Record<string, unknown>;
+      const storedToken = typeof prev.botToken === "string" && prev.botToken ? prev.botToken : null;
+      if (!input.botToken && !storedToken) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "A bot token is required the first time you set up Telegram." });
+      }
       const generatedSecret = !input.webhookSecret && !prev.webhookSecret;
       const webhookSecret = input.webhookSecret
         ? input.webhookSecret
@@ -263,7 +281,7 @@ export const tenantRouter = router({
         ...prev,
         enabled: input.enabled,
         botUsername,
-        botToken: encryptSecret(input.botToken),
+        botToken: input.botToken ? encryptSecret(input.botToken) : storedToken!,
         webhookSecret: encryptSecret(webhookSecret),
       };
       await db.updateTenant(input.tenantId, { settings });
@@ -282,6 +300,83 @@ export const tenantRouter = router({
       // The webhook secret is returned ONCE when freshly generated so the
       // operator can pass it to setWebhook; afterwards it is only masked.
       return { success: true, ...(generatedSecret ? { webhookSecret } : {}) };
+    }),
+
+  /**
+   * Ask Telegram which bot the STORED token belongs to (getMe). The token is read and used on the server only;
+   * nothing secret is returned. `matchesSaved` is false when the token belongs to a different bot than the
+   * username saved for this business.
+   */
+  testTelegramConnection: operatorProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const cfg = await loadStoredTelegramConfig(input.tenantId);
+      if (!cfg) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      if (!cfg.botToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Save a bot token first." });
+      const r = await getBotIdentity(cfg.botToken);
+      if (!r.ok) return { ok: false, error: r.message, botUsername: null as string | null, matchesSaved: false };
+      const saved = cfg.botUsername.replace(/^@/, "").toLowerCase();
+      return {
+        ok: true,
+        error: null as string | null,
+        botUsername: r.result.username as string | null,
+        matchesSaved: saved !== "" && saved === r.result.username.toLowerCase(),
+      };
+    }),
+
+  /**
+   * Tell Telegram where to deliver this business's updates (setWebhook) and read back what it recorded. The
+   * address is built HERE from the app's own public URL and the tenant id, and the secret is the stored one,
+   * so the operator never handles either. Refuses (without calling Telegram) when the server switch is off,
+   * the business has no token or is not enabled, or the app's address is not https.
+   */
+  registerTelegramWebhook: operatorProcedure
+    .input(z.object({ tenantId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      if (!telegramEnabled()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Telegram is switched off on this server. Ask an engineer to enable it (TELEGRAM_ENABLED), then try again.",
+        });
+      }
+      const cfg = await loadStoredTelegramConfig(input.tenantId);
+      if (!cfg) throw new TRPCError({ code: "NOT_FOUND", message: "Tenant not found" });
+      if (!cfg.botToken || !cfg.enabled) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Save the bot token and turn Telegram on for this business first." });
+      }
+      const url = buildTelegramWebhookUrl(process.env.APP_URL ?? ENV.appUrl, input.tenantId);
+      if (!url) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "This app's public address is not https, which Telegram requires for webhooks." });
+      }
+      let secret = cfg.webhookSecret;
+      if (!secret) {
+        secret = nanoid(32);
+        await storeWebhookSecret(input.tenantId, secret);
+      }
+      const r = await registerWebhook({ token: cfg.botToken, url, secret });
+      await writeAuditLog({
+        actorId: String(ctx.user.id),
+        actorRole: ctx.user.role,
+        action: "tenant.registerTelegramWebhook",
+        entityType: "tenant",
+        entityId: input.tenantId,
+        tenantId: input.tenantId,
+        summary: r.ok
+          ? `Telegram webhook registered for bot @${cfg.botUsername}`
+          : `Telegram webhook registration failed for bot @${cfg.botUsername}: ${r.message}`,
+        before: null,
+        after: { url, ok: r.ok },
+      });
+      if (!r.ok) return { ok: false, error: r.message, webhookUrl: url, pendingUpdateCount: 0, lastErrorMessage: null as string | null };
+      return {
+        ok: true,
+        error: null as string | null,
+        webhookUrl: r.result.url || url,
+        pendingUpdateCount: r.result.pendingUpdateCount,
+        lastErrorMessage: r.result.lastErrorMessage,
+      };
     }),
   // === END W37 telegram ===
 

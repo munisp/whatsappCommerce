@@ -10,6 +10,9 @@
  *   booking → slot-fills service + datetime into the appointments table
  *   handoff → flags the conversation for a human agent + notifies admin
  *
+ * support + handoff also append settings.support's phone/email (if the
+ * tenant configured one) to their reply — see supportContactLine below.
+ *
  * Also owns the two channel orchestrators that drive the menu/session engine:
  *   handleConversationalInbound — WhatsApp text path (consent → menu → use case)
  *   handleUssdRequest           — Africa's Talking USSD path (CON/END)
@@ -91,10 +94,15 @@ import {
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 
+/** Channel a conversation runs on. `phone` is the WhatsApp number, or the `telegram:<chat_id>` session key. */
+export type ConversationChannel = "whatsapp" | "telegram";
+
 export interface UseCaseContext {
   db: Db;
   tenantId: string;
   phone: string;
+  /** Defaults to whatsapp. Decides which consent row, which sender and which NLP session key apply. */
+  channel?: ConversationChannel;
   customerName?: string;
   tenantSettings?: Record<string, unknown> | null;
   businessName?: string;
@@ -121,6 +129,27 @@ function adminPhoneFromSettings(settings: Record<string, unknown> | null | undef
   const s = settings as any;
   const cand = s?.adminPhone ?? s?.whatsapp?.adminPhone ?? s?.notifications?.adminPhone;
   return typeof cand === "string" && cand.trim() ? cand.trim() : null;
+}
+
+/**
+ * `settings.support` (phone/email the tenant wants BUYERS to see — see
+ * shared/tenantConfig.ts's supportConfigSchema) formatted as a reply-append
+ * line, or "" when neither is configured. Deliberately separate from
+ * adminPhone: that's who the bot pages internally, this is what the bot
+ * hands the customer, and a tenant may not want those to be the same number.
+ *
+ * Found 2026-09-25: "Get support"/"Talk to a human" only ever said "someone
+ * will be with you shortly" with nothing for the buyer to act on themselves
+ * — and for a tenant with no adminPhone on file, notifyTenantAdmin silently
+ * no-ops, so that "someone" was never actually paged either.
+ */
+function supportContactLine(settings: Record<string, unknown> | null | undefined): string {
+  const support = (settings as any)?.support as { phone?: unknown; email?: unknown } | undefined;
+  const phone = typeof support?.phone === "string" && support.phone.trim() ? support.phone.trim() : null;
+  const email = typeof support?.email === "string" && support.email.trim() ? support.email.trim() : null;
+  if (!phone && !email) return "";
+  const lines = [phone ? `📞 ${phone}` : null, email ? `✉️ ${email}` : null].filter(Boolean);
+  return `\n\nYou can also reach us directly:\n${lines.join("\n")}`;
 }
 
 /** Notify the tenant admin (if an admin phone is configured). Never throws. */
@@ -206,6 +235,8 @@ const shopHandler: UseCaseHandler = async (ctx, _session, input) => {
     waPhoneNumber: ctx.phone,
     message: input.trim() || "I want to place an order",
     customerName: ctx.customerName,
+    // Without the channel, NLP would treat a Telegram chat as a WhatsApp number (no cross-channel identity merge).
+    ...(ctx.channel && ctx.channel !== "whatsapp" ? { channel: ctx.channel } : {}),
   });
   return {
     reply: result?.reply ?? "Sure — what would you like to order?",
@@ -246,7 +277,9 @@ const trackHandler: UseCaseHandler = async (ctx, session) => {
 const supportHandler: UseCaseHandler = async (ctx, session, input) => {
   if (session.step !== "awaiting_issue") {
     return {
-      reply: "Sorry you're having trouble. Please describe your issue in a few words and our team will get back to you.",
+      reply:
+        "Sorry you're having trouble. Please describe your issue in a few words and our team will get back to you." +
+        supportContactLine(ctx.tenantSettings),
       nextState: { mode: "usecase", activeUseCase: "support", step: "awaiting_issue", data: {} },
     };
   }
@@ -260,7 +293,7 @@ const supportHandler: UseCaseHandler = async (ctx, session, input) => {
   await ctx.db
     .insert(channelMessages)
     .values({
-      channel: "whatsapp",
+      channel: ctx.channel ?? "whatsapp",
       direction: "inbound",
       fromAddress: ctx.phone,
       tenantId: ctx.tenantId,
@@ -447,7 +480,7 @@ const handoffHandler: UseCaseHandler = async (ctx) => {
     `🙋 Human handoff requested by ${ctx.phone}${ctx.customerName ? ` (${ctx.customerName})` : ""}. Please take over the conversation.`,
   );
   return {
-    reply: "Connecting you to a human agent — someone will be with you shortly. 🙏",
+    reply: "Connecting you to a human agent — someone will be with you shortly. 🙏" + supportContactLine(ctx.tenantSettings),
     nextState: null,
   };
 };
@@ -494,6 +527,7 @@ interface DispatchDeps {
   db: Db;
   tenantId: string;
   phone: string;
+  channel?: ConversationChannel;
   customerName?: string;
   config: WaMenuConfig;
   tenantSettings: Record<string, unknown> | null;
@@ -576,17 +610,21 @@ function menuDocUrlFromSettings(settings: Record<string, unknown> | null | undef
 async function pushMenuDoc(deps: DispatchDeps): Promise<void> {
   const url = menuDocUrlFromSettings(deps.tenantSettings);
   if (!url) return;
-  await sendWhatsAppMedia(
-    deps.tenantId,
-    deps.phone,
-    {
-      type: "document",
-      link: url,
-      caption: `${deps.businessName ?? "Our"} menu/catalog`,
-      filename: "menu.pdf",
-    },
-    { notifType: "menu_doc" },
-  ).catch((e: any) => console.warn("[useCases] menuDocUrl push failed:", e?.message));
+  const media = {
+    type: "document" as const,
+    link: url,
+    caption: `${deps.businessName ?? "Our"} menu/catalog`,
+    filename: "menu.pdf",
+  };
+  // Telegram must not receive a WhatsApp send addressed to a `telegram:<id>` key: go through the channel facade.
+  if (deps.channel === "telegram") {
+    const { sendChannelMessage } = await import("./channelSender");
+    await sendChannelMessage(deps.tenantId, "telegram", deps.phone, { kind: "media", media }, { notifType: "menu_doc" })
+      .catch((e: any) => console.warn("[useCases] menuDocUrl push failed:", e?.message));
+    return;
+  }
+  await sendWhatsAppMedia(deps.tenantId, deps.phone, media, { notifType: "menu_doc" })
+    .catch((e: any) => console.warn("[useCases] menuDocUrl push failed:", e?.message));
 }
 
 async function showMenu(deps: DispatchDeps, opts: { sendMenuDoc?: boolean } = {}): Promise<InboundOutcome> {
@@ -602,6 +640,34 @@ async function showMenu(deps: DispatchDeps, opts: { sendMenuDoc?: boolean } = {}
   };
 }
 
+/**
+ * The tenant's interactive menu for one caller (null when there is none, or it has more than 10 entries). Lets
+ * Telegram serve a "More →" page of a long menu list without re-running the conversation (which would reset the
+ * session and push the PDF menu again).
+ */
+export async function renderInteractiveMenuForCaller(opts: {
+  db: Db;
+  tenant: { id: string; name?: string | null; settings?: unknown } | null;
+  tenantId: string;
+  phone: string;
+  channel?: ConversationChannel;
+}): Promise<SendInteractiveInput | null> {
+  const tenantSettings = (opts.tenant?.settings ?? null) as Record<string, unknown> | null;
+  const locale = await resolveLocale({ tenantId: opts.tenantId, phone: opts.phone, tenantSettings })
+    .catch(() => "en" as Locale);
+  const deps: DispatchDeps = {
+    db: opts.db,
+    tenantId: opts.tenantId,
+    phone: opts.phone,
+    channel: opts.channel,
+    config: loadMenuConfig(opts.tenant),
+    tenantSettings,
+    businessName: opts.tenant?.name ?? undefined,
+    locale,
+  };
+  return renderWhatsAppInteractive(localizedMenuConfig(deps), await menuCtxForCaller(deps));
+}
+
 /** Run a use-case handler and persist the resulting session state. */
 async function runUseCase(
   deps: DispatchDeps,
@@ -614,6 +680,7 @@ async function runUseCase(
     db: deps.db,
     tenantId: deps.tenantId,
     phone: deps.phone,
+    channel: deps.channel,
     customerName: deps.customerName,
     tenantSettings: deps.tenantSettings,
     businessName: deps.businessName,
@@ -801,6 +868,9 @@ export async function handleConversationalInbound(opts: {
   phone: string;
   text: string;
   customerName?: string;
+  /** Channel the message arrived on (default whatsapp). For telegram, `phone` is the `telegram:<chat_id>` session key
+   *  and consent is read/written on the telegram channel. */
+  channel?: ConversationChannel;
   /** W47 buyer (ONB-B-5): inbound WhatsApp message id — recorded as
    *  proof-of-consent evidence when this message carries the YES reply. */
   /** === W47 crosscutting (ONB-TOCTOU-1): inbound WhatsApp message id —
@@ -808,6 +878,7 @@ export async function handleConversationalInbound(opts: {
   wamid?: string;
 }): Promise<InboundOutcome> {
   const { db, tenantId, phone, text } = opts;
+  const channel: ConversationChannel = opts.channel ?? "whatsapp";
   const tenantSettings = (opts.tenant?.settings ?? null) as Record<string, unknown> | null;
   // === W46 platform-p2 (MSG-23) === confidence-aware resolution: weak or
   // unsupported detections surface lowConfidence instead of silently
@@ -820,6 +891,7 @@ export async function handleConversationalInbound(opts: {
     db,
     tenantId,
     phone,
+    channel,
     customerName: opts.customerName,
     config: loadMenuConfig(opts.tenant),
     tenantSettings,
@@ -828,7 +900,7 @@ export async function handleConversationalInbound(opts: {
   };
 
   // ── 1. NDPR consent gate (first-ever inbound from this phone) ────────────
-  const existingConsent = await getConsent(db, tenantId, phone);
+  const existingConsent = await getConsent(db, tenantId, phone, channel);
   let session = await getSession(tenantId, phone);
 
   // === W40 MSG-1: STOP honored mid-conversation ===
@@ -846,9 +918,9 @@ export async function handleConversationalInbound(opts: {
         await recordChannelRevocation(db, {
           tenantId,
           sessionKey: phone,
-          channel: "whatsapp",
+          channel,
         });
-        await auditConsentWithdrawal({ tenantId, sessionKey: phone, channel: "whatsapp" });
+        await auditConsentWithdrawal({ tenantId, sessionKey: phone, channel });
       }
       await clearSession(tenantId, phone);
       return { handled: true, reply: WA_STOP_CONFIRMATION };
@@ -860,7 +932,7 @@ export async function handleConversationalInbound(opts: {
         // re-grants right after withdrawal keeps the withdrawal standing. ===
         try {
           // W47 (ONB-TOCTOU-1): pass the evidence wamid on re-grants too.
-          await recordConsent(db, { tenantId, phone, granted: true, proofWamid: opts.wamid ?? null });
+          await recordConsent(db, { tenantId, phone, granted: true, channel, proofWamid: opts.wamid ?? null });
         } catch (e: any) {
           const { ConsentRegrantRateLimited } = await import("./consent");
           if (e instanceof ConsentRegrantRateLimited) {
@@ -933,7 +1005,7 @@ export async function handleConversationalInbound(opts: {
       return { handled: true, reply: tr(locale, "consentPrompt") };
     }
     // W47 (ONB-TOCTOU-1): the buyer's YES/NO wamid is the consent evidence.
-    await recordConsent(db, { tenantId, phone, granted: decision, proofWamid: opts.wamid ?? null });
+    await recordConsent(db, { tenantId, phone, granted: decision, channel, proofWamid: opts.wamid ?? null });
     if (!decision) {
       await clearSession(tenantId, phone);
       return { handled: true, reply: tr(locale, "consentDenied") };
@@ -1251,6 +1323,8 @@ export async function handleInteractiveInbound(opts: {
   replyId?: string;
   replyTitle?: string;
   customerName?: string;
+  /** Channel the tap arrived on (default whatsapp) — see handleConversationalInbound. */
+  channel?: ConversationChannel;
 }): Promise<InboundOutcome> {
   const { db, tenantId, phone } = opts;
   const id = (opts.replyId ?? "").trim();
@@ -1299,6 +1373,7 @@ export async function handleInteractiveInbound(opts: {
       phone,
       text: String(n),
       customerName: opts.customerName,
+      channel: opts.channel,
     });
   }
 
@@ -1311,6 +1386,7 @@ export async function handleInteractiveInbound(opts: {
       phone,
       text: opts.replyTitle,
       customerName: opts.customerName,
+      channel: opts.channel,
     });
   }
   return { handled: false };

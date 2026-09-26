@@ -4,6 +4,7 @@
  * All config lives under tenants.settings (JSONB):
  *   settings.commerce    — currency, fee overrides, pickup, delivery zones
  *   settings.branding    — admin/storefront branding
+ *   settings.support     — buyer-facing support phone/email (see waMenu "support"/"handoff")
  *   settings.crm         — custom fields + pipeline stages
  *   settings.inventory   — stock source + thresholds
  *   settings.integrations— { medusa|twenty|odoo }. { url, apiKey, enabled }
@@ -72,6 +73,9 @@ export const commerceConfigSchema = z.object({
     .length(3)
     .regex(/^[A-Z]{3}$/, "currency must be a 3-letter ISO code"),
   pickupEnabled: z.boolean(),
+  // Found live 2026-09-26 (user: "the payment should only be through paystack"): opt-out (default true)
+  // so every existing tenant's behavior is unchanged — see server/routers/nlp.ts's checkout-step COD gate.
+  codEnabled: z.boolean().default(true),
   deliveryZones: z.array(deliveryZoneSchema).max(50),
   feeOverrides: z
     .object({
@@ -107,6 +111,21 @@ export const brandingConfigSchema = z.object({
 });
 
 export type BrandingConfig = z.infer<typeof brandingConfigSchema>;
+
+// ─── Support ─────────────────────────────────────────────────────────────────
+// A direct contact the "Get support" / "Talk to a human" chat replies hand the
+// buyer, alongside (not instead of) flagging the conversation for the admin —
+// found missing 2026-09-25: neither reply ever gave the buyer anything to act
+// on themselves, and for a tenant with no adminPhone on file the admin never
+// even got notified, so "someone will be with you shortly" was an empty promise.
+
+export const supportConfigSchema = z.object({
+  /** Free-form so international/WhatsApp-formatted numbers aren't rejected. */
+  phone: z.string().trim().min(1, "phone must not be empty").max(30).nullable(),
+  email: z.string().trim().toLowerCase().email("must be a valid email address").max(200).nullable(),
+});
+
+export type SupportConfig = z.infer<typeof supportConfigSchema>;
 
 // ─── Domains ─────────────────────────────────────────────────────────────────
 // settings.domains: string[] of hosts the tenant's storefront answers on
@@ -153,6 +172,7 @@ export type IntegrationsConfig = z.infer<typeof integrationsConfigSchema>;
 export interface TenantSettings {
   commerce: CommerceConfig;
   branding: BrandingConfig;
+  support: SupportConfig;
   crm: CrmConfig;
   inventory: InventoryConfig;
   integrations: IntegrationsConfig;
@@ -172,8 +192,9 @@ export interface TenantSettings {
 /** Default settings skeleton seeded at provisioning time. */
 export function buildDefaultTenantSettings(businessName: string): TenantSettings {
   return {
-    commerce: { currency: "NGN", pickupEnabled: true, deliveryZones: [] },
+    commerce: { currency: "NGN", pickupEnabled: true, codEnabled: true, deliveryZones: [] },
     branding: { name: businessName, logoUrl: null, primaryColor: "#8A5A2B" },
+    support: { phone: null, email: null },
     crm: { customFields: [], pipelineStages: ["new", "qualified", "won", "lost"] },
     inventory: { source: "local", lowStockThreshold: 5 },
     integrations: {},

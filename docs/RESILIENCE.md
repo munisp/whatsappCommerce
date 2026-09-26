@@ -433,26 +433,28 @@ down is the older single-node dev overlay and is **not** what runs on the cluste
 
 ### PLT-10: Temporal workflow versioning + auto-approve stubs removed
 
-- **Versioning story.** `@temporalio/workflow` is not a declared dependency
-  (only `@temporalio/client` is), so `patch()` is unavailable at typecheck
-  time. `services/temporal-workflows/workflows.ts` now carries **deterministic
-  version constants** (`WORKFLOW_VERSIONS`) plus a `patched()`-compatible
-  `versionGate(workflow, changeId, minVersion)` marker at every
-  behavior-change point (`no-auto-approve-kyc`, `no-auto-confirm-payment`).
-  The rule: never delete a code path below its recorded version — the same
-  discipline Temporal's `patch()` enforces; change ids carry over if the SDK
-  is adopted. The worker pins a deterministic **build id**
-  (`WORKER_BUILD_ID`, overridable via `TEMPORAL_WORKER_BUILD_ID`) passed to
-  `Worker.create({ buildId })` for Temporal worker versioning.
+- **Versioning story.** *(Updated: the SDK is now adopted — `@temporalio/worker`,
+  `workflow`, `activity`, `testing` are devDependencies.)* Workflow definitions in
+  `services/temporal-workflows/workflows.ts` are real `@temporalio/workflow` code
+  (`proxyActivities`, durable `sleep`/`condition`, signals). Version constants live in the
+  sandbox-pure `versions.ts` (`WORKFLOW_VERSIONS`); the pseudocode-era `versionGate()` shim
+  is gone — use `patched("<change-id>")` from `@temporalio/workflow` for any change that would
+  alter an in-flight execution's command sequence. The worker pins a deterministic **build
+  id** (`workerBuildId()`, overridable via `TEMPORAL_WORKER_BUILD_ID`) passed to
+  `Worker.create({ buildId })` as a label (SDK worker versioning itself is off; the option is
+  deprecated upstream in favor of Worker Deployments).
 - **Auto-approve stubs REMOVED.** The old stub activities returned fixed
   values (`waitForKycApproval → "approved"`, `confirmPayment → true`,
   `reserveInventory → true`) — enabling the worker in prod would have
-  auto-approved KYC and auto-confirmed payments. Activities now throw
-  `activity_not_wired` unless REAL handlers are registered via
-  `registerActivityHandlers()` (worker.ts wires its API-backed handlers at
+  auto-approved KYC and auto-confirmed payments. *(Updated: activities now live in
+  `activities.ts`; a step with no backing internal endpoint throws a non-retryable
+  `ActivityNotImplemented` instead — same doctrine. Only InventorySync is backed today.)*
+  Previously: activities threw `activity_not_wired` unless REAL handlers were registered via
+  `registerActivityHandlers()` (worker.ts wired its API-backed handlers at
   boot). Money/KYC paths never fabricate success.
-- Pinned by journeys **J317** (version markers present, gates deterministic)
-  and **J321** (unwired activities honestly fail; no fixed "approved").
+- Pinned by journeys **J317** (version constants present, build id pinned and
+  overridable, workflows are real SDK code) and **J321** (unbacked activities honestly
+  fail; no fixed "approved").
 
 ### PLT-15: money paths tested against real PG (integration profile)
 

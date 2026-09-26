@@ -31,13 +31,14 @@ import { toast } from "sonner";
 import { useActiveTenant } from "@/contexts/TenantContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
-  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Upload, UserPlus, Users, Warehouse, X,
+  ArrowDown, ArrowUp, Check, Copy, Globe, HelpCircle, LifeBuoy, Link2, Loader2, Palette, Plus, QrCode, Save, Settings2, ShoppingCart, Tag, Trash2, Upload, UserPlus, Users, Warehouse, X,
 } from "lucide-react";
 import type {
-  BrandingConfig, CommerceConfig, CrmCustomField, DeliveryZone, InventoryConfig,
+  BrandingConfig, CommerceConfig, CrmCustomField, DeliveryZone, InventoryConfig, SupportConfig,
 } from "@shared/tenantConfig";
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const FIELD_TYPES = ["text", "number", "date", "select", "boolean"] as const;
 
 // ─── Branding ────────────────────────────────────────────────────────────────
@@ -458,6 +459,92 @@ function CommerceSection({ tenantId }: { tenantId: string }) {
         >
           {save.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
           Save commerce settings
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Support ─────────────────────────────────────────────────────────────────
+// The phone/email the chat bot hands a BUYER who picks "Get support" or
+// "Talk to a human" — separate from Team's admin phone, which is who the bot
+// pages internally, not what it tells the customer. Optional: leave either
+// field blank to have the bot fall back to its plain "someone will be with
+// you shortly" reply with no contact info appended.
+
+function SupportSection({ tenantId }: { tenantId: string }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.tenantConfig.getSupportConfig.useQuery({ tenantId });
+  const [form, setForm] = useState<SupportConfig | null>(null);
+  useEffect(() => {
+    if (data) setForm({ ...data });
+  }, [data]);
+
+  const save = trpc.tenantConfig.setSupportConfig.useMutation({
+    onSuccess: () => {
+      toast.success("Support contact saved");
+      utils.tenantConfig.getSupportConfig.invalidate({ tenantId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  if (isLoading || !form) return <SectionLoading />;
+
+  const phone = form.phone ?? "";
+  const email = form.email ?? "";
+  const phoneValid = phone.trim() === "" || phone.trim().length > 0;
+  const emailValid = email.trim() === "" || EMAIL_RE.test(email.trim());
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Support</CardTitle>
+        <CardDescription>
+          The phone number and email the chat bot gives buyers who pick "Get support" or "Talk to a human" —
+          shown alongside, not instead of, notifying your team in-chat.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-md">
+        <div className="space-y-1.5">
+          <Label htmlFor="ts-support-phone">Support phone</Label>
+          <Input
+            id="ts-support-phone"
+            value={phone}
+            maxLength={30}
+            placeholder="+234 900 000 0000"
+            onChange={(e) => setForm({ ...form, phone: e.target.value === "" ? null : e.target.value })}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ts-support-email">Support email</Label>
+          <Input
+            id="ts-support-email"
+            type="email"
+            value={email}
+            maxLength={200}
+            placeholder="support@example.com"
+            className={emailValid ? "" : "border-destructive"}
+            onChange={(e) => setForm({ ...form, email: e.target.value === "" ? null : e.target.value })}
+          />
+          {!emailValid && <p className="text-xs text-destructive">Enter a valid email address, or leave it blank.</p>}
+        </div>
+        {!phone.trim() && !email.trim() && (
+          <p className="text-xs text-muted-foreground">
+            Neither is set — buyers who ask for support will just get the generic "someone will be with you
+            shortly" reply with nothing to contact directly.
+          </p>
+        )}
+        <Button
+          onClick={() =>
+            save.mutate({
+              tenantId,
+              config: { phone: phone.trim() === "" ? null : phone.trim(), email: email.trim() === "" ? null : email.trim() },
+            })
+          }
+          disabled={save.isPending || !phoneValid || !emailValid}
+        >
+          {save.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+          Save support contact
         </Button>
       </CardContent>
     </Card>
@@ -1685,6 +1772,7 @@ function TenantSettingsInner() {
             <TabsTrigger value="branding" className="gap-1.5"><Palette className="w-3.5 h-3.5" /> Branding</TabsTrigger>
             <TabsTrigger value="domains" className="gap-1.5"><Globe className="w-3.5 h-3.5" /> Domains</TabsTrigger>
             <TabsTrigger value="commerce" className="gap-1.5"><ShoppingCart className="w-3.5 h-3.5" /> Commerce</TabsTrigger>
+            <TabsTrigger value="support" className="gap-1.5"><LifeBuoy className="w-3.5 h-3.5" /> Support</TabsTrigger>
             <TabsTrigger value="inventory" className="gap-1.5"><Warehouse className="w-3.5 h-3.5" /> Inventory</TabsTrigger>
             <TabsTrigger value="crm" className="gap-1.5"><Users className="w-3.5 h-3.5" /> CRM</TabsTrigger>
             <TabsTrigger value="faq" className="gap-1.5"><HelpCircle className="w-3.5 h-3.5" /> FAQ</TabsTrigger>
@@ -1695,6 +1783,7 @@ function TenantSettingsInner() {
           <TabsContent value="branding" className="mt-4"><BrandingSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="domains" className="mt-4"><DomainsSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="commerce" className="mt-4"><CommerceSection tenantId={tenantId} /></TabsContent>
+          <TabsContent value="support" className="mt-4"><SupportSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="inventory" className="mt-4"><InventorySection tenantId={tenantId} /></TabsContent>
           <TabsContent value="crm" className="mt-4"><CrmSection tenantId={tenantId} /></TabsContent>
           <TabsContent value="faq" className="mt-4"><FaqSection tenantId={tenantId} /></TabsContent>

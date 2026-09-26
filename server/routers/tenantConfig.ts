@@ -19,6 +19,7 @@ import {
   crmCustomFieldSchema,
   inventoryConfigSchema,
   pipelineStageSchema,
+  supportConfigSchema,
   tenantDomainsSchema,
   buildDefaultTenantSettings,
   type TenantSettings,
@@ -173,6 +174,16 @@ export const tenantConfigRouter = router({
       const settings = await updateTenantSettings(input.tenantId, (s) => {
         s.commerce = input.config;
       });
+      // Found live 2026-09-26 (user: "everything should be naira"): this field saved into
+      // tenants.settings.commerce.currency, a JSONB blob nothing downstream ever read — the real
+      // tenants.defaultCurrency column (which product.create's client default and tenant.ts's procedures
+      // actually consult) was completely disconnected from it. A merchant could "set" their currency here
+      // and see the change persist, with zero effect anywhere else — a settings field that silently does
+      // nothing. Now keeps the real column in sync so this page's own save actually means something.
+      const db = await getDb();
+      if (db) {
+        await db.update(tenants).set({ defaultCurrency: input.config.currency }).where(eq(tenants.id, input.tenantId));
+      }
       return settings.commerce;
     }),
 
@@ -192,6 +203,24 @@ export const tenantConfigRouter = router({
         s.branding = input.config;
       });
       return settings.branding;
+    }),
+
+  // ─── Support (buyer-facing contact — see shared/tenantConfig.ts) ──────────
+
+  getSupportConfig: protectedProcedure.input(tenantInput).query(async ({ ctx, input }) => {
+    assertTenantAccess(ctx.user, input.tenantId);
+    const settings = await loadSettings(input.tenantId);
+    return settings.support;
+  }),
+
+  setSupportConfig: protectedProcedure
+    .input(tenantInput.extend({ config: supportConfigSchema }))
+    .mutation(async ({ ctx, input }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      const settings = await updateTenantSettings(input.tenantId, (s) => {
+        s.support = input.config;
+      });
+      return settings.support;
     }),
 
   /**

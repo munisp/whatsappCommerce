@@ -1,0 +1,235 @@
+# Cluster-wide data-store UIs (Kafka, Redis, Postgres), exposed through the shared
+# APISIX gateway behind a single shared basic-auth credential.
+#
+# NOT managed by Flux (k8s-flux/) — apply by hand:  kubectl apply -f k8s-tools/cluster-ui.yaml
+#
+# The credential is NOT in this file. Create it once (username `cluster-admin`):
+#   kubectl -n cluster-tools create secret generic cluster-tools-basic-auth \
+#     --from-literal=username=cluster-admin --from-literal=password="$(openssl rand -base64 24 | tr -d '/+=')"
+# Read it back:
+#   kubectl -n cluster-tools get secret cluster-tools-basic-auth -o jsonpath='{.data.password}' | base64 -d
+#
+# Every route requires basic-auth AND whitelists only this consumer via consumer-restriction.
+# APISIX consumers are global across the shared gateway, so without the whitelist any other
+# team's basic-auth consumer could log in to these UIs. The consumer name APISIX derives from
+# the ApisixConsumer is "<namespace>_<name>" with '-' replaced by '_'.
+#
+# Scope notes:
+#   - Kafka UI is read-only and cannot change cluster config.
+#   - Adminer stores no DB credentials: whoever logs in must supply their own. Use a read-only
+#     role against pg-oracle-ro (the CNPG standby service); never a superuser.
+#   - RedisInsight keeps any connection you add (including its password) in an emptyDir, so
+#     connections are lost on pod restart by design.
+#   - TigerBeetle has no web UI. Fluvio has none either.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cluster-tools
+---
+apiVersion: apisix.apache.org/v2
+kind: ApisixConsumer
+metadata:
+  name: cluster-tools-admin
+  namespace: cluster-tools
+spec:
+  ingressClassName: apisix
+  authParameter:
+    basicAuth:
+      secretRef:
+        name: cluster-tools-basic-auth
+---
+# ── Kafka UI ──────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: cluster-tools
+  labels: {app: kafka-ui}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: kafka-ui}
+  template:
+    metadata:
+      labels: {app: kafka-ui}
+    spec:
+      containers:
+        - name: kafka-ui
+          image: ghcr.io/kafbat/kafka-ui:v1.2.0
+          ports:
+            - containerPort: 8080
+          env:
+            - {name: KAFKA_CLUSTERS_0_NAME, value: mojaloop-kafka}
+            - {name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS, value: "mojaloop-kafka-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092"}
+            - {name: KAFKA_CLUSTERS_0_READONLY, value: "true"}
+            - {name: DYNAMIC_CONFIG_ENABLED, value: "false"}
+            - {name: JAVA_OPTS, value: "-XX:MaxRAMPercentage=70"}
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: 8080}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: cluster-tools
+spec:
+  selector: {app: kafka-ui}
+  ports:
+    - {port: 8080, targetPort: 8080}
+---
+# ── RedisInsight ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redisinsight
+  namespace: cluster-tools
+  labels: {app: redisinsight}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: redisinsight}
+  template:
+    metadata:
+      labels: {app: redisinsight}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: redisinsight
+          image: redis/redisinsight:2.68
+          ports:
+            - containerPort: 5540
+          # RedisInsight starts EMPTY (its "Add database" screen) unless told where Redis is. 2.68 reads
+          # these RI_REDIS_* variables at startup and registers the database itself. The login comes from
+          # Secret cluster-tools-redis (created by apply.sh; optional so the pod still starts without it —
+          # the database then shows up but says NOAUTH).
+          env:
+            - {name: RI_REDIS_HOST, value: redis-master.redis.svc.cluster.local}
+            - {name: RI_REDIS_PORT, value: "6379"}
+            - {name: RI_REDIS_ALIAS, value: "shared redis (ns redis)"}
+            - name: RI_REDIS_USERNAME
+              valueFrom: {secretKeyRef: {name: cluster-tools-redis, key: username, optional: true}}
+            - name: RI_REDIS_PASSWORD
+              valueFrom: {secretKeyRef: {name: cluster-tools-redis, key: password, optional: true}}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+          readinessProbe:
+            httpGet: {path: /api/health/, port: 5540}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 768Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redisinsight
+  namespace: cluster-tools
+spec:
+  selector: {app: redisinsight}
+  ports:
+    - {port: 5540, targetPort: 5540}
+---
+# ── Adminer (Postgres) ────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  namespace: cluster-tools
+  labels: {app: adminer}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: adminer}
+  template:
+    metadata:
+      labels: {app: adminer}
+    spec:
+      containers:
+        - name: adminer
+          image: adminer:5.4.1
+          ports:
+            - containerPort: 8080
+          env:
+            - {name: ADMINER_DEFAULT_SERVER, value: "pg-oracle-ro.postgres-oracle.svc.cluster.local"}
+          readinessProbe:
+            tcpSocket: {port: 8080}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {cpu: 300m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  namespace: cluster-tools
+spec:
+  selector: {app: adminer}
+  ports:
+    - {port: 8080, targetPort: 8080}
+---
+# ── Routes (shared APISIX gateway; wildcard *.newfire.app DNS already reaches it) ─
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: kafka-ui
+  namespace: cluster-tools
+spec:
+  ingressClassName: apisix
+  http:
+    - name: main
+      match: {hosts: [kafka-ui.newfire.app], paths: ["/*"]}
+      backends: [{serviceName: kafka-ui, servicePort: 8080}]
+      plugins:
+        - {name: basic-auth, enable: true, config: {hide_credentials: true}}
+        - {name: consumer-restriction, enable: true, config: {type: consumer_name, whitelist: [cluster_tools_cluster_tools_admin]}}
+---
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: redis-ui
+  namespace: cluster-tools
+spec:
+  ingressClassName: apisix
+  http:
+    - name: main
+      match: {hosts: [redis-ui.newfire.app], paths: ["/*"]}
+      websocket: true
+      backends: [{serviceName: redisinsight, servicePort: 5540}]
+      plugins:
+        - {name: basic-auth, enable: true, config: {hide_credentials: true}}
+        - {name: consumer-restriction, enable: true, config: {type: consumer_name, whitelist: [cluster_tools_cluster_tools_admin]}}
+---
+apiVersion: apisix.apache.org/v2
+kind: ApisixRoute
+metadata:
+  name: pg-ui
+  namespace: cluster-tools
+spec:
+  ingressClassName: apisix
+  http:
+    - name: main
+      match: {hosts: [pg-ui.newfire.app], paths: ["/*"]}
+      backends: [{serviceName: adminer, servicePort: 8080}]
+      plugins:
+        - {name: basic-auth, enable: true, config: {hide_credentials: true}}
+        - {name: consumer-restriction, enable: true, config: {type: consumer_name, whitelist: [cluster_tools_cluster_tools_admin]}}

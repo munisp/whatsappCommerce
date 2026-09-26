@@ -134,10 +134,13 @@ export const journey: Journey = {
       return o?.status === "pending";
     }, 10000, "TG offer parked as pending");
     const offerT = await latestOffer(world, `telegram:${buyerChat}`);
-    await world.waitFor(() => tg.callsFor("sendMessage").length > sendBefore, 10000, "TG replies sent");
-    const buyerReply = tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === buyerChat && (c.body?.text ?? "").includes("is with the store"));
+    // Wait for BOTH specific messages (see J336): the buyer reply and the merchant card race each other.
+    const findBuyerReply = () => tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === buyerChat && (c.body?.text ?? "").includes("is with the store"));
+    const findCardT = () => tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === adminChat && JSON.stringify(c.body ?? {}).includes(`offer:accept:${offerT!.id}`));
+    await world.waitFor(() => !!findBuyerReply() && !!findCardT(), 10000, "TG buyer reply and merchant card sent");
+    const buyerReply = findBuyerReply();
     assert(buyerReply, "TG buyer pending confirmation");
-    const cardT = tg.callsFor("sendMessage").find((c) => String(c.body?.chat_id) === adminChat && JSON.stringify(c.body ?? {}).includes(`offer:accept:${offerT!.id}`));
+    const cardT = findCardT();
     assert(cardT, "TG merchant card with inline keyboard (same id grammar)");
 
     // TG merchant rejects from the inline keyboard callback.

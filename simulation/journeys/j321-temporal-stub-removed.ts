@@ -1,62 +1,59 @@
 /**
  * === W42 workflows (Coder C / PLT-10) ===
- * J321 — The W36 auto-approve activity stubs are GONE: with no real handlers
- * registered, the money/KYC activities honestly throw `activity_not_wired`
- * instead of returning fabricated success ("approved" / true). A registered
- * handler IS used, and workflow execution propagates handler failure.
+ * J321 — The W36 auto-approve activity stubs are GONE. Activities with no real backing
+ * endpoint honestly throw a NON-retryable `activity_not_implemented` instead of returning
+ * fabricated success ("approved" / true) and never touch the platform; an activity that IS
+ * backed returns the platform's answer verbatim.
  */
 import { assert, assertIncludes } from "../world";
 import type { Journey } from "../runner";
 
-async function expectNotWired(fn: () => Promise<unknown>, label: string): Promise<void> {
-  let err: Error | null = null;
+async function expectNotImplemented(fn: () => Promise<unknown>, label: string): Promise<void> {
+  let err: any = null;
   try {
     await fn();
   } catch (e: any) {
     err = e;
   }
-  assert(err, `${label}: must throw without wired handlers (stub would have fabricated success)`);
-  assertIncludes(err!.message, "activity_not_wired", `${label} honest-fail reason`);
+  assert(err, `${label}: must throw without a backing endpoint (a stub would have fabricated success)`);
+  assertIncludes(err.message, "activity_not_implemented", `${label} honest-fail reason`);
+  assert(err.nonRetryable === true, `${label}: must be non-retryable (retrying cannot make it real)`);
 }
 
 export const journey: Journey = {
   id: "J321",
   name: "temporal auto-approve stubs removed",
-  feature: "unwired activities honestly fail; never return fixed approved/true",
+  feature: "unbacked activities honestly fail; never return fixed approved/true",
   async run() {
-    const wf = await import("../../services/temporal-workflows/workflows");
+    const { createActivities } = await import("../../services/temporal-workflows/activities");
 
-    // Sim never boots the temporal worker → no handlers wired here.
-    assert(wf.hasActivityHandlers() === false, "no handlers wired in sim world");
+    // An apiCall that fails the journey if any unbacked activity tries to use it.
+    let apiCalls = 0;
+    const a = createActivities({
+      apiCall: (async () => {
+        apiCalls++;
+        return {};
+      }) as any,
+    });
 
     // Every stub-era fabrication is now an honest failure.
-    await expectNotWired(() => wf.activities.waitForKycApproval("kyc-x"), "waitForKycApproval");
-    await expectNotWired(() => wf.activities.confirmPayment("order-x"), "confirmPayment");
-    await expectNotWired(() => wf.activities.reserveInventory([]), "reserveInventory");
-    await expectNotWired(() => wf.activities.validateWhatsAppCredentials("t-x"), "validateWhatsAppCredentials");
-    await expectNotWired(() => wf.activities.buildAudience("c-x"), "buildAudience");
+    await expectNotImplemented(() => a.getKycDecision("kyc-x"), "getKycDecision");
+    await expectNotImplemented(() => a.submitKycForReview("kyc-x"), "submitKycForReview");
+    await expectNotImplemented(() => a.confirmPayment("order-x"), "confirmPayment");
+    await expectNotImplemented(() => a.validateWhatsAppCredentials("t-x"), "validateWhatsAppCredentials");
+    await expectNotImplemented(() => a.activateTenant("t-x"), "activateTenant");
+    await expectNotImplemented(() => a.buildAudience("c-x"), "buildAudience");
+    await expectNotImplemented(() => a.sendBroadcastBatch("c-x", ["+2348000000000"], "tpl"), "sendBroadcastBatch");
+    assert(apiCalls === 0, `unbacked activities must not call the platform (made ${apiCalls} calls)`);
 
-    // Full workflow: KYC step must propagate the honest failure (no auto-approve).
-    let wfErr: Error | null = null;
-    try {
-      await wf.TenantOnboardingWorkflow({
-        tenantId: "t-j321",
-        applicantEmail: "j321@sim.local",
-        billingModel: "subscription",
-        kycApplicationId: "kyc-j321",
-      });
-    } catch (e: any) {
-      wfErr = e;
-    }
-    assert(wfErr, "TenantOnboardingWorkflow fails without wired KYC handler");
-    assertIncludes(wfErr!.message, "activity_not_wired", "workflow propagates honest failure");
-
-    // A registered REAL handler is used verbatim (incl. non-approved verdicts).
-    wf.registerActivityHandlers({
-      waitForKycApproval: async () => "rejected",
-    } as any);
-    assert(wf.hasActivityHandlers() === true, "handler registered");
-    const decision = await wf.activities.waitForKycApproval("kyc-x");
-    assert(decision === "rejected", `wired handler verdict honored (got ${decision}) — no forced "approved"`);
+    // A BACKED activity uses the platform's verdict verbatim.
+    const backed = createActivities({
+      apiCall: (async (proc: string) =>
+        proc === "temporalInternal.syncTenantInventory" ? { tenantId: "t-j321", recordsSynced: 3 } : { tenantIds: ["t-j321"] }) as any,
+    });
+    const res = await backed.syncTenantInventory("t-j321");
+    assert(res.recordsSynced === 3, `backed activity returns the platform's result (got ${res.recordsSynced})`);
+    const tenants = await backed.listInventorySyncTenants();
+    assert(tenants.length === 1 && tenants[0] === "t-j321", "listInventorySyncTenants returns the platform's tenants");
   },
 };

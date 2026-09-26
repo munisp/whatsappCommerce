@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   classifyRequest,
   clientIp,
+  trustProxySetting,
   createEdgeRateLimitMiddleware,
   DEFAULT_LIMITS,
   edgeRateLimitMiddleware,
@@ -221,13 +222,71 @@ describe("edgeRateLimitMiddleware", () => {
 });
 
 describe("clientIp", () => {
-  it("prefers the left-most X-Forwarded-For entry", () => {
+  // AF-04: this test used to assert the left-most X-Forwarded-For entry won —
+  // i.e. that the client chooses its own rate-limit key. Replaced by the
+  // opposite assertion; the real-Express tests below prove the end to end.
+  it("never reads X-Forwarded-For itself — it returns the Express-resolved req.ip", () => {
     const req: any = { headers: { "x-forwarded-for": "1.1.1.1, 2.2.2.2" }, ip: "3.3.3.3" };
-    expect(clientIp(req)).toBe("1.1.1.1");
+    expect(clientIp(req)).toBe("3.3.3.3");
   });
 
   it("falls back to req.ip / socket address", () => {
     expect(clientIp({ headers: {}, ip: "3.3.3.3" } as any)).toBe("3.3.3.3");
     expect(clientIp({ headers: {}, socket: { remoteAddress: "4.4.4.4" } } as any)).toBe("4.4.4.4");
+  });
+});
+
+describe("AF-04: spoofed headers cannot mint fresh buckets (real Express, trust proxy)", () => {
+  async function serve(configure: (app: import("express").Express) => void) {
+    const express = (await import("express")).default;
+    const app = express();
+    app.set("trust proxy", trustProxySetting(undefined));
+    configure(app);
+    app.use((_req, res) => { res.status(200).json({ ok: true }); });
+    const server = await new Promise<import("http").Server>((resolve) => {
+      const s = app.listen(0, "127.0.0.1", () => resolve(s));
+    });
+    const port = (server.address() as import("net").AddressInfo).port;
+    return { url: `http://127.0.0.1:${port}`, close: () => new Promise<void>((r) => server.close(() => r())) };
+  }
+
+  it("default trust setting resolves the client behind the in-cluster proxy, not the spoofed left-most entry", async () => {
+    let seen = "";
+    const srv = await serve((app) => app.use((req, _res, next) => { seen = clientIp(req); next(); }));
+    try {
+      // What APISIX forwards: the client's own (forged) header, then the real
+      // client address it appended, from a private-network hop.
+      await fetch(`${srv.url}/api/x`, { headers: { "x-forwarded-for": "6.6.6.6, 203.0.113.9" } });
+      expect(seen).toBe("203.0.113.9");
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("rotating X-Forwarded-For and X-Tenant-Id no longer escapes the auth bucket", async () => {
+    const mw = createEdgeRateLimitMiddleware();
+    const srv = await serve((app) => app.use(mw));
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        const r = await fetch(`${srv.url}/api/auth/local`, {
+          method: "POST",
+          headers: { "x-forwarded-for": `10.9.${i}.1, 198.51.100.${i}, 203.0.113.77`, "x-tenant-id": `t-${i}` },
+        });
+        statuses.push(r.status);
+      }
+      // auth bucket = 10/min per client: the 11th and 12th attempts are refused.
+      expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
+      expect(statuses.slice(10)).toEqual([429, 429]);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("trustProxySetting parses overrides", () => {
+    expect(trustProxySetting(undefined)).toBe("loopback, linklocal, uniquelocal");
+    expect(trustProxySetting("2")).toBe(2);
+    expect(trustProxySetting("false")).toBe(false);
+    expect(trustProxySetting("173.245.48.0/20, 10.0.0.0/8")).toBe("173.245.48.0/20, 10.0.0.0/8");
   });
 });

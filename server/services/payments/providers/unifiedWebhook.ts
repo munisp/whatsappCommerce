@@ -185,6 +185,21 @@ export async function handleUnifiedPaymentWebhook(req: Request, res: Response): 
       );
     }
 
+    // Same PAY-13 / AF-01 seam as the dedicated Paystack/Flutterwave routes:
+    // money collected at the wrong amount, or for an order that can no longer
+    // be fulfilled, is quarantined and auto-refunded. Never throws.
+    {
+      const { runPaymentMismatchQuarantineHook } = await import("../paymentMismatchQuarantine");
+      await runPaymentMismatchQuarantineHook(db, {
+        provider: providerId,
+        reference: norm.reference,
+        result,
+        amountMajor: norm.amountCents / 100,
+        currency,
+        rawPayload: payload?.data ?? payload,
+      });
+    }
+
     // === W31 AR webhook hook ===
     // After the pinned confirmProviderPayment verified + completed the
     // payment, record any AR-invoice payment keyed by this reference

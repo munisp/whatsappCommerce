@@ -1,7 +1,7 @@
 /**
  * server/services/rateLimit.ts — Edge token-bucket rate limiting (wave 10).
  *
- * Three independent buckets, keyed by client IP (+ tenant when known):
+ * Three independent buckets, keyed by client IP (resolved via `trust proxy`):
  *   - webhook  POST /api/webhooks/*, /integrations/:system/webhook
  *              generous (default 300/min/IP) — Meta/Paystack RETRY deliveries
  *              and a tight limit would cause delivery-loss loops.
@@ -142,10 +142,30 @@ export function classifyRequest(method: string, path: string): BucketKind | null
   return null;
 }
 
-/** Client IP — trusts X-Forwarded-For only from the left-most hop (Caddy/ingress). */
-export function clientIp(req: Request): string {
-  const fwd = req.headers["x-forwarded-for"];
-  if (typeof fwd === "string" && fwd.length > 0) return fwd.split(",")[0]!.trim();
+/**
+ * Express `trust proxy` setting (AF-04). Default: trust only loopback,
+ * link-local and private-network hops — the in-cluster gateway (APISIX pods
+ * on 10.x) and a local reverse proxy — so `req.ip` is the right-most address
+ * that is NOT one of our proxies: the real client, whatever the client put
+ * in X-Forwarded-For itself. Override with TRUST_PROXY (a hop count, "false",
+ * or a comma list of addresses/subnets) when a public CDN sits in front.
+ */
+export function trustProxySetting(raw: string | undefined = process.env.TRUST_PROXY): boolean | number | string {
+  const v = raw?.trim();
+  if (!v) return "loopback, linklocal, uniquelocal";
+  if (v === "false") return false;
+  if (v === "true") return true;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v;
+}
+
+/**
+ * Client IP as resolved by Express under `trust proxy` (see
+ * trustProxySetting). Never read X-Forwarded-For directly: its left-most
+ * entry is whatever the client sent, so keying a limiter on it lets a caller
+ * pick a fresh bucket per request.
+ */
+export function clientIp(req: Pick<Request, "ip" | "socket">): string {
   return req.ip ?? req.socket?.remoteAddress ?? "unknown";
 }
 
@@ -216,14 +236,13 @@ export function edgeRateLimitMiddleware(options: EdgeRateLimitOptions): RequestH
 
 /**
  * Prebuilt limiter for server/_core/index.ts: Redis-backed with in-memory
- * fallback, tenant-aware via X-Tenant-Id header.
+ * fallback, keyed by client IP only. It deliberately does NOT mix in the
+ * X-Tenant-Id header: that header is client-controlled, so a caller rotating
+ * it would get a fresh bucket per request (AF-04).
  */
 export function createEdgeRateLimitMiddleware(): RequestHandler {
   const memory = new InMemoryBucketBackend();
   const backend = new RedisBucketBackend(memory);
   const limiter = new RateLimiter({ backend });
-  return edgeRateLimitMiddleware({
-    limiter,
-    tenantKey: (req) => (req.headers["x-tenant-id"] as string | undefined) ?? undefined,
-  });
+  return edgeRateLimitMiddleware({ limiter });
 }

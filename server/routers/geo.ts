@@ -82,10 +82,9 @@ export const geoRouter = router({
       // W26 security: per-IP rate limit on the public discovery surface
       // (60 req/min). Fail-closed in production when the counter is
       // unavailable; fail-open in dev/test so local runs work without Redis.
-      const ip =
-        (ctx.req?.headers?.["x-forwarded-for"] as string | undefined)?.split(",")[0]?.trim() ||
-        ctx.req?.socket?.remoteAddress ||
-        "unknown";
+      // AF-04: Express-resolved client IP, not the spoofable raw header.
+      const { clientIp } = await import("../services/rateLimit");
+      const ip = ctx.req ? clientIp(ctx.req) : "unknown";
       const { checkRateLimit } = await import("../_core/rateLimit");
       const decision = await checkRateLimit(`geo:discover:${ip}`, 60, 60, ENV.isProduction);
       if (!decision.allowed) {

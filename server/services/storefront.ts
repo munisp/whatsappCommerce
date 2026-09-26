@@ -109,6 +109,8 @@ export interface StorefrontPublicView {
   defaultLocale: string;
   /** wa.me click-to-chat target — the tenant's public WhatsApp number id. */
   whatsappPhoneNumberId: string | null;
+  /** t.me click-to-chat target — only set when the tenant's Telegram bot is configured AND enabled. */
+  telegramBotUsername: string | null;
   /**
    * W28: which catalog the view was rendered from. "platform" (default) is
    * the merchant's native catalog; "medusa" is the synced Medusa catalog
@@ -148,12 +150,23 @@ export async function getStorefrontPublicView(
       name: tenants.name,
       whatsappPhoneNumberId: tenants.whatsappPhoneNumberId,
       defaultCurrency: tenants.defaultCurrency,
+      settings: tenants.settings,
     })
     .from(tenants)
     .where(eq(tenants.id, sf.tenantId))
     .limit(1)
     .catch(() => []);
   if (!tenant) return null;
+
+  // Found live 2026-09-26: the storefront only ever built a wa.me link — a tenant with Telegram
+  // configured (and no WhatsApp presence at all, or a buyer who just prefers Telegram) had no way in.
+  // botUsername/enabled are plain (not encrypted) fields on tenants.settings.telegram — read directly
+  // rather than via loadStoredTelegramConfig, which also decrypts the bot token this public view never
+  // needs.
+  const tg = ((tenant.settings ?? {}) as Record<string, unknown>).telegram as Record<string, unknown> | undefined;
+  const telegramBotUsername = tg?.enabled === true && typeof tg.botUsername === "string" && tg.botUsername.trim()
+    ? tg.botUsername.trim()
+    : null;
 
   // W28 catalog-source resolution: the tenant's Medusa store mapping decides
   // which catalog the storefront renders. "medusa" (with sync enabled) → only
@@ -228,6 +241,7 @@ export async function getStorefrontPublicView(
     themeColor: sf.themeColor,
     defaultLocale: sf.defaultLocale,
     whatsappPhoneNumberId: tenant.whatsappPhoneNumberId ?? null,
+    telegramBotUsername,
     catalogSource,
     catalog: catalogRows.map((p) => ({
       id: p.id,

@@ -58,12 +58,17 @@ export const journey: Journey = {
 
     let res = await tgPost(world, TENANT_ID, TG_SECRET, tgTextUpdate(980281, chatId, fromId, "/start"));
     assert(res.status === 200, "start ack");
-    await world.waitFor(() => sendsToChat().length > 0, 5000, "tg opt-in confirmation");
+    // Two sends after /start now, not one: the opt-in confirmation, then the welcome menu that follows it in the
+    // same turn (WA parity fix). Wait for both before posting STOP, or the menu's slower DB-bound send can still be
+    // in flight and land during the post-STOP silence window below — a race, not a real reply to a post-STOP message.
+    await world.waitFor(() => sendsToChat().length >= 2, 5000, "tg opt-in confirmation + welcome menu");
 
     res = await tgPost(world, TENANT_ID, TG_SECRET, tgTextUpdate(980282, chatId, fromId, "STOP"));
     assert(res.status === 200, "STOP ack");
+    // Wait for the STOP confirmation ITSELF (by content, not by a count that the welcome-menu send above complicates).
     await world.waitFor(
-      () => sendsToChat().length >= 2, 5000, "tg stop confirmation");
+      () => /opted out of proactive messages/.test(String(sendsToChat().at(-1)?.body?.text ?? "")),
+      5000, "tg stop confirmation");
 
     // Subsequent inbound: bot silent (parity with the WA interceptor).
     const tgBefore = sendsToChat().length;
@@ -72,11 +77,12 @@ export const journey: Journey = {
     await world.settle(600);
     assert(sendsToChat().length === tgBefore, "telegram bot silent after STOP (W40 parity)");
 
-    // YES re-opts in with a confirmation.
+    // YES re-opts in with a confirmation, followed in the same turn by the welcome menu (WA parity) — two sends,
+    // so wait for both and check by content rather than assuming the confirmation is whichever lands last.
     res = await tgPost(world, TENANT_ID, TG_SECRET, tgTextUpdate(980284, chatId, fromId, "YES"));
     assert(res.status === 200, "YES ack");
-    await world.waitFor(() => sendsToChat().length > tgBefore, 5000, "tg re-opt-in confirmation");
-    const tgLast = String(sendsToChat().at(-1)!.body?.text ?? "");
-    assertIncludes(tgLast, "opted in", "telegram resubscribe confirmation");
+    await world.waitFor(() => sendsToChat().length >= tgBefore + 2, 5000, "tg re-opt-in confirmation + welcome menu");
+    const newSends = sendsToChat().slice(tgBefore).map((c: any) => String(c.body?.text ?? ""));
+    assert(newSends.some((t) => t.includes("opted in")), `telegram resubscribe confirmation (got: ${newSends.join(" | ").slice(0, 200)})`);
   },
 };

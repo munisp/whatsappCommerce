@@ -190,13 +190,43 @@ export interface MedusaOrderInput {
 
 export class MedusaClient {
   protected readonly config: IntegrationConfig;
+  private regionIdCache = new Map<string, string>();
+
   constructor(config: IntegrationConfig) {
     this.config = { ...config, url: config.url.replace(/\/+$/, "") };
   }
 
+  /** Draft-order creation requires a region_id (v2 has no implicit region
+   * from currency alone, unlike v1's order creation) — resolve and cache the
+   * first region matching the given currency. */
+  private async resolveRegionId(currencyCode: string, opts?: RequestOptions): Promise<string> {
+    const code = currencyCode.toLowerCase();
+    const cached = this.regionIdCache.get(code);
+    if (cached) return cached;
+    const res = await requestJson<{ regions?: Array<{ id: string; currency_code: string }> }>(
+      "medusa",
+      `${this.config.url}/admin/regions?limit=100`,
+      { headers: this.headers() },
+      opts,
+    );
+    const match = res.regions?.find((r) => r.currency_code === code);
+    if (!match) {
+      throw new IntegrationError("medusa", `no Medusa region configured for currency '${currencyCode}'`, {
+        retriable: false,
+      });
+    }
+    this.regionIdCache.set(code, match.id);
+    return match.id;
+  }
+
   private headers(): Record<string, string> {
     const h: Record<string, string> = { "Content-Type": "application/json" };
-    if (this.config.apiKey) h["Authorization"] = `Bearer ${this.config.apiKey}`;
+    // Medusa v2 secret API keys authenticate via HTTP Basic with the raw key
+    // as-is (not base64, not Bearer) — confirmed against a live v2 instance,
+    // which 401s a Bearer-scheme secret key with an explicit message naming
+    // Basic as the required scheme. Medusa v1's Bearer/x-medusa-access-token
+    // schemes no longer work.
+    if (this.config.apiKey) h["Authorization"] = `Basic ${this.config.apiKey}`;
     return h;
   }
 
@@ -235,11 +265,18 @@ export class MedusaClient {
           title: p.title,
           description: p.description ?? undefined,
           status: "published",
+          // Medusa v2 requires every product to declare its option(s) and
+          // every variant to map a value for each one — even a single,
+          // no-real-variation product — or creation 400s with "Product
+          // options are not provided for: [...]" (confirmed live; v1 let a
+          // one-variant product skip this).
+          options: [{ title: "Default", values: ["Default"] }],
           variants: [
             {
               title: p.title,
               sku: p.sku,
               manage_inventory: true,
+              options: { Default: "Default" },
               prices: [{ amount: p.price, currency_code: p.currency.toLowerCase() }],
             },
           ],
@@ -255,6 +292,9 @@ export class MedusaClient {
    * by Medusa v2, so this creates a draft order (the supported admin path).
    */
   async createDraftOrder(o: MedusaOrderInput, opts?: RequestOptions): Promise<{ id: string }> {
+    // v2 requires region_id on every draft order (confirmed live: "Field
+    // 'region_id' is required") — v1 could infer it, v2 cannot.
+    const regionId = await this.resolveRegionId(o.currency, opts);
     const res = await requestJson<{ draft_order: { id: string } }>(
       "medusa",
       `${this.config.url}/admin/draft-orders`,
@@ -263,6 +303,7 @@ export class MedusaClient {
         headers: this.headers(),
         body: JSON.stringify({
           email: o.email ?? undefined,
+          region_id: regionId,
           currency_code: o.currency.toLowerCase(),
           items: o.items.map((i) => ({
             title: i.title,
@@ -322,13 +363,17 @@ export class TwentyClient {
 
   private async findPerson(filterField: string, value: string, opts?: RequestOptions): Promise<{ id: string } | null> {
     const filter = encodeURIComponent(`${filterField}[eq]:${value}`);
-    const res = await requestJson<{ data?: Array<{ id: string }> }>(
+    // Twenty's REST list responses nest under the plural entity name
+    // (data.people), not a bare array at data — confirmed live. Reading
+    // data[0] directly always misses, so "existing" was always null and
+    // every upsert silently created a duplicate instead of updating.
+    const res = await requestJson<{ data?: { people?: Array<{ id: string }> } }>(
       "twenty",
       `${this.config.url}/rest/people?filter=${filter}&limit=1`,
       { headers: this.headers() },
       opts,
     );
-    const hit = res.data?.[0];
+    const hit = res.data?.people?.[0];
     return hit ? { id: hit.id } : null;
   }
 
@@ -354,25 +399,30 @@ export class TwentyClient {
       );
       return { id: existing.id };
     }
-    const res = await requestJson<{ data?: { id: string } }>(
+    // Twenty's REST create response wraps under createPerson (mirrors its
+    // GraphQL mutation name), not a bare id at data — confirmed live
+    // (data: { createPerson: { id, ... } }). Reading data.id always missed,
+    // so every created person's id came back "" and any caller trying to
+    // remember it for future updates silently lost the link.
+    const res = await requestJson<{ data?: { createPerson?: { id: string } } }>(
       "twenty",
       `${this.config.url}/rest/people`,
       { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
       opts,
     );
-    return { id: res.data?.id ?? "" };
+    return { id: res.data?.createPerson?.id ?? "" };
   }
 
   /** Upsert a Twenty company, matched by exact name. */
   async upsertCompany(c: TwentyCompanyInput, opts?: RequestOptions): Promise<{ id: string }> {
     const filter = encodeURIComponent(`name[eq]:${c.name}`);
-    const found = await requestJson<{ data?: Array<{ id: string }> }>(
+    const found = await requestJson<{ data?: { companies?: Array<{ id: string }> } }>(
       "twenty",
       `${this.config.url}/rest/companies?filter=${filter}&limit=1`,
       { headers: this.headers() },
       opts,
     );
-    const existing = found.data?.[0];
+    const existing = found.data?.companies?.[0];
     const body = {
       name: c.name,
       domainName: c.domainName ? { primaryLinkUrl: c.domainName } : undefined,
@@ -386,25 +436,25 @@ export class TwentyClient {
       );
       return { id: existing.id };
     }
-    const res = await requestJson<{ data?: { id: string } }>(
+    const res = await requestJson<{ data?: { createCompany?: { id: string } } }>(
       "twenty",
       `${this.config.url}/rest/companies`,
       { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
       opts,
     );
-    return { id: res.data?.id ?? "" };
+    return { id: res.data?.createCompany?.id ?? "" };
   }
 
   /** Upsert an opportunity/deal, matched by exact name (e.g. "PO PO-00042"). */
   async upsertOpportunity(o: TwentyOpportunityInput, opts?: RequestOptions): Promise<{ id: string }> {
     const filter = encodeURIComponent(`name[eq]:${o.name}`);
-    const found = await requestJson<{ data?: Array<{ id: string }> }>(
+    const found = await requestJson<{ data?: { opportunities?: Array<{ id: string }> } }>(
       "twenty",
       `${this.config.url}/rest/opportunities?filter=${filter}&limit=1`,
       { headers: this.headers() },
       opts,
     );
-    const existing = found.data?.[0];
+    const existing = found.data?.opportunities?.[0];
     const body = {
       name: o.name,
       companyId: o.companyId ?? undefined,
@@ -423,13 +473,13 @@ export class TwentyClient {
       );
       return { id: existing.id };
     }
-    const res = await requestJson<{ data?: { id: string } }>(
+    const res = await requestJson<{ data?: { createOpportunity?: { id: string } } }>(
       "twenty",
       `${this.config.url}/rest/opportunities`,
       { method: "POST", headers: this.headers(), body: JSON.stringify(body) },
       opts,
     );
-    return { id: res.data?.id ?? "" };
+    return { id: res.data?.createOpportunity?.id ?? "" };
   }
 }
 
