@@ -8,82 +8,82 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
       "text": "(dial)",
-      "at": 1789790388685
+      "at": 1790420963497
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790388686
+      "at": 1790420963498
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
       "text": "menu",
-      "at": 1789790389055
+      "at": 1790420963806
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790389056
+      "at": 1790420963807
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
       "text": "1",
-      "at": 1789790389374
+      "at": 1790420964119
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
-      "text": "END What would you like? We have Jollof Rice and more.",
-      "at": 1789790389375
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
+      "text": "END Sure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n\nReply with a number or an item's name to add it.",
+      "at": 1790420964120
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351-2",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186-2",
       "text": "2",
-      "at": 1789790389686
+      "at": 1790420964430
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351-2",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186-2",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790389687
+      "at": 1790420964431
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
       "text": "1*xyz-nonsense",
-      "at": 1789790390057
+      "at": 1790420964744
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348014060211",
+      "sessionId": "ussd-1790420963186",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790390058
+      "at": 1790420964745
     }
   ]
 }

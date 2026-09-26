@@ -12,31 +12,31 @@
       "statuses": [
         "sent"
       ],
-      "at": 1789791175395,
+      "at": 1790421510490,
       "kind": "interactive",
-      "body": "📦 PO-20260919-6DBB from Sim Store — ₦2,000.00 — pay now",
+      "body": "📦 PO-20260926-46QH from Sim Store — ₦2,000.00 — pay now",
       "footer": "Approve to accept this purchase order.",
       "buttons": [
         {
-          "id": "po_approve:8d19b0ed-2757-4806-95bc-f06083094f93",
+          "id": "po_approve:8b3c102f-7a5b-4c8f-ac9e-804253a8a052",
           "title": "Approve"
         },
         {
-          "id": "po_reject:8d19b0ed-2757-4806-95bc-f06083094f93",
+          "id": "po_reject:8b3c102f-7a5b-4c8f-ac9e-804253a8a052",
           "title": "Reject"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348014561408",
+      "phone": "2348014495268",
       "wamid": "wamid.sim.001028",
       "statuses": [
         "sent"
       ],
-      "at": 1789791175416,
+      "at": 1790421510500,
       "kind": "text",
-      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-mu7vgdew was routed to the supplier for response (dispute f31bb78a-8413-42cc-8b98-028bde995dc8)."
+      "body": "🚨 A payment dispute on your wholesale order ord-w45-j394-muiaqn31 was routed to the supplier for response (dispute 6ac14f2f-d2e9-4dc2-92a5-23de2d6e854b)."
     }
   ]
 }

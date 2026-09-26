@@ -1,0 +1,61 @@
+{
+  "id": "J481",
+  "title": "a session stuck on a wrong language self-corrects on the next ordinary English message",
+  "feature": "sticky session language is no longer a one-way ratchet away from English",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348011096185",
+      "profileName": "Sim User 6185",
+      "inboundId": "wamid.sim.in.text.00615",
+      "at": 1790421588759,
+      "kind": "text",
+      "text": "shop"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00615",
+      "at": 1790421588763
+    },
+    {
+      "dir": "out",
+      "phone": "2348011096185",
+      "wamid": "wamid.sim.001115",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421588782,
+      "kind": "text",
+      "body": "Sure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n7. Peak Milk 400g — NGN 1850.00 (out of stock)\n8. Snack p-j128-a — NGN 200.00\n9. Snack p-j128-b — NGN 250.00\n10. Snack p-j128-c — NGN 300.00\n11. Plantain Chips 100g — NGN 250.00 (out of stock)\n12. Royal Stallion Rice 50kg — NGN 95000.00 (out of stock)\n13. J130 p-j130-b1 — NGN 100.00\n14. J130 p-j130-b2 — NGN 200.00\n15. J130 p-j130-b3 — NGN 300.00\n16. J130 p-j130-b4 — NGN 400.00\n17. J130 p-j130-s1 — NGN 9.99\n18. J130 p-j130-x1 — NGN 500.00\n19. J130 p-j130-x2 — NGN 700.00\n20. Indigo Dye Kit — NGN 999.00\n\nReply with a number or an item's name to add it."
+    },
+    {
+      "dir": "in",
+      "phone": "2348011096185",
+      "profileName": "Sim User 6185",
+      "inboundId": "wamid.sim.in.text.00616",
+      "at": 1790421589311,
+      "kind": "text",
+      "text": "menu_3"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00616",
+      "at": 1790421589316
+    },
+    {
+      "dir": "out",
+      "phone": "2348011096185",
+      "wamid": "wamid.sim.001116",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421595645,
+      "kind": "text",
+      "body": "Sorry, I didn't understand that. Please try again or type 'help'.\n\nI can't quite process free chat right now, but I can still take your order. Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n7. Peak Milk 400g — NGN 1850.00 (out of stock)\n8. Snack p-j128-a — NGN 200.00\n9. Snack p-j128-b — NGN 250.00\n10. Snack p-j128-c — NGN 300.00\n11. Plantain Chips 100g — NGN 250.00 (out of stock)\n12. Royal Stallion Rice 50kg — NGN 95000.00 (out of stock)\n13. J130 p-j130-b1 — NGN 100.00\n14. J130 p-j130-b2 — NGN 200.00\n15. J130 p-j130-b3 — NGN 300.00\n16. J130 p-j130-b4 — NGN 400.00\n17. J130 p-j130-s1 — NGN 9.99\n18. J130 p-j130-x1 — NGN 500.00\n19. J130 p-j130-x2 — NGN 700.00\n20. Indigo Dye Kit — NGN 999.00\n\nReply with a number or an item's name, or type 'cart'/'confirm' when you're ready."
+    }
+  ]
+}

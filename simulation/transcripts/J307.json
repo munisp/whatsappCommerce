@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348019759919",
-      "profileName": "Sim User 9919",
+      "phone": "2348012646599",
+      "profileName": "Sim User 6599",
       "inboundId": "wamid.sim.in.j307.00001",
-      "at": 1789791009056,
+      "at": 1790421392949,
       "kind": "text",
       "text": "hello j307"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.j307.00001",
-      "at": 1789791009090
+      "at": 1790421392953
     },
     {
       "dir": "out",
-      "phone": "2348019759919",
+      "phone": "2348012646599",
       "wamid": "wamid.sim.000791",
       "statuses": [
         "sent"
       ],
-      "at": 1789791009145,
+      "at": 1790421392972,
       "kind": "text",
       "body": "Sorry, I didn't quite get that — type 'menu' to see options."
     }

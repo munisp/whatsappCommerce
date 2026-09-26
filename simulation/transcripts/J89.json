@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017088987",
-      "profileName": "Sim User 8987",
+      "phone": "2348016461562",
+      "profileName": "Sim User 1562",
       "inboundId": "wamid.sim.in.text.00285",
-      "at": 1789790621517,
+      "at": 1790421117024,
       "kind": "text",
       "text": "1 grilled chicken j89"
     },
@@ -18,25 +18,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00285",
-      "at": 1789790621527
+      "at": 1790421117029
     },
     {
       "dir": "out",
-      "phone": "2348017088987",
+      "phone": "2348016461562",
       "wamid": "wamid.sim.000439",
       "statuses": [
         "sent"
       ],
-      "at": 1789790621600,
+      "at": 1790421117053,
       "kind": "text",
-      "body": "✅ 1 × Grilled Chicken\nAdded to your cart!"
+      "body": "✅ 1 × Grilled Chicken"
     },
     {
       "dir": "in",
-      "phone": "2348017088987",
-      "profileName": "Sim User 8987",
+      "phone": "2348016461562",
+      "profileName": "Sim User 1562",
       "inboundId": "wamid.sim.in.text.00286",
-      "at": 1789790622071,
+      "at": 1790421117576,
       "kind": "text",
       "text": "confirm my order j89"
     },
@@ -44,25 +44,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00286",
-      "at": 1789790622080
+      "at": 1790421117581
     },
     {
       "dir": "out",
-      "phone": "2348017088987",
+      "phone": "2348016461562",
       "wamid": "wamid.sim.000440",
       "statuses": [
         "sent"
       ],
-      "at": 1789790622117,
+      "at": 1790421117603,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦3,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348017088987",
-      "profileName": "Sim User 8987",
+      "phone": "2348016461562",
+      "profileName": "Sim User 1562",
       "inboundId": "wamid.sim.in.text.00287",
-      "at": 1789790622629,
+      "at": 1790421118127,
       "kind": "text",
       "text": "2 — cash on delivery please"
     },
@@ -70,36 +70,36 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00287",
-      "at": 1789790622670
+      "at": 1790421118133
     },
     {
       "dir": "out",
-      "phone": "2348017088987",
+      "phone": "2348016461562",
       "wamid": "wamid.sim.000441",
       "statuses": [
         "sent"
       ],
-      "at": 1789790622989,
-      "kind": "text",
-      "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
-    },
-    {
-      "dir": "out",
-      "phone": "2348017088987",
-      "wamid": "wamid.sim.000442",
-      "statuses": [
-        "sent"
-      ],
-      "at": 1789790623025,
+      "at": 1790421118157,
       "kind": "location_request",
       "body": "📍 Share your delivery location — or just type your full address here."
     },
     {
+      "dir": "out",
+      "phone": "2348016461562",
+      "wamid": "wamid.sim.000442",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421118160,
+      "kind": "text",
+      "body": "Great — delivery it is! 🛵 Please send me your full delivery address (street, area, city) — or tap the button below to share your location. 📍"
+    },
+    {
       "dir": "in",
-      "phone": "2348017088987",
-      "profileName": "Sim User 8987",
+      "phone": "2348016461562",
+      "profileName": "Sim User 1562",
       "inboundId": "wamid.sim.in.text.00288",
-      "at": 1789790623433,
+      "at": 1790421118678,
       "kind": "text",
       "text": "5 Broad Street, Lagos"
     },
@@ -107,41 +107,41 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00288",
-      "at": 1789790623468
+      "at": 1790421118683
     },
     {
       "dir": "out",
-      "phone": "2348017088987",
+      "phone": "2348016461562",
       "wamid": "wamid.sim.000443",
       "statuses": [
         "sent"
       ],
-      "at": 1789790623576,
+      "at": 1790421118725,
       "kind": "text",
-      "body": "🧾 *Delivery Order ORD-MU7V4JLI*\n1 × Grilled Chicken — ₦3,000.00 each\n📍 Deliver to: 5 Broad Street, Lagos\nSubtotal: ₦3,000.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,500.00*\n\n💵 *Cash on delivery* — please have ₦4,500.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/50e255f1-5a6f-4ef5-b1c7-860754293d74.rAmwXr8ubKtOIAry7gD_giH2"
+      "body": "🧾 *Delivery Order ORD-MUIAI8S6*\n1 × Grilled Chicken — ₦3,000.00 each\n📍 Deliver to: 5 Broad Street, Lagos\nSubtotal: ₦3,000.00\nDelivery fee (same-city estimate): ₦1,500.00\n*Total: ₦4,500.00*\n\n💵 *Cash on delivery* — please have ₦4,500.00 ready for the rider.\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/6a32dcea-4ace-4e96-943a-6ef9790d332a.-taeduATrF4F1Q2jp9-LdXr2"
     },
     {
       "dir": "out",
-      "phone": "2348017088987",
+      "phone": "2348016461562",
       "wamid": "wamid.sim.000444",
       "statuses": [
         "sent"
       ],
-      "at": 1789790623593,
+      "at": 1790421118728,
       "kind": "interactive",
-      "body": "Order ORD-MU7V4JLI — manage it here:",
+      "body": "Order ORD-MUIAI8S6 — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:50e255f1-5a6f-4ef5-b1c7-860754293d74",
+          "id": "order_track:6a32dcea-4ace-4e96-943a-6ef9790d332a",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:50e255f1-5a6f-4ef5-b1c7-860754293d74",
+          "id": "order_pay:6a32dcea-4ace-4e96-943a-6ef9790d332a",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:50e255f1-5a6f-4ef5-b1c7-860754293d74",
+          "id": "order_cancel:6a32dcea-4ace-4e96-943a-6ef9790d332a",
           "title": "Cancel Order"
         }
       ]

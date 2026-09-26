@@ -1,0 +1,8 @@
+{
+  "id": "J469",
+  "title": "telegram is off unless TELEGRAM_ENABLED is exactly true; suspended tenant leaks nothing",
+  "feature": "W37 telegram: global kill switch + closed-tenant fail-closed",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

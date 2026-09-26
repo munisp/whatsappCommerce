@@ -1,0 +1,310 @@
+{
+  "id": "J482",
+  "title": "support/handoff replies hand the buyer a real phone + email when the tenant configured one",
+  "feature": "Buyer-facing support contact (settings.support)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348013354694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00617",
+      "at": 1790421596098,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00617",
+      "at": 1790421596105
+    },
+    {
+      "dir": "out",
+      "phone": "2348013354694",
+      "wamid": "wamid.sim.001117",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421596130,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "listButton": "View options",
+      "sections": [
+        {
+          "title": "Sim Store",
+          "rows": [
+            {
+              "id": "menu_1",
+              "title": "Shop products"
+            },
+            {
+              "id": "menu_2",
+              "title": "Track my order"
+            },
+            {
+              "id": "menu_3",
+              "title": "Get support"
+            },
+            {
+              "id": "menu_4",
+              "title": "Talk to a human"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348013354694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00618",
+      "at": 1790421596647,
+      "kind": "text",
+      "text": "3"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00618",
+      "at": 1790421596653
+    },
+    {
+      "dir": "out",
+      "phone": "2348013354694",
+      "wamid": "wamid.sim.001118",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421596681,
+      "kind": "text",
+      "body": "Sorry you're having trouble. Please describe your issue in a few words and our team will get back to you.\n\nYou can also reach us directly:\n📞 +234 900 123 4567\n✉️ help@adastores.example"
+    },
+    {
+      "dir": "in",
+      "phone": "2348013354694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00619",
+      "at": 1790421597200,
+      "kind": "text",
+      "text": "the delivery never arrived"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00619",
+      "at": 1790421597207
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001119",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421597225,
+      "kind": "text",
+      "body": "🆘 New support inquiry from 2348013354694 (Sim User 4694):\nthe delivery never arrived"
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001120",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421597230,
+      "kind": "text",
+      "body": "⚠️ Complaint from 2348013354694 (Sim User 4694) (no order found):\nthe delivery never arrived"
+    },
+    {
+      "dir": "out",
+      "phone": "2348013354694",
+      "wamid": "wamid.sim.001121",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421597233,
+      "kind": "text",
+      "body": "Thanks — we've logged your issue and notified the team. Someone will get back to you shortly."
+    },
+    {
+      "dir": "in",
+      "phone": "2348013354694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00620",
+      "at": 1790421597751,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00620",
+      "at": 1790421597758
+    },
+    {
+      "dir": "out",
+      "phone": "2348013354694",
+      "wamid": "wamid.sim.001122",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421597775,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "listButton": "View options",
+      "sections": [
+        {
+          "title": "Sim Store",
+          "rows": [
+            {
+              "id": "menu_1",
+              "title": "Shop products"
+            },
+            {
+              "id": "menu_2",
+              "title": "Track my order"
+            },
+            {
+              "id": "menu_3",
+              "title": "Get support"
+            },
+            {
+              "id": "menu_4",
+              "title": "Talk to a human"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348013354694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00621",
+      "at": 1790421598303,
+      "kind": "text",
+      "text": "4"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00621",
+      "at": 1790421598308
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001123",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421598326,
+      "kind": "text",
+      "body": "🙋 Human handoff requested by 2348013354694 (Sim User 4694). Please take over the conversation."
+    },
+    {
+      "dir": "out",
+      "phone": "2348013354694",
+      "wamid": "wamid.sim.001124",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421598328,
+      "kind": "text",
+      "body": "Connecting you to a human agent — someone will be with you shortly. 🙏\n\nYou can also reach us directly:\n📞 +234 900 123 4567\n✉️ help@adastores.example"
+    },
+    {
+      "dir": "in",
+      "phone": "2348013254768",
+      "profileName": "Sim User 4768",
+      "inboundId": "wamid.sim.in.text.00622",
+      "at": 1790421598861,
+      "kind": "text",
+      "text": "menu"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00622",
+      "at": 1790421598866
+    },
+    {
+      "dir": "out",
+      "phone": "2348013254768",
+      "wamid": "wamid.sim.001125",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421598886,
+      "kind": "interactive",
+      "body": "Welcome to Sim Store! How can we help you today?",
+      "footer": "Tap an option, or reply with its number.",
+      "listButton": "View options",
+      "sections": [
+        {
+          "title": "Sim Store",
+          "rows": [
+            {
+              "id": "menu_1",
+              "title": "Shop products"
+            },
+            {
+              "id": "menu_2",
+              "title": "Track my order"
+            },
+            {
+              "id": "menu_3",
+              "title": "Get support"
+            },
+            {
+              "id": "menu_4",
+              "title": "Talk to a human"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348013254768",
+      "profileName": "Sim User 4768",
+      "inboundId": "wamid.sim.in.text.00623",
+      "at": 1790421599414,
+      "kind": "text",
+      "text": "4"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00623",
+      "at": 1790421599420
+    },
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.001126",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421599437,
+      "kind": "text",
+      "body": "🙋 Human handoff requested by 2348013254768 (Sim User 4768). Please take over the conversation."
+    },
+    {
+      "dir": "out",
+      "phone": "2348013254768",
+      "wamid": "wamid.sim.001127",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421599439,
+      "kind": "text",
+      "body": "Connecting you to a human agent — someone will be with you shortly. 🙏"
+    }
+  ]
+}

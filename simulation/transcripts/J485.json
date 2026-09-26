@@ -1,0 +1,8 @@
+{
+  "id": "J485",
+  "title": "escrow.createHold refuses a currency-mismatched wallet credit",
+  "feature": "server/routers/escrow.ts recordWalletTxInTx currency guard",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

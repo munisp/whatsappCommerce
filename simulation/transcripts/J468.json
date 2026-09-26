@@ -1,0 +1,8 @@
+{
+  "id": "J468",
+  "title": "temporal enable-list gate (real DB)",
+  "feature": "TEMPORAL_ENABLED_WORKFLOWS: local record + honest signal; orchestration still runs locally",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T04:13:58.875Z",
+  "generatedAt": "2026-09-26T11:20:43.064Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -1116,7 +1116,7 @@
     },
     {
       "id": "J218",
-      "title": "otel-stack compose/k8s/dashboard/alert config validation",
+      "title": "otel-stack compose/dashboard/alert config validation",
       "feature": "W34 otel-stack: collector, Jaeger, Prometheus, Grafana, Alertmanager",
       "pass": true,
       "file": "J218.json",
@@ -1981,7 +1981,7 @@
     {
       "id": "J317",
       "title": "temporal workflow version markers",
-      "feature": "WORKFLOW_VERSIONS + versionGate change markers + worker buildId",
+      "feature": "WORKFLOW_VERSIONS + worker buildId + real-SDK workflows",
       "pass": true,
       "file": "J317.json",
       "messageCount": 0
@@ -2021,7 +2021,7 @@
     {
       "id": "J321",
       "title": "temporal auto-approve stubs removed",
-      "feature": "unwired activities honestly fail; never return fixed approved/true",
+      "feature": "unbacked activities honestly fail; never return fixed approved/true",
       "pass": true,
       "file": "J321.json",
       "messageCount": 0
@@ -3299,6 +3299,30 @@
       "messageCount": 0
     },
     {
+      "id": "J467",
+      "title": "temporal worker ⇄ platform contract (real HTTP, real DB)",
+      "feature": "temporalInternal endpoints: auth, inventory sync, journey orchestration idempotency + closure",
+      "pass": true,
+      "file": "J467.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J468",
+      "title": "temporal enable-list gate (real DB)",
+      "feature": "TEMPORAL_ENABLED_WORKFLOWS: local record + honest signal; orchestration still runs locally",
+      "pass": true,
+      "file": "J468.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J469",
+      "title": "telegram is off unless TELEGRAM_ENABLED is exactly true; suspended tenant leaks nothing",
+      "feature": "W37 telegram: global kill switch + closed-tenant fail-closed",
+      "pass": true,
+      "file": "J469.json",
+      "messageCount": 0
+    },
+    {
       "id": "J47",
       "title": "provider registry isolation + single-gateway checkout",
       "feature": "provider registry per-tenant chains (data layer) vs platform-wide checkout routing",
@@ -3307,12 +3331,140 @@
       "messageCount": 21
     },
     {
+      "id": "J470",
+      "title": "telegram settings card: encrypted token, test connection, register webhook, gated",
+      "feature": "tenant.updateTelegramConfig (optional token) + testTelegramConnection + registerTelegramWebhook",
+      "pass": true,
+      "file": "J470.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J471",
+      "title": "Telegram parity: menu engine + interactive taps match WhatsApp for the same inputs",
+      "feature": "Telegram/WhatsApp parity — menu engine",
+      "pass": true,
+      "file": "J471.json",
+      "messageCount": 23
+    },
+    {
+      "id": "J472",
+      "title": "late payment on a dead order (AF-01)",
+      "feature": "confirmProviderPayment refuses to revive cancelled / stock-released orders",
+      "pass": true,
+      "file": "J472.json",
+      "messageCount": 31
+    },
+    {
+      "id": "J473",
+      "title": "unified webhook quarantines mismatches (AF-02)",
+      "feature": "PAY-13 seam on /api/webhooks/payments/:provider",
+      "pass": true,
+      "file": "J473.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J474",
+      "title": "wallet top-up is ledger-tracked (AF-05)",
+      "feature": "direct-leg settlement stamped for recon-worker",
+      "pass": true,
+      "file": "J474.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J475",
+      "title": "escrow hold atomic + healed on replay (AF-06)",
+      "feature": "confirmProviderPayment escrow hold transaction + replay retry",
+      "pass": true,
+      "file": "J475.json",
+      "messageCount": 11
+    },
+    {
+      "id": "J476",
+      "title": "telegram consent grant (every path) shows the welcome menu in the same turn",
+      "feature": "Telegram/WhatsApp parity — post-consent menu",
+      "pass": true,
+      "file": "J476.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J477",
+      "title": "telegram: place an order and pay, end to end (order-action card + pay tap)",
+      "feature": "Telegram/WhatsApp parity — order card + payment follow-up",
+      "pass": true,
+      "file": "J477.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J478",
+      "title": "shop → order → pay survives a real LLM outage (WhatsApp + Telegram)",
+      "feature": "deterministic fallback for the AI ordering assistant",
+      "pass": true,
+      "file": "J478.json",
+      "messageCount": 16
+    },
+    {
+      "id": "J479",
+      "title": "telegram: choosing delivery sends a REAL location-request button, not a silently-dropped WhatsApp call",
+      "feature": "Telegram/WhatsApp parity — native location request",
+      "pass": true,
+      "file": "J479.json",
+      "messageCount": 0
+    },
+    {
       "id": "J48",
       "title": "manual bank-transfer provider",
       "feature": "manual adapter instructions + receipt confirm",
       "pass": true,
       "file": "J48.json",
       "messageCount": 13
+    },
+    {
+      "id": "J480",
+      "title": "cart shortage recovery: remove the short item, or re-state a lower quantity to replace it",
+      "feature": "remove_from_cart intent + shortage-aware add (replace, not stack, the flagged item)",
+      "pass": true,
+      "file": "J480.json",
+      "messageCount": 44
+    },
+    {
+      "id": "J481",
+      "title": "a session stuck on a wrong language self-corrects on the next ordinary English message",
+      "feature": "sticky session language is no longer a one-way ratchet away from English",
+      "pass": true,
+      "file": "J481.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J482",
+      "title": "support/handoff replies hand the buyer a real phone + email when the tenant configured one",
+      "feature": "Buyer-facing support contact (settings.support)",
+      "pass": true,
+      "file": "J482.json",
+      "messageCount": 25
+    },
+    {
+      "id": "J483",
+      "title": "deterministic-first routing: fast path for common messages, LLM only for what it can't place",
+      "feature": "nlp.ts routing reorder + deterministicShop.ts new capabilities",
+      "pass": true,
+      "file": "J483.json",
+      "messageCount": 46
+    },
+    {
+      "id": "J484",
+      "title": "deterministic-first dispute routing",
+      "feature": "deterministicShop.ts DISPUTE_RE + nlp.ts dispute handler (no LLM round trip)",
+      "pass": true,
+      "file": "J484.json",
+      "messageCount": 28
+    },
+    {
+      "id": "J485",
+      "title": "escrow.createHold refuses a currency-mismatched wallet credit",
+      "feature": "server/routers/escrow.ts recordWalletTxInTx currency guard",
+      "pass": true,
+      "file": "J485.json",
+      "messageCount": 0
     },
     {
       "id": "J49",

@@ -7,118 +7,118 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348017596228",
-      "profileName": "Sim User 6228",
-      "inboundId": "wamid.sim.in.text.00586",
-      "at": 1789791221148,
+      "phone": "2348018795919",
+      "profileName": "Sim User 5919",
+      "inboundId": "wamid.sim.in.text.00655",
+      "at": 1790421627213,
       "kind": "text",
-      "text": "i want these [ed9fca60]"
+      "text": "i want these [1c1625ec]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00586",
-      "at": 1789791221156
+      "wamid": "wamid.sim.in.text.00655",
+      "at": 1790421627219
     },
     {
       "dir": "out",
-      "phone": "2348017596228",
-      "wamid": "wamid.sim.001079",
+      "phone": "2348018795919",
+      "wamid": "wamid.sim.001173",
       "statuses": [
         "sent"
       ],
-      "at": 1789791221235,
+      "at": 1790421627244,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348017596228",
-      "profileName": "Sim User 6228",
-      "inboundId": "wamid.sim.in.text.00587",
-      "at": 1789791221702,
+      "phone": "2348018795919",
+      "profileName": "Sim User 5919",
+      "inboundId": "wamid.sim.in.text.00656",
+      "at": 1790421627764,
       "kind": "text",
-      "text": "confirm please [ed9fca60]"
+      "text": "confirm please [1c1625ec]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00587",
-      "at": 1789791221711
+      "wamid": "wamid.sim.in.text.00656",
+      "at": 1790421627770
     },
     {
       "dir": "out",
-      "phone": "2348017596228",
-      "wamid": "wamid.sim.001080",
+      "phone": "2348018795919",
+      "wamid": "wamid.sim.001174",
       "statuses": [
         "sent"
       ],
-      "at": 1789791221763,
+      "at": 1790421627792,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348017596228",
-      "profileName": "Sim User 6228",
-      "inboundId": "wamid.sim.in.text.00588",
-      "at": 1789791222254,
+      "phone": "2348018795919",
+      "profileName": "Sim User 5919",
+      "inboundId": "wamid.sim.in.text.00657",
+      "at": 1790421628319,
       "kind": "text",
       "text": "1"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00588",
-      "at": 1789791222263
+      "wamid": "wamid.sim.in.text.00657",
+      "at": 1790421628325
     },
     {
       "dir": "out",
-      "phone": "2348017596228",
-      "wamid": "wamid.sim.001081",
+      "phone": "2348018795919",
+      "wamid": "wamid.sim.001175",
       "statuses": [
         "sent"
       ],
-      "at": 1789791222328,
+      "at": 1790421628365,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU7VHDLQ*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/2085d797-e1f2-4219-9287-e1dfbf9b4c7f\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/261f1453-c4ee-4545-99ea-fc07ff0ac92a.yHZsRxynsFHaqmq7hcTK40gn"
+      "body": "🧾 *Pickup Order ORD-MUIAT60S*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/f76b5896-9509-4081-acc4-a09590273c52\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/7fe01360-b3b1-41f4-855b-3eb2742644e9.tACB9Y3NMeBsHIe8Fgfn4IBF"
     },
     {
       "dir": "out",
-      "phone": "2348017596228",
-      "wamid": "wamid.sim.001082",
+      "phone": "2348018795919",
+      "wamid": "wamid.sim.001176",
       "statuses": [
         "sent"
       ],
-      "at": 1789791222334,
+      "at": 1790421628368,
       "kind": "interactive",
-      "body": "Order ORD-MU7VHDLQ — manage it here:",
+      "body": "Order ORD-MUIAT60S — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:261f1453-c4ee-4545-99ea-fc07ff0ac92a",
+          "id": "order_track:7fe01360-b3b1-41f4-855b-3eb2742644e9",
           "title": "Track Order"
         },
         {
-          "id": "order_pay:261f1453-c4ee-4545-99ea-fc07ff0ac92a",
+          "id": "order_pay:7fe01360-b3b1-41f4-855b-3eb2742644e9",
           "title": "Pay Now"
         },
         {
-          "id": "order_cancel:261f1453-c4ee-4545-99ea-fc07ff0ac92a",
+          "id": "order_cancel:7fe01360-b3b1-41f4-855b-3eb2742644e9",
           "title": "Cancel Order"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348017596228",
-      "wamid": "wamid.sim.001083",
+      "phone": "2348018795919",
+      "wamid": "wamid.sim.001177",
       "statuses": [
         "sent"
       ],
-      "at": 1789791222899,
+      "at": 1790421628891,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MU7VHDLQ\n\n1 × Jollof Rice — ₦2,500.00\n\nSubtotal: ₦2,500.00\n*Total paid: ₦2,500.00*\nPayment ref: 2085d797-e1f2-4219-9287-e1dfbf9b4c7f\n\n🔎 Track your order: http://localhost:4173/track/261f1453-c4ee-4545-99ea-fc07ff0ac92a.yHZsRxynsFHaqmq7hcTK40gn"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: ORD-MUIAT60S\n\n1 × Jollof Rice — ₦2,500.00\n\nSubtotal: ₦2,500.00\n*Total paid: ₦2,500.00*\nPayment ref: f76b5896-9509-4081-acc4-a09590273c52\n\n🔎 Track your order: http://localhost:4173/track/7fe01360-b3b1-41f4-855b-3eb2742644e9.tACB9Y3NMeBsHIe8Fgfn4IBF"
     }
   ]
 }

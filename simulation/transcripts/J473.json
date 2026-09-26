@@ -1,0 +1,8 @@
+{
+  "id": "J473",
+  "title": "unified webhook quarantines mismatches (AF-02)",
+  "feature": "PAY-13 seam on /api/webhooks/payments/:provider",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

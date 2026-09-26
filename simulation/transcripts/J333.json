@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348015226452",
-      "profileName": "Sim User 6452",
+      "phone": "2348015171893",
+      "profileName": "Sim User 1893",
       "inboundId": "wamid.sim.in.img.00481",
-      "at": 1789791023118,
+      "at": 1790421403698,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-pod-off"
@@ -19,14 +19,14 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00481",
-      "at": 1789791023127
+      "at": 1790421403702
     },
     {
       "dir": "in",
-      "phone": "2348011395709",
-      "profileName": "Sim User 5709",
+      "phone": "2348011197112",
+      "profileName": "Sim User 7112",
       "inboundId": "wamid.sim.in.img.00482",
-      "at": 1789791025208,
+      "at": 1790421405758,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-pod-on"
@@ -35,36 +35,36 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00482",
-      "at": 1789791025217
+      "at": 1790421405763
     },
     {
       "dir": "out",
-      "phone": "2348011395709",
+      "phone": "2348011197112",
       "wamid": "wamid.sim.000796",
       "statuses": [
         "sent"
       ],
-      "at": 1789791025311,
+      "at": 1790421405805,
       "kind": "text",
-      "body": "✅ Proof of delivery received for order W43-j333b-0221 — your order is now marked delivered. Enjoy! If anything is wrong, just reply here."
+      "body": "✅ Proof of delivery received for order W43-j333b-AA2F — your order is now marked delivered. Enjoy! If anything is wrong, just reply here.\n\n⭐ How was it? Reply \"RATE 5 great!\" (1-5) to leave a review — it helps other buyers and the seller."
     },
     {
       "dir": "out",
-      "phone": "2348011395709",
+      "phone": "2348011197112",
       "wamid": "wamid.sim.000797",
       "statuses": [
         "sent"
       ],
-      "at": 1789791025314,
+      "at": 1790421405807,
       "kind": "text",
-      "body": "📷 Proof of delivery received for order W43-j333b-0221 — thank you!"
+      "body": "📷 Proof of delivery received for order W43-j333b-AA2F — thank you!"
     },
     {
       "dir": "in",
-      "phone": "2348011395709",
-      "profileName": "Sim User 5709",
+      "phone": "2348011197112",
+      "profileName": "Sim User 7112",
       "inboundId": "wamid.sim.in.img.00483",
-      "at": 1789791025784,
+      "at": 1790421406316,
       "kind": "image",
       "mediaKind": "image",
       "mediaId": "m-pod-on"
@@ -73,7 +73,7 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.img.00483",
-      "at": 1789791025793
+      "at": 1790421406321
     }
   ]
 }

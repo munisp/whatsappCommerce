@@ -1,0 +1,425 @@
+{
+  "id": "J480",
+  "title": "cart shortage recovery: remove the short item, or re-state a lower quantity to replace it",
+  "feature": "remove_from_cart intent + shortage-aware add (replace, not stack, the flagged item)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "in",
+      "phone": "2348019399712",
+      "profileName": "Sim User 9712",
+      "inboundId": "wamid.sim.in.text.00601",
+      "at": 1790421580681,
+      "kind": "text",
+      "text": "shop"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00601",
+      "at": 1790421580685
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001099",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421580704,
+      "kind": "text",
+      "body": "Sure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n7. Peak Milk 400g — NGN 1850.00 (out of stock)\n8. Snack p-j128-a — NGN 200.00\n9. Snack p-j128-b — NGN 250.00\n10. Snack p-j128-c — NGN 300.00\n11. Plantain Chips 100g — NGN 250.00 (out of stock)\n12. Royal Stallion Rice 50kg — NGN 95000.00 (out of stock)\n13. J130 p-j130-b1 — NGN 100.00\n14. J130 p-j130-b2 — NGN 200.00\n15. J130 p-j130-b3 — NGN 300.00\n16. J130 p-j130-b4 — NGN 400.00\n17. J130 p-j130-s1 — NGN 9.99\n18. J130 p-j130-x1 — NGN 500.00\n19. J130 p-j130-x2 — NGN 700.00\n20. Indigo Dye Kit — NGN 999.00\n\nReply with a number or an item's name to add it."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019399712",
+      "profileName": "Sim User 9712",
+      "inboundId": "wamid.sim.in.text.00602",
+      "at": 1790421581233,
+      "kind": "text",
+      "text": "2 grilled chicken and 60 jollof rice"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00602",
+      "at": 1790421581239
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001100",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421581260,
+      "kind": "text",
+      "body": "✅ 2 × Grilled Chicken\n✅ 60 × Jollof Rice"
+    },
+    {
+      "dir": "in",
+      "phone": "2348019399712",
+      "profileName": "Sim User 9712",
+      "inboundId": "wamid.sim.in.text.00603",
+      "at": 1790421581783,
+      "kind": "text",
+      "text": "confirm"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00603",
+      "at": 1790421581789
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001101",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421581811,
+      "kind": "text",
+      "body": "🛒 *Your order*\n2 × Grilled Chicken — ₦3,000.00 each\n60 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦156,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348019399712",
+      "profileName": "Sim User 9712",
+      "inboundId": "wamid.sim.in.text.00604",
+      "at": 1790421582336,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00604",
+      "at": 1790421582341
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001102",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421582362,
+      "kind": "text",
+      "body": "😔 *Some items are out of stock right now:*\n• Jollof Rice — you asked for 60, only 50 left\n\n✅ *Still available in your cart:*\n2 × Grilled Chicken — ₦3,000.00 each\nAvailable subtotal: ₦6,000.00\n\nAdjust your quantities or remove the unavailable items, then confirm again.\n\n🔔 Reply *NOTIFY ME* and I'll message you the moment it's back in stock."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019399712",
+      "profileName": "Sim User 9712",
+      "inboundId": "wamid.sim.in.text.00605",
+      "at": 1790421582889,
+      "kind": "text",
+      "text": "remove jollof rice"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00605",
+      "at": 1790421582894
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001103",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421582917,
+      "kind": "text",
+      "body": "🗑️ Removed Jollof Rice\n\nYour cart now:\n• 2 × Grilled Chicken\n\nType \"confirm\" when ready, or tell me what else to change."
+    },
+    {
+      "dir": "in",
+      "phone": "2348019399712",
+      "profileName": "Sim User 9712",
+      "inboundId": "wamid.sim.in.text.00606",
+      "at": 1790421583439,
+      "kind": "text",
+      "text": "confirm"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00606",
+      "at": 1790421583445
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001104",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421583468,
+      "kind": "text",
+      "body": "🛒 *Your order*\n2 × Grilled Chicken — ₦3,000.00 each\nSubtotal: ₦6,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348019399712",
+      "profileName": "Sim User 9712",
+      "inboundId": "wamid.sim.in.text.00607",
+      "at": 1790421583991,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00607",
+      "at": 1790421583997
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001105",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421584039,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MUIAS7TI*\n2 × Grilled Chicken — ₦3,000.00 each\n*Total: ₦6,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/3a10825a-c565-40d2-86f2-735087dc7fdc\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/edc64da5-b531-4d18-9fb2-bb9896f6c37c.fzSo2Fz6MlK7GgwHGzOxvtud"
+    },
+    {
+      "dir": "out",
+      "phone": "2348019399712",
+      "wamid": "wamid.sim.001106",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421584042,
+      "kind": "interactive",
+      "body": "Order ORD-MUIAS7TI — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:edc64da5-b531-4d18-9fb2-bb9896f6c37c",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:edc64da5-b531-4d18-9fb2-bb9896f6c37c",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:edc64da5-b531-4d18-9fb2-bb9896f6c37c",
+          "title": "Cancel Order"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "phone": "2348015110985",
+      "profileName": "Sim User 0985",
+      "inboundId": "wamid.sim.in.text.00608",
+      "at": 1790421584543,
+      "kind": "text",
+      "text": "shop"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00608",
+      "at": 1790421584548
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001107",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421584569,
+      "kind": "text",
+      "body": "Sure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n7. Peak Milk 400g — NGN 1850.00 (out of stock)\n8. Snack p-j128-a — NGN 200.00\n9. Snack p-j128-b — NGN 250.00\n10. Snack p-j128-c — NGN 300.00\n11. Plantain Chips 100g — NGN 250.00 (out of stock)\n12. Royal Stallion Rice 50kg — NGN 95000.00 (out of stock)\n13. J130 p-j130-b1 — NGN 100.00\n14. J130 p-j130-b2 — NGN 200.00\n15. J130 p-j130-b3 — NGN 300.00\n16. J130 p-j130-b4 — NGN 400.00\n17. J130 p-j130-s1 — NGN 9.99\n18. J130 p-j130-x1 — NGN 500.00\n19. J130 p-j130-x2 — NGN 700.00\n20. Indigo Dye Kit — NGN 999.00\n\nReply with a number or an item's name to add it."
+    },
+    {
+      "dir": "in",
+      "phone": "2348015110985",
+      "profileName": "Sim User 0985",
+      "inboundId": "wamid.sim.in.text.00609",
+      "at": 1790421585093,
+      "kind": "text",
+      "text": "60 jollof rice"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00609",
+      "at": 1790421585099
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001108",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421585121,
+      "kind": "text",
+      "body": "✅ 60 × Jollof Rice"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015110985",
+      "profileName": "Sim User 0985",
+      "inboundId": "wamid.sim.in.text.00610",
+      "at": 1790421585646,
+      "kind": "text",
+      "text": "confirm"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00610",
+      "at": 1790421585651
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001109",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421585681,
+      "kind": "text",
+      "body": "🛒 *Your order*\n60 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦150,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015110985",
+      "profileName": "Sim User 0985",
+      "inboundId": "wamid.sim.in.text.00611",
+      "at": 1790421586198,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00611",
+      "at": 1790421586203
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001110",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421586225,
+      "kind": "text",
+      "body": "😔 *Some items are out of stock right now:*\n• Jollof Rice — you asked for 60, only 50 left\n\nNone of the items in your cart are available right now — please check back soon.\n\n🔔 Reply *NOTIFY ME* and I'll message you the moment it's back in stock."
+    },
+    {
+      "dir": "in",
+      "phone": "2348015110985",
+      "profileName": "Sim User 0985",
+      "inboundId": "wamid.sim.in.text.00612",
+      "at": 1790421586750,
+      "kind": "text",
+      "text": "Alright I'll take 30 jollof rice"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00612",
+      "at": 1790421586755
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001111",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421586778,
+      "kind": "text",
+      "body": "✅ 30 × Jollof Rice"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015110985",
+      "profileName": "Sim User 0985",
+      "inboundId": "wamid.sim.in.text.00613",
+      "at": 1790421587300,
+      "kind": "text",
+      "text": "confirm"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00613",
+      "at": 1790421587305
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001112",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421587327,
+      "kind": "text",
+      "body": "🛒 *Your order*\n30 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦75,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
+    },
+    {
+      "dir": "in",
+      "phone": "2348015110985",
+      "profileName": "Sim User 0985",
+      "inboundId": "wamid.sim.in.text.00614",
+      "at": 1790421587851,
+      "kind": "text",
+      "text": "1"
+    },
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.sim.in.text.00614",
+      "at": 1790421587857
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001113",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421587896,
+      "kind": "text",
+      "body": "🧾 *Pickup Order ORD-MUIASASO*\n30 × Jollof Rice — ₦2,500.00 each\n*Total: ₦75,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/04d260a9-f838-4fab-8e05-1c35a888bd6a\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/fed4ce34-b8ac-4260-b9d6-fd644b09ef4b.4Rc00S9MpPhK_lfy5nDZFfgt"
+    },
+    {
+      "dir": "out",
+      "phone": "2348015110985",
+      "wamid": "wamid.sim.001114",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790421587900,
+      "kind": "interactive",
+      "body": "Order ORD-MUIASASO — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:fed4ce34-b8ac-4260-b9d6-fd644b09ef4b",
+          "title": "Track Order"
+        },
+        {
+          "id": "order_pay:fed4ce34-b8ac-4260-b9d6-fd644b09ef4b",
+          "title": "Pay Now"
+        },
+        {
+          "id": "order_cancel:fed4ce34-b8ac-4260-b9d6-fd644b09ef4b",
+          "title": "Cancel Order"
+        }
+      ]
+    }
+  ]
+}
