@@ -1,0 +1,121 @@
+{
+  "id": "J558",
+  "title": "USSD savings balance (+next payout) and loyalty balance, read-only",
+  "feature": "W54 capabilities: USSD depth (savings + loyalty)",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551-1790548140015",
+      "text": "(dial)",
+      "at": 1790548140327
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551-1790548140015",
+      "text": "CON Big menu — pick one:\n\n1. Shop products\n2. Track my order\n3. Talk to a human\n4. Extra Service 1\n5. Extra Service 2\n6. Extra Service 3\n7. Extra Service 4\n8. Extra Service 5\n9. Extra Service 6\n10. Extra Service 7\n11. Extra Service 8",
+      "at": 1790548140328
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551-1790548140015",
+      "text": "savings",
+      "at": 1790548140723
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551-1790548140015",
+      "text": "END Your savings circles:\nJ558 Esusu: NGN 500.00/weekly, cycle 1. Next payout: YOU.",
+      "at": 1790548140724
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551b-1790548140723",
+      "text": "stokvel",
+      "at": 1790548141033
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551b-1790548140723",
+      "text": "END Your savings circles:\nJ558 Esusu: NGN 500.00/weekly, cycle 1. Next payout: YOU.",
+      "at": 1790548141034
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551c-1790548141034",
+      "text": "loyalty",
+      "at": 1790548141343
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551c-1790548141034",
+      "text": "END Loyalty points balance: 42 pts.",
+      "at": 1790548141344
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551d-1790548141343",
+      "text": "points",
+      "at": 1790548141719
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348011164216",
+      "sessionId": "w54-j551d-1790548141343",
+      "text": "END Loyalty points balance: 42 pts.",
+      "at": 1790548141720
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348017420438",
+      "sessionId": "w54-j551e-1790548141719",
+      "text": "savings",
+      "at": 1790548142027
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348017420438",
+      "sessionId": "w54-j551e-1790548141719",
+      "text": "END You are not in any savings circle yet.",
+      "at": 1790548142028
+    },
+    {
+      "dir": "ussd",
+      "role": "user",
+      "phone": "2348017420438",
+      "sessionId": "w54-j551f-1790548142027",
+      "text": "loyalty",
+      "at": 1790548142337
+    },
+    {
+      "dir": "ussd",
+      "role": "gateway",
+      "phone": "2348017420438",
+      "sessionId": "w54-j551f-1790548142027",
+      "text": "END Loyalty points balance: 0 pts.",
+      "at": 1790548142338
+    }
+  ]
+}

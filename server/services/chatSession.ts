@@ -47,6 +47,16 @@ export interface ChatSession {
   /** === W50 CHANNELS (B6) === true while USSD discovery waits for the
    *  customer to type an area/landmark string. */
   awaitingDiscoveryArea?: boolean;
+  /** === W53 EVENTS === USSD/SMS ticket-purchase flow state: numbered
+   *  event → ticket type → quantity picker (cleared on completion or on
+   *  any non-numeric input). */
+  eventsFlow?: {
+    step: "pick_event" | "pick_type" | "pick_qty";
+    eventIds?: string[];
+    eventId?: string;
+    typeIds?: string[];
+    ticketTypeId?: string;
+  };
   /**
    * Optimistic-concurrency version. Every save bumps it; saveSessionCas
    * refuses to overwrite a session whose stored version differs from the

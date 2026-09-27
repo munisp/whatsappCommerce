@@ -693,6 +693,37 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j534-self-share-rejected"),
     import("./journeys/j535-ussd-forward-text"),
     import("./journeys/j536-pcm-share-bundle"),
+    // === W53 RESIDUALS ===
+    import("./journeys/j537-ussd-greeting-locales"),
+    import("./journeys/j538-menu-publish-wamenu-sync"),
+    // === END W53 RESIDUALS ===
+    // === W53 EVENTS ===
+    import("./journeys/j539-events-router-crud"),
+    import("./journeys/j540-wa-ticket-purchase"),
+    import("./journeys/j541-tg-ticket-parity"),
+    import("./journeys/j542-ussd-ticket-purchase"),
+    import("./journeys/j543-double-checkin-rejected"),
+    import("./journeys/j544-sold-out-enforcement"),
+    import("./journeys/j545-cancelled-event-refunds"),
+    // === END W53 EVENTS ===
+    // === W54 disputes ===
+    import("./journeys/j546-dispute-resolution-buyer-notify"),
+    import("./journeys/j547-chargeback-escrow-interlock"),
+    import("./journeys/j548-merchant-respond"),
+    import("./journeys/j549-tg-dispute-intake"),
+    import("./journeys/j550-buyer-no-response-autoclose"),
+    import("./journeys/j551-replacement-rma"),
+    import("./journeys/j552-admin-phone-fallback"),
+    // === END W54 disputes ===
+    // === W54 CAPABILITIES === (merged: renumbered J553-J559)
+    import("./journeys/j553-membership-router-crud"),
+    import("./journeys/j554-wa-membership-discount"),
+    import("./journeys/j555-tg-membership-parity"),
+    import("./journeys/j556-paid-membership-activation"),
+    import("./journeys/j557-membership-cancel-expiry"),
+    import("./journeys/j558-ussd-savings-loyalty-balance"),
+    import("./journeys/j559-ussd-balance-locales"),
+    // === END W54 CAPABILITIES ===
     // === END W51 PROMOS ===
     // === W50 IMAGES END ===
     // === W37 telegram END ===

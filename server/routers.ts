@@ -367,6 +367,12 @@ export const appRouter = router({
   // === W46 uc-docs (Coder D): statements/proformas/agents/tier-pricing ===
   ucDocs: ucDocsRouter,
   // === END W46 uc-docs ===
+  // === W53 EVENTS === merchant event/ticket mgmt + public storefront ===
+  events: eventsRouter,
+  // === END W53 EVENTS ===
+  // === W54 capabilities (CAP-1) === consumer membership tiers admin ===
+  membershipPlans: membershipPlansRouter,
+  // === END W54 capabilities ===
 });
 export type AppRouter = typeof appRouter;
 import { infraRouter } from "./routers/infra";
@@ -388,6 +394,12 @@ import { reviewsRouter } from "./routers/reviews";
 // === W27 Coder F ===
 import { wholesaleRouter } from "./routers/wholesale";
 import { groupBuyRouter } from "./routers/groupBuy";
+// === W53 EVENTS ===
+import { eventsRouter } from "./routers/events";
+// === END W53 EVENTS ===
+// === W54 capabilities (CAP-1) ===
+import { membershipPlansRouter } from "./routers/membershipPlans";
+// === END W54 capabilities ===
 // === END W27 Coder F ===
 // === W28 odoo-sync (Coder A) ===
 import { odooSyncRouter } from "./routers/odooSync";

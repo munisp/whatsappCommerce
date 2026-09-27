@@ -4247,6 +4247,29 @@ async function startServer() {
   });
   // === END W44 deposits-subs-digital ===
 
+  // === W54 capabilities (CAP-1) ===
+  // ── POST /api/scheduled/membership-expiry (hourly) ─────────────────────
+  // Consumer membership expiry tick: flips active customer_memberships whose
+  // currentPeriodEnd has passed → expired (claim-first per row; the read
+  // paths already treat a past period end as inactive, so this is the
+  // persistence catch-up). Auth: same W42 cronAuth scope+jti fast-path.
+  // After deploy: manus-heartbeat create --name membership-expiry --cron "0 15 * * * *" --path /api/scheduled/membership-expiry
+  app.post("/api/scheduled/membership-expiry", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req).catch(() => null);
+      if (!user?.isCron) return res.status(403).json({ error: "cron-only" });
+      const db = await getDb();
+      if (!db) return res.status(503).json({ error: "db-unavailable" });
+      const { runMembershipExpirySweep } = await import("../services/membershipPlans");
+      const summary = await runMembershipExpirySweep(db);
+      return res.json({ ok: true, ...summary });
+    } catch (err: any) {
+      console.error("[membership-expiry]", err);
+      return res.status(500).json({ error: err?.message });
+    }
+  });
+  // === END W54 capabilities ===
+
 
   // === W32 recurring ===
   // ── POST /api/scheduled/recurring-run (daily) ──────────────────────────

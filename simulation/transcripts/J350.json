@@ -7,112 +7,112 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348013213989",
-      "wamid": "wamid.sim.000158",
+      "phone": "2348015839963",
+      "wamid": "wamid.sim.000039",
       "statuses": [
         "sent"
       ],
-      "at": 1790458516659,
+      "at": 1790547308269,
       "kind": "text",
       "body": "⚠️ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) — attempt 1/3. We'll retry automatically; update your card with \"my cards\" if it keeps failing."
     },
     {
       "dir": "out",
-      "phone": "2348013213989",
-      "wamid": "wamid.sim.000159",
+      "phone": "2348015839963",
+      "wamid": "wamid.sim.000040",
       "statuses": [
         "sent"
       ],
-      "at": 1790458517101,
+      "at": 1790547308711,
       "kind": "text",
       "body": "⚠️ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) — attempt 2/3. We'll retry automatically; update your card with \"my cards\" if it keeps failing."
     },
     {
       "dir": "out",
-      "phone": "2348013213989",
-      "wamid": "wamid.sim.000160",
+      "phone": "2348015839963",
+      "wamid": "wamid.sim.000041",
       "statuses": [
         "sent"
       ],
-      "at": 1790458517538,
+      "at": 1790547309149,
       "kind": "text",
       "body": "❌ We could not charge your saved card for your Chicken Monthly subscription (₦3,000.00) after 3 attempts — your subscription is now past due. Update your card (\"my cards\") and reply \"resume subscription\"."
     },
     {
       "dir": "in",
-      "phone": "2348011917596",
-      "profileName": "Sim User 7596",
-      "inboundId": "wamid.sim.in.text.00069",
-      "at": 1790458518405,
+      "phone": "2348019552828",
+      "profileName": "Sim User 2828",
+      "inboundId": "wamid.sim.in.text.00020",
+      "at": 1790547310021,
       "kind": "text",
       "text": "pause subscription"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00069",
-      "at": 1790458518413
+      "wamid": "wamid.sim.in.text.00020",
+      "at": 1790547310038
     },
     {
       "dir": "out",
-      "phone": "2348011917596",
-      "wamid": "wamid.sim.000161",
+      "phone": "2348019552828",
+      "wamid": "wamid.sim.000042",
       "statuses": [
         "sent"
       ],
-      "at": 1790458518466,
+      "at": 1790547310082,
       "kind": "text",
       "body": "⏸️ Your subscription is paused — no more charges until you reply \"resume subscription\"."
     },
     {
       "dir": "in",
-      "phone": "2348011917596",
-      "profileName": "Sim User 7596",
-      "inboundId": "wamid.sim.in.text.00070",
-      "at": 1790458518952,
+      "phone": "2348019552828",
+      "profileName": "Sim User 2828",
+      "inboundId": "wamid.sim.in.text.00021",
+      "at": 1790547310566,
       "kind": "text",
       "text": "resume subscription"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00070",
-      "at": 1790458518959
+      "wamid": "wamid.sim.in.text.00021",
+      "at": 1790547310575
     },
     {
       "dir": "out",
-      "phone": "2348011917596",
-      "wamid": "wamid.sim.000162",
+      "phone": "2348019552828",
+      "wamid": "wamid.sim.000043",
       "statuses": [
         "sent"
       ],
-      "at": 1790458518997,
+      "at": 1790547310607,
       "kind": "text",
       "body": "▶️ Your subscription is active again — the next charge runs on the next billing tick."
     },
     {
       "dir": "in",
-      "phone": "2348015230588",
-      "profileName": "Sim User 0588",
-      "inboundId": "wamid.sim.in.text.00071",
-      "at": 1790458519692,
+      "phone": "2348015817947",
+      "profileName": "Sim User 7947",
+      "inboundId": "wamid.sim.in.text.00022",
+      "at": 1790547311302,
       "kind": "text",
       "text": "pause subscription"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00071",
-      "at": 1790458519715
+      "wamid": "wamid.sim.in.text.00022",
+      "at": 1790547311309
     },
     {
       "dir": "out",
-      "phone": "2348015230588",
-      "wamid": "wamid.sim.000163",
+      "phone": "2348015817947",
+      "wamid": "wamid.sim.000044",
       "statuses": [
         "sent"
       ],
-      "at": 1790458519753,
+      "at": 1790547311343,
       "kind": "text",
       "body": "I couldn't find a subscription on this number that can be changed like that."
     }

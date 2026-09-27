@@ -151,6 +151,9 @@ export const PARITY_CATEGORIES: readonly ParityCategory[] = [
   { id: "age_attestation",     description: "Age-restricted checkout attestation prompt (TEN-15) — 'confirm you are N+' reply request", telegram: "full", notes: "Plain-text prompt rendered by buildAgeAttestationPrompt inside the SHARED nlp checkout flow (createChatOrder); both channels route through the same engine and the buyer's affirmative reply is parsed identically (AGE_AFFIRM_RE) — no channel-specific affordance." },
   { id: "kyb_sla",             description: "KYB review-queue SLA breach/escalation notice to the tenant admin (TEN-22)", telegram: "full", notes: "Plain-text notice via sendAdminOpsAlert → waSender on WA; telegram-linked admins route via the ops_alert category seam. Log-only when no admin phone is configured (unchanged ops_alert doctrine)." },
   // === END W46 privacy-consent ===
+  // === W54 disputes (DISP-1): buyer dispute lifecycle notices ===
+  { id: "dispute_resolution", description: "Dispute resolution outcome + merchant-response notices to the buyer", telegram: "full", notes: "Plain-text localized notice via sendCustomerText from disputeNotify.ts (escrow review, buyer-no-response auto-close, merchantRespond); WA takes the original sendWhatsAppText path, telegram routes via channelSender. Fail-open — never blocks resolution." },
+  // === END W54 disputes ===
 ] as const;
 
 export const PARITY_CATEGORY_IDS: readonly string[] = PARITY_CATEGORIES.map((c) => c.id);

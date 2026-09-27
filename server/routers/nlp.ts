@@ -156,6 +156,8 @@ function buildOrderSummary(opts: {
   address?: string | null;
   /** Applied promo (discount line in the summary). */
   promo?: { code: string; discount: number } | null;
+  /** === W54 capabilities (CAP-1): member discount line in the summary. === */
+  membership?: { planName: string; discountPercent: number; discountCents: number } | null;
   /** Set when a code was supplied but rejected (buyer-facing reason). */
   promoError?: string | null;
   total: number;
@@ -184,6 +186,11 @@ function buildOrderSummary(opts: {
   if (opts.promo && opts.promo.discount > 0) {
     lines.push(`🏷️ Promo ${opts.promo.code}: −${fmt(opts.promo.discount, opts.currency)}`);
   }
+  // === W54 capabilities (CAP-1): member discount line ===
+  if (opts.membership && opts.membership.discountCents > 0) {
+    lines.push(`💎 ${opts.membership.planName} member −${opts.membership.discountPercent}%: −${fmt(opts.membership.discountCents / 100, opts.currency)}`);
+  }
+  // === END W54 capabilities ===
   lines.push(`*Total: ${fmt(opts.total, opts.currency)}*`);
   // W46 uc-money (UC-15): tip prompt rides the shared summary (BOTH channels).
   if (opts.tipPrompt) lines.push(opts.tipPrompt);
@@ -232,6 +239,8 @@ export interface ChatOrderResult {
   deliveryQuote?: { courier: string; quoteId: string; feeCents: number; etaMinutes: number; label: string } | null;
   /** W27: loyalty redemption applied at checkout (integer points/cents). */
   loyalty?: { points: number; discountCents: number; balanceAfter: number } | null;
+  /** === W54 capabilities (CAP-1): member discount applied at checkout. === */
+  membership?: { planName: string; discountPercent: number; discountCents: number } | null;
   /** W41: buyer installment plan created for this order (payment link = down payment). */
   installment?: { planId: string; downPaymentCents: number; installments: number; totalCents: number } | null;
   // === W46 uc-ux (Coder E) ===
@@ -493,6 +502,32 @@ export async function createChatOrder(
       console.error("[nlp] promo validation failed (non-blocking):", (e as Error)?.message);
     }
   }
+  // === W54 capabilities (CAP-1): membership tier discount ================
+  // Resolved AFTER the promo (member % applies to the promo-discounted base)
+  // and BEFORE the loyalty preview (the redemption cap is computed on the
+  // member-discounted total). Integer cents, floor, clamped ≥ 0. Fail-open:
+  // a benefits lookup failure never blocks the order — the buyer pays the
+  // non-member price and the miss is logged.
+  let membershipDiscountCents = 0;
+  let membershipApplied: { planName: string; discountPercent: number; discountCents: number } | null = null;
+  try {
+    const { memberBenefitsFor, membershipDiscountCents: memberDiscount } = await import("../services/membershipPlans");
+    const benefits = await memberBenefitsFor(db, opts.tenantId, opts.waPhoneNumber.replace(/^\+/, ""));
+    if (benefits && benefits.discountPercent > 0) {
+      const baseCents = Math.max(0, toMinorUnitsExact(subtotal + deliveryFee) - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0));
+      membershipDiscountCents = memberDiscount(baseCents, benefits.discountPercent);
+      if (membershipDiscountCents > 0) {
+        membershipApplied = {
+          planName: benefits.planName,
+          discountPercent: benefits.discountPercent,
+          discountCents: membershipDiscountCents,
+        };
+      }
+    }
+  } catch (e: unknown) {
+    console.error("[nlp] membership benefit lookup failed (non-blocking):", (e as Error)?.message);
+  }
+  // === END W54 capabilities ===
   // ── W27: loyalty points redemption (optional, cap-enforced) ─────────────
   // Burn happens AFTER the order row commits (below); here we only preview
   // the discount so totals/payment link reflect it. Integer cents only.
@@ -503,7 +538,7 @@ export async function createChatOrder(
       const rules = await getLoyaltyRules(db, opts.tenantId);
       if (rules.enabled) {
         const balance = await getBalance(db, opts.tenantId, opts.waPhoneNumber);
-        const preLoyaltyMinor = Math.max(0, toMinorUnitsExact(subtotal + deliveryFee) - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0));
+        const preLoyaltyMinor = Math.max(0, toMinorUnitsExact(subtotal + deliveryFee) - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0) - membershipDiscountCents);
         const preview = previewRedemption(rules, balance, preLoyaltyMinor);
         if (preview.points > 0) {
           loyaltyPreview = { points: preview.points, discountCents: preview.discountCents };
@@ -531,6 +566,7 @@ export async function createChatOrder(
     toMinorUnitsExact(subtotal + deliveryFee)
     + giftWrapFeeCents
     - (promoMeta ? toMinorUnitsExact(promoMeta.discount) : 0)
+    - membershipDiscountCents // === W54 capabilities (CAP-1) ===
     - (loyaltyPreview?.discountCents ?? 0));
   const total = Number(minorUnitsToString(totalMinor));
   const currency = items[0].currency;
@@ -623,6 +659,15 @@ export async function createChatOrder(
               discountCents: loyaltyPreview.discountCents,
             },
           } : {}),
+          // === W54 capabilities (CAP-1): member discount snapshot ===
+          ...(membershipApplied ? {
+            membershipDiscount: {
+              planName: membershipApplied.planName,
+              discountPercent: membershipApplied.discountPercent,
+              discountCents: membershipApplied.discountCents,
+            },
+          } : {}),
+          // === END W54 capabilities ===
         },
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -762,6 +807,7 @@ export async function createChatOrder(
       promoError,
       deliveryQuote: deliveryQuoteMeta,
       loyalty: loyaltyApplied,
+      membership: membershipApplied, // === W54 capabilities (CAP-1) ===
       giftWrapFeeCents,
       slotBooking,
       venueTable,
@@ -900,6 +946,7 @@ export async function createChatOrder(
     promoError,
     deliveryQuote: deliveryQuoteMeta,
     loyalty: loyaltyApplied,
+    membership: membershipApplied, // === W54 capabilities (CAP-1) ===
     installment,
     giftWrapFeeCents,
     slotBooking,
@@ -918,6 +965,12 @@ const USSD_MENUS: Record<string, Record<string, string>> = {
     ig: "Nnọọ! Zaghachi:\n1. Lee ngwaahịa\n2. Lee ngọdo m\n3. Lelee ọrụ\n4. Enyemaka",
     pidgin: "Welcome! Reply:\n1. See products\n2. My cart\n3. Check order\n4. Help",
     pcm: "How far! Reply:\n1. See products\n2. My cart\n3. Check order\n4. Help", // === W49 I18N-PCM ===
+    // === W53 RESIDUALS === USSD greeting parity for the remaining supported
+    // locales (fr/sw/am were the only Locale codes without a greeting).
+    fr: "Bienvenue ! Répondez :\n1. Voir les produits\n2. Voir mon panier\n3. Suivre ma commande\n4. Aide",
+    sw: "Karibu! Jibu:\n1. Tazama bidhaa\n2. Tazama kikapu changu\n3. Angalia hali ya oda\n4. Msaada",
+    am: "እንኳን ደህና መጡ! ይመልሱ:\n1. ምርቶችን ይመልከቱ\n2. የእኔን ቅርጫት ይመልከቱ\n3. የትዕዛዝ ሁኔታ ይፈትሹ\n4. እርዳታ",
+    // === END W53 RESIDUALS ===
   },
   browse: {
     en: "Products menu:\n1. View all products\n2. Search by name\n3. View cart\n4. Back to main menu",
@@ -937,6 +990,18 @@ const USSD_MENUS: Record<string, Record<string, string>> = {
     yo: "Ìsanwó:\n1. Tẹ àdírẹ́sì ìfíranṣẹ́ sílẹ̀\n2. Lo àdírẹ́sì tí a ti fipamọ́\n3. Fagi lé àṣẹ náà",
     ig: "Ịkwụ ụgwọ:\n1. Tinye adreesị nnyefe\n2. Jiri adreesị echekwara\n3. Kagbuo ọrụ",
   },
+  // === W54 capabilities (CAP-2): USSD depth — balance-query menu state ===
+  balances: {
+    en: "Balance queries — reply:\n1. Savings circles\n2. Loyalty points\n3. Membership status",
+    fr: "Soldes — répondez :\n1. Cercles d'épargne\n2. Points fidélité\n3. Adhésion",
+    ha: "Binciken balansi — amsa:\n1. Kungiyoyin adashe\n2. Makin loyalti\n3. Membarki",
+    yo: "Ìbéèrè balónsì — dáhùn:\n1. Ẹgbẹ́ àdájọ\n2. Àmì ìfẹ́rarẹ\n3. Ìkówé",
+    ig: "Ajụjụ balansị — zaa:\n1. Otu ekwote\n2. Isi loyalty\n3. Otu",
+    sw: "Salio — jibu:\n1. Vyama vya akiba\n2. Pointi\n3. Uanachama",
+    am: "ሂሳብ መለያ — ይመልሱ:\n1. የቁጠባ ክቦች\n2. የትጋት ነጥብ\n3. አባልነት",
+    pcm: "Balance check — reply:\n1. Savings circles\n2. Loyalty points\n3. Membership",
+  },
+  // === END W54 capabilities ===
 };
 
 function buildUssdMenu(state: string, lang: string): string {
@@ -1360,6 +1425,7 @@ export const nlpRouter = router({
               deliveryZone: order.deliveryZone,
               address,
               promo: order.promo ?? null,
+              membership: order.membership ?? null, // === W54 capabilities (CAP-1) ===
               promoError: order.promoError ?? null,
               total: order.total!,
               currency: order.currency!,
@@ -1944,6 +2010,25 @@ export const nlpRouter = router({
       // no LLM needed.
       {
         const cmd = input.message.trim().toLowerCase();
+        // === W54 capabilities (CAP-2): on the USSD NLP-fallback path the
+        // same keywords answer LOCALIZED read-only queries — "balance" opens
+        // the W54 balances menu, points/loyalty the localized balance
+        // (services/ussdBalances.ts). WA/TG behaviour below is unchanged. ===
+        const isUssd3f = input.ussdMode ?? ((session.context as Record<string, unknown> | null)?.ussdMode === true);
+        if (isUssd3f && /^(points|points balance|loyalty|loyalty points|balance)$/.test(cmd)) {
+          await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          if (cmd === "balance") {
+            return { reply: buildUssdMenu("balances", session.language || "en"), intent: "ussd_menu", confidence: 1, state: "balances", language: session.language, sessionId: session.id };
+          }
+          const { buildUssdBalanceReply } = await import("../services/ussdBalances");
+          const reply = await buildUssdBalanceReply(db, {
+            tenantId: input.tenantId, phone: input.waPhoneNumber,
+            keyword: cmd === "points balance" ? "points" : cmd === "loyalty points" ? "loyalty" : cmd,
+            sessionLanguage: session.language || "en",
+          });
+          return { reply, intent: "ussd_balance", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
+        }
+        // === END W54 capabilities ===
         // ── POINTS / BALANCE / LOYALTY → points balance + earn hint ──────
         if (/^(points|points balance|loyalty|loyalty points|balance)$/.test(cmd)) {
           const { getBalance, getLoyaltyRules } = await import("../services/loyalty");
@@ -2348,6 +2433,315 @@ export const nlpRouter = router({
         // === END W52 SHARE ===
       }
       // === END W44 giftcards-referrals ===
+      // === W53 EVENTS (Coder B): events/ticketing chat flow — buyer
+      // "events"/"tickets" → published events list (WA image card when the
+      // event has a header image, else text), "TICKET <n>" → ticket types,
+      // "BUY <m> [qty]" → order + payment link via the EXISTING payments
+      // rail (services/events.purchaseTickets — integer cents, idempotent
+      // paymentIntents key, paymentConfirm untouched); codes are issued on
+      // payment confirm via the post-commit receipt seam. Merchant/door
+      // staff: "CHECKIN <CODE>" (claim-first, honest double-check-in).
+      // BOTH channels: telegram inbound feeds this same engine. ===
+      {
+        const trimmedMsg = input.message.trim();
+        const w53Ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+        const w53Locale = localeFromSessionLanguage(session?.language);
+        const w53Return = async (reply: string, intent: string) => {
+          await db.update(nlpSessions).set({ context: w53Ctx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent, state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        };
+        /** TG session keys resolve to the linked E.164 phone when bound. */
+        const w53BuyerRef = async (): Promise<string> => {
+          const ref = input.waPhoneNumber;
+          if (/^telegram:/i.test(ref)) {
+            const chatId = ref.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) return ident.phone;
+          }
+          return ref;
+        };
+        const w53EventLine = (ev: any, i: number): string => {
+          const when = ev.startsAt instanceof Date ? ev.startsAt.toISOString().replace("T", " ").slice(0, 16) : String(ev.startsAt ?? "");
+          return `${i + 1}. ${ev.title} — ${when}${ev.venue ? ` @ ${ev.venue}` : ""}`;
+        };
+
+        // ── Buyer: list published events ──
+        if (/^(events|tickets|upcoming events)$/i.test(trimmedMsg)) {
+          const { listPublishedEvents } = await import("../services/events");
+          const rows = await listPublishedEvents(db, input.tenantId, 5).catch(() => [] as any[]);
+          if (!rows.length) {
+            return w53Return(t27(w53Locale, "eventsEmpty"), "events_list");
+          }
+          w53Ctx.w53Events = rows.map((r: any) => r.id);
+          delete w53Ctx.w53TicketTypes;
+          const list = rows.map(w53EventLine).join("\n");
+          const reply = `${t27(w53Locale, "eventsHeader")}\n${list}\n${t27(w53Locale, "eventsPickHint")}`;
+          // Card with image header when the first listed event has one (WA
+          // only — TG gets the text list; USSD/SMS never reach this engine).
+          const withImage = rows.find((r: any) => typeof r.imageUrl === "string" && r.imageUrl);
+          if (withImage && !/^telegram:/i.test(input.waPhoneNumber)) {
+            try {
+              const { sendWhatsAppMedia } = await import("../services/waSender");
+              await sendWhatsAppMedia(input.tenantId, input.waPhoneNumber, {
+                type: "image",
+                link: withImage.imageUrl,
+                caption: `${t27(w53Locale, "eventsHeader")}\n${list}`,
+              }, { notifType: "event_card" });
+            } catch (e: any) {
+              console.warn("[nlp] event image card failed (text list still sent):", e?.message);
+            }
+          }
+          return w53Return(reply, "events_list");
+        }
+
+        // ── Buyer: ticket types for picked event ──
+        const w53TicketPick = /^ticket\s+(\d{1,2})$/i.exec(trimmedMsg);
+        if (w53TicketPick) {
+          const ids = Array.isArray(w53Ctx.w53Events) ? (w53Ctx.w53Events as string[]) : [];
+          const evId = ids[Number(w53TicketPick[1]) - 1];
+          if (!evId) {
+            return w53Return(t27(w53Locale, "eventsPickInvalid"), "event_ticket_types");
+          }
+          const { listTicketTypes, getEventForTenant } = await import("../services/events");
+          const [ev, types] = await Promise.all([
+            getEventForTenant(db, input.tenantId, evId),
+            listTicketTypes(db, input.tenantId, evId),
+          ]);
+          if (!ev || !types.length) {
+            return w53Return(t27(w53Locale, "eventTicketTypesEmpty"), "event_ticket_types");
+          }
+          w53Ctx.w53EventId = evId;
+          w53Ctx.w53TicketTypes = types.map((t: any) => t.id);
+          const lines = types.map((t: any, i: number) => {
+            const left = Math.max(0, t.quantity - t.soldCount);
+            const price = (t.priceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 });
+            return `${i + 1}. ${t.name} — ${t.currency} ${price} (${t27(w53Locale, "eventTicketsLeft", { count: String(left) })})`;
+          });
+          const reply = `🎟️ ${ev.title}\n${t27(w53Locale, "eventTicketTypesHeader")}\n${lines.join("\n")}\n${t27(w53Locale, "eventBuyHint")}`;
+          return w53Return(reply, "event_ticket_types");
+        }
+
+        // ── Buyer: purchase → order + payment link (existing rail) ──
+        const w53Buy = /^buy\s+(\d{1,2})(?:\s+(?:x\s*)?(\d{1,3}))?$/i.exec(trimmedMsg);
+        if (w53Buy && Array.isArray(w53Ctx.w53TicketTypes)) {
+          const typeIds = w53Ctx.w53TicketTypes as string[];
+          const typeId = typeIds[Number(w53Buy[1]) - 1];
+          const qty = w53Buy[2] ? Number(w53Buy[2]) : 1;
+          if (!typeId || !Number.isInteger(qty) || qty < 1) {
+            return w53Return(t27(w53Locale, "eventsPickInvalid"), "event_ticket_buy");
+          }
+          const buyerRef = await w53BuyerRef();
+          let reply: string;
+          try {
+            const { purchaseTickets } = await import("../services/events");
+            const p = await purchaseTickets(db, {
+              tenantId: input.tenantId,
+              eventId: String(w53Ctx.w53EventId),
+              ticketTypeId: typeId,
+              qty,
+              buyerCustomerId: buyerRef,
+            });
+            const total = (p.totalCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 });
+            reply = t27(w53Locale, "eventTicketPurchaseReady", {
+              qty: String(qty), type: p.ticketTypeName, event: p.eventTitle,
+              total, currency: p.currency, orderNumber: p.orderNumber,
+            }) + (p.paymentUrl ? `\n${t27(w53Locale, "paymentLinkReady", { url: p.paymentUrl })}`
+              : `\n${t27(w53Locale, "eventTicketLinkPending")}`);
+            w53Ctx.lastOrderId = p.orderId;
+          } catch (e: any) {
+            reply = e?.code === "CONFLICT" || e?.code === "BAD_REQUEST" || e?.code === "NOT_FOUND"
+              ? (e?.message ?? t27(w53Locale, "eventTicketSoldOut"))
+              : t27(w53Locale, "eventTicketPurchaseFailed");
+          }
+          return w53Return(reply, "event_ticket_buy");
+        }
+
+        // ── Buyer: my tickets ──
+        if (/^my tickets$/i.test(trimmedMsg)) {
+          const { listBuyerTickets } = await import("../services/events");
+          const buyerRef = await w53BuyerRef();
+          const rows = await listBuyerTickets(db, input.tenantId, buyerRef).catch(() => [] as any[]);
+          if (!rows.length) {
+            return w53Return(t27(w53Locale, "eventMyTicketsEmpty"), "event_my_tickets");
+          }
+          const lines = rows.slice(0, 20).map((t: any) => `• ${t.code} — ${t.status}`);
+          return w53Return(`🎟️ ${t27(w53Locale, "eventMyTicketsHeader")}\n${lines.join("\n")}`, "event_my_tickets");
+        }
+
+        // ── Merchant / door staff: CHECKIN <CODE> (claim-first) ──
+        const w53Checkin = /^check[- ]?in\s+([A-Za-z0-9-]{3,24})$/i.exec(trimmedMsg);
+        if (w53Checkin) {
+          const { isTenantStaffPhone } = await import("../services/catalogAI");
+          let staffRef = input.waPhoneNumber;
+          if (/^telegram:/i.test(staffRef)) {
+            const chatId = staffRef.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) staffRef = ident.phone;
+          }
+          const isStaff = await isTenantStaffPhone(db, input.tenantId, staffRef).catch(() => false);
+          let reply: string;
+          if (!isStaff) {
+            reply = t27(w53Locale, "eventCheckinNotStaff");
+          } else {
+            const { checkInTicket } = await import("../services/events");
+            const res = await checkInTicket(db, input.tenantId, w53Checkin[1]!);
+            reply = res.ok
+              ? t27(w53Locale, "eventCheckinOk", { code: res.ticket.code, event: res.eventTitle })
+              : res.reason === "not_found"
+                ? t27(w53Locale, "eventCheckinNotFound", { code: w53Checkin[1]!.toUpperCase() })
+                : res.reason === "already_checked_in"
+                  ? t27(w53Locale, "eventCheckinAlready", {
+                      code: res.ticket!.code,
+                      when: res.ticket!.checkedInAt ? res.ticket!.checkedInAt.toISOString().replace("T", " ").slice(0, 16) : "",
+                    })
+                  : res.reason === "event_cancelled"
+                    ? t27(w53Locale, "eventCheckinEventCancelled", { code: res.ticket!.code })
+                    : t27(w53Locale, "eventCheckinVoid", { code: res.ticket!.code, status: res.ticket!.status });
+          }
+          return w53Return(reply, "event_checkin");
+        }
+      }
+      // === END W53 EVENTS ===
+      // === W54 capabilities (CAP-1): consumer membership tiers chat flow —
+      // buyer "membership" → plan list cards (text), "JOIN MEMBERSHIP
+      // <n|name>" → free tier activates immediately / paid tier gets an
+      // order + payment link via the EXISTING rail
+      // (services/membershipPlans.joinMembership → initiateWithFallback;
+      // activation rides the receipts.ts post-commit seam; paymentConfirm
+      // untouched). "MY MEMBERSHIP" status, "CANCEL MEMBERSHIP" cancel at
+      // period end (subscription cancel semantics). BOTH channels: telegram
+      // inbound feeds this same engine (TG refs resolve to the linked E.164). ===
+      {
+        const trimmedMsg = input.message.trim();
+        const w54Ctx: Record<string, unknown> = (session.context as Record<string, unknown>) ?? {};
+        const w54Locale = localeFromSessionLanguage(session?.language);
+        const w54Return = async (reply: string, intent: string) => {
+          await db.update(nlpSessions).set({ context: w54Ctx, lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return { reply, intent, state: session.state, language: session.language, sessionId: session.id, confidence: 1 };
+        };
+        /** TG session keys resolve to the linked E.164 phone when bound. */
+        const w54BuyerRef = async (): Promise<string> => {
+          const ref = input.waPhoneNumber;
+          if (/^telegram:/i.test(ref)) {
+            const chatId = ref.replace(/^telegram:/i, "");
+            const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+              .from(telegramIdentities)
+              .where(and(eq(telegramIdentities.tenantId, input.tenantId), eq(telegramIdentities.chatId, chatId)))
+              .limit(1).catch(() => [] as any[]);
+            if (ident?.phone) return ident.phone;
+          }
+          return ref;
+        };
+        const w54Benefits = (plan: { discountPercent: number; pointsMultiplier: number }): string =>
+          plan.discountPercent > 0 && plan.pointsMultiplier > 1
+            ? t27(w54Locale, "membershipBenefitsBoth", { discount: plan.discountPercent, mult: plan.pointsMultiplier })
+            : plan.discountPercent > 0
+              ? t27(w54Locale, "membershipBenefitsDiscount", { discount: plan.discountPercent })
+              : t27(w54Locale, "membershipBenefitsPoints", { mult: plan.pointsMultiplier });
+        const w54Price = (plan: { priceCents: number; currency: string; period: string }): string =>
+          plan.priceCents === 0
+            ? t27(w54Locale, "membershipPriceFree")
+            : `${plan.currency} ${(plan.priceCents / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 })}/${plan.period}`;
+
+        // ── Buyer: list membership plans ──
+        if (/^(membership|memberships|membership plans?|join membership)$/i.test(trimmedMsg)) {
+          const { listMembershipPlans } = await import("../services/membershipPlans");
+          const plans = await listMembershipPlans(db, input.tenantId).catch(() => [] as any[]);
+          if (!plans.length) {
+            return w54Return(t27(w54Locale, "membershipPlansEmpty"), "membership_list");
+          }
+          w54Ctx.w54MembershipPlans = plans.map((p: any) => p.id);
+          const lines = plans.map((p: any, i: number) =>
+            t27(w54Locale, "membershipPlanLine", { n: i + 1, name: p.name, price: w54Price(p), benefits: w54Benefits(p) }));
+          return w54Return(
+            `${t27(w54Locale, "membershipPlansHeader")}\n${lines.join("\n")}\n${t27(w54Locale, "membershipJoinHint")}`,
+            "membership_list",
+          );
+        }
+
+        // ── Buyer: join a plan (by list number or name) ──
+        const w54Join = trimmedMsg.match(/^join membership\s+(\S.{0,80})$/i);
+        if (w54Join) {
+          const { listMembershipPlans, joinMembership } = await import("../services/membershipPlans");
+          const plans = await listMembershipPlans(db, input.tenantId).catch(() => [] as any[]);
+          const arg = w54Join[1]!.trim();
+          const num = /^\d{1,2}$/.test(arg) ? Number(arg) : null;
+          // Prefer the session-cached list ordering; fall back to a fresh one.
+          const cachedIds = Array.isArray(w54Ctx.w54MembershipPlans) ? (w54Ctx.w54MembershipPlans as string[]) : null;
+          const plan = num !== null
+            ? plans.find((p: any) => p.id === (cachedIds?.[num - 1] ?? null)) ?? plans[num - 1]
+            : plans.find((p: any) => p.name.toLowerCase() === arg.toLowerCase());
+          if (!plan) {
+            return w54Return(t27(w54Locale, "membershipPickInvalid"), "membership_join_invalid");
+          }
+          try {
+            const res = await joinMembership(db, { tenantId: input.tenantId, planId: plan.id, customerRef: await w54BuyerRef() });
+            if (res.kind === "active") {
+              return w54Return(
+                t27(w54Locale, "membershipJoinActive", { plan: plan.name, benefits: w54Benefits(plan) }),
+                "membership_join_active",
+              );
+            }
+            let reply = t27(w54Locale, "membershipJoinPayment", {
+              plan: plan.name,
+              currency: res.currency ?? plan.currency,
+              total: ((res.totalCents ?? 0) / 100).toLocaleString("en-NG", { minimumFractionDigits: 2 }),
+              orderNumber: res.orderNumber ?? "",
+            });
+            reply += res.paymentUrl
+              ? `\nPay: ${res.paymentUrl}`
+              : `\n${t27(w54Locale, "membershipJoinLinkPending")}`;
+            return w54Return(reply, "membership_join_payment");
+          } catch (e: any) {
+            const reply = e?.code === "CONFLICT"
+              ? t27(w54Locale, "membershipJoinAlready", { plan: plan.name })
+              : e?.code === "NOT_FOUND" || e?.code === "BAD_REQUEST"
+                ? (e?.message ?? t27(w54Locale, "membershipJoinFailed"))
+                : t27(w54Locale, "membershipJoinFailed");
+            return w54Return(reply, "membership_join_failed");
+          }
+        }
+
+        // ── Buyer: membership status ──
+        if (/^(my membership|membership status)$/i.test(trimmedMsg)) {
+          const { getMembershipStatus } = await import("../services/membershipPlans");
+          const status = await getMembershipStatus(db, input.tenantId, await w54BuyerRef()).catch(() => null);
+          if (!status) {
+            return w54Return(t27(w54Locale, "membershipStatusNone"), "membership_status");
+          }
+          const { membership, plan } = status;
+          let reply = t27(w54Locale, "membershipStatusActive", { plan: plan.name, benefits: w54Benefits(plan) });
+          if (membership.cancelAtPeriodEnd && membership.currentPeriodEnd) {
+            reply += t27(w54Locale, "membershipStatusCancelling", { date: membership.currentPeriodEnd.toISOString().slice(0, 10) });
+          } else if (membership.currentPeriodEnd) {
+            reply += t27(w54Locale, "membershipStatusUntil", { date: membership.currentPeriodEnd.toISOString().slice(0, 10) });
+          }
+          return w54Return(reply, "membership_status");
+        }
+
+        // ── Buyer: cancel at period end ──
+        if (/^cancel membership$/i.test(trimmedMsg)) {
+          const { cancelMembership } = await import("../services/membershipPlans");
+          try {
+            const res = await cancelMembership(db, { tenantId: input.tenantId, customerRef: await w54BuyerRef() });
+            const reply = res.cancelled === "immediate"
+              ? t27(w54Locale, "membershipCancelImmediate", { plan: res.plan!.name })
+              : res.cancelled === "period_end"
+                ? t27(w54Locale, "membershipCancelPeriodEnd", { plan: res.plan!.name, date: res.currentPeriodEnd!.toISOString().slice(0, 10) })
+                : t27(w54Locale, "membershipCancelNone");
+            return w54Return(reply, "membership_cancel");
+          } catch (e: any) {
+            return w54Return(e?.message ?? t27(w54Locale, "membershipJoinFailed"), "membership_cancel_failed");
+          }
+        }
+      }
+      // === END W54 capabilities ===
       // === W44 preorders-offers (Coder B): haggling / custom offers — buyer
       // "I'll pay X for Y" (BOTH channels; telegram inbound feeds this same
       // engine), merchant decision via card callback ids
@@ -2952,6 +3346,29 @@ export const nlpRouter = router({
     const sessionCtx = (session.context as Record<string, unknown>) ?? {};
      const isUssd = input.ussdMode ?? sessionCtx.ussdMode === true;
      if (isUssd) {
+       // === W54 capabilities (CAP-2): USSD depth on the NLP-fallback path —
+       // balance keywords answer READ-ONLY localized queries (same data as
+       // the handleUssdRequest keyword flows); "balance" opens the balances
+       // menu state. Anything else keeps the numbered-menu behaviour. ===
+       const ussdInput = input.message.trim();
+       const ussdLocaleKey = ((): string => {
+         const lang = session.language;
+         return lang || "en";
+       })();
+       if (/^(balance|balances|account)$/i.test(ussdInput)) {
+         await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+         return { reply: buildUssdMenu("balances", ussdLocaleKey), intent: "ussd_menu", confidence: 1, state: "balances", language: session.language, sessionId: session.id };
+       }
+       if (/^(savings|stokvel|esusu|ajo|chama|loyalty|points|membership)$/i.test(ussdInput)) {
+         const { buildUssdBalanceReply } = await import("../services/ussdBalances");
+         const reply = await buildUssdBalanceReply(db, {
+           tenantId: input.tenantId, phone: input.waPhoneNumber, keyword: ussdInput,
+           sessionLanguage: ussdLocaleKey,
+         });
+         await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+         return { reply, intent: "ussd_balance", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
+       }
+       // === END W54 capabilities ===
        const ussdMenu = buildUssdMenu(session.state, session.language);
        await db.update(nlpSessions).set({ lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
        return { reply: ussdMenu, intent: "ussd_menu", confidence: 1, state: session.state, language: session.language, sessionId: session.id };
@@ -3022,6 +3439,37 @@ export const nlpRouter = router({
         };
       }
       // === END W51 PROMOS ===
+      // === W54 disputes (DISP-4): deterministic dispute/complaint intake ===
+      // The LLM classifier owns the "dispute" intent when it's available,
+      // but dispute intake must NOT depend on LLM availability — and this
+      // single engine serves WhatsApp AND Telegram (telegramInbound routes
+      // TG text through processMessage), so one keyword shortcut here gives
+      // both channels intake parity (USSD already routes via useCases).
+      // Keyword set mirrors the USSD support→dispute gate in useCases.ts.
+      if (/dispute|complain|not received|never arrived|wrong item|wrong order|damaged|broken|missing item|incomplete/i.test(trimmedMsg)) {
+        const dispute = await raiseChatDispute({
+          db,
+          tenantId: input.tenantId,
+          // Buyer-identity key (E.164 when a TG chat self-shared its phone)
+          // so the order lookup merges across channels (W47 buyerKey).
+          phone: buyerKey,
+          complaintText: input.message,
+          orderId: typeof (session.context as any)?.lastOrderId === "string" ? (session.context as any).lastOrderId : null,
+          customerName: input.customerName,
+        }).catch((e: any) => {
+          console.warn("[nlp] deterministic dispute intake failed:", e?.message);
+          return null;
+        });
+        if (dispute) {
+          await db.update(nlpSessions).set({ state: "support", lastActivityAt: new Date() }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply: buildDisputeReply(dispute),
+            intent: "dispute", confidence: 1, state: "support",
+            language: session.language, sessionId: session.id,
+          };
+        }
+      }
+      // === END W54 disputes ===
      const systemPrompt = buildSystemPrompt(session.language, tenantProducts, input.tenantId);
       const cartSummary = cartItemsList.length > 0
         ? `\nCURRENT CART:\n${cartItemsList.map(i => `- ${i.productName} x${i.quantity} @ ${i.currency} ${i.unitPrice}`).join("\n")}\nCart total: ${cartItemsList.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0).toFixed(2)}`
@@ -3163,7 +3611,9 @@ export const nlpRouter = router({
         const dispute = await raiseChatDispute({
           db,
           tenantId: input.tenantId,
-          phone: input.waPhoneNumber,
+          // === W54 disputes (DISP-4): buyerKey (E.164 for TG-linked buyers)
+          // — a raw `telegram:<chat_id>` session key never matches orders. ===
+          phone: buyerKey,
           complaintText: input.message,
           orderId: typeof ctx.lastOrderId === "string" ? ctx.lastOrderId : null,
           customerName: input.customerName,
@@ -3378,6 +3828,7 @@ export const nlpRouter = router({
                 deliveryZone: order.deliveryZone,
                 address,
                 promo: order.promo ?? null,
+              membership: order.membership ?? null, // === W54 capabilities (CAP-1) ===
                 promoError: order.promoError ?? null,
                 total: order.total!,
                 currency: order.currency!,

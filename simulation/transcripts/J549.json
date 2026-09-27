@@ -1,0 +1,20 @@
+{
+  "id": "J549",
+  "title": "DISP-4: TG complaint intake creates a dispute + freezes escrow",
+  "feature": "W54 telegram dispute intake via shared raiseChatDispute",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348099900000",
+      "wamid": "wamid.sim.000086",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548122468,
+      "kind": "text",
+      "body": "⚠️ New dispute/complaint from telegram:880549 (Tg User) on order J549-64fe (not received):\nmy order never arrived, I want to dispute"
+    }
+  ]
+}
