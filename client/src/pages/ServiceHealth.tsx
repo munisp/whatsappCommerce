@@ -5,6 +5,7 @@ import { trpc } from "@/lib/trpc";
 import { Activity, CheckCircle, Server, XCircle } from "lucide-react";
 import { Database, Shield, Search, Zap, GitBranch, Globe } from "lucide-react";
 import { useState, useEffect } from "react";
+import { usePollInterval } from "@/hooks/usePollInterval";
 
 // Mini sparkline component using SVG
 function Sparkline({ values, color }: { values: number[]; color: string }) {
@@ -47,14 +48,16 @@ const langColors: Record<string, string> = {
 };
 
 export default function ServiceHealth() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const healthPoll = usePollInterval(30_000);
   const { data: health } = trpc.agent.health.useQuery();
   const { data: layerHealth, isLoading: layerLoading } = trpc.hermes.layerHealth.useQuery(
     undefined,
-    { refetchInterval: 30_000, retry: false },
+    { refetchInterval: healthPoll, retry: false },
   );
   const { data: infraHealth, isLoading: infraLoading } = trpc.infra.infraHealth.useQuery(
     undefined,
-    { refetchInterval: 30_000, retry: false },
+    { refetchInterval: healthPoll, retry: false },
   );
   // Simulate latency history per service (last 8 checks)
   const [latencyHistory, setLatencyHistory] = useState<Record<string, number[]>>({});

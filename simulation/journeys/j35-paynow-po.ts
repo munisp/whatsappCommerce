@@ -91,7 +91,14 @@ export const journey: Journey = {
     const supplierCount = world.outbound.toPhone(SUPPLIER_ADMIN_PHONE).length;
     const replay = await paystackChargeSuccess(world, { reference, amountMajor: 29_000 });
     assert(replay.status === 200, "replay accepted");
-    assert(replay.json?.action === "already-completed", `replay is a no-op (got ${replay.json?.action})`);
+    // W48 PERF-API-1: the PSP webhook acks 200 {received:true} FIRST and
+    // confirms post-ack — `action` is no longer observable over HTTP; the
+    // no-op guarantee is proven by the state/outbound assertions below.
+    assert(replay.json?.received === true, `replay acked (got ${JSON.stringify(replay.json)})`);
+    await world.waitFor(async () => {
+      const [poRow] = await world.db.select().from(schema.purchaseOrders).where(eq(schema.purchaseOrders.id, po.poId)).limit(1);
+      return poRow?.status === "paid";
+    }, 5000, "PO remains settled after ack-first replay");
     const [stillPaid] = await world.db.select().from(schema.purchaseOrders).where(eq(schema.purchaseOrders.id, po.poId)).limit(1);
     assert(stillPaid.status === "paid", "PO remains paid after replay");
     assert(world.outbound.toPhone(phone).length === buyerCount, "replay sends the buyer nothing new");

@@ -608,6 +608,93 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j465-referral-guards"),
     import("./journeys/j466-onboarding-p2-hardening"),
     // === W47 crosscutting END ===
+    // === W48 api-db (Coder A): J467-J476 (merger owns registry count) ===
+    import("./journeys/j467-psp-webhook-ack-first"),
+    import("./journeys/j468-payment-confirm-parallel-hooks"),
+    import("./journeys/j469-journey-enroll-batch"),
+    import("./journeys/j470-composite-indexes-stats"),
+    import("./journeys/j471-readthrough-cache"),
+    import("./journeys/j472-getmessages-phone-pushdown"),
+    import("./journeys/j473-response-compression"),
+    import("./journeys/j474-wholesale-listings-batch"),
+    import("./journeys/j475-wa-dlq-post-ack"),
+    import("./journeys/j476-body-limit-template-seed"),
+    // === END W48 api-db ===
+    // === W48 integrations (Coder D): J477-J486 ===
+    import("./journeys/j477-psp-legacy-adapter-bounds"),
+    import("./journeys/j478-fraud-gate-direct-call"),
+    import("./journeys/j479-portal-reply-via-wasender"),
+    import("./journeys/j480-permify-check-cache"),
+    import("./journeys/j481-wa-tenant-lookup-cache"),
+    import("./journeys/j482-wa-webhook-ack-first"),
+    import("./journeys/j483-opensearch-query-shape"),
+    import("./journeys/j484-webhook-artifact-retention"),
+    import("./journeys/j485-integration-breaker-deadline"),
+    import("./journeys/j486-integration-smoke-budgets"),
+    // === W48 integrations END ===
+    // === W49 RICHMEDIA (Coder R): J487-J496 (merger owns registry count) ===
+    import("./journeys/j487-product-card-image-header"),
+    import("./journeys/j488-tg-rich-annotation-parity"),
+    import("./journeys/j489-absolute-url-normalization"),
+    import("./journeys/j490-cta-url-pay-button"),
+    import("./journeys/j491-receipt-pdf-both-channels"),
+    import("./journeys/j492-product-list-browse"),
+    import("./journeys/j493-tg-media-group"),
+    import("./journeys/j494-welcome-banner-logo"),
+    import("./journeys/j495-no-image-fallback-card"),
+    import("./journeys/j496-video-audio-template-header"),
+    // === W49 RICHMEDIA END ===
+    // === W49 I18N-PCM (Coder I) ===
+    import("./journeys/j497-pcm-first-class-locale"),
+    // === W49 I18N-PCM END ===
+    // === W50 CHANNELS (Coder A): J498-J507 ===
+    import("./journeys/j498-tg-menu-command"),
+    import("./journeys/j499-tg-menu-keyword"),
+    import("./journeys/j500-tg-menu-callback"),
+    import("./journeys/j501-tg-menu-pagination"),
+    import("./journeys/j502-tg-discovery-location-request"),
+    import("./journeys/j503-discovery-stale-center"),
+    import("./journeys/j504-discovery-synonyms"),
+    import("./journeys/j505-discovery-distance-sort"),
+    import("./journeys/j506-discovery-radius-widen"),
+    import("./journeys/j507-ussd-discovery-text"),
+    // === W50 CHANNELS END ===
+    // === W50 SMS (Coder B): J508-J514 (merger owns registry count) ===
+    import("./journeys/j508-sms-inbound-reply"),
+    import("./journeys/j509-sms-chunking"),
+    import("./journeys/j510-wa-failover-sms"),
+    import("./journeys/j511-sms-consent-denial"),
+    import("./journeys/j512-pcm-locale-sms"),
+    import("./journeys/j513-africastalking-payload"),
+    import("./journeys/j514-twilio-payload"),
+    // === W50 SMS END ===
+    // === W50 IMAGES (Coder C) ===
+    import("./journeys/j515-publishdraft-wa-photo"),
+    import("./journeys/j516-medusa-image-ingestion"),
+    import("./journeys/j517-ollama-image-success"),
+    import("./journeys/j518-ollama-native-fallback"),
+    import("./journeys/j519-ollama-timeout-failopen"),
+    import("./journeys/j520-image-provenance-force"),
+    // === W51 PROMOS ===
+    import("./journeys/j521-promo-card-on-inquiry"),
+    import("./journeys/j522-tg-promo-parity"),
+    import("./journeys/j523-no-promo-no-card"),
+    import("./journeys/j524-most-ordered-badge"),
+    import("./journeys/j525-featured-pin-override"),
+    import("./journeys/j526-ussd-promo-line"),
+    import("./journeys/j527-pcm-promo-rendering"),
+    import("./journeys/j528-promo-dedupe-30min"),
+    import("./journeys/j529-medusa-promo-sync"),
+    import("./journeys/j530-medusa-highlights-sync"),
+    // === W52 SHARE ===
+    import("./journeys/j531-share-button-bundle"),
+    import("./journeys/j532-tg-share-parity"),
+    import("./journeys/j533-deal-ref-redeem"),
+    import("./journeys/j534-self-share-rejected"),
+    import("./journeys/j535-ussd-forward-text"),
+    import("./journeys/j536-pcm-share-bundle"),
+    // === END W51 PROMOS ===
+    // === W50 IMAGES END ===
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),

@@ -23,8 +23,9 @@ import { isProd } from "../_core/env";
 import { customers } from "../../drizzle/schema";
 import type { WaMenuConfig } from "./waMenu";
 
-export type Locale = "en" | "fr" | "ha" | "yo" | "ig" | "sw" | "am";
-export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "fr", "ha", "yo", "ig", "sw", "am"];
+// === W49 I18N-PCM === Nigerian Pidgin (pcm) promoted to first-class locale.
+export type Locale = "en" | "fr" | "ha" | "yo" | "ig" | "sw" | "am" | "pcm";
+export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "fr", "ha", "yo", "ig", "sw", "am", "pcm"];
 export const DEFAULT_LOCALE: Locale = "en";
 
 // ── Locale packs ─────────────────────────────────────────────────────────────
@@ -92,6 +93,12 @@ export const BUREAU_CONSENT_TEXT: Record<Locale, string> = {
     "የብድር ቢሮ ሪፖርት ማድረጊያ፡ በመቀበልዎ፣ የንግድ ብድርዎን እንቅስቃሴዎችን (መወሰድ፣ ክፍያዎች፣ " +
     "መዘግየቶች እና ማስተካከያዎች) ለተፈቀዱ የናይጄሪያ የብድር ቢሮዎች (CRC Credit Bureau / " +
     "CreditRegistry) ማሳወቅ እንድንችል ተስማምተዋል። ማንኛውንም ሪፖርት በማንኛውም ጊዜ መቃወም ይችላሉ።",
+  // === W49 I18N-PCM ===
+  pcm:
+    "Credit bureau mata: as you accept, you agree say we fit report your trade-credit " +
+    "waka (draws, how you dey pay back, any delay and how you settle am) give the licensed " +
+    "Naija credit bureaus (CRC Credit Bureau / CreditRegistry). You fit complain about any " +
+    "report any time.",
 };
 
 export const LOCALE_PACKS: Record<Locale, LocalePack> = {
@@ -296,6 +303,40 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     imageProcessingFailed: "ይቅርታ — ያንን ፎቶ ማስራት አልቻልኩም። እንደገና ይላኩት፣ ወይም የሚፈልጉትን ይጻፉ። 📷",
     ageGatePrompt: "🔞 በጋሪዎ ውስጥ ያሉ አንድ ወይም ተጨማሪ ዕቃዎች{items} የዕድሜ ገደብ አላቸው። ትእዛዝዎን ለማጠናቀቅ {age} ዓመት ወይም ከዚያ በላይ መሆንዎን \"አዎ {age}+\" ብለው ይምለሱ።",
   },
+  // === W49 I18N-PCM === Nigerian Pidgin pack. Tone follows the onboarding
+  // copilot pcm pack (onboardingCopilot/language.ts). consentPrompt MUST keep
+  // the literal word "WhatsApp" — telegramInbound does a WhatsApp→Telegram
+  // string swap on it (I18N-8).
+  pcm: {
+    greeting: "How far! Welcome to {businessName}! Wetin you need today?",
+    menuLabels: {
+      shop: "Buy tins / see products",
+      track: "Track my order",
+      support: "Get help",
+      booking: "Book appointment",
+      handoff: "Talk to person",
+      procurement: "Restock / buy supplies",
+    },
+    consentPrompt:
+      "Before we continue: we wan dey send you order updates and offers for WhatsApp. " +
+      "Under NDPR we need your consent. Reply YES to dey receive order updates, or NO to opt out. " +
+      "You fit change am any time — just message us.",
+    consentGranted: "Thank you! You don opt in for order updates for WhatsApp.",
+    consentDenied:
+      "No wahala — you don opt out of proactive order updates. " +
+      "You fit still message us any time, and reply YES later to opt back in.",
+    cartRecovery: "You leave items for your cart — reply CHECKOUT make you complete your order. 🛒",
+    shortageNote: "Some items no dey stock right now.",
+    tracking: "Track your order",
+    voiceNotEnabled: "Sorry o, voice note no dey work now — abeg type your message instead. 🎤❌",
+    reorderNoPriorOrder: "I no fit find any order wey you don pay before for this number — tell me wetin you want make I add am to your cart.",
+    disputeConfirm: "We don log your complaint and our team don hear am. We go get back to you sharp sharp. 🙏",
+    orderingSuspended: "Ordering don suspend with this supplier{reason}. Pay your outstanding balance{outstanding} make ordering open again.",
+    orderingUnavailable: "We no fit confirm your credit status just now — abeg try again small time. Your cart still dey as e be and we no place any order.",
+    paidViaCredit: "Paid via credit — e due {dueDate}. Pay before the due date make you fit dey order.",
+    imageProcessingFailed: "Sorry — I no fit process dat photo. Send am again, or type wetin you dey find. 📷",
+    ageGatePrompt: "🔞 Some items for your cart{items} na for adults only. Confirm say you don reach {age} years by replying \"YES {age}+\" make you complete your order.",
+  },
 };
 
 export function isLocale(v: unknown): v is Locale {
@@ -311,7 +352,10 @@ export function localeFromSessionLanguage(language: string | null | undefined): 
     case "igbo": case "ig": return "ig";
     case "swahili": case "kiswahili": case "sw": return "sw";
     case "amharic": case "am": return "am";
-    default: return DEFAULT_LOCALE; // english, pidgin, unknown
+    // === W49 I18N-PCM === bridge nlp session language names to pcm locale.
+    case "pidgin": case "pcm": case "naija": case "naija pidgin":
+    case "nigerian pidgin": case "broken": case "broken english": return "pcm";
+    default: return DEFAULT_LOCALE; // english, unknown
   }
 }
 
@@ -358,6 +402,17 @@ const STOPWORDS: Record<Exclude<Locale, "en">, string[]> = {
     "አሁን", "የት", "ስንት", "ክፍያ", "ይክፈሉ", "አዎ", "አይ", "እንኳን", "ሱቅ",
     "እርዳታ", "እፈልጋለሁ", "መክፈል", "ቅናሽ",
   ],
+  // === W49 I18N-PCM === ported from onboardingCopilot/language.ts pcm list.
+  // High-precision markers (abeg/wetin/how far/wahala) carry detection;
+  // multi-word phrases ("i don", "no wahala", …) score 2pts each. The
+  // apostrophe-non-boundary regex below keeps "i don" out of "I don't".
+  pcm: [
+    "abeg", "how far", "dey", "wetin", "wahala", "oga", "sabi", "comot",
+    "waka", "chop", "una", "make i", "no dey", "e dey", "na me",
+    "i don", "e don", "we don", "dem don", "you don",
+    "no wahala", "sha", "wey", "wan", "fit", "dey sell", "na so", "yarn",
+    "padi", "sef", "tori",
+  ],
 };
 
 /** Diacritic bonuses: [regex, locale, points]. */
@@ -378,7 +433,7 @@ const CHAR_HINTS: Array<[RegExp, Locale, number]> = [
 // === W46 platform-p2 (MSG-23) === scoring shared by detectLocale and the
 // confidence-aware detectLocaleDetailed.
 function scoreLocales(lower: string): Record<Locale, number> {
-  const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0, sw: 0, am: 0 };
+  const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0, sw: 0, am: 0, pcm: 0 };
   for (const [lang, words] of Object.entries(STOPWORDS) as Array<[Exclude<Locale, "en">, string[]]>) {
     for (const w of words) {
       // W15.1 bugfix: apostrophe is NOT a word boundary — otherwise the Hausa
@@ -697,9 +752,19 @@ export type MessageKey =
   | "orderPlaced" | "orderCancelled" | "askDeliveryAddress"
   // discovery
   | "discoveryAskLocation" | "discoveryEmpty" | "discoveryHeader"
+  // === W50 CHANNELS === discovery channel prompts + radius widening
+  | "discoveryAskLocationTelegram" | "discoveryAskLocationTyped"
+  | "discoveryConfirmStaleLocation" | "discoveryRadiusExpanded" | "discoveryMapsHint"
   // payment
   | "paymentPrompt" | "paymentLinkReady" | "paymentReceived" | "paymentFailed"
-  | "paymentPending";
+  | "paymentPending"
+  // === W51 PROMOS === promo spotlight card + most-ordered chrome
+  | "promoSpotlightBody" | "promoShopNow" | "promoViewDeal" | "promoLine"
+  | "popularBadge" | "popularHeader" | "popularEmpty" | "popularMenuLabel"
+  // === W52 SHARE === share-this-deal bundle + DEAL/REF inbound grammar
+  | "shareDealBlurb" | "shareDealForward" | "shareDealBundleMessage"
+  | "shareButtonLabel" | "shareDealRedeemed" | "shareDealSelfReferral"
+  | "shareDealBadPromo";
 
 export type MessageCatalog = Record<MessageKey, string>;
 
@@ -722,14 +787,40 @@ const EN_CATALOG: MessageCatalog = {
   orderPlaced: "✅ Order {orderNumber} placed! Total: {total} {currency}.",
   orderCancelled: "Your order has been cancelled — no charge was made.",
   askDeliveryAddress: "Please send your delivery address (street, area, city).",
-  discoveryAskLocation: "📍 Share your location to see businesses near you.",
+  // === W50 MERGER === English WA copy keeps the pre-W50 wording verbatim
+  // ("share your current location" — asserted by J123); the new TG/USSD/SMS
+  // variants live in discoveryAskLocationTelegram / discoveryAskLocationTyped.
+  discoveryAskLocation: "To see businesses near you, tap 📎 → Location and share your current location.",
   discoveryEmpty: "No businesses found near you yet — try a different location.",
   discoveryHeader: "Businesses near you:",
+  // === W50 CHANNELS ===
+  discoveryAskLocationTelegram: "📍 Tap the button below to share your location and see businesses near you.",
+  discoveryAskLocationTyped: "📍 Reply with your area or nearest landmark (e.g. \"Wuse 2\") to find businesses near you.",
+  discoveryConfirmStaleLocation: "📍 I have your saved delivery location on file. Reply USE SAVED to search around it, or share your current location.",
+  discoveryRadiusExpanded: "🔍 Nothing within {fromKm} km — I widened the search to {radiusKm} km.",
+  discoveryMapsHint: "💡 Share a different location anytime to search around another area.",
   paymentPrompt: "💳 Total to pay: {total} {currency}.",
   paymentLinkReady: "Tap to pay securely: {url}",
   paymentReceived: "✅ Payment received — thank you! Your order is being prepared.",
   paymentFailed: "❌ Payment didn't go through — please try again or choose another method.",
   paymentPending: "Your payment is being confirmed — we'll update you shortly.",
+  // === W51 PROMOS ===
+  promoSpotlightBody: "🔥 {title} — {discount} with code {code}",
+  promoShopNow: "🛍️ Shop now",
+  promoViewDeal: "View deal",
+  promoLine: "DEAL: {title} — {discount}. Use code {code}",
+  popularBadge: "⭐ Most ordered",
+  popularHeader: "⭐ Most ordered items:",
+  popularEmpty: "No popular items yet — check back soon.",
+  popularMenuLabel: "⭐ Popular items",
+  // === W52 SHARE ===
+  shareDealBlurb: "🔥 {title} — {discount} at our store! Use code {code}. Referral: {ref}",
+  shareDealForward: "Forward: {blurb} {link}",
+  shareDealBundleMessage: "📤 Share this deal with friends!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+  shareButtonLabel: "📤 Share",
+  shareDealRedeemed: "✅ Deal {code} locked in — it applies automatically at checkout. Happy shopping!",
+  shareDealSelfReferral: "Sorry — you can't use your own referral code. Share it with a friend instead!",
+  shareDealBadPromo: "I couldn't find that deal ({code}) — it may have expired. Reply MENU to browse the store.",
 };
 
 /** Partial translations per locale — any missing key falls back to English. */
@@ -757,11 +848,34 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Partagez votre position pour voir les commerces à proximité.",
     discoveryEmpty: "Aucun commerce trouvé à proximité — essayez un autre emplacement.",
     discoveryHeader: "Commerces près de chez vous :",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Touchez le bouton ci-dessous pour partager votre position et voir les commerces à proximité.",
+    discoveryAskLocationTyped: "📍 Répondez avec votre quartier ou un repère (ex. « Wuse 2 ») pour trouver les commerces proches.",
+    discoveryConfirmStaleLocation: "📍 J'ai votre adresse de livraison enregistrée. Répondez USE SAVED pour chercher autour d'elle, ou partagez votre position actuelle.",
+    discoveryRadiusExpanded: "🔍 Rien à moins de {fromKm} km — recherche élargie à {radiusKm} km.",
+    discoveryMapsHint: "💡 Partagez une autre position à tout moment pour chercher ailleurs.",
     paymentPrompt: "💳 Total à payer : {total} {currency}.",
     paymentLinkReady: "Touchez pour payer en toute sécurité : {url}",
     paymentReceived: "✅ Paiement reçu — merci ! Votre commande est en préparation.",
     paymentFailed: "❌ Le paiement n'a pas abouti — réessayez ou choisissez un autre moyen.",
     paymentPending: "Votre paiement est en cours de confirmation — nous vous informerons bientôt.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} avec le code {code}",
+    promoShopNow: "🛍️ Acheter",
+    promoViewDeal: "Voir l'offre",
+    promoLine: "PROMO : {title} — {discount}. Code : {code}",
+    popularBadge: "⭐ Le plus commandé",
+    popularHeader: "⭐ Articles les plus commandés :",
+    popularEmpty: "Pas encore d'articles populaires — revenez bientôt.",
+    popularMenuLabel: "⭐ Populaires",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} dans notre boutique ! Code : {code}. Parrainage : {ref}",
+    shareDealForward: "Transférer : {blurb} {link}",
+    shareDealBundleMessage: "📤 Partagez cette offre avec vos amis !\n{blurb}\n\nWhatsApp : {waUrl}\nTelegram : {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Partager",
+    shareDealRedeemed: "✅ Offre {code} activée — elle s'applique automatiquement au paiement. Bon shopping !",
+    shareDealSelfReferral: "Désolé — vous ne pouvez pas utiliser votre propre code de parrainage. Partagez-le avec un ami !",
+    shareDealBadPromo: "Je n'ai pas trouvé cette offre ({code}) — elle a peut-être expiré. Répondez MENU pour parcourir la boutique.",
   },
   ha: {
     languageMenuPrompt: "🌐 Zaɓi harshenka:",
@@ -785,11 +899,34 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Aika wurin da ka ke don ganin shaguna kusa da kai.",
     discoveryEmpty: "Ba a sami shaguna kusa da kai ba tukuna — gwada wani wuri.",
     discoveryHeader: "Shaguna kusa da kai:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Danna maɓallin da ke ƙasa don aika wurin da ka ke kuma ga shaguna kusa da kai.",
+    discoveryAskLocationTyped: "📍 Amsa da unguwarka ko wurin da aka sani (misali \"Wuse 2\") don neman shaguna kusa da kai.",
+    discoveryConfirmStaleLocation: "📍 Ina da adireshin isar da kaya da ka ajiye. Amsa USE SAVED don bincika kewaye da shi, ko aika wurin da ka ke yanzu.",
+    discoveryRadiusExpanded: "🔍 Babu komai a cikin {fromKm} km — na faɗaɗa bincike zuwa {radiusKm} km.",
+    discoveryMapsHint: "💡 Aika wani wuri a kowane lokaci don bincike a wani gari.",
     paymentPrompt: "💳 Jimillar biya: {total} {currency}.",
     paymentLinkReady: "Danna don biya cikin aminci: {url}",
     paymentReceived: "✅ An karɓi biya — na gode! Ana shirin odarka.",
     paymentFailed: "❌ Biya bai yi nasara ba — sake gwadawa ko zaɓi wani hanya.",
     paymentPending: "Ana tabbatar da biyarka — za mu sanar da kai nan ba da jimawa ba.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} da lambar {code}",
+    promoShopNow: "🛍️ Yi sayayya",
+    promoViewDeal: "Duba tayin",
+    promoLine: "TAYI: {title} — {discount}. Yi amfani da lambar {code}",
+    popularBadge: "⭐ Wanda aka fi oda",
+    popularHeader: "⭐ Kayayyakin da aka fi oda:",
+    popularEmpty: "Babu sanannun kayayyaki tukuna — sake duba nan gaba.",
+    popularMenuLabel: "⭐ Sanannu",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} a shagonmu! Yi amfani da lambar {code}. Referral: {ref}",
+    shareDealForward: "Tura wa aboki: {blurb} {link}",
+    shareDealBundleMessage: "📤 Tura wannan tayi ga abokanka!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Tura",
+    shareDealRedeemed: "✅ An kunna tayin {code} — zai shiga kai tsaye a lokacin biya. Muna maka fatan alheri!",
+    shareDealSelfReferral: "Yi haƙuri — ba za ka iya amfani da lambar referral ɗinka da kanka ba. Tura wa aboki!",
+    shareDealBadPromo: "Ban sami wannan tayin ({code}) ba — wata ƙila ya ƙare. Amsa MENU don duba shagon.",
   },
   yo: {
     languageMenuPrompt: "🌐 Yan èdè rẹ:",
@@ -813,11 +950,34 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Pín ipò rẹ láti rí àwọn ilé-iṣòwò tó sun mọ́ ọ́.",
     discoveryEmpty: "A kò rí ilé-iṣòwò kankan nítòsí rẹ — gbìyànjú ibòmíì.",
     discoveryHeader: "Àwọn ilé-iṣòwò nítòsí rẹ:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Tẹ bọtìnnì ìsàlẹ̀ yìí láti pín ipò rẹ kí o rí àwọn ilé-iṣòwò tó sun mọ́ ọ́.",
+    discoveryAskLocationTyped: "📍 Dáhùn pẹ̀lú agbègbè rẹ tàbí ami-ìdílé tó sun mọ́ ọ́ (bíi \"Wuse 2\") láti wá àwọn ilé-iṣòwò nítòsí.",
+    discoveryConfirmStaleLocation: "📍 Mo ní àdírẹ́sì ìfiranṣẹ́ rẹ tó wà nípamọ́. Dáhùn USE SAVED láti wá ní àyíká rẹ̀, tàbí pín ipò rẹ lọ́wọ́lọ́wọ́.",
+    discoveryRadiusExpanded: "🔍 Kò sí ohun kankan laàbò {fromKm} km — mo ti gbé ìwádìí dé {radiusKm} km.",
+    discoveryMapsHint: "💡 Pín ipò míì nígbàkúgbà láti wá ní agbègbè míì.",
     paymentPrompt: "💳 Àpapọ̀ owó tó yẹ kí o san: {total} {currency}.",
     paymentLinkReady: "Tẹ láti sanwó láìní ẹ̀wà: {url}",
     paymentReceived: "✅ A ti gba owó — ẹ ṣeun! A ń ṣe àṣẹ rẹ.",
     paymentFailed: "❌ Owó kò lọ — gbìyànjú lẹ́ẹ̀kansi tàbí yan ọ̀nà míì.",
     paymentPending: "A ń jẹ́rìí sí owó rẹ — a ó sọ fún ọ láìpẹ́.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} pẹ̀lú kóòdù {code}",
+    promoShopNow: "🛍️ Ra níṣìí",
+    promoViewDeal: "Wo ọ̀pọ̀tọ́ náà",
+    promoLine: "Ọ̀PỌ̀TỌ́: {title} — {discount}. Lo kóòdù {code}",
+    popularBadge: "⭐ Ẹni tí wọ́n pa ọ̀rọ̀ rẹ̀ jùlọ",
+    popularHeader: "⭐ Àwọn ohun tí wọ́n pa ọ̀rọ̀ wọn jùlọ:",
+    popularEmpty: "Kò sí ohun gbajúmọ̀ fún ìsìn — padà wá laìpẹ́.",
+    popularMenuLabel: "⭐ Gbajúmọ̀",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} ní ìtajà wa! Lo kóòdù {code}. Referral: {ref}",
+    shareDealForward: "Rán ẹ́ sí ọ̀rẹ́: {blurb} {link}",
+    shareDealBundleMessage: "📤 Pín ọ̀pọ̀tọ́ yìí pẹ̀lú àwọn ọ̀rẹ́ rẹ!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Pín",
+    shareDealRedeemed: "✅ Ọ̀pọ̀tọ́ {code} ti wọlé — yóò lo ara rẹ̀ nígbà ìsanwó. Kú òwò!",
+    shareDealSelfReferral: "Ma binu — o ò lè lo kóòdù referral tirẹ fún ara rẹ. Rán án sí ọ̀rẹ́!",
+    shareDealBadPromo: "Mi ò rí ọ̀pọ̀tọ́ yẹn ({code}) — ó lè ti parí. Dahun MENU láti wo ìtajà.",
   },
   ig: {
     languageMenuPrompt: "🌐 Họrọ asụsụ gị:",
@@ -841,12 +1001,35 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Kesaa ebe ị nọ iji hụ ụlọ ahịa dị gị nso.",
     discoveryEmpty: "Ahụghị ụlọ ahịa ọ bụla dị gị nso — nwaa ebe ọzọ.",
     discoveryHeader: "Ụlọ ahịa dị gị nso:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Pịa bọtịnụ dị n'okpuru iji kesaa ebe ị nọ wee hụ ụlọ ahịa dị gị nso.",
+    discoveryAskLocationTyped: "📍 Zaa mpaghara gị ma ọ bụ ama ebe a ma ama (dịka \"Wuse 2\") iji chọta ụlọ ahịa dị nso.",
+    discoveryConfirmStaleLocation: "📍 Enwere m adreesị nnabata gị echekwara. Zaa USE SAVED iji chọọ gburugburu ya, ma ọ bụ kesaa ebe ị nọ ugbu a.",
+    discoveryRadiusExpanded: "🔍 Enweghị ihe ọ bụla n'ime {fromKm} km — agbasaala m ọchụchọ ruo {radiusKm} km.",
+    discoveryMapsHint: "💡 Kesaa ebe ọzọ oge ọ bụla iji chọọ na mpaghara ọzọ.",
     paymentPrompt: "💳 Ngụkọta ị ga-akwụ: {total} {currency}.",
     paymentLinkReady: "Pịa iji kwụọ ụgwọ n'enweghị nsogbu: {url}",
     paymentReceived: "✅ Enwetala ụgwọ — daalụ! Ana m akọzi ihe ị zụrụ.",
     paymentFailed: "❌ Ịkwụ ụgwọ agaghị — nwaa ọzọ ma ọ bụ họrọ ụzọ ọzọ.",
     // paymentPending intentionally untranslated in Igbo — exercises the
     // locale→en fallback chain (see J137).
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} site na koodu {code}",
+    promoShopNow: "🛍️ Zụta ugbu a",
+    promoViewDeal: "Lee nkwekọrịta",
+    promoLine: "NKWEKỌRỊTA: {title} — {discount}. Jiri koodu {code}",
+    popularBadge: "⭐ Ihe a na-achọsi ike",
+    popularHeader: "⭐ Ihe ndị a na-achọsi ike:",
+    popularEmpty: "Ọ dịbeghị ihe a ma ama — laghachi ozugbo.",
+    popularMenuLabel: "⭐ Ndị a ma ama",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} n'ụlọ ahịa anyị! Jiri koodu {code}. Referral: {ref}",
+    shareDealForward: "Ziga enyi gị: {blurb} {link}",
+    shareDealBundleMessage: "📤 Kesaa nkwekọrịta a ndị enyi gị!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Kesaa",
+    shareDealRedeemed: "✅ Nkwekọrịta {code} adọbaala — ọ ga-arụ ọrụ ozugbo mgbe ị na-akwụ ụgwọ. Ka ahịa dị gị mma!",
+    shareDealSelfReferral: "Ndo — ị nweghị ike iji koodu referral gị onwe gị. Ziga ya enyi!",
+    shareDealBadPromo: "Ahụghị m nkwekọrịta ahụ ({code}) — ọ nwere ike ịgwụcha. Zaa MENU ịchọrọ ụlọ ahịa.",
   },
   sw: {
     languageMenuPrompt: "🌐 Chagua lugha yako:",
@@ -870,11 +1053,34 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 Shiriki eneo lako kuona biashara zilizo karibu nawe.",
     discoveryEmpty: "Hakuna biashara zilizopatikana karibu nawe — jaribu eneo lingine.",
     discoveryHeader: "Biashara zilizo karibu nawe:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Gusa kitufe hapa chini kushiriki eneo lako na kuona biashara zilizo karibu nawe.",
+    discoveryAskLocationTyped: "📍 Jibu kwa eneo lako au alama ya karibu (k.m. \"Wuse 2\") kupata biashara zilizo karibu nawe.",
+    discoveryConfirmStaleLocation: "📍 Nina anwani yako ya kufikishia iliyohifadhiwa. Jibu USE SAVED kutafuta karibu nayo, au shiriki eneo lako la sasa.",
+    discoveryRadiusExpanded: "🔍 Hakuna chochote ndani ya km {fromKm} — nimepanua utafutaji hadi km {radiusKm}.",
+    discoveryMapsHint: "💡 Shiriki eneo tofauti wakati wowote kutafuta sehemu nyingine.",
     paymentPrompt: "💳 Jumla ya kulipa: {total} {currency}.",
     paymentLinkReady: "Gusa kulipa kwa usalama: {url}",
     paymentReceived: "✅ Malipo yamepokea — asante! Agizo lako linaandaliwa.",
     paymentFailed: "❌ Malipo hayakufanikiwa — jaribu tena au chagua njia nyingine.",
     paymentPending: "Malipo yako yanathibitishwa — tutakujulisha hivi karibuni.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} kwa msimbo {code}",
+    promoShopNow: "🛍️ Nunua sasa",
+    promoViewDeal: "Angalia ofa",
+    promoLine: "OFA: {title} — {discount}. Tumia msimbo {code}",
+    popularBadge: "⭐ Inayoagizwa zaidi",
+    popularHeader: "⭐ Bidhaa zinazoagizwa zaidi:",
+    popularEmpty: "Hakuna bidhaa maarufu bado — rudi hivi karibuni.",
+    popularMenuLabel: "⭐ Maarufu",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} dukani kwetu! Tumia msimbo {code}. Referral: {ref}",
+    shareDealForward: "Tuma kwa rafiki: {blurb} {link}",
+    shareDealBundleMessage: "📤 Shiriki ofa hii na marafiki!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Shiriki",
+    shareDealRedeemed: "✅ Ofa {code} imewekwa — itatumika moja kwa moja unapolipa. Karibu!",
+    shareDealSelfReferral: "Samahani — huwezi kutumia msimbo wako mwenyewe wa referral. Mtumie rafiki!",
+    shareDealBadPromo: "Sikuipata ofa hiyo ({code}) — huenda imeisha. Jibu MENU kuona duka.",
   },
   am: {
     languageMenuPrompt: "🌐 ቋንቋዎን ይምረጡ:",
@@ -898,12 +1104,88 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     discoveryAskLocation: "📍 በአቅራቢያዊ ያሉ ንግዶችን ለማየት አካባቢዎን ያጋሩ።",
     discoveryEmpty: "በአቅራቢያዊ ምንም ንግድ አልተገኘም — ሌላ ቦታ ይሞክሩ።",
     discoveryHeader: "በአቅራቢያዊ ያሉ ንግዶች:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 አካባቢዎን ለማጋራት እና በአቅራቢያዊ ያሉ ንግዶችን ለማየት ከታች ያለውን ቁልፍ ይንኩ።",
+    discoveryAskLocationTyped: "📍 በአቅራቢያዊ ያሉ ንግዶችን ለማግኘት አካባቢዎን ወይም የቅርብ ምልክት ቦታ (ለምሳሌ \"Wuse 2\") ይመልሱ።",
+    discoveryConfirmStaleLocation: "📍 የተቀመጠ የመላኪያ አድራሻዎ አለኝ። ዙሪያውን ለመፈተሽ USE SAVED ብለው ይመልሱ፣ ወይም የአሁኑን አካባቢዎን ያጋሩ።",
+    discoveryRadiusExpanded: "🔍 በ{fromKm} km ውስጥ ምንም አልተገኘም — ፍለጋውን ወደ {radiusKm} km አሰራዝሬአለሁ።",
+    discoveryMapsHint: "💡 በሌላ አካባቢ ለመፈተሽ በማንኛውም ጊዜ ሌላ አካባቢ ያጋሩ።",
     paymentPrompt: "💳 የሚከፍሉት ጠቅላላ: {total} {currency}።",
     paymentLinkReady: "በደህና ለመክፈል ይንኩ: {url}",
     paymentReceived: "✅ ክፍያ ደርሷል — አመሰግናለሁ! ትእዛዝዎ እየተዘጋጀ ነው።",
     paymentFailed: "❌ ክፍያ አልተሳካም — እባክዎ እንደገና ይሞክሩ ወይም ሌላ መንገድ ይምረጡ።",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} በኮድ {code}",
+    promoShopNow: "🛍️ አሁን ይግዙ",
+    promoViewDeal: "ቅናሹን ይመልከቱ",
+    promoLine: "ቅናሽ: {title} — {discount}. ኮድ {code} ይጠቀሙ",
+    popularBadge: "⭐ በብዛት የሚያዝ",
+    popularHeader: "⭐ በብዛት የሚያዙ እቃዎች:",
+    popularEmpty: "እስካሁን ታዋቂ እቃዎች የሉም — በቅርቡ ይመልሱ።",
+    popularMenuLabel: "⭐ ታዋቂዎች",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} በሱቃችን! ኮድ {code} ይጠቀሙ። Referral: {ref}",
+    shareDealForward: "ለጓደኛ ያስተላልፉ: {blurb} {link}",
+    shareDealBundleMessage: "📤 ይህንን ቅናሽ ከጓደኞችዎ ጋር ያጋሩ!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 አጋራ",
+    shareDealRedeemed: "✅ ቅናሽ {code} ተግብሯል — ሲከፍሉ በራስ-ሰር ይተገበራል። ምርጡ ይምረጡ!",
+    shareDealSelfReferral: "ይቅርታ — የራስዎን referral ኮድ መጠቀም አይችሉም። ለጓደኛ ያጋሩት!",
+    shareDealBadPromo: "ያንን ቅናሽ ({code}) ማግኘት አልቻልኩም — ሊያበቃ ይችላል። ሱቁን ለማየት MENU ብለው ይመልሱ።",
     // paymentPending intentionally untranslated in Amharic — exercises the
     // locale→en fallback chain (see J137).
+  },
+  // === W49 I18N-PCM === full catalog (all 27 MessageKeys — complete, not
+  // leaning on the Partial fallback like ig/am paymentPending).
+  pcm: {
+    languageMenuPrompt: "🌐 Choose your language / Wetin you wan speak:",
+    languageSetConfirm: "Language don set to {language}. You fit change am any time — just type LANGUAGE.",
+    languageMenuHint: "Type LANGUAGE any time make you change your language.",
+    mainMenuPrompt: "Reply with number, or tell me wetin you dey find.",
+    backToMenu: "Back to main menu",
+    invalidSelection: "Sorry o, I no understand dat one — reply MENU make you see the options again.",
+    catalogHeader: "🛍️ Wetin we get:",
+    catalogEmpty: "No products dey now — abeg check back small time.",
+    catalogItemOutOfStock: "(e don finish)",
+    catalogItemAdded: "I don add {product} ×{qty} to your cart. 🛒",
+    catalogMoreHint: "Reply with the product name or number make I add am to your cart.",
+    cartSummaryHeader: "🛒 Your cart:",
+    cartEmpty: "Your cart dey empty.",
+    checkoutPrompt: "Reply CHECKOUT make you place your order, or continue shopping.",
+    orderConfirmPrompt: "Confirm your order? Reply YES to confirm or NO to cancel.",
+    orderPlaced: "✅ Order {orderNumber} don place! Total: {total} {currency}.",
+    orderCancelled: "Your order don cancel — dem no charge you.",
+    askDeliveryAddress: "Abeg send your delivery address (street, area, city).",
+    discoveryAskLocation: "📍 Share your location make you see businesses wey dey near you.",
+    discoveryEmpty: "We never see any business near you yet — try another location.",
+    discoveryHeader: "Businesses wey dey near you:",
+    // === W50 CHANNELS ===
+    discoveryAskLocationTelegram: "📍 Tap the button wey dey below make you share your location and see businesses near you.",
+    discoveryAskLocationTyped: "📍 Reply with your area or landmark wey dey near you (like \"Wuse 2\") make you see businesses wey dey near.",
+    discoveryConfirmStaleLocation: "📍 I get your saved delivery location for file. Reply USE SAVED make I search around am, or share where you dey now.",
+    discoveryRadiusExpanded: "🔍 Nothing dey within {fromKm} km — I don widen the search reach {radiusKm} km.",
+    discoveryMapsHint: "💡 Share another location any time make you search another area.",
+    paymentPrompt: "💳 Total wey you go pay: {total} {currency}.",
+    paymentLinkReady: "Tap here make you pay well: {url}",
+    paymentReceived: "✅ Payment don enter — thank you! We dey prepare your order.",
+    paymentFailed: "❌ Payment no go — abeg try again or choose another way.",
+    paymentPending: "Dem dey confirm your payment — we go update you small time.",
+    // === W51 PROMOS ===
+    promoSpotlightBody: "🔥 {title} — {discount} with code {code}",
+    promoShopNow: "🛍️ Shop now",
+    promoViewDeal: "See di deal",
+    promoLine: "DEAL: {title} — {discount}. Use code {code}",
+    popularBadge: "⭐ Wey pipo dey order pass",
+    popularHeader: "⭐ Items wey pipo dey order pass:",
+    popularEmpty: "Popular items never dey yet — check am later.",
+    popularMenuLabel: "⭐ Popular items",
+    // === W52 SHARE ===
+    shareDealBlurb: "🔥 {title} — {discount} for our shop! Use code {code}. Referral: {ref}",
+    shareDealForward: "Forward am: {blurb} {link}",
+    shareDealBundleMessage: "📤 Share dis deal give your padi dem!\n{blurb}\n\nWhatsApp: {waUrl}\nTelegram: {tgUrl}\n\n{forward}",
+    shareButtonLabel: "📤 Share am",
+    shareDealRedeemed: "✅ Deal {code} don lock — e go apply by itself wen you dey checkout. Enjoy!",
+    shareDealSelfReferral: "Sorry o — you no fit use your own referral code by yourself. Share am give your padi!",
+    shareDealBadPromo: "I no fit find dat deal ({code}) — e fit don expire. Reply MENU make you check di shop.",
   },
 };
 
@@ -940,6 +1222,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   ig: "Igbo",
   sw: "Kiswahili",
   am: "አማርኛ (Amharic)",
+  pcm: "Naija (Pidgin)", // === W49 I18N-PCM ===
 };
 
 /** Numbered language-picker menu (rendered in the customer's current locale). */
@@ -967,6 +1250,9 @@ export function parseLanguageChoice(reply: string): Locale | null {
     english: "en", french: "fr", francais: "fr", "français": "fr",
     hausa: "ha", harshen: "ha", yoruba: "yo", "yorùbá": "yo", igbo: "ig",
     swahili: "sw", kiswahili: "sw", amharic: "am", "አማርኛ": "am",
+    // === W49 I18N-PCM === pidgin aliases (mirror copilot LANGUAGE_ALIASES).
+    pidgin: "pcm", naija: "pcm", "naija pidgin": "pcm",
+    "nigerian pidgin": "pcm", "broken english": "pcm", broken: "pcm",
   };
   return realAliases[t] ?? null;
 }
@@ -977,7 +1263,8 @@ export function isLanguageMenuRequest(text: string): boolean {
   return (
     t === "language" || t === "languages" || t === "lang" ||
     t === "change language" || t === "harshe" || t === "èdè" || t === "asụsụ" ||
-    t === "lugha" || t === "langue" || t === "ቋንቋ"
+    t === "lugha" || t === "langue" || t === "ቋንቋ" ||
+    t === "pidgin" // === W49 I18N-PCM === "pidgin" alone opens the picker
   );
 }
 
@@ -1000,6 +1287,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["menu", "mbido"],
     sw: ["menyu", "mwanzo"],
     am: ["ምናሌ", "መነሻ"],
+    pcm: ["menu", "start", "fess"],
   },
   shop: {
     en: ["shop", "buy", "products", "catalog", "browse"],
@@ -1009,6 +1297,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["zụta", "ahịa", "ngwaahịa", "ịzụ"],
     sw: ["nunua", "bidhaa", "duka", "mnunuzi"],
     am: ["ግዛ", "ምርቶች", "ሱቅ", "ግብዣ"],
+    pcm: ["buy", "wetin you get", "wetin dey", "shop", "products"],
   },
   track: {
     en: ["track", "status", "where is my order"],
@@ -1018,6 +1307,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["lelee", "soro"],
     sw: ["fuatilia", "hali"],
     am: ["ከታተል", "ሁኔታ"],
+    pcm: ["wey my order", "track am", "order status"],
   },
   support: {
     en: ["help", "support"],
@@ -1027,6 +1317,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["enyemaka"],
     sw: ["msaada", "saidia"],
     am: ["እርዳታ", "ርዳታ"],
+    pcm: ["help", "abeg help", "support"],
   },
   handoff: {
     en: ["human", "agent", "person"],
@@ -1036,6 +1327,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["nnọchi", "mmadụ"],
     sw: ["mtu", "wakala"],
     am: ["ሰው", "ወኪል"],
+    pcm: ["person", "human being", "talk to person", "oga"],
   },
   booking: {
     en: ["book", "appointment"],
@@ -1045,6 +1337,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["oge njikọ", "hazie"],
     sw: ["miadi", "weka miadi"],
     am: ["ቀጠሮ"],
+    pcm: ["book", "appointment", "book appointment"],
   },
   checkout: {
     en: ["checkout", "cart", "done"],
@@ -1054,6 +1347,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["ngọdo", "mezue"],
     sw: ["kikapu", "maliza", "kamilisha"],
     am: ["ጋሪ", "ጨርስ", "አጠናቅቅ"],
+    pcm: ["checkout", "cart", "finish am", "don finish"],
   },
   pay: {
     en: ["pay", "payment", "pay now"],
@@ -1063,6 +1357,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["kwụọ", "ịkwụ ụgwọ"],
     sw: ["lipa", "malipo"],
     am: ["ክፈል", "ክፍያ", "መክፈል"],
+    pcm: ["pay", "send money", "pay now", "make payment"],
   },
   discover: {
     en: ["near me", "nearby", "around me", "discover"],
@@ -1072,6 +1367,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["dị m nso", "nso"],
     sw: ["karibu nami", "karibu", "jirani"],
     am: ["በአቅራቢያዬ", "አቅራቢያ", "ቅርብ"],
+    pcm: ["near me", "wey dey near me", "around me"],
   },
   language: {
     en: ["language", "change language"],
@@ -1081,6 +1377,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["asụsụ", "gbanwee asụsụ"],
     sw: ["lugha", "badilisha lugha"],
     am: ["ቋንቋ", "ቋንቋ ቀይር"],
+    pcm: ["language", "change language", "pidgin"],
   },
   confirm: {
     en: ["yes", "confirm", "ok"],
@@ -1090,6 +1387,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["ee", "kwado"],
     sw: ["ndiyo", "thibitisha", "sawa"],
     am: ["አዎ", "አረጋግጥ", "እሺ"],
+    pcm: ["yes o", "na so", "sharp", "confirm am", "yes"],
   },
   cancel: {
     en: ["no", "cancel", "stop"],
@@ -1099,6 +1397,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["mba", "kagbuo", "kwụsị"],
     sw: ["hapana", "ghairi", "acha"],
     am: ["አይ", "ሰርዝ", "ተው"],
+    pcm: ["no", "comot", "leave am", "cancel am", "no do"],
   },
 };
 

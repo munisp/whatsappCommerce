@@ -35,18 +35,25 @@ function config(): { baseUrl: string; apiKey: string } {
 
 async function call<T>(path: string, init: RequestInit): Promise<T> {
   const { baseUrl, apiKey } = config();
-  const resp = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-      ...(init.headers ?? {}),
+  // === W48 integrations (PERF-INT-13): bounded timeout + breaker via the
+  // shared fetchJson helper — this call previously had NO timeout. ===
+  const { fetchJson, INTEGRATION_TIMEOUTS } = await import("../net/resilientFetch");
+  const res = await fetchJson(`${baseUrl}${path}`, {
+    integration: "moto_dispatch",
+    timeoutMs: INTEGRATION_TIMEOUTS.generic,
+    init: {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+        ...(init.headers ?? {}),
+      },
     },
   });
-  if (!resp.ok) {
-    throw new Error(`moto_dispatch ${path} failed: HTTP ${resp.status}`);
+  if (!res.ok) {
+    throw new Error(`moto_dispatch ${path} failed: HTTP ${res.status}`);
   }
-  return (await resp.json()) as T;
+  return res.data as T;
 }
 
 export const motoDispatchStubAdapter: CourierAdapter = {

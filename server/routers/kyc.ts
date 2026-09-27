@@ -6,7 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "../db";
 import { kycApplications, kycDocuments, livenessChecks } from "../../drizzle/schema";
 import type { KycApplication } from "../../drizzle/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { storagePut } from "../storage";
 import { runKybChecks, type KybCheckResult } from "../services/compliance";
@@ -403,10 +403,13 @@ export const kycRouter = router({
           }
           const waiverNote =
             `[doc-waiver] verification waived by admin ${reviewer} at ${new Date().toISOString()}`;
-          for (const d of pendingDocs) {
+          // === W48 PERF-API-13 (api-db): one UPDATE ... IN (...) instead of
+          // a per-document round-trip; concat_ws matches the prior
+          // [notes, waiver].filter(Boolean).join("\n") semantics. ===
+          if (pendingDocs.length > 0) {
             await db.update(kycDocuments)
-              .set({ verificationNotes: [d.verificationNotes, waiverNote].filter(Boolean).join("\n") })
-              .where(eq(kycDocuments.id, d.id));
+              .set({ verificationNotes: sql`concat_ws('\n', ${kycDocuments.verificationNotes}, ${waiverNote})` })
+              .where(inArray(kycDocuments.id, pendingDocs.map((d) => d.id)));
           }
           reviewNotes = [input.notes, waiverNote].filter(Boolean).join("\n");
         }

@@ -144,19 +144,27 @@ export async function sweepOrphanedTrialTenants(olderThanDays = 7): Promise<stri
     LIMIT 200`)) as unknown as any[];
   const list = (Array.isArray(rows) ? rows : (rows as any).rows ?? []).map((r: any) => String(r.id));
   const { writeAuditLog } = await import("../routers/audit");
-  for (const id of list) {
-    await db.execute(sql`UPDATE tenants SET status = 'churned', "updatedAt" = now() WHERE id = ${id} AND status = 'trial'`);
-    await writeAuditLog({
-      actorId: "system:orphan-sweep",
-      actorRole: "system",
-      action: "onboarding.orphan_tenant_swept",
-      entityType: "tenant",
-      entityId: id,
-      tenantId: id,
-      summary: `orphaned trial tenant ${id} (no memberships, no onboarding session) marked churned by sweep`,
-    }).catch(() => {});
+  // === W48 PERF-API-13 (api-db): one UPDATE for all orphans instead of a
+  // per-tenant statement; conditional status='trial' guard unchanged. Audit
+  // rows are written per tenant only for rows actually churned. ===
+  if (list.length > 0) {
+    const churned: any = await db.execute(sql`UPDATE tenants SET status = 'churned', "updatedAt" = now() WHERE id IN (${sql.join(list.map((id: string) => sql`${id}`), sql`, `)}) AND status = 'trial' RETURNING id`);
+    const churnedRows: any[] = Array.isArray(churned) ? churned : (churned?.rows ?? []);
+    for (const r of churnedRows) {
+      const id = String(r.id);
+      await writeAuditLog({
+        actorId: "system:orphan-sweep",
+        actorRole: "system",
+        action: "onboarding.orphan_tenant_swept",
+        entityType: "tenant",
+        entityId: id,
+        tenantId: id,
+        summary: `orphaned trial tenant ${id} (no memberships, no onboarding session) marked churned by sweep`,
+      }).catch(() => {});
+    }
   }
   return list;
+  // === END W48 ===
 }
 // === END W47 crosscutting ===
 
@@ -187,7 +195,7 @@ export async function updateTenantSettings(
   const db = await getDb();
   if (!db) throw new Error("Database unavailable");
   const [tenant] = await db
-    .select({ settings: tenants.settings })
+    .select({ settings: tenants.settings, whatsappPhoneNumberId: tenants.whatsappPhoneNumberId })
     .from(tenants)
     .where(eq(tenants.id, tenantId))
     .limit(1);
@@ -200,6 +208,15 @@ export async function updateTenantSettings(
     .update(tenants)
     .set({ settings: settings as unknown as Record<string, unknown>, updatedAt: new Date() })
     .where(eq(tenants.id, tenantId));
+  // === W48 merger fix: settings are served to the inbound WA pipeline via
+  // the waTenantLookup read-through cache (PERF-INT-6, row incl. settings) —
+  // every settings mutation MUST invalidate it or menu/config changes go
+  // stale for up to the cache TTL (fail-open). ===
+  try {
+    const { invalidateWaTenantLookup } = await import("./waTenantLookup");
+    await invalidateWaTenantLookup(tenant.whatsappPhoneNumberId);
+  } catch { /* cache fail-open */ }
+  // === END W48 merger fix ===
   return settings;
 }
 

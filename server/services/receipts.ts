@@ -180,5 +180,22 @@ export async function sendOrderReceipt(
     // === W37 telegram ===
   }
   // === W37 telegram END ===
+  // === W49 RICHMEDIA (RICH-6): receipt PDF follow-up on BOTH channels ===
+  // Fail-open: a PDF failure can never affect the payment-confirm caller.
+  try {
+    const { sendOrderReceiptPdf } = await import("./richMedia");
+    const lines = parseReceiptItems(order.items).map(
+      (it) => `${it.qty} × ${it.name} — ${fmtMoney(it.unitPrice * it.qty, order.currency)}`,
+    );
+    lines.push(`Total: ${fmtMoney(Number(order.totalAmount), order.currency)}`);
+    await sendOrderReceiptPdf(order.tenantId, buyerPhone, {
+      businessName,
+      orderNumber: order.orderNumber,
+      lines,
+    });
+  } catch (e: any) {
+    console.warn("[receipts] PDF receipt failed (fail-open):", e?.message);
+  }
+  // === END W49 RICHMEDIA ===
   return { sent: true };
 }

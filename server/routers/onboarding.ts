@@ -489,6 +489,9 @@ export const onboardingRouter = router({
           .update(tenants)
           .set({ whatsappPhoneNumberId: creds.phoneNumberId, updatedAt: new Date() })
           .where(eq(tenants.id, input.tenantId));
+        // W48 (PERF-INT-6): invalidate the cached phone_number_id → tenant lookup.
+        const { invalidateWaTenantLookup } = await import("../services/waTenantLookup");
+        await invalidateWaTenantLookup(creds.phoneNumberId).catch(() => { /* best-effort */ });
         await updateTenantSettings(input.tenantId, (s) => {
           // Encrypt at rest (v1: envelope) — reads decrypt transparently.
           s.whatsapp = {

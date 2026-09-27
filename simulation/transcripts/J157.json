@@ -9,27 +9,27 @@
       "dir": "in",
       "phone": "2348099900000",
       "profileName": "Sim User 0000",
-      "inboundId": "wamid.sim.in.text.00404",
-      "at": 1789790834303,
+      "inboundId": "wamid.sim.in.text.00093",
+      "at": 1790457916335,
       "kind": "text",
       "text": "odoo status"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00404",
-      "at": 1789790834311
+      "wamid": "wamid.sim.in.text.00093",
+      "at": 1790457916341
     },
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000644",
+      "wamid": "wamid.sim.000158",
       "statuses": [
         "sent"
       ],
-      "at": 1789790834331,
+      "at": 1790457916354,
       "kind": "text",
-      "body": "📊 *Odoo sync status*\n• Connection: enabled (ondemand mode)\n• Pending: 0\n• Synced: 0\n• Failed (needs attention): 21\n• Connection test: not run yet\nOpen the portal reconciliation queue (Settings → Odoo) to retry failed items."
+      "body": "📊 *Odoo sync status*\n• Connection: enabled (ondemand mode)\n• Pending: 0\n• Synced: 0\n• Failed (needs attention): 11\n• Connection test: not run yet\nOpen the portal reconciliation queue (Settings → Odoo) to retry failed items."
     }
   ]
 }

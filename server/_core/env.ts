@@ -92,6 +92,11 @@ export const ENV = {
   llmModel: process.env.LLM_MODEL ?? "llama3.2",
   // App
   appUrl: process.env.APP_URL ?? "http://localhost:3000",
+  // === W49 RICHMEDIA (RICH-3): public base for chat media links ===
+  // Meta/Telegram fetch media by ABSOLUTE https URL; storagePut persists
+  // app-relative /api/storage/<key> paths. PUBLIC_APP_URL is the externally
+  // reachable origin used to absolutize them (falls back to APP_URL).
+  publicAppUrl: process.env.PUBLIC_APP_URL ?? process.env.APP_URL ?? "",
   isProduction: isProd,
   isProd,
   isDev,

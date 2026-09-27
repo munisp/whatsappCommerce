@@ -1126,9 +1126,10 @@ export function buildOrderActionCard(opts: { orderId: string; orderNumber: strin
     action: {
       type: "button",
       buttons: [
-        { id: orderActionReplyId("track", opts.orderId), title: "Track Order" },
-        { id: orderActionReplyId("pay", opts.orderId), title: "Pay Now" },
-        { id: orderActionReplyId("cancel", opts.orderId), title: "Cancel Order" },
+        // === W49 RICHMEDIA (RICH-10): emoji icons on card buttons ===
+        { id: orderActionReplyId("track", opts.orderId), title: "📦 Track Order" },
+        { id: orderActionReplyId("pay", opts.orderId), title: "💳 Pay Now" },
+        { id: orderActionReplyId("cancel", opts.orderId), title: "❌ Cancel" },
       ],
     },
   };
@@ -1283,6 +1284,58 @@ export async function handleInteractiveInbound(opts: {
     return { handled: true, reply };
   }
 
+  // === W52 SHARE === "📤 Share" promo-card tap (WA reply button / TG inline
+  // keyboard, id "promo_share:<CODE>"): send the sharer the localized bundle
+  // message (wa.me share URL + TG share URL + forward text) carrying THEIR
+  // referral code, and count the tap on the existing agent_events rail.
+  const shareTap = /^promo_share:([A-Za-z0-9_-]{2,32})$/i.exec(id);
+  if (shareTap) {
+    try {
+      const { getActivePromos } = await import("./promoSpotlight");
+      const { buildDealShareBundle, renderShareBundleMessage, recordShareTap } = await import("./shareDeal");
+      const { getOrCreateReferralCode } = await import("./referrals");
+      const settings = (opts.tenant as any)?.settings ??
+        (await db.select({ settings: tenants.settings }).from(tenants)
+          .where(eq(tenants.id, tenantId)).limit(1).catch(() => [] as any[]))[0]?.settings ?? null;
+      const channel = /^telegram:/i.test(phone) ? "telegram" : "whatsapp";
+      const promoCode = shareTap[1]!.toUpperCase();
+      const promo = getActivePromos(settings).find((p) => p.code.toUpperCase() === promoCode);
+      if (!promo) {
+        return { handled: true, reply: t27("en", "shareDealBadPromo", { code: promoCode }) };
+      }
+      // TG session keys resolve to the linked E.164 phone when bound (same
+      // rule as the W44 referral grammar in routers/nlp.ts).
+      let customerRef = phone;
+      if (/^telegram:/i.test(phone)) {
+        const chatId = phone.replace(/^telegram:/i, "");
+        const { telegramIdentities } = await import("../../drizzle/schema");
+        const [ident] = await db.select({ phone: telegramIdentities.phoneE164 })
+          .from(telegramIdentities)
+          .where(and(eq(telegramIdentities.tenantId, tenantId), eq(telegramIdentities.chatId, chatId)))
+          .limit(1).catch(() => [] as any[]);
+        if (ident?.phone) customerRef = ident.phone;
+      }
+      const locale = await resolveLocale({ tenantId, phone: customerRef, tenantSettings: settings }).catch(() => "en" as Locale);
+      const refRow = await getOrCreateReferralCode(tenantId, customerRef, db);
+      const spotlight = {
+        kind: "promo" as const,
+        title: `Promo ${promo.code}`,
+        discountText: promo.type === "percent" ? `${Math.round(promo.value)}% off` : `${promo.value} off`,
+        code: promo.code,
+      };
+      const bundle = buildDealShareBundle({ settings, promo: spotlight, referralCode: refRow.code, locale });
+      if (!bundle) {
+        return { handled: true, reply: t27(locale, "shareDealBadPromo", { code: promo.code }) };
+      }
+      await recordShareTap(db, { tenantId, promoCode: promo.code, channel });
+      return { handled: true, reply: renderShareBundleMessage(locale, bundle) };
+    } catch (e: any) {
+      console.warn("[useCases] promo share tap failed:", e?.message);
+      return { handled: true, reply: "Sorry — I couldn't build that share link just now. Please try again." };
+    }
+  }
+  // === END W52 SHARE ===
+
   // 2. Menu button/list replies → numeric selection through the text path.
   const config = loadMenuConfig(opts.tenant);
   let n = id ? parseMenuEntryReplyId(id) : null;
@@ -1394,11 +1447,71 @@ export async function handleUssdRequest(opts: {
     return ussdWrap(outcome.reply ?? "OK.", !continues);
   }
 
+  // === W51 PROMOS === USSD "popular items": localized numbered text list
+  // ranked featured-pins → 90-day sales (same ranking as the WA/TG cards).
+  if (/^(popular|popular items|most ordered|top items)$/i.test(lastInput)) {
+    const { buildPopularBrowseResult } = await import("./promoSpotlight");
+    const popular = await buildPopularBrowseResult(db, { tenantId, locale: ussdLocale });
+    return ussdWrap(popular.reply, true);
+  }
+  // === END W51 PROMOS ===
+
+  // === W50 CHANNELS (B6) === USSD discovery-by-text: USSD has no GPS pin,
+  // so "…near me" intents (or an open awaitingDiscoveryArea prompt) resolve
+  // a typed area/landmark against the discoverable merchants' address fields
+  // (merchantLocations addressLine/city/label) — no external geocoder.
+  {
+    const { extractDiscoverQuery } = await import("./discoveryMenu");
+    const residual = extractDiscoverQuery(lastInput);
+    const discoveryIntent = residual != null || /^(discover|nearby|near me)/i.test(lastInput);
+    const awaitingArea = session?.awaitingDiscoveryArea === true;
+    if (discoveryIntent || awaitingArea) {
+      const { t27 } = await import("./i18n");
+      const areaText = awaitingArea ? lastInput.trim() : (residual ?? "").trim();
+      if (areaText.length < 3) {
+        await saveSession({ ...(session ?? newSession(tenantId, phone)), awaitingDiscoveryArea: true });
+        return ussdWrap(t27(ussdLocale, "discoveryAskLocationTyped"), false);
+      }
+      const { discoverByAreaText } = await import("./geoDiscovery");
+      const matches = await discoverByAreaText(db, areaText, 5).catch(() => [] as any[]);
+      await saveSession({ ...(session ?? newSession(tenantId, phone)), awaitingDiscoveryArea: false, mode: "menu" });
+      if (!matches.length) {
+        return ussdWrap(t27(ussdLocale, "discoveryEmpty"), true);
+      }
+      const lines = matches.map((m: any, i: number) =>
+        `${i + 1}. ${m.businessName} — ${[m.addressLine, m.city].filter(Boolean).join(", ") || m.label}`);
+      return ussdWrap(`${t27(ussdLocale, "discoveryHeader")}\n${lines.join("\n")}`, true);
+    }
+  }
+  // === END W50 CHANNELS ===
+
   // Numeric menu selection.
   if (!session || session.mode === "menu") {
     const selection = resolveMenuSelection(deps.config, lastInput);
     if (selection) {
       const outcome = await dispatchSelection(deps, session, selection);
+      // === W51 PROMOS === USSD promo one-liner on the shop inquiry path
+      // (honors settings.promos.showActive; locale-aware via MESSAGE_CATALOG).
+      if (selection.id === "shop") {
+        try {
+          const { getPromoSpotSettings, getSpotlightPromos, renderPromoLine } = await import("./promoSpotlight");
+          const spot = getPromoSpotSettings(ussdTenantSettings);
+          if (spot.showActive) {
+            const promo = (await getSpotlightPromos(db, tenantId, ussdTenantSettings))[0];
+            if (promo) {
+              // === W52 SHARE === the promo one-liner APPENDS the forward
+              // line ("Forward: {blurb} {ctwaLink}") when the tenant has a
+              // public WA phone for the deep link.
+              const { buildForwardText } = await import("./shareDeal");
+              const fwd = buildForwardText(ussdLocale, promo, ussdTenantSettings);
+              const header = fwd ? `${renderPromoLine(ussdLocale, promo)}\n${fwd}` : renderPromoLine(ussdLocale, promo);
+              outcome.reply = `${header}\n${outcome.reply ?? ""}`.trim();
+              // === END W52 SHARE ===
+            }
+          }
+        } catch { /* promo line is cosmetic — fail open */ }
+      }
+      // === END W51 PROMOS ===
       const continues = (await getSession(tenantId, phone))?.mode === "usecase";
       return ussdWrap(outcome.reply ?? "OK.", !continues);
     }

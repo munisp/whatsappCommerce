@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Shield, Search, Users, LogIn, Clock } from "lucide-react";
+import { usePollInterval } from "@/hooks/usePollInterval";
 
 function initials(name?: string | null, email?: string | null): string {
   if (name) return name.split(" ").map((p) => p[0]).join("").toUpperCase().slice(0, 2);
@@ -26,11 +27,13 @@ function timeAgo(date: Date | string | null): string {
 }
 
 export default function SsoUsers() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const listPoll = usePollInterval(30_000);
   const [search, setSearch] = useState("");
 
   const { data, isLoading } = trpc.keycloak.listSsoProfiles.useQuery(
     { search: search || undefined, limit: 100 },
-    { refetchInterval: 30_000 }
+    { refetchInterval: listPoll }
   );
 
   const profiles = data?.profiles ?? [];

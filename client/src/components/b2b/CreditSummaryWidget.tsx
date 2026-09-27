@@ -3,7 +3,7 @@
  * buyer-side credit accounts, next due date (rolled up from per-account
  * ledgers) and utilization %. Links to the Credit Accounts page.
  */
-import { useMemo } from "react";
+import { useMemo, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useActiveTenant } from "@/contexts/TenantContext";
@@ -12,7 +12,7 @@ import { dueCountdown, formatDate, formatNaira, nextDueFromLedger, summarizeCred
 import { Wallet } from "lucide-react";
 import { useLocation } from "wouter";
 
-export function CreditSummaryWidget() {
+function CreditSummaryWidgetImpl() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const { data: accounts, isLoading, error } = useCreditAccounts({ tenantId, side: "buyer" });
   const [, setLocation] = useLocation();
@@ -76,3 +76,6 @@ export function CreditSummaryWidget() {
     </Card>
   );
 }
+
+// W48 perf (PERF-FE-10): memoized widget.
+export const CreditSummaryWidget = memo(CreditSummaryWidgetImpl);

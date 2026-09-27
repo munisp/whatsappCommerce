@@ -15,6 +15,16 @@ import {
 } from "../../drizzle/schema";
 
 const DEMO_TENANT = "demo-tenant-001";
+
+// === W48 PERF-API-9 (api-db): fire-and-forget menu cache invalidation
+// (fail-open) for the menu.get read-through cache. ===
+function invalidateMenu(menuId: string): void {
+  void import("../services/readThroughCache")
+    .then((m) => m.invalidateMenuCache(menuId))
+    .catch(() => { /* fail-open */ });
+}
+// === END W48 ===
+
 function getTenantId(ctx: { user: { role?: string; tenantId?: string | null } }) {
   if (ctx.user.tenantId) return ctx.user.tenantId;
   // Platform admins may still operate on the demo tenant; any other
@@ -56,6 +66,15 @@ export const menuRouter = router({
       const db = await getDb();
       if (!db) return null;
       const tenantId = getTenantId(ctx);
+      // === W48 PERF-API-9 (api-db): Redis read-through for menu snapshots
+      // (fail-open); invalidated on menu/item mutations below. ===
+      const { cacheGetJson, cacheSetJson, cacheKeys } = await import("../services/readThroughCache");
+      const key = cacheKeys.menu(input.menuId);
+      const cached = await cacheGetJson<{ menu: any; items: any[] }>(key);
+      if (cached) {
+        // Defense: never serve a cached menu across tenants.
+        if (cached.menu?.tenantId === tenantId) return cached;
+      }
       const menus = await db
         .select()
         .from(whatsappMenus)
@@ -67,7 +86,9 @@ export const menuRouter = router({
         .from(whatsappMenuItems)
         .where(and(eq(whatsappMenuItems.menuId, input.menuId), eq(whatsappMenuItems.tenantId, tenantId)))
         .orderBy(asc(whatsappMenuItems.sortOrder));
-      return { menu: menus[0], items };
+      const result = { menu: menus[0], items };
+      await cacheSetJson(key, result, 120);
+      return result;
     }),
 
   // ── Create menu ────────────────────────────────────────────────────────────
@@ -100,6 +121,7 @@ export const menuRouter = router({
         .update(whatsappMenus)
         .set(rest)
         .where(and(eq(whatsappMenus.id, menuId), eq(whatsappMenus.tenantId, getTenantId(ctx))));
+      invalidateMenu(menuId);
       return { success: true };
     }),
 
@@ -116,6 +138,7 @@ export const menuRouter = router({
       await db
         .delete(whatsappMenus)
         .where(and(eq(whatsappMenus.id, input.menuId), eq(whatsappMenus.tenantId, tenantId)));
+      invalidateMenu(input.menuId);
       return { success: true };
     }),
 
@@ -138,6 +161,7 @@ export const menuRouter = router({
         url: input.item.url,
         sortOrder: input.item.sortOrder,
       });
+      invalidateMenu(input.menuId);
       return { id };
     }),
 
@@ -433,6 +457,7 @@ export const menuRouter = router({
       await insertItem({ parentId: supportId, type: "quick_reply", title: "Talk to Agent", payload: "HUMAN_HANDOFF" });
       await insertItem({ parentId: supportId, type: "quick_reply", title: "FAQs", payload: "FAQ" });
 
+      invalidateMenu(input.menuId);
       return { success: true, itemsCreated: sortOrder };
     }),
 
@@ -447,6 +472,7 @@ export const menuRouter = router({
         .update(whatsappMenus)
         .set({ status: "published", publishedAt: new Date() })
         .where(and(eq(whatsappMenus.id, input.menuId), eq(whatsappMenus.tenantId, tenantId)));
+      invalidateMenu(input.menuId);
       return { success: true };
     }),
 
@@ -504,6 +530,7 @@ export const menuRouter = router({
         .set({ pushStatus: "success", lastPushedAt: new Date(), status: "published", publishedAt: new Date() })
         .where(and(eq(whatsappMenus.id, input.menuId), eq(whatsappMenus.tenantId, tenantId)));
 
+      invalidateMenu(input.menuId);
       return { success: true, payload: waPayload, pushedAt: new Date(), itemCount: items.length };
     }),
 
@@ -518,6 +545,7 @@ export const menuRouter = router({
         .update(whatsappMenus)
         .set({ status: "draft", pushStatus: "idle" })
         .where(and(eq(whatsappMenus.id, input.menuId), eq(whatsappMenus.tenantId, tenantId)));
+      invalidateMenu(input.menuId);
       return { success: true };
     }),
 

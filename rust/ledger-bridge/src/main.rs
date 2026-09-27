@@ -517,8 +517,17 @@ struct AppState {
     pending: Arc<DashMap<Uuid, PendingTransfer>>,
     balances: Arc<DashMap<String, (u64, u64)>>,
     // Transfer records for idempotent replay and compensating reversals.
+    // === W48 sidecars (PERF-SC-13) === these maps are now a BOUNDED
+    // read-through cache over PostgreSQL (the durable store) — previously they
+    // grew unboundedly with lifetime transfer count (two copies per transfer:
+    // map + idem index) until the pod OOMed. Eviction is FIFO insertion order
+    // bounded by cap (LEDGER_MEM_CACHE_CAP, default 10_000) and TTL
+    // (LEDGER_MEM_CACHE_TTL_SECS, default 3600).
     records: Arc<DashMap<Uuid, TransferRecord>>,
     idem_index: Arc<DashMap<String, Uuid>>,
+    cache_order: Arc<std::sync::Mutex<std::collections::VecDeque<(Uuid, Option<String>, std::time::Instant)>>>,
+    cache_cap: usize,
+    cache_ttl_secs: u64,
     // PostgreSQL pool for persistence
     pg: Option<Pool>,
     // TigerBeetle client
@@ -567,6 +576,9 @@ impl AppState {
             balances: Arc::new(DashMap::new()),
             records: Arc::new(DashMap::new()),
             idem_index: Arc::new(DashMap::new()),
+            cache_order: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
+            cache_cap: std::env::var("LEDGER_MEM_CACHE_CAP").ok().and_then(|v| v.parse().ok()).unwrap_or(10_000),
+            cache_ttl_secs: std::env::var("LEDGER_MEM_CACHE_TTL_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(3600),
             pg,
             tb,
             allow_inmemory: cfg.allow_inmemory,
@@ -624,6 +636,41 @@ impl AppState {
         }
     }
 
+    /// Insert a transfer record into the bounded in-memory cache (PERF-SC-13)
+    /// and evict expired/over-cap entries (FIFO order + TTL).
+    fn cache_insert(&self, idem_key: Option<String>, rec: TransferRecord) {
+        let id = rec.id;
+        self.records.insert(id, rec);
+        if let Some(k) = &idem_key {
+            self.idem_index.insert(k.clone(), id);
+        }
+        self.cache_order
+            .lock()
+            .unwrap()
+            .push_back((id, idem_key, std::time::Instant::now()));
+        self.evict_cache();
+    }
+
+    /// Evict cache entries older than the TTL or beyond the cap. PostgreSQL
+    /// remains the durable store, so eviction only costs a re-fetch.
+    fn evict_cache(&self) {
+        let ttl = std::time::Duration::from_secs(self.cache_ttl_secs);
+        let now = std::time::Instant::now();
+        let mut q = self.cache_order.lock().unwrap();
+        while let Some((id, key, ts)) = q.front().cloned() {
+            let expired = now.duration_since(ts) > ttl;
+            let over_cap = self.records.len() > self.cache_cap;
+            if !expired && !over_cap {
+                break;
+            }
+            q.pop_front();
+            self.records.remove(&id);
+            if let Some(k) = key {
+                self.idem_index.remove(&k);
+            }
+        }
+    }
+
     /// Look up a transfer by idempotency key (memory first, then PostgreSQL).
     async fn find_by_idempotency_key(&self, key: &str) -> Option<TransferRecord> {
         if let Some(id) = self.idem_index.get(key) {
@@ -668,8 +715,7 @@ impl AppState {
                         created_at,
                         settled_at,
                     };
-                    self.records.insert(id, rec.clone());
-                    self.idem_index.insert(key.to_string(), id);
+                    self.cache_insert(Some(key.to_string()), rec.clone());
                     return Some(rec);
                 }
             }
@@ -715,7 +761,7 @@ impl AppState {
                         created_at: row.get(9),
                         settled_at: row.get(10),
                     };
-                    self.records.insert(rec.id, rec.clone());
+                    self.cache_insert(rec.idempotency_key.clone(), rec.clone());
                     return Some(rec);
                 }
             }
@@ -725,10 +771,7 @@ impl AppState {
 
     /// Persist (upsert) a transfer record to memory and PostgreSQL.
     async fn save_record(&self, rec: &TransferRecord) {
-        self.records.insert(rec.id, rec.clone());
-        if let Some(ref key) = rec.idempotency_key {
-            self.idem_index.insert(key.clone(), rec.id);
-        }
+        self.cache_insert(rec.idempotency_key.clone(), rec.clone());
         if let Some(ref pool) = self.pg {
             if let Ok(client) = pool.get().await {
                 if let Err(e) = client.execute(
@@ -1555,6 +1598,9 @@ mod tests {
             balances: Arc::new(DashMap::new()),
             records: Arc::new(DashMap::new()),
             idem_index: Arc::new(DashMap::new()),
+            cache_order: Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new())),
+            cache_cap: 10_000,
+            cache_ttl_secs: 3600,
             pg: None,
             tb: Arc::new(TigerBeetleClient::new("127.0.0.1:1".into(), 0)),
             allow_inmemory: true,

@@ -1,0 +1,8 @@
+{
+  "id": "J474",
+  "title": "wholesale listMyListings batched tiers (PERF-API-8)",
+  "feature": "one inArray wholesale_listing_tiers query grouped per listing",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

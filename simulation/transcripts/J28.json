@@ -8,82 +8,82 @@
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
       "text": "(dial)",
-      "at": 1789790388685
+      "at": 1790457263532
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790388686
+      "at": 1790457263533
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
       "text": "menu",
-      "at": 1789790389055
+      "at": 1790457263847
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790389056
+      "at": 1790457263848
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
       "text": "1",
-      "at": 1789790389374
+      "at": 1790457264208
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
-      "text": "END What would you like? We have Jollof Rice and more.",
-      "at": 1789790389375
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
+      "text": "END DEAL: Promo SIM10 — 10% off. Use code SIM10\nForward: 🔥 Promo SIM10 — 10% off at our store! Use code SIM10. https://wa.me/2347000000000?text=DEAL%20SIM10\nWhat would you like? We have Jollof Rice and more.",
+      "at": 1790457264209
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351-2",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221-2",
       "text": "2",
-      "at": 1789790389686
+      "at": 1790457264516
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351-2",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221-2",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790389687
+      "at": 1790457264517
     },
     {
       "dir": "ussd",
       "role": "user",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
       "text": "1*xyz-nonsense",
-      "at": 1789790390057
+      "at": 1790457264824
     },
     {
       "dir": "ussd",
       "role": "gateway",
-      "phone": "2348016788946",
-      "sessionId": "ussd-1789790388351",
+      "phone": "2348012518699",
+      "sessionId": "ussd-1790457263221",
       "text": "CON Welcome to Sim Store! How can we help you today?\n\n1. Shop products\n2. Track my order\n3. Talk to a human",
-      "at": 1789790390058
+      "at": 1790457264825
     }
   ]
 }

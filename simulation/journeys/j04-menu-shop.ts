@@ -45,8 +45,14 @@ export const journey: Journey = {
     await world.text(phone, "show me ankara");
     const searchReply = bodyText(world.outbound.lastOfType("text", phone));
     assertIncludes(searchReply, "Ankara Fabric", "NLP search reply mentions the product");
-    const imageCard = world.outbound.lastOfType("image", phone);
-    assert(imageCard, "product card sent as a WhatsApp image message");
-    assertIncludes(JSON.stringify(imageCard?.body), "https://cdn.sim.local/ankara.jpg", "product card uses the catalog image URL");
+    // === W49 RICHMEDIA (RICH-1): the product card is now ONE interactive
+    // message with an image header + action buttons (was a bare image).
+    const imageCard = world.outbound.lastOfType("interactive", phone);
+    assert(imageCard, "product card sent as a WhatsApp interactive message");
+    const cardStr = JSON.stringify(imageCard?.body);
+    assertIncludes(cardStr, "https://cdn.sim.local/ankara.jpg", "product card uses the catalog image URL");
+    assertIncludes(cardStr, '"type":"image"', "interactive carries an image header");
+    assertIncludes(cardStr, "cart_add:", "product card carries an Add-to-cart button");
+    // === END W49 RICHMEDIA ===
   },
 };

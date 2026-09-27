@@ -1,0 +1,8 @@
+{
+  "id": "J472",
+  "title": "getMessages phone filter SQL pushdown (PERF-API-11)",
+  "feature": "WHERE tenantId AND (fromAddress=phone OR toAddress=phone) ORDER BY createdAt DESC LIMIT n",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

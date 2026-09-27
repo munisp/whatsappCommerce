@@ -127,3 +127,6 @@ rust/*/target/
 # Runtime-generated annual-statement PDFs (regenerated on demand; never committed).
 data/tax-statements/
 # === END W33 tax-statements ===
+
+# === W49 RICHMEDIA: J491 receipt-pdf artifacts (regenerated each run) ===
+data/uc-docs/receipts/

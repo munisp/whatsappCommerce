@@ -10,6 +10,9 @@ import { Bell, Clock, MessageSquare, Package, ShoppingCart, TrendingUp, Truck } 
 import { Button } from "@/components/ui/button";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
+import { usePollInterval } from "@/hooks/usePollInterval";
+import { useIsMobile } from "@/hooks/useMobile";
+import { useTableVirtualizer, VirtualTableBody } from "@/components/VirtualTable";
 
 
 const statusColors: Record<string, string> = {
@@ -28,15 +31,20 @@ export default function Orders() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [, setLocation] = useLocation();
   const { data: stats } = trpc.order.stats.useQuery({ tenantId: DEMO_TENANT });
+  // W48 PERF-FE-13: smaller first page on mobile viewports (payload trim).
+  const isMobile = useIsMobile();
+  const pageLimit = isMobile ? 25 : 50;
   const { data: orderList, isLoading } = trpc.order.list.useQuery({
     tenantId: DEMO_TENANT,
     status: statusFilter === "all" ? undefined : statusFilter,
-    limit: 50,
+    limit: pageLimit,
   });
   const orderIds = useMemo(() => (orderList ?? []).map((o) => o.id), [orderList]);
+  // W48 PERF-FE-5: visibility-gated, raised from 30s to 60s.
+  const unreadPoll = usePollInterval(60_000);
   const { data: unreadData } = trpc.whatsappNotifications.getBulkUnreadReplyCounts.useQuery(
     { orderIds },
-    { enabled: orderIds.length > 0, refetchInterval: 30000 }
+    { enabled: orderIds.length > 0, refetchInterval: unreadPoll }
   );
   const unreadCounts = unreadData?.counts ?? {};
   // Derived list: when unreadOnly is on, hide rows with 0 unread replies
@@ -48,6 +56,8 @@ export default function Orders() {
     if (!unreadOnly) return orderList ?? [];
     return (orderList ?? []).filter((o) => (unreadCounts[o.id] ?? 0) > 0);
   }, [orderList, unreadCounts, unreadOnly]);
+  // === W48 perf (PERF-FE-4): virtualized order rows ===
+  const { scrollRef, virtualizer } = useTableVirtualizer(displayedOrders.length, 53);
 
   return (
     <DashboardLayout>
@@ -128,8 +138,9 @@ export default function Orders() {
         <Card className="bg-card border-border">
           <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Order List</CardTitle></CardHeader>
           <CardContent className="p-0">
+            <div ref={scrollRef} className="max-h-[560px] overflow-y-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead>Order #</TableHead>
                   <TableHead>Status</TableHead>
@@ -139,14 +150,21 @@ export default function Orders() {
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {isLoading ? (
+              {isLoading ? (
+                <TableBody>
                   <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading orders...</TableCell></TableRow>
-                ) : displayedOrders.length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                    {unreadOnly ? "No orders with unread WhatsApp replies" : "No orders found"}
-                  </TableCell></TableRow>
-                ) : displayedOrders.map((o) => (
+                </TableBody>
+              ) : (
+                <VirtualTableBody
+                  rows={displayedOrders}
+                  virtualizer={virtualizer}
+                  colSpan={6}
+                  emptyState={
+                    <div className="text-center text-muted-foreground py-8">
+                      {unreadOnly ? "No orders with unread WhatsApp replies" : "No orders found"}
+                    </div>
+                  }
+                  renderRow={(o) => (
                   <TableRow key={o.id} className="border-border hover:bg-accent/30">
                     <TableCell className="font-mono text-xs">{o.orderNumber}</TableCell>
                     <TableCell><Badge variant="outline" className={statusColors[o.status] ?? ""}>{o.status}</Badge></TableCell>
@@ -176,9 +194,11 @@ export default function Orders() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
+                  )}
+                />
+              )}
             </Table>
+            </div>
           </CardContent>
         </Card>
       </div>

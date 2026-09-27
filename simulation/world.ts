@@ -445,6 +445,17 @@ export async function bootWorld(): Promise<World> {
       "sha256=" + crypto.createHmac("sha256", APP_SECRET).update(raw).digest("hex");
 
     const postWebhook = async (payload: Record<string, unknown>): Promise<number> => {
+      // W48 merger: the PERF-INT-6 waTenantLookup in-proc cache serves the
+      // tenant row (incl. settings) to inbound processing; journeys legitimately
+      // patch tenant settings via RAW db writes that bypass the production
+      // invalidation seams (updateTenantSettings / db.updateTenant), which
+      // would leave the menu/config stale across journeys. Sim-only: drop the
+      // in-proc cache before every inbound delivery so each message observes
+      // current settings. Production invalidation lives in the write seams.
+      try {
+        const { __clearWaTenantLookupCache } = await import("../server/services/waTenantLookup");
+        __clearWaTenantLookupCache();
+      } catch { /* best-effort */ }
       const raw = JSON.stringify(payload);
       const res = await fetch(`${baseUrl}/api/webhooks/whatsapp`, {
         method: "POST",

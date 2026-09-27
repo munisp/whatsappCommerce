@@ -39,15 +39,20 @@ type jwksResponse struct {
 
 type jwksCache struct {
 	mu        sync.RWMutex
+	refreshMu sync.Mutex // === W48 sidecars (PERF-SC-9) === serialises refreshes WITHOUT holding mu
 	keys      map[string]*rsa.PublicKey
 	fetchedAt time.Time
 	ttl       time.Duration
 	endpoint  string
+	client    *http.Client
 }
 
 var globalJWKSCache = &jwksCache{
 	keys: make(map[string]*rsa.PublicKey),
 	ttl:  10 * time.Minute,
+	// PERF-SC-9: dedicated client with a hard timeout — the old http.Get on
+	// DefaultClient could hang forever on the auth path.
+	client: &http.Client{Timeout: 5 * time.Second},
 }
 
 func (c *jwksCache) getKey(kid string) (*rsa.PublicKey, error) {
@@ -60,12 +65,27 @@ func (c *jwksCache) getKey(kid string) (*rsa.PublicKey, error) {
 	}
 	c.mu.RUnlock()
 
-	// Refresh
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	// PERF-SC-9: refresh OUTSIDE the write lock. Only refreshMu is held during
+	// the network fetch, so authenticated requests keep reading cached keys —
+	// a hung Keycloak no longer convoys every request behind the write lock.
+	c.refreshMu.Lock()
+	defer c.refreshMu.Unlock()
+
+	// Double-check: another goroutine may have refreshed while we waited.
+	c.mu.RLock()
+	if time.Since(c.fetchedAt) < c.ttl {
+		if k, ok := c.keys[kid]; ok {
+			c.mu.RUnlock()
+			return k, nil
+		}
+	}
+	c.mu.RUnlock()
+
 	if err := c.fetch(); err != nil {
 		return nil, err
 	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	if k, ok := c.keys[kid]; ok {
 		return k, nil
 	}
@@ -73,12 +93,16 @@ func (c *jwksCache) getKey(kid string) (*rsa.PublicKey, error) {
 }
 
 func (c *jwksCache) fetch() error {
-	resp, err := http.Get(c.endpoint) //nolint:gosec
+	req, err := http.NewRequest(http.MethodGet, c.endpoint, nil) //nolint:gosec
+	if err != nil {
+		return fmt.Errorf("build JWKS request: %w", err)
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("fetch JWKS: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var jwks jwksResponse
 	if err := json.Unmarshal(body, &jwks); err != nil {
 		return fmt.Errorf("parse JWKS: %w", err)
@@ -94,8 +118,10 @@ func (c *jwksCache) fetch() error {
 		}
 		newKeys[k.Kid] = pub
 	}
+	c.mu.Lock()
 	c.keys = newKeys
 	c.fetchedAt = time.Now()
+	c.mu.Unlock()
 	return nil
 }
 
@@ -247,6 +273,10 @@ func setKeycloakContext(c *gin.Context, claims *KeycloakClaims) {
 	}
 }
 
+// === W48 sidecars (PERF-SC-9) === shared timeout-bound client for Keycloak
+// introspection (was http.PostForm on DefaultClient — no timeout).
+var keycloakHTTPClient = &http.Client{Timeout: 5 * time.Second}
+
 // introspectToken calls Keycloak's token introspection endpoint. On success it
 // returns claims parsed from the (now verified-active) token for context
 // propagation.
@@ -259,7 +289,7 @@ func introspectToken(cfg *config.Config, tokenStr string) (*KeycloakClaims, bool
 		"client_id":     {cfg.Keycloak.ClientID},
 		"client_secret": {cfg.Keycloak.ClientSecret},
 	}
-	resp, err := http.PostForm(cfg.Keycloak.IntrospectURL, form)
+	resp, err := keycloakHTTPClient.PostForm(cfg.Keycloak.IntrospectURL, form)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return nil, false
 	}
@@ -267,7 +297,7 @@ func introspectToken(cfg *config.Config, tokenStr string) (*KeycloakClaims, bool
 	var result struct {
 		Active bool `json:"active"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || !result.Active {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil || !result.Active {
 		return nil, false
 	}
 	// Token is confirmed active by Keycloak; extract claims for context.

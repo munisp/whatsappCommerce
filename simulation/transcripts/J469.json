@@ -1,0 +1,8 @@
+{
+  "id": "J469",
+  "title": "journeys.enroll batched (PERF-API-3)",
+  "feature": "inArray select + bulk frequency-cap + chunked multi-row insert; tenant scoping + phone filter preserved",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

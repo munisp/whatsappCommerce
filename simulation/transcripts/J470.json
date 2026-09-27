@@ -1,0 +1,8 @@
+{
+  "id": "J470",
+  "title": "composite indexes present + stats aggregates correct (PERF-API-4/17/18)",
+  "feature": "migrations 0171-0172 additive indexes; getOrderStats/getProductStats single-scan aggregates",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -467,8 +467,25 @@ export const mlOpsRouter = router({
       const db = await getDb();
       if (!db) return { ok: false, message: "Database unavailable" };
       // Count available real orders
-      const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(orders);
-      const rowCount = count ?? 0;
+      // === W48 PERF-API-15 (api-db): use the pg_class reltuples estimate for
+      // this threshold check instead of an unscoped count(*) over the whole
+      // orders table (fine at 10⁴ rows, painful at 10⁷). Falls back to an
+      // exact count when stats are unavailable. ===
+      const estRows: any = await db.execute(sql`SELECT GREATEST(c.reltuples, 0)::bigint AS est FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = 'orders'`);
+      const estList: any[] = Array.isArray(estRows) ? estRows : (estRows?.rows ?? []);
+      const estimate = Number(estList[0]?.est ?? -1);
+      let rowCount: number;
+      if (Number.isFinite(estimate) && estimate >= 0 && estimate >= input.minRows * 2) {
+        // Estimate comfortably clears the threshold — skip the exact scan.
+        rowCount = estimate;
+      } else if (Number.isFinite(estimate) && estimate >= 0 && estimate < input.minRows / 2) {
+        // Estimate is far below the threshold — no exact scan needed.
+        rowCount = estimate;
+      } else {
+        const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(orders);
+        rowCount = count ?? 0;
+      }
+      // === END W48 PERF-API-15 ===
       if (rowCount < input.minRows) {
         return {
           ok: false,

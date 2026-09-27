@@ -112,6 +112,10 @@ export default function Shop() {
                       <img
                         src={p.imageUrl}
                         alt={p.name}
+                        width={64}
+                        height={64}
+                        loading="lazy"
+                        decoding="async"
                         className="h-16 w-16 rounded object-cover flex-shrink-0"
                       />
                     )}

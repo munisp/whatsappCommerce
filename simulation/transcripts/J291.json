@@ -8,13 +8,26 @@
     {
       "dir": "out",
       "phone": "2348000000291",
-      "wamid": "wamid.sim.000754",
+      "wamid": "wamid.sim.000053",
       "statuses": [
         "sent"
       ],
-      "at": 1789790996036,
+      "at": 1790458244593,
       "kind": "text",
-      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: R-J291-1789790996005-MU7VCIZT\n\n1 × Jollof Rice — ₦450.00\n\n*Total paid: ₦450.00*\nPayment ref: bipreorder:j291-src-1789790996005\n\n🔎 Track your order: http://localhost:4173/track/099440bb-2664-4529-8ce5-611650e2dea9.sspaXOUk8W_nmR3w8--DzjrI"
+      "body": "🧾 *Sim Store — Payment Receipt*\nOrder: R-J291-1790458244566-MUIWLZA1\n\n1 × Jollof Rice — ₦450.00\n\n*Total paid: ₦450.00*\nPayment ref: bipreorder:j291-src-1790458244566\n\n🔎 Track your order: http://localhost:4173/track/3e82af65-9ea4-4c4c-a5bd-c200cd4bec27.L9X-5MXvEUWlremBIqeJ_S_v"
+    },
+    {
+      "dir": "out",
+      "phone": "2348000000291",
+      "wamid": "wamid.sim.000054",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790458244604,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "🧾 Receipt for order R-J291-1790458244566-MUIWLZA1",
+      "mediaId": "http://localhost:4173/api/uc-docs/receipts/sim-tenant/receipt-R-J291-1790458244566-MUIWLZA1.pdf"
     }
   ]
 }

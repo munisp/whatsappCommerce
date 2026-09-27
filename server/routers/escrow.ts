@@ -1323,7 +1323,15 @@ export const escrowRouter = router({
 
       const results: { id: string; success: boolean; error?: string; newState?: string }[] = [];
 
-      for (const escrow of rows) {
+      // === W48 PERF-API-13 (api-db): bounded-concurrency pool (5 workers,
+      // Promise.allSettled) instead of up to 100 strictly-sequential escrow
+      // settlements. Each settle/refund is its own claim-first atomic
+      // transaction; results are keyed by index so per-row outcomes and the
+      // audit trail are unchanged. ===
+      const BULK_CONCURRENCY = 5;
+      const indexedResults: ({ id: string; success: boolean; error?: string; newState?: string } | undefined)[] = new Array(rows.length);
+      const processOneEscrow = async (idx: number): Promise<void> => {
+        const escrow = rows[idx];
         try {
           if (input.action === "release") {
             const result = await settleEscrowAtomic(db, escrow.id, {
@@ -1337,8 +1345,8 @@ export const escrowRouter = router({
               descriptionPrefix: "Bulk settlement",
             });
             if (!result.transitioned || !result.escrow) {
-              results.push({ id: escrow.id, success: false, error: `Cannot release from state: ${escrow.state}` });
-              continue;
+              indexedResults[idx] = { id: escrow.id, success: false, error: `Cannot release from state: ${escrow.state}` };
+              return;
             }
             await db.update(orders).set({ status: "delivered", paymentStatus: "completed", updatedAt: new Date() })
               .where(eq(orders.id, escrow.orderId));
@@ -1349,15 +1357,15 @@ export const escrowRouter = router({
               metadata: { orderId: escrow.orderId, escrowId: escrow.id },
               read: false, readAt: null, createdAt: new Date(),
             }).catch(() => {});
-            results.push({ id: escrow.id, success: true, newState: result.newState });
+            indexedResults[idx] = { id: escrow.id, success: true, newState: result.newState };
           } else {
             // Refund (always the full remaining amount in bulk operations)
             const result = await refundEscrowAtomic(db, escrow.id, {
               reason: input.reason,
             });
             if (!result.success) {
-              results.push({ id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` });
-              continue;
+              indexedResults[idx] = { id: escrow.id, success: false, error: result.error ?? `Cannot refund from state: ${escrow.state}` };
+              return;
             }
             // ── W38 (PAY-7) bulk refund honesty: the internal ledger refund
             // above is NOT money back to the buyer's bank when custody is PSP
@@ -1398,8 +1406,8 @@ export const escrowRouter = router({
                   metadata: { orderId: escrow.orderId, escrowId: escrow.id, refundPending: true },
                   read: false, readAt: null, createdAt: new Date(),
                 }).catch(() => {});
-                results.push({ id: escrow.id, success: true, newState: "refund_pending" });
-                continue;
+                indexedResults[idx] = { id: escrow.id, success: true, newState: "refund_pending" };
+                return;
               }
               const honestStatus = honestOrderRefundStatus(outcome);
               await db.update(orders).set({ status: "refunded", paymentStatus: honestStatus, updatedAt: new Date() })
@@ -1411,8 +1419,8 @@ export const escrowRouter = router({
                 metadata: { orderId: escrow.orderId, escrowId: escrow.id, providerRefund: outcome.status },
                 read: false, readAt: null, createdAt: new Date(),
               }).catch(() => {});
-              results.push({ id: escrow.id, success: true, newState: honestStatus });
-              continue;
+              indexedResults[idx] = { id: escrow.id, success: true, newState: honestStatus };
+              return;
             }
             await db.update(orders).set({ status: "refunded", paymentStatus: "refunded", updatedAt: new Date() })
               .where(eq(orders.id, escrow.orderId));
@@ -1423,7 +1431,7 @@ export const escrowRouter = router({
               metadata: { orderId: escrow.orderId, escrowId: escrow.id },
               read: false, readAt: null, createdAt: new Date(),
             }).catch(() => {});
-            results.push({ id: escrow.id, success: true, newState: "refunded" });
+            indexedResults[idx] = { id: escrow.id, success: true, newState: "refunded" };
           }
         } catch (err) {
           // Bulk release: same saga compensation as buyerConfirm — reverse any
@@ -1435,9 +1443,19 @@ export const escrowRouter = router({
               reason: err.message,
             }).catch((compErr) => console.error("[escrow.bulkUpdateState] compensation failed:", compErr));
           }
-          results.push({ id: escrow.id, success: false, error: err instanceof Error ? err.message : String(err) });
+          indexedResults[idx] = { id: escrow.id, success: false, error: err instanceof Error ? err.message : String(err) };
         }
-      }
+      };
+      let nextEscrowIdx = 0;
+      const workers = Array.from({ length: Math.min(BULK_CONCURRENCY, rows.length) }, async () => {
+        while (nextEscrowIdx < rows.length) {
+          const i = nextEscrowIdx++;
+          await processOneEscrow(i);
+        }
+      });
+      await Promise.allSettled(workers);
+      for (const r of indexedResults) if (r) results.push(r);
+      // === END W48 ===
 
       const succeeded = results.filter(r => r.success).length;
       const failed = results.filter(r => !r.success).length;

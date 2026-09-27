@@ -62,6 +62,17 @@ export interface FallbackInitiateOptions {
   /** Caller-preferred provider id (e.g. payment.initiate's provider input):
    * tried first when present in the tenant chain; the rest remain fallbacks. */
   preferredProvider?: string | null;
+  /**
+   * === W48 integrations (PERF-INT-11): hard overall deadline (ms) for the
+   * whole provider chain. Worst case used to be ~30s+ (10s initiate + 10s
+   * fetchStatus probe, per provider, serially) while the buyer waited
+   * in-chat. When the deadline lapses the chain aborts with
+   * ProviderChainExhaustedError so callers land on their graceful-error path
+   * (existing retry/follow-up surfaces) instead of holding the turn.
+   * Default: PAYMENT_INITIATE_DEADLINE_MS env, else 25_000. Pass 0 to
+   * disable (tests with fake providers).
+   */
+  deadlineMs?: number;
 }
 
 export interface FallbackInitiateOutcome {
@@ -109,7 +120,21 @@ export async function initiateWithFallback(
   }
 
   const attempts: { provider: string; error: string }[] = [];
+  // === W48 integrations (PERF-INT-11): overall chain deadline ===
+  const deadlineMs = opts.deadlineMs ?? Number(process.env.PAYMENT_INITIATE_DEADLINE_MS ?? 25_000);
+  const deadlineAt = deadlineMs > 0 ? Date.now() + deadlineMs : null;
   for (let i = 0; i < chain.length; i++) {
+    if (deadlineAt !== null && Date.now() >= deadlineAt) {
+      attempts.push({ provider: "(deadline)", error: `overall initiate deadline ${deadlineMs}ms exceeded — aborting remaining provider hops` });
+      captureException(new Error(`initiateWithFallback deadline ${deadlineMs}ms exceeded after ${attempts.length - 1} provider attempt(s)`), {
+        service: "payments/initiateWithFallback",
+        operation: "deadlineExceeded",
+        tenantId,
+        severity: "warn",
+        extra: { reference: ctx.reference, deadlineMs },
+      });
+      throw new ProviderChainExhaustedError(attempts);
+    }
     const entry = chain[i]!;
     const hasFallback = i < chain.length - 1;
     let result: PaymentInitiateResult | null = null;
@@ -149,6 +174,13 @@ export async function initiateWithFallback(
     //     live checkouts for one intent.
     const failureKind: "definitive" | "ambiguous" =
       threw || !result ? "ambiguous" : result.failureKind ?? "ambiguous";
+    if (failureKind === "ambiguous" && hasFallback && deadlineAt !== null && Date.now() >= deadlineAt) {
+      // === W48 integrations (PERF-INT-11): deadline lapsed mid-chain — do
+      // NOT start another 10s verify probe; abort (the probe would be
+      // inconclusive-by-deadline anyway, which aborts per PAY-25). ===
+      attempts.push({ provider: "(deadline)", error: `overall initiate deadline ${deadlineMs}ms exceeded before fallback verify` });
+      throw new ProviderChainExhaustedError(attempts);
+    }
     if (failureKind === "ambiguous" && hasFallback) {
       let probe: { status: "pending" | "success" | "failed"; amountCents: number } | null = null;
       let probeError: string | null = null;

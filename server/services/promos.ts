@@ -34,6 +34,11 @@ export interface Promo {
   expiresAt?: string;
   maxUses?: number;
   usedCount?: number;
+  // === W51 PROMOS === visibility toggle (default enabled) + Medusa sync
+  // idempotency markers.
+  enabled?: boolean;
+  medusaPromotionId?: string;
+  medusaSyncPending?: boolean;
 }
 
 export type PromoRejectReason =
@@ -78,6 +83,11 @@ export function getPromosFromSettings(settings: unknown): Promo[] {
       expiresAt: typeof p.expiresAt === "string" ? p.expiresAt : undefined,
       maxUses: typeof p.maxUses === "number" && Number.isFinite(p.maxUses) ? p.maxUses : undefined,
       usedCount: typeof p.usedCount === "number" && Number.isFinite(p.usedCount) ? p.usedCount : 0,
+      // === W51 PROMOS === pass-through fields: enabled toggle + Medusa
+      // sync idempotency markers (medusaPromotionId / medusaSyncPending).
+      ...(p.enabled === false ? { enabled: false } : {}),
+      ...(typeof p.medusaPromotionId === "string" && p.medusaPromotionId ? { medusaPromotionId: p.medusaPromotionId } : {}),
+      ...(p.medusaSyncPending === true ? { medusaSyncPending: true } : {}),
     });
   }
   return out;
