@@ -60,7 +60,7 @@ spec:
         # at 4318 every span export failed with `transport error`, so it never appeared in Jaeger and span-derived alerts had nothing to read.
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: http://otel-collector.otel.svc.cluster.local:4317
-        image: registry.digitalocean.com/talentgraph-auth/whatsapp-recon-worker:20260922-0600 # {"$imagepolicy": "flux-system:whatsapp-recon-worker"}
+        image: registry.digitalocean.com/talentgraph-auth/whatsapp-recon-worker:20260926-1154 # {"$imagepolicy": "flux-system:whatsapp-recon-worker"}
         imagePullPolicy: IfNotPresent
         name: recon-worker
         ports:
