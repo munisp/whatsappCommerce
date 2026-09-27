@@ -19,7 +19,7 @@ dashmap = "6"
 
 # W42 PLT-7: durable DLQ backend — Redis list. W48 PERF-SC-6: tokio-comp async
 # multiplexed connection so DLQ I/O never blocks the consumer loop.
-redis = { version = "0.27", features = ["tokio-comp"] }
+redis = { version = "1.7", features = ["tokio-comp"] }
 
 # === W45 go-rust-services (MSG-18) ===
 # Real Kafka consumer + DLQ topic producer. cmake-build vendors librdkafka
