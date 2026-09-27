@@ -1,0 +1,8 @@
+{
+  "id": "J539",
+  "title": "events router: create/publish/ticket-types/list/sales + authz",
+  "feature": "W53 events: merchant CRUD via tRPC",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

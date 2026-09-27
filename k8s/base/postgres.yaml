@@ -1,0 +1,85 @@
+# === W54 CILIUM ===
+# Core PostgreSQL (whatsapp_commerce DB) modeled from docker-compose.yml `postgres`.
+# StatefulSet + headless Service; credentials via ExternalSecret `platform-db`
+# (see k8s/base/externalsecret.yaml — NEVER commit real secrets).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: whatsapp-commerce
+  labels: {app: postgres, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels: {app: postgres}
+  template:
+    metadata:
+      labels: {app: postgres, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - {name: postgres, containerPort: 5432}
+          env:
+            - {name: POSTGRES_DB, value: whatsapp_commerce}
+            - {name: POSTGRES_USER, value: wc_user}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: platform-db, key: postgres-password}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "wc_user", "-d", "whatsapp_commerce"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "wc_user", "-d", "whatsapp_commerce"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            # postgres:16-alpine image uid/gid is 70 (postgres); run as it.
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: tmp, mountPath: /tmp}
+            - {name: run, mountPath: /var/run/postgresql}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - {name: run, emptyDir: {}}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: {storage: 20Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: whatsapp-commerce
+  labels: {app: postgres}
+spec:
+  clusterIP: None
+  selector: {app: postgres}
+  ports:
+    - {name: postgres, port: 5432, targetPort: 5432}
+# === END W54 CILIUM ===

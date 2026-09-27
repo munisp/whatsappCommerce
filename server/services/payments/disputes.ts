@@ -27,7 +27,6 @@ import {
   paymentIntents,
   paymentTransactions,
   refundAttempts,
-  tenants,
 } from "../../../drizzle/schema";
 
 type Db = any;
@@ -64,12 +63,12 @@ export async function sendAdminOpsAlert(
   orderId?: string | null,
 ): Promise<void> {
   try {
-    const [tenant] = await db.select({ settings: tenants.settings })
-      .from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-    const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
-    const adminPhone = typeof settings.adminPhone === "string" ? settings.adminPhone : "";
+    // === W54 disputes (DISP-8): settings.adminPhone first, then the tenant
+    // OWNER membership's users.phone before giving up (shared resolver). ===
+    const { resolveAdminAlertPhone } = await import("../disputeNotify");
+    const adminPhone = await resolveAdminAlertPhone(db, tenantId);
     if (!adminPhone) {
-      console.warn(`[pay8-alert] tenant ${tenantId} has no settings.adminPhone — alert recorded in logs only`);
+      console.warn(`[pay8-alert] tenant ${tenantId} has no settings.adminPhone and no owner membership phone — alert recorded in logs only`);
       return;
     }
     const { sendWhatsAppText } = await import("../waSender");
@@ -192,6 +191,9 @@ export async function recordPspDispute(db: Db, opts: RecordDisputeOpts): Promise
       "payment_dispute_alert",
       orderId,
     );
+    // === W54 disputes (DISP-2): chargeback–escrow interlock ===============
+    await interlockEscrowForPspDispute(db, { tenantId, orderId, status, kind: opts.kind, disputeId, reference });
+    // === END W54 disputes ===
     // === W46 privacy-consent (TEN-17): cross-tenant routing ==============
     // If the disputed order is an inter-tenant (wholesale/PO) order, route
     // the dispute to the counterparty: the SELLER tenant is the explicit
@@ -201,6 +203,100 @@ export async function recordPspDispute(db: Db, opts: RecordDisputeOpts): Promise
   }
   return { ok: true, action, disputeId, tenantId, orderId };
 }
+
+// === W54 disputes (DISP-2): chargeback–escrow interlock ===================
+/**
+ * Two legs, both fail-open (never throws into the webhook handler):
+ *
+ *  1. OPEN leg — freeze the order's escrow so the disputed money cannot be
+ *     settled/paid out while the PSP dispute is being fought. Reuses the
+ *     SAME atomic guard as the dispute-raise path (services/disputes.ts
+ *     DISPUTABLE_ESCROW_STATES): a single guarded UPDATE transitions only
+ *     payment_received|escrow_held|delivery_confirmed → dispute_raised.
+ *     Exactly-once + idempotent on webhook redelivery: a second delivery
+ *     finds the escrow already in dispute_raised (or terminal) and the
+ *     guarded UPDATE matches 0 rows. No escrow_disputes row is created —
+ *     the PSP dispute is a payment-rail event, tracked on payment_disputes;
+ *     the escrow state is the payout block.
+ *
+ *  2. LOST leg — when the PSP reports the dispute lost/accepted, the PSP has
+ *     ALREADY debited the platform/merchant balance externally (debit-on-lost
+ *     semantics). We record a merchant_clawbacks recovery entry (pending) so
+ *     ops recovers the externally-lost funds from the merchant through the
+ *     EXISTING W38 recovery rail, and raise a distinct admin alert. We NEVER
+ *     move money speculatively here: no wallet debit, no escrow mutation —
+ *     the clawback row is the honest record + recovery trigger. Idempotent
+ *     via merchant_clawbacks_refund_uniq on refundId = `psp-dispute:<id>`
+ *     (ON CONFLICT DO NOTHING — a redelivered lost event is a no-op).
+ */
+export async function interlockEscrowForPspDispute(
+  db: Db,
+  args: { tenantId: string; orderId: string; status: DisputeStatus; kind: DisputeKind; disputeId: string; reference: string },
+): Promise<void> {
+  const { tenantId, orderId, status } = args;
+  try {
+    if (status === "open") {
+      const { escrowTransactions } = await import("../../../drizzle/schema");
+      const { DISPUTABLE_ESCROW_STATES } = await import("../disputes");
+      const { inArray } = await import("drizzle-orm");
+      const frozen = await db.update(escrowTransactions).set({
+        state: "dispute_raised",
+        updatedAt: new Date(),
+      }).where(and(
+        eq(escrowTransactions.orderId, orderId),
+        eq(escrowTransactions.tenantId, tenantId),
+        inArray(escrowTransactions.state, [...DISPUTABLE_ESCROW_STATES] as any),
+      )).returning({ id: escrowTransactions.id });
+      if (frozen.length > 0) {
+        console.info(`[psp-dispute] DISP-2 escrow interlock: froze ${frozen.length} escrow(s) on order ${orderId} (payout blocked while ${args.kind} is open)`);
+        await sendAdminOpsAlert(
+          db,
+          tenantId,
+          `🔒 Escrow on order ${orderId} is FROZEN (dispute_raised) — payout is blocked while the ${args.kind} (${args.reference}) is open.`,
+          "payment_dispute_escrow_frozen",
+          orderId,
+        );
+      }
+      return;
+    }
+    if (status === "lost" || status === "accepted") {
+      const { merchantClawbacks, paymentDisputes } = await import("../../../drizzle/schema");
+      const [dispute] = await db.select().from(paymentDisputes)
+        .where(eq(paymentDisputes.id, args.disputeId)).limit(1).catch(() => [] as any[]);
+      const amountCents = dispute?.amountCents ?? null;
+      if (amountCents == null || amountCents <= 0) {
+        console.warn(`[psp-dispute] DISP-2 lost ${args.kind} ${args.disputeId} has no amount — recovery entry skipped, alert still sent`);
+      } else {
+        // refund_id is varchar(36): `cb:` + dashless uuid = 35 chars. The
+        // full dispute id travels in metadata.disputeId.
+        await db.insert(merchantClawbacks).values({
+          tenantId,
+          orderId,
+          refundId: `cb:${String(args.disputeId).replace(/-/g, "")}`.slice(0, 36),
+          escrowId: null,
+          amountCents,
+          currency: dispute?.currency ?? "NGN",
+          reason: `PSP ${args.kind} ${status} (${args.reference}) — external debit already applied by the provider; recover from merchant per W38 clawback rail.`,
+          status: "pending",
+          metadata: { source: "psp_dispute_lost", disputeId: args.disputeId, kind: args.kind, providerRef: args.reference },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }).onConflictDoNothing();
+      }
+      await sendAdminOpsAlert(
+        db,
+        tenantId,
+        `🧾 *Chargeback ${status}* on order ${orderId} (${args.reference})` +
+        (amountCents != null ? ` — a recovery entry of ${(amountCents / 100).toFixed(2)} ${dispute?.currency ?? "NGN"} was recorded for ops follow-up.` : `.`),
+        "payment_dispute_recovery",
+        orderId,
+      );
+    }
+  } catch (e: any) {
+    console.error(`[psp-dispute] DISP-2 interlock failed for order ${orderId} (fail-open):`, e?.message);
+  }
+}
+// === END W54 disputes ===
 
 // === W46 privacy-consent (TEN-17): cross-tenant dispute routing ===========
 /**

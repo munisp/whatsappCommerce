@@ -1546,6 +1546,8 @@ export const disputeResolutionEnum = pgEnum("dispute_resolution", [
   "full_refund_to_buyer",
   "partial_refund",
   "no_action",
+  // === W54 disputes (DISP-7): replacement path — money untouched, RMA linked.
+  "replacement",
 ]);
 
 export const shipmentStatusEnum = pgEnum("shipment_status", [
@@ -1771,6 +1773,9 @@ export const escrowDisputes = pgTable("escrow_disputes", {
   merchantResponseDeadline: timestamp("merchant_response_deadline"),
   resolvedAt: timestamp("resolved_at"),
   escalatedAt: timestamp("escalated_at"),
+  // === W54 disputes (DISP-3/DISP-7, mig 0175): additive metadata — merchant
+  // response bookkeeping (respondedAt/note/token) + replacement RMA link. ===
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -5922,6 +5927,9 @@ export const rmaRequests = pgTable("rma_requests", {
   restockedAt: timestamp("restocked_at"),
   refundedAt: timestamp("refunded_at"),
   closedAt: timestamp("closed_at"),
+  // === W54 disputes (DISP-7, mig 0175): additive metadata — when the RMA was
+  // opened by a dispute replacement resolution this carries { disputeId }. ===
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [
@@ -7038,3 +7046,144 @@ export const waMediaIdCache = pgTable("wa_media_id_cache", {
 export type WaMediaIdCache = typeof waMediaIdCache.$inferSelect;
 export type NewWaMediaIdCache = typeof waMediaIdCache.$inferInsert;
 // === END W49 RICHMEDIA ===
+
+// === W53 EVENTS (ticketing) ===
+// Events + ticket types + issued tickets. Additive-only (mig 0174).
+// Money rides the existing orders/payments rail: a ticket purchase creates
+// a normal orders row (metadata.eventTicket marks it) + payment link; the
+// post-commit receipt seam issues the tickets on payment confirmation.
+export const events = pgTable("events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  description: text("description"),
+  venue: varchar("venue", { length: 300 }),
+  /** Optional { latitude, longitude } pair for map cards. */
+  venueCoords: jsonb("venueCoords"),
+  /** Optional header image for the storefront/chat card. */
+  imageUrl: text("imageUrl"),
+  startsAt: timestamp("startsAt").notNull(),
+  endsAt: timestamp("endsAt"),
+  /** draft | published | cancelled | completed */
+  status: varchar("status", { length: 16 }).notNull().default("draft"),
+  /** Optional whole-event capacity cap across all ticket types. */
+  capacity: integer("capacity"),
+  metadata: jsonb("metadata"),
+  createdBy: varchar("createdBy", { length: 64 }),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("events_tenant_idx").on(t.tenantId, t.createdAt),
+  index("events_tenant_status_idx").on(t.tenantId, t.status),
+]);
+export type Event = typeof events.$inferSelect;
+export type NewEvent = typeof events.$inferInsert;
+
+export const eventTicketTypes = pgTable("event_ticket_types", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  eventId: uuid("eventId").notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  /** Integer minor units (kobo/cents) — never float money. */
+  priceCents: integer("priceCents").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** Total inventory for this type. */
+  quantity: integer("quantity").notNull(),
+  /** Sold so far — claimed first (soldCount + qty <= quantity) at purchase. */
+  soldCount: integer("soldCount").notNull().default(0),
+  maxPerOrder: integer("maxPerOrder").notNull().default(10),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("event_ticket_types_event_idx").on(t.eventId),
+  index("event_ticket_types_tenant_idx").on(t.tenantId),
+]);
+export type EventTicketType = typeof eventTicketTypes.$inferSelect;
+export type NewEventTicketType = typeof eventTicketTypes.$inferInsert;
+
+export const eventTickets = pgTable("event_tickets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  eventId: uuid("eventId").notNull(),
+  ticketTypeId: uuid("ticketTypeId").notNull(),
+  /** Set once the buying order's payment is confirmed (issue time). */
+  orderId: varchar("orderId", { length: 36 }),
+  buyerCustomerId: varchar("buyerCustomerId", { length: 64 }).notNull(),
+  /** Human-readable door code, unique per tenant. */
+  code: varchar("code", { length: 24 }).notNull(),
+  /** issued | checked_in | cancelled | refunded */
+  status: varchar("status", { length: 16 }).notNull().default("issued"),
+  checkedInAt: timestamp("checkedInAt"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("event_tickets_tenant_code_uq").on(t.tenantId, t.code),
+  index("event_tickets_event_idx").on(t.eventId),
+  index("event_tickets_order_idx").on(t.orderId),
+  index("event_tickets_buyer_idx").on(t.tenantId, t.buyerCustomerId),
+]);
+export type EventTicket = typeof eventTickets.$inferSelect;
+export type NewEventTicket = typeof eventTickets.$inferInsert;
+// === END W53 EVENTS ===
+
+// === W54 capabilities (CAP-1 consumer membership tiers, mig 0175) ===
+/**
+ * membership_plans — tenant-configurable consumer membership tiers
+ * (e.g. Silver/Gold). priceCents = 0 is a free tier; period day|week|month
+ * drives the billing window (free tiers keep period 'month' but are never
+ * charged). Benefits: member discountPercent on checkout totals and a
+ * pointsMultiplier on loyalty earn — BOTH applied for live memberships.
+ */
+export const membershipPlans = pgTable("membership_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: text("description"),
+  /** Integer cents; 0 = free tier (join activates immediately). */
+  priceCents: integer("priceCents").notNull().default(0),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  /** day | week | month — billing window length. */
+  period: varchar("period", { length: 8 }).notNull().default("month"),
+  /** Member checkout discount, whole percent 0-100 (integer). */
+  discountPercent: integer("discountPercent").notNull().default(0),
+  /** Loyalty earn multiplier, whole integer 1-10 (1 = no bonus). */
+  pointsMultiplier: integer("pointsMultiplier").notNull().default(1),
+  /** active | archived */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("membership_plans_tenant_idx").on(t.tenantId, t.status),
+]);
+export type MembershipPlan = typeof membershipPlans.$inferSelect;
+export type NewMembershipPlan = typeof membershipPlans.$inferInsert;
+
+/**
+ * customer_memberships — a buyer's membership in a plan. At most ONE live
+ * (status='active') membership per (tenantId, customerId), enforced by the
+ * partial unique index customer_memberships_live_uidx (mig 0175).
+ * cancelAtPeriodEnd reuses subscription cancel semantics: benefits run to
+ * currentPeriodEnd, then the expiry sweep flips status → expired.
+ */
+export const customerMemberships = pgTable("customer_memberships", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  planId: uuid("planId").notNull(),
+  customerId: varchar("customerId", { length: 36 }).notNull(),
+  /** active | cancelled | expired */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  startedAt: timestamp("startedAt").notNull().defaultNow(),
+  /** Benefits end here (period window); null = open-ended (free tiers). */
+  currentPeriodEnd: timestamp("currentPeriodEnd"),
+  cancelAtPeriodEnd: boolean("cancelAtPeriodEnd").notNull().default(false),
+  /** Join-payment order / PSP reference for paid tiers (audit trail). */
+  orderId: varchar("orderId", { length: 36 }),
+  paymentRef: varchar("paymentRef", { length: 128 }),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+}, (t) => [
+  index("customer_memberships_tenant_customer_idx").on(t.tenantId, t.customerId),
+  index("customer_memberships_plan_idx").on(t.tenantId, t.planId),
+]);
+export type CustomerMembership = typeof customerMemberships.$inferSelect;
+export type NewCustomerMembership = typeof customerMemberships.$inferInsert;
+// === END W54 capabilities ===

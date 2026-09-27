@@ -1,0 +1,20 @@
+{
+  "id": "J552",
+  "title": "DISP-8: admin alert falls back to owner membership phone",
+  "feature": "W54 admin-phone fallback for dispute alerts",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "234801116088",
+      "wamid": "wamid.sim.000114",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790548131789,
+      "kind": "text",
+      "body": "🚨 J552 fallback alert body"
+    }
+  ]
+}

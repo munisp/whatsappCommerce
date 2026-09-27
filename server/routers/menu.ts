@@ -25,6 +25,77 @@ function invalidateMenu(menuId: string): void {
 }
 // === END W48 ===
 
+// === W53 RESIDUALS (menu system convergence) ===
+// Two menu systems coexist:
+//   1. LEGACY (this router): table-based whatsappMenus/whatsappMenuItems,
+//      CRUD'd by the tenant-portal /menu-builder UI. NOTHING at runtime
+//      reads these tables — pushToWhatsApp only builds a preview payload.
+//   2. RUNTIME ENGINE (single source of truth): tenants.settings.waMenu
+//      (WaMenuConfig) rendered by server/services/waMenu.ts for EVERY
+//      channel (WA interactive, TG keyboard, USSD, SMS fallback).
+// Convergence bridge (no table drops, zero behavior drift): when a legacy
+// menu is published (publish / pushToWhatsApp), its items are synced INTO
+// settings.waMenu.customItems so every channel immediately reflects the
+// published menu. The legacy tables are DEPRECATED as a runtime source and
+// remain only as the portal builder's drafting surface.
+const W53_MENU_SYNC_MAX_ITEMS = 20; // WaMenuConfig customItems cap (shared/waMenu schema)
+
+function w53MenuItemKey(item: { id: string; payload: string | null }): string {
+  const raw = (item.payload ?? "").trim() || `item_${item.id}`;
+  // customItem keys share the menu id grammar — keep them slug-safe.
+  return raw.toLowerCase().replace(/[^a-z0-9:_-]+/g, "_").slice(0, 48) || `item_${item.id}`;
+}
+
+/**
+ * Sync a legacy table menu into settings.waMenu.customItems (merge over the
+ * existing config — greeting/useCases/fallback are preserved). Awaited by
+ * the publish paths but fail-open: a sync error must never break publish.
+ */
+async function syncPublishedMenuToWaMenu(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  tenantId: string,
+  menuId: string,
+): Promise<{ synced: number }> {
+  const items = await db
+    .select()
+    .from(whatsappMenuItems)
+    .where(and(eq(whatsappMenuItems.menuId, menuId), eq(whatsappMenuItems.tenantId, tenantId)))
+    .orderBy(asc(whatsappMenuItems.sortOrder));
+  const customItems = items
+    .filter((i) => i.type !== "section" && typeof i.title === "string" && i.title.trim())
+    .slice(0, W53_MENU_SYNC_MAX_ITEMS)
+    .map((i) => ({
+      key: w53MenuItemKey(i),
+      label: i.title.trim().slice(0, 24),
+      response: ((i.description ?? "").trim() || i.title.trim()).slice(0, 1000),
+    }))
+    // de-dupe keys (first occurrence wins — sortOrder order preserved)
+    .filter((c, idx, arr) => arr.findIndex((x) => x.key === c.key) === idx);
+  const { updateTenantSettings } = await import("../services/onboarding");
+  const { loadMenuConfig } = await import("../services/waMenu");
+  await updateTenantSettings(tenantId, (s) => {
+    const current = loadMenuConfig({ settings: s });
+    (s as Record<string, unknown>).waMenu = { ...current, customItems };
+  });
+  return { synced: customItems.length };
+}
+
+/** Awaited fail-open wrapper — publish surfaces never break on sync errors. */
+async function syncMenuBridgeSafe(
+  db: NonNullable<Awaited<ReturnType<typeof getDb>>>,
+  tenantId: string,
+  menuId: string,
+): Promise<number> {
+  try {
+    const { synced } = await syncPublishedMenuToWaMenu(db, tenantId, menuId);
+    return synced;
+  } catch (e: any) {
+    console.warn("[menu-bridge] settings.waMenu sync failed (publish still succeeds):", e?.message);
+    return 0;
+  }
+}
+// === END W53 RESIDUALS ===
+
 function getTenantId(ctx: { user: { role?: string; tenantId?: string | null } }) {
   if (ctx.user.tenantId) return ctx.user.tenantId;
   // Platform admins may still operate on the demo tenant; any other
@@ -58,6 +129,25 @@ export const menuRouter = router({
       .where(eq(whatsappMenus.tenantId, getTenantId(ctx)))
       .orderBy(desc(whatsappMenus.updatedAt));
   }),
+
+  // === W53 RESIDUALS (menu convergence) === effective runtime menu config:
+  // exactly what the waMenu engine will render on every channel right now
+  // (settings.waMenu merged over defaults). The portal /menu-builder reads
+  // this to reflect the TRUE published state instead of only table drafts.
+  effectiveConfig: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw new Error("DB unavailable");
+    const tenantId = getTenantId(ctx);
+    const { tenants } = await import("../../drizzle/schema");
+    const [row] = await db
+      .select({ settings: tenants.settings })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    const { loadMenuConfig } = await import("../services/waMenu");
+    return loadMenuConfig(row ?? null);
+  }),
+  // === END W53 RESIDUALS ===
 
   // ── Get single menu with items ─────────────────────────────────────────────
   get: protectedProcedure
@@ -472,8 +562,11 @@ export const menuRouter = router({
         .update(whatsappMenus)
         .set({ status: "published", publishedAt: new Date() })
         .where(and(eq(whatsappMenus.id, input.menuId), eq(whatsappMenus.tenantId, tenantId)));
+      // === W53 RESIDUALS === convergence bridge: publishing also syncs the
+      // table items into settings.waMenu so ALL channels render them.
+      const synced = await syncMenuBridgeSafe(db, tenantId, input.menuId);
       invalidateMenu(input.menuId);
-      return { success: true };
+      return { success: true, syncedToWaMenu: synced };
     }),
 
   // ── Push to WhatsApp ───────────────────────────────────────────────────────
@@ -530,8 +623,10 @@ export const menuRouter = router({
         .set({ pushStatus: "success", lastPushedAt: new Date(), status: "published", publishedAt: new Date() })
         .where(and(eq(whatsappMenus.id, input.menuId), eq(whatsappMenus.tenantId, tenantId)));
 
+      // === W53 RESIDUALS === same convergence bridge as publish.
+      const synced = await syncMenuBridgeSafe(db, tenantId, input.menuId);
       invalidateMenu(input.menuId);
-      return { success: true, payload: waPayload, pushedAt: new Date(), itemCount: items.length };
+      return { success: true, payload: waPayload, pushedAt: new Date(), itemCount: items.length, syncedToWaMenu: synced };
     }),
 
   // ── Unpublish ──────────────────────────────────────────────────────────────

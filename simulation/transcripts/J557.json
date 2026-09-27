@@ -1,0 +1,8 @@
+{
+  "id": "J557",
+  "title": "membership cancel at period end + expiry sweep + read-side expiry guard",
+  "feature": "W54 capabilities: membership cancel semantics",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

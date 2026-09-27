@@ -1,0 +1,157 @@
+# === W54 CILIUM ===
+# Kafka + Zookeeper modeled from docker-compose.yml (confluentinc/cp-* 7.6.0).
+# Single-broker dev-equivalent topology; for real HA use Strimzi instead.
+# KAFKA_AUTO_CREATE_TOPICS_ENABLE=false preserved (PLT-24 contract,
+# docs/KAFKA_TOPICS.md): topics are pre-provisioned, a typo fails loudly.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zookeeper
+  namespace: whatsapp-commerce
+  labels: {app: zookeeper, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: zookeeper}
+  template:
+    metadata:
+      labels: {app: zookeeper, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: zookeeper
+          image: confluentinc/cp-zookeeper:7.6.0
+          env:
+            - {name: ZOOKEEPER_CLIENT_PORT, value: "2181"}
+            - {name: ZOOKEEPER_TICK_TIME, value: "2000"}
+          ports:
+            - {name: client, containerPort: 2181}
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          readinessProbe:
+            tcpSocket: {port: 2181}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: 2181}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # cp-zookeeper writes to /var/lib/zookeeper
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/zookeeper/data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: zookeeper-data}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zookeeper-data
+  namespace: whatsapp-commerce
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: {storage: 4Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper
+  namespace: whatsapp-commerce
+  labels: {app: zookeeper}
+spec:
+  selector: {app: zookeeper}
+  ports:
+    - {name: client, port: 2181, targetPort: 2181}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: whatsapp-commerce
+  labels: {app: kafka, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: kafka}
+  template:
+    metadata:
+      labels: {app: kafka, app.kubernetes.io/part-of: whatsapp-commerce-platform}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.6.0
+          env:
+            - {name: KAFKA_BROKER_ID, value: "1"}
+            - {name: KAFKA_ZOOKEEPER_CONNECT, value: "zookeeper:2181"}
+            - {name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka:9092"}
+            - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "PLAINTEXT:PLAINTEXT"}
+            - {name: KAFKA_INTER_BROKER_LISTENER_NAME, value: PLAINTEXT}
+            - {name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_AUTO_CREATE_TOPICS_ENABLE, value: "false"}
+            - {name: KAFKA_LOG_RETENTION_HOURS, value: "168"}
+            # eBPF note: with Cilium WireGuard transparent encryption this
+            # PLAINTEXT listener is still encrypted on the wire node-to-node;
+            # do NOT take that as an excuse to skip broker auth in prod.
+          ports:
+            - {name: kafka, containerPort: 9092}
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "2", memory: 2Gi}
+          readinessProbe:
+            exec:
+              command: ["kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket: {port: 9092}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # cp-kafka writes logs/config to /etc/kafka, /var/lib/kafka
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/kafka/data}
+      volumes:
+        - name: data
+          persistentVolumeClaim: {claimName: kafka-data}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+  namespace: whatsapp-commerce
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: {storage: 20Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: whatsapp-commerce
+  labels: {app: kafka}
+spec:
+  selector: {app: kafka}
+  ports:
+    - {name: kafka, port: 9092, targetPort: 9092}
+# === END W54 CILIUM ===

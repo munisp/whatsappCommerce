@@ -615,6 +615,36 @@ export async function bootWorld(): Promise<World> {
           await world.db.execute(sqlW46`DELETE FROM payment_intents WHERE idempotency_key LIKE 'w46:%'`);
         } catch { /* W46 tables not migrated yet */ }
         // === END W46 uc-docs ===
+        // === W53 EVENTS === wipe events/ticket tables so journeys never
+        // leak published events or issued tickets into each other.
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.eventTickets);
+          await world.db.delete(schema.eventTicketTypes);
+          await world.db.delete(schema.events);
+        } catch { /* W53 tables not migrated yet */ }
+        // === END W53 EVENTS ===
+        // === W54 disputes === restore the seeded admin alert phone: journeys
+        // that patchTenantSettings({ adminPhone }) for their own flow
+        // (J335/J336/J345) must not leak a stale alert recipient into later
+        // journeys — DISP-2/DISP-8 admin alerts (J547) wait on ADMIN_PHONE.
+        try {
+          const { tenants } = await import("../drizzle/schema");
+          const cur = await world.tenantSettings();
+          if (cur?.adminPhone !== ADMIN_PHONE) {
+            await world.db.update(tenants)
+              .set({ settings: { ...cur, adminPhone: ADMIN_PHONE }, updatedAt: new Date() })
+              .where(eq(tenants.id, TENANT_ID));
+          }
+        } catch { /* world not seeded yet */ }
+        // === END W54 disputes ===
+        // === W54 capabilities: wipe membership tiers between journeys ===
+        try {
+          const schema = await import("../drizzle/schema");
+          await world.db.delete(schema.customerMemberships);
+          await world.db.delete(schema.membershipPlans);
+        } catch { /* W54 tables not migrated yet */ }
+        // === END W54 capabilities ===
         // Restore seed stock so journeys never starve each other.
         try {
           const { products } = await import("../drizzle/schema");
@@ -992,6 +1022,20 @@ export async function bootWorld(): Promise<World> {
             .where(inArr(schema.processedWebhookEvents.type, ["pot_installment", "pot_settle"]));
         } catch { /* w32 tables not migrated yet */ }
         // === END W32 pay-over-time ===
+        // === W53 RESIDUALS (J237 deflake) === telegram journeys post FIXED
+        // update_ids; the `tg:<update_id>` dedupe claims otherwise persist
+        // across journeys in the shared world and any id reuse silently
+        // drops a later journey's update as a duplicate (the J236→J237
+        // 970237 collision). Wipe telegram claims + identity bindings
+        // between journeys — journeys always create their own rows.
+        try {
+          const schema = await import("../drizzle/schema");
+          const { eq: eqW53 } = await import("drizzle-orm");
+          await world.db.delete(schema.processedWebhookEvents)
+            .where(eqW53(schema.processedWebhookEvents.type, "telegram_update"));
+          await world.db.delete(schema.telegramIdentities);
+        } catch { /* w37 tables not migrated yet */ }
+        // === END W53 RESIDUALS ===
         // === W45 money-ledger === wipe the payment outbox + pot manual-settle
         // intents so J372–J376 never leak deliveries across journeys.
         try {

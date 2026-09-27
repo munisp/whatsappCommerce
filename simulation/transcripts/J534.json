@@ -7,27 +7,27 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014581048",
-      "profileName": "Sim User 1048",
+      "phone": "2348013561183",
+      "profileName": "Sim User 1183",
       "inboundId": "wamid.sim.in.text.00005",
-      "at": 1790459064020,
+      "at": 1790548091153,
       "kind": "text",
-      "text": "DEAL DEAL34 REF REF-GGKNET"
+      "text": "DEAL DEAL34 REF REF-FHKX2J"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00005",
-      "at": 1790459064027
+      "at": 1790548091160
     },
     {
       "dir": "out",
-      "phone": "2348014581048",
-      "wamid": "wamid.sim.000039",
+      "phone": "2348013561183",
+      "wamid": "wamid.sim.000023",
       "statuses": [
         "sent"
       ],
-      "at": 1790459064056,
+      "at": 1790548091187,
       "kind": "text",
       "body": "Sorry — you can't use your own referral code. Share it with a friend instead!"
     }

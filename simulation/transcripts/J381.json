@@ -7,12 +7,12 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348018887516",
-      "wamid": "wamid.sim.000001",
+      "phone": "2348013802596",
+      "wamid": "wamid.sim.000117",
       "statuses": [
         "sent"
       ],
-      "at": 1790458733197,
+      "at": 1790547370534,
       "kind": "template",
       "templateName": "wac_order_cancelled",
       "templateLanguage": "en_US",
@@ -20,12 +20,12 @@
     },
     {
       "dir": "out",
-      "phone": "2348018887516",
-      "wamid": "wamid.sim.000002",
+      "phone": "2348013802596",
+      "wamid": "wamid.sim.000118",
       "statuses": [
         "sent"
       ],
-      "at": 1790458733274,
+      "at": 1790547370586,
       "kind": "template",
       "templateName": "wac_order_cancelled",
       "templateLanguage": "en_US",
@@ -34,11 +34,11 @@
     {
       "dir": "out",
       "phone": "2348099900000",
-      "wamid": "wamid.sim.000003",
+      "wamid": "wamid.sim.000119",
       "statuses": [
         "sent"
       ],
-      "at": 1790458733283,
+      "at": 1790547370592,
       "kind": "text",
       "body": "⚠️ Inventory reconciliation drift after Odoo sync (1 product):\n• product prod-w45: snapshot 7 vs ledger 10 (drift -3)\nReview inventory before selling — the snapshot and the stock ledger disagree."
     }
