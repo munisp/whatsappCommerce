@@ -158,7 +158,10 @@ describe("helpers", () => {
     expect(localeFromSessionLanguage("yoruba")).toBe("yo");
     expect(localeFromSessionLanguage("hausa")).toBe("ha");
     expect(localeFromSessionLanguage("igbo")).toBe("ig");
-    expect(localeFromSessionLanguage("pidgin")).toBe("en");
+    // Pidgin got its own first-class locale (pcm) 2026-09-26 — was a silent
+    // fallback to "en" before (see the same-named test in i18n.w27.test.ts
+    // for the accompanying MESSAGE_CATALOG/LOCALE_PACKS/detection coverage).
+    expect(localeFromSessionLanguage("pidgin")).toBe("pcm");
     expect(localeFromSessionLanguage("english")).toBe("en");
   });
 

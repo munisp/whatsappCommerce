@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018510076",
-      "profileName": "Sim User 0076",
+      "phone": "2348011040688",
+      "profileName": "Sim User 0688",
       "inboundId": "wamid.sim.in.text.00566",
-      "at": 1790421527976,
+      "at": 1790427876229,
       "kind": "text",
       "text": "hello again"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00566",
-      "at": 1790421527984
+      "at": 1790427876233
     },
     {
       "dir": "out",
-      "phone": "2348018510076",
+      "phone": "2348011040688",
       "wamid": "wamid.sim.001038",
       "statuses": [
         "sent"
       ],
-      "at": 1790421527995,
+      "at": 1790427876238,
       "kind": "text",
       "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
     }

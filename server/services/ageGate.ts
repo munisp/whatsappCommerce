@@ -223,7 +223,7 @@ export async function assertAgeGate(
  * Buyer-facing attestation prompt (both channels — plain text, no WA-only
  * affordances).
  * === W47 crosscutting (ONB-I18N-1): served through the i18n locale packs
- * (en/fr/ha/yo/ig/sw/am). The prompt is a legal gate — an unintelligible
+ * (en/fr/ha/yo/ig/sw/am/pcm). The prompt is a legal gate — an unintelligible
  * prompt is not meaningful attestation. ===
  */
 export function buildAgeAttestationPrompt(

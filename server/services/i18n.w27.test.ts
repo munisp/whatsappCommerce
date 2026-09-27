@@ -1,9 +1,10 @@
 /**
  * W27 i18n framework — unit tests (hermetic, no DB).
  *
- * Covers: the 7-locale extension (sw/am packs), message catalog fallback
- * chain locale→en, {var} interpolation, language picker parsing, and the
- * locale-aware NLU keyword map.
+ * Covers: the 7-locale extension (sw/am packs) plus the later pcm (Nigerian
+ * Pidgin) addition, message catalog fallback chain locale→en, {var}
+ * interpolation, language picker parsing, and the locale-aware NLU keyword
+ * map.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -22,14 +23,15 @@ import {
 } from "./i18n";
 
 describe("W27 locale set", () => {
-  it("supports exactly en/fr/ha/yo/ig/sw/am", () => {
-    expect([...SUPPORTED_LOCALES].sort()).toEqual(["am", "en", "fr", "ha", "ig", "sw", "yo"]);
+  it("supports exactly en/fr/ha/yo/ig/sw/am/pcm", () => {
+    expect([...SUPPORTED_LOCALES].sort()).toEqual(["am", "en", "fr", "ha", "ig", "pcm", "sw", "yo"]);
     expect(isLocale("sw")).toBe(true);
     expect(isLocale("am")).toBe(true);
-    expect(isLocale("pcm")).toBe(false);
+    expect(isLocale("pcm")).toBe(true);
+    expect(isLocale("zz")).toBe(false);
   });
-  it("has full LocalePack entries for sw + am", () => {
-    for (const loc of ["sw", "am"] as const) {
+  it("has full LocalePack entries for sw + am + pcm", () => {
+    for (const loc of ["sw", "am", "pcm"] as const) {
       expect(LOCALE_PACKS[loc].greeting.length).toBeGreaterThan(5);
       expect(LOCALE_PACKS[loc].menuLabels.shop.length).toBeGreaterThan(2);
       expect(LOCALE_PACKS[loc].consentPrompt.length).toBeGreaterThan(20);
@@ -39,12 +41,18 @@ describe("W27 locale set", () => {
   it("maps session language names for the new locales", () => {
     expect(localeFromSessionLanguage("swahili")).toBe("sw");
     expect(localeFromSessionLanguage("amharic")).toBe("am");
+    expect(localeFromSessionLanguage("pidgin")).toBe("pcm");
     expect(localeFromSessionLanguage("english")).toBe("en");
   });
-  it("detects Swahili and Amharic text", () => {
+  it("detects Swahili, Amharic and Pidgin text", () => {
     expect(detectLocale("Habari, bei gani ya bidhaa hii? Nataka kununua tafadhali")).toBe("sw");
     expect(detectLocale("ሰላም ዋጋ ስንት ነው ግዛ እፈልጋለሁ")).toBe("am");
     expect(detectLocale("Sannu! Nawa kudin wannan?")).toBe("ha"); // regression
+    // Pidgin shares most vocabulary with English on purpose — the detector
+    // keys off distinctively-Pidgin words so plain English is never
+    // misdetected (see the "distinctively Pidgin" STOPWORDS.pcm comment).
+    expect(detectLocale("Wetin be the price? Abeg no wahala, I wan buy am")).toBe("pcm");
+    expect(detectLocale("2 spicy wraps and a malt please")).toBe("en"); // regression: plain English stays en
   });
 });
 
@@ -83,22 +91,26 @@ describe("message catalog (t27)", () => {
 });
 
 describe("language picker", () => {
-  it("renders a numbered menu with all 7 locales", () => {
+  it("renders a numbered menu with all 8 locales", () => {
     const menu = buildLanguageMenu("en");
     for (const loc of SUPPORTED_LOCALES) expect(menu).toContain(LOCALE_NAMES[loc]);
-    expect(menu).toContain("7.");
+    expect(menu).toContain(`${SUPPORTED_LOCALES.length}.`);
   });
   it("parses index, code, name and alias choices", () => {
     expect(parseLanguageChoice("1")).toBe("en");
     expect(parseLanguageChoice("3")).toBe("ha");
     expect(parseLanguageChoice("7")).toBe("am");
+    expect(parseLanguageChoice("8")).toBe("pcm");
     expect(parseLanguageChoice("yo")).toBe("yo");
     expect(parseLanguageChoice("Yorùbá")).toBe("yo");
     expect(parseLanguageChoice("kiswahili")).toBe("sw");
     expect(parseLanguageChoice("አማርኛ")).toBe("am");
+    expect(parseLanguageChoice("pidgin")).toBe("pcm");
+    expect(parseLanguageChoice("Pidgin")).toBe("pcm");
+    expect(parseLanguageChoice("naija")).toBe("pcm");
     expect(parseLanguageChoice("nope")).toBeNull();
     expect(parseLanguageChoice("0")).toBeNull();
-    expect(parseLanguageChoice("8")).toBeNull();
+    expect(parseLanguageChoice("9")).toBeNull();
   });
 });
 
@@ -116,6 +128,8 @@ describe("locale-aware NLU", () => {
     expect(matchLocalizedIntent("kusa da ni", "ha")).toBe("discover");
     expect(matchLocalizedIntent("በአቅራቢያዬ", "am")).toBe("discover");
     expect(matchLocalizedIntent("harshe", "ha")).toBe("language");
+    expect(matchLocalizedIntent("wahala", "pcm")).toBe("support");
+    expect(matchLocalizedIntent("buy market", "pcm")).toBe("shop");
   });
   it("falls back to the English keyword list inside any locale", () => {
     expect(matchLocalizedIntent("track", "sw")).toBe("track");

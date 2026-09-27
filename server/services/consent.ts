@@ -30,7 +30,7 @@ export const CONSENT_DENIED_REPLY =
 // === W47 crosscutting (ONB-I18N-1) ===
 // Locale-aware consent copy: the consent prompt is the NDPR legal artifact —
 // an English-only prompt to a Hausa/Swahili speaker is arguably not informed
-// consent. These delegate to the i18n locale packs (en/fr/ha/yo/ig/sw/am).
+// consent. These delegate to the i18n locale packs (en/fr/ha/yo/ig/sw/am/pcm).
 export function consentPromptFor(locale?: string | null): string {
   return tr(locale, "consentPrompt") || CONSENT_PROMPT;
 }

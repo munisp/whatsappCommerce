@@ -195,6 +195,66 @@ function WhatsAppNotifPanel({ orderId }: { orderId: string }) {
   );
 }
 
+// ── Assign Driver Panel ───────────────────────────────────────────────────────
+// Platform-wide driver pool (2026-09-26, replaces the old per-tenant riders.ts
+// design — see server/routers/drivers.ts's own header comment). Assigning
+// auto-books the delivery on first use, so there's no separate "book delivery"
+// step: one button takes an order straight from "paid" to "a real driver is on it."
+function AssignDriverPanel({ tenantId, orderId, orderFulfillment }: { tenantId: string; orderId: string; orderFulfillment: string | null }) {
+  const utils = trpc.useUtils();
+  const nearbyQuery = trpc.drivers.nearby.useQuery({ tenantId }, { enabled: orderFulfillment === "delivery" });
+  const assign = trpc.drivers.assign.useMutation({
+    onSuccess: (result) => {
+      toast.success(`Assigned — driver's phone: ${result.driverPhone}`);
+      utils.drivers.nearby.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  if (orderFulfillment !== "delivery") return null;
+
+  return (
+    <div className="rounded-xl border bg-card overflow-hidden">
+      <div className="px-5 py-3 border-b bg-blue-500/5 flex items-center gap-2">
+        <Truck className="w-4 h-4 text-blue-600" />
+        <span className="text-sm font-medium">Assign a Driver</span>
+        {nearbyQuery.data && (
+          <Badge variant="outline" className="ml-auto text-xs">
+            {nearbyQuery.data.length} online nearby
+          </Badge>
+        )}
+      </div>
+      <div className="p-4 space-y-2">
+        {nearbyQuery.isLoading && <p className="text-sm text-muted-foreground">Finding nearby drivers…</p>}
+        {nearbyQuery.error && (
+          <p className="text-sm text-amber-600">{nearbyQuery.error.message}</p>
+        )}
+        {nearbyQuery.data && nearbyQuery.data.length === 0 && (
+          <p className="text-sm text-muted-foreground">No drivers online nearby right now.</p>
+        )}
+        {nearbyQuery.data?.map((d) => (
+          <div key={d.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-background">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">{d.name}</div>
+              <div className="text-xs text-muted-foreground">
+                {d.distanceKm} km away{d.vehicleType ? ` · ${d.vehicleType}` : ""}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="shrink-0 h-7 text-xs"
+              disabled={assign.isPending}
+              onClick={() => assign.mutate({ tenantId, orderId, driverId: d.id })}
+            >
+              Assign
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Customer Replies Panel ────────────────────────────────────────────────────
 const MSG_TYPE_ICON: Record<string, React.ElementType> = {
   text: MessageSquare,
@@ -1206,6 +1266,14 @@ export default function OrderTimeline() {
           )}
         </div>
       </div>
+      {/* Assign Driver */}
+      {order?.id && (
+        <AssignDriverPanel
+          tenantId={order.tenantId}
+          orderId={order.id}
+          orderFulfillment={(order.metadata as { fulfillment?: string } | null)?.fulfillment ?? null}
+        />
+      )}
       {/* WhatsApp Notification Status */}
       {order?.id && <WhatsAppNotifPanel orderId={order.id} />}
       {order?.id && <CustomerRepliesPanel orderId={order.id} />}

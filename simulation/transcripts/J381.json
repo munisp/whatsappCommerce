@@ -7,12 +7,12 @@
   "messages": [
     {
       "dir": "out",
-      "phone": "2348019803571",
+      "phone": "2348012583690",
       "wamid": "wamid.sim.001003",
       "statuses": [
         "sent"
       ],
-      "at": 1790421494144,
+      "at": 1790427842700,
       "kind": "template",
       "templateName": "wac_order_cancelled",
       "templateLanguage": "en_US",
@@ -20,12 +20,12 @@
     },
     {
       "dir": "out",
-      "phone": "2348019803571",
+      "phone": "2348012583690",
       "wamid": "wamid.sim.001004",
       "statuses": [
         "sent"
       ],
-      "at": 1790421494179,
+      "at": 1790427842736,
       "kind": "template",
       "templateName": "wac_order_cancelled",
       "templateLanguage": "en_US",
@@ -33,23 +33,23 @@
     },
     {
       "dir": "out",
-      "phone": "2348014495268",
+      "phone": "2348018589140",
       "wamid": "wamid.sim.001005",
       "statuses": [
         "sent"
       ],
-      "at": 1790421494183,
+      "at": 1790427842739,
       "kind": "text",
       "body": "⚠️ Inventory reconciliation drift after Odoo sync (5 products):\n• product p-ankara: snapshot 47 vs ledger 50 (drift -3)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product prod-w45: snapshot 7 vs ledger 10 (drift -3)\nReview inventory before selling — the snapshot and the stock ledger disagree."
     },
     {
       "dir": "out",
-      "phone": "2348014495268",
+      "phone": "2348018589140",
       "wamid": "wamid.sim.001006",
       "statuses": [
         "sent"
       ],
-      "at": 1790421494186,
+      "at": 1790427842742,
       "kind": "text",
       "body": "⚠️ Inventory reconciliation drift after Odoo sync (4 products):\n• product p-ankara: snapshot 47 vs ledger 50 (drift -3)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\n• product p-w43-j3: snapshot 20 vs ledger 21 (drift -1)\nReview inventory before selling — the snapshot and the stock ledger disagree."
     }

@@ -161,7 +161,10 @@ export async function handleInboundVoiceNote(opts: {
   const result = await transcribeAudio({
     audio: downloaded.audio,
     mimeType: opts.mimeType ?? downloaded.mimeType,
-    languageHint: locale,
+    // Whisper's `language` param takes an ISO-639-1 code; "pcm" (Nigerian Pidgin, added to i18n.ts's
+    // Locale union 2026-09-26) isn't one and OpenAI's endpoint can 400 on an unrecognized value. Pidgin
+    // is English-lexified, so "en" is the closest real hint rather than sending an invalid one or none.
+    languageHint: locale === "pcm" ? "en" : locale,
   });
   if (!result.text) {
     return failSoft("transcribe_failed");

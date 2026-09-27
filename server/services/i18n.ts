@@ -1,7 +1,8 @@
 /**
  * i18n.ts — Multilingual chat chrome for the WhatsApp/USSD conversation engine.
  *
- * Locales: en (default), fr, ha (Hausa), yo (Yoruba), ig (Igbo).
+ * Locales: en (default), fr, ha (Hausa), yo (Yoruba), ig (Igbo), sw (Swahili),
+ *   am (Amharic), pcm (Nigerian Pidgin).
  *
  *  - LOCALE_PACKS: translated strings for menu chrome (default greeting +
  *    built-in use-case labels) and system replies (consent prompt, cart
@@ -23,8 +24,12 @@ import { isProd } from "../_core/env";
 import { customers } from "../../drizzle/schema";
 import type { WaMenuConfig } from "./waMenu";
 
-export type Locale = "en" | "fr" | "ha" | "yo" | "ig" | "sw" | "am";
-export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "fr", "ha", "yo", "ig", "sw", "am"];
+// pcm = Nigerian Pidgin English (ISO 639-3). Added 2026-09-26 on the user's explicit request
+// ("aff pidgin to the language list") — a real, distinct locale here, not an English variant: it gets
+// its own full LOCALE_PACKS/MESSAGE_CATALOG entries below and its own LLM instruction in
+// server/routers/nlp.ts's buildSystemPrompt, same as every other supported language.
+export type Locale = "en" | "fr" | "ha" | "yo" | "ig" | "sw" | "am" | "pcm";
+export const SUPPORTED_LOCALES: readonly Locale[] = ["en", "fr", "ha", "yo", "ig", "sw", "am", "pcm"];
 export const DEFAULT_LOCALE: Locale = "en";
 
 // ── Locale packs ─────────────────────────────────────────────────────────────
@@ -92,6 +97,10 @@ export const BUREAU_CONSENT_TEXT: Record<Locale, string> = {
     "የብድር ቢሮ ሪፖርት ማድረጊያ፡ በመቀበልዎ፣ የንግድ ብድርዎን እንቅስቃሴዎችን (መወሰድ፣ ክፍያዎች፣ " +
     "መዘግየቶች እና ማስተካከያዎች) ለተፈቀዱ የናይጄሪያ የብድር ቢሮዎች (CRC Credit Bureau / " +
     "CreditRegistry) ማሳወቅ እንድንችል ተስማምተዋል። ማንኛውንም ሪፖርት በማንኛውም ጊዜ መቃወም ይችላሉ።",
+  pcm:
+    "Credit bureau report: as you accept, you dey agree say we fit report your trade-credit " +
+    "activity (draw, payback, late payment and fix-up) go licensed Nigerian credit bureau " +
+    "(CRC Credit Bureau / CreditRegistry). You fit dispute any report anytime.",
 };
 
 export const LOCALE_PACKS: Record<Locale, LocalePack> = {
@@ -296,6 +305,36 @@ export const LOCALE_PACKS: Record<Locale, LocalePack> = {
     imageProcessingFailed: "ይቅርታ — ያንን ፎቶ ማስራት አልቻልኩም። እንደገና ይላኩት፣ ወይም የሚፈልጉትን ይጻፉ። 📷",
     ageGatePrompt: "🔞 በጋሪዎ ውስጥ ያሉ አንድ ወይም ተጨማሪ ዕቃዎች{items} የዕድሜ ገደብ አላቸው። ትእዛዝዎን ለማጠናቀቅ {age} ዓመት ወይም ከዚያ በላይ መሆንዎን \"አዎ {age}+\" ብለው ይምለሱ።",
   },
+  // W48: Nigerian Pidgin pack — added 2026-09-26 (user request: "aff pidgin to the language list").
+  pcm: {
+    greeting: "Welcome to {businessName}! Wetin we fit do for you today?",
+    menuLabels: {
+      shop: "Buy market",
+      track: "Track my order",
+      support: "Get support",
+      booking: "Book appointment",
+      handoff: "Talk to person",
+      procurement: "Restock / buy supplies",
+    },
+    consentPrompt:
+      "Before we continue: we wan send you order update and offer for WhatsApp. " +
+      "Reply YES make we send am, or NO make we no send. You fit change your mind anytime.",
+    consentGranted: "Thank you! You don opt in to order updates for WhatsApp.",
+    consentDenied:
+      "No wahala — we no go send you update again. " +
+      "You fit still message us anytime, and reply YES later if you change your mind.",
+    cartRecovery: "You leave items for your cart — reply CHECKOUT make you complete your order. 🛒",
+    shortageNote: "Some items no dey available now.",
+    tracking: "Track your order",
+    voiceNotEnabled: "Sorry, voice note no dey work now — abeg type your message instead. 🎤❌",
+    reorderNoPriorOrder: "I no see any order wey you don pay for before for this number — tell me wetin you want make I add am to your cart.",
+    disputeConfirm: "We don log your complaint and we don tell our team. We go reach you soon. 🙏",
+    orderingSuspended: "Ordering don stop with this supplier{reason}. Pay wetin you owe{outstanding} make ordering start again.",
+    orderingUnavailable: "We no fit confirm your credit status now — abeg try again small time. Your cart no change and no order dey placed.",
+    paidViaCredit: "You pay with credit — e dey due {dueDate}. Pay before the due date make you fit continue to order.",
+    imageProcessingFailed: "Sorry — I no fit process that photo. Send am again, or type wetin you dey find. 📷",
+    ageGatePrompt: "🔞 One or more items for your cart{items} get age limit. Confirm say you don reach {age} years by replying \"YES {age}+\" make you complete your order.",
+  },
 };
 
 export function isLocale(v: unknown): v is Locale {
@@ -311,7 +350,8 @@ export function localeFromSessionLanguage(language: string | null | undefined): 
     case "igbo": case "ig": return "ig";
     case "swahili": case "kiswahili": case "sw": return "sw";
     case "amharic": case "am": return "am";
-    default: return DEFAULT_LOCALE; // english, pidgin, unknown
+    case "pidgin": case "nigerian pidgin": case "pcm": return "pcm";
+    default: return DEFAULT_LOCALE; // english, unknown
   }
 }
 
@@ -358,6 +398,13 @@ const STOPWORDS: Record<Exclude<Locale, "en">, string[]> = {
     "አሁን", "የት", "ስንት", "ክፍያ", "ይክፈሉ", "አዎ", "አይ", "እንኳን", "ሱቅ",
     "እርዳታ", "እፈልጋለሁ", "መክፈል", "ቅናሽ",
   ],
+  // Pidgin shares most of its vocabulary with English on purpose — these are
+  // words/phrases that are distinctively Pidgin (not plain English), so
+  // ordinary English text doesn't get misdetected as Pidgin.
+  pcm: [
+    "wetin", "abeg", "wahala", "dey", "waka", "abi", "sef", "wan", "dem",
+    "naija", "oga", "sabi", "shey", "how far", "no wahala", "make we", "i wan",
+  ],
 };
 
 /** Diacritic bonuses: [regex, locale, points]. */
@@ -378,7 +425,7 @@ const CHAR_HINTS: Array<[RegExp, Locale, number]> = [
 // === W46 platform-p2 (MSG-23) === scoring shared by detectLocale and the
 // confidence-aware detectLocaleDetailed.
 function scoreLocales(lower: string): Record<Locale, number> {
-  const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0, sw: 0, am: 0 };
+  const scores: Record<Locale, number> = { en: 0, fr: 0, ha: 0, yo: 0, ig: 0, sw: 0, am: 0, pcm: 0 };
   for (const [lang, words] of Object.entries(STOPWORDS) as Array<[Exclude<Locale, "en">, string[]]>) {
     for (const w of words) {
       // W15.1 bugfix: apostrophe is NOT a word boundary — otherwise the Hausa
@@ -681,7 +728,7 @@ export function localizeMenuConfig(config: WaMenuConfig, locale: Locale): WaMenu
 //
 // Keyed templates per locale with fallback chain locale→en. Covers the
 // main-menu chrome, catalog browse, order flow, discovery and payment
-// prompts with real translations in all 7 supported locales. Templates use
+// prompts with real translations in all 8 supported locales. Templates use
 // {var} interpolation (interpolate() below).
 
 export type MessageKey =
@@ -905,6 +952,34 @@ export const MESSAGE_CATALOG: Record<Locale, Partial<MessageCatalog>> = {
     // paymentPending intentionally untranslated in Amharic — exercises the
     // locale→en fallback chain (see J137).
   },
+  pcm: {
+    languageMenuPrompt: "🌐 Choose your language:",
+    languageSetConfirm: "Language don set to {language}. You fit change am anytime, just type LANGUAGE.",
+    languageMenuHint: "Type LANGUAGE anytime make you change your language.",
+    mainMenuPrompt: "Reply with a number, or tell me wetin you dey find.",
+    backToMenu: "Go back to main menu",
+    invalidSelection: "Sorry, I no understand — reply MENU make you see the options again.",
+    catalogHeader: "🛍️ Wetin we get:",
+    catalogEmpty: "No products dey available now — abeg check back soon.",
+    catalogItemOutOfStock: "(e don finish)",
+    catalogItemAdded: "{product} ×{qty} don enter your cart. 🛒",
+    catalogMoreHint: "Reply with product name or number make I add am to your cart.",
+    cartSummaryHeader: "🛒 Wetin dey your cart:",
+    cartEmpty: "Your cart dey empty.",
+    checkoutPrompt: "Reply CHECKOUT make you place your order, or continue to shop.",
+    orderConfirmPrompt: "You wan confirm your order? Reply YES make we confirm am or NO make we cancel.",
+    orderPlaced: "✅ Order {orderNumber} don enter! Total: {total} {currency}.",
+    orderCancelled: "Your order don cancel — no money leave your account.",
+    askDeliveryAddress: "Abeg send your delivery address (street, area, city).",
+    discoveryAskLocation: "📍 Share your location make you see business wey near you.",
+    discoveryEmpty: "No business dey near you yet — try another location.",
+    discoveryHeader: "Business wey near you:",
+    paymentPrompt: "💳 Total wey you go pay: {total} {currency}.",
+    paymentLinkReady: "Tap make you pay safely: {url}",
+    paymentReceived: "✅ We don receive payment — thank you! Your order dey prepare.",
+    paymentFailed: "❌ Payment no go through — abeg try again or choose another way.",
+    paymentPending: "We still dey confirm your payment — we go update you soon.",
+  },
 };
 
 /** {var} interpolation for catalog templates. */
@@ -940,6 +1015,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   ig: "Igbo",
   sw: "Kiswahili",
   am: "አማርኛ (Amharic)",
+  pcm: "Pidgin",
 };
 
 /** Numbered language-picker menu (rendered in the customer's current locale). */
@@ -967,6 +1043,7 @@ export function parseLanguageChoice(reply: string): Locale | null {
     english: "en", french: "fr", francais: "fr", "français": "fr",
     hausa: "ha", harshen: "ha", yoruba: "yo", "yorùbá": "yo", igbo: "ig",
     swahili: "sw", kiswahili: "sw", amharic: "am", "አማርኛ": "am",
+    pidgin: "pcm", "nigerian pidgin": "pcm", naija: "pcm", pcm: "pcm",
   };
   return realAliases[t] ?? null;
 }
@@ -1000,6 +1077,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["menu", "mbido"],
     sw: ["menyu", "mwanzo"],
     am: ["ምናሌ", "መነሻ"],
+    pcm: ["menu", "start", "home"],
   },
   shop: {
     en: ["shop", "buy", "products", "catalog", "browse"],
@@ -1009,6 +1087,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["zụta", "ahịa", "ngwaahịa", "ịzụ"],
     sw: ["nunua", "bidhaa", "duka", "mnunuzi"],
     am: ["ግዛ", "ምርቶች", "ሱቅ", "ግብዣ"],
+    pcm: ["buy market", "market", "shop", "buy"],
   },
   track: {
     en: ["track", "status", "where is my order"],
@@ -1018,6 +1097,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["lelee", "soro"],
     sw: ["fuatilia", "hali"],
     am: ["ከታተል", "ሁኔታ"],
+    pcm: ["track", "where my order", "wetin happen to my order"],
   },
   support: {
     en: ["help", "support"],
@@ -1027,6 +1107,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["enyemaka"],
     sw: ["msaada", "saidia"],
     am: ["እርዳታ", "ርዳታ"],
+    pcm: ["help", "support", "wahala"],
   },
   handoff: {
     en: ["human", "agent", "person"],
@@ -1036,6 +1117,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["nnọchi", "mmadụ"],
     sw: ["mtu", "wakala"],
     am: ["ሰው", "ወኪል"],
+    pcm: ["human", "person", "agent", "talk to person"],
   },
   booking: {
     en: ["book", "appointment"],
@@ -1045,6 +1127,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["oge njikọ", "hazie"],
     sw: ["miadi", "weka miadi"],
     am: ["ቀጠሮ"],
+    pcm: ["book", "appointment", "book appointment"],
   },
   checkout: {
     en: ["checkout", "cart", "done"],
@@ -1054,6 +1137,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["ngọdo", "mezue"],
     sw: ["kikapu", "maliza", "kamilisha"],
     am: ["ጋሪ", "ጨርስ", "አጠናቅቅ"],
+    pcm: ["checkout", "cart", "done", "finish"],
   },
   pay: {
     en: ["pay", "payment", "pay now"],
@@ -1063,6 +1147,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["kwụọ", "ịkwụ ụgwọ"],
     sw: ["lipa", "malipo"],
     am: ["ክፈል", "ክፍያ", "መክፈል"],
+    pcm: ["pay", "payment", "pay now"],
   },
   discover: {
     en: ["near me", "nearby", "around me", "discover"],
@@ -1072,6 +1157,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["dị m nso", "nso"],
     sw: ["karibu nami", "karibu", "jirani"],
     am: ["በአቅራቢያዬ", "አቅራቢያ", "ቅርብ"],
+    pcm: ["near me", "wey near me", "around me"],
   },
   language: {
     en: ["language", "change language"],
@@ -1081,6 +1167,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["asụsụ", "gbanwee asụsụ"],
     sw: ["lugha", "badilisha lugha"],
     am: ["ቋንቋ", "ቋንቋ ቀይር"],
+    pcm: ["language", "change language"],
   },
   confirm: {
     en: ["yes", "confirm", "ok"],
@@ -1090,6 +1177,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["ee", "kwado"],
     sw: ["ndiyo", "thibitisha", "sawa"],
     am: ["አዎ", "አረጋግጥ", "እሺ"],
+    pcm: ["yes", "confirm", "ok", "oya"],
   },
   cancel: {
     en: ["no", "cancel", "stop"],
@@ -1099,6 +1187,7 @@ export const LOCALIZED_INTENT_KEYWORDS: Record<LocalizedIntent, Partial<Record<L
     ig: ["mba", "kagbuo", "kwụsị"],
     sw: ["hapana", "ghairi", "acha"],
     am: ["አይ", "ሰርዝ", "ተው"],
+    pcm: ["no", "cancel", "stop"],
   },
 };
 

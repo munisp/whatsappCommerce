@@ -70,6 +70,7 @@ describe("every routed page has the sidebar, unless it is deliberately public", 
   // /wholesale and /group-deals are entries in the merchant sidebar and rendered WITHOUT one — clicking them made it vanish.
   const PUBLIC = new Set([
     "/", "/track/:token", "/shop/:slug", "/evidence/:token", "/sla-extension/:token", "/discover", // public / token links
+    "/driver", // standalone driver app (own auth, not a tenant dashboard user) — see server/routers/drivers.ts
     "/portal/login", "/portal/magic-login", "/portal/sso-callback", // sign-in plumbing
     "/404",
   ]);

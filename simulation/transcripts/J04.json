@@ -7,10 +7,10 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348014496068",
-      "profileName": "Sim User 6068",
+      "phone": "2348014540346",
+      "profileName": "Sim User 0346",
       "inboundId": "wamid.sim.in.text.00012",
-      "at": 1790420894268,
+      "at": 1790427242633,
       "kind": "text",
       "text": "menu"
     },
@@ -18,16 +18,16 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00012",
-      "at": 1790420894274
+      "at": 1790427242640
     },
     {
       "dir": "out",
-      "phone": "2348014496068",
+      "phone": "2348014540346",
       "wamid": "wamid.sim.000013",
       "statuses": [
         "sent"
       ],
-      "at": 1790420894291,
+      "at": 1790427242727,
       "kind": "interactive",
       "body": "Welcome to Sim Store! How can we help you today?",
       "footer": "Tap an option, or reply with its number.",
@@ -48,10 +48,10 @@
     },
     {
       "dir": "in",
-      "phone": "2348014496068",
-      "profileName": "Sim User 6068",
+      "phone": "2348014540346",
+      "profileName": "Sim User 0346",
       "inboundId": "wamid.sim.in.text.00013",
-      "at": 1790420894821,
+      "at": 1790427243187,
       "kind": "text",
       "text": "1"
     },
@@ -59,25 +59,25 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00013",
-      "at": 1790420894827
+      "at": 1790427243193
     },
     {
       "dir": "out",
-      "phone": "2348014496068",
+      "phone": "2348014540346",
       "wamid": "wamid.sim.000014",
       "statuses": [
         "sent"
       ],
-      "at": 1790420894848,
+      "at": 1790427243223,
       "kind": "text",
       "body": "Sure! Here's what we have:\n\n1. Jollof Rice — NGN 2500.00\n2. Grilled Chicken — NGN 3000.00\n3. Last Unit Special — NGN 1000.00\n4. Sold Out Sneakers — NGN 15000.00 (out of stock)\n5. Ankara Fabric — NGN 5000.00\n6. Restock Widget — NGN 750.00 (out of stock)\n\nReply with a number or an item's name to add it."
     },
     {
       "dir": "in",
-      "phone": "2348014496068",
-      "profileName": "Sim User 6068",
+      "phone": "2348014540346",
+      "profileName": "Sim User 0346",
       "inboundId": "wamid.sim.in.text.00014",
-      "at": 1790420895370,
+      "at": 1790427243734,
       "kind": "text",
       "text": "show me ankara"
     },
@@ -85,27 +85,27 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00014",
-      "at": 1790420895376
+      "at": 1790427243742
     },
     {
       "dir": "out",
-      "phone": "2348014496068",
+      "phone": "2348014540346",
       "wamid": "wamid.sim.000015",
       "statuses": [
         "sent"
       ],
-      "at": 1790420895399,
+      "at": 1790427243771,
       "kind": "text",
       "body": "Ankara Fabric — NGN 5000.00 (in stock)\n📷 https://cdn.sim.local/ankara.jpg"
     },
     {
       "dir": "out",
-      "phone": "2348014496068",
+      "phone": "2348014540346",
       "wamid": "wamid.sim.000016",
       "statuses": [
         "sent"
       ],
-      "at": 1790420895403,
+      "at": 1790427243785,
       "kind": "image",
       "mediaKind": "image",
       "caption": "Ankara Fabric — ₦5,000.00",

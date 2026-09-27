@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-26T11:20:43.064Z",
+  "generatedAt": "2026-09-26T13:06:33.394Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -3116,11 +3116,11 @@
     },
     {
       "id": "J446",
-      "title": "ONB-B-12 sticky locale never overwritten by detection",
+      "title": "QA-064 a language-menu pick takes effect on the very next message, not just future ones",
       "feature": "W47 buyer locale stability",
       "pass": true,
       "file": "J446.json",
-      "messageCount": 0
+      "messageCount": 18
     },
     {
       "id": "J447",
@@ -3192,14 +3192,6 @@
       "feature": "W47 stakeholders: ONB-S-13 referral clawback",
       "pass": true,
       "file": "J454.json",
-      "messageCount": 0
-    },
-    {
-      "id": "J455",
-      "title": "rider register→approve→assign + phone-proof rider updates",
-      "feature": "W47 stakeholders: ONB-S-10 rider registry",
-      "pass": true,
-      "file": "J455.json",
       "messageCount": 0
     },
     {
@@ -3465,6 +3457,22 @@
       "pass": true,
       "file": "J485.json",
       "messageCount": 0
+    },
+    {
+      "id": "J486",
+      "title": "platform driver pool: signup, location, nearest-driver assignment, cross-tenant guards",
+      "feature": "server/routers/drivers.ts",
+      "pass": true,
+      "file": "J486.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J487",
+      "title": "QA-065 a typed place name after the location prompt never reaches the hallucinating LLM",
+      "feature": "server/routers/nlp.ts geo discovery: no-pin follow-up stays deterministic",
+      "pass": true,
+      "file": "J487.json",
+      "messageCount": 9
     },
     {
       "id": "J49",

@@ -915,6 +915,9 @@ const FALLBACK_ERRORS: Record<string, string> = {
   yoruba: "Pèlé, mi ò lóye ìyẹn. Jọ̀wọ́ gbìyànjú lẹ́ẹ̀kan sí i tàbí kọ 'ìrànlọ́wọ́'.",
   hausa: "Yi haƙuri, ban fahimci hakan ba. Don Allah sake gwadawa ko rubuta 'taimako'.",
   igbo: "Ndo, aghaghị m ịghọta nke ahụ. Biko nwaa ọzọ ma ọ bụ dee 'enyemaka'.",
+  french: "Désolé, je n'ai pas compris. Veuillez réessayer ou taper 'aide'.",
+  swahili: "Samahani, sikuelewa hilo. Tafadhali jaribu tena au andika 'msaada'.",
+  amharic: "ይቅርታ፣ አልገባኝም። እባክዎ እንደገና ይሞክሩ ወይም 'እርዳታ' ብለው ይጻፉ።",
   pidgin: "Sorry, I no understand wetin you talk. Try again or type 'help'.",
 };
 
@@ -925,10 +928,14 @@ const FALLBACK_ERRORS: Record<string, string> = {
  * word-boundary, confidence-gated detector the menu engine uses (server/services/i18n.ts), so this module and the
  * menu engine can never disagree about the same message's language again. A weak or zero-confidence signal stays
  * English — it never guesses a non-English language from an ambiguous or short message (a bare number, an id).
- * Pidgin has no dedicated entry in i18n.ts's detector, so it — like the pidgin copy in FALLBACK_ERRORS below — is
- * unreachable here; harmless to keep, not worth a special-case for a locale the shared detector doesn't recognize.
+ * Covers all 8 locales i18n.ts supports (was only yo/ha/ig — fr/sw/am/pcm silently fell back to English replies
+ * from the LLM even though the menu chrome supported them). This is the PER-MESSAGE fallback only, used when no
+ * sticky locale is on file for the caller — see the sticky-first resolution at this function's call site below,
+ * which is the actual fix for QA-064 (explicit language-menu picks not taking effect on later messages).
  */
-const LOCALE_TO_NLP_LANGUAGE: Partial<Record<string, string>> = { yo: "yoruba", ha: "hausa", ig: "igbo" };
+const LOCALE_TO_NLP_LANGUAGE: Partial<Record<string, string>> = {
+  yo: "yoruba", ha: "hausa", ig: "igbo", fr: "french", sw: "swahili", am: "amharic", pcm: "pidgin",
+};
 function detectLanguage(text: string): string {
   const det = detectLocaleDetailed(text);
   if (!det.lowConfidence && det.locale !== "en") {
@@ -1010,6 +1017,9 @@ function buildSystemPrompt(language: string, products: Array<{ name: string; pri
     yoruba: "Respond in Yoruba (you may mix with English where needed). Be warm and respectful.",
     hausa: "Respond in Hausa (you may mix with English where needed). Be polite and helpful.",
     igbo: "Respond in Igbo (you may mix with English where needed). Be friendly and clear.",
+    french: "Respond in French (you may mix with English where needed). Be warm and professional.",
+    swahili: "Respond in Swahili (you may mix with English where needed). Be warm and respectful.",
+    amharic: "Respond in Amharic (you may mix with English where needed). Be polite and clear.",
     pidgin: "Respond in Nigerian Pidgin English. Be casual, friendly, and use common pidgin expressions.",
   };
 
@@ -1032,6 +1042,7 @@ CONVERSATION RULES:
 9. If the customer wants to CANCEL an order they placed ("cancel my order", "cancel the order", "I don't want it anymore", "please cancel order #..."), use intent "cancel_order" — the system cancels it if it hasn't shipped and refunds any payment. Do NOT use "dispute" for plain cancellation requests.
 10. If the customer describes a DISH or RECIPE and asks what they need for it ("I need ingredients for jollof rice", "what do I need to make suya?"), figure out which AVAILABLE PRODUCTS above are actual ingredients/components for it and suggest those specifically by name — don't just repeat the whole catalog. If the customer agrees, put them in extractedItems like any other add. If nothing in stock is genuinely relevant, say so honestly rather than forcing a match.
 11. When nothing else in these rules fits — an opinion, small talk, "what do you recommend" — just talk to them like a helpful person would. Use intent "unknown" only when you truly have nothing useful to say (this is already a fallback path — a plain, honest, ON-TOPIC answer beats a forced classification).
+12. You only know about {tenantName}'s own catalog above — NOTHING ELSE. If asked about other restaurants/shops/businesses nearby, or what else is around them, do NOT invent or name any real-world business, chain, or competitor — you have no such data and a made-up answer is a lie the customer could act on. Say you can only look up real businesses ON THIS PLATFORM, and that needs their actual location: tell them to tap 📎 → Location and share it (typing a place name doesn't work — it can't be searched).
 
 RESPOND WITH JSON (no markdown):
 {
@@ -1124,7 +1135,18 @@ export const nlpRouter = router({
         .where(and(eq(nlpSessions.tenantId, input.tenantId), eq(nlpSessions.waPhoneNumber, sessionKey)))
         .limit(1);
 
-      const detectedLang = detectLanguage(input.message);
+      // Resolve the effective NLP-session language sticky-FIRST: an explicit language-menu pick
+      // (server/services/useCases.ts, server/services/telegramInbound.ts — both call setStickyLocale)
+      // must win over per-message text re-detection below. QA-064, found live 2026-09-26: a customer
+      // picked Yoruba from the language menu, got a Yoruba confirmation, then every later reply came back
+      // in English — this session's own `language` field was only ever GUARDED from being overwritten
+      // once a sticky lock existed (see the `else` branch below), it was never actually SYNCED from the
+      // sticky store in the first place, so it just kept whatever stale value (usually "english") it had
+      // before the pick. `detectLanguage(text)` is now only the per-message fallback used when no sticky
+      // lock is on file for this caller.
+      const { getStickyLocale } = await import("../services/i18n");
+      const stickyLocale = await getStickyLocale(input.tenantId, sessionKey).catch(() => null);
+      const detectedLang = stickyLocale ? (LOCALE_TO_NLP_LANGUAGE[stickyLocale] ?? "english") : detectLanguage(input.message);
       let session = existing[0];
 
       // === W47 crosscutting (ONB-ID-3): recycled-number protection — a
@@ -1171,17 +1193,13 @@ export const nlpRouter = router({
         if (!session) throw new Error("nlp_sessions get-or-create failed after conflict re-select");
         // === END W47 buyer ===
       } else {
-        // Update language if newly detected — === W47 buyer (ONB-B-12):
-        // NEVER overwrite once the buyer picked a sticky locale via the
-        // language picker; detection no longer flips mid-conversation. ===
-        // Was `detectedLang !== "english"` — a one-way ratchet: once a single false-positive non-English
-        // detection landed (the old crude hint matcher, or any genuinely weak/ambiguous message), the session was
-        // stuck replying in that language FOREVER, since a later confidently-English message was never allowed to
-        // reset it back. `detectLanguage` (server/routers/nlp.ts) is now confidence-gated in both directions —
-        // syncing unconditionally (still never when `sticky`, that guard is unchanged) just lets it self-correct.
-        const { getStickyLocale } = await import("../services/i18n");
-        const sticky = await getStickyLocale(input.tenantId, sessionKey).catch(() => null);
-        if (!sticky && detectedLang !== session.language) {
+        // Keep session.language in sync with `detectedLang`, which is already sticky-locale-aware (see
+        // above): a fresh language-menu pick now takes effect on THIS message instead of only future
+        // ones (QA-064), and — when no sticky lock is set — a confidently-different re-detection can
+        // still self-correct a stale value rather than getting stuck forever (was `detectedLang !==
+        // "english"`, a one-way ratchet: a single false-positive non-English detection used to stick
+        // permanently since a later confidently-English message was never allowed to reset it back).
+        if (detectedLang !== session.language) {
           await db.update(nlpSessions)
             .set({ language: detectedLang, lastActivityAt: new Date() })
             .where(eq(nlpSessions.id, session.id));
@@ -1837,6 +1855,32 @@ export const nlpRouter = router({
           const cats = await listCategories(db).catch(() => [] as Awaited<ReturnType<typeof listCategories>>);
           category = resolveCategorySelection(input.message, cats);
         }
+
+        // Found live 2026-09-26: a customer asked "what fast food restaurant is around me?", got the (correct)
+        // "share your location" prompt below, then replied with a TYPED place name ("I'm currently at yaba")
+        // instead of an actual location share. Nothing recognized that reply as a discovery follow-up (it doesn't
+        // say "near me" so extractDiscoverQuery returns null, and there's still no real pin), so it fell through
+        // all the way to the general LLM chat — which answered with real-world restaurant names (MacDonald's, KFC,
+        // Pizza Hut) that are not platform merchants at all. The bot must NEVER invent business data it doesn't
+        // have. This repo has no text→coordinates geocoder, so a typed place name genuinely can't be turned into
+        // real nearby results — the correct behavior is to say so plainly and ask again for a real location share,
+        // deterministically, never handing an unanswerable "what's near me" question to the free-chat LLM.
+        const awaitingPin = geoCtx.awaitingDiscoveryLocation === true;
+        if (awaitingPin && !hasPin && residual == null && category == null) {
+          await db.update(nlpSessions).set({
+            context: { ...geoCtx, awaitingDiscoveryLocation: false },
+            lastActivityAt: new Date(),
+          }).where(eq(nlpSessions.id, session.id));
+          return {
+            reply: "I can only find nearby businesses from a shared location pin, not typed text — tap 📎 → Location to share your current location, and I'll show you real businesses on the platform near you.",
+            intent: "discover_nearby",
+            state: session.state,
+            language: session.language,
+            sessionId: session.id,
+            confidence: 1,
+          };
+        }
+
         if (residual != null || category != null) {
           let center: { lat: number; lng: number; radiusKm?: number } | null = null;
           if (hasPin) {
@@ -1867,6 +1911,10 @@ export const nlpRouter = router({
           ].slice(-20);
           await db.update(nlpSessions).set({
             messageHistory: geoHistory,
+            // Remember we're waiting on a real pin ONLY when we just asked for one (no center resolved) — read by
+            // the awaitingPin check above so the customer's very next typed reply gets the deterministic
+            // can't-geocode-text answer instead of reaching the LLM. Cleared as soon as a real result is shown.
+            context: { ...geoCtx, awaitingDiscoveryLocation: !center },
             lastActivityAt: new Date(),
           }).where(eq(nlpSessions.id, session.id));
           await db.insert(agentEvents).values({
@@ -3732,6 +3780,7 @@ export const nlpRouter = router({
       return {
         order: {
           id: order.id,
+          tenantId: order.tenantId,
           orderNumber: order.orderNumber,
           status: order.status,
           paymentStatus: order.paymentStatus,
@@ -3743,6 +3792,10 @@ export const nlpRouter = router({
           shippingAddress: order.shippingAddress,
           notes: order.notes,
           erpOrderId: order.erpOrderId,
+          // Added for the Assign Driver panel (2026-09-26): needs fulfillment to know whether to show
+          // at all. assertTenantAccess already gated the whole response on this tenant, so exposing the
+          // id/metadata the caller already implicitly has access to is not a new disclosure.
+          metadata: order.metadata,
         },
         items,
         payments,

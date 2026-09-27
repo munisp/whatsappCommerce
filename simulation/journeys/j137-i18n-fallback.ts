@@ -47,9 +47,12 @@ export const journey: Journey = {
     // ── 2. Unknown locale → English wholesale ────────────────────────────
     assert(i18n.t27("zz", "cartEmpty") === i18n.MESSAGE_CATALOG.en.cartEmpty, "unknown locale → en");
     assert(i18n.t27(undefined, "cartEmpty") === i18n.MESSAGE_CATALOG.en.cartEmpty, "undefined locale → en");
-    assert(i18n.isLocale("pcm") === false && i18n.isLocale("sw") === true, "isLocale covers the 7 locales");
+    // pcm (Nigerian Pidgin) added 2026-09-26 as a genuinely first-class 8th locale (was previously unsupported).
+    assert(i18n.isLocale("pcm") === true && i18n.isLocale("sw") === true, "isLocale covers all 8 locales, including pcm");
+    assert(i18n.isLocale("zz") === false, "isLocale still rejects a genuinely unsupported code");
     assert(i18n.localeFromSessionLanguage("swahili") === "sw", "session language name → sw");
     assert(i18n.localeFromSessionLanguage("amharic") === "am", "session language name → am");
+    assert(i18n.localeFromSessionLanguage("pidgin") === "pcm", "session language name → pcm");
 
     // ── 3. Tenant overrides win over the pack ────────────────────────────
     const admin = await adminCaller();

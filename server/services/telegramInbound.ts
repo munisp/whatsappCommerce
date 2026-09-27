@@ -284,7 +284,7 @@ export function normalizeUpdate(update: any): NormalizedTelegramEvent | null {
 // ── Processing (post-ack) ────────────────────────────────────────────────────
 
 // === W47 crosscutting (ONB-I18N-1): TG consent copy goes through the i18n
-// locale packs (en/fr/ha/yo/ig/sw/am) — informed consent requires a language
+// locale packs (en/fr/ha/yo/ig/sw/am/pcm) — informed consent requires a language
 // the buyer understands. The base WA pack text mentions WhatsApp; the TG
 // variants are appended below per locale. ===
 const TG_CONSENT_PROMPT =

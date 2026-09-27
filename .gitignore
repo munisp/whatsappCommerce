@@ -128,3 +128,8 @@ rust/*/target/
 data/tax-statements/
 # === END W33 tax-statements ===
 .qa/perf/loadshed/latest.jsonl
+
+# Python bytecode cache — was showing up untracked across sessions (ai-agent, kyc-verifier, ml-stack all run
+# under Python 3.14 locally); never source, never meant to be committed.
+__pycache__/
+*.pyc

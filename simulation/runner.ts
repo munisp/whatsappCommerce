@@ -593,7 +593,14 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j452-agent-self-dealing"),
     import("./journeys/j453-phone-uniqueness"),
     import("./journeys/j454-referral-clawback"),
-    import("./journeys/j455-rider-onboarding"),
+    // J455 (tenant-scoped rider register→approve→assign, the OLD `riders.ts` router) retired 2026-09-26: the
+    // whole `riders` router/table was deliberately removed (see drizzle/schema.ts's retirement comment) and
+    // replaced with a platform-wide, self-service driver pool (server/routers/drivers.ts) — a fundamentally
+    // different model (drivers self-register via email OTP, go online/offline, get assigned by proximity; no
+    // merchant-side register/approve step exists anymore). J486 is its direct, purpose-built successor and
+    // already covers the equivalent ground (signup/OTP, online/offline, nearby, assign, driver-token-authenticated
+    // status updates including a wrong-driver-token guard) under the real new architecture — nothing here was
+    // dropped without a replacement.
     import("./journeys/j456-stakeholder-notifications"),
     // === END W47 stakeholders ===
     // === W47 crosscutting (Coder D): J457-J466 ===
@@ -628,6 +635,8 @@ export async function loadJourneys(): Promise<Journey[]> {
     import("./journeys/j483-deterministic-first-routing"),
     import("./journeys/j484-deterministic-dispute-routing"),
     import("./journeys/j485-wallet-currency-mismatch-refused"),
+    import("./journeys/j486-driver-pool-assignment"),
+    import("./journeys/j487-discovery-no-hallucination"),
     // === W37 telegram END ===
     // === W38 money-integrity (Coder A): refund/escrow money integrity ===
     import("./journeys/j247-pay2-refund-idempotent-retry"),
