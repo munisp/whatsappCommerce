@@ -1,0 +1,8 @@
+{
+  "id": "J508",
+  "title": "SMS inbound → reply loop via nlp.processMessage",
+  "feature": "W50 SMS: channels.processSms consent gate + NLP dispatch + smsSender reply",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

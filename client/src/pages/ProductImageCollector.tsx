@@ -629,7 +629,7 @@ export function ProductImageCollectorContent() {
 
               {capturedImage ? (
                 <div className="relative">
-                  <img src={capturedImage} alt="Preview" className="w-full h-48 object-contain rounded-lg border bg-muted" />
+                  <img src={capturedImage} alt="Preview" height={192} loading="lazy" decoding="async" className="w-full h-48 object-contain rounded-lg border bg-muted" />
                   <Button
                     size="sm"
                     variant="destructive"
@@ -898,7 +898,7 @@ export function ProductImageCollectorContent() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                   {classImages.map(img => (
                     <div key={img.id} className="relative group">
-                      <img src={img.imageUrl} alt={img.displayName}
+                      <img src={img.imageUrl} alt={img.displayName} height={96} loading="lazy" decoding="async"
                         className="w-full h-24 object-contain rounded-lg border bg-muted" />
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex flex-col items-center justify-center gap-1">
                         <div className="flex gap-0.5">

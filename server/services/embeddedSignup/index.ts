@@ -317,5 +317,9 @@ export async function completeEmbeddedSignup(
     } as any)
     .where(eq(tenants.id, input.tenantId));
 
+  // W48 (PERF-INT-6): invalidate the cached phone_number_id → tenant lookup.
+  const { invalidateWaTenantLookup } = await import("../waTenantLookup");
+  await invalidateWaTenantLookup(phoneNumberId).catch(() => { /* best-effort */ });
+
   return { record, replayed: false };
 }

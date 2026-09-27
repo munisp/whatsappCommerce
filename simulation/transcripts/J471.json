@@ -1,0 +1,8 @@
+{
+  "id": "J471",
+  "title": "read-through cache fail-open + invalidation seams (PERF-API-6/9)",
+  "feature": "Redis read-through for catalog context/menus/tenant status; fail-open on miss; invalidation on writes",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

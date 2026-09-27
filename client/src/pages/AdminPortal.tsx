@@ -31,6 +31,7 @@ import {
   Users, Workflow, XCircle, Zap, ArrowLeftRight, Bot,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { usePollInterval } from "@/hooks/usePollInterval";
 
 // ── Role guard ────────────────────────────────────────────────────────────────
 
@@ -120,6 +121,8 @@ function IntegrationCard({ name, icon: Icon, description, status, lastSync, onCo
 // ── Integrations tab ──────────────────────────────────────────────────────────
 
 function IntegrationsTab() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const healthPoll = usePollInterval(30_000);
   const [configuring, setConfiguring] = useState<string | null>(null);
   const { data: tenantList } = trpc.tenant.list.useQuery({ limit: 20 });
   const [selectedTenant, setSelectedTenant] = useState<string>("");
@@ -142,7 +145,7 @@ function IntegrationsTab() {
   // W30 (V3#6): live infrastructure health feeds the integration cards that
   // have a real probe; cards without a probe render "Unknown — no live check"
   // instead of a fabricated "connected".
-  const healthQ = trpc.infra.infraHealth.useQuery(undefined, { refetchInterval: 30_000 });
+  const healthQ = trpc.infra.infraHealth.useQuery(undefined, { refetchInterval: healthPoll });
   const live = (key: "keycloak" | "apisix" | "temporal" | "tigerBeetle") => {
     const svc = healthQ.data?.services?.[key];
     if (!svc) return "unknown" as const;
@@ -692,8 +695,10 @@ function FinanceTab() {
 // ── Infrastructure tab ────────────────────────────────────────────────────────
 
 function InfraTab() {
+  // W48 PERF-FE-5: visibility-gated polling
+  const infraPoll = usePollInterval(30_000);
   const { data: health, refetch, isLoading } = trpc.infra.infraHealth.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: infraPoll,
   });
   const temporalRuns = trpc.temporal.listRuns.useQuery({ sinceHours: 24, limit: 10 });
 

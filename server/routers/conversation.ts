@@ -3,7 +3,7 @@ import { router, protectedProcedure, assertTenantAccess } from "../_core/trpc";
 import * as db from "../db";
 import { getDb } from "../db";
 import { channelMessages, conversations } from "../../drizzle/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 import { ENV } from "../_core/env";
 
 export const conversationRouter = router({
@@ -39,15 +39,19 @@ export const conversationRouter = router({
       const rows = await dbConn
         .select()
         .from(channelMessages)
-        .where(eq(channelMessages.tenantId, input.tenantId))
+        // === W48 PERF-API-11 (api-db): phone predicate pushed INTO SQL —
+        // previously fetched the tenant's latest 60 rows and filtered by
+        // phone in JS (wrong page contents + wasted transfer). ===
+        .where(input.customerPhone
+          ? and(
+              eq(channelMessages.tenantId, input.tenantId),
+              or(
+                eq(channelMessages.fromAddress, input.customerPhone),
+                eq(channelMessages.toAddress, input.customerPhone),
+              ))
+          : eq(channelMessages.tenantId, input.tenantId))
         .orderBy(desc(channelMessages.createdAt))
         .limit(input.limit);
-      // Filter by phone if provided (match fromAddress or toAddress)
-      if (input.customerPhone) {
-        return rows.filter(r =>
-          r.fromAddress === input.customerPhone || r.toAddress === input.customerPhone
-        );
-      }
       return rows;
     }),
 
@@ -59,27 +63,24 @@ export const conversationRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertTenantAccess(ctx.user, input.tenantId);
-      if (!ENV.waToken || !ENV.waPhoneNumberId) {
-        return { sent: false, error: "WhatsApp credentials not configured — set WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID in Secrets." };
-      }
+      // === W48 integrations (PERF-INT-4) ===
+      // Was: raw fetch to graph.facebook.com/v19.0 with no timeout, no retry,
+      // no ban-circuit check, no suppression-list check, no usage metering —
+      // and version drift vs the rest of the platform (v21.0). Now routed
+      // through waSender.sendWhatsAppText: 12s AbortController timeout,
+      // retriable classification, ban circuit breaker, per-tenant credential
+      // resolution, metering + send log. The agent reply UX can no longer
+      // hang indefinitely on a stalled Graph connection, and a banned sender
+      // fails fast locally instead of hammering Graph.
       const normalized = input.toPhone.startsWith("+") ? input.toPhone : `+${input.toPhone.replace(/\D/g, "")}`;
       try {
-        const res = await fetch(
-          `https://graph.facebook.com/v19.0/${ENV.waPhoneNumberId}/messages`,
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${ENV.waToken}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messaging_product: "whatsapp",
-              to: normalized,
-              type: "text",
-              text: { body: input.body },
-            }),
-          }
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({})) as any;
-          return { sent: false, error: err?.error?.message ?? `HTTP ${res.status}` };
+        const { sendWhatsAppText } = await import("../services/waSender");
+        const result = await sendWhatsAppText(input.tenantId, normalized, input.body, {
+          notifType: "portal_agent_reply",
+          userId: ctx.user?.id ?? null,
+        });
+        if (!result.sent && !result.simulated) {
+          return { sent: false, error: "WhatsApp send failed — see send log" };
         }
         // Store outbound message in channelMessages for timeline display
         const dbConn = await getDb();
@@ -87,14 +88,14 @@ export const conversationRouter = router({
           await dbConn.insert(channelMessages).values({
             channel: "whatsapp",
             direction: "outbound",
-            fromAddress: ENV.waPhoneNumberId,
+            fromAddress: ENV.waPhoneNumberId ?? "tenant-sender",
             toAddress: normalized,
             tenantId: input.tenantId,
             body: input.body,
             processed: true,
           });
         }
-        return { sent: true };
+        return { sent: true, simulated: result.simulated, wamids: result.wamids };
       } catch (e: any) {
         return { sent: false, error: e.message };
       }

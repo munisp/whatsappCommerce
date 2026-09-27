@@ -561,7 +561,7 @@ function DashboardLayoutContent({
                       src={myTenant.logoUrl}
                       alt={myTenant.name ?? "Tenant logo"}
                       className="w-7 h-7 rounded-lg object-contain shrink-0 bg-white/10"
-                    />
+                     loading="lazy" decoding="async" />
                   ) : (
                     <div
                       className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0"

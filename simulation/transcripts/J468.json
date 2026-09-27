@@ -1,0 +1,8 @@
+{
+  "id": "J468",
+  "title": "paymentConfirm parallel hooks + post-commit receipt, semantics intact (PERF-API-2)",
+  "feature": "claim-first confirm idempotent; escrow hold exactly once; amount mismatch rejected before mutation",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

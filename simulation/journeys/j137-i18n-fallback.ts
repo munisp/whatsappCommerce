@@ -47,7 +47,8 @@ export const journey: Journey = {
     // ── 2. Unknown locale → English wholesale ────────────────────────────
     assert(i18n.t27("zz", "cartEmpty") === i18n.MESSAGE_CATALOG.en.cartEmpty, "unknown locale → en");
     assert(i18n.t27(undefined, "cartEmpty") === i18n.MESSAGE_CATALOG.en.cartEmpty, "undefined locale → en");
-    assert(i18n.isLocale("pcm") === false && i18n.isLocale("sw") === true, "isLocale covers the 7 locales");
+    // === W49 I18N-PCM === pcm is now supported — the gap assertion flips.
+    assert(i18n.isLocale("pcm") === true && i18n.isLocale("sw") === true, "isLocale covers the 8 locales");
     assert(i18n.localeFromSessionLanguage("swahili") === "sw", "session language name → sw");
     assert(i18n.localeFromSessionLanguage("amharic") === "am", "session language name → am");
 

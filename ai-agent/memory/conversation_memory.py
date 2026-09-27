@@ -1,4 +1,15 @@
-"""Redis-backed conversation memory with sliding window and summary compression."""
+"""Redis-backed conversation memory with sliding window and summary compression.
+
+=== W48 sidecars (PERF-SC-24) === storage layout changed from one JSON blob
+per conversation (append = full GET + SETEX of the whole history — 5+ RTTs per
+turn and a lost-update race for concurrent messages) to Redis-native
+structures:
+  conv:{tenant}:{conv}:msgs — LIST of message JSON docs (RPUSH + LTRIM keeps
+                              the sliding window; EXPIRE applies the TTL)
+  conv:{tenant}:{conv}:meta — HASH of context fields
+append_message is now ONE pipelined RTT and is race-free (RPUSH is atomic);
+get_context is one pipelined RTT.
+"""
 import json
 import redis.asyncio as aioredis
 import structlog
@@ -46,68 +57,84 @@ class ConversationMemory:
             self._redis = await aioredis.from_url(self.redis_url, decode_responses=True)
         return self._redis
 
-    def _key(self, tenant_id: str, conversation_id: str) -> str:
-        return f"conv:{tenant_id}:{conversation_id}"
+    def _msgs_key(self, tenant_id: str, conversation_id: str) -> str:
+        return f"conv:{tenant_id}:{conversation_id}:msgs"
+
+    def _meta_key(self, tenant_id: str, conversation_id: str) -> str:
+        return f"conv:{tenant_id}:{conversation_id}:meta"
 
     async def get_context(self, tenant_id: str, conversation_id: str, customer_id: str) -> ConversationContext:
-        """Load conversation context from Redis, creating if not exists."""
+        """Load conversation context from Redis (one pipelined RTT)."""
         r = await self._get_redis()
-        key = self._key(tenant_id, conversation_id)
-        raw = await r.get(key)
-        if raw:
-            try:
-                data = json.loads(raw)
-                ctx = ConversationContext(
-                    conversation_id=data["conversation_id"],
-                    tenant_id=data["tenant_id"],
-                    customer_id=data["customer_id"],
-                    messages=[Message(**m) for m in data.get("messages", [])],
-                    cart_id=data.get("cart_id"),
-                    current_intent=data.get("current_intent"),
-                    flow_step=data.get("flow_step", "greeting"),
-                    session_data=data.get("session_data", {}),
-                    created_at=data.get("created_at", datetime.utcnow().isoformat()),
-                    updated_at=data.get("updated_at", datetime.utcnow().isoformat()),
-                )
-                return ctx
-            except Exception as e:
-                log.warning("context_deserialize_failed", error=str(e))
+        msgs_key, meta_key = self._msgs_key(tenant_id, conversation_id), self._meta_key(tenant_id, conversation_id)
+        pipe = r.pipeline()
+        pipe.lrange(msgs_key, -self.MAX_MESSAGES, -1)
+        pipe.hgetall(meta_key)
+        raw_msgs, meta = await pipe.execute()
 
-        # Create new context
-        return ConversationContext(
+        messages: list[Message] = []
+        for raw in raw_msgs or []:
+            try:
+                messages.append(Message(**json.loads(raw)))
+            except Exception as e:
+                log.warning("message_deserialize_failed", error=str(e))
+
+        ctx = ConversationContext(
             conversation_id=conversation_id,
             tenant_id=tenant_id,
             customer_id=customer_id,
+            messages=messages,
         )
+        if meta:
+            ctx.cart_id = meta.get("cart_id") or None
+            ctx.current_intent = meta.get("current_intent") or None
+            ctx.flow_step = meta.get("flow_step", "greeting")
+            ctx.created_at = meta.get("created_at", ctx.created_at)
+            ctx.updated_at = meta.get("updated_at", ctx.updated_at)
+            try:
+                ctx.session_data = json.loads(meta.get("session_data", "{}"))
+            except Exception:
+                ctx.session_data = {}
+        return ctx
 
     async def save_context(self, ctx: ConversationContext) -> None:
-        """Persist conversation context to Redis with TTL."""
+        """Persist conversation metadata (hash) with TTL — one pipelined RTT.
+
+        Note: messages are NOT written here; they are appended atomically by
+        append_message. ctx.messages mutations via this method are dropped by
+        design (callers append via append_message).
+        """
         r = await self._get_redis()
-        key = self._key(ctx.tenant_id, ctx.conversation_id)
+        meta_key = self._meta_key(ctx.tenant_id, ctx.conversation_id)
         ctx.updated_at = datetime.utcnow().isoformat()
-        # Trim to sliding window
-        ctx.messages = ctx.messages[-self.MAX_MESSAGES:]
-        data = {
+        mapping = {
             "conversation_id": ctx.conversation_id,
             "tenant_id": ctx.tenant_id,
             "customer_id": ctx.customer_id,
-            "messages": [asdict(m) for m in ctx.messages],
-            "cart_id": ctx.cart_id,
-            "current_intent": ctx.current_intent,
+            "cart_id": ctx.cart_id or "",
+            "current_intent": ctx.current_intent or "",
             "flow_step": ctx.flow_step,
-            "session_data": ctx.session_data,
+            "session_data": json.dumps(ctx.session_data),
             "created_at": ctx.created_at,
             "updated_at": ctx.updated_at,
         }
-        await r.setex(key, self.ttl, json.dumps(data))
+        pipe = r.pipeline()
+        pipe.hset(meta_key, mapping=mapping)
+        pipe.expire(meta_key, self.ttl)
+        await pipe.execute()
 
     async def append_message(self, tenant_id: str, conversation_id: str, customer_id: str, role: str, content: str, metadata: dict = None) -> None:
-        """Append a message to the conversation history."""
-        ctx = await self.get_context(tenant_id, conversation_id, customer_id)
-        ctx.messages.append(Message(role=role, content=content, metadata=metadata or {}))
-        await self.save_context(ctx)
+        """Append a message — ONE pipelined RTT, atomic, race-free (PERF-SC-24)."""
+        r = await self._get_redis()
+        msgs_key = self._msgs_key(tenant_id, conversation_id)
+        doc = json.dumps(asdict(Message(role=role, content=content, metadata=metadata or {})))
+        pipe = r.pipeline()
+        pipe.rpush(msgs_key, doc)
+        pipe.ltrim(msgs_key, -self.MAX_MESSAGES, -1)
+        pipe.expire(msgs_key, self.ttl)
+        await pipe.execute()
 
     async def clear_context(self, tenant_id: str, conversation_id: str) -> None:
         r = await self._get_redis()
-        await r.delete(self._key(tenant_id, conversation_id))
-
+        await r.delete(self._msgs_key(tenant_id, conversation_id),
+                       self._meta_key(tenant_id, conversation_id))

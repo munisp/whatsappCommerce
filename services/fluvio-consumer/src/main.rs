@@ -75,6 +75,57 @@ struct ForwardBatch {
     source: String,
 }
 
+// === W48 sidecars (PERF-SC-12) === typed records response so the records
+// array is consumed BY VALUE (was `.cloned()` on the whole array + `r.clone()`
+// per record — two serde_json deep copies per record).
+#[derive(Debug, Deserialize)]
+struct RecordsResponse {
+    #[serde(default)]
+    records: Vec<serde_json::Value>,
+}
+
+// ─── Offset persistence (PERF-SC-12) ─────────────────────────────────────────
+// Offsets were in-memory only — a restart re-consumed from 0 and replayed a
+// duplicate storm into /api/internal/events. Now offsets persist to
+// FLUVIO_OFFSET_FILE (default ./fluvio-offsets.json), written atomically
+// (tmp + rename) after every successfully forwarded batch.
+fn offset_file_path() -> String {
+    env::var("FLUVIO_OFFSET_FILE").unwrap_or_else(|_| "fluvio-offsets.json".to_string())
+}
+
+fn load_offsets(topics: &[String]) -> std::collections::HashMap<String, i64> {
+    let mut map: std::collections::HashMap<String, i64> = topics
+        .iter()
+        .map(|t| (t.clone(), 0i64))
+        .collect();
+    match std::fs::read_to_string(offset_file_path()) {
+        Ok(raw) => match serde_json::from_str::<std::collections::HashMap<String, i64>>(&raw) {
+            Ok(saved) => {
+                for (t, off) in saved {
+                    map.insert(t, off);
+                }
+                info!("offsets restored from {}", offset_file_path());
+            }
+            Err(e) => warn!("offset file parse failed ({e}) — starting at 0"),
+        },
+        Err(_) => info!("no offset file — starting at 0"),
+    }
+    map
+}
+
+fn persist_offsets(offsets: &std::collections::HashMap<String, i64>) {
+    let path = offset_file_path();
+    let tmp = format!("{path}.tmp");
+    match serde_json::to_string(offsets) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, &path)) {
+                warn!("offset persist failed: {e}");
+            }
+        }
+        Err(e) => warn!("offset serialize failed: {e}"),
+    }
+}
+
 // ─── HTTP Client ──────────────────────────────────────────────────────────────
 
 async fn forward_events(
@@ -122,11 +173,8 @@ async fn run_consumer_loop(config: Arc<Config>, client: Arc<reqwest::Client>) {
 
     // Real consumer loop using Fluvio HTTP API (SmartConnector / REST proxy)
     // When the Fluvio SDK is available, replace this with native consumer.
-    let mut offsets: std::collections::HashMap<String, i64> = config
-        .topics
-        .iter()
-        .map(|t| (t.clone(), 0i64))
-        .collect();
+    // PERF-SC-12: offsets are loaded from disk (no restart replay storm).
+    let mut offsets = load_offsets(&config.topics);
 
     loop {
         for topic in &config.topics {
@@ -138,12 +186,9 @@ async fn run_consumer_loop(config: Arc<Config>, client: Arc<reqwest::Client>) {
 
             match client.get(&url).timeout(Duration::from_secs(5)).send().await {
                 Ok(resp) if resp.status().is_success() => {
-                    match resp.json::<serde_json::Value>().await {
+                    match resp.json::<RecordsResponse>().await {
                         Ok(data) => {
-                            let records = data["records"]
-                                .as_array()
-                                .cloned()
-                                .unwrap_or_default();
+                            let records = data.records;
 
                             if records.is_empty() {
                                 continue;
@@ -154,21 +199,24 @@ async fn run_consumer_loop(config: Arc<Config>, client: Arc<reqwest::Client>) {
                                 .unwrap_or_default()
                                 .as_millis() as u64;
 
+                            // PERF-SC-12: ONE span per batch (was a full
+                            // info_span! + propagation extraction PER RECORD —
+                            // the highest-cardinality tracing in the repo).
+                            // Trace continuation uses the first record's
+                            // traceparent; offsets stay out of span attrs.
+                            let _batch_span = batch_span(topic, records.len(), records.first());
+
                             let events: Vec<PlatformEvent> = records
-                                .iter()
+                                .into_iter()
                                 .enumerate()
-                                .map(|(i, r)| {
-                                    // === W35 otel ===
-                                    let _span_guard = consume_span(topic, offset + i as i64, r);
-                                    // === END W35 otel ===
-                                    PlatformEvent {
-                                        topic: topic.clone(),
-                                        offset: offset + i as i64,
-                                        payload: r.clone(),
-                                        received_at: now,
-                                    }
+                                .map(|(i, r)| PlatformEvent {
+                                    topic: topic.clone(),
+                                    offset: offset + i as i64,
+                                    payload: r, // moved, not cloned
+                                    received_at: now,
                                 })
                                 .collect();
+                            drop(_batch_span);
 
                             let new_offset = offset + events.len() as i64;
                             if let Err(e) =
@@ -177,6 +225,7 @@ async fn run_consumer_loop(config: Arc<Config>, client: Arc<reqwest::Client>) {
                                 error!("forward_events failed topic={}: {}", topic, e);
                             } else {
                                 offsets.insert(topic.clone(), new_offset);
+                                persist_offsets(&offsets);
                                 info!(
                                     "consumer.batch topic={} count={} offset={}",
                                     topic,
@@ -212,16 +261,18 @@ fn extract_traceparent(record: &serde_json::Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Start a `fluvio.consume` span for one record, continuing the producer
-/// trace when a traceparent header is present. Returns the span guard.
-fn consume_span(topic: &str, offset: i64, record: &serde_json::Value) -> tracing::span::EnteredSpan {
+/// Start ONE `fluvio.consume` span per batch (PERF-SC-12 — span sampling at
+/// batch granularity), continuing the producer trace from the first record's
+/// traceparent when present. Per-record offsets are deliberately NOT span
+/// attributes (unbounded cardinality).
+fn batch_span(topic: &str, count: usize, first: Option<&serde_json::Value>) -> tracing::span::EnteredSpan {
     let span = tracing::info_span!(
-        "fluvio.consume",
+        "fluvio.consume_batch",
         messaging.system = "fluvio",
         messaging.destination = %topic,
-        messaging.offset = offset,
+        messaging.batch_size = count,
     );
-    if let Some(tp) = extract_traceparent(record) {
+    if let Some(tp) = first.and_then(extract_traceparent) {
         use tracing_opentelemetry::OpenTelemetrySpanExt;
         let mut carrier = std::collections::HashMap::new();
         carrier.insert("traceparent".to_string(), tp);

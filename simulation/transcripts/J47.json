@@ -7,62 +7,62 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012839799",
-      "profileName": "Sim User 9799",
+      "phone": "2348016802007",
+      "profileName": "Sim User 2007",
       "inboundId": "wamid.sim.in.text.00183",
-      "at": 1789790472782,
+      "at": 1790457345336,
       "kind": "text",
-      "text": "i want these [6c46d6fc]"
+      "text": "i want these [63d5a511]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00183",
-      "at": 1789790472821
+      "at": 1790457345344
     },
     {
       "dir": "out",
-      "phone": "2348012839799",
-      "wamid": "wamid.sim.000301",
+      "phone": "2348016802007",
+      "wamid": "wamid.sim.000317",
       "statuses": [
         "sent"
       ],
-      "at": 1789790473047,
+      "at": 1790457345380,
       "kind": "text",
       "body": "✅ 1 × Jollof Rice\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348012839799",
-      "profileName": "Sim User 9799",
+      "phone": "2348016802007",
+      "profileName": "Sim User 2007",
       "inboundId": "wamid.sim.in.text.00184",
-      "at": 1789790473424,
+      "at": 1790457345881,
       "kind": "text",
-      "text": "confirm please [6c46d6fc]"
+      "text": "confirm please [63d5a511]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00184",
-      "at": 1789790473461
+      "at": 1790457345888
     },
     {
       "dir": "out",
-      "phone": "2348012839799",
-      "wamid": "wamid.sim.000302",
+      "phone": "2348016802007",
+      "wamid": "wamid.sim.000318",
       "statuses": [
         "sent"
       ],
-      "at": 1789790473558,
+      "at": 1790457345922,
       "kind": "text",
       "body": "🛒 *Your order*\n1 × Jollof Rice — ₦2,500.00 each\nSubtotal: ₦2,500.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348012839799",
-      "profileName": "Sim User 9799",
+      "phone": "2348016802007",
+      "profileName": "Sim User 2007",
       "inboundId": "wamid.sim.in.text.00185",
-      "at": 1789790473937,
+      "at": 1790457346429,
       "kind": "text",
       "text": "1"
     },
@@ -70,103 +70,120 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00185",
-      "at": 1789790473945
+      "at": 1790457346436
     },
     {
       "dir": "out",
-      "phone": "2348012839799",
-      "wamid": "wamid.sim.000303",
+      "phone": "2348016802007",
+      "wamid": "wamid.sim.000319",
       "statuses": [
         "sent"
       ],
-      "at": 1789790474024,
+      "at": 1790457346483,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU7V1C7I*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/e55f6643-37b3-4575-a1ec-6ee98863b6fe\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/c04dad02-255c-4d68-a199-04ad39f05b8c.LjzKULFYRPIWA5T0bL3Kn9bp"
+      "body": "🧾 *Pickup Order ORD-MUIW2QAM*\n1 × Jollof Rice — ₦2,500.00 each\n*Total: ₦2,500.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/3dbaf2d0-27f5-4a54-af1d-9e1d7f4eb0ab\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4174/track/7a7098be-dcb6-4a4b-8ab4-f2f5944fa77b.Nn4CzvdJKNemP1dJ4r26zJOK"
     },
     {
       "dir": "out",
-      "phone": "2348012839799",
-      "wamid": "wamid.sim.000304",
+      "phone": "2348016802007",
+      "wamid": "wamid.sim.000320",
       "statuses": [
         "sent"
       ],
-      "at": 1789790474031,
+      "at": 1790457346487,
       "kind": "interactive",
-      "body": "Order ORD-MU7V1C7I — manage it here:",
+      "body": "💳 Order ORD-MUIW2QAM is awaiting payment. Tap below to pay securely.",
+      "buttons": [
+        {
+          "id": "https://checkout.paystack.com/sim/3dbaf2d0-27f5-4a54-af1d-9e1d7f4eb0ab",
+          "title": "cta_url"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348016802007",
+      "wamid": "wamid.sim.000321",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457346490,
+      "kind": "interactive",
+      "body": "Order ORD-MUIW2QAM — manage it here:",
       "footer": "Or just reply with what you need.",
       "buttons": [
         {
-          "id": "order_track:c04dad02-255c-4d68-a199-04ad39f05b8c",
-          "title": "Track Order"
+          "id": "order_track:7a7098be-dcb6-4a4b-8ab4-f2f5944fa77b",
+          "title": "📦 Track Order"
         },
         {
-          "id": "order_pay:c04dad02-255c-4d68-a199-04ad39f05b8c",
-          "title": "Pay Now"
+          "id": "order_pay:7a7098be-dcb6-4a4b-8ab4-f2f5944fa77b",
+          "title": "💳 Pay Now"
         },
         {
-          "id": "order_cancel:c04dad02-255c-4d68-a199-04ad39f05b8c",
-          "title": "Cancel Order"
+          "id": "order_cancel:7a7098be-dcb6-4a4b-8ab4-f2f5944fa77b",
+          "title": "❌ Cancel"
         }
       ]
     },
     {
       "dir": "in",
-      "phone": "2348014195617",
-      "profileName": "Sim User 5617",
+      "phone": "2348018294933",
+      "profileName": "Sim User 4933",
       "inboundId": "wamid.sim.in.text.00186",
-      "at": 1789790474501,
+      "at": 1790457346981,
       "kind": "text",
-      "text": "i need crates [1000ab07]"
+      "text": "i need crates [e6d968c2]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00186",
-      "at": 1789790474510
+      "at": 1790457346990
     },
     {
       "dir": "out",
-      "phone": "2348014195617",
-      "wamid": "wamid.sim.000305",
+      "phone": "2348018294933",
+      "wamid": "wamid.sim.000322",
       "statuses": [
         "sent"
       ],
-      "at": 1789790474550,
+      "at": 1790457347021,
       "kind": "text",
       "body": "✅ 2 × Plastic Crates 20L\nAdded to your cart!"
     },
     {
       "dir": "in",
-      "phone": "2348014195617",
-      "profileName": "Sim User 5617",
+      "phone": "2348018294933",
+      "profileName": "Sim User 4933",
       "inboundId": "wamid.sim.in.text.00187",
-      "at": 1789790475048,
+      "at": 1790457347525,
       "kind": "text",
-      "text": "confirm please [1000ab07]"
+      "text": "confirm please [e6d968c2]"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00187",
-      "at": 1789790475057
+      "at": 1790457347535
     },
     {
       "dir": "out",
-      "phone": "2348014195617",
-      "wamid": "wamid.sim.000306",
+      "phone": "2348018294933",
+      "wamid": "wamid.sim.000323",
       "statuses": [
         "sent"
       ],
-      "at": 1789790475112,
+      "at": 1790457347561,
       "kind": "text",
       "body": "🛒 *Your order*\n2 × Plastic Crates 20L — ₦2,500.00 each\nSubtotal: ₦5,000.00\n\nHow would you like to receive your order?\n1️⃣ Pickup\n2️⃣ Delivery"
     },
     {
       "dir": "in",
-      "phone": "2348014195617",
-      "profileName": "Sim User 5617",
+      "phone": "2348018294933",
+      "profileName": "Sim User 4933",
       "inboundId": "wamid.sim.in.text.00188",
-      "at": 1789790475598,
+      "at": 1790457348074,
       "kind": "text",
       "text": "1"
     },
@@ -174,55 +191,85 @@
       "dir": "out",
       "kind": "read_receipt",
       "wamid": "wamid.sim.in.text.00188",
-      "at": 1789790475607
+      "at": 1790457348084
     },
     {
       "dir": "out",
-      "phone": "2348014195617",
-      "wamid": "wamid.sim.000307",
+      "phone": "2348018294933",
+      "wamid": "wamid.sim.000324",
       "statuses": [
         "sent"
       ],
-      "at": 1789790475721,
+      "at": 1790457348130,
       "kind": "text",
-      "body": "🧾 *Pickup Order ORD-MU7V1DI0*\n2 × Plastic Crates 20L — ₦2,500.00 each\n*Total: ₦5,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/d3f98a32-ede6-4a18-bd1f-9b2d666e963d\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4173/track/e49d645c-2178-40f4-8813-2ab702988571.aruBa2y3HJEawM4kpZ0p737W"
+      "body": "🧾 *Pickup Order ORD-MUIW2RKE*\n2 × Plastic Crates 20L — ₦2,500.00 each\n*Total: ₦5,000.00*\n\n🏪 We'll message you when it's ready for pickup.\n\n💳 Click here to complete payment: https://checkout.paystack.com/sim/7a11d39e-8f9d-4543-8594-0fdfb67b4381\n📱 No data? Dial *712*amount# to pay via MTN MoMo\n\n🧾 Already paid by transfer? Send a photo/screenshot of your receipt here and we'll confirm it automatically.\n🔎 Track your order: http://localhost:4174/track/7dda4157-8fd4-4462-9b5d-3f8cce563c4e.TGCpn04H_z60XcLPsQxF3uv_"
     },
     {
       "dir": "out",
-      "phone": "2348014195617",
-      "wamid": "wamid.sim.000308",
+      "phone": "2348018294933",
+      "wamid": "wamid.sim.000325",
       "statuses": [
         "sent"
       ],
-      "at": 1789790475729,
+      "at": 1790457348135,
       "kind": "interactive",
-      "body": "Order ORD-MU7V1DI0 — manage it here:",
-      "footer": "Or just reply with what you need.",
+      "body": "💳 Order ORD-MUIW2RKE is awaiting payment. Tap below to pay securely.",
       "buttons": [
         {
-          "id": "order_track:e49d645c-2178-40f4-8813-2ab702988571",
-          "title": "Track Order"
-        },
-        {
-          "id": "order_pay:e49d645c-2178-40f4-8813-2ab702988571",
-          "title": "Pay Now"
-        },
-        {
-          "id": "order_cancel:e49d645c-2178-40f4-8813-2ab702988571",
-          "title": "Cancel Order"
+          "id": "https://checkout.paystack.com/sim/7a11d39e-8f9d-4543-8594-0fdfb67b4381",
+          "title": "cta_url"
         }
       ]
     },
     {
       "dir": "out",
-      "phone": "2348014195617",
-      "wamid": "wamid.sim.000309",
+      "phone": "2348018294933",
+      "wamid": "wamid.sim.000326",
       "statuses": [
         "sent"
       ],
-      "at": 1789790476169,
+      "at": 1790457348137,
+      "kind": "interactive",
+      "body": "Order ORD-MUIW2RKE — manage it here:",
+      "footer": "Or just reply with what you need.",
+      "buttons": [
+        {
+          "id": "order_track:7dda4157-8fd4-4462-9b5d-3f8cce563c4e",
+          "title": "📦 Track Order"
+        },
+        {
+          "id": "order_pay:7dda4157-8fd4-4462-9b5d-3f8cce563c4e",
+          "title": "💳 Pay Now"
+        },
+        {
+          "id": "order_cancel:7dda4157-8fd4-4462-9b5d-3f8cce563c4e",
+          "title": "❌ Cancel"
+        }
+      ]
+    },
+    {
+      "dir": "out",
+      "phone": "2348018294933",
+      "wamid": "wamid.sim.000327",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457348640,
       "kind": "text",
-      "body": "🧾 *Lagos Plastics Manufacturing — Payment Receipt*\nOrder: ORD-MU7V1DI0\n\n2 × Plastic Crates 20L — ₦5,000.00\n\nSubtotal: ₦5,000.00\n*Total paid: ₦5,000.00*\nPayment ref: d3f98a32-ede6-4a18-bd1f-9b2d666e963d\n\n🔎 Track your order: http://localhost:4173/track/e49d645c-2178-40f4-8813-2ab702988571.aruBa2y3HJEawM4kpZ0p737W"
+      "body": "🧾 *Lagos Plastics Manufacturing — Payment Receipt*\nOrder: ORD-MUIW2RKE\n\n2 × Plastic Crates 20L — ₦5,000.00\n\nSubtotal: ₦5,000.00\n*Total paid: ₦5,000.00*\nPayment ref: 7a11d39e-8f9d-4543-8594-0fdfb67b4381\n\n🔎 Track your order: http://localhost:4174/track/7dda4157-8fd4-4462-9b5d-3f8cce563c4e.TGCpn04H_z60XcLPsQxF3uv_"
+    },
+    {
+      "dir": "out",
+      "phone": "2348018294933",
+      "wamid": "wamid.sim.000328",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790457348656,
+      "kind": "document",
+      "mediaKind": "document",
+      "caption": "🧾 Receipt for order ORD-MUIW2RKE",
+      "mediaId": "http://localhost:4174/api/uc-docs/receipts/sim-supplier/receipt-ORD-MUIW2RKE.pdf"
     }
   ]
 }

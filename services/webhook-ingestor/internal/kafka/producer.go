@@ -3,12 +3,17 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 
 	kafkago "github.com/segmentio/kafka-go"
 )
 
 type Producer struct {
+	// === W48 sidecars (PERF-SC-4) === writers map is guarded by mu — the old
+	// unsynchronized lazy map was a `fatal error: concurrent map writes`
+	// process crash under concurrent Gin webhook handlers.
+	mu      sync.RWMutex
 	writers map[string]*kafkago.Writer
 	brokers []string
 }
@@ -34,10 +39,20 @@ func (p *Producer) Publish(ctx context.Context, topic, key string, payload inter
 }
 
 func (p *Producer) getWriter(topic string) *kafkago.Writer {
+	// Fast path: existing writer under a read lock.
+	p.mu.RLock()
+	w, ok := p.writers[topic]
+	p.mu.RUnlock()
+	if ok {
+		return w
+	}
+	// Slow path: create once under the write lock (double-checked).
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if w, ok := p.writers[topic]; ok {
 		return w
 	}
-	w := &kafkago.Writer{
+	w = &kafkago.Writer{
 		Addr:     kafkago.TCP(p.brokers...),
 		Topic:    topic,
 		Balancer: &kafkago.LeastBytes{},
@@ -64,6 +79,8 @@ func (p *Producer) getWriter(topic string) *kafkago.Writer {
 }
 
 func (p *Producer) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for _, w := range p.writers {
 		w.Close()
 	}

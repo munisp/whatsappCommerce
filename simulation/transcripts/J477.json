@@ -1,0 +1,8 @@
+{
+  "id": "J477",
+  "title": "PSP legacy adapters: timeout + bounded retry + circuit breaker",
+  "feature": "PERF-INT-2",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

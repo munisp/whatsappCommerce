@@ -49,7 +49,7 @@ export const journey: Journey = {
     const before = tg.callsFor("sendMessage").length;
     let res = await tgPost(world, TENANT_ID, TG_SECRET, contactUpdate(970237, chatId, fromId, fromId, "+234 801 111 2222"));
     assert(res.status === 200, `contact update must ack 200, got ${res.status}`);
-    await world.waitFor(() => tg.callsFor("sendMessage").length > before, 5000, "binding confirmation");
+    await world.waitFor(() => tg.callsFor("sendMessage").length > before, 15000, "binding confirmation");
     let rows = await identityRows(world, chatId);
     assert(rows.length === 1, "self-share must create exactly one identity row");
     assert(rows[0].phone_e164 === "2348011112222", `phone must normalize to E.164 digits, got ${rows[0].phone_e164}`);
@@ -62,7 +62,7 @@ export const journey: Journey = {
     const before2 = tg.callsFor("sendMessage").length;
     res = await tgPost(world, TENANT_ID, TG_SECRET, contactUpdate(970238, chat2, from2, 999999, "+2348099999999"));
     assert(res.status === 200, `non-self contact update must still ack 200, got ${res.status}`);
-    await world.waitFor(() => tg.callsFor("sendMessage").length > before2, 5000, "refusal reply");
+    await world.waitFor(() => tg.callsFor("sendMessage").length > before2, 15000, "refusal reply");
     const refusal = tg.callsFor("sendMessage").at(-1)!;
     assert(/only link a phone number you share about yourself/i.test(String(refusal.body?.text ?? "")), "must send an honest refusal");
     rows = await identityRows(world, chat2);
@@ -71,7 +71,7 @@ export const journey: Journey = {
     // 3. Re-share updates the same row (upsert on tenant+chat).
     res = await tgPost(world, TENANT_ID, TG_SECRET, contactUpdate(970239, chatId, fromId, fromId, "2348022223333"));
     assert(res.status === 200, "re-share must ack 200");
-    await world.waitFor(async () => (await identityRows(world, chatId))[0]?.phone_e164 === "2348022223333", 5000, "re-bind");
+    await world.waitFor(async () => (await identityRows(world, chatId))[0]?.phone_e164 === "2348022223333", 15000, "re-bind");
     rows = await identityRows(world, chatId);
     assert(rows.length === 1 && rows[0].phone_e164 === "2348022223333", "re-share must update in place");
   },

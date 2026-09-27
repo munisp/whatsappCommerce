@@ -1,0 +1,26 @@
+{
+  "id": "J475",
+  "title": "WA webhook DLQ insert post-ack (PERF-API-5)",
+  "feature": "ack 200 before wa_webhook_events insert; DLQ durability + processing intact post-ack",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "kind": "read_receipt",
+      "wamid": "wamid.j475.1790459030882",
+      "at": 1790459030904
+    },
+    {
+      "dir": "out",
+      "phone": "2348016893080",
+      "wamid": "wamid.sim.000001",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459030934,
+      "kind": "text",
+      "body": "Before we continue: we'd like to send you order updates and offers on WhatsApp. Under NDPR this needs your consent. Reply YES to receive order updates, or NO to opt out. You can change this anytime by messaging us."
+    }
+  ]
+}

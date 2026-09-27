@@ -1,0 +1,8 @@
+{
+  "id": "J503",
+  "title": "discovery stale-center asks before using a saved pin",
+  "feature": "W50 discovery accuracy: requireFreshPin stale-center guard",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

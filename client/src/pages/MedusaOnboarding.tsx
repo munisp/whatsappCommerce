@@ -368,7 +368,7 @@ export function MedusaOnboardingContent() {
                       <div className="flex-1">
                         {draft.imageUrl ? (
                           <div className="flex items-center gap-2 p-2 border rounded-lg bg-muted/50">
-                            <img src={draft.imageUrl} alt="preview" className="w-10 h-10 object-contain rounded" />
+                            <img src={draft.imageUrl} alt="preview" width={40} height={40} loading="lazy" decoding="async" className="w-10 h-10 object-contain rounded" />
                             <span className="text-xs text-muted-foreground truncate flex-1">Image set</span>
                             <button onClick={() => updateDraft(draft.id, "imageUrl", "")} className="text-muted-foreground hover:text-destructive">
                               <X className="w-3.5 h-3.5" />

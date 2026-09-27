@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T04:13:58.875Z",
+  "generatedAt": "2026-09-26T21:49:46.504Z",
   "businessName": "Simply Green (simulated tenant)",
   "journeys": [
     {
@@ -24,7 +24,7 @@
       "feature": "nlpCart → checkout → paystack link",
       "pass": true,
       "file": "J03.json",
-      "messageCount": 10
+      "messageCount": 11
     },
     {
       "id": "J04",
@@ -48,7 +48,7 @@
       "feature": "promos → discounted payment link",
       "pass": true,
       "file": "J06.json",
-      "messageCount": 26
+      "messageCount": 28
     },
     {
       "id": "J07",
@@ -56,7 +56,7 @@
       "feature": "paymentConfirm → receipt push",
       "pass": true,
       "file": "J07.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J08",
@@ -64,7 +64,7 @@
       "feature": "receiptVerification ±₦100",
       "pass": true,
       "file": "J08.json",
-      "messageCount": 39
+      "messageCount": 42
     },
     {
       "id": "J09",
@@ -72,7 +72,7 @@
       "feature": "track/pay/cancel buttons",
       "pass": true,
       "file": "J09.json",
-      "messageCount": 25
+      "messageCount": 26
     },
     {
       "id": "J10",
@@ -104,7 +104,7 @@
       "feature": "onboarding.start → KYB approve → activate → product.create → WhatsApp sale → paystack confirm → merchant wallet credit",
       "pass": true,
       "file": "J102.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J103",
@@ -112,7 +112,7 @@
       "feature": "payment initiation → webhook → order confirmed → receipt notification",
       "pass": true,
       "file": "J103.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J104",
@@ -120,7 +120,7 @@
       "feature": "C1 customer purchase lifecycle end-to-end",
       "pass": true,
       "file": "J104.json",
-      "messageCount": 27
+      "messageCount": 29
     },
     {
       "id": "J105",
@@ -168,7 +168,7 @@
       "feature": "HMAC tracking link + PII scrub",
       "pass": true,
       "file": "J11.json",
-      "messageCount": 10
+      "messageCount": 11
     },
     {
       "id": "J110",
@@ -256,7 +256,7 @@
       "feature": "reorder → repriced cart",
       "pass": true,
       "file": "J12.json",
-      "messageCount": 14
+      "messageCount": 16
     },
     {
       "id": "J120",
@@ -264,7 +264,7 @@
       "feature": "E2 offline sync + stock-conflict resolution end-to-end",
       "pass": true,
       "file": "J120.json",
-      "messageCount": 0
+      "messageCount": 1
     },
     {
       "id": "J121",
@@ -288,7 +288,7 @@
       "feature": "geo discovery: near-me query → pin → checkout",
       "pass": true,
       "file": "J123.json",
-      "messageCount": 19
+      "messageCount": 20
     },
     {
       "id": "J124",
@@ -312,7 +312,7 @@
       "feature": "settleEscrowAtomic + wallet credit conservation",
       "pass": true,
       "file": "J126.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J127",
@@ -456,7 +456,7 @@
       "feature": "courier adapter aggregation + escrow tie-in",
       "pass": true,
       "file": "J142.json",
-      "messageCount": 16
+      "messageCount": 18
     },
     {
       "id": "J143",
@@ -464,7 +464,7 @@
       "feature": "ledger-backed loyalty points",
       "pass": true,
       "file": "J143.json",
-      "messageCount": 20
+      "messageCount": 22
     },
     {
       "id": "J144",
@@ -472,7 +472,7 @@
       "feature": "purchase-verified reviews + moderation",
       "pass": true,
       "file": "J144.json",
-      "messageCount": 22
+      "messageCount": 23
     },
     {
       "id": "J145",
@@ -544,7 +544,7 @@
       "feature": "checkout opt-in + mock adapter + parametric trigger hook",
       "pass": true,
       "file": "J152.json",
-      "messageCount": 16
+      "messageCount": 17
     },
     {
       "id": "J153",
@@ -552,7 +552,7 @@
       "feature": "voucher rails + eligibility + double-redeem guard + issuer report",
       "pass": true,
       "file": "J153.json",
-      "messageCount": 20
+      "messageCount": 22
     },
     {
       "id": "J154",
@@ -624,7 +624,7 @@
       "feature": "order bridge + idempotent outbound create + fulfillment webhook → existing release rails",
       "pass": true,
       "file": "J161.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J162",
@@ -664,7 +664,7 @@
       "feature": "W30 runSlaScan order-status guard",
       "pass": true,
       "file": "J166.json",
-      "messageCount": 23
+      "messageCount": 27
     },
     {
       "id": "J167",
@@ -672,7 +672,7 @@
       "feature": "W30 orderCrud.cancel escrow refund",
       "pass": true,
       "file": "J167.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J168",
@@ -680,7 +680,7 @@
       "feature": "W30 dispute review money movement + processed reachable",
       "pass": true,
       "file": "J168.json",
-      "messageCount": 22
+      "messageCount": 26
     },
     {
       "id": "J169",
@@ -688,7 +688,7 @@
       "feature": "W30 confirmEscrowDelivery helper + auto-confirm cron",
       "pass": true,
       "file": "J169.json",
-      "messageCount": 12
+      "messageCount": 14
     },
     {
       "id": "J17",
@@ -720,7 +720,7 @@
       "feature": "V3#9 + V3#10 remediation: balance locks, in-redeem cap, budget FOR UPDATE",
       "pass": true,
       "file": "J172.json",
-      "messageCount": 10
+      "messageCount": 11
     },
     {
       "id": "J173",
@@ -728,7 +728,7 @@
       "feature": "V3#12 + V1#15 + V2#16 remediation",
       "pass": true,
       "file": "J173.json",
-      "messageCount": 10
+      "messageCount": 11
     },
     {
       "id": "J174",
@@ -784,7 +784,7 @@
       "feature": "reserveStock atomicity + waitlist",
       "pass": true,
       "file": "J18.json",
-      "messageCount": 26
+      "messageCount": 27
     },
     {
       "id": "J180",
@@ -808,7 +808,7 @@
       "feature": "W30 hotfix courier escrowTrusted flag + scan/cron skip",
       "pass": true,
       "file": "J182.json",
-      "messageCount": 24
+      "messageCount": 28
     },
     {
       "id": "J183",
@@ -1224,7 +1224,7 @@
       "feature": "sessionWindow expiry cron (dedupe)",
       "pass": true,
       "file": "J23.json",
-      "messageCount": 24
+      "messageCount": 26
     },
     {
       "id": "J230",
@@ -1376,7 +1376,7 @@
       "feature": "W38 refund_attempts + deterministic idempotency key",
       "pass": true,
       "file": "J247.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J248",
@@ -1384,7 +1384,7 @@
       "feature": "W38 sla.ts verify-first refund sweep",
       "pass": true,
       "file": "J248.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J249",
@@ -1392,7 +1392,7 @@
       "feature": "W38 sla.ts capped refund sweep",
       "pass": true,
       "file": "J249.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J25",
@@ -1408,7 +1408,7 @@
       "feature": "W38 merchant_clawbacks + same-tx escrow FOR UPDATE load",
       "pass": true,
       "file": "J250.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J251",
@@ -1416,7 +1416,7 @@
       "feature": "W38 orderCrud refund cap hardening",
       "pass": true,
       "file": "J251.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J252",
@@ -1424,7 +1424,7 @@
       "feature": "W38 escrow.bulkUpdateState provider refund path",
       "pass": true,
       "file": "J252.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J253",
@@ -1432,7 +1432,7 @@
       "feature": "W38 escrow.bulkUpdateState refund_pending + sweep handoff",
       "pass": true,
       "file": "J253.json",
-      "messageCount": 11
+      "messageCount": 13
     },
     {
       "id": "J254",
@@ -1448,7 +1448,7 @@
       "feature": "W38 pay-over-time reconciliation",
       "pass": true,
       "file": "J255.json",
-      "messageCount": 2
+      "messageCount": 0
     },
     {
       "id": "J256",
@@ -1456,7 +1456,7 @@
       "feature": "W38 pay-over-time reconciliation",
       "pass": true,
       "file": "J256.json",
-      "messageCount": 4
+      "messageCount": 0
     },
     {
       "id": "J257",
@@ -1568,7 +1568,7 @@
       "feature": "chatDispute + admin alert",
       "pass": true,
       "file": "J27.json",
-      "messageCount": 18
+      "messageCount": 19
     },
     {
       "id": "J270",
@@ -1728,7 +1728,7 @@
       "feature": "captureBuyerInstallment: durable ledger + claim exactly-once; reconcilePendingBuyerCharges verify-first",
       "pass": true,
       "file": "J288.json",
-      "messageCount": 3
+      "messageCount": 5
     },
     {
       "id": "J289",
@@ -1760,7 +1760,7 @@
       "feature": "buyerInstallments.reorderWithToken: clone + off-session charge + pinned settle; replay + ownership fail-closed",
       "pass": true,
       "file": "J291.json",
-      "messageCount": 1
+      "messageCount": 2
     },
     {
       "id": "J292",
@@ -1768,7 +1768,7 @@
       "feature": "assertOrderFulfillmentAllowed + orderCrud.updateStatus gate; paid-in-full releases",
       "pass": true,
       "file": "J292.json",
-      "messageCount": 2
+      "messageCount": 3
     },
     {
       "id": "J293",
@@ -1888,7 +1888,7 @@
       "feature": "display-only FX: payment link + payment row stay NGN kobo",
       "pass": true,
       "file": "J306.json",
-      "messageCount": 10
+      "messageCount": 11
     },
     {
       "id": "J307",
@@ -2168,7 +2168,7 @@
       "feature": "W44 gift_cards claim-first redemption",
       "pass": true,
       "file": "J338.json",
-      "messageCount": 11
+      "messageCount": 12
     },
     {
       "id": "J339",
@@ -2176,7 +2176,7 @@
       "feature": "W44 gift_card balance intent on BOTH channels",
       "pass": true,
       "file": "J339.json",
-      "messageCount": 23
+      "messageCount": 24
     },
     {
       "id": "J34",
@@ -2192,7 +2192,7 @@
       "feature": "W44 referral_codes + referral_events + creditWallet reward",
       "pass": true,
       "file": "J340.json",
-      "messageCount": 43
+      "messageCount": 49
     },
     {
       "id": "J341",
@@ -2200,7 +2200,7 @@
       "feature": "W44 merchant gift card admin + referral void seam",
       "pass": true,
       "file": "J341.json",
-      "messageCount": 13
+      "messageCount": 15
     },
     {
       "id": "J342",
@@ -2288,7 +2288,7 @@
       "feature": "digital_pins encryption + claim-first allocation + parity + backorder",
       "pass": true,
       "file": "J351.json",
-      "messageCount": 21
+      "messageCount": 25
     },
     {
       "id": "J352",
@@ -2352,7 +2352,7 @@
       "feature": "MSG-10 suppression consulted by broadcast + retries",
       "pass": true,
       "file": "J359.json",
-      "messageCount": 27
+      "messageCount": 1
     },
     {
       "id": "J36",
@@ -2368,7 +2368,7 @@
       "feature": "MSG-11 getWindow gate, template outside the 24h window",
       "pass": true,
       "file": "J360.json",
-      "messageCount": 15
+      "messageCount": 9
     },
     {
       "id": "J361",
@@ -2408,7 +2408,7 @@
       "feature": "W45 dispute merchantResponseDeadline sweep (config-gated, audited)",
       "pass": true,
       "file": "J365.json",
-      "messageCount": 12
+      "messageCount": 14
     },
     {
       "id": "J366",
@@ -2416,7 +2416,7 @@
       "feature": "W45 sla scan stale-escrow queue",
       "pass": true,
       "file": "J366.json",
-      "messageCount": 24
+      "messageCount": 28
     },
     {
       "id": "J367",
@@ -2424,7 +2424,7 @@
       "feature": "W45 paymentMismatchQuarantine adjacent seam",
       "pass": true,
       "file": "J367.json",
-      "messageCount": 10
+      "messageCount": 11
     },
     {
       "id": "J368",
@@ -2552,7 +2552,7 @@
       "feature": "ORD-27 buyerCancel + ORD-9 quoteDeliveryFee + ORD-26 reconcile",
       "pass": true,
       "file": "J381.json",
-      "messageCount": 4
+      "messageCount": 3
     },
     {
       "id": "J382",
@@ -3299,12 +3299,116 @@
       "messageCount": 0
     },
     {
+      "id": "J467",
+      "title": "PSP webhooks ack-first, process post-ack (PERF-API-1/INT-1)",
+      "feature": "paystack + flutterwave charge webhooks ack 200 before confirm+hooks; confirm still lands; redelivery idempotent",
+      "pass": true,
+      "file": "J467.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J468",
+      "title": "paymentConfirm parallel hooks + post-commit receipt, semantics intact (PERF-API-2)",
+      "feature": "claim-first confirm idempotent; escrow hold exactly once; amount mismatch rejected before mutation",
+      "pass": true,
+      "file": "J468.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J469",
+      "title": "journeys.enroll batched (PERF-API-3)",
+      "feature": "inArray select + bulk frequency-cap + chunked multi-row insert; tenant scoping + phone filter preserved",
+      "pass": true,
+      "file": "J469.json",
+      "messageCount": 0
+    },
+    {
       "id": "J47",
       "title": "provider registry isolation + single-gateway checkout",
       "feature": "provider registry per-tenant chains (data layer) vs platform-wide checkout routing",
       "pass": true,
       "file": "J47.json",
-      "messageCount": 21
+      "messageCount": 24
+    },
+    {
+      "id": "J470",
+      "title": "composite indexes present + stats aggregates correct (PERF-API-4/17/18)",
+      "feature": "migrations 0171-0172 additive indexes; getOrderStats/getProductStats single-scan aggregates",
+      "pass": true,
+      "file": "J470.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J471",
+      "title": "read-through cache fail-open + invalidation seams (PERF-API-6/9)",
+      "feature": "Redis read-through for catalog context/menus/tenant status; fail-open on miss; invalidation on writes",
+      "pass": true,
+      "file": "J471.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J472",
+      "title": "getMessages phone filter SQL pushdown (PERF-API-11)",
+      "feature": "WHERE tenantId AND (fromAddress=phone OR toAddress=phone) ORDER BY createdAt DESC LIMIT n",
+      "pass": true,
+      "file": "J472.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J473",
+      "title": "API/tRPC JSON gzip compression middleware (PERF-API-10)",
+      "feature": "res.json ≥1KB gzipped when accepted; webhooks + small payloads untouched; fail-open",
+      "pass": true,
+      "file": "J473.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J474",
+      "title": "wholesale listMyListings batched tiers (PERF-API-8)",
+      "feature": "one inArray wholesale_listing_tiers query grouped per listing",
+      "pass": true,
+      "file": "J474.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J475",
+      "title": "WA webhook DLQ insert post-ack (PERF-API-5)",
+      "feature": "ack 200 before wa_webhook_events insert; DLQ durability + processing intact post-ack",
+      "pass": true,
+      "file": "J475.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J476",
+      "title": "JSON body limit 2mb default + template seed multi-row (PERF-API-13/19)",
+      "feature": "oversized JSON rejected 413 pre-route; DEFAULT_TEMPLATES seeded once via one insert",
+      "pass": true,
+      "file": "J476.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J477",
+      "title": "PSP legacy adapters: timeout + bounded retry + circuit breaker",
+      "feature": "PERF-INT-2",
+      "pass": true,
+      "file": "J477.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J478",
+      "title": "fraud gate: in-process scorer, 800ms bounded, fail-open",
+      "feature": "PERF-INT-3",
+      "pass": true,
+      "file": "J478.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J479",
+      "title": "portal agent reply routes through waSender (timeout/circuit/metering)",
+      "feature": "PERF-INT-4",
+      "pass": true,
+      "file": "J479.json",
+      "messageCount": 1
     },
     {
       "id": "J48",
@@ -3312,7 +3416,87 @@
       "feature": "manual adapter instructions + receipt confirm",
       "pass": true,
       "file": "J48.json",
-      "messageCount": 13
+      "messageCount": 14
+    },
+    {
+      "id": "J480",
+      "title": "Permify check TTL cache + write invalidation + fail-closed miss",
+      "feature": "PERF-INT-5",
+      "pass": true,
+      "file": "J480.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J481",
+      "title": "WA inbound: cached tenant lookup + hoisted per-batch invariants + parallel fan-out",
+      "feature": "PERF-INT-6",
+      "pass": true,
+      "file": "J481.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J482",
+      "title": "WA webhook ack precedes DLQ persistence (ack < 300ms path)",
+      "feature": "PERF-INT-7",
+      "pass": true,
+      "file": "J482.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J483",
+      "title": "OpenSearch: field-scoped search, 3s budget, bulk path, async indexing",
+      "feature": "PERF-INT-8",
+      "pass": true,
+      "file": "J483.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J484",
+      "title": "webhook artifact retention sweep (7d processed / 30d failed / 72h receipts)",
+      "feature": "PERF-INT-12",
+      "pass": true,
+      "file": "J484.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J485",
+      "title": "generic circuit breaker + payment-chain deadline + moto timeout",
+      "feature": "PERF-INT-10 + PERF-INT-11 + PERF-INT-13",
+      "pass": true,
+      "file": "J485.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J486",
+      "title": "integration smoke budgets (fraud gate, tenant cache, breaker, permify cache)",
+      "feature": "PERF-INT-2/3/5/6 budgets",
+      "pass": true,
+      "file": "J486.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J487",
+      "title": "product card: WA image-header interactive + TG photo+keyboard in one message",
+      "feature": "RICH-1",
+      "pass": true,
+      "file": "J487.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J488",
+      "title": "telegram inbound mirrors WA rich annotations (order card, product image, browse album)",
+      "feature": "RICH-2",
+      "pass": true,
+      "file": "J488.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J489",
+      "title": "publicMediaUrl absolutizes /api/storage links; product-images namespace public",
+      "feature": "RICH-3",
+      "pass": true,
+      "file": "J489.json",
+      "messageCount": 1
     },
     {
       "id": "J49",
@@ -3320,7 +3504,87 @@
       "feature": "customHttp declarative provider end-to-end",
       "pass": true,
       "file": "J49.json",
-      "messageCount": 11
+      "messageCount": 13
+    },
+    {
+      "id": "J490",
+      "title": "cta_url pay button on WA + URL button on TG",
+      "feature": "RICH-7",
+      "pass": true,
+      "file": "J490.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J491",
+      "title": "order receipt PDF delivered as chat document on WA + TG",
+      "feature": "RICH-6",
+      "pass": true,
+      "file": "J491.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J492",
+      "title": "WA product_list catalog message wired into browse",
+      "feature": "RICH-4",
+      "pass": true,
+      "file": "J492.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J493",
+      "title": "TG sendMediaGroup album for browse results",
+      "feature": "RICH-5",
+      "pass": true,
+      "file": "J493.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J494",
+      "title": "welcome banner with tenant logo on WA + TG",
+      "feature": "RICH-9",
+      "pass": true,
+      "file": "J494.json",
+      "messageCount": 1
+    },
+    {
+      "id": "J495",
+      "title": "no-image products still send the uniform card layout (WA + TG)",
+      "feature": "RICH-12",
+      "pass": true,
+      "file": "J495.json",
+      "messageCount": 2
+    },
+    {
+      "id": "J496",
+      "title": "video/audio media types + template image headers",
+      "feature": "RICH-13/RICH-14",
+      "pass": true,
+      "file": "J496.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J497",
+      "title": "pcm (Nigerian Pidgin) first-class locale",
+      "feature": "W49 pcm locale: detection, picker, catalog, overrides, TG consent, session bridge",
+      "pass": true,
+      "file": "J497.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J498",
+      "title": "telegram /menu command renders the shared menu engine",
+      "feature": "W50 TG menu parity: /menu → sendTelegramList(menu_<n>)",
+      "pass": true,
+      "file": "J498.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J499",
+      "title": "telegram menu keyword renders the shared menu engine",
+      "feature": "W50 TG menu parity: 'menu' keyword → menu keyboard",
+      "pass": true,
+      "file": "J499.json",
+      "messageCount": 0
     },
     {
       "id": "J50",
@@ -3328,6 +3592,86 @@
       "feature": "initiateWithFallback chain hop + exhaustion",
       "pass": true,
       "file": "J50.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J500",
+      "title": "telegram menu_<n> callback resolves through the menu engine",
+      "feature": "W50 TG menu parity: callback → handleInteractiveInbound",
+      "pass": true,
+      "file": "J500.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J501",
+      "title": "telegram menu_more_<offset> paginates the tenant menu",
+      "feature": "W50 TG menu parity: menu_more_ pagination",
+      "pass": true,
+      "file": "J501.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J502",
+      "title": "telegram discovery ask uses the request_location keyboard",
+      "feature": "W50 discovery parity: channel-aware location prompt (TG)",
+      "pass": true,
+      "file": "J502.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J503",
+      "title": "discovery stale-center asks before using a saved pin",
+      "feature": "W50 discovery accuracy: requireFreshPin stale-center guard",
+      "pass": true,
+      "file": "J503.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J504",
+      "title": "discovery synonyms: chemist→pharmacy, chop→food (pidgin)",
+      "feature": "W50 discovery accuracy: query→category synonym map",
+      "pass": true,
+      "file": "J504.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J505",
+      "title": "discovery distance-first sort + Google Maps links",
+      "feature": "W50 discovery accuracy: sortBy distance + maps links + hint",
+      "pass": true,
+      "file": "J505.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J506",
+      "title": "discovery radius auto-widens on empty results",
+      "feature": "W50 discovery accuracy: radius ×2 widening with disclosure",
+      "pass": true,
+      "file": "J506.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J507",
+      "title": "USSD discovery-by-text resolves typed areas",
+      "feature": "W50 USSD parity: discovery via area/landmark text",
+      "pass": true,
+      "file": "J507.json",
+      "messageCount": 10
+    },
+    {
+      "id": "J508",
+      "title": "SMS inbound → reply loop via nlp.processMessage",
+      "feature": "W50 SMS: channels.processSms consent gate + NLP dispatch + smsSender reply",
+      "pass": true,
+      "file": "J508.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J509",
+      "title": "SMS chunking (160 GSM-7 / 70 UCS-2, max 3 parts)",
+      "feature": "W50 SMS: segmentation + rich-chrome stripping",
+      "pass": true,
+      "file": "J509.json",
       "messageCount": 0
     },
     {
@@ -3339,6 +3683,86 @@
       "messageCount": 0
     },
     {
+      "id": "J510",
+      "title": "WA permanent failure → SMS failover (flag-gated, idempotent)",
+      "feature": "W50 SMS: smsFailoverEnabled consumer in the waSender failure seam",
+      "pass": true,
+      "file": "J510.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J511",
+      "title": "SMS consent denial: first-contact NO recorded, conversation proceeds",
+      "feature": "W50 SMS: consent gate on the sms channel identity",
+      "pass": true,
+      "file": "J511.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J512",
+      "title": "pcm locale SMS consent chrome",
+      "feature": "W50 SMS: resolveLocale + locale packs on the sms reply loop",
+      "pass": true,
+      "file": "J512.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J513",
+      "title": "Africa's Talking SMS payload shape",
+      "feature": "W50 SMS: AT messaging endpoint contract + credential decryption",
+      "pass": true,
+      "file": "J513.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J514",
+      "title": "Twilio SMS payload shape",
+      "feature": "W50 SMS: Twilio Messages.json contract + basic auth",
+      "pass": true,
+      "file": "J514.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J515",
+      "title": "publishDraft preserves the merchant WA photo (P0)",
+      "feature": "W50 IMAGES Q2c: catalogAI photo preservation → products.imageUrl",
+      "pass": true,
+      "file": "J515.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J516",
+      "title": "Medusa catalog import carries thumbnail/images[0] → products.imageUrl",
+      "feature": "W50 IMAGES Q2b: Medusa image ingestion",
+      "pass": true,
+      "file": "J516.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J517",
+      "title": "Ollama /v1/images/generations success path stamps imageUrl",
+      "feature": "W50 IMAGES Q2a: local Ollama Qwen image generation",
+      "pass": true,
+      "file": "J517.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J518",
+      "title": "Ollama native /api/generate fallback after images 404",
+      "feature": "W50 IMAGES: native Ollama fallback",
+      "pass": true,
+      "file": "J518.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J519",
+      "title": "Ollama timeout fails open; tenant opt-out disables generation",
+      "feature": "W50 IMAGES: bounded timeout + fail-open + tenant opt-out",
+      "pass": true,
+      "file": "J519.json",
+      "messageCount": 0
+    },
+    {
       "id": "J52",
       "title": "unified webhook isolation",
       "feature": "per-adapter verify + slug routing",
@@ -3347,11 +3771,147 @@
       "messageCount": 0
     },
     {
+      "id": "J520",
+      "title": "image provenance union + idempotent skip + force regeneration",
+      "feature": "W50 IMAGES: provenance metadata + products.generateImage",
+      "pass": true,
+      "file": "J520.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J521",
+      "title": "promo spotlight card on WA inquiry (image-header interactive)",
+      "feature": "W51 promos: WA promo card on browse/search",
+      "pass": true,
+      "file": "J521.json",
+      "messageCount": 5
+    },
+    {
+      "id": "J522",
+      "title": "TG promo card parity (photo + inline keyboard, no-image fallback)",
+      "feature": "W51 promos: Telegram promo spotlight",
+      "pass": true,
+      "file": "J522.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J523",
+      "title": "no promos / showActive=false → no promo card annotation",
+      "feature": "W51 promos: spotlight gating",
+      "pass": true,
+      "file": "J523.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J524",
+      "title": "most-ordered badge on product card + popular items browse mode",
+      "feature": "W51 promos: popularity ranking + badge",
+      "pass": true,
+      "file": "J524.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J525",
+      "title": "featuredProductIds pin outranks sales in popular browse",
+      "feature": "W51 promos: merchant featured pins",
+      "pass": true,
+      "file": "J525.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J526",
+      "title": "USSD promo one-liner on shop entry + popular items list",
+      "feature": "W51 promos: USSD parity",
+      "pass": true,
+      "file": "J526.json",
+      "messageCount": 6
+    },
+    {
+      "id": "J527",
+      "title": "pcm locale promo one-liner + SMS channel text parity",
+      "feature": "W51 promos: i18n pcm + SMS",
+      "pass": true,
+      "file": "J527.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J528",
+      "title": "promo spotlight deduped to one card per session per 30 min",
+      "feature": "W51 promos: anti-spam dedupe",
+      "pass": true,
+      "file": "J528.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J529",
+      "title": "promo CRUD mirrors to linked Medusa promotions API (idempotent)",
+      "feature": "W51 promos: Medusa promo sync",
+      "pass": true,
+      "file": "J529.json",
+      "messageCount": 0
+    },
+    {
       "id": "J53",
       "title": "keycloak session forgery",
       "feature": "exchangeCode identity↔tenant binding",
       "pass": true,
       "file": "J53.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J530",
+      "title": "featured/popular + badge sync into Medusa product metadata",
+      "feature": "W51 promos: Medusa storefront highlights",
+      "pass": true,
+      "file": "J530.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J531",
+      "title": "WA promo card share tap → bundle with wa.me share URL",
+      "feature": "W52 share: share button + bundle",
+      "pass": true,
+      "file": "J531.json",
+      "messageCount": 7
+    },
+    {
+      "id": "J532",
+      "title": "TG share URL parity + promo keyboard share button",
+      "feature": "W52 share: Telegram parity",
+      "pass": true,
+      "file": "J532.json",
+      "messageCount": 0
+    },
+    {
+      "id": "J533",
+      "title": "recipient redeems DEAL/REF grammar → promo sticky + referral attributed",
+      "feature": "W52 share: inbound grammar",
+      "pass": true,
+      "file": "J533.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J534",
+      "title": "self-share via DEAL/REF grammar rejected",
+      "feature": "W52 share: self-referral guard",
+      "pass": true,
+      "file": "J534.json",
+      "messageCount": 3
+    },
+    {
+      "id": "J535",
+      "title": "USSD promo line appends the forward text",
+      "feature": "W52 share: USSD forward line",
+      "pass": true,
+      "file": "J535.json",
+      "messageCount": 4
+    },
+    {
+      "id": "J536",
+      "title": "pcm locale share bundle rendering + catalog completeness",
+      "feature": "W52 share: i18n pcm",
+      "pass": true,
+      "file": "J536.json",
       "messageCount": 0
     },
     {

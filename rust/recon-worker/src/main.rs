@@ -209,6 +209,21 @@ async fn run_recon(state: &AppState) -> ReconResult {
                 match rows {
                     Ok(rows) => {
                         total_checked = rows.len() as u64;
+
+                        // === W48 sidecars (PERF-SC-27) === was N+1: a
+                        // sequential GET /balance/{id} per payment intent (up
+                        // to 1000 serial RTTs per run). Now the balance
+                        // checks run concurrently with bounded parallelism
+                        // (JoinSet + Semaphore, RECON_FETCH_CONCURRENCY,
+                        // default 16).
+                        struct FetchJob {
+                            id: String,
+                            tenant_id: String,
+                            amount: f64,
+                            expected_minor: i64,
+                            ledger_id: String,
+                        }
+                        let mut fetch_jobs: Vec<FetchJob> = Vec::new();
                         for row in &rows {
                             let id: String = row.get(0);
                             let tenant_id: String = row.get(1);
@@ -218,49 +233,11 @@ async fn run_recon(state: &AppState) -> ReconResult {
                             // Integer minor units, explicit round-half-up.
                             let expected_minor = (amount * 100.0).round() as i64;
 
-                            // For completed payments, verify the ledger reflects
-                            // the payment — comparing AMOUNTS, not just presence.
                             if status == "completed" {
-                                if let Some(ref lid) = ledger_id {
-                                    let ledger_url = format!("{}/balance/{}", state.config.ledger_bridge_url, lid);
-                                    match state.http.get(&ledger_url).send().await {
-                                        Ok(r) if r.status().is_success() => {
-                                            let data = r.json::<serde_json::Value>().await.unwrap_or_default();
-                                            let balance_minor = data["balance_minor"].as_i64()
-                                                .or_else(|| data["balance"].as_f64().map(|b| (b * 100.0).round() as i64))
-                                                .unwrap_or(0);
-                                            let reserved_minor = data["reserved_minor"].as_i64()
-                                                .or_else(|| data["reserved"].as_f64().map(|b| (b * 100.0).round() as i64))
-                                                .unwrap_or(0);
-                                            let observed_minor = balance_minor + reserved_minor;
-                                            if observed_minor < expected_minor {
-                                                // Ledger entry exists but does not
-                                                // cover the completed payment.
-                                                alerts.push(ReconAlert {
-                                                    severity: "high".into(),
-                                                    message: format!(
-                                                        "Payment {} amount drift: expected {} minor units, ledger entry {} holds {}",
-                                                        id, expected_minor, lid, observed_minor
-                                                    ),
-                                                    tenant_id: Some(tenant_id.clone()),
-                                                    amount_diff: Some((expected_minor - observed_minor) as f64 / 100.0),
-                                                });
-                                            } else {
-                                                matched += 1;
-                                            }
-                                        }
-                                        _ => {
-                                            alerts.push(ReconAlert {
-                                                severity: "high".into(),
-                                                message: format!(
-                                                    "Payment {} completed ({} minor units) but ledger entry {} not found",
-                                                    id, expected_minor, lid
-                                                ),
-                                                tenant_id: Some(tenant_id.clone()),
-                                                amount_diff: Some(amount),
-                                            });
-                                        }
-                                    }
+                                if let Some(lid) = ledger_id {
+                                    fetch_jobs.push(FetchJob {
+                                        id, tenant_id, amount, expected_minor, ledger_id: lid,
+                                    });
                                 } else {
                                     // Completed payment with no ledger ID
                                     alerts.push(ReconAlert {
@@ -275,6 +252,68 @@ async fn run_recon(state: &AppState) -> ReconResult {
                                 }
                             } else {
                                 matched += 1; // Failed payments don't need ledger entries
+                            }
+                        }
+
+                        let concurrency: usize = env::var("RECON_FETCH_CONCURRENCY")
+                            .ok().and_then(|v| v.parse().ok()).unwrap_or(16);
+                        let sem = Arc::new(tokio::sync::Semaphore::new(concurrency));
+                        let mut set: tokio::task::JoinSet<(bool, Option<ReconAlert>)> =
+                            tokio::task::JoinSet::new();
+                        for job in fetch_jobs {
+                            let sem = sem.clone();
+                            let http = state.http.clone();
+                            let base = state.config.ledger_bridge_url.clone();
+                            set.spawn(async move {
+                                let _permit = sem.acquire().await.expect("semaphore");
+                                let ledger_url = format!("{}/balance/{}", base, job.ledger_id);
+                                match http.get(&ledger_url).send().await {
+                                    Ok(r) if r.status().is_success() => {
+                                        let data = r.json::<serde_json::Value>().await.unwrap_or_default();
+                                        let balance_minor = data["balance_minor"].as_i64()
+                                            .or_else(|| data["balance"].as_f64().map(|b| (b * 100.0).round() as i64))
+                                            .unwrap_or(0);
+                                        let reserved_minor = data["reserved_minor"].as_i64()
+                                            .or_else(|| data["reserved"].as_f64().map(|b| (b * 100.0).round() as i64))
+                                            .unwrap_or(0);
+                                        let observed_minor = balance_minor + reserved_minor;
+                                        if observed_minor < job.expected_minor {
+                                            // Ledger entry exists but does not
+                                            // cover the completed payment.
+                                            (false, Some(ReconAlert {
+                                                severity: "high".into(),
+                                                message: format!(
+                                                    "Payment {} amount drift: expected {} minor units, ledger entry {} holds {}",
+                                                    job.id, job.expected_minor, job.ledger_id, observed_minor
+                                                ),
+                                                tenant_id: Some(job.tenant_id),
+                                                amount_diff: Some((job.expected_minor - observed_minor) as f64 / 100.0),
+                                            }))
+                                        } else {
+                                            (true, None)
+                                        }
+                                    }
+                                    _ => {
+                                        (false, Some(ReconAlert {
+                                            severity: "high".into(),
+                                            message: format!(
+                                                "Payment {} completed ({} minor units) but ledger entry {} not found",
+                                                job.id, job.expected_minor, job.ledger_id
+                                            ),
+                                            tenant_id: Some(job.tenant_id),
+                                            amount_diff: Some(job.amount),
+                                        }))
+                                    }
+                                }
+                            });
+                        }
+                        while let Some(res) = set.join_next().await {
+                            match res {
+                                Ok((ok, maybe_alert)) => {
+                                    if ok { matched += 1; }
+                                    if let Some(a) = maybe_alert { alerts.push(a); }
+                                }
+                                Err(e) => error!(run_id = %run_id, error = %e, "balance check task failed"),
                             }
                         }
                         info!(run_id = %run_id, total = total_checked, matched = matched, "DB recon complete");

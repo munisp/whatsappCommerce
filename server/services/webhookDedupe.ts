@@ -19,9 +19,9 @@
  * (invoked from the /api/cron/webhook-dedupe-sweep cron endpoint).
  */
 
-import { lt } from "drizzle-orm";
+import { and, eq, lt, or } from "drizzle-orm";
 import type { getDb } from "../db";
-import { processedWebhookEvents } from "../../drizzle/schema";
+import { processedWebhookEvents, waWebhookEvents, waMessageDeliveryReceipts } from "../../drizzle/schema";
 import { isProd } from "../_core/env";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
@@ -94,6 +94,54 @@ export async function sweepProcessedWebhookEvents(
     .where(lt(processedWebhookEvents.processedAt, cutoff))
     .returning({ id: processedWebhookEvents.id });
   return deleted.length;
+}
+
+// === W48 integrations (PERF-INT-12) ===
+/**
+ * Retention sweep for the WA webhook artifact tables, whose rawPayload JSONB
+ * (whole Meta batches on wa_webhook_events; per-status-event payloads on
+ * wa_message_delivery_receipts) grew unboundedly — bloating table/index
+ * storage and slowing inserts on the webhook ack path.
+ *
+ * Policy (env-tunable, defaults per audit):
+ *   - wa_webhook_events: processed rows > WA_EVENTS_PROCESSED_RETENTION_DAYS
+ *     (7d), failed rows > WA_EVENTS_FAILED_RETENTION_DAYS (30d — failed rows
+ *     live longer so the retry heartbeat keeps its work);
+ *   - wa_message_delivery_receipts: rows older than
+ *     WA_RECEIPTS_RETENTION_HOURS (72h) — delivered/read receipts are
+ *     high-volume and low-value after the delivery window.
+ * Rows pending retry (status='received'/'failed' inside their window) are
+ * NEVER touched. Runs from the recovery-sweeps plan (no new cron route).
+ */
+export const WA_EVENTS_PROCESSED_RETENTION_DAYS = Number(process.env.WA_EVENTS_PROCESSED_RETENTION_DAYS ?? 7);
+export const WA_EVENTS_FAILED_RETENTION_DAYS = Number(process.env.WA_EVENTS_FAILED_RETENTION_DAYS ?? 30);
+export const WA_RECEIPTS_RETENTION_HOURS = Number(process.env.WA_RECEIPTS_RETENTION_HOURS ?? 72);
+
+export async function sweepWaWebhookArtifacts(
+  db: Db,
+  opts: { processedDays?: number; failedDays?: number; receiptsHours?: number } = {},
+): Promise<{ eventsDeleted: number; receiptsDeleted: number }> {
+  const processedDays = opts.processedDays ?? WA_EVENTS_PROCESSED_RETENTION_DAYS;
+  const failedDays = opts.failedDays ?? WA_EVENTS_FAILED_RETENTION_DAYS;
+  const receiptsHours = opts.receiptsHours ?? WA_RECEIPTS_RETENTION_HOURS;
+  const processedCutoff = new Date(Date.now() - processedDays * 24 * 3600 * 1000);
+  const failedCutoff = new Date(Date.now() - failedDays * 24 * 3600 * 1000);
+  const receiptsCutoff = new Date(Date.now() - receiptsHours * 3600 * 1000);
+
+  const eventsDeleted = await db
+    .delete(waWebhookEvents)
+    .where(or(
+      and(eq(waWebhookEvents.status, "processed"), lt(waWebhookEvents.createdAt, processedCutoff)),
+      and(eq(waWebhookEvents.status, "failed"), lt(waWebhookEvents.createdAt, failedCutoff)),
+    ))
+    .returning({ id: waWebhookEvents.id });
+
+  const receiptsDeleted = await db
+    .delete(waMessageDeliveryReceipts)
+    .where(lt(waMessageDeliveryReceipts.createdAt, receiptsCutoff))
+    .returning({ id: waMessageDeliveryReceipts.id });
+
+  return { eventsDeleted: eventsDeleted.length, receiptsDeleted: receiptsDeleted.length };
 }
 
 /** Test helper: reset the in-memory fallback ledger. */

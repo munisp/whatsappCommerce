@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo} from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,7 @@ function sumCounters(counters: Array<{ metric: string; count: number }>, prefixe
  * Current-period usage vs plan limits (metering.getUsage/getPlan/setPlan —
  * all admin-only). Rendered on the platform dashboard for admins.
  */
-export default function UsagePlanWidget() {
+function UsagePlanWidget() {
   const { activeTenantId } = useActiveTenant();
   const tenantId = activeTenantId;
   const utils = trpc.useUtils();
@@ -156,3 +156,7 @@ export default function UsagePlanWidget() {
     </Card>
   );
 }
+
+// W48 perf (PERF-FE-10): memoized — parent dashboard re-renders on any of its query updates.
+const MemoizedUsagePlanWidget = memo(UsagePlanWidget);
+export default MemoizedUsagePlanWidget;

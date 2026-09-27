@@ -92,7 +92,7 @@ function BrandingSection({ tenantId }: { tenantId: string }) {
           <Label htmlFor="ts-logo">Logo</Label>
           <div className="flex items-center gap-3">
             {form.logoUrl ? (
-              <img src={form.logoUrl} alt="logo preview" className="h-12 w-12 rounded-lg border bg-white/5 object-contain" />
+              <img src={form.logoUrl} alt="logo preview" width={48} height={48} loading="lazy" decoding="async" className="h-12 w-12 rounded-lg border bg-white/5 object-contain" />
             ) : (
               <div className="h-12 w-12 rounded-lg border border-dashed flex items-center justify-center text-muted-foreground">
                 <Upload className="h-4 w-4" />
@@ -187,7 +187,7 @@ function CopilotBrandingPanel({ branding }: { branding: BrandingConfig }) {
           src={extra.logoSvgDataUri}
           alt="copilot-generated logo"
           className="h-12 rounded border bg-white/5 object-contain"
-        />
+         loading="lazy" decoding="async" />
       )}
       {extra.waProfileAbout && (
         <p className="text-xs text-muted-foreground">
@@ -1333,7 +1333,7 @@ function CtwaSection({ tenantId }: { tenantId: string }) {
                             src={c.qrUrl}
                             alt={`QR code for ${c.keyword}`}
                             className="h-12 w-12 rounded border bg-white p-0.5"
-                          />
+                           loading="lazy" decoding="async" />
                         </a>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>

@@ -1,0 +1,20 @@
+{
+  "id": "J479",
+  "title": "portal agent reply routes through waSender (timeout/circuit/metering)",
+  "feature": "PERF-INT-4",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": [
+    {
+      "dir": "out",
+      "phone": "2348017000479",
+      "wamid": "wamid.sim.000002",
+      "statuses": [
+        "sent"
+      ],
+      "at": 1790459034118,
+      "kind": "text",
+      "body": "Hello from the portal — your order is on its way!"
+    }
+  ]
+}

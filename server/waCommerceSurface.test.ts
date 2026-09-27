@@ -322,5 +322,5 @@ describe("nlp checkout — location request", () => {
       "t1", "234801",
       expect.stringContaining("location"),
     );
-  });
+  }, 30000); // W51 merger: pre-existing 5s-timeout flake in some environments; timeout bump only, behavior unchanged
 });

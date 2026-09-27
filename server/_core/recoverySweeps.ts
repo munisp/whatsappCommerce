@@ -215,6 +215,15 @@ export function buildDefaultSweepPlan(db: any, now: Date = new Date()): NamedSwe
         return { deleted };
       },
     },
+    {
+      // === W48 integrations (PERF-INT-12): JSONB artifact retention ===
+      name: "wa-webhook-artifact-retention",
+      run: async () => {
+        const { sweepWaWebhookArtifacts } = await import("../services/webhookDedupe");
+        const r = await sweepWaWebhookArtifacts(db);
+        return { ...r };
+      },
+    },
   ];
 }
 

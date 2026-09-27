@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -160,6 +161,9 @@ func NewGateway(cfg Config) *Gateway {
 			RequiredAcks: kafka.RequireOne,
 			Async:        false,
 			MaxAttempts:  3,
+			// PERF-SC-19: coalesce writes into broker batches.
+			BatchSize:    100,
+			BatchTimeout: 50 * time.Millisecond,
 		}
 	}
 	return &Gateway{cfg: cfg, logger: logger, writer: writer}
@@ -216,14 +220,14 @@ func (g *Gateway) handleWebhookVerification(w http.ResponseWriter, r *http.Reque
 
 // handleWebhookEvent handles POST /webhook (incoming WhatsApp messages)
 func (g *Gateway) handleWebhookEvent(w http.ResponseWriter, r *http.Request) {
-	body := make([]byte, 0, 4096)
-	buf := make([]byte, 4096)
-	for {
-		n, err := r.Body.Read(buf)
-		body = append(body, buf[:n]...)
-		if err != nil {
-			break
-		}
+	// === W48 sidecars (PERF-SC-19) === bounded body read (was an unbounded
+	// manual 4 KiB append-copy loop — OOM vector + O(n²) copying).
+	const maxWebhookBody = 4 << 20 // 4 MiB
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxWebhookBody))
+	if err != nil {
+		g.logger.Error("webhook.read_error", "error", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
 	}
 
 	// Verify signature
@@ -241,8 +245,12 @@ func (g *Gateway) handleWebhookEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fan out each message to Kafka
+	// Fan out: PERF-SC-19 — collect all events and publish in ONE batched
+	// WriteMessages call (was one synchronous WriteMessages per message with
+	// writer BatchSize=1 and no linger).
 	ctx := r.Context()
+	var messages []kafka.Message
+	now := time.Now().UTC()
 	for _, entry := range payload.Entry {
 		for _, change := range entry.Changes {
 			for _, msg := range change.Value.Messages {
@@ -250,12 +258,14 @@ func (g *Gateway) handleWebhookEvent(w http.ResponseWriter, r *http.Request) {
 				event := KafkaEvent{
 					EventType: "wa.message.received",
 					Source:    "whatsapp-gateway",
-					Timestamp: time.Now().UTC(),
+					Timestamp: now,
 					TraceID:   entry.ID + ":" + msg.ID,
 					Payload:   rawMsg,
 				}
-				if err := g.publishToKafka(ctx, g.cfg.InboundTopic, event); err != nil {
-					g.logger.Error("kafka.publish_failed", "error", err, "msg_id", msg.ID)
+				if data, err := json.Marshal(event); err == nil {
+					messages = append(messages, kafka.Message{
+						Topic: g.cfg.InboundTopic, Key: []byte(event.TraceID), Value: data,
+					})
 				}
 			}
 			for _, status := range change.Value.Statuses {
@@ -263,12 +273,30 @@ func (g *Gateway) handleWebhookEvent(w http.ResponseWriter, r *http.Request) {
 				event := KafkaEvent{
 					EventType: "wa.message.status",
 					Source:    "whatsapp-gateway",
-					Timestamp: time.Now().UTC(),
+					Timestamp: now,
 					TraceID:   status.ID,
 					Payload:   rawStatus,
 				}
-				_ = g.publishToKafka(ctx, g.cfg.InboundTopic, event)
+				if data, err := json.Marshal(event); err == nil {
+					messages = append(messages, kafka.Message{
+						Topic: g.cfg.InboundTopic, Key: []byte(event.TraceID), Value: data,
+					})
+				}
 			}
+		}
+	}
+
+	if len(messages) > 0 {
+		if g.writer == nil {
+			g.logger.Debug("kafka.publish.noop", "count", len(messages))
+		} else if err := g.writer.WriteMessages(ctx, messages...); err != nil {
+			// Status-publish failures are LOGGED (were silently swallowed `_ =`).
+			g.logger.Error("kafka.batch_publish_failed", "error", err, "count", len(messages))
+			http.Error(w, "publish failed — retry", http.StatusServiceUnavailable)
+			return
+		} else {
+			// PERF-SC-19: one log line per webhook batch, not per message.
+			g.logger.Info("kafka.batch_published", "topic", g.cfg.InboundTopic, "count", len(messages))
 		}
 	}
 

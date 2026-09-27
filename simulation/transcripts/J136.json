@@ -7,79 +7,79 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348018313108",
-      "profileName": "Sim User 3108",
-      "inboundId": "wamid.sim.in.text.00349",
-      "at": 1789790780037,
+      "phone": "2348014344694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00038",
+      "at": 1790457873767,
       "kind": "text",
       "text": "language"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00349",
-      "at": 1789790780093
+      "wamid": "wamid.sim.in.text.00038",
+      "at": 1790457873773
     },
     {
       "dir": "out",
-      "phone": "2348018313108",
-      "wamid": "wamid.sim.000579",
+      "phone": "2348014344694",
+      "wamid": "wamid.sim.000085",
       "statuses": [
         "sent"
       ],
-      "at": 1789790780117,
+      "at": 1790457873788,
       "kind": "text",
-      "body": "🌐 Choose your language / Zaɓi harshenka:\n1. English\n2. Français\n3. Hausa\n4. Yorùbá\n5. Igbo\n6. Kiswahili\n7. አማርኛ (Amharic)"
+      "body": "🌐 Choose your language / Zaɓi harshenka:\n1. English\n2. Français\n3. Hausa\n4. Yorùbá\n5. Igbo\n6. Kiswahili\n7. አማርኛ (Amharic)\n8. Naija (Pidgin)"
     },
     {
       "dir": "in",
-      "phone": "2348018313108",
-      "profileName": "Sim User 3108",
-      "inboundId": "wamid.sim.in.text.00350",
-      "at": 1789790780594,
+      "phone": "2348014344694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00039",
+      "at": 1790457874310,
       "kind": "text",
       "text": "3"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00350",
-      "at": 1789790780602
+      "wamid": "wamid.sim.in.text.00039",
+      "at": 1790457874317
     },
     {
       "dir": "out",
-      "phone": "2348018313108",
-      "wamid": "wamid.sim.000580",
+      "phone": "2348014344694",
+      "wamid": "wamid.sim.000086",
       "statuses": [
         "sent"
       ],
-      "at": 1789790780628,
+      "at": 1790457874335,
       "kind": "text",
       "body": "An saita harshe zuwa Hausa. Kana iya canza shi a kowane lokaci ta rubuta LANGUAGE.\n\nSannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?\n\n1. Sayayya / aika oda\n2. Bibiyar odana\n3. Yi magana da wakili\n\nReply with a number to choose an option."
     },
     {
       "dir": "in",
-      "phone": "2348018313108",
-      "profileName": "Sim User 3108",
-      "inboundId": "wamid.sim.in.text.00351",
-      "at": 1789790781145,
+      "phone": "2348014344694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00040",
+      "at": 1790457874853,
       "kind": "text",
       "text": "menu"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00351",
-      "at": 1789790781154
+      "wamid": "wamid.sim.in.text.00040",
+      "at": 1790457874865
     },
     {
       "dir": "out",
-      "phone": "2348018313108",
-      "wamid": "wamid.sim.000581",
+      "phone": "2348014344694",
+      "wamid": "wamid.sim.000087",
       "statuses": [
         "sent"
       ],
-      "at": 1789790781185,
+      "at": 1790457874881,
       "kind": "interactive",
       "body": "Sannu da zuwa Sim Store! Yaya za mu iya taimaka maka yau?",
       "footer": "Tap an option, or reply with its number.",
@@ -100,27 +100,27 @@
     },
     {
       "dir": "in",
-      "phone": "2348018313108",
-      "profileName": "Sim User 3108",
-      "inboundId": "wamid.sim.in.text.00352",
-      "at": 1789790781690,
+      "phone": "2348014344694",
+      "profileName": "Sim User 4694",
+      "inboundId": "wamid.sim.in.text.00041",
+      "at": 1790457875398,
       "kind": "text",
       "text": "sayayya"
     },
     {
       "dir": "out",
       "kind": "read_receipt",
-      "wamid": "wamid.sim.in.text.00352",
-      "at": 1789790781699
+      "wamid": "wamid.sim.in.text.00041",
+      "at": 1790457875405
     },
     {
       "dir": "out",
-      "phone": "2348018313108",
-      "wamid": "wamid.sim.000582",
+      "phone": "2348014344694",
+      "wamid": "wamid.sim.000088",
       "statuses": [
         "sent"
       ],
-      "at": 1789790781729,
+      "at": 1790457875431,
       "kind": "text",
       "body": "Ga kayayyakinmu — me kake so?"
     }

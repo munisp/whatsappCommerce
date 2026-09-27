@@ -1,0 +1,8 @@
+{
+  "id": "J485",
+  "title": "generic circuit breaker + payment-chain deadline + moto timeout",
+  "feature": "PERF-INT-10 + PERF-INT-11 + PERF-INT-13",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

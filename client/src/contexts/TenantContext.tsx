@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useState, ReactNode } from "react";
 
 interface TenantContextType {
   activeTenantId: string;
@@ -23,15 +23,22 @@ export function TenantProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  const setActiveTenantId = (id: string) => {
+  const setActiveTenantId = useCallback((id: string) => {
     setActiveTenantIdState(id);
     try {
       localStorage.setItem(TENANT_STORAGE_KEY, id);
     } catch { /* storage unavailable */ }
-  };
+  }, []);
+
+  // === W48 perf (PERF-FE-11): memoized context value — consumers only
+  // re-render when the tenant actually changes, not on provider re-renders.
+  const value = useMemo<TenantContextType>(
+    () => ({ activeTenantId, setActiveTenantId }),
+    [activeTenantId, setActiveTenantId]
+  );
 
   return (
-    <TenantContext.Provider value={{ activeTenantId, setActiveTenantId }}>
+    <TenantContext.Provider value={value}>
       {children}
     </TenantContext.Provider>
   );

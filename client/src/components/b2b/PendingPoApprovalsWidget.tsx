@@ -1,3 +1,4 @@
+import { memo } from "react";
 /**
  * PendingPoApprovalsWidget — dashboard card: count of supplier-side POs
  * awaiting my approval, with a link to the approvals inbox.
@@ -10,7 +11,7 @@ import { countPendingApprovals } from "@/lib/b2bLogic";
 import { ClipboardCheck } from "lucide-react";
 import { useLocation } from "wouter";
 
-export function PendingPoApprovalsWidget() {
+function PendingPoApprovalsWidgetImpl() {
   const { activeTenantId: tenantId } = useActiveTenant();
   const { data: pos, isLoading, error } = usePos({ tenantId, side: "supplier", status: "submitted" });
   const [, setLocation] = useLocation();
@@ -50,3 +51,6 @@ export function PendingPoApprovalsWidget() {
     </Card>
   );
 }
+
+// W48 perf (PERF-FE-10): memoized widget.
+export const PendingPoApprovalsWidget = memo(PendingPoApprovalsWidgetImpl);

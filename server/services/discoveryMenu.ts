@@ -34,6 +34,16 @@ function formatKm(km: number): string {
  * entries; at most DISCOVERY_MENU_MAX_ORGANIC organic rows are shown.
  * Friendly empty state when nothing was found.
  */
+/**
+ * Numbered menu of nearby merchants. Sponsored entries come first with the
+ * "★ Sponsored: " disclosure prefix (paid-placement labeling), then organic
+ * entries; at most DISCOVERY_MENU_MAX_ORGANIC organic rows are shown.
+ * Friendly empty state when nothing was found.
+ *
+ * === W50 CHANNELS (B4) === each row with a known pin carries a Google Maps
+ * link (`https://maps.google.com/?q=lat,lng`), and the footer hints the
+ * customer can share a different location to re-center the search.
+ */
 export function formatDiscoveryMenu(items: DiscoverItem[], radiusKm: number): string {
   if (items.length === 0) {
     return `🔍 No businesses found within ${formatKm(radiusKm)} km of you yet — try sharing a different location or check back soon.`;
@@ -44,9 +54,16 @@ export function formatDiscoveryMenu(items: DiscoverItem[], radiusKm: number): st
   const lines = ordered.map((item, n) => {
     const prefix = item.sponsored ? "★ Sponsored: " : "";
     const category = item.category ?? "Local business";
-    return `${n + 1}. ${prefix}${item.businessName} — ${category} · ${formatKm(item.distanceKm)} km`;
+    const maps = typeof item.latitude === "number" && typeof item.longitude === "number"
+      ? `\n   🗺️ https://maps.google.com/?q=${item.latitude},${item.longitude}`
+      : "";
+    return `${n + 1}. ${prefix}${item.businessName} — ${category} · ${formatKm(item.distanceKm)} km${maps}`;
   });
-  return [`📍 Businesses near you (within ${formatKm(radiusKm)} km):`, ...lines].join("\n");
+  return [
+    `📍 Businesses near you (within ${formatKm(radiusKm)} km):`,
+    ...lines,
+    "💡 Share a different location anytime to search around another area.",
+  ].join("\n");
 }
 
 /** Numbered category browse menu (top-level taxonomy categories). */

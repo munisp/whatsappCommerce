@@ -288,7 +288,7 @@ export function VisualInventoryContent() {
                     {cameraActive ? (
                       <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
                     ) : capturedImage ? (
-                      <img src={capturedImage} alt="Captured" className="w-full h-full object-contain" />
+                      <img src={capturedImage} alt="Captured" loading="lazy" decoding="async" className="w-full h-full object-contain" />
                     ) : (
                       <div className="text-center text-muted-foreground">
                         <Camera className="w-12 h-12 mx-auto mb-2 opacity-40" />
@@ -569,7 +569,7 @@ export function VisualInventoryContent() {
                           {s.imageUrl ? (
                             <div className="relative w-20 h-20 rounded-lg overflow-hidden bg-muted cursor-pointer"
                               onClick={() => setSelectedSession(selectedSession === s.id ? null : s.id)}>
-                              <img src={s.imageUrl} alt="Shelf scan" className="w-full h-full object-cover" />
+                              <img src={s.imageUrl} alt="Shelf scan" loading="lazy" decoding="async" className="w-full h-full object-cover" />
                               {/* Bounding box overlays (simplified — percentage-based) */}
                               {items.slice(0, 5).map((item, idx) => (
                                 item.bbox && item.bbox.length === 4 ? (

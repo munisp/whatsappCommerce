@@ -196,6 +196,10 @@ export const medusaRouter = router({
         price: z.number(),
         currency: z.string(),
         stock: z.number(),
+        // === W50 IMAGES === public absolute Medusa URL (Q2b) — optional so
+        // older picker payloads keep working.
+        image: z.string().optional().nullable(),
+        // === END W50 IMAGES ===
       })),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -223,10 +227,58 @@ export const medusaRouter = router({
             description: `${p.currency} ${p.price.toFixed(2)} · Stock: ${p.stock}`,
             payload: `product:${p.id}`,
             sortOrder: maxSort + i + 1,
-            metadata: { medusaVariantId: p.id, price: p.price, currency: p.currency, stock: p.stock },
+            // === W50 IMAGES === image carried through (Q2b).
+            metadata: { medusaVariantId: p.id, price: p.price, currency: p.currency, stock: p.stock, image: p.image ?? null },
+            // === END W50 IMAGES ===
           }).returning({ id: whatsappMenuItems.id }),
         ),
       );
+      // === W50 IMAGES (Coder C, Q2b): materialize/refresh products rows so
+      // the W49 rich-media senders (products.imageUrl) pick up Medusa images.
+      // Medusa URLs are public absolute — usable directly. Guarded upsert:
+      // only medusa-sourced rows are rewritten; never throws.
+      try {
+        const { products: productsTable } = await import("../../drizzle/schema");
+        const { sql } = await import("drizzle-orm");
+        for (const p of input.products) {
+          const sku = `med:${p.id}`.slice(0, 100);
+          const [existing] = await db
+            .select({ id: productsTable.id })
+            .from(productsTable)
+            .where(and(eq(productsTable.tenantId, tenantId), eq(productsTable.sku, sku)))
+            .limit(1)
+            .catch(() => [] as any[]);
+          if (existing) {
+            await db.update(productsTable)
+              .set({
+                imageUrl: p.image ?? null,
+                metadata: sql`COALESCE(${productsTable.metadata}, '{}'::jsonb) || ${JSON.stringify({ medusaVariantId: p.id, imageSource: p.image ? "medusa" : null })}::jsonb`,
+                updatedAt: new Date(),
+              } as any)
+              .where(and(eq(productsTable.id, existing.id), sql`${productsTable.metadata}->>'source' = 'medusa'`));
+          } else {
+            await db.insert(productsTable).values({
+              id: randomUUID(),
+              tenantId,
+              sku,
+              name: p.title.slice(0, 255),
+              price: p.price.toFixed(2),
+              currency: (p.currency || "NGN").slice(0, 3),
+              imageUrl: p.image ?? null,
+              status: "active",
+              stockQuantity: p.stock ?? 0,
+              metadata: {
+                source: "medusa",
+                medusaVariantId: p.id,
+                ...(p.image ? { imageSource: "medusa" as const } : {}),
+              },
+            }).onConflictDoNothing();
+          }
+        }
+      } catch (e: any) {
+        console.warn("[medusa] importProductsToMenu product image upsert failed (fail-open):", e?.message ?? e);
+      }
+      // === END W50 IMAGES ===
       return { imported: inserted.length };
     }),
 

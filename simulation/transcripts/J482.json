@@ -1,0 +1,8 @@
+{
+  "id": "J482",
+  "title": "WA webhook ack precedes DLQ persistence (ack < 300ms path)",
+  "feature": "PERF-INT-7",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

@@ -1,0 +1,8 @@
+{
+  "id": "J467",
+  "title": "PSP webhooks ack-first, process post-ack (PERF-API-1/INT-1)",
+  "feature": "paystack + flutterwave charge webhooks ack 200 before confirm+hooks; confirm still lands; redelivery idempotent",
+  "pass": true,
+  "businessName": "Simply Green (simulated tenant)",
+  "messages": []
+}

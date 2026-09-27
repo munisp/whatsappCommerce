@@ -39,7 +39,9 @@ export const journey: Journey = {
     assertIncludes(main, "MP_DLQ_TOPIC", "Kafka DLQ topic configurable");
     assertIncludes(main, "mp.dlq.events", "default DLQ topic");
     assertIncludes(main, "FutureProducer", "rdkafka DLQ producer");
-    assertIncludes(main, "produce_dlq", "dead-letter produce path");
+    // W48 sidecars (PERF-SC): the DLQ produce is now SPAWNED (non-blocking,
+    // off the consumer hot path) instead of awaited — renamed accordingly.
+    assertIncludes(main, "spawn_dlq_produce", "dead-letter produce path");
     assertIncludes(main, "ProcessOutcome::DeadLettered", "dead-letter outcome classification");
     // W42 Redis DLQ retained as system of record.
     assertIncludes(main, "mp:dlq:events", "Redis DLQ retained");

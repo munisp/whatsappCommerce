@@ -278,6 +278,9 @@ export const products = pgTable("products", {
   // === W46 inventory-depth (ORD-15) ===
   index("products_barcode_idx").on(t.tenantId, t.barcode),
   // === END W46 inventory-depth ===
+  // === W48 api-db (PERF-API-12, mig 0172): ILIKE '%…%' name search ===
+  index("products_lower_name_trgm_idx").using("gin", sql`lower("name") gin_trgm_ops`),
+  // === END W48 ===
 ]);
 
 // ─── Customers ────────────────────────────────────────────────────────────────
@@ -330,6 +333,9 @@ export const conversations = pgTable("conversations", {
   index("conversations_tenant_idx").on(t.tenantId),
   index("conversations_status_idx").on(t.status),
   index("conversations_customer_idx").on(t.customerId),
+  // === W48 api-db (PERF-API-4, mig 0171): board query composite ===
+  index("conversations_tenant_status_updated_idx").on(t.tenantId, t.status, sql`${t.updatedAt} DESC`),
+  // === END W48 ===
 ]);
 
 // ─── Orders ───────────────────────────────────────────────────────────────────
@@ -382,6 +388,9 @@ export const orders = pgTable("orders", {
   index("orders_delivery_slot_idx").on(t.deliverySlotId),
   // === END W46 uc-ux ===
   uniqueIndex("orders_number_idx").on(t.tenantId, t.orderNumber),
+  // === W48 api-db (PERF-API-4, mig 0171): order board composite ===
+  index("orders_tenant_status_created_idx").on(t.tenantId, t.status, sql`${t.createdAt} DESC`),
+  // === END W48 ===
 ]);
 
 // ─── COD flow events (W17/F10) ───────────────────────────────────────────────
@@ -1686,6 +1695,9 @@ export const walletTransactions = pgTable("wallet_transactions", {
   uniqueIndex("wallet_tx_wallet_ref_uniq")
     .on(t.walletId, t.reference)
     .where(sql`reference IS NOT NULL`),
+  // === W48 api-db (PERF-API-17, mig 0171): tenant board composite ===
+  index("wallet_tx_tenant_created_idx").on(t.tenantId, sql`${t.createdAt} DESC`),
+  // === END W48 ===
 ]);
 
 // ─── Logistics Shipments ──────────────────────────────────────────────────────
@@ -2011,6 +2023,9 @@ export const waWebhookEvents = pgTable("wa_webhook_events", {
   index("wa_wh_status_idx").on(t.status),
   index("wa_wh_phone_idx").on(t.waPhoneNumber),
   index("wa_wh_retry_idx").on(t.nextRetryAt),
+  // === W48 api-db (PERF-API-17, mig 0171): retry-sweep partial index ===
+  index("wa_wh_retry_due_idx").on(t.nextRetryAt).where(sql`"status" = 'failed'`),
+  // === END W48 ===
 ]);
 export type WaWebhookEvent = typeof waWebhookEvents.$inferSelect;
 export type InsertWaWebhookEvent = typeof waWebhookEvents.$inferInsert;
@@ -2122,6 +2137,10 @@ export const channelMessages = pgTable("channel_messages", {
   index("channel_messages_tenant_idx").on(t.tenantId),
   index("channel_messages_channel_idx").on(t.channel),
   index("channel_messages_created_idx").on(t.createdAt),
+  // === W48 api-db (PERF-API-11/17, mig 0171): tenant scan + phone pushdown ===
+  index("channel_messages_tenant_created_idx").on(t.tenantId, sql`${t.createdAt} DESC`),
+  index("channel_messages_addr_idx").on(t.tenantId, t.fromAddress, sql`${t.createdAt} DESC`),
+  // === END W48 ===
 ]);
 
 // ── Marketplace ───────────────────────────────────────────────────────────────
@@ -6998,3 +7017,24 @@ export const vendors = pgTable("vendors", {
 export type Vendor = typeof vendors.$inferSelect;
 export type NewVendor = typeof vendors.$inferInsert;
 // === END W47 stakeholders ===
+
+// === W49 RICHMEDIA (RICH-11): Meta /media upload cache ===
+// Caches the Cloud API media id for an absolute image URL so repeat sends go
+// by id (Meta media links are re-fetched on every send otherwise). Meta media
+// ids expire (~30 days) — expiresAt drives refresh. Additive-only (0173).
+export const waMediaIdCache = pgTable("wa_media_id_cache", {
+  id:       uuid("id").primaryKey().defaultRandom(),
+  tenantId: varchar("tenantId", { length: 36 }).notNull(),
+  /** Absolute https image URL the mediaId was uploaded from. */
+  imageUrl: text("imageUrl").notNull(),
+  mediaId:  text("mediaId").notNull(),
+  /** Refresh after this instant (30-day Meta media-id TTL, 1-day safety). */
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("wa_media_id_cache_tenant_url_uq").on(t.tenantId, t.imageUrl),
+  index("wa_media_id_cache_expiry_idx").on(t.expiresAt),
+]);
+export type WaMediaIdCache = typeof waMediaIdCache.$inferSelect;
+export type NewWaMediaIdCache = typeof waMediaIdCache.$inferInsert;
+// === END W49 RICHMEDIA ===

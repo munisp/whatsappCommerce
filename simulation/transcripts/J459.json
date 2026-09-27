@@ -7,41 +7,41 @@
   "messages": [
     {
       "dir": "in",
-      "phone": "2348012496513",
+      "phone": "2348013806327",
       "profileName": "Flood",
-      "inboundId": "wamid.sim.in.text.00575",
-      "at": 1789791207936,
+      "inboundId": "wamid.sim.in.text.00016",
+      "at": 1790458792548,
       "kind": "text",
       "text": "hello"
     },
     {
       "dir": "out",
-      "phone": "2348012496513",
-      "wamid": "wamid.sim.001062",
+      "phone": "2348013806327",
+      "wamid": "wamid.sim.000059",
       "statuses": [
         "sent"
       ],
-      "at": 1789791207951,
+      "at": 1790458792559,
       "kind": "text",
       "body": "Hi! I'm your onboarding assistant. Tell me about your business — the name, what you sell, and your city — and I'll draft your WhatsApp menu, branding and integrations for you to approve."
     },
     {
       "dir": "in",
-      "phone": "2348012496513",
-      "profileName": "Sim User 6513",
-      "inboundId": "wamid.sim.in.text.00576",
-      "at": 1789791208485,
+      "phone": "2348013806327",
+      "profileName": "Sim User 6327",
+      "inboundId": "wamid.sim.in.text.00017",
+      "at": 1790458793093,
       "kind": "text",
       "text": "restart"
     },
     {
       "dir": "out",
-      "phone": "2348012496513",
-      "wamid": "wamid.sim.001063",
+      "phone": "2348013806327",
+      "wamid": "wamid.sim.000060",
       "statuses": [
         "sent"
       ],
-      "at": 1789791208502,
+      "at": 1790458793099,
       "kind": "text",
       "body": "You're messaging faster than I can keep up — please wait a little and try again. 🙏"
     }

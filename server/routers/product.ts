@@ -22,6 +22,13 @@ async function enqueueProductSync(tenantId: string, productId: string, action: s
   } catch (e: unknown) {
     console.error("[product] integration outbox enqueue failed:", (e as Error)?.message);
   }
+  // === W48 PERF-API-9 (api-db): invalidate the chat-path catalog read-through
+  // cache on any product write (same seam = every product mutation funnels here).
+  try {
+    const { invalidateTenantCatalogCache } = await import("../services/readThroughCache");
+    await invalidateTenantCatalogCache(tenantId);
+  } catch { /* fail-open */ }
+  // === END W48 ===
 }
 
 export const productRouter = router({
@@ -66,7 +73,12 @@ export const productRouter = router({
       await assertCapabilityAccess(ctx.user, input.tenantId, "catalog"); // W46 kyc (TEN-9)
       const id = nanoid();
       try {
-        await db.createProduct({ id, ...input, status: "active" });
+        // === W50 IMAGES === provenance: a merchant-supplied URL is an upload.
+        await db.createProduct({
+          id, ...input, status: "active",
+          metadata: input.imageUrl ? { imageSource: "upload" } : undefined,
+        });
+        // === END W50 IMAGES ===
       } catch (e: unknown) {
         const code = (e as { code?: string; cause?: { code?: string } })?.code
           ?? (e as { cause?: { code?: string } })?.cause?.code;
@@ -85,8 +97,41 @@ export const productRouter = router({
         stockQuantity: input.stockQuantity,
       });
       notifyMetaCatalogProductChanged(input.tenantId, id, "created");
+      // === W50 IMAGES === local Ollama Qwen generation when no image was
+      // supplied (fire-and-forget, fail-open; tenant opt-out honored inside).
+      if (!input.imageUrl) {
+        void (async () => {
+          const conn = await getDb();
+          if (!conn) return;
+          const { maybeGenerateProductImage } = await import("../services/productImageGen");
+          await maybeGenerateProductImage(conn, {
+            tenantId: input.tenantId, productId: id, name: input.name, description: input.description ?? null,
+          });
+        })().catch((e: unknown) => console.warn("[product] image gen failed-open:", (e as Error)?.message));
+      }
+      // === END W50 IMAGES ===
       return { id, ...input };
     }),
+
+  // === W50 IMAGES === manual regeneration of a product image via the local
+  // Ollama Qwen model. Idempotent unless force=true.
+  generateImage: protectedProcedure
+    .input(z.object({
+      tenantId: z.string(),
+      id: z.string(),
+      force: z.boolean().default(false),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      assertTenantAccess(ctx.user, input.tenantId);
+      await assertCapabilityAccess(ctx.user, input.tenantId, "catalog"); // W46 kyc (TEN-9)
+      const conn = await getDb();
+      if (!conn) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+      const { maybeGenerateProductImage } = await import("../services/productImageGen");
+      return maybeGenerateProductImage(conn, {
+        tenantId: input.tenantId, productId: input.id, force: input.force,
+      });
+    }),
+  // === END W50 IMAGES ===
 
   update: protectedProcedure
     .input(z.object({
@@ -114,6 +159,18 @@ export const productRouter = router({
         prevStock = prev?.stockQuantity ?? null;
       }
       await db.updateProduct(id, tenantId, data);
+      // === W50 IMAGES === name/description changed and no image yet →
+      // regenerate via local Ollama (fire-and-forget, fail-open, idempotent:
+      // the service skips when imageUrl is already set).
+      if (data.name !== undefined || data.description !== undefined) {
+        void (async () => {
+          const conn = await getDb();
+          if (!conn) return;
+          const { maybeGenerateProductImage } = await import("../services/productImageGen");
+          await maybeGenerateProductImage(conn, { tenantId, productId: id });
+        })().catch((e: unknown) => console.warn("[product] image gen failed-open:", (e as Error)?.message));
+      }
+      // === END W50 IMAGES ===
       if (data.stockQuantity !== undefined) {
         const conn = await getDb();
         if (conn) {
@@ -193,10 +250,20 @@ export const productRouter = router({
           }
         }
       }
+      // === W48 PERF-API-9: CSV import bypasses enqueueProductSync — invalidate
+      // the catalog read-through cache when anything was inserted. ===
+      if (results.inserted > 0) {
+        try {
+          const { invalidateTenantCatalogCache } = await import("../services/readThroughCache");
+          await invalidateTenantCatalogCache(input.tenantId);
+        } catch { /* fail-open */ }
+      }
       return results;
     }),
 
   // Dry-run validation before import
+  // W48 PERF-FE-12: mutation (not query) so large CSV payloads are POSTed once
+  // instead of being serialized into a react-query key and refetched.
   validateCsv: protectedProcedure
     .input(z.object({
       rows: z.array(z.object({
@@ -205,7 +272,7 @@ export const productRouter = router({
         price: z.string(),
       })),
     }))
-    .query(async ({ input }) => {
+    .mutation(async ({ input }) => {
       const issues: Array<{ row: number; field: string; message: string }> = [];
       input.rows.forEach((row, i) => {
         if (!row.sku?.trim()) issues.push({ row: i + 1, field: "sku", message: "SKU is required" });

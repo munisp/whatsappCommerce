@@ -145,6 +145,16 @@ export const journey: Journey = {
     // ── Replay is claim-first idempotent (no duplicate confirm effects) ────
     const replay = await customGatewayWebhook(world, signOpts);
     assert(replay.status === 200, "replay accepted");
-    assert(replay.json?.action === "already-completed", `replay is a no-op (got ${replay.json?.action})`);
+    // W48 PERF-API-1: the unified webhook now acks 200 {received:true} FIRST
+    // and confirms post-ack, so `action` is no longer observable over HTTP.
+    // The no-op guarantee is asserted via state instead: claim-first dedupe
+    // leaves the intent completed exactly once and the order confirmed.
+    assert(replay.json?.received === true, `replay acked (got ${JSON.stringify(replay.json)})`);
+    await world.waitFor(async () => {
+      const [i] = await world.db.select().from(schema.paymentIntents).where(eq(schema.paymentIntents.id, intent.id)).limit(1);
+      return i?.status === "completed";
+    }, 5000, "intent still completed after replay");
+    const [orderAfterReplay] = await world.db.select().from(schema.orders).where(eq(schema.orders.id, order.orderId)).limit(1);
+    assert(orderAfterReplay.status === "confirmed", "order still confirmed after replay (no duplicate effects)");
   },
 };
